@@ -538,9 +538,7 @@ def create_app(**kwargs) -> FastAPI:
             ),
             prefix="/auth/oauth",
             tags=["auth"],
-            dependencies=[
-                require_any_auth_type_enabled([AuthType.OIDC, AuthType.GOOGLE_OAUTH])
-            ],
+            dependencies=[require_any_auth_type_enabled([AuthType.OIDC])],
         )
     # Keep SAML auth-type checks on endpoint handlers, not the entire router.
     # The ACS callback resolves org context from RelayState, so requiring

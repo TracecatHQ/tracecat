@@ -90,6 +90,7 @@ from tracecat.expressions.functions import (
     regex_match,
     regex_not_match,
     seconds_between,
+    serialize,
     serialize_json,
     set_timezone,
     slice_str,
@@ -767,6 +768,25 @@ def test_logical_operations(func, a: bool, b: Any, expected: bool) -> None:
         assert func(a) == expected
     else:
         assert func(a, b) == expected
+
+
+@pytest.mark.parametrize(
+    "input_data,expected",
+    [
+        ({"a": 1}, {"a": 1}),
+        ([1, 2, 3], [1, 2, 3]),
+        ("test", "test"),
+        (123, 123),
+    ],
+)
+def test_serialize(input_data: Any, expected: Any) -> None:
+    result = serialize(input_data)
+    assert orjson.loads(result) == expected
+
+
+def test_serialize_unsupported_type_raises() -> None:
+    with pytest.raises(TypeError):
+        serialize({"value": object()})
 
 
 @pytest.mark.parametrize(

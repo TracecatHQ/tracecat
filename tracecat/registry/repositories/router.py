@@ -454,9 +454,17 @@ async def create_registry_repository(
     params: RegistryRepositoryCreate,
 ) -> RegistryRepositoryRead:
     """Create a new registry repository."""
+    if params.origin == DEFAULT_REGISTRY_ORIGIN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"The {DEFAULT_REGISTRY_ORIGIN!r} repository is platform-scoped. "
+                "Use the admin registry API instead."
+            ),
+        )
+
     # Check entitlement for custom registry (non-system repositories)
-    if params.origin != DEFAULT_REGISTRY_ORIGIN:
-        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
+    await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
 
     service = RegistryReposService(session, role=role)
     try:
@@ -512,10 +520,18 @@ async def update_registry_repository(
 
     # Check entitlement for custom registry repositories.
     # Also gate attempts to mutate a default repo into a custom origin.
-    if repository.origin != DEFAULT_REGISTRY_ORIGIN or (
-        params.origin is not None and params.origin != DEFAULT_REGISTRY_ORIGIN
+    if repository.origin == DEFAULT_REGISTRY_ORIGIN or (
+        params.origin is not None and params.origin == DEFAULT_REGISTRY_ORIGIN
     ):
-        await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"The {DEFAULT_REGISTRY_ORIGIN!r} repository is platform-scoped. "
+                "Use the admin registry API instead."
+            ),
+        )
+
+    await check_entitlement(session, role, Entitlement.CUSTOM_REGISTRY)
 
     updated_repository = await repos_service.update_repository(repository, params)
     actions = await actions_service.list_actions_from_index_by_repository(repository_id)

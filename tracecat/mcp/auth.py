@@ -27,8 +27,11 @@ from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
+from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
+from starlette.routing import Route
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tracecat import config
 from tracecat.auth.credentials import compute_effective_scopes
@@ -69,8 +72,9 @@ _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
 }
 
 _MCP_REFRESH_SCOPE = "offline_access"
-_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 60 * 60
+_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 24 * 60 * 60
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
+_MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
 
 
 def append_scope_if_missing(scopes: list[str], scope: str) -> list[str]:
@@ -78,6 +82,14 @@ def append_scope_if_missing(scopes: list[str], scope: str) -> list[str]:
     if scope in scopes:
         return scopes
     return [*scopes, scope]
+
+
+def merge_unique_scopes(scopes: list[str], extra_scopes: Sequence[str]) -> list[str]:
+    """Append extra scopes while preserving order and uniqueness."""
+    merged = scopes
+    for scope in extra_scopes:
+        merged = append_scope_if_missing(merged, scope)
+    return merged
 
 
 def remove_scope(scopes: list[str], scope: str) -> list[str]:
@@ -91,6 +103,52 @@ def supports_refresh_scope(scopes_supported: Sequence[str] | None) -> bool:
         # If provider metadata omits scopes_supported, optimistically request.
         return True
     return _MCP_REFRESH_SCOPE in scopes_supported
+
+
+def _patch_oauth_metadata_route(app: ASGIApp) -> ASGIApp:
+    """Patch only the advertised token auth methods on discovery responses."""
+
+    async def patched_app(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await app(scope, receive, send)
+            return
+
+        start_message: Message | None = None
+        body_chunks: list[bytes] = []
+
+        async def capture(message: Message) -> None:
+            nonlocal start_message
+
+            match message["type"]:
+                case "http.response.start":
+                    start_message = dict(message)
+                case "http.response.body":
+                    body_chunks.append(message.get("body", b""))
+                case _:
+                    await send(message)
+
+        await app(scope, receive, capture)
+
+        if start_message is None:
+            return
+
+        body = b"".join(body_chunks)
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            payload["token_endpoint_auth_methods_supported"] = (
+                _MCP_TOKEN_ENDPOINT_AUTH_METHODS
+            )
+            body = json.dumps(payload).encode("utf-8")
+
+        headers = MutableHeaders(raw=start_message["headers"])
+        headers["content-length"] = str(len(body))
+        await send(start_message)
+        await send({"type": "http.response.body", "body": body, "more_body": False})
+
+    return patched_app
 
 
 def _coerce_uuid(value: object) -> uuid.UUID | None:
@@ -462,12 +520,13 @@ def create_mcp_auth() -> AuthProvider:
             params: AuthorizationParams,
         ) -> str:
             """Inject refresh scope by default for MCP clients."""
-            scopes = list(params.scopes or [])
+            scopes = merge_unique_scopes(list(params.scopes or []), oidc_config.scopes)
             if self._should_request_refresh_scope():
                 scopes = append_scope_if_missing(scopes, _MCP_REFRESH_SCOPE)
             else:
+                scopes = remove_scope(scopes, _MCP_REFRESH_SCOPE)
                 logger.info(
-                    "Skipping refresh scope request: upstream metadata does not advertise scope",
+                    "Removing refresh scope: upstream metadata does not advertise it",
                     scope=_MCP_REFRESH_SCOPE,
                     issuer=self.oidc_config.issuer,
                 )
@@ -689,6 +748,23 @@ def create_mcp_auth() -> AuthProvider:
             response.headers["content-length"] = str(len(response.body))
             return response
 
+        def get_routes(self, mcp_path: str | None = None) -> list[Route]:
+            """Patch OAuth metadata to advertise public-client auth (``"none"``)."""
+            routes = super().get_routes(mcp_path)
+            if self.base_url is None:
+                return routes
+
+            for route in routes:
+                if not (
+                    isinstance(route, Route)
+                    and route.path.startswith("/.well-known/oauth-authorization-server")
+                ):
+                    continue
+
+                route.app = _patch_oauth_metadata_route(route.app)
+
+            return routes
+
     # Build Redis-backed storage for OAuth state (client registrations,
     # auth codes, tokens, transactions) so state survives restarts and
     # is shared across MCP replicas.
@@ -804,19 +880,14 @@ async def resolve_workspace_membership(
 async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
     """Resolve a user's Role for a given workspace from their OAuth email.
 
-    Pipeline: email -> User -> Workspace.organization_id -> OrganizationMembership -> Membership -> Role
-
-    The workspace's owning organization is resolved first, then the user's
-    membership in *that* organization is checked. This prevents an admin in
-    org A from gaining access to a workspace belonging to org B.
+    Pipeline: email -> User -> Workspace.organization_id -> scopes/membership -> Role
 
     Org admins/owners (users with ``org:workspace:read`` scope) bypass the
     workspace-level membership check, matching the behaviour of the main API.
+    Platform superusers also bypass direct membership checks.
     """
     user = await resolve_user_by_email(email)
     org_id = await resolve_workspace_org(workspace_id)
-    # Validate the user belongs to the organization (raises on missing membership)
-    await resolve_org_membership(user.id, org_id)
 
     # Compute scopes early so we can check for org-level workspace access
     role = Role(
@@ -829,8 +900,8 @@ async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
     )
     scopes = await compute_effective_scopes(role)
 
-    # Org admins/owners can access any workspace in their org
-    if not has_scope(scopes, "org:workspace:read"):
+    # Platform superusers and org admins/owners can access any workspace.
+    if not user.is_superuser and not has_scope(scopes, "org:workspace:read"):
         await resolve_workspace_membership(user.id, workspace_id)
 
     role = role.model_copy(update={"scopes": scopes})
@@ -853,6 +924,25 @@ async def list_user_workspaces(
     user = await resolve_user_by_email(email)
 
     async with get_async_session_context_manager() as session:
+
+        async def _list_direct_membership_rows(
+            scoped_org_ids: set[OrganizationID] | None = None,
+        ) -> list[tuple[uuid.UUID, str]]:
+            member_stmt = (
+                select(Workspace.id, Workspace.name)
+                .join(Membership, Membership.workspace_id == Workspace.id)
+                .where(Membership.user_id == user.id)
+            )
+            if scoped_org_ids:
+                member_stmt = member_stmt.where(
+                    Workspace.organization_id.in_(scoped_org_ids)
+                )
+            member_result = await session.execute(member_stmt)
+            return sorted(
+                member_result.tuples().all(),
+                key=lambda item: (item[1], str(item[0])),
+            )
+
         # Platform superusers can see all workspaces without org memberships.
         if user.is_superuser:
             stmt = select(Workspace.id, Workspace.name)
@@ -869,12 +959,15 @@ async def list_user_workspaces(
         org_result = await session.execute(org_stmt)
         org_ids = set(org_result.scalars().all())
 
-        if not org_ids:
-            return []
         if organization_ids:
             org_ids &= set(organization_ids)
             if not org_ids:
-                return []
+                return [
+                    {"id": str(workspace_id), "name": name}
+                    for workspace_id, name in await _list_direct_membership_rows(
+                        set(organization_ids)
+                    )
+                ]
 
         # Determine org-admin visibility on a per-organization basis.
         org_admin_ids: set[OrganizationID] = set()
@@ -915,6 +1008,10 @@ async def list_user_workspaces(
             )
             member_result = await session.execute(member_stmt)
             for workspace_id, workspace_name in member_result.tuples().all():
+                workspace_map[workspace_id] = workspace_name
+
+        if not org_ids:
+            for workspace_id, workspace_name in await _list_direct_membership_rows():
                 workspace_map[workspace_id] = workspace_name
 
         ordered = sorted(

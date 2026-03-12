@@ -25,6 +25,7 @@ from tracecat.agent.common.stream_types import (
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.expressions.common import ExprType
+from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.tables.service import TablesService
 from tracecat.validation.schemas import (
     ValidationDetail,
@@ -2932,6 +2933,445 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     assert captured["workspace_id"] == workspace_id
     assert captured["timeout"] == 120
     assert captured["last_id"] == expected_start_id
+
+
+@pytest.mark.anyio
+async def test_list_integrations_returns_mcp_and_provider_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    current_user_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id, user_id=current_user_id)
+    oauth_integration = SimpleNamespace(
+        provider_id="slack",
+        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        user_id=current_user_id,
+        status=SimpleNamespace(value="connected"),
+    )
+    other_user_integration = SimpleNamespace(
+        provider_id="slack",
+        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        user_id=uuid.uuid4(),
+        status=SimpleNamespace(value="configured"),
+    )
+    mcp_integration_id = uuid.uuid4()
+    mcp_integration = SimpleNamespace(
+        id=mcp_integration_id,
+        name="GitHub MCP",
+        slug="github-mcp",
+        description="GitHub tools",
+        server_type="http",
+        auth_type=MCPAuthType.NONE,
+        oauth_integration_id=None,
+        timeout=30,
+    )
+    custom_provider = SimpleNamespace(
+        provider_id="custom-crm",
+        name="Custom CRM",
+        description="Internal CRM",
+        grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+    )
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SlackProvider:
+        id = "slack"
+        grant_type = OAuthGrantType.AUTHORIZATION_CODE
+        metadata = SimpleNamespace(
+            name="Slack",
+            description="Slack integration",
+            enabled=True,
+            requires_config=False,
+        )
+
+    class _IntegrationService:
+        async def list_integrations(self):
+            return [other_user_integration, oauth_integration]
+
+        async def list_mcp_integrations(self):
+            return [mcp_integration]
+
+        async def list_custom_providers(self):
+            return [custom_provider]
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "all_providers", lambda: [_SlackProvider])
+    monkeypatch.setattr(
+        mcp_server.IntegrationService,
+        "with_session",
+        lambda role: _AsyncContext(_IntegrationService()),
+    )
+
+    result = await _tool(mcp_server.list_integrations)(workspace_id=str(workspace_id))
+
+    payload = _payload(result)
+    assert payload["mcp_integrations"][0]["id"] == str(mcp_integration_id)
+    assert payload["mcp_integrations"][0]["attachable_to_agent_preset"] is True
+    assert payload["oauth_providers"][0]["provider_id"] == "slack"
+    assert payload["oauth_providers"][0]["integration_status"] == "connected"
+    assert payload["oauth_providers"][1]["provider_id"] == "custom-crm"
+    assert payload["oauth_providers"][1]["integration_status"] == "not_configured"
+
+
+@pytest.mark.anyio
+async def test_get_agent_preset_authoring_context_includes_output_type_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    async def _secret_inventory(_role: Any) -> dict[str, set[str]]:
+        return {"slack": {"TOKEN"}}
+
+    async def _integrations_inventory(_role: Any) -> dict[str, Any]:
+        return {"mcp_integrations": [], "oauth_providers": [], "notes": []}
+
+    class _Model:
+        def __init__(self, name: str, provider: str) -> None:
+            self._payload = {
+                "name": name,
+                "provider": provider,
+                "org_secret_name": provider,
+                "secrets": {"required": ["API_KEY"]},
+            }
+
+        def model_dump(self, *, mode: str = "json") -> dict[str, Any]:
+            assert mode == "json"
+            return self._payload
+
+    class _AgentManagementService:
+        async def list_models(self) -> dict[str, _Model]:
+            return {"gpt-4o-mini": _Model("gpt-4o-mini", "openai")}
+
+        async def get_default_model(self) -> str | None:
+            return "gpt-4o-mini"
+
+        async def get_providers_status(self) -> dict[str, bool]:
+            return {"openai": True}
+
+        async def get_workspace_providers_status(self) -> dict[str, bool]:
+            return {"openai": False}
+
+    class _VariablesService:
+        async def list_variables(self, environment: str):
+            assert environment == "default"
+            return [
+                SimpleNamespace(
+                    name="splunk",
+                    values={"base_url": "https://splunk.example.com"},
+                    environment="default",
+                )
+            ]
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(
+        mcp_server, "_build_integrations_inventory", _integrations_inventory
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.VariablesService,
+        "with_session",
+        lambda role: _AsyncContext(_VariablesService()),
+    )
+
+    result = await _tool(mcp_server.get_agent_preset_authoring_context)(
+        workspace_id=str(workspace_id)
+    )
+
+    payload = _payload(result)
+    assert payload["default_model"] == "gpt-4o-mini"
+    assert payload["models"][0]["provider"] == "openai"
+    assert payload["agent_credentials"]["providers"][0]["provider"] == "openai"
+    assert payload["agent_credentials"]["providers"][0]["configured_org"] is True
+    assert payload["agent_credentials"]["providers"][0]["configured_workspace"] is False
+    assert (
+        payload["agent_credentials"]["providers"][0]["ready_for_agent_presets"] is False
+    )
+    assert payload["agent_credentials"]["default_model_workspace_ready"] is False
+    assert payload["workspace_variables"][0]["name"] == "splunk"
+    assert payload["workspace_secret_hints"][0]["name"] == "slack"
+    assert "str" in payload["output_type_context"]["supported_literals"]
+    assert payload["output_type_context"]["accepts_json_schema"] is True
+    assert payload["output_type_context"]["examples"]["structured"]["type"] == "object"
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_uses_default_model_and_passes_optional_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model(self) -> str | None:
+            return "gpt-4o-mini"
+
+        async def get_model_config(self, model_name: str) -> SimpleNamespace:
+            assert model_name == "gpt-4o-mini"
+            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            assert provider == "openai"
+            return True
+
+    class _PresetService:
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            now = datetime.now(UTC)
+            return SimpleNamespace(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name=params.name,
+                slug=params.slug or "security-triage",
+                description=params.description,
+                instructions=params.instructions,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                base_url=params.base_url,
+                output_type=params.output_type,
+                actions=params.actions,
+                namespaces=params.namespaces,
+                tool_approvals=params.tool_approvals,
+                mcp_integrations=params.mcp_integrations,
+                retries=params.retries,
+                enable_internet_access=params.enable_internet_access,
+                current_version_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+        description="Investigate alerts",
+        instructions="Summarize the incident.",
+        output_type={"type": "object", "properties": {"summary": {"type": "string"}}},
+        actions=["tools.slack.post_message"],
+        namespaces=["tools.slack"],
+        tool_approvals={"tools.slack.post_message": False},
+        mcp_integration_ids=[str(uuid.uuid4())],
+        retries=5,
+        enable_internet_access=True,
+    )
+
+    payload = _payload(result)
+    params = created["params"]
+    assert params.model_name == "gpt-4o-mini"
+    assert params.model_provider == "openai"
+    assert params.mcp_integrations is not None
+    assert params.enable_internet_access is True
+    assert payload["model_name"] == "gpt-4o-mini"
+    assert payload["output_type"]["type"] == "object"
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_requires_default_model_when_model_not_provided(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model(self) -> str | None:
+            return None
+
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            return True
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+
+    with pytest.raises(ToolError, match="No default model configured"):
+        await _tool(mcp_server.create_agent_preset)(
+            workspace_id=str(workspace_id),
+            name="Security triage",
+        )
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model(self) -> str | None:
+            return "gpt-4o-mini"
+
+        async def get_model_config(self, model_name: str) -> SimpleNamespace:
+            assert model_name == "gpt-4o-mini"
+            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            assert provider == "openai"
+            return True
+
+    class _PresetService:
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            now = datetime.now(UTC)
+            return SimpleNamespace(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name=params.name,
+                slug="security-triage",
+                description=params.description,
+                instructions=params.instructions,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                base_url=params.base_url,
+                output_type=params.output_type,
+                actions=params.actions,
+                namespaces=params.namespaces,
+                tool_approvals=params.tool_approvals,
+                mcp_integrations=params.mcp_integrations,
+                retries=params.retries,
+                enable_internet_access=params.enable_internet_access,
+                current_version_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+    )
+
+    payload = _payload(result)
+    params = created["params"]
+    assert params.retries == 3
+    assert params.enable_internet_access is False
+    assert payload["retries"] == 3
+    assert payload["enable_internet_access"] is False
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_validates_explicit_model_provider_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_model_config(self, model_name: str) -> SimpleNamespace:
+            assert model_name == "gpt-4o-mini"
+            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            assert provider == "openai"
+            return True
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+
+    with pytest.raises(ToolError, match="belongs to provider 'openai', not 'opneai'"):
+        await _tool(mcp_server.create_agent_preset)(
+            workspace_id=str(workspace_id),
+            name="Security triage",
+            model_name="gpt-4o-mini",
+            model_provider="opneai",
+        )
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_requires_workspace_credentials_for_default_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model(self) -> str | None:
+            return "gpt-4o-mini"
+
+        async def get_model_config(self, model_name: str) -> SimpleNamespace:
+            assert model_name == "gpt-4o-mini"
+            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            assert provider == "openai"
+            return False
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+
+    with pytest.raises(
+        ToolError,
+        match="Workspace credentials for provider 'openai' are not configured",
+    ):
+        await _tool(mcp_server.create_agent_preset)(
+            workspace_id=str(workspace_id),
+            name="Security triage",
+        )
+
+
+def test_mcp_instructions_include_agent_preset_authoring_tools() -> None:
+    assert "get_agent_preset_authoring_context" in mcp_server._MCP_INSTRUCTIONS
+    assert "list_integrations" in mcp_server._MCP_INSTRUCTIONS
+    assert "create_agent_preset" in mcp_server._MCP_INSTRUCTIONS
 
 
 @pytest.mark.anyio

@@ -2,25 +2,61 @@
 """Generate OpenAPI spec from FastAPI app without running server."""
 
 import json
+import os
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 # Import and configure logger before importing the app
+from httpx_oauth.oauth2 import BaseOAuth2  # noqa: E402
+
 from tracecat.logger import logger  # noqa: E402
 
 logger.remove()  # Remove all handlers
 logger.add(lambda _: None)  # Add a no-op handler to prevent any output
 
 
+class _OpenAPIOpenIDStub(BaseOAuth2[dict[str, str]]):
+    """Stub OIDC client used only for OpenAPI generation.
+
+    `httpx_oauth.clients.openid.OpenID` performs network discovery in `__init__`,
+    which makes schema generation depend on a live issuer. For OpenAPI generation
+    we only need route construction to succeed.
+    """
+
+    def __init__(
+        self,
+        client_id: str,
+        client_secret: str,
+        openid_configuration_endpoint: str,
+        name: str = "openid",
+        base_scopes: list[str] | None = None,
+    ) -> None:
+        super().__init__(
+            client_id,
+            client_secret,
+            "https://issuer.example.com/oauth/authorize",
+            "https://issuer.example.com/oauth/token",
+            name=name,
+            base_scopes=base_scopes,
+        )
+
+
 def main() -> None:
     """Generate OpenAPI spec and write to stdout or file."""
-    from tracecat.api.app import app
+    os.environ["TRACECAT__AUTH_TYPES"] = "basic,oidc"
+    os.environ["OIDC_ISSUER"] = "https://issuer.example.com"
+    os.environ["OIDC_CLIENT_ID"] = "openapi-client"
+    os.environ["OIDC_CLIENT_SECRET"] = "openapi-client-secret"
 
-    openapi_spec = app.openapi()
+    with patch("tracecat.auth.oidc.OpenID", _OpenAPIOpenIDStub):
+        from tracecat.api.app import app
+
+        openapi_spec = app.openapi()
 
     if len(sys.argv) > 1:
         # Write to file if path provided

@@ -10320,7 +10320,6 @@ export const $GitCommitInfo = {
     },
     message: {
       type: "string",
-      maxLength: 1000,
       title: "Message",
       description: "The commit message",
     },

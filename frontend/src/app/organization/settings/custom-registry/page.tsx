@@ -3,11 +3,11 @@
 import { ArrowUpRight } from "lucide-react"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { OrgSettingsGitForm } from "@/components/organization/org-settings-git"
+import { OrgSettingsCustomRegistryForm } from "@/components/organization/org-settings-custom-registry"
 import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks/use-entitlements"
 
-export default function GitSettingsPage() {
+export default function CustomRegistrySettingsPage() {
   const { hasEntitlement, isLoading } = useEntitlements()
   const customRegistryEnabled = hasEntitlement("custom_registry")
 
@@ -19,16 +19,16 @@ export default function GitSettingsPage() {
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">
-              Git repository
+              Custom registry
             </h2>
             <p className="text-md text-muted-foreground">
-              View and manage your organization Git settings here.
+              View and manage your organization's custom registry settings here.
             </p>
           </div>
         </div>
 
         {customRegistryEnabled ? (
-          <OrgSettingsGitForm />
+          <OrgSettingsCustomRegistryForm />
         ) : (
           <div className="flex flex-1 items-center justify-center pb-8">
             <EntitlementRequiredEmptyState

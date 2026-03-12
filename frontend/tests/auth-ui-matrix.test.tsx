@@ -130,7 +130,6 @@ describe("Auth UI matrix", () => {
     { authTypes: ["basic"], expectsSignUp: true },
     { authTypes: ["basic", "oidc"], expectsSignUp: true },
     { authTypes: ["oidc"], expectsSignUp: false },
-    { authTypes: ["google_oauth"], expectsSignUp: false },
     { authTypes: ["saml"], expectsSignUp: false },
   ])(
     "shows sign-up CTA on sign-in only when basic auth is enabled: $authTypes",

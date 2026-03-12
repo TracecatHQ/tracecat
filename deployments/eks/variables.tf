@@ -156,13 +156,13 @@ variable "spot_node_max_size" {
 variable "tracecat_image_tag" {
   description = "Docker image tag for Tracecat services"
   type        = string
-  default     = "1.0.0-beta.29"
+  default     = "1.0.0-beta.31"
 }
 
 variable "tracecat_chart_version" {
   description = "Helm chart version for Tracecat (from OCI registry)"
   type        = string
-  default     = "0.3.39"
+  default     = "0.3.41"
 }
 
 variable "tracecat_ingress_split" {
@@ -565,7 +565,7 @@ variable "auth_types" {
 
 # OIDC Configuration
 variable "oidc_issuer" {
-  description = "OIDC issuer URL (e.g., https://accounts.google.com)"
+  description = "OIDC issuer URL (e.g., https://issuer.example.com)"
   type        = string
   default     = ""
 }
