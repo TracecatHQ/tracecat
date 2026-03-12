@@ -148,29 +148,6 @@ import type {
   AgentSetDefaultModelResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
-  ApiKeysCreateOrganizationApiKeyData,
-  ApiKeysCreateOrganizationApiKeyResponse,
-  ApiKeysCreateWorkspaceApiKeyData,
-  ApiKeysCreateWorkspaceApiKeyResponse,
-  ApiKeysGetOrganizationApiKeyData,
-  ApiKeysGetOrganizationApiKeyResponse,
-  ApiKeysGetWorkspaceApiKeyData,
-  ApiKeysGetWorkspaceApiKeyResponse,
-  ApiKeysListOrganizationApiKeyScopesResponse,
-  ApiKeysListOrganizationApiKeysData,
-  ApiKeysListOrganizationApiKeysResponse,
-  ApiKeysListWorkspaceApiKeyScopesData,
-  ApiKeysListWorkspaceApiKeyScopesResponse,
-  ApiKeysListWorkspaceApiKeysData,
-  ApiKeysListWorkspaceApiKeysResponse,
-  ApiKeysRevokeOrganizationApiKeyData,
-  ApiKeysRevokeOrganizationApiKeyResponse,
-  ApiKeysRevokeWorkspaceApiKeyData,
-  ApiKeysRevokeWorkspaceApiKeyResponse,
-  ApiKeysUpdateOrganizationApiKeyData,
-  ApiKeysUpdateOrganizationApiKeyResponse,
-  ApiKeysUpdateWorkspaceApiKeyData,
-  ApiKeysUpdateWorkspaceApiKeyResponse,
   ApprovalsSubmitApprovalsData,
   ApprovalsSubmitApprovalsResponse,
   AuthAuthDatabaseLoginData,
@@ -528,6 +505,41 @@ import type {
   SecretsSearchSecretsResponse,
   SecretsUpdateSecretByIdData,
   SecretsUpdateSecretByIdResponse,
+  ServiceAccountsCreateOrganizationServiceAccountData,
+  ServiceAccountsCreateOrganizationServiceAccountResponse,
+  ServiceAccountsCreateWorkspaceServiceAccountData,
+  ServiceAccountsCreateWorkspaceServiceAccountResponse,
+  ServiceAccountsDisableOrganizationServiceAccountData,
+  ServiceAccountsDisableOrganizationServiceAccountResponse,
+  ServiceAccountsDisableWorkspaceServiceAccountData,
+  ServiceAccountsDisableWorkspaceServiceAccountResponse,
+  ServiceAccountsEnableOrganizationServiceAccountData,
+  ServiceAccountsEnableOrganizationServiceAccountResponse,
+  ServiceAccountsEnableWorkspaceServiceAccountData,
+  ServiceAccountsEnableWorkspaceServiceAccountResponse,
+  ServiceAccountsGetOrganizationServiceAccountData,
+  ServiceAccountsGetOrganizationServiceAccountResponse,
+  ServiceAccountsGetWorkspaceServiceAccountData,
+  ServiceAccountsGetWorkspaceServiceAccountResponse,
+  ServiceAccountsListOrganizationServiceAccountScopesResponse,
+  ServiceAccountsListOrganizationServiceAccountsData,
+  ServiceAccountsListOrganizationServiceAccountsResponse,
+  ServiceAccountsListWorkspaceServiceAccountScopesData,
+  ServiceAccountsListWorkspaceServiceAccountScopesResponse,
+  ServiceAccountsListWorkspaceServiceAccountsData,
+  ServiceAccountsListWorkspaceServiceAccountsResponse,
+  ServiceAccountsRegenerateOrganizationServiceAccountKeyData,
+  ServiceAccountsRegenerateOrganizationServiceAccountKeyResponse,
+  ServiceAccountsRegenerateWorkspaceServiceAccountKeyData,
+  ServiceAccountsRegenerateWorkspaceServiceAccountKeyResponse,
+  ServiceAccountsRevokeOrganizationServiceAccountKeyData,
+  ServiceAccountsRevokeOrganizationServiceAccountKeyResponse,
+  ServiceAccountsRevokeWorkspaceServiceAccountKeyData,
+  ServiceAccountsRevokeWorkspaceServiceAccountKeyResponse,
+  ServiceAccountsUpdateOrganizationServiceAccountData,
+  ServiceAccountsUpdateOrganizationServiceAccountResponse,
+  ServiceAccountsUpdateWorkspaceServiceAccountData,
+  ServiceAccountsUpdateWorkspaceServiceAccountResponse,
   SettingsGetAgentSettingsResponse,
   SettingsGetAppSettingsResponse,
   SettingsGetAuditSettingsResponse,
@@ -1342,21 +1354,21 @@ export const workspacesRevokeWorkspaceInvitation = (
 }
 
 /**
- * List Workspace Api Keys
+ * List Workspace Service Accounts
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit
  * @param data.cursor
  * @param data.reverse
- * @returns CursorPaginatedResponse_WorkspaceApiKeyRead_ Successful Response
+ * @returns CursorPaginatedResponse_ServiceAccountRead_ Successful Response
  * @throws ApiError
  */
-export const apiKeysListWorkspaceApiKeys = (
-  data: ApiKeysListWorkspaceApiKeysData
-): CancelablePromise<ApiKeysListWorkspaceApiKeysResponse> => {
+export const serviceAccountsListWorkspaceServiceAccounts = (
+  data: ServiceAccountsListWorkspaceServiceAccountsData
+): CancelablePromise<ServiceAccountsListWorkspaceServiceAccountsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/workspaces/{workspace_id}/api-keys",
+    url: "/workspaces/{workspace_id}/service-accounts",
     path: {
       workspace_id: data.workspaceId,
     },
@@ -1372,19 +1384,19 @@ export const apiKeysListWorkspaceApiKeys = (
 }
 
 /**
- * Create Workspace Api Key
+ * Create Workspace Service Account
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns WorkspaceApiKeyCreateResponse Successful Response
+ * @returns ServiceAccountCreateResponse Successful Response
  * @throws ApiError
  */
-export const apiKeysCreateWorkspaceApiKey = (
-  data: ApiKeysCreateWorkspaceApiKeyData
-): CancelablePromise<ApiKeysCreateWorkspaceApiKeyResponse> => {
+export const serviceAccountsCreateWorkspaceServiceAccount = (
+  data: ServiceAccountsCreateWorkspaceServiceAccountData
+): CancelablePromise<ServiceAccountsCreateWorkspaceServiceAccountResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workspaces/{workspace_id}/api-keys",
+    url: "/workspaces/{workspace_id}/service-accounts",
     path: {
       workspace_id: data.workspaceId,
     },
@@ -1397,18 +1409,18 @@ export const apiKeysCreateWorkspaceApiKey = (
 }
 
 /**
- * List Workspace Api Key Scopes
+ * List Workspace Service Account Scopes
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns ApiKeyScopeList Successful Response
+ * @returns ServiceAccountScopeList Successful Response
  * @throws ApiError
  */
-export const apiKeysListWorkspaceApiKeyScopes = (
-  data: ApiKeysListWorkspaceApiKeyScopesData
-): CancelablePromise<ApiKeysListWorkspaceApiKeyScopesResponse> => {
+export const serviceAccountsListWorkspaceServiceAccountScopes = (
+  data: ServiceAccountsListWorkspaceServiceAccountScopesData
+): CancelablePromise<ServiceAccountsListWorkspaceServiceAccountScopesResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/workspaces/{workspace_id}/api-keys/scopes",
+    url: "/workspaces/{workspace_id}/service-accounts/scopes",
     path: {
       workspace_id: data.workspaceId,
     },
@@ -1419,21 +1431,21 @@ export const apiKeysListWorkspaceApiKeyScopes = (
 }
 
 /**
- * Get Workspace Api Key
+ * Get Workspace Service Account
  * @param data The data for the request.
- * @param data.apiKeyId
+ * @param data.serviceAccountId
  * @param data.workspaceId
- * @returns WorkspaceApiKeyRead Successful Response
+ * @returns ServiceAccountRead Successful Response
  * @throws ApiError
  */
-export const apiKeysGetWorkspaceApiKey = (
-  data: ApiKeysGetWorkspaceApiKeyData
-): CancelablePromise<ApiKeysGetWorkspaceApiKeyResponse> => {
+export const serviceAccountsGetWorkspaceServiceAccount = (
+  data: ServiceAccountsGetWorkspaceServiceAccountData
+): CancelablePromise<ServiceAccountsGetWorkspaceServiceAccountResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/workspaces/{workspace_id}/api-keys/{api_key_id}",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}",
     path: {
-      api_key_id: data.apiKeyId,
+      service_account_id: data.serviceAccountId,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -1443,22 +1455,22 @@ export const apiKeysGetWorkspaceApiKey = (
 }
 
 /**
- * Update Workspace Api Key
+ * Update Workspace Service Account
  * @param data The data for the request.
- * @param data.apiKeyId
+ * @param data.serviceAccountId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns WorkspaceApiKeyRead Successful Response
+ * @returns ServiceAccountRead Successful Response
  * @throws ApiError
  */
-export const apiKeysUpdateWorkspaceApiKey = (
-  data: ApiKeysUpdateWorkspaceApiKeyData
-): CancelablePromise<ApiKeysUpdateWorkspaceApiKeyResponse> => {
+export const serviceAccountsUpdateWorkspaceServiceAccount = (
+  data: ServiceAccountsUpdateWorkspaceServiceAccountData
+): CancelablePromise<ServiceAccountsUpdateWorkspaceServiceAccountResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
-    url: "/workspaces/{workspace_id}/api-keys/{api_key_id}",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}",
     path: {
-      api_key_id: data.apiKeyId,
+      service_account_id: data.serviceAccountId,
       workspace_id: data.workspaceId,
     },
     body: data.requestBody,
@@ -1470,21 +1482,96 @@ export const apiKeysUpdateWorkspaceApiKey = (
 }
 
 /**
- * Revoke Workspace Api Key
+ * Disable Workspace Service Account
  * @param data The data for the request.
- * @param data.apiKeyId
+ * @param data.serviceAccountId
  * @param data.workspaceId
  * @returns void Successful Response
  * @throws ApiError
  */
-export const apiKeysRevokeWorkspaceApiKey = (
-  data: ApiKeysRevokeWorkspaceApiKeyData
-): CancelablePromise<ApiKeysRevokeWorkspaceApiKeyResponse> => {
+export const serviceAccountsDisableWorkspaceServiceAccount = (
+  data: ServiceAccountsDisableWorkspaceServiceAccountData
+): CancelablePromise<ServiceAccountsDisableWorkspaceServiceAccountResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/workspaces/{workspace_id}/api-keys/{api_key_id}/revoke",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}/disable",
     path: {
-      api_key_id: data.apiKeyId,
+      service_account_id: data.serviceAccountId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Enable Workspace Service Account
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsEnableWorkspaceServiceAccount = (
+  data: ServiceAccountsEnableWorkspaceServiceAccountData
+): CancelablePromise<ServiceAccountsEnableWorkspaceServiceAccountResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}/enable",
+    path: {
+      service_account_id: data.serviceAccountId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Regenerate Workspace Service Account Key
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ServiceAccountCreateResponse Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsRegenerateWorkspaceServiceAccountKey = (
+  data: ServiceAccountsRegenerateWorkspaceServiceAccountKeyData
+): CancelablePromise<ServiceAccountsRegenerateWorkspaceServiceAccountKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}/regenerate-key",
+    path: {
+      service_account_id: data.serviceAccountId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Workspace Service Account Key
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsRevokeWorkspaceServiceAccountKey = (
+  data: ServiceAccountsRevokeWorkspaceServiceAccountKeyData
+): CancelablePromise<ServiceAccountsRevokeWorkspaceServiceAccountKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}/revoke-key",
+    path: {
+      service_account_id: data.serviceAccountId,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -3992,20 +4079,20 @@ export const organizationGetInvitationByToken = (
 }
 
 /**
- * List Organization Api Keys
+ * List Organization Service Accounts
  * @param data The data for the request.
  * @param data.limit
  * @param data.cursor
  * @param data.reverse
- * @returns CursorPaginatedResponse_OrganizationApiKeyRead_ Successful Response
+ * @returns CursorPaginatedResponse_ServiceAccountRead_ Successful Response
  * @throws ApiError
  */
-export const apiKeysListOrganizationApiKeys = (
-  data: ApiKeysListOrganizationApiKeysData = {}
-): CancelablePromise<ApiKeysListOrganizationApiKeysResponse> => {
+export const serviceAccountsListOrganizationServiceAccounts = (
+  data: ServiceAccountsListOrganizationServiceAccountsData = {}
+): CancelablePromise<ServiceAccountsListOrganizationServiceAccountsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/organization/api-keys",
+    url: "/organization/service-accounts",
     query: {
       limit: data.limit,
       cursor: data.cursor,
@@ -4018,18 +4105,18 @@ export const apiKeysListOrganizationApiKeys = (
 }
 
 /**
- * Create Organization Api Key
+ * Create Organization Service Account
  * @param data The data for the request.
  * @param data.requestBody
- * @returns OrganizationApiKeyCreateResponse Successful Response
+ * @returns ServiceAccountCreateResponse Successful Response
  * @throws ApiError
  */
-export const apiKeysCreateOrganizationApiKey = (
-  data: ApiKeysCreateOrganizationApiKeyData
-): CancelablePromise<ApiKeysCreateOrganizationApiKeyResponse> => {
+export const serviceAccountsCreateOrganizationServiceAccount = (
+  data: ServiceAccountsCreateOrganizationServiceAccountData
+): CancelablePromise<ServiceAccountsCreateOrganizationServiceAccountResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/organization/api-keys",
+    url: "/organization/service-accounts",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
@@ -4039,33 +4126,33 @@ export const apiKeysCreateOrganizationApiKey = (
 }
 
 /**
- * List Organization Api Key Scopes
- * @returns ApiKeyScopeList Successful Response
+ * List Organization Service Account Scopes
+ * @returns ServiceAccountScopeList Successful Response
  * @throws ApiError
  */
-export const apiKeysListOrganizationApiKeyScopes =
-  (): CancelablePromise<ApiKeysListOrganizationApiKeyScopesResponse> => {
+export const serviceAccountsListOrganizationServiceAccountScopes =
+  (): CancelablePromise<ServiceAccountsListOrganizationServiceAccountScopesResponse> => {
     return __request(OpenAPI, {
       method: "GET",
-      url: "/organization/api-keys/scopes",
+      url: "/organization/service-accounts/scopes",
     })
   }
 
 /**
- * Get Organization Api Key
+ * Get Organization Service Account
  * @param data The data for the request.
- * @param data.apiKeyId
- * @returns OrganizationApiKeyRead Successful Response
+ * @param data.serviceAccountId
+ * @returns ServiceAccountRead Successful Response
  * @throws ApiError
  */
-export const apiKeysGetOrganizationApiKey = (
-  data: ApiKeysGetOrganizationApiKeyData
-): CancelablePromise<ApiKeysGetOrganizationApiKeyResponse> => {
+export const serviceAccountsGetOrganizationServiceAccount = (
+  data: ServiceAccountsGetOrganizationServiceAccountData
+): CancelablePromise<ServiceAccountsGetOrganizationServiceAccountResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/organization/api-keys/{api_key_id}",
+    url: "/organization/service-accounts/{service_account_id}",
     path: {
-      api_key_id: data.apiKeyId,
+      service_account_id: data.serviceAccountId,
     },
     errors: {
       422: "Validation Error",
@@ -4074,21 +4161,21 @@ export const apiKeysGetOrganizationApiKey = (
 }
 
 /**
- * Update Organization Api Key
+ * Update Organization Service Account
  * @param data The data for the request.
- * @param data.apiKeyId
+ * @param data.serviceAccountId
  * @param data.requestBody
- * @returns OrganizationApiKeyRead Successful Response
+ * @returns ServiceAccountRead Successful Response
  * @throws ApiError
  */
-export const apiKeysUpdateOrganizationApiKey = (
-  data: ApiKeysUpdateOrganizationApiKeyData
-): CancelablePromise<ApiKeysUpdateOrganizationApiKeyResponse> => {
+export const serviceAccountsUpdateOrganizationServiceAccount = (
+  data: ServiceAccountsUpdateOrganizationServiceAccountData
+): CancelablePromise<ServiceAccountsUpdateOrganizationServiceAccountResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
-    url: "/organization/api-keys/{api_key_id}",
+    url: "/organization/service-accounts/{service_account_id}",
     path: {
-      api_key_id: data.apiKeyId,
+      service_account_id: data.serviceAccountId,
     },
     body: data.requestBody,
     mediaType: "application/json",
@@ -4099,20 +4186,89 @@ export const apiKeysUpdateOrganizationApiKey = (
 }
 
 /**
- * Revoke Organization Api Key
+ * Disable Organization Service Account
  * @param data The data for the request.
- * @param data.apiKeyId
+ * @param data.serviceAccountId
  * @returns void Successful Response
  * @throws ApiError
  */
-export const apiKeysRevokeOrganizationApiKey = (
-  data: ApiKeysRevokeOrganizationApiKeyData
-): CancelablePromise<ApiKeysRevokeOrganizationApiKeyResponse> => {
+export const serviceAccountsDisableOrganizationServiceAccount = (
+  data: ServiceAccountsDisableOrganizationServiceAccountData
+): CancelablePromise<ServiceAccountsDisableOrganizationServiceAccountResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/organization/api-keys/{api_key_id}/revoke",
+    url: "/organization/service-accounts/{service_account_id}/disable",
     path: {
-      api_key_id: data.apiKeyId,
+      service_account_id: data.serviceAccountId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Enable Organization Service Account
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsEnableOrganizationServiceAccount = (
+  data: ServiceAccountsEnableOrganizationServiceAccountData
+): CancelablePromise<ServiceAccountsEnableOrganizationServiceAccountResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/service-accounts/{service_account_id}/enable",
+    path: {
+      service_account_id: data.serviceAccountId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Regenerate Organization Service Account Key
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.requestBody
+ * @returns ServiceAccountCreateResponse Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsRegenerateOrganizationServiceAccountKey = (
+  data: ServiceAccountsRegenerateOrganizationServiceAccountKeyData
+): CancelablePromise<ServiceAccountsRegenerateOrganizationServiceAccountKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/service-accounts/{service_account_id}/regenerate-key",
+    path: {
+      service_account_id: data.serviceAccountId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Organization Service Account Key
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsRevokeOrganizationServiceAccountKey = (
+  data: ServiceAccountsRevokeOrganizationServiceAccountKeyData
+): CancelablePromise<ServiceAccountsRevokeOrganizationServiceAccountKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/service-accounts/{service_account_id}/revoke-key",
+    path: {
+      service_account_id: data.serviceAccountId,
     },
     errors: {
       422: "Validation Error",

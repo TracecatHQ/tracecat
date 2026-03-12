@@ -12,7 +12,6 @@ from tracecat.agent.router import (
     OrganizationUserRole,
 )
 from tracecat.api.app import app
-from tracecat.api_keys.router import WorkspaceUserOnlyInPath
 from tracecat.auth.credentials import AuthenticatedUserOnly, SuperuserRole
 from tracecat.auth.dependencies import (
     ExecutorWorkspaceRole,
@@ -27,6 +26,7 @@ from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
 from tracecat.secrets.router import (
     WorkspaceUser as SecretsWorkspaceUser,
 )
+from tracecat.service_accounts.router import WorkspaceUserOnlyInPath
 from tracecat.tables.router import (
     WorkspaceEditorUser as TablesWorkspaceEditorUser,
 )

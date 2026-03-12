@@ -3,7 +3,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from tracecat.api_keys.constants import APIKeyKind
 from tracecat.identifiers import InternalServiceID, OrganizationID, UserID, WorkspaceID
 
 
@@ -12,7 +11,7 @@ class Role(BaseModel):
 
     Params
     ------
-    type : Literal["user", "service", "api_key"]
+    type : Literal["user", "service", "service_account"]
         The type of role.
     user_id : UUID | None
         The user's ID, or the service's user_id.
@@ -36,14 +35,12 @@ class Role(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    type: Literal["user", "service", "api_key"] = Field(frozen=True)
+    type: Literal["user", "service", "service_account"] = Field(frozen=True)
     workspace_id: WorkspaceID | None = Field(default=None, frozen=True)
     organization_id: OrganizationID | None = Field(default=None, frozen=True)
     user_id: UserID | None = Field(default=None, frozen=True)
+    service_account_id: uuid.UUID | None = Field(default=None, frozen=True)
     service_id: InternalServiceID = Field(frozen=True)
-    api_key_id: uuid.UUID | None = Field(default=None, frozen=True)
-    api_key_name: str | None = Field(default=None, frozen=True)
-    api_key_kind: APIKeyKind | None = Field(default=None, frozen=True)
     is_platform_superuser: bool = Field(default=False, frozen=True)
     """Whether this role belongs to a platform superuser (User.is_superuser=True)."""
     scopes: frozenset[str] | None = Field(default=None, frozen=True)
@@ -71,9 +68,9 @@ class Role(BaseModel):
     @property
     def actor_id(self) -> UserID | None:
         """Return the auditable actor identifier for this role, if present."""
-        if self.type == "api_key":
-            if self.api_key_id is not None:
-                return self.api_key_id
+        if self.type == "service_account":
+            if self.service_account_id is not None:
+                return self.service_account_id
         return self.user_id
 
     def to_headers(self) -> dict[str, str]:
@@ -89,15 +86,8 @@ class Role(BaseModel):
             headers["x-tracecat-role-organization-id"] = str(self.organization_id)
         if self.scopes:
             headers["x-tracecat-role-scopes"] = ",".join(sorted(self.scopes))
-        if self.api_key_id is not None:
-            api_key_id = self.api_key_id
-            headers["x-tracecat-role-api-key-id"] = str(api_key_id)
-        if self.api_key_name is not None:
-            api_key_name = self.api_key_name
-            headers["x-tracecat-role-api-key-name"] = str(api_key_name)
-        if self.api_key_kind is not None:
-            api_key_kind = self.api_key_kind
-            headers["x-tracecat-role-api-key-kind"] = str(api_key_kind)
+        if self.service_account_id is not None:
+            headers["x-tracecat-role-service-account-id"] = str(self.service_account_id)
         return headers
 
 

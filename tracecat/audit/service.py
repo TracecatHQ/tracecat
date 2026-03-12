@@ -14,7 +14,7 @@ from tracecat.audit.types import AuditAction, AuditEvent, AuditResourceType
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_client_ip, ctx_role
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.models import User
+from tracecat.db.models import ServiceAccount, User
 from tracecat.service import BaseService
 
 # Union type for roles that can be used for audit logging
@@ -186,9 +186,23 @@ class AuditService(BaseService):
     async def _get_actor_label(self) -> str | None:
         if self.role is None:
             return None
-        if getattr(self.role, "type", None) == "api_key":
-            api_key_name = getattr(self.role, "api_key_name", None)
-            return str(api_key_name) if api_key_name is not None else None
+        if getattr(self.role, "type", None) == "service_account":
+            service_account_id = getattr(self.role, "service_account_id", None)
+            if service_account_id is None:
+                return None
+            try:
+                result = await self.session.execute(
+                    select(ServiceAccount).where(
+                        ServiceAccount.id == service_account_id
+                    )
+                )
+                if (service_account := result.scalar_one_or_none()) is not None:
+                    return service_account.name
+            except Exception as exc:
+                self.logger.warning(
+                    "Failed to fetch service account actor name", error=str(exc)
+                )
+            return None
         if self.role.user_id is None:
             return None
         actor_label: str | None = None
@@ -217,8 +231,8 @@ class AuditService(BaseService):
         organization_id = getattr(self.role, "organization_id", None)
         workspace_id = getattr(self.role, "workspace_id", None)
         actor_type = (
-            AuditEventActor.API_KEY
-            if getattr(self.role, "type", None) == "api_key"
+            AuditEventActor.SERVICE_ACCOUNT
+            if getattr(self.role, "type", None) == "service_account"
             else AuditEventActor.USER
         )
         return AuditEvent(
