@@ -15,6 +15,7 @@ import {
   casesSearchCases,
 } from "@/client"
 import {
+  type CaseSortField,
   type CaseSortValue,
   DEFAULT_CASE_SORT,
 } from "@/components/cases/case-sort"
@@ -270,25 +271,61 @@ function loadPersistedCasesFilterState(
 
     const parsed = JSON.parse(storedValue) as Partial<PersistedCasesFilters>
     return {
-      searchQuery: parsed.searchQuery ?? defaults.searchQuery,
-      sortBy: parsed.sortBy ?? defaults.sortBy,
-      statusFilter: parsed.statusFilter ?? defaults.statusFilter,
-      statusMode: parsed.statusMode ?? defaults.statusMode,
-      priorityFilter: parsed.priorityFilter ?? defaults.priorityFilter,
-      priorityMode: parsed.priorityMode ?? defaults.priorityMode,
-      prioritySortDirection:
-        parsed.prioritySortDirection ?? defaults.prioritySortDirection,
-      severityFilter: parsed.severityFilter ?? defaults.severityFilter,
-      severityMode: parsed.severityMode ?? defaults.severityMode,
-      severitySortDirection:
-        parsed.severitySortDirection ?? defaults.severitySortDirection,
-      assigneeFilter: parsed.assigneeFilter ?? defaults.assigneeFilter,
-      assigneeMode: parsed.assigneeMode ?? defaults.assigneeMode,
-      assigneeSortDirection:
-        parsed.assigneeSortDirection ?? defaults.assigneeSortDirection,
-      tagFilter: parsed.tagFilter ?? defaults.tagFilter,
-      tagMode: parsed.tagMode ?? defaults.tagMode,
-      tagSortDirection: parsed.tagSortDirection ?? defaults.tagSortDirection,
+      searchQuery: sanitizeSearchQuery(
+        parsed.searchQuery,
+        defaults.searchQuery
+      ),
+      sortBy: sanitizeSortBy(parsed.sortBy, defaults.sortBy),
+      statusFilter: sanitizeEnumArray(
+        parsed.statusFilter,
+        ALL_CASE_STATUSES,
+        defaults.statusFilter
+      ),
+      statusMode: sanitizeFilterMode(parsed.statusMode, defaults.statusMode),
+      priorityFilter: sanitizeEnumArray(
+        parsed.priorityFilter,
+        ALL_CASE_PRIORITIES,
+        defaults.priorityFilter
+      ),
+      priorityMode: sanitizeFilterMode(
+        parsed.priorityMode,
+        defaults.priorityMode
+      ),
+      prioritySortDirection: sanitizeSortDirection(
+        parsed.prioritySortDirection,
+        defaults.prioritySortDirection
+      ),
+      severityFilter: sanitizeEnumArray(
+        parsed.severityFilter,
+        ALL_CASE_SEVERITIES,
+        defaults.severityFilter
+      ),
+      severityMode: sanitizeFilterMode(
+        parsed.severityMode,
+        defaults.severityMode
+      ),
+      severitySortDirection: sanitizeSortDirection(
+        parsed.severitySortDirection,
+        defaults.severitySortDirection
+      ),
+      assigneeFilter: sanitizeStringArray(
+        parsed.assigneeFilter,
+        defaults.assigneeFilter
+      ),
+      assigneeMode: sanitizeFilterMode(
+        parsed.assigneeMode,
+        defaults.assigneeMode
+      ),
+      assigneeSortDirection: sanitizeSortDirection(
+        parsed.assigneeSortDirection,
+        defaults.assigneeSortDirection
+      ),
+      tagFilter: sanitizeStringArray(parsed.tagFilter, defaults.tagFilter),
+      tagMode: sanitizeFilterMode(parsed.tagMode, defaults.tagMode),
+      tagSortDirection: sanitizeSortDirection(
+        parsed.tagSortDirection,
+        defaults.tagSortDirection
+      ),
       dropdownFilters: sanitizeDropdownFilters(parsed.dropdownFilters),
       updatedAfter: parsePersistedDateFilter(
         parsed.updatedAfter,
@@ -341,6 +378,73 @@ function isFilterMode(value: unknown): value is FilterMode {
 
 function isSortDirection(value: unknown): value is SortDirection {
   return value === "asc" || value === "desc" || value === null
+}
+
+function isCaseSortField(value: unknown): value is CaseSortField {
+  return (
+    value === "updated_at" ||
+    value === "created_at" ||
+    value === "priority" ||
+    value === "severity" ||
+    value === "status" ||
+    value === "tasks"
+  )
+}
+
+function sanitizeSearchQuery(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback
+}
+
+function sanitizeStringArray(value: unknown, fallback: string[]): string[] {
+  return Array.isArray(value)
+    ? value.filter((item: unknown): item is string => typeof item === "string")
+    : fallback
+}
+
+function sanitizeEnumArray<T extends string>(
+  value: unknown,
+  allowedValues: ReadonlyArray<T>,
+  fallback: T[]
+): T[] {
+  if (!Array.isArray(value)) {
+    return fallback
+  }
+
+  const allowedSet = new Set(allowedValues)
+  return value.filter(
+    (item: unknown): item is T =>
+      typeof item === "string" && allowedSet.has(item as T)
+  )
+}
+
+function sanitizeFilterMode(value: unknown, fallback: FilterMode): FilterMode {
+  return isFilterMode(value) ? value : fallback
+}
+
+function sanitizeSortDirection(
+  value: unknown,
+  fallback: SortDirection
+): SortDirection {
+  return isSortDirection(value) ? value : fallback
+}
+
+function sanitizeSortBy(
+  value: unknown,
+  fallback: CaseSortValue
+): CaseSortValue {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback
+  }
+
+  const candidate = value as {
+    field?: unknown
+    direction?: unknown
+  }
+
+  return isCaseSortField(candidate.field) &&
+    (candidate.direction === "asc" || candidate.direction === "desc")
+    ? { field: candidate.field, direction: candidate.direction }
+    : fallback
 }
 
 function sanitizeDropdownFilters(

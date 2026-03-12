@@ -532,6 +532,84 @@ describe("useCases", () => {
     )
   })
 
+  it("sanitizes malformed persisted scalar filters", async () => {
+    const firstPage: CasesSearchCasesResponse = {
+      items: [createCase(1)],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      total_estimate: 1,
+    }
+
+    const aggregate: CasesSearchCaseAggregatesResponse = {
+      total: 1,
+      status_groups: {
+        new: 1,
+        in_progress: 0,
+        on_hold: 0,
+        resolved: 0,
+        other: 0,
+      },
+    }
+
+    window.localStorage.setItem(
+      "workspace-1:cases-filters:v1",
+      JSON.stringify(
+        createPersistedFilters({
+          searchQuery: 42,
+          sortBy: { field: "bad-field", direction: "up" },
+          statusFilter: ["new", "bad-status", 99],
+          statusMode: "bogus",
+          assigneeFilter: ["user-1", 123],
+          tagFilter: ["tag-1", null],
+        })
+      )
+    )
+
+    mockSearchCases.mockResolvedValue(firstPage)
+    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HookProbe />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rows")).toHaveTextContent("1")
+    })
+
+    expect(mockSearchCases).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        searchTerm: undefined,
+        orderBy: "updated_at",
+        sort: "desc",
+        status: ["new"],
+        assigneeId: ["user-1"],
+        tags: ["tag-1"],
+      })
+    )
+    expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        searchTerm: undefined,
+        status: ["new"],
+        assigneeId: ["user-1"],
+        tags: ["tag-1"],
+      })
+    )
+  })
+
   it("clears rows when enum exclude filters match no records", async () => {
     const firstPage: CasesSearchCasesResponse = {
       items: [createCase(1)],
