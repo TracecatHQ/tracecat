@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from tracecat.api_keys.constants import APIKeyKind
 from tracecat.identifiers import InternalServiceID, OrganizationID, UserID, WorkspaceID
 
 
@@ -42,7 +43,7 @@ class Role(BaseModel):
     service_id: InternalServiceID = Field(frozen=True)
     api_key_id: uuid.UUID | None = Field(default=None, frozen=True)
     api_key_name: str | None = Field(default=None, frozen=True)
-    api_key_kind: str | None = Field(default=None, frozen=True)
+    api_key_kind: APIKeyKind | None = Field(default=None, frozen=True)
     is_platform_superuser: bool = Field(default=False, frozen=True)
     """Whether this role belongs to a platform superuser (User.is_superuser=True)."""
     scopes: frozenset[str] | None = Field(default=None, frozen=True)

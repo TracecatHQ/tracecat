@@ -15,6 +15,7 @@ from tracecat.api_keys.constants import (
     ORG_API_KEY_PREFIX,
     WORKSPACE_API_KEY_KIND,
     WORKSPACE_API_KEY_PREFIX,
+    APIKeyKind,
     is_org_api_key_assignable_scope,
     is_workspace_api_key_assignable_scope,
 )
@@ -400,7 +401,7 @@ async def _resolve_assignable_scopes(
     *,
     scope_ids: list[uuid.UUID],
     validator: Callable[..., bool],
-    kind: str,
+    kind: APIKeyKind,
 ) -> list[Scope]:
     if not scope_ids:
         return []

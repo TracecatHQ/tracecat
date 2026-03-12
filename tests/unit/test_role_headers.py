@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 
+from tracecat.api_keys.constants import APIKeyKind
 from tracecat.auth.credentials import _authenticate_service
 from tracecat.auth.types import Role
 
@@ -79,7 +80,7 @@ class TestRoleToHeaders:
             workspace_id=uuid4(),
             api_key_id=uuid4(),
             api_key_name="CI automation",
-            api_key_kind="workspace",
+            api_key_kind=APIKeyKind.WORKSPACE,
             scopes=frozenset({"workflow:read"}),
         )
 
