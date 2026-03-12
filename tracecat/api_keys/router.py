@@ -158,6 +158,7 @@ async def update_organization_api_key(
             api_key_id,
             name=params.name,
             description=params.description,
+            description_provided="description" in params.model_fields_set,
             scope_ids=params.scope_ids,
         )
     except Exception as exc:
@@ -275,6 +276,7 @@ async def update_workspace_api_key(
             api_key_id,
             name=params.name,
             description=params.description,
+            description_provided="description" in params.model_fields_set,
             scope_ids=params.scope_ids,
         )
     except Exception as exc:
