@@ -29,7 +29,7 @@ resource "aws_wafv2_regex_pattern_set" "mcp_oauth_endpoints" {
   scope       = "REGIONAL"
 
   regular_expression {
-    regex_string = "^/(mcp/)?(register|authorize|consent|token|auth/callback)$"
+    regex_string = "^/(mcp/)?(register|authorize|consent|token|auth/callback)/?$"
   }
 
   tags = var.tags
