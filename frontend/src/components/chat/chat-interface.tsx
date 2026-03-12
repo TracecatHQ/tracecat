@@ -222,8 +222,7 @@ export function ChatInterface({
     agentAddonsEnabled && (entityType === "case" || entityType === "copilot")
 
   const {
-    presets:
-    selectedPreset,
+    presets: selectedPreset,
     selectedPresetConfig,
     selectedPresetId: effectivePresetId,
     selectedPresetVersionId,

@@ -116,6 +116,10 @@ _CUSTOM_SOURCE_TYPES = {
 LEGACY_CUSTOM_PROVIDER = "custom-model-provider"
 LEGACY_CUSTOM_SOURCE_NAME = "Imported legacy custom model"
 ENABLE_ALL_MODELS_ON_UPGRADE_SETTING = "agent_enable_all_models_on_upgrade"
+SOURCE_RUNTIME_API_KEY = "TRACECAT_SOURCE_API_KEY"
+SOURCE_RUNTIME_API_KEY_HEADER = "TRACECAT_SOURCE_API_KEY_HEADER"
+SOURCE_RUNTIME_API_VERSION = "TRACECAT_SOURCE_API_VERSION"
+SOURCE_RUNTIME_BASE_URL = "TRACECAT_SOURCE_BASE_URL"
 _BUILT_IN_PROVIDER_ORDER = (
     ModelSourceType.OPENAI,
     ModelSourceType.ANTHROPIC,
@@ -611,52 +615,58 @@ class AgentManagementService(BaseOrgService):
         if not organization_scoped or source_id is None:
             raise ValueError("Catalog upserts are only supported for custom sources.")
 
-        existing_model_names = set(
+        existing_identities = set(
             (
                 await self.session.execute(
-                    select(AgentCatalog.model_name).where(
+                    select(AgentCatalog.model_provider, AgentCatalog.model_name).where(
                         AgentCatalog.organization_id == self.organization_id,
                         AgentCatalog.source_id == source_id,
                     )
                 )
-            )
-            .scalars()
-            .all()
+            ).all()
         )
-        models_by_name: dict[str, dict[str, object]] = {}
-        ordered_model_names: list[str] = []
+        models_by_identity: dict[tuple[str, str], dict[str, object]] = {}
+        ordered_identities: list[tuple[str, str]] = []
         now = datetime.now(UTC)
 
         for model in models:
             model_name = str(model.get("model_name") or model["model_id"])
-            if model_name not in models_by_name:
-                ordered_model_names.append(model_name)
-            models_by_name[model_name] = model
+            model_provider = str(model["model_provider"])
+            identity = (model_provider, model_name)
+            if identity not in models_by_identity:
+                ordered_identities.append(identity)
+            models_by_identity[identity] = model
 
-        stale_model_names = existing_model_names - set(ordered_model_names)
-        if stale_model_names:
+        stale_identities = existing_identities - set(ordered_identities)
+        if stale_identities:
+            stale_conditions = [
+                (AgentCatalog.model_provider == model_provider)
+                & (AgentCatalog.model_name == model_name)
+                for model_provider, model_name in stale_identities
+            ]
             await self.session.execute(
                 delete(AgentCatalog).where(
                     AgentCatalog.organization_id == self.organization_id,
                     AgentCatalog.source_id == source_id,
-                    AgentCatalog.model_name.in_(stale_model_names),
+                    or_(*stale_conditions),
                 )
             )
 
-        if not models_by_name:
+        if not models_by_identity:
             return []
 
         values = [
             {
                 "organization_id": self.organization_id,
                 "source_id": source_id,
-                "model_provider": str(model["model_provider"]),
+                "model_provider": model_provider,
                 "model_name": str(model_name),
                 "model_metadata": cast(dict[str, Any] | None, model.get("metadata")),
                 "last_refreshed_at": now,
             }
-            for model_name in ordered_model_names
-            if (model := models_by_name.get(model_name)) is not None
+            for model_provider, model_name in ordered_identities
+            if (model := models_by_identity.get((model_provider, model_name)))
+            is not None
         ]
         stmt = pg_insert(AgentCatalog).values(values)
         stmt = stmt.on_conflict_do_update(
@@ -676,15 +686,19 @@ class AgentManagementService(BaseOrgService):
                     select(AgentCatalog).where(
                         AgentCatalog.organization_id == self.organization_id,
                         AgentCatalog.source_id == source_id,
-                        AgentCatalog.model_name.in_(ordered_model_names),
                     )
                 )
             )
             .scalars()
             .all()
         )
-        persisted_by_name = {row.model_name: row for row in persisted_rows}
-        return [persisted_by_name[model_name] for model_name in ordered_model_names]
+        persisted_by_identity = {
+            (row.model_provider, row.model_name): row for row in persisted_rows
+        }
+        return [
+            persisted_by_identity[(model_provider, model_name)]
+            for model_provider, model_name in ordered_identities
+        ]
 
     async def _upsert_builtin_catalog_rows(self) -> list[AgentCatalog]:
         builtin_rows = list(get_builtin_catalog_models())
@@ -1601,21 +1615,22 @@ class AgentManagementService(BaseOrgService):
         source_keys = [
             self._selection_key_from_catalog_row(row) for row in source_catalog_rows
         ]
-        delete_conditions = [
-            (AgentEnabledModel.organization_id == self.organization_id)
-            & (
-                AgentEnabledModel.source_id.is_(None)
-                if key.source_id is None
-                else AgentEnabledModel.source_id == key.source_id
+        if source_keys:
+            delete_conditions = [
+                (AgentEnabledModel.organization_id == self.organization_id)
+                & (
+                    AgentEnabledModel.source_id.is_(None)
+                    if key.source_id is None
+                    else AgentEnabledModel.source_id == key.source_id
+                )
+                & (AgentEnabledModel.model_provider == key.model_provider)
+                & (AgentEnabledModel.model_name == key.model_name)
+                for key in source_keys
+            ]
+            await self.session.execute(
+                delete(AgentEnabledModel).where(or_(*delete_conditions))
             )
-            & (AgentEnabledModel.model_provider == key.model_provider)
-            & (AgentEnabledModel.model_name == key.model_name)
-            for key in source_keys
-        ]
-        await self.session.execute(
-            delete(AgentEnabledModel).where(or_(*delete_conditions))
-        )
-        await self.session.flush()
+            await self.session.flush()
         await self.session.delete(source)
         await self.session.commit()
 
@@ -2459,8 +2474,53 @@ class AgentManagementService(BaseOrgService):
             source = await self.get_model_source(catalog_entry.source_id)
             source_config = self._deserialize_sensitive_config(source.encrypted_config)
             credentials = {}
-            if api_key := source_config.get("api_key"):
-                credentials["OPENAI_API_KEY"] = api_key
+            api_key = source_config.get("api_key")
+            if api_key:
+                credentials[SOURCE_RUNTIME_API_KEY] = api_key
+            if source.api_key_header:
+                credentials[SOURCE_RUNTIME_API_KEY_HEADER] = source.api_key_header
+            if source.api_version:
+                credentials[SOURCE_RUNTIME_API_VERSION] = source.api_version
+            if source.base_url:
+                credentials[SOURCE_RUNTIME_BASE_URL] = source.base_url
+            match catalog_entry.model_provider:
+                case (
+                    "openai"
+                    | "openai_compatible_gateway"
+                    | "manual_custom"
+                    | "direct_endpoint"
+                ):
+                    if api_key:
+                        credentials["OPENAI_API_KEY"] = api_key
+                    if source.base_url:
+                        credentials["OPENAI_BASE_URL"] = source.base_url
+                case "anthropic":
+                    if api_key:
+                        credentials["ANTHROPIC_API_KEY"] = api_key
+                    if source.base_url:
+                        credentials["ANTHROPIC_BASE_URL"] = source.base_url
+                case "gemini":
+                    if api_key:
+                        credentials["GEMINI_API_KEY"] = api_key
+                case "azure_openai":
+                    if api_key:
+                        credentials["AZURE_API_KEY"] = api_key
+                    if source.base_url:
+                        credentials["AZURE_API_BASE"] = source.base_url
+                    if source.api_version:
+                        credentials["AZURE_API_VERSION"] = source.api_version
+                case "azure_ai":
+                    if api_key:
+                        credentials["AZURE_API_KEY"] = api_key
+                    if source.base_url:
+                        credentials["AZURE_API_BASE"] = source.base_url
+                case "custom-model-provider":
+                    if api_key:
+                        credentials["CUSTOM_MODEL_PROVIDER_API_KEY"] = api_key
+                    if source.base_url:
+                        credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] = source.base_url
+                case _:
+                    pass
             return credentials
         credentials = (
             await self.get_provider_credentials(catalog_entry.model_provider) or {}
@@ -2627,6 +2687,14 @@ class AgentManagementService(BaseOrgService):
                 selection, workspace_id=self.role.workspace_id
             ):
                 return selection
+            try:
+                await self._get_catalog_row_model(selection)
+            except TracecatNotFoundError:
+                pass
+            else:
+                raise TracecatNotFoundError(
+                    f"Model {preset_config.model_provider}/{preset_config.model_name} is not enabled"
+                )
         match await resolve_enabled_catalog_match_for_provider_model(
             self.session,
             organization_id=self.organization_id,

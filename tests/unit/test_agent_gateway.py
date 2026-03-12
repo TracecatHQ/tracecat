@@ -30,6 +30,50 @@ def test_custom_source_injects_dummy_api_key_and_openai_prefix():
     assert data["model"] == "openai/gpt-5"
 
 
+def test_custom_source_preserves_custom_header_and_api_version():
+    data = {"model": "gpt-5"}
+
+    _inject_provider_credentials(
+        data,
+        "openai_compatible_gateway",
+        {
+            "TRACECAT_SOURCE_API_KEY": "source-key",
+            "TRACECAT_SOURCE_API_KEY_HEADER": "X-Api-Key",
+            "TRACECAT_SOURCE_API_VERSION": "2024-06-01",
+            "TRACECAT_SOURCE_BASE_URL": "https://gateway.example/v1",
+        },
+        source_id="00000000-0000-0000-0000-000000000001",
+    )
+
+    assert data["api_key"] == "not-needed"
+    assert data["api_base"] == "https://gateway.example/v1"
+    assert data["api_version"] == "2024-06-01"
+    assert data["extra_headers"] == {"X-Api-Key": "source-key"}
+    assert data["model"] == "openai/gpt-5"
+
+
+def test_manual_custom_source_uses_declared_provider_routing():
+    data = {"model": "claude-3-7-sonnet"}
+
+    _inject_provider_credentials(
+        data,
+        "anthropic",
+        {
+            "TRACECAT_SOURCE_API_KEY": "source-key",
+            "TRACECAT_SOURCE_API_KEY_HEADER": "X-Api-Key",
+            "TRACECAT_SOURCE_BASE_URL": "https://anthropic.gateway.example",
+            "ANTHROPIC_API_KEY": "source-key",
+            "ANTHROPIC_BASE_URL": "https://anthropic.gateway.example",
+        },
+        source_id="00000000-0000-0000-0000-000000000001",
+    )
+
+    assert "api_key" not in data
+    assert data["api_base"] == "https://anthropic.gateway.example"
+    assert data["extra_headers"] == {"X-Api-Key": "source-key"}
+    assert data["model"] == "anthropic/claude-3-7-sonnet"
+
+
 def test_gemini_injects_api_key_and_prefixes_model():
     data = {"model": "gemini-2.5-flash"}
     creds = {"GEMINI_API_KEY": "test-gemini-key"}
