@@ -15,12 +15,12 @@ import {
   type WorkspaceMember,
 } from "@/client"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
-import { CasesAccordion } from "@/components/cases/cases-accordion"
 import {
   type CaseSortValue,
-  CasesHeader,
   DEFAULT_CASE_SORT,
-} from "@/components/cases/cases-header"
+} from "@/components/cases/case-sort"
+import { CasesAccordion } from "@/components/cases/cases-accordion"
+import { CasesHeader } from "@/components/cases/cases-header"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
 import type {
   FilterMode,

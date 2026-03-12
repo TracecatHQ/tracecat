@@ -34,6 +34,11 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
+import {
+  type CaseSortField,
+  type CaseSortValue,
+  DEFAULT_CASE_SORT,
+} from "@/components/cases/case-sort"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import {
   type FilterMode,
@@ -257,24 +262,6 @@ function DateFilterSelect({
       </PopoverContent>
     </Popover>
   )
-}
-
-export type CaseSortField =
-  | "updated_at"
-  | "created_at"
-  | "priority"
-  | "severity"
-  | "status"
-  | "tasks"
-
-export interface CaseSortValue {
-  field: CaseSortField
-  direction: "asc" | "desc"
-}
-
-export const DEFAULT_CASE_SORT: CaseSortValue = {
-  field: "updated_at",
-  direction: "desc",
 }
 
 const CASE_SORT_OPTIONS: Array<{

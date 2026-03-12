@@ -17,7 +17,7 @@ import {
 import {
   type CaseSortValue,
   DEFAULT_CASE_SORT,
-} from "@/components/cases/cases-header"
+} from "@/components/cases/case-sort"
 import type {
   FilterMode,
   SortDirection,
