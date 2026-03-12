@@ -33,6 +33,18 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 # For M2M, we use the service directly.
 
 
+def _normalize_agent_settings_read_values(
+    settings_dict: dict[str, object],
+) -> dict[str, object]:
+    normalized = dict(settings_dict)
+    match normalized.get("agent_default_model"):
+        case {"model_name": str(model_name)}:
+            normalized["agent_default_model"] = model_name
+        case dict():
+            normalized["agent_default_model"] = None
+    return normalized
+
+
 async def check_other_auth_enabled(
     _service: SettingsService, auth_type: AuthType
 ) -> None:
@@ -239,7 +251,7 @@ async def get_agent_settings(
     keys = AgentSettingsRead.keys()
     settings = await service.list_org_settings(keys=keys)
     settings_dict, _ = service.get_values_with_decryption_fallback(settings)
-    return AgentSettingsRead(**settings_dict)
+    return AgentSettingsRead(**_normalize_agent_settings_read_values(settings_dict))
 
 
 @router.patch("/agent", status_code=status.HTTP_204_NO_CONTENT)

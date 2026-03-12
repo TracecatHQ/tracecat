@@ -231,6 +231,13 @@ def upgrade() -> None:
     )
 
     op.add_column("agent_preset", sa.Column("source_id", sa.UUID(), nullable=True))
+    op.alter_column(
+        "agent_preset",
+        "model_name",
+        existing_type=sa.VARCHAR(length=120),
+        type_=sa.String(length=500),
+        existing_nullable=False,
+    )
     op.create_index(
         op.f("ix_agent_preset_source_id"), "agent_preset", ["source_id"], unique=False
     )
@@ -373,6 +380,13 @@ def downgrade() -> None:
         type_="foreignkey",
     )
     op.drop_index(op.f("ix_agent_preset_source_id"), table_name="agent_preset")
+    op.alter_column(
+        "agent_preset",
+        "model_name",
+        existing_type=sa.String(length=500),
+        type_=sa.VARCHAR(length=120),
+        existing_nullable=False,
+    )
     op.drop_column("agent_preset", "source_id")
 
     op.drop_index(

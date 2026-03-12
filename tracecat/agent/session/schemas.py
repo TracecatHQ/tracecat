@@ -69,6 +69,13 @@ class AgentSessionCreate(BaseModel):
             raise ValueError(
                 "explicit model selection cannot be set when agent_preset_id is configured"
             )
+        if any(
+            value is not None
+            for value in (self.source_id, self.model_name, self.model_provider)
+        ) and (self.model_name is None or self.model_provider is None):
+            raise ValueError(
+                "model_name and model_provider must be set together when selecting a model"
+            )
         return self
 
 
@@ -103,6 +110,13 @@ class AgentSessionUpdate(BaseModel):
         ):
             raise ValueError(
                 "explicit model selection cannot be set when agent_preset_id is configured"
+            )
+        if any(
+            value is not None
+            for value in (self.source_id, self.model_name, self.model_provider)
+        ) and (self.model_name is None or self.model_provider is None):
+            raise ValueError(
+                "model_name and model_provider must be set together when selecting a model"
             )
         return self
 

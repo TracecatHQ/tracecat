@@ -177,3 +177,68 @@ async def test_fork_session_copies_parent_model_selection(role: Role) -> None:
     session.add.assert_called_once_with(forked)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(forked)
+
+
+@pytest.mark.anyio
+async def test_build_agent_config_preserves_preset_source_routing_for_forks(
+    role: Role,
+) -> None:
+    session = AsyncMock()
+    session.add = Mock()
+    service = AgentSessionService(session, role)
+    parent_preset_id = uuid.uuid4()
+    parent_session_id = uuid.uuid4()
+    source_id = uuid.uuid4()
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=role.workspace_id,
+        title="Approval continuation",
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+        parent_session_id=parent_session_id,
+        tools=["core.http_request"],
+    )
+    parent_session = AgentSession(
+        id=parent_session_id,
+        workspace_id=role.workspace_id,
+        title="Original workflow",
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+        agent_preset_id=parent_preset_id,
+        agent_preset_version_id=uuid.uuid4(),
+    )
+    service.get_session = AsyncMock(return_value=parent_session)
+    service._ensure_session_preset_version_id = AsyncMock(
+        return_value=parent_session.agent_preset_version_id
+    )
+
+    class _FakeAgentManagementService:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        @asynccontextmanager
+        async def with_preset_config(self, *, preset_id=None, preset_version_id=None):
+            assert preset_id == parent_preset_id
+            assert preset_version_id == parent_session.agent_preset_version_id
+            yield AgentConfig(
+                model_name="claude-sonnet-4-5",
+                model_provider="anthropic",
+                source_id=source_id,
+                base_url="https://custom.anthropic.example",
+                instructions="Preset instructions",
+                actions=["core.http_request"],
+            )
+
+    with patch(
+        "tracecat.agent.session.service.AgentManagementService",
+        _FakeAgentManagementService,
+    ):
+        async with service._build_agent_config(agent_session) as config:
+            assert config.source_id == source_id
+            assert config.base_url == "https://custom.anthropic.example"
+            assert config.model_provider == "anthropic"
+            assert config.model_name == "claude-sonnet-4-5"
+            assert config.actions == []
+            assert config.instructions.startswith(
+                "You do not have access to any tools in this conversation."
+            )
