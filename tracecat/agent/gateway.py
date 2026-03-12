@@ -112,10 +112,9 @@ async def get_runtime_credentials(
     *,
     workspace_id: WorkspaceID,
     organization_id: OrganizationID,
+    model_name: str,
     provider: str,
-    model_catalog_ref: str | None,
-    model_source_type: str | None,
-    model_source_id: str | None,
+    source_id: str | None,
 ) -> dict[str, str]:
     """Fetch credentials for either direct providers or catalog-backed sources."""
     role = Role(
@@ -127,28 +126,15 @@ async def get_runtime_credentials(
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-llm-gateway"],
     )
     async with AgentManagementService.with_session(role=role) as service:
-        if model_catalog_ref:
-            return await service.get_runtime_credentials_for_catalog_ref(
-                catalog_ref=model_catalog_ref
-            )
-        match model_source_type:
-            case "default_sidecar":
-                return {}
-            case "openai_compatible_gateway" | "manual_custom":
-                if model_source_id is None:
-                    return {}
-                source = await service.get_model_source(uuid.UUID(model_source_id))
-                source_cfg = service._deserialize_sensitive_config(
-                    source.encrypted_config
+        return await service.get_runtime_credentials_for_selection(
+            selection=service._model_selection_from_key(
+                service._selection_key(
+                    source_id=uuid.UUID(source_id) if source_id else None,
+                    model_provider=provider,
+                    model_name=model_name,
                 )
-                creds = {}
-                if api_key := source_cfg.get("api_key"):
-                    creds["OPENAI_API_KEY"] = api_key
-                if source.base_url:
-                    creds["OPENAI_BASE_URL"] = source.base_url
-                return creds
-            case _:
-                return await service.get_provider_credentials(provider) or {}
+            )
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -194,11 +180,7 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
             "trace_request_id": request.headers.get(_TRACE_REQUEST_ID_HEADER),
             "model": claims.model,
             "provider": claims.provider,
-            "model_catalog_ref": claims.model_catalog_ref,
-            "model_source_type": claims.model_source_type,
-            "model_source_id": (
-                str(claims.model_source_id) if claims.model_source_id else None
-            ),
+            "source_id": str(claims.source_id) if claims.source_id else None,
             "base_url": claims.base_url,
             "model_settings": claims.model_settings,
         },
@@ -226,8 +208,7 @@ class TracecatCallbackHandler(CustomLogger):
         # Use model and provider from token metadata (trusted, required claims)
         model = user_api_key_dict.metadata.get("model")
         provider = user_api_key_dict.metadata.get("provider")
-        model_source_type = user_api_key_dict.metadata.get("model_source_type")
-        model_source_id = user_api_key_dict.metadata.get("model_source_id")
+        source_id = user_api_key_dict.metadata.get("source_id")
         if not model or not provider:
             _gateway_log(
                 logging.WARNING,
@@ -248,10 +229,9 @@ class TracecatCallbackHandler(CustomLogger):
         creds = await get_runtime_credentials(
             workspace_id=WorkspaceID(workspace_id),
             organization_id=OrganizationID(organization_id),
+            model_name=model,
             provider=provider,
-            model_catalog_ref=user_api_key_dict.metadata.get("model_catalog_ref"),
-            model_source_type=model_source_type,
-            model_source_id=model_source_id,
+            source_id=source_id,
         )
 
         if not creds and provider not in {
@@ -274,17 +254,8 @@ class TracecatCallbackHandler(CustomLogger):
             )
 
         # Inject credentials based on provider type
-        _inject_provider_credentials(data, provider, creds)
-        if (
-            model_base_url := user_api_key_dict.metadata.get("base_url")
-        ) and provider in {
-            "openai",
-            "anthropic",
-            "custom-model-provider",
-            "default_sidecar",
-            "openai_compatible_gateway",
-            "manual_custom",
-        }:
+        _inject_provider_credentials(data, provider, creds, source_id=source_id)
+        if model_base_url := user_api_key_dict.metadata.get("base_url"):
             # Preset/config base_url should override provider credential base URL
             data["api_base"] = model_base_url
 
@@ -362,16 +333,19 @@ def _inject_provider_credentials(
     data: dict,
     provider: str,
     creds: dict[str, str],
+    *,
+    source_id: str | None,
 ) -> None:
     """Inject provider-specific credentials into request."""
-    match provider:
-        case "default_sidecar" | "openai_compatible_gateway" | "manual_custom":
-            data["api_key"] = creds.get("OPENAI_API_KEY") or "not-needed"
-            if base_url := creds.get("OPENAI_BASE_URL"):
-                data["api_base"] = base_url
-            if not str(data.get("model", "")).startswith("openai/"):
-                data["model"] = f"openai/{data['model']}"
+    if source_id is not None:
+        data["api_key"] = creds.get("OPENAI_API_KEY") or "not-needed"
+        if base_url := creds.get("OPENAI_BASE_URL"):
+            data["api_base"] = base_url
+        if not str(data.get("model", "")).startswith("openai/"):
+            data["model"] = f"openai/{data['model']}"
+        return
 
+    match provider:
         case "openai":
             api_key = creds.get("OPENAI_API_KEY")
             if not api_key:

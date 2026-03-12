@@ -46,7 +46,6 @@ class StreamKey(str):
 
 
 class ModelSourceType(StrEnum):
-    DEFAULT_SIDECAR = "default_sidecar"
     OPENAI_COMPATIBLE_GATEWAY = "openai_compatible_gateway"
     MANUAL_CUSTOM = "manual_custom"
     OPENAI = "openai"
@@ -148,9 +147,7 @@ class AgentConfig:
     # Model
     model_name: str
     model_provider: str
-    model_catalog_ref: str | None = None
-    model_source_type: str | None = None
-    model_source_id: uuid.UUID | None = None
+    source_id: uuid.UUID | None = None
     base_url: str | None = None
     # Agent
     instructions: str | None = None

@@ -270,3 +270,30 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         == f"{WorkflowUUID.from_uuid(workflow_id).short()}/{ExecutionUUID.from_uuid(execution_id).short()}"
     )
     assert result.run_context.logical_time == logical_time
+
+
+@pytest.mark.anyio
+async def test_build_config_preserves_catalog_identity_in_payload() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    catalog_config = AgentConfig(
+        model_name="gpt-5.2",
+        model_provider="openai",
+        instructions="base instructions",
+        actions=["core.http_request"],
+    )
+    workflow_args.agent_args.preset_slug = "triage-agent"
+
+    with patch(
+        "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+        AsyncMock(return_value=agent_config_to_payload(catalog_config)),
+    ):
+        await workflow_instance._build_config(workflow_args)

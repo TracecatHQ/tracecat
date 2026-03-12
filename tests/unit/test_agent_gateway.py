@@ -16,10 +16,15 @@ from tracecat.agent.litellm_observability import LiteLLMLoadTracker
 from tracecat.agent.tokens import verify_llm_token
 
 
-def test_default_sidecar_injects_dummy_api_key_and_openai_prefix():
+def test_custom_source_injects_dummy_api_key_and_openai_prefix():
     data = {"model": "gpt-5"}
 
-    _inject_provider_credentials(data, "default_sidecar", {})
+    _inject_provider_credentials(
+        data,
+        "openai_compatible_gateway",
+        {},
+        source_id="00000000-0000-0000-0000-000000000001",
+    )
 
     assert data["api_key"] == "not-needed"
     assert data["model"] == "openai/gpt-5"
@@ -29,7 +34,7 @@ def test_gemini_injects_api_key_and_prefixes_model():
     data = {"model": "gemini-2.5-flash"}
     creds = {"GEMINI_API_KEY": "test-gemini-key"}
 
-    _inject_provider_credentials(data, "gemini", creds)
+    _inject_provider_credentials(data, "gemini", creds, source_id=None)
 
     assert data["api_key"] == "test-gemini-key"
     assert data["model"] == "gemini/gemini-2.5-flash"
@@ -39,7 +44,7 @@ def test_gemini_does_not_double_prefix_model():
     data = {"model": "gemini/gemini-3-flash-preview"}
     creds = {"GEMINI_API_KEY": "test-gemini-key"}
 
-    _inject_provider_credentials(data, "gemini", creds)
+    _inject_provider_credentials(data, "gemini", creds, source_id=None)
 
     assert data["model"] == "gemini/gemini-3-flash-preview"
 
@@ -51,7 +56,7 @@ def test_openai_injects_optional_base_url():
         "OPENAI_BASE_URL": "https://api.openai.eu/v1",
     }
 
-    _inject_provider_credentials(data, "openai", creds)
+    _inject_provider_credentials(data, "openai", creds, source_id=None)
 
     assert data["api_key"] == "test-openai-key"
     assert data["api_base"] == "https://api.openai.eu/v1"
@@ -64,7 +69,7 @@ def test_openai_does_not_double_prefix_model():
         "OPENAI_API_KEY": "test-openai-key",
     }
 
-    _inject_provider_credentials(data, "openai", creds)
+    _inject_provider_credentials(data, "openai", creds, source_id=None)
 
     assert data["model"] == "openai/gpt-5"
 
@@ -76,7 +81,7 @@ def test_anthropic_injects_optional_base_url():
         "ANTHROPIC_BASE_URL": "https://api.eu-west-1.anthropic.com",
     }
 
-    _inject_provider_credentials(data, "anthropic", creds)
+    _inject_provider_credentials(data, "anthropic", creds, source_id=None)
 
     assert data["api_key"] == "test-anthropic-key"
     assert data["api_base"] == "https://api.eu-west-1.anthropic.com"
@@ -91,7 +96,7 @@ def test_vertex_ai_injects_project_credentials_and_model():
         "GOOGLE_CLOUD_LOCATION": "us-central1",
     }
 
-    _inject_provider_credentials(data, "vertex_ai", creds)
+    _inject_provider_credentials(data, "vertex_ai", creds, source_id=None)
 
     assert data["vertex_credentials"] == '{"type":"service_account"}'
     assert data["vertex_project"] == "my-gcp-project"
@@ -106,7 +111,7 @@ def test_vertex_ai_requires_credentials_and_project():
     }
 
     with pytest.raises(ProxyException):
-        _inject_provider_credentials(data, "vertex_ai", creds)
+        _inject_provider_credentials(data, "vertex_ai", creds, source_id=None)
 
 
 def test_bedrock_uses_selected_model_when_no_provider_override_is_configured():
@@ -115,7 +120,7 @@ def test_bedrock_uses_selected_model_when_no_provider_override_is_configured():
         "AWS_REGION": "us-east-1",
     }
 
-    _inject_provider_credentials(data, "bedrock", creds)
+    _inject_provider_credentials(data, "bedrock", creds, source_id=None)
 
     assert data["model"] == "bedrock/anthropic.claude-3-haiku-20240307-v1:0"
 
@@ -128,7 +133,7 @@ def test_azure_openai_uses_selected_model_as_deployment_name_by_default():
         "AZURE_API_KEY": "azure-key",
     }
 
-    _inject_provider_credentials(data, "azure_openai", creds)
+    _inject_provider_credentials(data, "azure_openai", creds, source_id=None)
 
     assert data["model"] == "azure/gpt-4o"
 
@@ -140,7 +145,7 @@ def test_azure_ai_uses_selected_model_by_default():
         "AZURE_API_KEY": "azure-ai-key",
     }
 
-    _inject_provider_credentials(data, "azure_ai", creds)
+    _inject_provider_credentials(data, "azure_ai", creds, source_id=None)
 
     assert data["model"] == "azure_ai/claude-sonnet-4-5"
 
@@ -152,7 +157,7 @@ def test_bedrock_falls_back_to_ambient_iam_role_when_static_keys_missing():
         "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-sonnet-4-20250514-v1:0",
     }
 
-    _inject_provider_credentials(data, "bedrock", creds)
+    _inject_provider_credentials(data, "bedrock", creds, source_id=None)
 
     assert "api_key" not in data
     assert "aws_access_key_id" not in data
@@ -171,7 +176,7 @@ def test_bedrock_uses_static_keys_when_configured():
         "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
     }
 
-    _inject_provider_credentials(data, "bedrock", creds)
+    _inject_provider_credentials(data, "bedrock", creds, source_id=None)
 
     assert data["aws_access_key_id"] == "AKIA123"
     assert data["aws_secret_access_key"] == "secret"
@@ -188,7 +193,7 @@ def test_bedrock_rejects_partial_static_keys():
     }
 
     with pytest.raises(ProxyException):
-        _inject_provider_credentials(data, "bedrock", creds)
+        _inject_provider_credentials(data, "bedrock", creds, source_id=None)
 
 
 def test_bedrock_rejects_session_token_without_static_keys():
@@ -199,7 +204,7 @@ def test_bedrock_rejects_session_token_without_static_keys():
     }
 
     with pytest.raises(ProxyException):
-        _inject_provider_credentials(data, "bedrock", creds)
+        _inject_provider_credentials(data, "bedrock", creds, source_id=None)
 
 
 @pytest.mark.anyio
@@ -243,7 +248,7 @@ async def test_pre_call_hook_uses_preset_base_url_over_openai_credential_base_ur
 
 
 @pytest.mark.anyio
-async def test_pre_call_hook_allows_default_sidecar_without_credentials(
+async def test_pre_call_hook_allows_custom_source_without_provider_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ):
     async def mock_get_runtime_credentials(**_: object) -> dict[str, str]:
@@ -260,8 +265,8 @@ async def test_pre_call_hook_allows_default_sidecar_without_credentials(
             "workspace_id": "00000000-0000-0000-0000-000000000001",
             "organization_id": "00000000-0000-0000-0000-000000000002",
             "model": "gpt-5",
-            "provider": "default_sidecar",
-            "model_source_type": "default_sidecar",
+            "provider": "openai_compatible_gateway",
+            "source_id": "00000000-0000-0000-0000-000000000001",
             "model_settings": {},
         },
     )

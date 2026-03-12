@@ -10,8 +10,8 @@ export default function AgentSettingsPage() {
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">AI models</h2>
             <p className="text-base text-muted-foreground">
-              Manage the organization-enabled model catalog, org-scoped provider
-              credentials, custom sources, and the default model.
+              Manage org-scoped provider credentials, custom sources, allowed
+              models, and the default model.
             </p>
           </div>
         </div>

@@ -27,7 +27,7 @@ from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.schemas import ModelSelection, RunAgentArgs
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import (
     AgentSessionCreate,
@@ -63,7 +63,8 @@ from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.service import BaseWorkspaceService
-from tracecat.tiers.entitlements import Entitlement, check_entitlement
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -73,7 +74,7 @@ from tracecat.workflow.executions.enums import (
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
 if TYPE_CHECKING:
-    from tracecat.agent.executor.activity import ToolExecutionResult
+    from tracecat.agent.executor.schemas import ToolExecutionResult
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
@@ -131,9 +132,15 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             The created AgentSession model.
         """
-        if args.model_catalog_ref is not None:
+        if args.model_provider is not None and args.model_name is not None:
             agent_svc = AgentManagementService(self.session, self.role)
-            await agent_svc.require_enabled_catalog_ref(args.model_catalog_ref)
+            await agent_svc.require_enabled_model_selection(
+                selection=ModelSelection(
+                    source_id=args.source_id,
+                    model_provider=args.model_provider,
+                    model_name=args.model_name,
+                )
+            )
 
         # Apply default tools based on entity type if tools not provided
         tools = args.tools
@@ -162,7 +169,9 @@ class AgentSessionService(BaseWorkspaceService):
             tools=tools,
             agent_preset_id=logical_preset_id,
             agent_preset_version_id=pinned_preset_version_id,
-            model_catalog_ref=args.model_catalog_ref,
+            source_id=args.source_id,
+            model_name=args.model_name,
+            model_provider=args.model_provider,
             # Harness
             harness_type=args.harness_type,
         )
@@ -320,6 +329,17 @@ class AgentSessionService(BaseWorkspaceService):
                 return existing, False
         new_session = await self.create_session(args)
         return new_session, True
+
+    def _session_model_selection(
+        self, agent_session: AgentSession
+    ) -> ModelSelection | None:
+        if agent_session.model_name is None or agent_session.model_provider is None:
+            return None
+        return ModelSelection(
+            source_id=agent_session.source_id,
+            model_name=agent_session.model_name,
+            model_provider=agent_session.model_provider,
+        )
 
     async def list_sessions(
         self,
@@ -486,19 +506,49 @@ class AgentSessionService(BaseWorkspaceService):
                 agent_session.agent_preset_id = logical_preset_id
                 agent_session.agent_preset_version_id = resolved_version_id
 
-        if "model_catalog_ref" in set_fields:
-            model_catalog_ref = set_fields.pop("model_catalog_ref")
+        selection_updated = any(
+            field in set_fields
+            for field in ("source_id", "model_name", "model_provider")
+        )
+        if selection_updated:
+            source_id = set_fields.pop("source_id", agent_session.source_id)
+            model_name = set_fields.pop("model_name", agent_session.model_name)
+            model_provider = set_fields.pop(
+                "model_provider", agent_session.model_provider
+            )
             effective_preset_id = agent_session.agent_preset_id
-            if model_catalog_ref is not None and effective_preset_id is not None:
-                raise ValueError(
-                    "model_catalog_ref cannot be set when agent_preset_id is configured"
+            if (
+                any(
+                    value is not None
+                    for value in (source_id, model_name, model_provider)
                 )
-            if model_catalog_ref is not None:
+                and effective_preset_id is not None
+            ):
+                raise ValueError(
+                    "explicit model selection cannot be set when agent_preset_id is configured"
+                )
+            if any(
+                value is not None for value in (source_id, model_name, model_provider)
+            ) and (model_name is None or model_provider is None):
+                raise ValueError(
+                    "model_name and model_provider must be set together when selecting a model"
+                )
+            if model_name is not None and model_provider is not None:
                 agent_svc = AgentManagementService(self.session, self.role)
-                await agent_svc.require_enabled_catalog_ref(model_catalog_ref)
-            agent_session.model_catalog_ref = model_catalog_ref
+                await agent_svc.require_enabled_model_selection(
+                    selection=ModelSelection(
+                        source_id=source_id,
+                        model_provider=model_provider,
+                        model_name=model_name,
+                    )
+                )
+            agent_session.source_id = source_id
+            agent_session.model_name = model_name
+            agent_session.model_provider = model_provider
         if agent_session.agent_preset_id is not None:
-            agent_session.model_catalog_ref = None
+            agent_session.source_id = None
+            agent_session.model_name = None
+            agent_session.model_provider = None
 
         # Update remaining fields if provided
         for field, value in set_fields.items():
@@ -1245,18 +1295,17 @@ class AgentSessionService(BaseWorkspaceService):
             TracecatNotFoundError: If required resources are not found.
         """
         agent_svc = AgentManagementService(self.session, self.role)
+        session_selection = self._session_model_selection(agent_session)
 
         if agent_session.entity_type is None:
             async with agent_svc.with_model_config(
-                catalog_ref=agent_session.model_catalog_ref
+                selection=session_selection
             ) as model_config:
                 yield AgentConfig(
                     instructions="",
                     model_name=model_config.model_name,
                     model_provider=model_config.model_provider,
-                    model_catalog_ref=model_config.model_catalog_ref,
-                    model_source_type=model_config.model_source_type,
-                    model_source_id=model_config.model_source_id,
+                    source_id=model_config.source_id,
                     base_url=model_config.base_url,
                     actions=agent_session.tools,
                 )
@@ -1283,15 +1332,13 @@ class AgentSessionService(BaseWorkspaceService):
                     yield config
             else:
                 async with agent_svc.with_model_config(
-                    catalog_ref=agent_session.model_catalog_ref
+                    selection=session_selection
                 ) as model_config:
                     yield AgentConfig(
                         instructions=entity_instructions,
                         model_name=model_config.model_name,
                         model_provider=model_config.model_provider,
-                        model_catalog_ref=model_config.model_catalog_ref,
-                        model_source_type=model_config.model_source_type,
-                        model_source_id=model_config.model_source_id,
+                        source_id=model_config.source_id,
                         base_url=model_config.base_url,
                         actions=agent_session.tools,
                     )
@@ -1315,15 +1362,13 @@ class AgentSessionService(BaseWorkspaceService):
             instructions = await self._entity_to_prompt(agent_session)
             try:
                 async with agent_svc.with_model_config(
-                    catalog_ref=agent_session.model_catalog_ref
+                    selection=session_selection
                 ) as model_config:
                     yield AgentConfig(
                         instructions=instructions,
                         model_name=model_config.model_name,
                         model_provider=model_config.model_provider,
-                        model_catalog_ref=model_config.model_catalog_ref,
-                        model_source_type=model_config.model_source_type,
-                        model_source_id=model_config.model_source_id,
+                        source_id=model_config.source_id,
                         base_url=model_config.base_url,
                         actions=None,
                     )
@@ -1348,15 +1393,13 @@ class AgentSessionService(BaseWorkspaceService):
                     yield config
             else:
                 async with agent_svc.with_model_config(
-                    catalog_ref=agent_session.model_catalog_ref
+                    selection=session_selection
                 ) as model_config:
                     yield AgentConfig(
                         instructions=entity_instructions,
                         model_name=model_config.model_name,
                         model_provider=model_config.model_provider,
-                        model_catalog_ref=model_config.model_catalog_ref,
-                        model_source_type=model_config.model_source_type,
-                        model_source_id=model_config.model_source_id,
+                        source_id=model_config.source_id,
                         base_url=model_config.base_url,
                         actions=agent_session.tools,
                     )
@@ -1397,15 +1440,13 @@ class AgentSessionService(BaseWorkspaceService):
                         )
                 else:
                     async with agent_svc.with_model_config(
-                        catalog_ref=agent_session.model_catalog_ref
+                        selection=session_selection
                     ) as model_config:
                         yield AgentConfig(
                             instructions=fork_context.strip(),
                             model_name=model_config.model_name,
                             model_provider=model_config.model_provider,
-                            model_catalog_ref=model_config.model_catalog_ref,
-                            model_source_type=model_config.model_source_type,
-                            model_source_id=model_config.model_source_id,
+                            source_id=model_config.source_id,
                             base_url=model_config.base_url,
                             actions=[],  # No tools for forked sessions
                         )
@@ -1418,15 +1459,13 @@ class AgentSessionService(BaseWorkspaceService):
                     yield preset_config
             else:
                 async with agent_svc.with_model_config(
-                    catalog_ref=agent_session.model_catalog_ref
+                    selection=session_selection
                 ) as model_config:
                     yield AgentConfig(
                         instructions="",
                         model_name=model_config.model_name,
                         model_provider=model_config.model_provider,
-                        model_catalog_ref=model_config.model_catalog_ref,
-                        model_source_type=model_config.model_source_type,
-                        model_source_id=model_config.model_source_id,
+                        source_id=model_config.source_id,
                         base_url=model_config.base_url,
                         actions=agent_session.tools,
                     )
@@ -1835,7 +1874,9 @@ class AgentSessionService(BaseWorkspaceService):
             channel_context=parent.channel_context,
             tools=[],
             agent_preset_id=None,
-            model_catalog_ref=parent.model_catalog_ref,
+            source_id=parent.source_id,
+            model_name=parent.model_name,
+            model_provider=parent.model_provider,
             # Harness - inherit from parent
             harness_type=parent.harness_type,
             # Fork reference

@@ -25,12 +25,23 @@ import {
   actionsDeleteAction,
   actionsGetAction,
   actionsUpdateAction,
+  agentClearWorkspaceModelSubset,
   agentCreateProviderCredentials,
   agentDeleteProviderCredentials,
+  agentDisableModel,
+  agentDisableModels,
+  agentEnableModel,
+  agentEnableModels,
+  agentGetDefaultModel,
   agentGetProviderCredentialConfig,
   agentGetProvidersStatus,
+  agentGetWorkspaceModelSubset,
+  agentListModels,
   agentListProviderCredentialConfigs,
+  agentReplaceWorkspaceModelSubset,
   agentSessionsListSessions,
+  agentSetDefaultModel,
+  agentUpdateEnabledModelConfig,
   agentUpdateProviderCredentials,
   type CaseCommentCreate,
   type CaseCommentRead,
@@ -100,6 +111,7 @@ import {
   caseTagsDeleteCaseTag,
   caseTagsListCaseTags,
   caseTagsUpdateCaseTag,
+  type DefaultModelSelectionUpdate,
   type FolderDirectoryItem,
   foldersCreateFolder,
   foldersDeleteFolder,
@@ -107,6 +119,8 @@ import {
   foldersListFolders,
   foldersMoveFolder,
   foldersUpdateFolder,
+  type DefaultModelSelection as GeneratedDefaultModelSelection,
+  type ModelCatalogEntry as GeneratedModelCatalogEntry,
   type GitCommitInfo,
   type GitSettingsRead,
   type GraphOperation,
@@ -134,6 +148,7 @@ import {
   type MCPIntegrationUpdate,
   type ModelCredentialCreate,
   type ModelCredentialUpdate,
+  type ModelSelection,
   mcpIntegrationsCreateMcpIntegration,
   mcpIntegrationsDeleteMcpIntegration,
   mcpIntegrationsGetMcpIntegration,
@@ -325,6 +340,7 @@ import {
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
   type WorkspaceCreate,
+  type WorkspaceModelSubsetRead,
   type WorkspaceReadMinimal,
   type WorkspaceUpdate,
   workflowExecutionsCreateDraftWorkflowExecution,
@@ -5065,28 +5081,63 @@ export function useAgentSessions(
   }
 }
 
-export interface AgentCatalogEntry {
-  catalog_ref: string
-  model_name: string
-  model_provider: string
-  runtime_provider: string
-  display_name: string
-  source_type: string
-  source_name: string
-  source_id?: string | null
-  base_url?: string | null
-  enabled: boolean
-  enabled_config?: {
-    bedrock_inference_profile_id?: string | null
-  } | null
-  metadata?: Record<string, unknown> | null
+type CompositeModelSelection = Pick<
+  ModelSelection,
+  "source_id" | "model_provider" | "model_name"
+>
+
+export type AgentCatalogEntry = GeneratedModelCatalogEntry
+
+export type AgentDefaultModelSelection = GeneratedDefaultModelSelection
+
+export function getModelSelectionKey(
+  selection: CompositeModelSelection
+): string {
+  return JSON.stringify([
+    selection.source_id ?? null,
+    selection.model_provider,
+    selection.model_name,
+  ])
 }
 
-export interface AgentDefaultModelSelection {
-  catalog_ref: string
-  model_name: string
-  model_provider: string
-  display_name: string
+export function parseModelSelectionKey(value: string): ModelSelection {
+  const [sourceId, modelProvider, modelName] = JSON.parse(value) as [
+    string | null,
+    string,
+    string,
+  ]
+
+  return {
+    source_id: sourceId,
+    model_provider: modelProvider,
+    model_name: modelName,
+  }
+}
+
+export function isSameModelSelection(
+  left: CompositeModelSelection | null | undefined,
+  right: CompositeModelSelection | null | undefined
+): boolean {
+  if (left == null || right == null) {
+    return left == null && right == null
+  }
+
+  return getModelSelectionKey(left) === getModelSelectionKey(right)
+}
+
+export function matchesModelSelection(
+  model: CompositeModelSelection,
+  selection: CompositeModelSelection | null | undefined
+): boolean {
+  if (!selection) {
+    return false
+  }
+
+  return (
+    (model.source_id ?? null) === (selection.source_id ?? null) &&
+    model.model_provider === selection.model_provider &&
+    model.model_name === selection.model_name
+  )
 }
 
 export interface AgentManualDiscoveredModel {
@@ -5117,15 +5168,6 @@ export interface BuiltInProviderRead {
   credentials_configured: boolean
   base_url?: string | null
   runtime_target?: string | null
-  discovery_status: string
-  last_refreshed_at?: string | null
-  last_error?: string | null
-  discovered_models: AgentCatalogEntry[]
-}
-
-export interface DefaultModelInventoryRead {
-  source_type: string
-  source_name: string
   discovery_status: string
   last_refreshed_at?: string | null
   last_error?: string | null
@@ -5170,6 +5212,18 @@ interface BuiltInCatalogQuery {
   limit?: number
   provider?: string | null
   query?: string | null
+}
+
+function normalizeAgentCatalogEntry(
+  model: GeneratedModelCatalogEntry
+): AgentCatalogEntry {
+  return model
+}
+
+function normalizeDefaultModelSelection(
+  model: GeneratedDefaultModelSelection
+): AgentDefaultModelSelection {
+  return model
 }
 
 export async function listAllBuiltInAgentCatalog(
@@ -5237,7 +5291,7 @@ async function fetchAgentJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function normalizeBuiltInCatalog(
-  data: BuiltInCatalogApiRead | DefaultModelInventoryRead
+  data: BuiltInCatalogApiRead
 ): BuiltInCatalogRead {
   const models =
     "models" in data && Array.isArray(data.models)
@@ -5248,14 +5302,59 @@ function normalizeBuiltInCatalog(
         }))
 
   return {
-    source_type: data.source_type ?? "builtin_catalog",
-    source_name: data.source_name ?? "Built-in catalog",
+    source_type: data.source_type ?? "platform_catalog",
+    source_name: data.source_name ?? "Platform catalog",
     discovery_status: data.discovery_status ?? "never",
     last_refreshed_at: data.last_refreshed_at ?? null,
     last_error: data.last_error ?? null,
     next_cursor: "next_cursor" in data ? (data.next_cursor ?? null) : null,
     models,
   }
+}
+
+function normalizeWorkspaceAgentModelSubset(
+  data: WorkspaceModelSubsetRead | null | undefined
+): ModelSelection[] | null {
+  if (data == null) {
+    return null
+  }
+  if (data.inherit_all === true) {
+    return null
+  }
+  return data.models ?? null
+}
+
+async function fetchWorkspaceAgentModelSubset(
+  workspaceId: string
+): Promise<ModelSelection[] | null> {
+  return normalizeWorkspaceAgentModelSubset(
+    await agentGetWorkspaceModelSubset({ workspaceId })
+  )
+}
+
+async function saveWorkspaceAgentModelSubset(
+  workspaceId: string,
+  selections: ModelSelection[] | null
+): Promise<void> {
+  if (selections === null) {
+    await agentClearWorkspaceModelSubset({ workspaceId })
+    return
+  }
+
+  await agentReplaceWorkspaceModelSubset({
+    workspaceId,
+    requestBody: {
+      inherit_all: false,
+      models: Array.from(
+        new Map(
+          selections.map((selection) => [
+            getModelSelectionKey(selection),
+            selection,
+          ])
+        ).values()
+      ),
+    },
+  })
 }
 
 async function fetchBuiltInCatalogPage({
@@ -5277,7 +5376,7 @@ async function fetchBuiltInCatalogPage({
   if (query?.trim()) {
     searchParams.set("query", query.trim())
   }
-  const response = await fetch(`/api/agent/catalog/builtins?${searchParams}`, {
+  const response = await fetch(`/api/agent/catalog/platform?${searchParams}`, {
     headers: {
       "Content-Type": "application/json",
     },
@@ -5288,62 +5387,7 @@ async function fetchBuiltInCatalogPage({
       (await response.json()) as BuiltInCatalogApiRead
     )
   }
-
-  if (response.status !== 404) {
-    throw new Error(await response.text())
-  }
-
-  const fallback = normalizeBuiltInCatalog(
-    await fetchAgentJson<DefaultModelInventoryRead>("/agent/default-models")
-  )
-  let models = fallback.models
-  if (provider) {
-    models = models.filter((model) => model.runtime_provider === provider)
-  }
-  if (query?.trim()) {
-    const normalizedQuery = query.trim().toLowerCase()
-    models = models.filter(
-      (model) =>
-        model.display_name.toLowerCase().includes(normalizedQuery) ||
-        model.model_name.toLowerCase().includes(normalizedQuery) ||
-        model.runtime_provider.toLowerCase().includes(normalizedQuery)
-    )
-  }
-  const start = cursor ? Number(cursor) : 0
-  const end = start + limit
-  return {
-    ...fallback,
-    models: models.slice(start, end),
-    next_cursor: end < models.length ? String(end) : null,
-  }
-}
-
-async function refreshBuiltInCatalog(): Promise<BuiltInCatalogRead> {
-  const response = await fetch("/api/agent/catalog/builtins/refresh", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  })
-
-  if (response.ok) {
-    return normalizeBuiltInCatalog(
-      (await response.json()) as BuiltInCatalogApiRead
-    )
-  }
-
-  if (response.status !== 404) {
-    throw new Error(await response.text())
-  }
-
-  return normalizeBuiltInCatalog(
-    await fetchAgentJson<DefaultModelInventoryRead>(
-      "/agent/default-models/refresh",
-      {
-        method: "POST",
-      }
-    )
-  )
+  throw new Error(await response.text())
 }
 
 export function useAgentModels(workspaceId?: string | null) {
@@ -5354,10 +5398,8 @@ export function useAgentModels(workspaceId?: string | null) {
   } = useQuery<AgentCatalogEntry[], Error>({
     queryKey: ["agent-models", workspaceId ?? null],
     queryFn: async () =>
-      await fetchAgentJson<AgentCatalogEntry[]>(
-        workspaceId
-          ? `/agent/models?workspace_id=${encodeURIComponent(workspaceId)}`
-          : "/agent/models"
+      (await agentListModels({ workspaceId: workspaceId ?? null })).map(
+        normalizeAgentCatalogEntry
       ),
   })
 
@@ -5368,6 +5410,47 @@ export function useAgentModels(workspaceId?: string | null) {
   }
 }
 
+export function useWorkspaceAgentModelSubset(workspaceId: string) {
+  const queryClient = useQueryClient()
+  const {
+    data: modelSubset,
+    isLoading: modelSubsetLoading,
+    error: modelSubsetError,
+  } = useQuery<ModelSelection[] | null, Error>({
+    queryKey: ["agent-workspace-model-subset", workspaceId],
+    queryFn: async () => await fetchWorkspaceAgentModelSubset(workspaceId),
+  })
+
+  const {
+    mutateAsync: updateModelSubset,
+    isPending: isUpdatingModelSubset,
+    error: updateModelSubsetError,
+  } = useMutation({
+    mutationFn: async (selections: ModelSelection[] | null) => {
+      await saveWorkspaceAgentModelSubset(workspaceId, selections)
+      return selections
+    },
+    onSuccess: (selections) => {
+      queryClient.setQueryData(
+        ["agent-workspace-model-subset", workspaceId],
+        selections
+      )
+      queryClient.invalidateQueries({
+        queryKey: ["agent-models", workspaceId],
+      })
+    },
+  })
+
+  return {
+    modelSubset,
+    modelSubsetLoading,
+    modelSubsetError,
+    updateModelSubset,
+    isUpdatingModelSubset,
+    updateModelSubsetError,
+  }
+}
+
 export function useDiscoveredAgentModels() {
   const {
     data: models,
@@ -5375,9 +5458,11 @@ export function useDiscoveredAgentModels() {
     error,
     refetch,
   } = useQuery<AgentCatalogEntry[], Error>({
-    queryKey: ["agent-models", "discovered"],
+    queryKey: ["agent-models", "custom"],
     queryFn: async () =>
-      await fetchAgentJson<AgentCatalogEntry[]>("/agent/catalog/discovered"),
+      (await agentListModels())
+        .map(normalizeAgentCatalogEntry)
+        .filter((model) => model.source_id != null),
   })
 
   return {
@@ -5395,9 +5480,9 @@ export function useAgentModelSources() {
     error,
     refetch,
   } = useQuery<AgentModelSourceRead[], Error>({
-    queryKey: ["agent-custom-sources"],
+    queryKey: ["agent-sources"],
     queryFn: async () =>
-      await fetchAgentJson<AgentModelSourceRead[]>("/agent/custom-sources"),
+      await fetchAgentJson<AgentModelSourceRead[]>("/agent/sources"),
   })
 
   return {
@@ -5413,46 +5498,67 @@ export function useAgentCatalogMutations() {
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["agent-models"] })
-    queryClient.invalidateQueries({ queryKey: ["agent-models", "discovered"] })
+    queryClient.invalidateQueries({ queryKey: ["agent-models", "custom"] })
     queryClient.invalidateQueries({ queryKey: ["agent-models", "builtins"] })
-    queryClient.invalidateQueries({ queryKey: ["agent-default-models"] })
     queryClient.invalidateQueries({ queryKey: ["agent-providers"] })
-    queryClient.invalidateQueries({ queryKey: ["agent-custom-sources"] })
+    queryClient.invalidateQueries({ queryKey: ["agent-sources"] })
     queryClient.invalidateQueries({ queryKey: ["agent-default-model"] })
   }
 
   const enableModel = useMutation({
-    mutationFn: async (catalogRef: string) =>
-      await fetchAgentJson<AgentCatalogEntry>("/agent/models/enabled", {
-        method: "POST",
-        body: JSON.stringify({ catalog_ref: catalogRef }),
-      }),
+    mutationFn: async (selection: ModelSelection) => {
+      return normalizeAgentCatalogEntry(
+        await agentEnableModel({
+          requestBody: selection,
+        })
+      )
+    },
     onSuccess: invalidate,
   })
 
   const enableModels = useMutation({
-    mutationFn: async (catalogRefs: string[]) =>
-      await fetchAgentJson<AgentCatalogEntry[]>("/agent/models/enabled/batch", {
-        method: "POST",
-        body: JSON.stringify({ catalog_refs: catalogRefs }),
-      }),
+    mutationFn: async (selections: ModelSelection[]) =>
+      (
+        await agentEnableModels({
+          requestBody: {
+            models: Array.from(
+              new Map(
+                selections.map((selection) => [
+                  getModelSelectionKey(selection),
+                  selection,
+                ])
+              ).values()
+            ),
+          },
+        })
+      ).map(normalizeAgentCatalogEntry),
     onSuccess: invalidate,
   })
 
   const disableModel = useMutation({
-    mutationFn: async (catalogRef: string) =>
-      await fetchAgentJson<void>(
-        `/agent/models/enabled?catalog_ref=${encodeURIComponent(catalogRef)}`,
-        { method: "DELETE" }
-      ),
+    mutationFn: async (selection: ModelSelection) => {
+      await agentDisableModel({
+        sourceId: selection.source_id ?? null,
+        modelProvider: selection.model_provider,
+        modelName: selection.model_name,
+      })
+    },
     onSuccess: invalidate,
   })
 
   const disableModels = useMutation({
-    mutationFn: async (catalogRefs: string[]) =>
-      await fetchAgentJson<void>("/agent/models/enabled/batch", {
-        method: "DELETE",
-        body: JSON.stringify({ catalog_refs: catalogRefs }),
+    mutationFn: async (selections: ModelSelection[]) =>
+      await agentDisableModels({
+        requestBody: {
+          models: Array.from(
+            new Map(
+              selections.map((selection) => [
+                getModelSelectionKey(selection),
+                selection,
+              ])
+            ).values()
+          ),
+        },
       }),
     onSuccess: invalidate,
   })
@@ -5460,23 +5566,27 @@ export function useAgentCatalogMutations() {
   const updateEnabledModelConfig = useMutation({
     mutationFn: async (params: {
       bedrockInferenceProfileId?: string | null
-      catalogRef: string
-    }) =>
-      await fetchAgentJson<AgentCatalogEntry>("/agent/models/enabled", {
-        method: "PATCH",
-        body: JSON.stringify({
-          catalog_ref: params.catalogRef,
-          config: {
-            bedrock_inference_profile_id: params.bedrockInferenceProfileId,
+      selection: ModelSelection
+    }) => {
+      return normalizeAgentCatalogEntry(
+        await agentUpdateEnabledModelConfig({
+          requestBody: {
+            source_id: params.selection.source_id ?? null,
+            model_provider: params.selection.model_provider,
+            model_name: params.selection.model_name,
+            config: {
+              bedrock_inference_profile_id: params.bedrockInferenceProfileId,
+            },
           },
-        }),
-      }),
+        })
+      )
+    },
     onSuccess: invalidate,
   })
 
   const createSource = useMutation({
     mutationFn: async (data: AgentModelSourceCreateInput) =>
-      await fetchAgentJson<AgentModelSourceRead>("/agent/custom-sources", {
+      await fetchAgentJson<AgentModelSourceRead>("/agent/sources", {
         method: "POST",
         body: JSON.stringify(data),
       }),
@@ -5486,7 +5596,7 @@ export function useAgentCatalogMutations() {
   const updateSource = useMutation({
     mutationFn: async (data: AgentModelSourceUpdateInput) =>
       await fetchAgentJson<AgentModelSourceRead>(
-        `/agent/custom-sources/${data.sourceId}`,
+        `/agent/sources/${data.sourceId}`,
         {
           method: "PATCH",
           body: JSON.stringify({
@@ -5506,7 +5616,7 @@ export function useAgentCatalogMutations() {
   const refreshSource = useMutation({
     mutationFn: async (sourceId: string) =>
       await fetchAgentJson<AgentCatalogEntry[]>(
-        `/agent/custom-sources/${sourceId}/refresh`,
+        `/agent/sources/${sourceId}/refresh`,
         { method: "POST" }
       ),
     onSuccess: invalidate,
@@ -5514,25 +5624,9 @@ export function useAgentCatalogMutations() {
 
   const deleteSource = useMutation({
     mutationFn: async (sourceId: string) =>
-      await fetchAgentJson<void>(`/agent/custom-sources/${sourceId}`, {
+      await fetchAgentJson<void>(`/agent/sources/${sourceId}`, {
         method: "DELETE",
       }),
-    onSuccess: invalidate,
-  })
-
-  const refreshDefaultInventory = useMutation({
-    mutationFn: refreshBuiltInCatalog,
-    onSuccess: invalidate,
-  })
-
-  const refreshProvider = useMutation({
-    mutationFn: async (provider: string) =>
-      await fetchAgentJson<BuiltInProviderRead>(
-        `/agent/providers/${provider}/refresh`,
-        {
-          method: "POST",
-        }
-      ),
     onSuccess: invalidate,
   })
 
@@ -5545,8 +5639,6 @@ export function useAgentCatalogMutations() {
     createSource: createSource.mutateAsync,
     updateSource: updateSource.mutateAsync,
     refreshSource: refreshSource.mutateAsync,
-    refreshDefaultInventory: refreshDefaultInventory.mutateAsync,
-    refreshProvider: refreshProvider.mutateAsync,
     deleteSource: deleteSource.mutateAsync,
     isUpdating:
       enableModel.isPending ||
@@ -5557,8 +5649,6 @@ export function useAgentCatalogMutations() {
       createSource.isPending ||
       updateSource.isPending ||
       refreshSource.isPending ||
-      refreshDefaultInventory.isPending ||
-      refreshProvider.isPending ||
       deleteSource.isPending,
   }
 }
@@ -5577,26 +5667,6 @@ export function useModelProviders() {
 
   return {
     providers,
-    isLoading,
-    error,
-    refetch,
-  }
-}
-
-export function useDefaultModelInventory() {
-  const {
-    data: inventory,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery<DefaultModelInventoryRead, Error>({
-    queryKey: ["agent-default-models"],
-    queryFn: async () =>
-      await fetchAgentJson<DefaultModelInventoryRead>("/agent/default-models"),
-  })
-
-  return {
-    inventory,
     isLoading,
     error,
     refetch,
@@ -5678,9 +5748,12 @@ export function useAgentDefaultModel() {
   } = useQuery<AgentDefaultModelSelection | null, Error>({
     queryKey: ["agent-default-model"],
     queryFn: async () =>
-      await fetchAgentJson<AgentDefaultModelSelection | null>(
-        "/agent/default-model"
-      ),
+      (() => {
+        const result = agentGetDefaultModel()
+        return result.then((model) =>
+          model ? normalizeDefaultModelSelection(model) : null
+        )
+      })(),
   })
 
   const {
@@ -5688,11 +5761,13 @@ export function useAgentDefaultModel() {
     isPending: isUpdating,
     error: updateError,
   } = useMutation({
-    mutationFn: async (catalogRef: string) =>
-      await fetchAgentJson<AgentDefaultModelSelection>("/agent/default-model", {
-        method: "PUT",
-        body: JSON.stringify({ catalog_ref: catalogRef }),
-      }),
+    mutationFn: async (selection: DefaultModelSelectionUpdate) => {
+      return normalizeDefaultModelSelection(
+        await agentSetDefaultModel({
+          requestBody: selection,
+        })
+      )
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agent-default-model"] })
       queryClient.invalidateQueries({ queryKey: ["agent-models"] })
@@ -5727,9 +5802,7 @@ export function useAgentCredentials() {
       queryClient.invalidateQueries({ queryKey: ["agent-providers"] })
       queryClient.invalidateQueries({ queryKey: ["agent-models", "builtins"] })
       queryClient.invalidateQueries({ queryKey: ["agent-models"] })
-      queryClient.invalidateQueries({
-        queryKey: ["agent-models", "discovered"],
-      })
+      queryClient.invalidateQueries({ queryKey: ["agent-models", "custom"] })
     },
   })
 
@@ -5755,9 +5828,7 @@ export function useAgentCredentials() {
       queryClient.invalidateQueries({ queryKey: ["agent-providers"] })
       queryClient.invalidateQueries({ queryKey: ["agent-models", "builtins"] })
       queryClient.invalidateQueries({ queryKey: ["agent-models"] })
-      queryClient.invalidateQueries({
-        queryKey: ["agent-models", "discovered"],
-      })
+      queryClient.invalidateQueries({ queryKey: ["agent-models", "custom"] })
     },
   })
 
@@ -5776,9 +5847,7 @@ export function useAgentCredentials() {
       queryClient.invalidateQueries({ queryKey: ["agent-providers"] })
       queryClient.invalidateQueries({ queryKey: ["agent-models", "builtins"] })
       queryClient.invalidateQueries({ queryKey: ["agent-models"] })
-      queryClient.invalidateQueries({
-        queryKey: ["agent-models", "discovered"],
-      })
+      queryClient.invalidateQueries({ queryKey: ["agent-models", "custom"] })
     },
   })
 
@@ -5849,9 +5918,7 @@ export function useDeleteProviderCredentials() {
       })
       queryClient.invalidateQueries({ queryKey: ["agent-providers"] })
       queryClient.invalidateQueries({ queryKey: ["agent-models"] })
-      queryClient.invalidateQueries({
-        queryKey: ["agent-models", "discovered"],
-      })
+      queryClient.invalidateQueries({ queryKey: ["agent-models", "custom"] })
     },
   })
 
@@ -5871,7 +5938,7 @@ export function useDeleteProviderCredentials() {
  */
 
 interface ChatReadinessOptions {
-  catalogRef?: string | null
+  selection?: ModelSelection | null
   workspaceId?: string | null
   modelOverride?: {
     name: string
@@ -5882,7 +5949,6 @@ interface ChatReadinessOptions {
 
 function isCatalogEntryCredentialFree(model: AgentCatalogEntry): boolean {
   return (
-    model.source_type === "default_sidecar" ||
     model.source_type === "openai_compatible_gateway" ||
     model.source_type === "manual_custom"
   )
@@ -5904,8 +5970,7 @@ function findCatalogEntryForModelOverride(
   return (
     models?.find(
       (model) =>
-        (model.runtime_provider === modelOverride.provider ||
-          model.model_provider === modelOverride.provider) &&
+        model.model_provider === modelOverride.provider &&
         model.model_name === modelOverride.name &&
         normalizeOptionalModelValue(model.base_url) === normalizedBaseUrl
     ) ?? null
@@ -5916,10 +5981,6 @@ function isModelOverrideCredentialFree(
   models: AgentCatalogEntry[] | undefined,
   modelOverride: NonNullable<ChatReadinessOptions["modelOverride"]>
 ): boolean {
-  if (modelOverride.provider === "default_sidecar") {
-    return true
-  }
-
   const model = findCatalogEntryForModelOverride(models, modelOverride)
   return model != null && isCatalogEntryCredentialFree(model)
 }
@@ -5929,7 +5990,7 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
   const { models, modelsLoading } = useAgentModels(options?.workspaceId)
   const { providersStatus, isLoading: statusLoading } =
     useModelProvidersStatus()
-  const selectedCatalogRef = options?.catalogRef
+  const selectedSelection = options?.selection
   const modelOverride = options?.modelOverride
 
   const loading = defaultModelLoading || modelsLoading || statusLoading
@@ -5969,8 +6030,8 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
     }
   }
 
-  const effectiveCatalogRef = selectedCatalogRef ?? defaultModel?.catalog_ref
-  if (!effectiveCatalogRef) {
+  const effectiveSelection = selectedSelection ?? defaultModel
+  if (!effectiveSelection) {
     return {
       ready: false,
       loading: false,
@@ -5978,8 +6039,8 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
     }
   }
 
-  const modelCfg = models?.find(
-    (model) => model.catalog_ref === effectiveCatalogRef
+  const modelCfg = models?.find((model) =>
+    matchesModelSelection(model, effectiveSelection)
   )
   if (!modelCfg) {
     return {
@@ -5989,7 +6050,7 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
     }
   }
 
-  const providerId = modelCfg.runtime_provider
+  const providerId = modelCfg.model_provider
   const hasCreds = isCatalogEntryCredentialFree(modelCfg)
     ? true
     : (providersStatus?.[providerId] ?? false)
@@ -6111,7 +6172,10 @@ export function useDragDivider({
 
 export function useWorkspaceSettings(
   workspaceId: string,
-  onWorkspaceDeleted?: () => void
+  onWorkspaceDeleted?: () => void,
+  options?: {
+    suppressUpdateToasts?: boolean
+  }
 ) {
   const queryClient = useQueryClient()
   type WorkspaceUpdateInput = WorkspaceUpdate & {
@@ -6129,18 +6193,22 @@ export function useWorkspaceSettings(
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
       queryClient.invalidateQueries({ queryKey: ["workspaces"] })
-      toast({
-        title: "Workspace updated",
-        description: "Workspace settings updated successfully.",
-      })
+      if (!options?.suppressUpdateToasts) {
+        toast({
+          title: "Workspace updated",
+          description: "Workspace settings updated successfully.",
+        })
+      }
     },
     onError: (error) => {
       console.error("Failed to update workspace", error)
-      toast({
-        title: "Error updating workspace",
-        description: "Failed to update the workspace. Please try again.",
-        variant: "destructive",
-      })
+      if (!options?.suppressUpdateToasts) {
+        toast({
+          title: "Error updating workspace",
+          description: "Failed to update the workspace. Please try again.",
+          variant: "destructive",
+        })
+      }
     },
   })
 

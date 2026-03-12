@@ -64,6 +64,7 @@ class AgentPresetService(BaseWorkspaceService):
         "instructions",
         "model_name",
         "model_provider",
+        "source_id",
         "base_url",
         "output_type",
         "actions",
@@ -106,9 +107,9 @@ class AgentPresetService(BaseWorkspaceService):
             name=params.name,
             description=params.description,
             instructions=params.instructions,
-            model_catalog_ref=params.model_catalog_ref,
             model_name=params.model_name,
             model_provider=params.model_provider,
+            source_id=params.source_id,
             base_url=params.base_url,
             output_type=params.output_type,
             actions=params.actions,
@@ -127,7 +128,7 @@ class AgentPresetService(BaseWorkspaceService):
             instructions=preset.instructions,
             model_name=preset.model_name,
             model_provider=preset.model_provider,
-            model_catalog_ref=preset.model_catalog_ref,
+            source_id=preset.source_id,
             base_url=preset.base_url,
             output_type=preset.output_type,
             actions=preset.actions,
@@ -1051,17 +1052,10 @@ class AgentPresetService(BaseWorkspaceService):
         model_settings = {}
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
-        model_catalog_ref = version.model_catalog_ref
-        if (
-            model_catalog_ref is None
-            and preset is not None
-            and preset.current_version_id == version.id
-        ):
-            model_catalog_ref = preset.model_catalog_ref
         return AgentConfig(
             model_name=version.model_name,
             model_provider=version.model_provider,
-            model_catalog_ref=model_catalog_ref,
+            source_id=version.source_id,
             base_url=version.base_url,
             instructions=version.instructions,
             output_type=cast(OutputType | None, version.output_type),
@@ -1099,7 +1093,7 @@ class AgentPresetService(BaseWorkspaceService):
             instructions=preset.instructions,
             model_name=preset.model_name,
             model_provider=preset.model_provider,
-            model_catalog_ref=preset.model_catalog_ref,
+            source_id=preset.source_id,
             base_url=preset.base_url,
             output_type=preset.output_type,
             actions=preset.actions,
@@ -1122,7 +1116,7 @@ class AgentPresetService(BaseWorkspaceService):
         preset.instructions = version.instructions
         preset.model_name = version.model_name
         preset.model_provider = version.model_provider
-        preset.model_catalog_ref = version.model_catalog_ref
+        preset.source_id = version.source_id
         preset.base_url = version.base_url
         preset.output_type = version.output_type
         preset.actions = version.actions
