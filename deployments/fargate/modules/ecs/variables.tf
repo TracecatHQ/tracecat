@@ -484,7 +484,7 @@ variable "executor_memory" {
 variable "executor_desired_count" {
   type        = number
   description = "Desired number of executor instances to run"
-  default     = 1
+  default     = 2
 }
 
 variable "executor_client_timeout" {
@@ -542,6 +542,18 @@ variable "temporal_memory" {
   default = "16384"
 }
 
+variable "temporal_db_tls_enabled" {
+  type        = bool
+  description = "Enable TLS for Temporal's PostgreSQL connections and auto-setup schema bootstrap."
+  default     = true
+}
+
+variable "temporal_db_tls_enable_host_verification" {
+  type        = bool
+  description = "Enable TLS host verification for Temporal's PostgreSQL connections. Keep false unless you mount the RDS CA bundle into the Temporal task."
+  default     = false
+}
+
 variable "temporal_num_history_shards" {
   type        = string
   description = "Number of history shards for Temporal"
@@ -558,14 +570,28 @@ variable "caddy_memory" {
   default = "512"
 }
 
-variable "db_instance_class" {
-  type    = string
-  default = "db.t4g.2xlarge"
+variable "tracecat_db_instance_class" {
+  type        = string
+  description = "Instance class for the Tracecat application RDS instance."
+  default     = "db.t4g.medium"
 }
 
-variable "db_allocated_storage" {
-  type    = string
-  default = "5"
+variable "temporal_db_instance_class" {
+  type        = string
+  description = "Instance class for the Temporal RDS instance."
+  default     = "db.t4g.2xlarge"
+}
+
+variable "tracecat_db_allocated_storage" {
+  type        = number
+  description = "Allocated storage in GiB for the Tracecat application RDS instance."
+  default     = 20
+}
+
+variable "temporal_db_allocated_storage" {
+  type        = number
+  description = "Allocated storage in GiB for the Temporal RDS instance."
+  default     = 50
 }
 
 variable "db_engine_version" {
