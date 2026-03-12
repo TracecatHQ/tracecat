@@ -2,6 +2,7 @@
 
 import {
   BlocksIcon,
+  BotIcon,
   BoxIcon,
   ChevronDown,
   InboxIcon,
@@ -110,6 +111,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewActions = useScopeCheck("org:registry:read")
   const canViewInbox = useScopeCheck("inbox:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
+  const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewCases = useScopeCheck("case:read")
   const canCreateCase = useScopeCheck("case:create")
   const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
@@ -331,18 +333,26 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarContent>
       <SidebarFooter>
         <SidebarUserNav
-          settingsItems={
+          settingsItems={[
             canViewMembers === true
-              ? [
-                  {
-                    title: "Members",
-                    href: `${basePath}/members`,
-                    icon: UsersIcon,
-                    isActive: pathname?.startsWith(`${basePath}/members`),
-                  },
-                ]
-              : undefined
-          }
+              ? {
+                  title: "Members",
+                  href: `${basePath}/members`,
+                  icon: UsersIcon,
+                  isActive: pathname?.startsWith(`${basePath}/members`),
+                }
+              : null,
+            canViewServiceAccounts === true
+              ? {
+                  title: "Service accounts",
+                  href: `${basePath}/service-accounts`,
+                  icon: BotIcon,
+                  isActive: pathname?.startsWith(
+                    `${basePath}/service-accounts`
+                  ),
+                }
+              : null,
+          ].filter((item) => item !== null)}
         />
       </SidebarFooter>
       <SidebarRail />
