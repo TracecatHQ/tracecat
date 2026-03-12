@@ -8,7 +8,7 @@ This document lists the currently registered MCP tools in
 - `list_workspaces()`
 - `create_workflow(workspace_id, title, description="")`
 - `get_workflow(workspace_id, workflow_id)`
-- `get_workflow_file(workspace_id, workflow_id, base_dir=".", draft=True, overwrite=False)`
+- `get_workflow_file(workspace_id, workflow_id, draft=True)`
 - `prepare_workflow_file_upload(workspace_id, relative_path, operation, workflow_id=None, update_mode="patch")`
 - `create_workflow_from_uploaded_file(workspace_id, artifact_id, title=None, description="", use_workflow_id=False)`
 - `update_workflow_from_uploaded_file(workspace_id, workflow_id, artifact_id, title=None, description=None, status=None, alias=None, error_handler=None, update_mode="patch")`
@@ -23,7 +23,6 @@ This document lists the currently registered MCP tools in
 
 ### Workflow file transfer notes
 
-- `get_workflow_file` writes the workflow file and inferred folder structure into the current directory or selected `base_dir` for `stdio` clients. Confirm the destination before using it.
 - Remote `/mcp` clients use staged blob transfer instead of inline YAML:
   - `get_workflow_file` returns a short-lived `download_url`
   - `prepare_workflow_file_upload` returns a short-lived `upload_url` plus an opaque `artifact_id`
@@ -37,7 +36,7 @@ This document lists the currently registered MCP tools in
 - `get_action_context(workspace_id, action_name)`
 - `get_workflow_authoring_context(workspace_id, action_names_json=None, query=None)`
 - `prepare_template_file_upload(workspace_id, relative_path)`
-- `validate_template_action(workspace_id, template_path=None, artifact_id=None, check_db=False)`
+- `validate_template_action(workspace_id, artifact_id, check_db=False)`
 
 ## Webhook and case trigger tools
 
@@ -82,14 +81,13 @@ This document lists the currently registered MCP tools in
 - `insert_table_row(workspace_id, table_id, row_json, upsert=False)`
 - `update_table_row(workspace_id, table_id, row_id, row_json)`
 - `search_table_rows(workspace_id, table_id, search_term=None, limit=100, offset=0)`
-- `import_csv(workspace_id, csv_path, table_name=None)`
-- `export_csv(workspace_id, table_id, include_header=True, base_dir=".", overwrite=False)`
+- `export_csv(workspace_id, table_id, include_header=True)`
 
 ### Template and CSV file transfer notes
 
-- `validate_template_action` reads a local YAML file for `stdio` clients or validates a staged uploaded file via `artifact_id` for remote `/mcp` clients.
+- `validate_template_action` validates a staged uploaded file via `artifact_id` for remote `/mcp` clients.
 - `prepare_template_file_upload` is required for remote template validation.
-- `export_csv` no longer returns inline CSV text. It writes to disk for `stdio` clients or returns a short-lived `download_url` for remote `/mcp` clients.
+- `export_csv` no longer returns inline CSV text. It returns a short-lived `download_url` for remote `/mcp` clients.
 
 ## Variable and secret metadata tools
 

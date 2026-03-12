@@ -16,7 +16,7 @@ from collections import deque
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from io import StringIO
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any, Literal, cast
 
 import orjson
@@ -471,19 +471,17 @@ _WORKFLOW_FILE_ARTIFACT_KEY_PREFIX = "mcp:workflow-artifacts"
 _TEMPLATE_FILE_ARTIFACT_KEY_PREFIX = "mcp:template-artifacts"
 _WORKFLOW_FILE_ALLOWED_EXTENSIONS = {".yaml", ".yml"}
 _WORKFLOW_FILE_WARNING = (
-    "Workflow file tools may write workflow data and folder structure into the "
-    "current directory or selected base directory. Only use them when you are "
-    "certain that destination is correct."
+    "Workflow file tools use staged blob transfers for remote MCP clients. "
+    "Download URLs and upload artifacts are short-lived and bound to the "
+    "requesting client/session."
 )
 _TEMPLATE_FILE_WARNING = (
-    "Template file tools may read from or upload YAML files in the current "
-    "directory or selected path. Only use them when you are certain the source "
-    "path is correct."
+    "Template validation only supports staged uploads for remote MCP clients. "
+    "Local filesystem paths are not supported."
 )
 _CSV_FILE_WARNING = (
-    "CSV export tools may write files into the current directory or selected "
-    "base directory. Only use them when you are certain that destination is "
-    "correct."
+    "CSV exports are delivered through staged blob downloads for remote MCP "
+    "clients. Local filesystem export/import paths are not supported."
 )
 _workflow_artifact_redis: AsyncRedis | None = None
 
@@ -531,6 +529,16 @@ def _get_context_transport(ctx: Context | None) -> str:
     if ctx is None or ctx.transport is None:
         return "streamable-http"
     return ctx.transport
+
+
+def _require_remote_mcp_context(ctx: Context | None, *, tool_name: str) -> None:
+    """Require the tool to be called over Tracecat's remote MCP transport."""
+    if ctx is None:
+        raise ToolError(f"{tool_name} requires MCP context")
+    if _get_context_transport(ctx) != "streamable-http":
+        raise ToolError(
+            f"{tool_name} is only supported for remote streamable-http MCP clients"
+        )
 
 
 def _workflow_file_bucket() -> str:
@@ -866,25 +874,6 @@ async def _assign_workflow_to_folder(
     await folder_service.move_workflow(workflow_id, folder)
 
 
-def _write_workflow_file_to_disk(
-    *,
-    base_dir: str,
-    relative_path: str,
-    content: str,
-    overwrite: bool,
-) -> Path:
-    """Write a workflow file under the requested base directory."""
-    target = Path(base_dir).expanduser().joinpath(*PurePosixPath(relative_path).parts)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists() and not overwrite:
-        raise ToolError(
-            f"Refusing to overwrite existing workflow file at {target}. "
-            "Set overwrite=True to replace it."
-        )
-    target.write_text(content, encoding="utf-8")
-    return target
-
-
 def _build_workflow_file_payload(
     *,
     workflow: Any,
@@ -917,31 +906,6 @@ def _parse_uploaded_text_file(content: bytes, *, label: str) -> tuple[str, str]:
 def _parse_uploaded_workflow_yaml(content: bytes) -> tuple[str, str]:
     """Validate uploaded workflow file bytes and decode to text."""
     return _parse_uploaded_text_file(content, label="workflow file")
-
-
-def _read_text_file_from_disk(
-    path_str: str,
-    *,
-    empty_message: str,
-    not_found_label: str,
-) -> tuple[Path, str, str]:
-    """Read a UTF-8 text file from disk with common validation."""
-    path = Path(path_str).expanduser()
-    if not path.exists():
-        raise ToolError(f"{not_found_label} not found: {path}")
-    if not path.is_file():
-        raise ToolError(f"{not_found_label} path is not a file: {path}")
-
-    contents = path.read_bytes()
-    if not contents:
-        raise ToolError(empty_message)
-    if len(contents) > config.TRACECAT__MAX_FILE_SIZE_BYTES:
-        raise ToolError(f"{not_found_label} exceeds the maximum allowed size")
-    try:
-        text = contents.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ToolError(f"{not_found_label} must be UTF-8 encoded") from exc
-    return path, text, _compute_sha256(contents)
 
 
 def _parse_workflow_file_artifact_id(artifact_id: str) -> uuid.UUID:
@@ -1611,14 +1575,14 @@ Within a scatter stream, each child action accesses its item via \
 
 ## Workflow file tools
 - {_WORKFLOW_FILE_WARNING}
-- `get_workflow_file` writes the workflow file into the selected base directory for `stdio` clients, or returns a short-lived download URL for remote `/mcp` clients.
+- `get_workflow_file` returns a short-lived download URL for remote `/mcp` clients.
 - `prepare_workflow_file_upload` is required for remote `/mcp` workflow file uploads. It returns a short-lived upload URL and an opaque artifact id for the finalize create/update tools.
 
 ## Template and CSV file tools
 - {_TEMPLATE_FILE_WARNING}
 - `prepare_template_file_upload` is required for remote `/mcp` template validation uploads.
 - {_CSV_FILE_WARNING}
-- `export_csv` writes a CSV file into the selected base directory for `stdio` clients, or returns a short-lived download URL for remote `/mcp` clients.
+- `export_csv` returns a short-lived download URL for remote `/mcp` clients.
 
 ## Debugging workflow runs
 After running a workflow, use `list_workflow_executions` to see recent runs and their \
@@ -2423,19 +2387,13 @@ async def get_workflow(
 async def get_workflow_file(
     workspace_id: str,
     workflow_id: str,
-    base_dir: str = ".",
     draft: bool = True,
-    overwrite: bool = False,
     ctx: Context | None = None,
 ) -> str:
-    """Export a workflow to a file or a staged download URL.
-
-    Warning: this tool may write files and nested folders into the current
-    directory or a selected base directory. Use it only when that destination
-    is correct.
-    """
+    """Export a workflow to a staged download URL."""
 
     try:
+        _require_remote_mcp_context(ctx, tool_name="get_workflow_file")
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
 
@@ -2467,23 +2425,6 @@ async def get_workflow_file(
                 relative_path=relative_path,
                 extra={"draft": draft},
             )
-
-        if _get_context_transport(ctx) == "stdio":
-            saved_path = _write_workflow_file_to_disk(
-                base_dir=base_dir,
-                relative_path=relative_path,
-                content=content,
-                overwrite=overwrite,
-            )
-            result_payload.update(
-                {
-                    "saved_path": str(saved_path),
-                    "base_dir": str(Path(base_dir).expanduser()),
-                    "overwrite": overwrite,
-                    "transport": "stdio",
-                }
-            )
-            return _json(result_payload)
 
         artifact_id = uuid.uuid4()
         expires_at = _workflow_file_artifact_expires_at()
@@ -2533,11 +2474,12 @@ async def prepare_workflow_file_upload(
 ) -> str:
     """Prepare a staged workflow file upload for remote `/mcp` clients.
 
-    Warning: clients typically save and upload files from the current directory.
-    Confirm the target path before using this tool.
+    Clients typically save and upload files locally before handing them to the
+    remote MCP upload URL returned by this tool.
     """
 
     try:
+        _require_remote_mcp_context(ctx, tool_name="prepare_workflow_file_upload")
         _, role = await _resolve_workspace_role(workspace_id)
         workflow_operation = WorkflowFileOperation(operation)
         if update_mode not in {"replace", "patch"}:
@@ -3450,6 +3392,7 @@ async def prepare_template_file_upload(
     """Prepare a staged template YAML upload for remote `/mcp` clients."""
 
     try:
+        _require_remote_mcp_context(ctx, tool_name="prepare_template_file_upload")
         _, role = await _resolve_workspace_role(workspace_id)
         normalized_relative_path = _normalize_workflow_file_relative_path(relative_path)
         artifact_id = uuid.uuid4()
@@ -3495,8 +3438,7 @@ async def prepare_template_file_upload(
 @mcp.tool()
 async def validate_template_action(
     workspace_id: str,
-    template_path: str | None = None,
-    artifact_id: str | None = None,
+    artifact_id: str,
     check_db: bool = False,
     ctx: Context | None = None,
 ) -> str:
@@ -3507,7 +3449,6 @@ async def validate_template_action(
 
     Args:
         workspace_id: The workspace ID.
-        template_path: Local YAML file path for `stdio` clients.
         artifact_id: Uploaded template artifact id for remote `/mcp` clients.
         check_db: When True, also resolve missing actions from registry DB.
             Defaults to False for local-only validation.
@@ -3516,60 +3457,27 @@ async def validate_template_action(
     """
 
     try:
+        _require_remote_mcp_context(ctx, tool_name="validate_template_action")
         _, role = await _resolve_workspace_role(workspace_id)
-        if template_path and artifact_id:
-            raise ToolError("Provide either template_path or artifact_id, not both")
-
-        if artifact_id is not None:
-            artifact = await _require_template_file_artifact(
-                artifact_id=artifact_id,
-                role=role,
-                ctx=ctx,
-            )
-            if not await blob.file_exists(artifact.blob_key, _template_file_bucket()):
-                raise ToolError(
-                    "Uploaded template file was not found in staged storage"
-                )
-            content = await blob.download_file(
-                artifact.blob_key, _template_file_bucket()
-            )
-            template_text, sha256 = _parse_uploaded_text_file(
-                content,
-                label="template file",
-            )
-            result = await _validate_template_action_text(
-                role=role,
-                template_text=template_text,
-                check_db=check_db,
-            )
-            await _consume_template_file_artifact(artifact=artifact, sha256=sha256)
-            return result
-
-        if _get_context_transport(ctx) != "stdio":
-            if template_path is not None:
-                raise ToolError(
-                    "template_path is only supported for stdio clients; use "
-                    "prepare_template_file_upload and artifact_id for remote "
-                    "template validation"
-                )
-            raise ToolError(
-                "artifact_id is required for remote template validation; use "
-                "prepare_template_file_upload first"
-            )
-
-        if template_path is None:
-            raise ToolError("template_path is required for local template validation")
-
-        _, template_text, _ = _read_text_file_from_disk(
-            template_path,
-            empty_message="Template file is empty",
-            not_found_label="Template file",
+        artifact = await _require_template_file_artifact(
+            artifact_id=artifact_id,
+            role=role,
+            ctx=ctx,
         )
-        return await _validate_template_action_text(
+        if not await blob.file_exists(artifact.blob_key, _template_file_bucket()):
+            raise ToolError("Uploaded template file was not found in staged storage")
+        content = await blob.download_file(artifact.blob_key, _template_file_bucket())
+        template_text, sha256 = _parse_uploaded_text_file(
+            content,
+            label="template file",
+        )
+        result = await _validate_template_action_text(
             role=role,
             template_text=template_text,
             check_db=check_db,
         )
+        await _consume_template_file_artifact(artifact=artifact, sha256=sha256)
+        return result
     except ToolError:
         raise
     except ValueError as exc:
@@ -4995,89 +4903,26 @@ async def search_table_rows(
 
 
 @mcp.tool()
-async def import_csv(
-    workspace_id: str,
-    csv_path: str,
-    table_name: str | None = None,
-    ctx: Context | None = None,
-) -> str:
-    """Create a new table from a CSV file with auto-inferred schema.
-
-    Args:
-        workspace_id: The workspace ID.
-        csv_path: Path to a CSV file on the local filesystem.
-        table_name: Optional table name (auto-generated if omitted).
-
-    Returns JSON with table id, name, rows_inserted, and column_mapping
-    (original header name -> normalized column name).
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        if _get_context_transport(ctx) != "stdio":
-            raise ToolError(
-                "csv_path is only supported for stdio clients; remote CSV "
-                "imports are not supported"
-            )
-        path = Path(csv_path).expanduser()
-        if not path.exists():
-            raise ToolError(f"CSV file not found: {path}")
-        if not path.is_file():
-            raise ToolError(f"CSV path is not a file: {path}")
-
-        contents = path.read_bytes()
-        if not contents:
-            raise ToolError("CSV file is empty")
-        if len(contents) > config.TRACECAT__MAX_FILE_SIZE_BYTES:
-            raise ToolError("CSV file exceeds the maximum allowed size")
-
-        async with TablesService.with_session(role=role) as svc:
-            table, rows_inserted, inferred_columns = await svc.import_table_from_csv(
-                contents=contents,
-                table_name=table_name,
-            )
-            column_mapping = {col.original_name: col.name for col in inferred_columns}
-            return _json(
-                {
-                    "id": str(table.id),
-                    "name": table.name,
-                    "rows_inserted": rows_inserted,
-                    "column_mapping": column_mapping,
-                }
-            )
-    except ToolError:
-        raise
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to import CSV", error=str(e))
-        raise ToolError(f"Failed to import CSV: {e}") from None
-
-
-@mcp.tool()
 async def export_csv(
     workspace_id: str,
     table_id: str,
     include_header: bool = True,
-    base_dir: str = ".",
-    overwrite: bool = False,
     ctx: Context | None = None,
 ) -> str:
-    """Export table data as a CSV file or staged download URL.
+    """Export table data as a staged download URL.
 
     Args:
         workspace_id: The workspace ID.
         table_id: The table ID.
         include_header: Whether to include a header row (default True).
-        base_dir: Local directory for `stdio` exports.
-        overwrite: Whether to overwrite an existing local CSV file.
 
-    Returns file metadata and either a saved local path or a staged download URL.
+    Returns file metadata and a staged download URL.
     """
 
     SYSTEM_COLUMNS = {"id", "created_at", "updated_at"}
 
     try:
+        _require_remote_mcp_context(ctx, tool_name="export_csv")
         _, role = await _resolve_workspace_role(workspace_id)
         async with TablesService.with_session(role=role) as svc:
             table = await svc.get_table(uuid.UUID(table_id))
@@ -5108,23 +4953,6 @@ async def export_csv(
                 relative_path=relative_path,
             )
 
-        if _get_context_transport(ctx) == "stdio":
-            saved_path = _write_workflow_file_to_disk(
-                base_dir=base_dir,
-                relative_path=relative_path,
-                content=csv_text,
-                overwrite=overwrite,
-            )
-            result_payload.update(
-                {
-                    "saved_path": str(saved_path),
-                    "base_dir": str(Path(base_dir).expanduser()),
-                    "overwrite": overwrite,
-                    "transport": "stdio",
-                }
-            )
-            return _json(result_payload)
-
         artifact_id = uuid.uuid4()
         expires_at = _workflow_file_artifact_expires_at()
         blob_key = (
@@ -5151,6 +4979,8 @@ async def export_csv(
             }
         )
         return _json(result_payload)
+    except ToolError:
+        raise
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:

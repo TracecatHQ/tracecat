@@ -6,7 +6,6 @@ import sys
 import uuid
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any, cast
 
@@ -170,56 +169,12 @@ async def test_validate_workflow_returns_expression_details(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_validate_template_action_stdio_requires_template_path_or_artifact(
-    monkeypatch,
-):
-    async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-
-    with pytest.raises(ToolError, match="template_path is required"):
+async def test_validate_template_action_requires_artifact_id():
+    with pytest.raises(TypeError, match="artifact_id"):
         await _tool(mcp_server.validate_template_action)(
             workspace_id=str(uuid.uuid4()),
-            ctx=_fake_ctx(transport="stdio"),
+            ctx=_fake_ctx(),
         )
-
-
-@pytest.mark.anyio
-async def test_validate_template_action_stdio_reads_file(monkeypatch, tmp_path: Path):
-    workspace_id = uuid.uuid4()
-    resolved_role = SimpleNamespace(
-        workspace_id=workspace_id,
-        organization_id=uuid.uuid4(),
-    )
-    template_path = tmp_path / "template.yaml"
-    template_path.write_text(
-        "definition:\n  action: tools.test.run\n", encoding="utf-8"
-    )
-
-    async def _resolve(_workspace_id):
-        return workspace_id, resolved_role
-
-    async def _validate_text(*, role: Any, template_text: str, check_db: bool):
-        assert role is resolved_role
-        assert check_db is False
-        assert "tools.test.run" in template_text
-        return json.dumps(
-            {"valid": True, "action_name": "tools.test.run", "errors": []}
-        )
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(mcp_server, "_validate_template_action_text", _validate_text)
-
-    payload = _payload(
-        await _tool(mcp_server.validate_template_action)(
-            workspace_id=str(workspace_id),
-            template_path=str(template_path),
-            ctx=_fake_ctx(transport="stdio"),
-        )
-    )
-    assert payload["valid"] is True
-    assert payload["action_name"] == "tools.test.run"
 
 
 @pytest.mark.anyio
@@ -317,24 +272,19 @@ async def test_validate_template_action_remote_uses_artifact(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_validate_template_action_remote_rejects_template_path(
-    monkeypatch, tmp_path: Path
-):
+async def test_validate_template_action_rejects_stdio_transport(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
-    template_path = tmp_path / "template.yaml"
-    template_path.write_text(
-        "definition:\n  action: tools.test.run\n", encoding="utf-8"
-    )
-
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
 
-    with pytest.raises(ToolError, match="template_path is only supported for stdio"):
+    with pytest.raises(
+        ToolError, match="only supported for remote streamable-http MCP clients"
+    ):
         await _tool(mcp_server.validate_template_action)(
             workspace_id=str(uuid.uuid4()),
-            template_path=str(template_path),
-            ctx=_fake_ctx(),
+            artifact_id=str(uuid.uuid4()),
+            ctx=_fake_ctx(transport="stdio"),
         )
 
 
@@ -620,88 +570,7 @@ async def test_create_workflow_does_not_accept_definition_yaml(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_get_workflow_file_stdio_writes_nested_yaml(monkeypatch, tmp_path: Path):
-    workspace_id = uuid.uuid4()
-    workflow_id = uuid.uuid4()
-    role = SimpleNamespace(workspace_id=workspace_id, organization_id=uuid.uuid4())
-    workflow = SimpleNamespace(
-        id=workflow_id,
-        title="Example workflow",
-        description="Example description",
-        status="offline",
-        version=None,
-        alias=None,
-        entrypoint=None,
-        folder_id=uuid.uuid4(),
-        trigger_position_x=1.0,
-        trigger_position_y=2.0,
-        viewport_x=3.0,
-        viewport_y=4.0,
-        viewport_zoom=0.5,
-        actions=[SimpleNamespace(ref="step_a", position_x=10.0, position_y=20.0)],
-        schedules=[],
-    )
-
-    class _WorkflowService:
-        def __init__(self) -> None:
-            self.session = object()
-
-        async def get_workflow(self, _wf_id):
-            return workflow
-
-        async def build_dsl_from_workflow(self, _workflow):
-            return SimpleNamespace(
-                model_dump=lambda **_kwargs: {
-                    "title": "Example workflow",
-                    "actions": [],
-                }
-            )
-
-    class _FolderService:
-        def __init__(self, _session, *, role):
-            self.role = role
-
-        async def get_folder(self, _folder_id):
-            return SimpleNamespace(path="/detections/high/")
-
-    class _CaseTriggerService:
-        def __init__(self, _session, *, role):
-            self.role = role
-
-        async def get_case_trigger(self, _workflow_id):
-            raise mcp_server.TracecatNotFoundError("not found")
-
-    monkeypatch.setattr(
-        mcp_server,
-        "_resolve_workspace_role",
-        lambda _workspace_id: asyncio.sleep(0, result=(workspace_id, role)),
-    )
-    monkeypatch.setattr(
-        mcp_server.WorkflowsManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_WorkflowService()),
-    )
-    monkeypatch.setattr(mcp_server, "WorkflowFolderService", _FolderService)
-    monkeypatch.setattr(mcp_server, "CaseTriggersService", _CaseTriggerService)
-
-    result = await _tool(mcp_server.get_workflow_file)(
-        workspace_id=str(workspace_id),
-        workflow_id=str(workflow_id),
-        base_dir=str(tmp_path),
-        ctx=_fake_ctx(transport="stdio"),
-    )
-
-    payload = _payload(result)
-    saved_path = Path(payload["saved_path"])
-    assert saved_path == tmp_path / "detections" / "high" / saved_path.name
-    assert saved_path.exists()
-    exported = yaml.safe_load(saved_path.read_text(encoding="utf-8"))
-    assert exported["layout"]["trigger"] == {"x": 1.0, "y": 2.0}
-    assert payload["suggested_relative_path"].startswith("detections/high/")
-
-
-@pytest.mark.anyio
-async def test_get_workflow_file_stdio_rejects_collisions(monkeypatch, tmp_path: Path):
+async def test_get_workflow_file_rejects_stdio_transport(monkeypatch):
     workspace_id = uuid.uuid4()
     workflow_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id, organization_id=uuid.uuid4())
@@ -752,19 +621,12 @@ async def test_get_workflow_file_stdio_rejects_collisions(monkeypatch, tmp_path:
     )
     monkeypatch.setattr(mcp_server, "CaseTriggersService", _CaseTriggerService)
 
-    file_name = mcp_server._build_workflow_file_name(
-        workflow.title,
-        mcp_server.WorkflowUUID.new(workflow_id),
-    )
-    target = tmp_path / file_name
-    target.write_text("existing", encoding="utf-8")
-
-    with pytest.raises(ToolError, match="Refusing to overwrite"):
+    with pytest.raises(
+        ToolError, match="only supported for remote streamable-http MCP clients"
+    ):
         await _tool(mcp_server.get_workflow_file)(
             workspace_id=str(workspace_id),
             workflow_id=str(workflow_id),
-            base_dir=str(tmp_path),
-            overwrite=False,
             ctx=_fake_ctx(transport="stdio"),
         )
 
@@ -869,11 +731,12 @@ async def test_get_workflow_file_remote_returns_download_metadata(monkeypatch):
 
 @pytest.mark.anyio
 async def test_get_workflow_file_draft_false_uses_published_definition(
-    monkeypatch, tmp_path: Path
+    monkeypatch,
 ):
     workspace_id = uuid.uuid4()
     workflow_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id, organization_id=uuid.uuid4())
+    uploaded: dict[str, Any] = {}
     workflow = SimpleNamespace(
         id=workflow_id,
         title="Published workflow",
@@ -931,6 +794,29 @@ async def test_get_workflow_file_draft_false_uses_published_definition(
         async def get_case_trigger(self, _workflow_id):
             raise mcp_server.TracecatNotFoundError("not found")
 
+    async def _upload_file(
+        content: bytes, key: str, bucket: str, content_type: str | None = None
+    ):
+        uploaded["content"] = content
+        uploaded["key"] = key
+        uploaded["bucket"] = bucket
+        uploaded["content_type"] = content_type
+
+    async def _download_url(
+        *,
+        key: str,
+        bucket: str,
+        expiry: int | None = None,
+        override_content_type: str | None = None,
+    ):
+        uploaded["download_args"] = {
+            "key": key,
+            "bucket": bucket,
+            "expiry": expiry,
+            "override_content_type": override_content_type,
+        }
+        return "https://example.test/published.yaml"
+
     monkeypatch.setattr(
         mcp_server,
         "_resolve_workspace_role",
@@ -943,18 +829,24 @@ async def test_get_workflow_file_draft_false_uses_published_definition(
     )
     monkeypatch.setattr(mcp_server, "WorkflowDefinitionsService", _DefinitionService)
     monkeypatch.setattr(mcp_server, "CaseTriggersService", _CaseTriggerService)
+    monkeypatch.setattr(mcp_server.blob, "upload_file", _upload_file)
+    monkeypatch.setattr(
+        mcp_server.blob,
+        "generate_presigned_download_url",
+        _download_url,
+    )
 
     result = await _tool(mcp_server.get_workflow_file)(
         workspace_id=str(workspace_id),
         workflow_id=str(workflow_id),
         draft=False,
-        base_dir=str(tmp_path),
-        ctx=_fake_ctx(transport="stdio"),
+        ctx=_fake_ctx(session_id="published-session"),
     )
 
     payload = _payload(result)
-    exported = yaml.safe_load(Path(payload["saved_path"]).read_text(encoding="utf-8"))
+    exported = yaml.safe_load(uploaded["content"].decode("utf-8"))
     assert payload["draft"] is False
+    assert payload["download_url"] == "https://example.test/published.yaml"
     assert exported["version"] == 3
     assert exported["definition"]["title"] == "Published definition"
 
@@ -1301,9 +1193,9 @@ async def test_update_workflow_from_uploaded_file_rejects_cross_workspace_target
         )
 
 
-def test_mcp_instructions_warn_about_workflow_file_writes():
+def test_mcp_instructions_describe_remote_file_transfers():
     assert (
-        "current directory or selected base directory" in mcp_server._MCP_INSTRUCTIONS
+        "staged blob transfers for remote MCP clients" in mcp_server._MCP_INSTRUCTIONS
     )
     assert "prepare_workflow_file_upload" in mcp_server._MCP_INSTRUCTIONS
     assert "definition_yaml" not in mcp_server._MCP_INSTRUCTIONS
@@ -2827,153 +2719,8 @@ async def test_concurrent_workspace_calls_do_not_cross(monkeypatch):
     assert resolved[str(WS_B)] == WS_B
 
 
-@pytest.mark.anyio
-async def test_import_csv(monkeypatch, tmp_path: Path):
-    async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
-
-    table_id = uuid.uuid4()
-
-    class _FakeColumn:
-        def __init__(self, original_name, name):
-            self.original_name = original_name
-            self.name = name
-
-    class _TablesService:
-        async def import_table_from_csv(self, *, contents, table_name, **kwargs):
-            self._contents = contents
-            self._table_name = table_name
-            table = SimpleNamespace(id=table_id, name="test_table")
-            columns = [
-                _FakeColumn("Name", "name"),
-                _FakeColumn("Age", "age"),
-            ]
-            return table, 3, columns
-
-    svc = _TablesService()
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        TablesService,
-        "with_session",
-        lambda role: _AsyncContext(svc),
-    )
-
-    csv_text = "Name,Age\nAlice,30\nBob,25\nCharlie,35"
-    csv_path = tmp_path / "people.csv"
-    csv_path.write_text(csv_text, encoding="utf-8")
-    result = await _tool(mcp_server.import_csv)(
-        workspace_id=str(uuid.uuid4()),
-        csv_path=str(csv_path),
-        table_name="test_table",
-        ctx=_fake_ctx(transport="stdio"),
-    )
-    payload = _payload(result)
-    assert payload["id"] == str(table_id)
-    assert payload["name"] == "test_table"
-    assert payload["rows_inserted"] == 3
-    assert payload["column_mapping"] == {"Name": "name", "Age": "age"}
-    assert svc._contents == csv_text.encode()
-    assert svc._table_name == "test_table"
-
-
-@pytest.mark.anyio
-async def test_import_csv_rejects_missing_file(monkeypatch):
-    async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-
-    with pytest.raises(ToolError, match="CSV file not found"):
-        await _tool(mcp_server.import_csv)(
-            workspace_id=str(uuid.uuid4()),
-            csv_path="/tmp/does-not-exist.csv",
-            ctx=_fake_ctx(transport="stdio"),
-        )
-
-
-@pytest.mark.anyio
-async def test_import_csv_remote_rejects_local_path(monkeypatch, tmp_path: Path):
-    async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-
-    csv_path = tmp_path / "people.csv"
-    csv_path.write_text("Name,Age\nAlice,30\n", encoding="utf-8")
-
-    with pytest.raises(ToolError, match="csv_path is only supported for stdio"):
-        await _tool(mcp_server.import_csv)(
-            workspace_id=str(uuid.uuid4()),
-            csv_path=str(csv_path),
-            ctx=_fake_ctx(),
-        )
-
-
-@pytest.mark.anyio
-async def test_export_csv_stdio_writes_file(monkeypatch, tmp_path: Path):
-    async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
-
-    table_id = uuid.uuid4()
-
-    class _FakeColumn:
-        def __init__(self, name):
-            self.name = name
-
-    fake_table = SimpleNamespace(
-        id=table_id,
-        name="test_table",
-        columns=[
-            _FakeColumn("id"),
-            _FakeColumn("created_at"),
-            _FakeColumn("updated_at"),
-            _FakeColumn("city"),
-            _FakeColumn("age"),
-        ],
-    )
-
-    limits: list[int] = []
-
-    class _TablesService:
-        async def get_table(self, _table_id):
-            return fake_table
-
-        async def search_rows(self, _table, *, limit=1000, cursor=None):
-            limits.append(limit)
-            return SimpleNamespace(
-                items=[
-                    {"city": "NYC", "age": 30, "id": "1"},
-                    {"city": "LA", "age": 25, "id": "2"},
-                ],
-                has_more=False,
-                next_cursor=None,
-            )
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        TablesService,
-        "with_session",
-        lambda role: _AsyncContext(_TablesService()),
-    )
-
-    payload = _payload(
-        await _tool(mcp_server.export_csv)(
-            workspace_id=str(uuid.uuid4()),
-            table_id=str(table_id),
-            base_dir=str(tmp_path),
-            ctx=_fake_ctx(transport="stdio"),
-        )
-    )
-    saved_path = Path(payload["saved_path"])
-    lines = saved_path.read_text(encoding="utf-8").strip().splitlines()
-    assert saved_path.exists()
-    assert payload["transport"] == "stdio"
-    assert payload["suggested_relative_path"].endswith(".csv")
-    assert lines[0] == "city,age"  # preserves table column order, system cols excluded
-    assert lines[1] == "NYC,30"
-    assert lines[2] == "LA,25"
-    assert limits == [mcp_server.config.TRACECAT__LIMIT_CURSOR_MAX]
+def test_import_csv_tool_removed():
+    assert not hasattr(mcp_server, "import_csv")
 
 
 @pytest.mark.anyio
@@ -3047,15 +2794,17 @@ async def test_export_csv_remote_returns_download_metadata(monkeypatch):
             ctx=_fake_ctx(session_id="csv-session"),
         )
     )
+    lines = uploaded["content"].decode("utf-8").strip().splitlines()
     assert payload["download_url"] == "https://example.test/table.csv"
     assert payload["transport"] == "streamable-http"
     assert uploaded["content_type"] == "text/csv"
     assert "/mcp/table-csv/csv-session/" in uploaded["key"]
     assert uploaded["key"].count("/mcp/table-csv/") == 1
+    assert lines == ["city", "NYC"]
 
 
 @pytest.mark.anyio
-async def test_export_csv_rejects_collisions(monkeypatch, tmp_path: Path):
+async def test_export_csv_rejects_stdio_transport(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
@@ -3088,44 +2837,12 @@ async def test_export_csv_rejects_collisions(monkeypatch, tmp_path: Path):
         lambda role: _AsyncContext(_TablesService()),
     )
 
-    target = tmp_path / mcp_server._build_table_csv_file_name(fake_table.name, table_id)
-    target.write_text("existing", encoding="utf-8")
-
-    with pytest.raises(ToolError, match="Refusing to overwrite"):
+    with pytest.raises(
+        ToolError, match="only supported for remote streamable-http MCP clients"
+    ):
         await _tool(mcp_server.export_csv)(
             workspace_id=str(uuid.uuid4()),
             table_id=str(table_id),
-            base_dir=str(tmp_path),
-            overwrite=False,
-            ctx=_fake_ctx(transport="stdio"),
-        )
-
-
-@pytest.mark.anyio
-async def test_import_csv_empty_raises(monkeypatch, tmp_path: Path):
-    async def _resolve(_workspace_id):
-        return uuid.uuid4(), SimpleNamespace()
-
-    class _TablesService:
-        async def import_table_from_csv(self, *, contents, table_name, **kwargs):
-            from tracecat.exceptions import TracecatImportError
-
-            raise TracecatImportError("CSV file does not contain any columns")
-
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        TablesService,
-        "with_session",
-        lambda role: _AsyncContext(_TablesService()),
-    )
-
-    csv_path = tmp_path / "empty.csv"
-    csv_path.write_text("", encoding="utf-8")
-
-    with pytest.raises(ToolError, match="CSV file is empty"):
-        await _tool(mcp_server.import_csv)(
-            workspace_id=str(uuid.uuid4()),
-            csv_path=str(csv_path),
             ctx=_fake_ctx(transport="stdio"),
         )
 
