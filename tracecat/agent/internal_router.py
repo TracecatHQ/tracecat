@@ -16,7 +16,6 @@ from tracecat.agent.schemas import (
     InternalRankItemsPairwiseRequest,
     InternalRankItemsRequest,
     InternalRunAgentRequest,
-    ModelSelection,
 )
 from tracecat.agent.service import (
     SOURCE_RUNTIME_BASE_URL,
@@ -30,7 +29,8 @@ from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
-from tracecat.tiers.entitlements import Entitlement, check_entitlement
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 
 router = APIRouter(
     prefix="/internal/agent",
@@ -114,25 +114,16 @@ async def _provider_secrets_context(
             registry_secrets.reset_context(secrets_token)
         return
 
-    if config.source_id is not None:
-        credentials = await agent_svc.get_runtime_credentials_for_selection(
-            selection=ModelSelection(
-                source_id=config.source_id,
-                model_provider=config.model_provider,
-                model_name=config.model_name,
-            )
+    credentials = await agent_svc.get_runtime_credentials_for_config(config)
+    if not credentials:
+        raise ValueError(
+            f"No credentials found for provider '{config.model_provider}'. "
+            "Please configure credentials for this provider first."
         )
-        if config.base_url is None and (
-            source_base_url := credentials.get(SOURCE_RUNTIME_BASE_URL)
-        ):
-            config.base_url = source_base_url
-    else:
-        credentials = await agent_svc.get_provider_credentials(config.model_provider)
-        if not credentials:
-            raise ValueError(
-                f"No credentials found for provider '{config.model_provider}'. "
-                "Please configure credentials for this provider first."
-            )
+    if config.base_url is None and (
+        source_base_url := credentials.get(SOURCE_RUNTIME_BASE_URL)
+    ):
+        config.base_url = source_base_url
 
     secrets_token = registry_secrets.set_context(credentials)
     try:
