@@ -52,12 +52,9 @@ class AgentSessionCreate(BaseModel):
         default=None,
         description="Pinned preset version used for this session (if any)",
     )
-    model_catalog_ref: str | None = Field(
-        default=None,
-        description="Enabled model catalog reference used when no preset is selected.",
-        min_length=1,
-        max_length=500,
-    )
+    source_id: uuid.UUID | None = Field(default=None)
+    model_name: str | None = Field(default=None, min_length=1, max_length=500)
+    model_provider: str | None = Field(default=None, min_length=1, max_length=120)
     # Harness fields
     harness_type: HarnessType = Field(
         default=HarnessType.CLAUDE_CODE, description="Agent harness type"
@@ -65,9 +62,12 @@ class AgentSessionCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_model_selection(self) -> AgentSessionCreate:
-        if self.agent_preset_id is not None and self.model_catalog_ref is not None:
+        if self.agent_preset_id is not None and any(
+            value is not None
+            for value in (self.source_id, self.model_name, self.model_provider)
+        ):
             raise ValueError(
-                "model_catalog_ref cannot be set when agent_preset_id is configured"
+                "explicit model selection cannot be set when agent_preset_id is configured"
             )
         return self
 
@@ -88,21 +88,21 @@ class AgentSessionUpdate(BaseModel):
         default=None,
         description="Pinned preset version to use for this session",
     )
-    model_catalog_ref: str | None = Field(
-        default=None,
-        description="Enabled model catalog reference to use when no preset is selected.",
-        min_length=1,
-        max_length=500,
-    )
+    source_id: uuid.UUID | None = Field(default=None)
+    model_name: str | None = Field(default=None, min_length=1, max_length=500)
+    model_provider: str | None = Field(default=None, min_length=1, max_length=120)
     harness_type: HarnessType | None = Field(
         default=None, description="Agent harness type"
     )
 
     @model_validator(mode="after")
     def validate_model_selection(self) -> AgentSessionUpdate:
-        if self.agent_preset_id is not None and self.model_catalog_ref is not None:
+        if self.agent_preset_id is not None and any(
+            value is not None
+            for value in (self.source_id, self.model_name, self.model_provider)
+        ):
             raise ValueError(
-                "model_catalog_ref cannot be set when agent_preset_id is configured"
+                "explicit model selection cannot be set when agent_preset_id is configured"
             )
         return self
 
@@ -137,7 +137,9 @@ class AgentSessionRead(BaseModel):
     tools: list[str] | None
     agent_preset_id: uuid.UUID | None
     agent_preset_version_id: uuid.UUID | None
-    model_catalog_ref: str | None
+    source_id: uuid.UUID | None
+    model_name: str | None
+    model_provider: str | None
     # Harness
     harness_type: str | None
     # Stream tracking

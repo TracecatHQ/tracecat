@@ -37,7 +37,7 @@ export function SidebarUserNav({
   const { organization, isLoading } = useOrganization()
   const { appInfo } = useAppInfo()
   const multiTenantEnabled = appInfo?.ee_multi_tenant ?? true
-  const adminUrl = multiTenantEnabled ? "/admin" : "/admin/registry"
+  const adminUrl = multiTenantEnabled ? "/admin" : "/admin/agent"
 
   return (
     <SidebarMenu>

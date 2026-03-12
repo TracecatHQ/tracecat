@@ -110,42 +110,23 @@ async def _provider_secrets_context(
             registry_secrets.reset_context(secrets_token)
         return
 
-    if config.model_catalog_ref:
-        resolved_config, credentials = await agent_svc._resolve_catalog_agent_config(
-            catalog_ref=config.model_catalog_ref,
-        )
-        config.model_name = resolved_config.model_name
-        config.model_provider = resolved_config.model_provider
-        if config.base_url is None:
-            config.base_url = resolved_config.base_url
-        config.model_source_type = resolved_config.model_source_type
-        config.model_source_id = resolved_config.model_source_id
+    if config.source_id is not None:
+        credentials = {}
+        source = await agent_svc.get_model_source(config.source_id)
+        source_config = agent_svc._deserialize_sensitive_config(source.encrypted_config)
+        if api_key := source_config.get("api_key"):
+            credentials["OPENAI_API_KEY"] = api_key
+        if config.base_url is None and source.base_url is not None:
+            config.base_url = source.base_url
+        if config.base_url is not None:
+            credentials["OPENAI_BASE_URL"] = config.base_url
     else:
-        match config.model_source_type:
-            case "openai_compatible_gateway" | "manual_custom":
-                credentials = {}
-                if config.model_source_id is not None:
-                    source = await agent_svc.get_model_source(
-                        uuid.UUID(str(config.model_source_id))
-                    )
-                    source_config = agent_svc._deserialize_sensitive_config(
-                        source.encrypted_config
-                    )
-                    if api_key := source_config.get("api_key"):
-                        credentials["OPENAI_API_KEY"] = api_key
-                    if config.base_url is None and source.base_url is not None:
-                        config.base_url = source.base_url
-                    if config.base_url is not None:
-                        credentials["OPENAI_BASE_URL"] = config.base_url
-            case _:
-                credentials = await agent_svc.get_provider_credentials(
-                    config.model_provider
-                )
-                if not credentials:
-                    raise ValueError(
-                        f"No credentials found for provider '{config.model_provider}'. "
-                        "Please configure credentials for this provider first."
-                    )
+        credentials = await agent_svc.get_provider_credentials(config.model_provider)
+        if not credentials:
+            raise ValueError(
+                f"No credentials found for provider '{config.model_provider}'. "
+                "Please configure credentials for this provider first."
+            )
 
     secrets_token = registry_secrets.set_context(credentials)
     try:
@@ -186,15 +167,11 @@ async def run_agent_endpoint(
     try:
         agent_svc = AgentManagementService(session, role=role)
         config, override_fields = await _resolve_run_config(params, agent_svc)
-        if config.model_catalog_ref:
-            catalog_config, _ = await agent_svc._resolve_catalog_agent_config(
-                catalog_ref=config.model_catalog_ref,
-            )
-            config = _merge_runtime_overrides(
-                catalog_config,
-                config,
-                override_fields=override_fields,
-            )
+        config = _merge_runtime_overrides(
+            await agent_svc.resolve_runtime_agent_config(config),
+            config,
+            override_fields=override_fields,
+        )
         mcp_servers = config.mcp_servers
 
         if config and config.tool_approvals:

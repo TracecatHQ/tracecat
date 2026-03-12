@@ -48,18 +48,15 @@ describe("useBuiltInAgentCatalog", () => {
   it("prefers the built-in catalog endpoint when it is available", async () => {
     const fetchMock = jest.fn().mockResolvedValue(
       createResponse({
-        source_type: "builtin_catalog",
-        source_name: "Built-in catalog",
+        source_type: "platform_catalog",
+        source_name: "Platform catalog",
         discovery_status: "ready",
         models: [
           {
-            catalog_ref: "builtin_catalog:openai:abc123:gpt-5",
             model_name: "gpt-5",
             model_provider: "openai",
-            runtime_provider: "openai",
-            display_name: "GPT-5",
-            source_type: "builtin_catalog",
-            source_name: "Built-in catalog",
+            source_name: "Platform",
+            source_id: null,
             enabled: false,
             credential_provider: "openai",
             credentials_configured: false,
@@ -82,43 +79,22 @@ describe("useBuiltInAgentCatalog", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/agent/catalog/builtins?limit=100",
+      "/api/agent/catalog/platform?limit=100",
       {
         headers: {
           "Content-Type": "application/json",
         },
       }
     )
-    expect(result.current.inventory?.source_type).toBe("builtin_catalog")
-    expect(result.current.inventory?.models[0]?.catalog_ref).toBe(
-      "builtin_catalog:openai:abc123:gpt-5"
-    )
+    expect(result.current.inventory?.source_type).toBe("platform_catalog")
+    expect(result.current.inventory?.models[0]?.model_name).toBe("gpt-5")
     expect(result.current.inventory?.models[0]?.enableable).toBe(false)
   })
 
-  it("falls back to the default-model inventory endpoint when the built-in endpoint is unavailable", async () => {
+  it("surfaces an error instead of falling back to removed legacy endpoints", async () => {
     const fetchMock = jest
       .fn()
-      .mockResolvedValueOnce(createResponse("missing", 404))
-      .mockResolvedValueOnce(
-        createResponse({
-          source_type: "default_sidecar",
-          source_name: "Default models",
-          discovery_status: "ready",
-          discovered_models: [
-            {
-              catalog_ref: "default_sidecar:default:def456:gpt-4o-mini",
-              model_name: "gpt-4o-mini",
-              model_provider: "openai",
-              runtime_provider: "default_sidecar",
-              display_name: "GPT-4o mini",
-              source_type: "default_sidecar",
-              source_name: "Default models",
-              enabled: true,
-            },
-          ],
-        })
-      )
+      .mockResolvedValue(createResponse("missing", 404))
     global.fetch = fetchMock as typeof fetch
     const queryClient = createQueryClient()
 
@@ -127,27 +103,18 @@ describe("useBuiltInAgentCatalog", () => {
     })
 
     await waitFor(() => {
-      expect(result.current.inventory).toBeDefined()
+      expect(result.current.error).toBeDefined()
     })
 
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      "/api/agent/catalog/builtins?limit=100",
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/agent/catalog/platform?limit=100",
       {
         headers: {
           "Content-Type": "application/json",
         },
       }
     )
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/agent/default-models", {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    })
-    expect(result.current.inventory?.source_type).toBe("default_sidecar")
-    expect(result.current.inventory?.models[0]?.catalog_ref).toBe(
-      "default_sidecar:default:def456:gpt-4o-mini"
-    )
-    expect(result.current.inventory?.models[0]?.enableable).toBe(true)
+    expect(result.current.inventory).toBeUndefined()
   })
 })

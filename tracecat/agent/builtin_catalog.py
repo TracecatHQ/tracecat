@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import uuid
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -78,14 +79,11 @@ _BLOCKED_MODEL_PATTERNS = (
 
 @dataclass(frozen=True, slots=True)
 class BuiltInCatalogModel:
-    catalog_ref: str
+    agent_catalog_id: uuid.UUID
     source_type: ModelSourceType
-    source_name: str
-    model_name: str
     model_provider: str
-    runtime_provider: str
+    model_id: str
     display_name: str
-    raw_model_id: str
     mode: str | None
     enableable: bool
     readiness_message: str | None
@@ -103,11 +101,11 @@ def _strip_provider_prefix(raw_model_id: str, upstream_provider: str) -> str:
     return raw_model_id
 
 
-def _catalog_ref(runtime_provider: str, raw_model_id: str) -> str:
-    digest = hashlib.sha256(f"{runtime_provider}:{raw_model_id}".encode()).hexdigest()[
-        :16
-    ]
-    return f"builtin:{runtime_provider}:{digest}:{raw_model_id}"
+def _catalog_uuid(model_provider: str, model_id: str) -> uuid.UUID:
+    digest = hashlib.sha256(
+        f"platform:{model_provider}:{model_id}".encode()
+    ).hexdigest()
+    return uuid.UUID(digest[:32])
 
 
 def _is_agent_enableable(metadata: dict[str, Any]) -> tuple[bool, str | None]:
@@ -157,7 +155,7 @@ def get_builtin_catalog_models() -> tuple[BuiltInCatalogModel, ...]:
         if not (source_type := _UPSTREAM_TO_SOURCE_TYPE.get(upstream_provider)):
             continue
 
-        runtime_provider = source_type.value
+        model_provider = source_type.value
         model_name = _strip_provider_prefix(raw_model_id, upstream_provider)
         if _is_builtin_catalog_model_blocked(
             raw_model_id=raw_model_id,
@@ -179,14 +177,11 @@ def get_builtin_catalog_models() -> tuple[BuiltInCatalogModel, ...]:
 
         rows.append(
             BuiltInCatalogModel(
-                catalog_ref=_catalog_ref(runtime_provider, raw_model_id),
+                agent_catalog_id=_catalog_uuid(model_provider, raw_model_id),
                 source_type=source_type,
-                source_name=runtime_provider.replace("_", " ").title(),
-                model_name=model_name,
-                model_provider=runtime_provider,
-                runtime_provider=runtime_provider,
+                model_provider=model_provider,
+                model_id=raw_model_id,
                 display_name=model_name,
-                raw_model_id=raw_model_id,
                 mode=mode if isinstance(mode, str) else None,
                 enableable=enableable,
                 readiness_message=readiness_message,
@@ -197,19 +192,19 @@ def get_builtin_catalog_models() -> tuple[BuiltInCatalogModel, ...]:
     return tuple(
         sorted(
             rows,
-            key=lambda row: (row.runtime_provider, row.display_name.lower()),
+            key=lambda row: (row.model_provider, row.display_name.lower()),
         )
     )
 
 
 @lru_cache(maxsize=1)
-def get_builtin_catalog_by_ref() -> dict[str, BuiltInCatalogModel]:
-    return {row.catalog_ref: row for row in get_builtin_catalog_models()}
+def get_builtin_catalog_by_id() -> dict[uuid.UUID, BuiltInCatalogModel]:
+    return {row.agent_catalog_id: row for row in get_builtin_catalog_models()}
 
 
 @lru_cache(maxsize=1)
 def get_builtin_catalog_by_provider() -> dict[str, tuple[BuiltInCatalogModel, ...]]:
     grouped: dict[str, list[BuiltInCatalogModel]] = {}
     for row in get_builtin_catalog_models():
-        grouped.setdefault(row.runtime_provider, []).append(row)
+        grouped.setdefault(row.model_provider, []).append(row)
     return {provider: tuple(rows) for provider, rows in grouped.items()}

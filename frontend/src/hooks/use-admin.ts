@@ -61,6 +61,45 @@ import {
   type TierUpdate,
 } from "@/client"
 
+export interface AdminPlatformCatalogEntry {
+  id: string
+  model_provider?: string | null
+  model_name?: string | null
+  model_id?: string | null
+  display_name?: string | null
+  metadata?: Record<string, unknown> | null
+}
+
+export interface AdminPlatformCatalogRead {
+  discovery_status: string
+  last_refreshed_at: string | null
+  last_error: string | null
+  next_cursor: string | null
+  models: AdminPlatformCatalogEntry[]
+}
+
+async function fetchAdminAgentJson<T>(
+  path: string,
+  init?: RequestInit
+): Promise<T> {
+  const response = await fetch(`/api/admin/agent${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  })
+  if (!response.ok) {
+    let detail = "Request failed"
+    try {
+      const data = (await response.json()) as { detail?: string }
+      detail = data.detail ?? detail
+    } catch {}
+    throw new Error(detail)
+  }
+  return (await response.json()) as T
+}
+
 /* ── ORGANIZATIONS ─────────────────────────────────────────────────────────── */
 
 export function useAdminOrganizations({
@@ -643,5 +682,98 @@ export function useAdminRegistrySettings() {
     error,
     updateSettings,
     updatePending,
+  }
+}
+
+/* ── PLATFORM AGENT CATALOG ──────────────────────────────────────────────── */
+
+export function useAdminPlatformCatalog({
+  query,
+  provider,
+  limit = 100,
+}: {
+  query?: string
+  provider?: string
+  limit?: number
+} = {}) {
+  const normalizedQuery = query?.trim() || undefined
+  const {
+    data: catalog,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<AdminPlatformCatalogRead>({
+    queryKey: [
+      "admin",
+      "agent",
+      "platform-catalog",
+      { query: normalizedQuery ?? null, provider: provider ?? null, limit },
+    ],
+    queryFn: async () => {
+      let cursor: string | null = null
+      let merged: AdminPlatformCatalogRead | null = null
+      let models: AdminPlatformCatalogEntry[] = []
+
+      do {
+        const params = new URLSearchParams()
+        if (normalizedQuery) {
+          params.set("query", normalizedQuery)
+        }
+        if (provider) {
+          params.set("provider", provider)
+        }
+        params.set("limit", String(limit))
+        if (cursor) {
+          params.set("cursor", cursor)
+        }
+
+        const page = await fetchAdminAgentJson<AdminPlatformCatalogRead>(
+          `/catalog/platform?${params.toString()}`
+        )
+        merged = page
+        models = models.concat(page.models)
+        cursor = page.next_cursor
+      } while (cursor)
+
+      return {
+        discovery_status: merged?.discovery_status ?? "unknown",
+        last_refreshed_at: merged?.last_refreshed_at ?? null,
+        last_error: merged?.last_error ?? null,
+        next_cursor: null,
+        models,
+      }
+    },
+  })
+
+  return {
+    catalog,
+    isLoading,
+    error,
+    refetch,
+  }
+}
+
+export function useAdminPlatformCatalogRefresh() {
+  const queryClient = useQueryClient()
+
+  const { mutateAsync: refreshCatalog, isPending: refreshPending } =
+    useMutation({
+      mutationFn: () =>
+        fetchAdminAgentJson<AdminPlatformCatalogRead>(
+          "/catalog/platform/refresh",
+          {
+            method: "POST",
+          }
+        ),
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["admin", "agent", "platform-catalog"],
+        })
+      },
+    })
+
+  return {
+    refreshCatalog,
+    refreshPending,
   }
 }

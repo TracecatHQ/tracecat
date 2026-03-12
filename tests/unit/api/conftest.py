@@ -11,6 +11,7 @@ from tracecat.agent.router import (
     OrganizationAdminUserRole,
     OrganizationUserRole,
 )
+from tracecat.agent.router import WorkspaceUserInPath as AgentWorkspaceUserInPath
 from tracecat.api.app import app
 from tracecat.auth.credentials import AuthenticatedUserOnly, SuperuserRole
 from tracecat.auth.dependencies import (
@@ -66,6 +67,7 @@ def client() -> Generator[TestClient, None, None]:
         TablesWorkspaceUser,
         TablesWorkspaceEditorUser,
         WorkspaceUserInPath,
+        AgentWorkspaceUserInPath,
     ]
 
     for annotated_type in role_dependencies:

@@ -49,7 +49,7 @@ def get_model(
         A configured Model instance ready for use with pydantic-ai agents
     """
     match model_provider:
-        case "default_sidecar" | "openai_compatible_gateway" | "manual_custom":
+        case "openai_compatible_gateway" | "manual_custom":
             model = _build_openai_compatible_model(
                 model_name=model_name,
                 base_url=base_url,

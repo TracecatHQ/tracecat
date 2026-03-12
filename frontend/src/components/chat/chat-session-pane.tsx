@@ -104,7 +104,7 @@ import {
   transformMessages,
 } from "@/lib/chat"
 import type { AgentCatalogEntry } from "@/lib/hooks"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import { getModelSelectionKey, useBuilderRegistryActions } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
 const MAX_TOOL_MENTION_RESULTS = 40
@@ -168,10 +168,16 @@ type ChatFooterModelSelector = {
   models?: AgentCatalogEntry[]
   modelsIsLoading: boolean
   modelsError: unknown
-  selectedModelCatalogRef: string | null
-  onSelect: (catalogRef: string | null) => void | Promise<void>
+  selectedModel: AgentCatalogEntry | null
+  onSelect: (model: AgentCatalogEntry | null) => void | Promise<void>
   disabled?: boolean
   showSpinner?: boolean
+}
+
+function getCompositeModelKey(
+  model: Pick<AgentCatalogEntry, "source_id" | "model_provider" | "model_name">
+): string {
+  return getModelSelectionKey(model)
 }
 
 export interface ChatSessionPaneProps {
@@ -1013,24 +1019,33 @@ function PromptModelSelector({
 }) {
   const effectiveDisabled = Boolean(disabled || selector.disabled)
   const defaultValue = "__organization_default_model__"
-  const selectedModel =
-    selector.models?.find(
-      (model) => model.catalog_ref === selector.selectedModelCatalogRef
-    ) ?? null
+  const selectedModel = selector.selectedModel
   const triggerLabel =
-    selectedModel?.display_name ??
-    (selector.selectedModelCatalogRef === null
+    selectedModel?.model_name ??
+    (selector.selectedModel === null
       ? `${selector.defaultLabel} (default)`
       : selector.label)
   const triggerProvider =
-    selectedModel?.runtime_provider ?? selector.defaultProvider ?? null
+    selectedModel?.model_provider ?? selector.defaultProvider ?? null
 
   return (
     <Select
-      value={selector.selectedModelCatalogRef ?? defaultValue}
-      onValueChange={(value) =>
-        void selector.onSelect(value === defaultValue ? null : value)
+      value={
+        selector.selectedModel
+          ? getCompositeModelKey(selector.selectedModel)
+          : defaultValue
       }
+      onValueChange={(value) => {
+        if (value === defaultValue) {
+          void selector.onSelect(null)
+          return
+        }
+        const nextModel =
+          selector.models?.find(
+            (model) => getCompositeModelKey(model) === value
+          ) ?? null
+        void selector.onSelect(nextModel)
+      }}
       disabled={effectiveDisabled || selector.modelsIsLoading}
     >
       <SelectTrigger
@@ -1064,14 +1079,17 @@ function PromptModelSelector({
           </div>
         </SelectItem>
         {(selector.models ?? []).map((model) => (
-          <SelectItem key={model.catalog_ref} value={model.catalog_ref}>
+          <SelectItem
+            key={getCompositeModelKey(model)}
+            value={getCompositeModelKey(model)}
+          >
             <div className="flex min-w-0 items-center gap-2">
               <ProviderIcon
                 className="size-4 rounded-none bg-transparent p-0"
-                providerId={getProviderIconId(model.runtime_provider)}
+                providerId={getProviderIconId(model.model_provider)}
               />
               <span className="truncate">
-                {`${model.display_name} · ${model.source_name}`}
+                {`${model.model_name} · ${model.source_name ?? (model.source_id ? "Custom" : "Platform")}`}
               </span>
             </div>
           </SelectItem>

@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import uuid
 from collections.abc import AsyncIterator, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, cast
 
 import httpx
 import orjson
 from pydantic import SecretStr
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry._internal import secrets as registry_secrets
@@ -21,10 +20,17 @@ from tracecat.agent.builtin_catalog import (
     LITELLM_PINNED_VERSION,
     BuiltInCatalogModel,
     get_builtin_catalog_by_provider,
-    get_builtin_catalog_by_ref,
     get_builtin_catalog_models,
 )
 from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
+from tracecat.agent.legacy_model_matching import (
+    LegacyCatalogMatch,
+    resolve_accessible_catalog_match_for_model_name,
+    resolve_accessible_catalog_match_for_provider_model,
+    resolve_catalog_match_for_provider_model,
+    resolve_enabled_catalog_match_for_model_name,
+    resolve_enabled_catalog_match_for_provider_model,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import (
     AgentModelSourceCreate,
@@ -33,7 +39,6 @@ from tracecat.agent.schemas import (
     BuiltInCatalogEntry,
     BuiltInCatalogRead,
     BuiltInProviderRead,
-    DefaultModelInventoryRead,
     DefaultModelSelection,
     EnabledModelOperation,
     EnabledModelRuntimeConfig,
@@ -44,7 +49,10 @@ from tracecat.agent.schemas import (
     ModelConfig,
     ModelCredentialCreate,
     ModelCredentialUpdate,
+    ModelSelection,
     ProviderCredentialConfig,
+    WorkspaceModelSubsetRead,
+    WorkspaceModelSubsetUpdate,
 )
 from tracecat.agent.types import (
     AgentConfig,
@@ -62,9 +70,11 @@ from tracecat.db.locks import (
     try_pg_advisory_lock,
 )
 from tracecat.db.models import (
-    AgentDiscoveredModel,
+    AgentCatalog,
     AgentEnabledModel,
     AgentModelSource,
+    AgentPreset,
+    AgentPresetVersion,
     Organization,
     OrganizationSecret,
     PlatformSetting,
@@ -82,12 +92,6 @@ from tracecat.service import BaseOrgService
 from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
 
-DEFAULT_SIDECAR_STATE_SETTINGS = {
-    "discovery_status": "agent_default_sidecar_discovery_status",
-    "last_refreshed_at": "agent_default_sidecar_last_refreshed_at",
-    "last_error": "agent_default_sidecar_last_error",
-}
-DEFAULT_SIDECAR_SOURCE_NAME = "Default models"
 MODEL_CATALOG_STARTUP_SYNC_LOCK_KEY = derive_lock_key_from_parts(
     "agent_model_catalog_startup_sync"
 )
@@ -109,6 +113,9 @@ _CUSTOM_SOURCE_TYPES = {
     ModelSourceType.OPENAI_COMPATIBLE_GATEWAY,
     ModelSourceType.MANUAL_CUSTOM,
 }
+LEGACY_CUSTOM_PROVIDER = "custom-model-provider"
+LEGACY_CUSTOM_SOURCE_NAME = "Imported legacy custom model"
+ENABLE_ALL_MODELS_ON_UPGRADE_SETTING = "agent_enable_all_models_on_upgrade"
 _BUILT_IN_PROVIDER_ORDER = (
     ModelSourceType.OPENAI,
     ModelSourceType.ANTHROPIC,
@@ -121,18 +128,35 @@ _BUILT_IN_PROVIDER_ORDER = (
 
 
 @dataclass(frozen=True, slots=True)
-class ResolvedCatalogRecord:
-    catalog_ref: str
-    model_name: str
+class ModelSelectionKey:
+    source_id: uuid.UUID | None
     model_provider: str
-    runtime_provider: str
-    display_name: str
+    model_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedCatalogRecord:
+    source_id: uuid.UUID | None
+    model_provider: str
+    model_name: str
     source_type: ModelSourceType
     source_name: str
-    source_id: uuid.UUID | None
     base_url: str | None
     last_refreshed_at: datetime | None
     metadata: dict[str, Any] | None
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyModelRepairSummary:
+    migrated_defaults: int = 0
+    migrated_presets: int = 0
+    migrated_versions: int = 0
+    unresolved_defaults: int = 0
+    unresolved_presets: int = 0
+    unresolved_versions: int = 0
+    ambiguous_defaults: int = 0
+    ambiguous_presets: int = 0
+    ambiguous_versions: int = 0
 
 
 class AgentManagementService(BaseOrgService):
@@ -174,12 +198,10 @@ class AgentManagementService(BaseOrgService):
 
     def _provider_from_source_type(self, source_type: ModelSourceType) -> str:
         match source_type:
-            case ModelSourceType.DEFAULT_SIDECAR:
-                return "default_sidecar"
             case ModelSourceType.OPENAI_COMPATIBLE_GATEWAY:
                 return "openai_compatible_gateway"
             case ModelSourceType.MANUAL_CUSTOM:
-                return "manual_custom"
+                return "direct_endpoint"
             case _:
                 return source_type.value
 
@@ -215,18 +237,121 @@ class AgentManagementService(BaseOrgService):
             return None
         return CustomModelSourceFlavor(flavor)
 
+    async def _get_legacy_custom_provider_secret_config(self) -> dict[str, str] | None:
+        secret_name = self._get_credential_secret_name(LEGACY_CUSTOM_PROVIDER)
+        stmt = select(OrganizationSecret).where(
+            OrganizationSecret.organization_id == self.organization_id,
+            OrganizationSecret.name == secret_name,
+            OrganizationSecret.environment == DEFAULT_SECRETS_ENVIRONMENT,
+        )
+        secret = (await self.session.execute(stmt)).scalar_one_or_none()
+        if secret is None:
+            return None
+        credentials = {
+            kv.key: kv.value.get_secret_value()
+            for kv in self.secrets_service.decrypt_keys(secret.encrypted_keys)
+        }
+        if not (
+            base_url := credentials.get("CUSTOM_MODEL_PROVIDER_BASE_URL", "").strip()
+        ):
+            return None
+        if not (
+            model_name := credentials.get(
+                "CUSTOM_MODEL_PROVIDER_MODEL_NAME", ""
+            ).strip()
+        ):
+            return None
+        config = {
+            "base_url": base_url,
+            "model_name": model_name,
+        }
+        if api_key := credentials.get("CUSTOM_MODEL_PROVIDER_API_KEY", "").strip():
+            config["api_key"] = api_key
+        return config
+
+    async def _find_legacy_custom_provider_source(
+        self,
+        *,
+        base_url: str,
+        model_name: str,
+    ) -> AgentModelSource | None:
+        stmt = select(AgentModelSource).where(
+            AgentModelSource.organization_id == self.organization_id,
+            AgentModelSource.base_url == base_url,
+        )
+        rows = list((await self.session.execute(stmt)).scalars().all())
+        for row in rows:
+            for item in row.declared_models or []:
+                if (
+                    item.get("model_name") == model_name
+                    and item.get("model_provider") == LEGACY_CUSTOM_PROVIDER
+                ):
+                    return row
+        return None
+
+    async def _ensure_legacy_custom_provider_source_synced(
+        self,
+    ) -> AgentModelSource | None:
+        if not (
+            secret_config := await self._get_legacy_custom_provider_secret_config()
+        ):
+            return None
+
+        source = await self._find_legacy_custom_provider_source(
+            base_url=secret_config["base_url"],
+            model_name=secret_config["model_name"],
+        )
+        declared_models = [
+            ManualDiscoveredModel(
+                model_name=secret_config["model_name"],
+                display_name=secret_config["model_name"],
+                model_provider=LEGACY_CUSTOM_PROVIDER,
+            ).model_dump(mode="json")
+        ]
+        encrypted_config = self._serialize_sensitive_config(
+            self._source_config_payload(
+                api_key=secret_config.get("api_key"),
+                flavor=CustomModelSourceFlavor.MANUAL,
+            )
+        )
+
+        if source is None:
+            source = AgentModelSource(
+                organization_id=self.organization_id,
+                display_name=LEGACY_CUSTOM_SOURCE_NAME,
+                model_provider=LEGACY_CUSTOM_PROVIDER,
+                base_url=secret_config["base_url"],
+                encrypted_config=encrypted_config,
+                declared_models=declared_models,
+            )
+            self.session.add(source)
+            await self.session.commit()
+            await self.session.refresh(source)
+        else:
+            source.base_url = secret_config["base_url"]
+            source.encrypted_config = encrypted_config
+            source.declared_models = declared_models
+            self.session.add(source)
+            await self.session.commit()
+            await self.session.refresh(source)
+
+        await self.refresh_model_source(source.id)
+        return source
+
     def _display_provider_for_model(
         self,
         *,
         source_type: ModelSourceType,
-        model_name: str,
+        model_id: str,
         provider_hint: str | None,
     ) -> str:
         if provider_hint:
             return provider_hint
         if source_type in _BUILT_IN_PROVIDER_SOURCE_TYPES:
             return source_type.value
-        lowered = model_name.lower()
+        if source_type == ModelSourceType.OPENAI_COMPATIBLE_GATEWAY:
+            return "openai_compatible_gateway"
+        lowered = model_id.lower()
         if lowered.startswith("claude"):
             return "anthropic"
         if (
@@ -239,71 +364,143 @@ class AgentManagementService(BaseOrgService):
             return "gemini"
         return self._provider_from_source_type(source_type)
 
-    def _catalog_ref(
+    def _source_type_from_catalog(
         self,
         *,
-        source_type: ModelSourceType,
-        raw_model_id: str,
-        source_id: uuid.UUID | None = None,
+        row: AgentCatalog,
+        source: AgentModelSource | None = None,
+    ) -> ModelSourceType:
+        if row.source_id is None:
+            return ModelSourceType(row.model_provider)
+        if (
+            source is not None
+            and self._source_type_from_row(source)
+            == CustomModelSourceType.OPENAI_COMPATIBLE_GATEWAY
+        ):
+            return ModelSourceType.OPENAI_COMPATIBLE_GATEWAY
+        return ModelSourceType.MANUAL_CUSTOM
+
+    def _source_name_from_catalog(
+        self,
+        *,
+        row: AgentCatalog,
+        source: AgentModelSource | None = None,
     ) -> str:
-        if source_id is not None:
-            source_ref = str(source_id)
-        elif source_type == ModelSourceType.DEFAULT_SIDECAR:
-            source_ref = "default"
-        else:
-            source_ref = source_type.value
-        slug_input = f"{source_type.value}:{source_ref}:{raw_model_id}".encode()
-        digest = hashlib.sha256(slug_input).hexdigest()[:16]
-        return f"{source_type.value}:{source_ref}:{digest}:{raw_model_id}"
+        if row.source_id is None:
+            return self._provider_label(row.model_provider)
+        if source is not None:
+            return source.display_name
+        return "Custom source"
+
+    def _selection_key(
+        self,
+        *,
+        source_id: uuid.UUID | None,
+        model_provider: str,
+        model_name: str,
+    ) -> ModelSelectionKey:
+        return ModelSelectionKey(
+            source_id=source_id,
+            model_provider=model_provider,
+            model_name=model_name,
+        )
+
+    def _selection_key_from_catalog_row(
+        self,
+        row: AgentCatalog,
+    ) -> ModelSelectionKey:
+        return self._selection_key(
+            source_id=row.source_id,
+            model_provider=row.model_provider,
+            model_name=row.model_name,
+        )
+
+    def _selection_key_from_enabled_row(
+        self,
+        row: AgentEnabledModel,
+    ) -> ModelSelectionKey:
+        return self._selection_key(
+            source_id=row.source_id,
+            model_provider=row.model_provider,
+            model_name=row.model_name,
+        )
+
+    def _model_selection_from_key(self, selection: ModelSelectionKey) -> ModelSelection:
+        return ModelSelection(
+            source_id=selection.source_id,
+            model_provider=selection.model_provider,
+            model_name=selection.model_name,
+        )
+
+    def _model_selection_from_catalog_row(self, row: AgentCatalog) -> ModelSelection:
+        return self._model_selection_from_key(self._selection_key_from_catalog_row(row))
+
+    def _model_selection_from_enabled_row(
+        self,
+        row: AgentEnabledModel,
+    ) -> ModelSelection:
+        return self._model_selection_from_key(self._selection_key_from_enabled_row(row))
+
+    def _selection_key_from_model_selection(
+        self,
+        selection: ModelSelection,
+    ) -> ModelSelectionKey:
+        return self._selection_key(
+            source_id=selection.source_id,
+            model_provider=selection.model_provider,
+            model_name=selection.model_name,
+        )
 
     def _catalog_entry_from_row(
         self,
-        row: AgentDiscoveredModel,
+        row: AgentCatalog,
         *,
         enabled: bool,
+        source: AgentModelSource | None = None,
+        enabled_config: dict[str, Any] | None = None,
     ) -> ModelCatalogEntry:
         return ModelCatalogEntry(
-            catalog_ref=row.catalog_ref,
-            model_name=row.model_name,
             model_provider=row.model_provider,
-            runtime_provider=row.runtime_provider,
-            display_name=row.display_name,
-            source_type=ModelSourceType(row.source_type),
-            source_name=row.source_name,
+            model_name=row.model_name,
+            source_type=self._source_type_from_catalog(row=row, source=source).value,
+            source_name=self._source_name_from_catalog(row=row, source=source),
             source_id=row.source_id,
-            base_url=row.base_url,
+            base_url=source.base_url if source is not None else None,
             enabled=enabled,
             last_refreshed_at=row.last_refreshed_at,
             metadata=row.model_metadata,
-            enabled_config=None,
+            enabled_config=(
+                EnabledModelRuntimeConfig.model_validate(enabled_config)
+                if enabled_config
+                else None
+            ),
         )
 
     def _catalog_entry_from_enabled_row(
         self,
         row: AgentEnabledModel,
         *,
+        catalog_row: AgentCatalog,
         source: AgentModelSource | None = None,
     ) -> ModelCatalogEntry:
         metadata: dict[str, Any] | None = None
-        source_name = self._provider_label(row.runtime_provider)
         if source is not None:
-            source_name = source.display_name
             source_config = self._deserialize_sensitive_config(source.encrypted_config)
             if flavor := self._source_flavor(source_config):
                 metadata = {"source_flavor": flavor.value}
         return ModelCatalogEntry(
-            catalog_ref=row.catalog_ref,
-            model_name=row.model_name,
-            model_provider=row.model_provider,
-            runtime_provider=row.runtime_provider,
-            display_name=row.display_name,
-            source_type=ModelSourceType(row.source_type),
-            source_name=source_name,
-            source_id=row.source_id,
-            base_url=row.base_url,
+            model_provider=catalog_row.model_provider,
+            model_name=catalog_row.model_name,
+            source_type=self._source_type_from_catalog(
+                row=catalog_row,
+                source=source,
+            ).value,
+            source_name=self._source_name_from_catalog(row=catalog_row, source=source),
+            source_id=catalog_row.source_id,
+            base_url=source.base_url if source is not None else None,
             enabled=True,
             last_refreshed_at=row.updated_at,
-            metadata=metadata,
+            metadata=metadata or catalog_row.model_metadata,
             enabled_config=(
                 EnabledModelRuntimeConfig.model_validate(row.enabled_config)
                 if row.enabled_config
@@ -313,46 +510,31 @@ class AgentManagementService(BaseOrgService):
 
     def _resolved_from_builtin(self, row: BuiltInCatalogModel) -> ResolvedCatalogRecord:
         return ResolvedCatalogRecord(
-            catalog_ref=row.catalog_ref,
-            model_name=row.model_name,
-            model_provider=row.model_provider,
-            runtime_provider=row.runtime_provider,
-            display_name=row.display_name,
-            source_type=row.source_type,
-            source_name=self._provider_label(row.runtime_provider),
             source_id=None,
+            model_provider=row.model_provider,
+            model_name=row.model_id,
+            source_type=row.source_type,
+            source_name=self._provider_label(row.model_provider),
             base_url=None,
             last_refreshed_at=None,
             metadata=row.metadata,
         )
 
-    def _resolved_from_discovered(
-        self, row: AgentDiscoveredModel
+    def _resolved_from_catalog(
+        self,
+        row: AgentCatalog,
+        *,
+        source: AgentModelSource | None = None,
     ) -> ResolvedCatalogRecord:
         return ResolvedCatalogRecord(
-            catalog_ref=row.catalog_ref,
-            model_name=row.model_name,
-            model_provider=row.model_provider,
-            runtime_provider=row.runtime_provider,
-            display_name=row.display_name,
-            source_type=ModelSourceType(row.source_type),
-            source_name=row.source_name,
             source_id=row.source_id,
-            base_url=row.base_url,
+            model_provider=row.model_provider,
+            model_name=row.model_name,
+            source_type=self._source_type_from_catalog(row=row, source=source),
+            source_name=self._source_name_from_catalog(row=row, source=source),
+            base_url=source.base_url if source is not None else None,
             last_refreshed_at=row.last_refreshed_at,
             metadata=row.model_metadata,
-        )
-
-    def _get_default_sidecar_config(self) -> dict[str, str | None]:
-        return {
-            "base_url": config.TRACECAT__AGENT_DEPLOYMENT_GATEWAY_BASE_URL,
-            "api_key": config.TRACECAT__AGENT_DEPLOYMENT_GATEWAY_API_KEY,
-            "api_key_header": config.TRACECAT__AGENT_DEPLOYMENT_GATEWAY_API_KEY_HEADER,
-        }
-
-    async def _get_default_sidecar_state_value(self, field: str) -> object | None:
-        return await self._get_platform_setting_value(
-            DEFAULT_SIDECAR_STATE_SETTINGS[field]
         )
 
     async def _get_platform_setting_value(self, key: str) -> object | None:
@@ -412,14 +594,11 @@ class AgentManagementService(BaseOrgService):
             )
         )
 
-    def _provider_state_setting_key(self, *, provider: str, field: str) -> str:
-        return f"agent_provider_{provider}_{field}"
-
     def _get_credential_secret_name(self, provider: str) -> str:
         """Get the standardized secret name for a provider's credentials."""
         return f"agent-{provider}-credentials"
 
-    async def _upsert_discovered_models(
+    async def _upsert_catalog_rows(
         self,
         *,
         source_type: ModelSourceType,
@@ -427,250 +606,398 @@ class AgentManagementService(BaseOrgService):
         models: list[dict[str, object]],
         source_id: uuid.UUID | None = None,
         organization_scoped: bool,
-    ) -> list[AgentDiscoveredModel]:
-        existing_stmt = select(AgentDiscoveredModel.catalog_ref).where(
-            AgentDiscoveredModel.source_type == source_type.value,
-            AgentDiscoveredModel.source_id == source_id,
-        )
-        if organization_scoped:
-            existing_stmt = existing_stmt.where(
-                AgentDiscoveredModel.organization_id == self.organization_id
-            )
-        else:
-            existing_stmt = existing_stmt.where(
-                AgentDiscoveredModel.organization_id.is_(None)
-            )
-        existing_refs = set((await self.session.execute(existing_stmt)).scalars().all())
-        models_by_ref: dict[str, dict[str, object]] = {}
-        ordered_refs: list[str] = []
-        now = datetime.now(UTC)
+    ) -> list[AgentCatalog]:
+        del source_type, source_name
+        if not organization_scoped or source_id is None:
+            raise ValueError("Catalog upserts are only supported for custom sources.")
 
-        for model in models:
-            catalog_ref = str(model["catalog_ref"])
-            if catalog_ref not in models_by_ref:
-                ordered_refs.append(catalog_ref)
-            models_by_ref[catalog_ref] = model
-
-        stale_refs = existing_refs - set(ordered_refs)
-        if stale_refs:
-            delete_discovered = delete(AgentDiscoveredModel).where(
-                AgentDiscoveredModel.catalog_ref.in_(stale_refs),
-                AgentDiscoveredModel.source_type == source_type.value,
-                AgentDiscoveredModel.source_id == source_id,
-            )
-            if organization_scoped:
-                delete_discovered = delete_discovered.where(
-                    AgentDiscoveredModel.organization_id == self.organization_id
-                )
-            else:
-                delete_discovered = delete_discovered.where(
-                    AgentDiscoveredModel.organization_id.is_(None)
-                )
-            await self.session.execute(delete_discovered)
-            delete_enabled = delete(AgentEnabledModel).where(
-                AgentEnabledModel.catalog_ref.in_(stale_refs)
-            )
-            if organization_scoped:
-                delete_enabled = delete_enabled.where(
-                    AgentEnabledModel.organization_id == self.organization_id
-                )
-            await self.session.execute(delete_enabled)
-
-        if not models_by_ref:
-            return []
-
-        values = [
-            {
-                "id": uuid.uuid4(),
-                "organization_id": self.organization_id
-                if organization_scoped
-                else None,
-                "source_id": source_id,
-                "source_type": source_type.value,
-                "source_name": source_name,
-                "catalog_ref": catalog_ref,
-                "model_name": str(model["model_name"]),
-                "model_provider": str(model["model_provider"]),
-                "runtime_provider": str(model["runtime_provider"]),
-                "display_name": str(model["display_name"]),
-                "raw_model_id": str(model["raw_model_id"]),
-                "base_url": cast(str | None, model.get("base_url")),
-                "model_metadata": cast(dict[str, Any] | None, model.get("metadata")),
-                "last_refreshed_at": now,
-            }
-            for catalog_ref in ordered_refs
-            if (model := models_by_ref.get(catalog_ref)) is not None
-        ]
-        stmt = pg_insert(AgentDiscoveredModel).values(values)
-        if organization_scoped:
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["organization_id", "catalog_ref"],
-                index_where=AgentDiscoveredModel.organization_id.is_not(None),
-                set_={
-                    "organization_id": stmt.excluded.organization_id,
-                    "source_id": stmt.excluded.source_id,
-                    "source_type": stmt.excluded.source_type,
-                    "source_name": stmt.excluded.source_name,
-                    "model_name": stmt.excluded.model_name,
-                    "model_provider": stmt.excluded.model_provider,
-                    "runtime_provider": stmt.excluded.runtime_provider,
-                    "display_name": stmt.excluded.display_name,
-                    "raw_model_id": stmt.excluded.raw_model_id,
-                    "base_url": stmt.excluded.base_url,
-                    "model_metadata": stmt.excluded.model_metadata,
-                    "last_refreshed_at": stmt.excluded.last_refreshed_at,
-                    "updated_at": func.now(),
-                },
-            )
-        else:
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["catalog_ref"],
-                index_where=AgentDiscoveredModel.organization_id.is_(None),
-                set_={
-                    "organization_id": stmt.excluded.organization_id,
-                    "source_id": stmt.excluded.source_id,
-                    "source_type": stmt.excluded.source_type,
-                    "source_name": stmt.excluded.source_name,
-                    "model_name": stmt.excluded.model_name,
-                    "model_provider": stmt.excluded.model_provider,
-                    "runtime_provider": stmt.excluded.runtime_provider,
-                    "display_name": stmt.excluded.display_name,
-                    "raw_model_id": stmt.excluded.raw_model_id,
-                    "base_url": stmt.excluded.base_url,
-                    "model_metadata": stmt.excluded.model_metadata,
-                    "last_refreshed_at": stmt.excluded.last_refreshed_at,
-                    "updated_at": func.now(),
-                },
-            )
-        await self.session.execute(stmt)
-        persisted_rows = (
+        existing_model_names = set(
             (
                 await self.session.execute(
-                    select(AgentDiscoveredModel).where(
-                        AgentDiscoveredModel.catalog_ref.in_(ordered_refs),
-                        AgentDiscoveredModel.source_type == source_type.value,
-                        AgentDiscoveredModel.source_id == source_id,
+                    select(AgentCatalog.model_name).where(
+                        AgentCatalog.organization_id == self.organization_id,
+                        AgentCatalog.source_id == source_id,
                     )
                 )
             )
             .scalars()
             .all()
         )
-        if organization_scoped:
-            persisted_rows = [
-                row
-                for row in persisted_rows
-                if row.organization_id == self.organization_id
-            ]
-        else:
-            persisted_rows = [
-                row for row in persisted_rows if row.organization_id is None
-            ]
-        persisted_by_ref = {row.catalog_ref: row for row in persisted_rows}
-        return [persisted_by_ref[catalog_ref] for catalog_ref in ordered_refs]
+        models_by_name: dict[str, dict[str, object]] = {}
+        ordered_model_names: list[str] = []
+        now = datetime.now(UTC)
 
-    async def _list_default_sidecar_rows(self) -> list[AgentDiscoveredModel]:
+        for model in models:
+            model_name = str(model.get("model_name") or model["model_id"])
+            if model_name not in models_by_name:
+                ordered_model_names.append(model_name)
+            models_by_name[model_name] = model
+
+        stale_model_names = existing_model_names - set(ordered_model_names)
+        if stale_model_names:
+            await self.session.execute(
+                delete(AgentCatalog).where(
+                    AgentCatalog.organization_id == self.organization_id,
+                    AgentCatalog.source_id == source_id,
+                    AgentCatalog.model_name.in_(stale_model_names),
+                )
+            )
+
+        if not models_by_name:
+            return []
+
+        values = [
+            {
+                "organization_id": self.organization_id,
+                "source_id": source_id,
+                "model_provider": str(model["model_provider"]),
+                "model_name": str(model_name),
+                "model_metadata": cast(dict[str, Any] | None, model.get("metadata")),
+                "last_refreshed_at": now,
+            }
+            for model_name in ordered_model_names
+            if (model := models_by_name.get(model_name)) is not None
+        ]
+        stmt = pg_insert(AgentCatalog).values(values)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["source_id", "model_provider", "model_name"],
+            set_={
+                "organization_id": stmt.excluded.organization_id,
+                "model_provider": stmt.excluded.model_provider,
+                "model_metadata": stmt.excluded.model_metadata,
+                "last_refreshed_at": stmt.excluded.last_refreshed_at,
+                "updated_at": func.now(),
+            },
+        )
+        await self.session.execute(stmt)
+        persisted_rows = (
+            (
+                await self.session.execute(
+                    select(AgentCatalog).where(
+                        AgentCatalog.organization_id == self.organization_id,
+                        AgentCatalog.source_id == source_id,
+                        AgentCatalog.model_name.in_(ordered_model_names),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        persisted_by_name = {row.model_name: row for row in persisted_rows}
+        return [persisted_by_name[model_name] for model_name in ordered_model_names]
+
+    async def _upsert_builtin_catalog_rows(self) -> list[AgentCatalog]:
+        builtin_rows = list(get_builtin_catalog_models())
+        existing_ids = set(
+            (
+                await self.session.execute(
+                    select(AgentCatalog.id).where(
+                        AgentCatalog.organization_id.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        current_ids = {row.agent_catalog_id for row in builtin_rows}
+        stale_ids = existing_ids - current_ids
+        if stale_ids:
+            await self.session.execute(
+                delete(AgentCatalog).where(
+                    AgentCatalog.organization_id.is_(None),
+                    AgentCatalog.id.in_(stale_ids),
+                )
+            )
+        if not builtin_rows:
+            return []
+
+        now = datetime.now(UTC)
+        stmt = pg_insert(AgentCatalog).values(
+            [
+                {
+                    "id": row.agent_catalog_id,
+                    "organization_id": None,
+                    "source_id": None,
+                    "model_provider": row.model_provider,
+                    "model_name": row.model_id,
+                    "model_metadata": row.metadata,
+                    "last_refreshed_at": now,
+                }
+                for row in builtin_rows
+            ]
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["source_id", "model_provider", "model_name"],
+            set_={
+                "model_provider": stmt.excluded.model_provider,
+                "model_name": stmt.excluded.model_name,
+                "model_metadata": stmt.excluded.model_metadata,
+                "last_refreshed_at": stmt.excluded.last_refreshed_at,
+                "updated_at": func.now(),
+            },
+        )
+        await self.session.execute(stmt)
+        persisted_rows = (
+            (
+                await self.session.execute(
+                    select(AgentCatalog).where(
+                        AgentCatalog.organization_id.is_(None),
+                        AgentCatalog.id.in_(list(current_ids)),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        persisted_by_id = {row.id: row for row in persisted_rows}
+        return [persisted_by_id[row.agent_catalog_id] for row in builtin_rows]
+
+    async def _list_org_catalog_rows(self) -> list[AgentCatalog]:
         stmt = (
-            select(AgentDiscoveredModel)
+            select(AgentCatalog)
             .where(
-                AgentDiscoveredModel.source_type
-                == ModelSourceType.DEFAULT_SIDECAR.value,
-                AgentDiscoveredModel.organization_id.is_(None),
+                AgentCatalog.organization_id == self.organization_id,
             )
-            .order_by(AgentDiscoveredModel.display_name.asc())
+            .order_by(AgentCatalog.model_name.asc())
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def _list_org_discovered_rows(self) -> list[AgentDiscoveredModel]:
+    async def _list_builtin_catalog_rows(self) -> list[AgentCatalog]:
         stmt = (
-            select(AgentDiscoveredModel)
-            .where(AgentDiscoveredModel.organization_id == self.organization_id)
-            .order_by(
-                AgentDiscoveredModel.source_name.asc(),
-                AgentDiscoveredModel.display_name.asc(),
+            select(AgentCatalog)
+            .where(
+                AgentCatalog.organization_id.is_(None),
             )
+            .order_by(AgentCatalog.model_provider.asc(), AgentCatalog.model_name.asc())
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def _list_enabled_rows(self) -> list[AgentEnabledModel]:
-        stmt = select(AgentEnabledModel).where(
-            AgentEnabledModel.organization_id == self.organization_id
-        )
-        return list((await self.session.execute(stmt)).scalars().all())
-
-    async def _get_enabled_row(self, catalog_ref: str) -> AgentEnabledModel | None:
+    async def _list_org_enabled_rows(self) -> list[AgentEnabledModel]:
         stmt = select(AgentEnabledModel).where(
             AgentEnabledModel.organization_id == self.organization_id,
-            AgentEnabledModel.catalog_ref == catalog_ref,
+            AgentEnabledModel.workspace_id.is_(None),
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def _list_workspace_enabled_rows(
+        self, workspace_id: uuid.UUID
+    ) -> list[AgentEnabledModel]:
+        stmt = select(AgentEnabledModel).where(
+            AgentEnabledModel.organization_id == self.organization_id,
+            AgentEnabledModel.workspace_id == workspace_id,
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def _list_workspace_subset_rows(
+        self, workspace_id: uuid.UUID
+    ) -> list[AgentEnabledModel]:
+        stmt = select(AgentEnabledModel).where(
+            AgentEnabledModel.organization_id == self.organization_id,
+            AgentEnabledModel.workspace_id == workspace_id,
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def _get_enabled_row(
+        self,
+        selection: ModelSelectionKey,
+    ) -> AgentEnabledModel | None:
+        stmt = select(AgentEnabledModel).where(
+            AgentEnabledModel.organization_id == self.organization_id,
+            AgentEnabledModel.workspace_id.is_(None),
+            AgentEnabledModel.source_id == selection.source_id,
+            AgentEnabledModel.model_provider == selection.model_provider,
+            AgentEnabledModel.model_name == selection.model_name,
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def _ensure_default_enabled_models(self) -> None:
-        if await self._list_enabled_rows():
-            return
-        default_rows = await self._list_default_sidecar_rows()
-        if not default_rows:
-            return
-        stmt = pg_insert(AgentEnabledModel).values(
-            [
-                {
-                    "organization_id": self.organization_id,
-                    "catalog_ref": row.catalog_ref,
-                    "source_id": row.source_id,
-                    "source_type": row.source_type,
-                    "model_name": row.model_name,
-                    "model_provider": row.model_provider,
-                    "runtime_provider": row.runtime_provider,
-                    "display_name": row.display_name,
-                    "base_url": row.base_url,
-                    "enabled_config": None,
-                }
-                for row in default_rows
-            ]
+    async def _get_workspace(self, workspace_id: uuid.UUID) -> Workspace:
+        stmt = select(Workspace).where(
+            Workspace.id == workspace_id,
+            Workspace.organization_id == self.organization_id,
         )
+        workspace = (await self.session.execute(stmt)).scalar_one_or_none()
+        if workspace is None:
+            raise TracecatNotFoundError(f"Workspace {workspace_id} not found")
+        return workspace
+
+    async def _ensure_workspace_exists(self, workspace_id: uuid.UUID) -> None:
+        await self._get_workspace(workspace_id)
+
+    async def _filter_enabled_rows_for_workspace(
+        self,
+        rows: list[AgentEnabledModel],
+        workspace_id: uuid.UUID | None,
+    ) -> list[AgentEnabledModel]:
+        if workspace_id is None:
+            return rows
+        await self._ensure_workspace_exists(workspace_id)
+        workspace_rows = await self._list_workspace_subset_rows(workspace_id)
+        if not workspace_rows:
+            return rows
+        allowed_keys = {
+            self._selection_key_from_enabled_row(row) for row in workspace_rows
+        }
+        return [
+            row
+            for row in rows
+            if self._selection_key_from_enabled_row(row) in allowed_keys
+        ]
+
+    async def _get_catalog_rows_by_selection(
+        self,
+        selections: list[ModelSelectionKey],
+    ) -> dict[ModelSelectionKey, AgentCatalog]:
+        if not selections:
+            return {}
+        conditions = [
+            (
+                (
+                    AgentCatalog.source_id.is_(None)
+                    if key.source_id is None
+                    else AgentCatalog.source_id == key.source_id
+                )
+                & (AgentCatalog.model_provider == key.model_provider)
+                & (AgentCatalog.model_name == key.model_name)
+            )
+            for key in selections
+        ]
+        stmt = select(AgentCatalog).where(
+            (AgentCatalog.organization_id == self.organization_id)
+            | AgentCatalog.organization_id.is_(None),
+            or_(*conditions),
+        )
+        rows = list((await self.session.execute(stmt)).scalars().all())
+        rows.sort(key=lambda row: row.organization_id is None)
+        resolved_by_selection: dict[ModelSelectionKey, AgentCatalog] = {}
+        for row in rows:
+            resolved_by_selection.setdefault(
+                self._selection_key_from_catalog_row(row),
+                row,
+            )
+        return resolved_by_selection
+
+    async def _load_sources_by_id(
+        self, source_ids: set[uuid.UUID]
+    ) -> dict[uuid.UUID, AgentModelSource]:
+        if not source_ids:
+            return {}
+        stmt = select(AgentModelSource).where(AgentModelSource.id.in_(source_ids))
+        return {
+            row.id: row for row in (await self.session.execute(stmt)).scalars().all()
+        }
+
+    async def _build_enabled_model_entries(
+        self,
+        rows: list[AgentEnabledModel],
+    ) -> list[ModelCatalogEntry]:
+        catalog_rows_by_selection = await self._get_catalog_rows_by_selection(
+            [self._selection_key_from_enabled_row(row) for row in rows]
+        )
+        source_ids = {
+            catalog_row.source_id
+            for catalog_row in catalog_rows_by_selection.values()
+            if catalog_row.source_id is not None
+        }
+        sources_by_id = await self._load_sources_by_id(cast(set[uuid.UUID], source_ids))
+        items = [
+            self._catalog_entry_from_enabled_row(
+                row,
+                catalog_row=catalog_row,
+                source=(
+                    sources_by_id.get(catalog_row.source_id)
+                    if catalog_row.source_id is not None
+                    else None
+                ),
+            )
+            for row in rows
+            if (
+                catalog_row := catalog_rows_by_selection.get(
+                    self._selection_key_from_enabled_row(row)
+                )
+            )
+            is not None
+        ]
+        items.sort(key=lambda item: (item.source_name or "", item.model_name))
+        return items
+
+    async def _ensure_default_enabled_models(self) -> None:
+        if not (
+            upgrade_setting := await self.settings_service.get_org_setting(
+                ENABLE_ALL_MODELS_ON_UPGRADE_SETTING
+            )
+        ):
+            return None
+        rows = (
+            (
+                await self.session.execute(
+                    select(AgentCatalog).where(
+                        or_(
+                            AgentCatalog.organization_id.is_(None),
+                            AgentCatalog.organization_id == self.organization_id,
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not rows:
+            self.logger.info(
+                "Deferring pre-upgrade enable-all because no catalog rows are available yet",
+                organization_id=str(self.organization_id),
+            )
+            return None
+
         await self.session.execute(
-            stmt.on_conflict_do_nothing(
+            pg_insert(AgentEnabledModel)
+            .values(
+                [
+                    {
+                        "organization_id": self.organization_id,
+                        "workspace_id": None,
+                        "source_id": row.source_id,
+                        "model_provider": row.model_provider,
+                        "model_name": row.model_name,
+                        "enabled_config": None,
+                    }
+                    for row in rows
+                ]
+            )
+            .on_conflict_do_nothing(
                 index_elements=[
-                    AgentEnabledModel.organization_id,
-                    AgentEnabledModel.catalog_ref,
+                    "organization_id",
+                    "workspace_id",
+                    "source_id",
+                    "model_provider",
+                    "model_name",
                 ]
             )
         )
         await self.session.commit()
+        await self.settings_service.delete_org_setting(upgrade_setting)
+        self.logger.info(
+            "Enabled full model catalog for pre-upgrade organization",
+            organization_id=str(self.organization_id),
+            enabled_rows=len(rows),
+        )
 
-    async def _list_provider_rows(self, provider: str) -> list[AgentDiscoveredModel]:
+    async def _list_provider_rows(self, provider: str) -> list[AgentCatalog]:
         stmt = (
-            select(AgentDiscoveredModel)
+            select(AgentCatalog)
             .where(
-                AgentDiscoveredModel.organization_id == self.organization_id,
-                AgentDiscoveredModel.source_type == provider,
-                AgentDiscoveredModel.source_id.is_(None),
+                AgentCatalog.organization_id.is_(None),
+                AgentCatalog.model_provider == provider,
             )
-            .order_by(AgentDiscoveredModel.display_name.asc())
+            .order_by(AgentCatalog.model_name.asc())
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
     async def _get_provider_state(
         self, provider: str
     ) -> tuple[ModelDiscoveryStatus, datetime | None, str | None]:
-        status = await self._get_org_setting_value(
-            self._provider_state_setting_key(
-                provider=provider, field="discovery_status"
-            )
-        )
-        refreshed_at = await self._get_org_setting_value(
-            self._provider_state_setting_key(
-                provider=provider, field="last_refreshed_at"
-            )
-        )
-        last_error = await self._get_org_setting_value(
-            self._provider_state_setting_key(provider=provider, field="last_error")
-        )
-        return (
-            ModelDiscoveryStatus(str(status or ModelDiscoveryStatus.NEVER.value)),
-            datetime.fromisoformat(str(refreshed_at)) if refreshed_at else None,
-            str(last_error) if last_error else None,
-        )
+        del provider
+        status, refreshed_at, _last_error = await self._get_builtin_catalog_state()
+        return status, refreshed_at, None
 
     def _provider_base_url_key(self, provider: str) -> str | None:
         match provider:
@@ -738,46 +1065,15 @@ class AgentManagementService(BaseOrgService):
             case _:
                 return True
 
-    async def _get_workspace_enabled_model_refs(
-        self, workspace_id: uuid.UUID
-    ) -> set[str] | None:
-        stmt = select(Workspace.settings).where(
-            Workspace.id == workspace_id,
-            Workspace.organization_id == self.organization_id,
-        )
-        settings = (await self.session.execute(stmt)).scalar_one_or_none()
-        if settings is None:
-            raise TracecatNotFoundError(f"Workspace {workspace_id} not found")
-        if not isinstance(settings, dict):
-            return None
-        refs = settings.get("agent_enabled_model_refs")
-        if refs is None:
-            return None
-        if not isinstance(refs, list):
-            return None
-        return {str(ref) for ref in refs if isinstance(ref, str)}
-
-    async def _filter_enabled_rows_for_workspace(
-        self,
-        rows: list[AgentEnabledModel],
-        workspace_id: uuid.UUID | None,
-    ) -> list[AgentEnabledModel]:
-        if workspace_id is None:
-            return rows
-        allowed_refs = await self._get_workspace_enabled_model_refs(workspace_id)
-        if allowed_refs is None:
-            return rows
-        return [row for row in rows if row.catalog_ref in allowed_refs]
-
     def _build_builtin_catalog_entry(
         self,
         *,
         row: BuiltInCatalogModel,
-        enabled_rows_by_ref: dict[str, AgentEnabledModel],
-        discovered_refs: set[str],
+        enabled_rows_by_key: dict[ModelSelectionKey, AgentEnabledModel],
+        provider_status: ModelDiscoveryStatus,
         credentials: dict[str, str] | None,
     ) -> BuiltInCatalogEntry:
-        provider = row.runtime_provider
+        provider = row.model_provider
         credential_config = PROVIDER_CREDENTIAL_CONFIGS[provider]
         credentials_configured = self._provider_credentials_complete(
             provider=provider,
@@ -792,15 +1088,19 @@ class AgentManagementService(BaseOrgService):
             )
         else:
             readiness_message = None
-        enabled_row = enabled_rows_by_ref.get(row.catalog_ref)
+        enabled_row = enabled_rows_by_key.get(
+            self._selection_key(
+                source_id=None,
+                model_provider=row.model_provider,
+                model_name=row.model_id,
+            )
+        )
         return BuiltInCatalogEntry(
-            catalog_ref=row.catalog_ref,
-            model_name=row.model_name,
             model_provider=row.model_provider,
-            runtime_provider=row.runtime_provider,
-            display_name=row.display_name,
-            source_type=row.source_type,
-            source_name=self._provider_label(row.runtime_provider),
+            model_name=row.model_id,
+            source_type=row.source_type.value,
+            source_name=self._provider_label(row.model_provider),
+            source_id=None,
             enabled=enabled_row is not None,
             last_refreshed_at=None,
             metadata=row.metadata,
@@ -813,7 +1113,7 @@ class AgentManagementService(BaseOrgService):
             credential_label=credential_config.label,
             credential_fields=credential_config.fields,
             credentials_configured=credentials_configured,
-            discovered=row.catalog_ref in discovered_refs,
+            discovered=provider_status == ModelDiscoveryStatus.READY,
             ready=ready,
             enableable=ready,
             runtime_target_configured=True,
@@ -830,15 +1130,19 @@ class AgentManagementService(BaseOrgService):
             last_refreshed_at,
             last_error,
         ) = await self._get_provider_state(provider)
-        enabled_refs = {row.catalog_ref for row in await self._list_enabled_rows()}
+        enabled_keys = {
+            self._selection_key_from_enabled_row(row)
+            for row in await self._list_org_enabled_rows()
+        }
         base_url = None
         if credentials and (base_url_key := self._provider_base_url_key(provider)):
             base_url = credentials.get(base_url_key)
         rows = await self._list_provider_rows(provider)
+        provider_source_type = source_type
         return BuiltInProviderRead(
             provider=provider,
             label=PROVIDER_CREDENTIAL_CONFIGS[provider].label,
-            source_type=source_type,
+            source_type=provider_source_type,
             credentials_configured=self._provider_credentials_complete(
                 provider=provider,
                 credentials=credentials,
@@ -853,7 +1157,8 @@ class AgentManagementService(BaseOrgService):
             last_error=last_error,
             discovered_models=[
                 self._catalog_entry_from_row(
-                    row, enabled=row.catalog_ref in enabled_refs
+                    row,
+                    enabled=self._selection_key_from_catalog_row(row) in enabled_keys,
                 )
                 for row in rows
             ],
@@ -893,11 +1198,13 @@ class AgentManagementService(BaseOrgService):
         limit: int = 100,
     ) -> BuiltInCatalogRead:
         status, refreshed_at, last_error = await self._get_builtin_catalog_state()
-        enabled_rows_by_ref = {
-            row.catalog_ref: row for row in await self._list_enabled_rows()
+        enabled_rows_by_key = {
+            self._selection_key_from_enabled_row(row): row
+            for row in await self._list_org_enabled_rows()
         }
-        discovered_refs = {
-            row.catalog_ref for row in await self._list_org_discovered_rows()
+        provider_statuses = {
+            provider.value: (await self._get_provider_state(provider.value))[0]
+            for provider in _BUILT_IN_PROVIDER_ORDER
         }
         credentials_by_provider = {
             provider.value: await self.get_provider_credentials(provider.value)
@@ -906,9 +1213,9 @@ class AgentManagementService(BaseOrgService):
         items = [
             self._build_builtin_catalog_entry(
                 row=row,
-                enabled_rows_by_ref=enabled_rows_by_ref,
-                discovered_refs=discovered_refs,
-                credentials=credentials_by_provider[row.runtime_provider],
+                enabled_rows_by_key=enabled_rows_by_key,
+                provider_status=provider_statuses[row.model_provider],
+                credentials=credentials_by_provider[row.model_provider],
             )
             for row in get_builtin_catalog_models()
         ]
@@ -917,20 +1224,19 @@ class AgentManagementService(BaseOrgService):
             items = [
                 item
                 for item in items
-                if normalized_query in item.display_name.lower()
-                or normalized_query in item.model_name.lower()
-                or normalized_query in item.runtime_provider.lower()
+                if normalized_query in item.model_name.lower()
+                or normalized_query in item.model_provider.lower()
             ]
         if provider:
-            items = [item for item in items if item.runtime_provider == provider]
+            items = [item for item in items if item.model_provider == provider]
         provider_order = {
             item.value: index for index, item in enumerate(_BUILT_IN_PROVIDER_ORDER)
         }
         items.sort(
             key=lambda item: (
-                provider_order.get(item.runtime_provider, len(provider_order)),
+                provider_order.get(item.model_provider, len(provider_order)),
                 -int(bool(item.enabled)),
-                item.display_name.lower(),
+                item.model_name.lower(),
             )
         )
         start = int(cursor) if cursor else 0
@@ -949,6 +1255,7 @@ class AgentManagementService(BaseOrgService):
 
     async def refresh_builtin_catalog(self) -> BuiltInCatalogRead:
         try:
+            await self._upsert_builtin_catalog_rows()
             await self._set_platform_setting_value(
                 key=BUILTIN_CATALOG_STATE_SETTINGS["discovery_status"],
                 value=ModelDiscoveryStatus.READY.value,
@@ -984,53 +1291,130 @@ class AgentManagementService(BaseOrgService):
         self, *, workspace_id: uuid.UUID | None = None
     ) -> list[ModelCatalogEntry]:
         """List the merged enabled model catalog for the organization."""
+        if workspace_id is not None:
+            await self._ensure_workspace_exists(workspace_id)
         enabled_rows = await self._filter_enabled_rows_for_workspace(
-            await self._list_enabled_rows(), workspace_id
+            await self._list_org_enabled_rows(), workspace_id
         )
-        source_ids = {
-            row.source_id
-            for row in enabled_rows
-            if row.source_id is not None
-            and row.source_type
-            in {
-                ModelSourceType.OPENAI_COMPATIBLE_GATEWAY.value,
-                ModelSourceType.MANUAL_CUSTOM.value,
-            }
-        }
-        sources_by_id: dict[uuid.UUID, AgentModelSource] = {}
-        if source_ids:
-            stmt = select(AgentModelSource).where(AgentModelSource.id.in_(source_ids))
-            sources_by_id = {
-                row.id: row
-                for row in (await self.session.execute(stmt)).scalars().all()
-            }
-        items = [
-            self._catalog_entry_from_enabled_row(
-                row,
-                source=(
-                    sources_by_id.get(row.source_id)
-                    if row.source_id is not None
-                    else None
-                ),
-            )
-            for row in enabled_rows
-        ]
-        items.sort(key=lambda item: (item.source_name, item.display_name))
-        return items
+        return await self._build_enabled_model_entries(enabled_rows)
 
     async def list_discovered_models(self) -> list[ModelCatalogEntry]:
         """List the discovered catalog with org enablement flags."""
-        discovered = [
-            *await self._list_default_sidecar_rows(),
-            *await self._list_org_discovered_rows(),
-        ]
-        enabled_refs = {row.catalog_ref for row in await self._list_enabled_rows()}
+        discovered = await self._list_org_catalog_rows()
+        enabled_keys = {
+            self._selection_key_from_enabled_row(row)
+            for row in await self._list_org_enabled_rows()
+        }
+        sources_by_id = await self._load_sources_by_id(
+            {row.source_id for row in discovered if row.source_id is not None}
+        )
         items = [
-            self._catalog_entry_from_row(row, enabled=row.catalog_ref in enabled_refs)
+            self._catalog_entry_from_row(
+                row,
+                enabled=self._selection_key_from_catalog_row(row) in enabled_keys,
+                source=sources_by_id.get(row.source_id) if row.source_id else None,
+            )
             for row in discovered
         ]
-        items.sort(key=lambda item: (item.source_name, item.display_name))
+        items.sort(key=lambda item: (item.source_name or "", item.model_name))
         return items
+
+    @require_scope("workspace:read")
+    async def get_workspace_model_subset(
+        self, workspace_id: uuid.UUID
+    ) -> WorkspaceModelSubsetRead:
+        await self._ensure_workspace_exists(workspace_id)
+        rows = await self._list_workspace_subset_rows(workspace_id)
+        return WorkspaceModelSubsetRead(
+            inherit_all=not rows,
+            models=sorted(
+                (
+                    ModelSelection(
+                        source_id=row.source_id,
+                        model_provider=row.model_provider,
+                        model_name=row.model_name,
+                    )
+                    for row in rows
+                ),
+                key=lambda item: (
+                    str(item.source_id) if item.source_id is not None else "",
+                    item.model_provider,
+                    item.model_name,
+                ),
+            ),
+        )
+
+    @require_scope("workspace:update")
+    async def replace_workspace_model_subset(
+        self,
+        workspace_id: uuid.UUID,
+        params: WorkspaceModelSubsetUpdate,
+    ) -> WorkspaceModelSubsetRead:
+        await self._ensure_workspace_exists(workspace_id)
+        unique_models = list(
+            dict.fromkeys(
+                self._selection_key(
+                    source_id=item.source_id,
+                    model_provider=item.model_provider,
+                    model_name=item.model_name,
+                )
+                for item in params.models
+            )
+        )
+        await self.session.execute(
+            delete(AgentEnabledModel).where(
+                AgentEnabledModel.organization_id == self.organization_id,
+                AgentEnabledModel.workspace_id == workspace_id,
+            )
+        )
+        if params.inherit_all:
+            await self.session.commit()
+            return await self.get_workspace_model_subset(workspace_id)
+        if not unique_models:
+            raise ValueError(
+                "Workspace subsets must include at least one model when inherit_all is false."
+            )
+        org_enabled_keys = {
+            self._selection_key_from_enabled_row(row)
+            for row in await self._list_org_enabled_rows()
+        }
+        missing_models = [
+            model for model in unique_models if model not in org_enabled_keys
+        ]
+        if missing_models:
+            raise TracecatNotFoundError(
+                "Model "
+                f"{missing_models[0].model_provider}/{missing_models[0].model_name} "
+                "is not enabled for the organization"
+            )
+        await self.session.execute(
+            pg_insert(AgentEnabledModel).values(
+                [
+                    {
+                        "organization_id": self.organization_id,
+                        "workspace_id": workspace_id,
+                        "source_id": model.source_id,
+                        "model_provider": model.model_provider,
+                        "model_name": model.model_name,
+                        "enabled_config": None,
+                    }
+                    for model in unique_models
+                ]
+            )
+        )
+        await self.session.commit()
+        return await self.get_workspace_model_subset(workspace_id)
+
+    @require_scope("workspace:update")
+    async def clear_workspace_model_subset(self, workspace_id: uuid.UUID) -> None:
+        await self._ensure_workspace_exists(workspace_id)
+        await self.session.execute(
+            delete(AgentEnabledModel).where(
+                AgentEnabledModel.organization_id == self.organization_id,
+                AgentEnabledModel.workspace_id == workspace_id,
+            )
+        )
+        await self.session.commit()
 
     async def get_model_config(self, model_name: str) -> ModelConfig:
         """Get configuration for a specific model."""
@@ -1038,11 +1422,18 @@ class AgentManagementService(BaseOrgService):
             raise TracecatNotFoundError(f"Model {model_name} not found")
         return MODEL_CONFIGS[model_name]
 
+    def _source_type_from_row(self, row: AgentModelSource) -> CustomModelSourceType:
+        if row.declared_models:
+            return CustomModelSourceType.MANUAL_CUSTOM
+        if row.model_provider == CustomModelSourceType.OPENAI_COMPATIBLE_GATEWAY.value:
+            return CustomModelSourceType.OPENAI_COMPATIBLE_GATEWAY
+        return CustomModelSourceType.MANUAL_CUSTOM
+
     def _to_model_source_read(self, row: AgentModelSource) -> AgentModelSourceRead:
         source_config = self._deserialize_sensitive_config(row.encrypted_config)
         return AgentModelSourceRead(
             id=row.id,
-            type=CustomModelSourceType(row.type),
+            type=self._source_type_from_row(row),
             flavor=self._source_flavor(source_config),
             display_name=row.display_name,
             base_url=row.base_url,
@@ -1067,9 +1458,6 @@ class AgentManagementService(BaseOrgService):
             select(AgentModelSource)
             .where(
                 AgentModelSource.organization_id == self.organization_id,
-                AgentModelSource.type.in_(
-                    sorted(source_type.value for source_type in _CUSTOM_SOURCE_TYPES)
-                ),
             )
             .order_by(AgentModelSource.display_name.asc())
         )
@@ -1114,7 +1502,7 @@ class AgentManagementService(BaseOrgService):
         )
         source = (await self.session.execute(stmt)).scalar_one_or_none()
         if source is None:
-            raise TracecatNotFoundError(f"Model source {source_id} not found")
+            raise TracecatNotFoundError(f"Source {source_id} not found")
         return source
 
     @require_scope("agent:update")
@@ -1124,8 +1512,12 @@ class AgentManagementService(BaseOrgService):
         await self._validate_source_uniqueness(source_type=params.type)
         source = AgentModelSource(
             organization_id=self.organization_id,
-            type=params.type.value,
             display_name=params.display_name,
+            model_provider=(
+                "openai_compatible_gateway"
+                if params.type == CustomModelSourceType.OPENAI_COMPATIBLE_GATEWAY
+                else None
+            ),
             base_url=params.base_url,
             encrypted_config=self._serialize_sensitive_config(
                 self._source_config_payload(
@@ -1152,7 +1544,8 @@ class AgentManagementService(BaseOrgService):
     ) -> AgentModelSourceRead:
         source = await self.get_model_source(source_id)
         await self._validate_source_uniqueness(
-            source_type=CustomModelSourceType(source.type), exclude_id=source.id
+            source_type=self._source_type_from_row(source),
+            exclude_id=source.id,
         )
         source_config = self._deserialize_sensitive_config(source.encrypted_config)
         if "display_name" in params.model_fields_set:
@@ -1190,13 +1583,37 @@ class AgentManagementService(BaseOrgService):
     async def delete_model_source(self, source_id: uuid.UUID) -> None:
         source = await self.get_model_source(source_id)
         await self._validate_source_uniqueness(
-            source_type=CustomModelSourceType(source.type), exclude_id=source.id
+            source_type=self._source_type_from_row(source),
+            exclude_id=source.id,
         )
-        await self.session.execute(
-            delete(AgentEnabledModel).where(
-                AgentEnabledModel.organization_id == self.organization_id,
-                AgentEnabledModel.source_id == source_id,
+        source_catalog_rows = list(
+            (
+                await self.session.execute(
+                    select(AgentCatalog).where(
+                        AgentCatalog.organization_id == self.organization_id,
+                        AgentCatalog.source_id == source_id,
+                    )
+                )
             )
+            .scalars()
+            .all()
+        )
+        source_keys = [
+            self._selection_key_from_catalog_row(row) for row in source_catalog_rows
+        ]
+        delete_conditions = [
+            (AgentEnabledModel.organization_id == self.organization_id)
+            & (
+                AgentEnabledModel.source_id.is_(None)
+                if key.source_id is None
+                else AgentEnabledModel.source_id == key.source_id
+            )
+            & (AgentEnabledModel.model_provider == key.model_provider)
+            & (AgentEnabledModel.model_name == key.model_name)
+            for key in source_keys
+        ]
+        await self.session.execute(
+            delete(AgentEnabledModel).where(or_(*delete_conditions))
         )
         await self.session.flush()
         await self.session.delete(source)
@@ -1211,6 +1628,58 @@ class AgentManagementService(BaseOrgService):
         if header_name.lower() == "authorization":
             return {header_name: f"Bearer {api_key}"}
         return {header_name: api_key}
+
+    def _openai_compatible_discovery_urls(self, base_url: str) -> list[str]:
+        base = base_url.strip().rstrip("/")
+        if not base:
+            return []
+
+        candidates: list[str] = []
+
+        def add(url: str) -> None:
+            cleaned = url.strip()
+            if cleaned and cleaned not in candidates:
+                candidates.append(cleaned)
+
+        add(base)
+        add(f"{base}/")
+
+        if base.endswith("/v1/models"):
+            prefix = base.removesuffix("/v1/models")
+            add(f"{base}/")
+            add(f"{prefix}/v1")
+            add(f"{prefix}/v1/")
+            add(f"{prefix}/models")
+            add(f"{prefix}/models/")
+            add(prefix)
+            add(f"{prefix}/")
+        elif base.endswith("/models"):
+            prefix = base.removesuffix("/models")
+            add(f"{base}/")
+            add(f"{prefix}/v1/models")
+            add(f"{prefix}/v1/models/")
+            add(f"{prefix}/v1")
+            add(f"{prefix}/v1/")
+            add(prefix)
+            add(f"{prefix}/")
+        elif base.endswith("/v1"):
+            prefix = base.removesuffix("/v1")
+            add(f"{base}/")
+            add(f"{base}/models")
+            add(f"{base}/models/")
+            add(f"{prefix}/models")
+            add(f"{prefix}/models/")
+            add(prefix)
+            add(f"{prefix}/")
+        else:
+            add(f"{base}/v1")
+            add(f"{base}/v1/")
+            add(f"{base}/v1/models")
+            add(f"{base}/v1/models/")
+            add(f"{base}/models")
+            add(f"{base}/models/")
+
+        return candidates
 
     async def _fetch_openai_compatible_models(
         self,
@@ -1229,17 +1698,25 @@ class AgentManagementService(BaseOrgService):
         }
         async with httpx.AsyncClient(timeout=20.0) as client:
             response: httpx.Response | None = None
-            for path in ("/v1/models", "/models"):
+            errors: list[str] = []
+            for url in self._openai_compatible_discovery_urls(base_url):
                 try:
-                    response = await client.get(
-                        f"{base_url.rstrip('/')}{path}", headers=headers
-                    )
+                    response = await client.get(url, headers=headers)
                     response.raise_for_status()
                     break
-                except httpx.HTTPError:
+                except httpx.HTTPStatusError as exc:
+                    errors.append(f"{url} -> {exc.response.status_code}")
+                    response = None
+                except httpx.RequestError as exc:
+                    errors.append(f"{url} -> {exc.__class__.__name__}")
                     response = None
             if response is None:
-                raise TracecatNotFoundError("Failed to discover models from gateway")
+                detail = (
+                    ", ".join(errors[:4]) if errors else "no discovery endpoints tried"
+                )
+                raise TracecatNotFoundError(
+                    f"Failed to discover models from gateway ({detail})"
+                )
         payload = response.json()
         if isinstance(payload, dict):
             items = payload.get("data") or payload.get("models") or []
@@ -1258,12 +1735,12 @@ class AgentManagementService(BaseOrgService):
     ) -> list[dict[str, object]]:
         normalized: list[dict[str, object]] = []
         for item in items:
-            raw_model_id = str(item.get("id") or item.get("name") or "").strip()
-            if not raw_model_id:
+            model_id = str(item.get("id") or item.get("name") or "").strip()
+            if not model_id:
                 continue
             provider = self._display_provider_for_model(
                 source_type=source_type,
-                model_name=raw_model_id,
+                model_id=model_id,
                 provider_hint=(
                     str(item["owned_by"])
                     if isinstance(item.get("owned_by"), str)
@@ -1274,110 +1751,23 @@ class AgentManagementService(BaseOrgService):
             )
             normalized.append(
                 {
-                    "catalog_ref": self._catalog_ref(
-                        source_type=source_type,
-                        source_id=source_id,
-                        raw_model_id=raw_model_id,
-                    ),
-                    "model_name": raw_model_id,
                     "model_provider": provider,
-                    "runtime_provider": self._provider_from_source_type(source_type),
-                    "display_name": str(item.get("name") or raw_model_id),
-                    "source_name": source_name,
-                    "raw_model_id": raw_model_id,
-                    "base_url": base_url,
+                    "model_id": model_id,
+                    "display_name": str(item.get("name") or model_id),
                     "metadata": item,
                 }
             )
         return normalized
 
-    async def _discover_provider_models(
-        self, source_type: ModelSourceType
-    ) -> list[dict[str, object]]:
-        provider = source_type.value
-        credentials = await self.get_provider_credentials(provider) or {}
-        source_name = PROVIDER_CREDENTIAL_CONFIGS[provider].label
-        match source_type:
-            case ModelSourceType.OPENAI:
-                if not credentials:
-                    raise TracecatNotFoundError("OpenAI credentials not configured")
-                items = await self._fetch_openai_compatible_models(
-                    base_url=credentials.get("OPENAI_BASE_URL")
-                    or "https://api.openai.com",
-                    api_key=credentials.get("OPENAI_API_KEY"),
-                    api_key_header="Authorization",
-                )
-                return self._normalize_openai_compatible_entries(
-                    source_type=source_type,
-                    source_name=source_name,
-                    items=items,
-                    base_url=credentials.get("OPENAI_BASE_URL"),
-                )
-            case ModelSourceType.ANTHROPIC:
-                if not credentials:
-                    raise TracecatNotFoundError("Anthropic credentials not configured")
-                items = await self._fetch_openai_compatible_models(
-                    base_url=credentials.get("ANTHROPIC_BASE_URL")
-                    or "https://api.anthropic.com",
-                    api_key=credentials.get("ANTHROPIC_API_KEY"),
-                    api_key_header="x-api-key",
-                    extra_headers={"anthropic-version": "2023-06-01"},
-                )
-                return self._normalize_openai_compatible_entries(
-                    source_type=source_type,
-                    source_name=source_name,
-                    items=items,
-                    base_url=credentials.get("ANTHROPIC_BASE_URL"),
-                )
-            case ModelSourceType.GEMINI:
-                if not (api_key := credentials.get("GEMINI_API_KEY")):
-                    raise TracecatNotFoundError("Gemini credentials not configured")
-                async with httpx.AsyncClient(timeout=20.0) as client:
-                    response = await client.get(
-                        "https://generativelanguage.googleapis.com/v1beta/models",
-                        params={"key": api_key},
-                    )
-                    response.raise_for_status()
-                payload = response.json()
-                items = []
-                for item in payload.get("models", []):
-                    if not isinstance(item, dict):
-                        continue
-                    model_id = str(item.get("name") or "").removeprefix("models/")
-                    if not model_id:
-                        continue
-                    item["id"] = model_id
-                    items.append(item)
-                return self._normalize_openai_compatible_entries(
-                    source_type=source_type,
-                    source_name=source_name,
-                    items=items,
-                )
-            case _:
-                if not credentials:
-                    raise TracecatNotFoundError(
-                        f"{provider} credentials not configured for discovery"
-                    )
-                return [
-                    {
-                        "catalog_ref": row.catalog_ref,
-                        "model_name": row.model_name,
-                        "model_provider": row.model_provider,
-                        "runtime_provider": row.runtime_provider,
-                        "display_name": row.display_name,
-                        "source_name": source_name,
-                        "raw_model_id": row.raw_model_id,
-                        "base_url": None,
-                        "metadata": row.metadata,
-                    }
-                    for row in get_builtin_catalog_by_provider().get(provider, ())
-                    if row.enableable
-                ]
-
     async def _discover_source_models(
         self, source: AgentModelSource
     ) -> list[dict[str, object]]:
-        source_type = ModelSourceType(source.type)
+        source_type = (
+            ModelSourceType.OPENAI_COMPATIBLE_GATEWAY
+            if self._source_type_from_row(source)
+            == CustomModelSourceType.OPENAI_COMPATIBLE_GATEWAY
+            else ModelSourceType.MANUAL_CUSTOM
+        )
         source_config = self._deserialize_sensitive_config(source.encrypted_config)
         match source_type:
             case ModelSourceType.OPENAI_COMPATIBLE_GATEWAY:
@@ -1399,23 +1789,14 @@ class AgentManagementService(BaseOrgService):
                 declared = source.declared_models or []
                 return [
                     {
-                        "catalog_ref": self._catalog_ref(
-                            source_type=source_type,
-                            source_id=source.id,
-                            raw_model_id=item["model_name"],
-                        ),
-                        "model_name": item["model_name"],
                         "model_provider": item.get("model_provider")
                         or self._display_provider_for_model(
                             source_type=source_type,
-                            model_name=item["model_name"],
+                            model_id=item["model_name"],
                             provider_hint=None,
                         ),
-                        "runtime_provider": "manual_custom",
+                        "model_id": item["model_name"],
                         "display_name": item.get("display_name") or item["model_name"],
-                        "source_name": source.display_name,
-                        "raw_model_id": item["model_name"],
-                        "base_url": source.base_url,
                         "metadata": {"declared": True},
                     }
                     for item in declared
@@ -1431,12 +1812,18 @@ class AgentManagementService(BaseOrgService):
     ) -> list[ModelCatalogEntry]:
         source = await self.get_model_source(source_id)
         await self._validate_source_uniqueness(
-            source_type=CustomModelSourceType(source.type), exclude_id=source.id
+            source_type=self._source_type_from_row(source),
+            exclude_id=source.id,
         )
         try:
             discovered = await self._discover_source_models(source)
-            persisted = await self._upsert_discovered_models(
-                source_type=ModelSourceType(source.type),
+            persisted = await self._upsert_catalog_rows(
+                source_type=(
+                    ModelSourceType.OPENAI_COMPATIBLE_GATEWAY
+                    if self._source_type_from_row(source)
+                    == CustomModelSourceType.OPENAI_COMPATIBLE_GATEWAY
+                    else ModelSourceType.MANUAL_CUSTOM
+                ),
                 source_name=source.display_name,
                 source_id=source.id,
                 models=discovered,
@@ -1447,10 +1834,15 @@ class AgentManagementService(BaseOrgService):
             source.last_refreshed_at = datetime.now(UTC)
             self.session.add(source)
             await self.session.commit()
-            enabled_refs = {row.catalog_ref for row in await self._list_enabled_rows()}
+            enabled_keys = {
+                self._selection_key_from_enabled_row(row)
+                for row in await self._list_org_enabled_rows()
+            }
             return [
                 self._catalog_entry_from_row(
-                    row, enabled=row.catalog_ref in enabled_refs
+                    row,
+                    enabled=self._selection_key_from_catalog_row(row) in enabled_keys,
+                    source=source,
                 )
                 for row in persisted
             ]
@@ -1464,95 +1856,6 @@ class AgentManagementService(BaseOrgService):
             raise
 
     @require_scope("agent:update")
-    async def refresh_default_sidecar_inventory(
-        self, *, populate_defaults: bool = False
-    ) -> DefaultModelInventoryRead:
-        current_rows = await self._list_default_sidecar_rows()
-        if populate_defaults and current_rows:
-            return await self.get_default_sidecar_inventory()
-        try:
-            default_sidecar_cfg = self._get_default_sidecar_config()
-            if default_sidecar_cfg["base_url"]:
-                items = await self._fetch_openai_compatible_models(
-                    base_url=str(default_sidecar_cfg["base_url"]),
-                    api_key=(
-                        str(default_sidecar_cfg["api_key"])
-                        if default_sidecar_cfg["api_key"]
-                        else None
-                    ),
-                    api_key_header=str(
-                        default_sidecar_cfg["api_key_header"] or "Authorization"
-                    ),
-                )
-                discovered = self._normalize_openai_compatible_entries(
-                    source_type=ModelSourceType.DEFAULT_SIDECAR,
-                    source_name=DEFAULT_SIDECAR_SOURCE_NAME,
-                    items=items,
-                    base_url=str(default_sidecar_cfg["base_url"]),
-                )
-            else:
-                discovered = []
-            await self._upsert_discovered_models(
-                source_type=ModelSourceType.DEFAULT_SIDECAR,
-                source_name=DEFAULT_SIDECAR_SOURCE_NAME,
-                models=discovered,
-                organization_scoped=False,
-            )
-            await self._set_platform_setting_value(
-                key=DEFAULT_SIDECAR_STATE_SETTINGS["discovery_status"],
-                value=ModelDiscoveryStatus.READY.value,
-            )
-            await self._set_platform_setting_value(
-                key=DEFAULT_SIDECAR_STATE_SETTINGS["last_refreshed_at"],
-                value=datetime.now(UTC).isoformat(),
-            )
-            await self._set_platform_setting_value(
-                key=DEFAULT_SIDECAR_STATE_SETTINGS["last_error"],
-                value=None,
-            )
-            await self.session.commit()
-        except Exception as exc:
-            await self.session.rollback()
-            await self._set_platform_setting_value(
-                key=DEFAULT_SIDECAR_STATE_SETTINGS["discovery_status"],
-                value=ModelDiscoveryStatus.FAILED.value,
-            )
-            await self._set_platform_setting_value(
-                key=DEFAULT_SIDECAR_STATE_SETTINGS["last_refreshed_at"],
-                value=datetime.now(UTC).isoformat(),
-            )
-            await self._set_platform_setting_value(
-                key=DEFAULT_SIDECAR_STATE_SETTINGS["last_error"],
-                value=str(exc),
-            )
-            await self.session.commit()
-            if not populate_defaults:
-                raise
-        return await self.get_default_sidecar_inventory()
-
-    async def get_default_sidecar_inventory(self) -> DefaultModelInventoryRead:
-        status = await self._get_default_sidecar_state_value("discovery_status")
-        refreshed_at = await self._get_default_sidecar_state_value("last_refreshed_at")
-        last_error = await self._get_default_sidecar_state_value("last_error")
-        rows = await self._list_default_sidecar_rows()
-        enabled_refs = {row.catalog_ref for row in await self._list_enabled_rows()}
-        return DefaultModelInventoryRead(
-            discovery_status=ModelDiscoveryStatus(
-                str(status or ModelDiscoveryStatus.NEVER.value)
-            ),
-            last_refreshed_at=(
-                datetime.fromisoformat(str(refreshed_at)) if refreshed_at else None
-            ),
-            last_error=str(last_error) if last_error else None,
-            discovered_models=[
-                self._catalog_entry_from_row(
-                    row, enabled=row.catalog_ref in enabled_refs
-                )
-                for row in rows
-            ],
-        )
-
-    @require_scope("agent:update")
     async def refresh_provider_inventory(self, provider: str) -> BuiltInProviderRead:
         try:
             source_type = ModelSourceType(provider)
@@ -1560,123 +1863,92 @@ class AgentManagementService(BaseOrgService):
             raise TracecatNotFoundError(f"Provider {provider} not found") from exc
         if source_type not in _BUILT_IN_PROVIDER_SOURCE_TYPES:
             raise TracecatNotFoundError(f"Provider {provider} not found")
-
-        now = datetime.now(UTC)
-        try:
-            discovered = await self._discover_provider_models(source_type)
-            await self._upsert_discovered_models(
-                source_type=source_type,
-                source_name=self._provider_label(provider),
-                models=discovered,
-                organization_scoped=True,
-            )
-            await self._set_org_setting_value(
-                key=self._provider_state_setting_key(
-                    provider=provider, field="discovery_status"
-                ),
-                value=ModelDiscoveryStatus.READY.value,
-            )
-            await self._set_org_setting_value(
-                key=self._provider_state_setting_key(
-                    provider=provider, field="last_refreshed_at"
-                ),
-                value=now.isoformat(),
-            )
-            await self._set_org_setting_value(
-                key=self._provider_state_setting_key(
-                    provider=provider, field="last_error"
-                ),
-                value=None,
-            )
-            await self.session.commit()
-        except Exception as exc:
-            await self.session.rollback()
-            await self._set_org_setting_value(
-                key=self._provider_state_setting_key(
-                    provider=provider, field="discovery_status"
-                ),
-                value=ModelDiscoveryStatus.FAILED.value,
-            )
-            await self._set_org_setting_value(
-                key=self._provider_state_setting_key(
-                    provider=provider, field="last_refreshed_at"
-                ),
-                value=now.isoformat(),
-            )
-            await self._set_org_setting_value(
-                key=self._provider_state_setting_key(
-                    provider=provider, field="last_error"
-                ),
-                value=str(exc),
-            )
-            await self.session.commit()
-            raise
-
         return await self._build_provider_read(source_type)
 
-    async def _get_catalog_row(self, catalog_ref: str) -> ResolvedCatalogRecord:
-        stmt = select(AgentDiscoveredModel).where(
-            AgentDiscoveredModel.catalog_ref == catalog_ref,
-            (AgentDiscoveredModel.organization_id == self.organization_id)
-            | (
+    async def _get_catalog_row_model(
+        self,
+        selection: ModelSelectionKey,
+    ) -> AgentCatalog:
+        stmt = (
+            select(AgentCatalog)
+            .where(
                 (
-                    AgentDiscoveredModel.source_type
-                    == ModelSourceType.DEFAULT_SIDECAR.value
-                )
-                & AgentDiscoveredModel.organization_id.is_(None)
-            ),
+                    AgentCatalog.source_id.is_(None)
+                    if selection.source_id is None
+                    else AgentCatalog.source_id == selection.source_id
+                ),
+                AgentCatalog.model_provider == selection.model_provider,
+                AgentCatalog.model_name == selection.model_name,
+                (AgentCatalog.organization_id == self.organization_id)
+                | AgentCatalog.organization_id.is_(None),
+            )
+            .order_by(AgentCatalog.organization_id.is_(None))
         )
         row = (await self.session.execute(stmt)).scalar_one_or_none()
         if row is not None:
-            return self._resolved_from_discovered(row)
-        if builtin_row := get_builtin_catalog_by_ref().get(catalog_ref):
-            return self._resolved_from_builtin(builtin_row)
-        raise TracecatNotFoundError(f"Catalog entry {catalog_ref} not found")
+            return row
+        raise TracecatNotFoundError(
+            f"Catalog entry {selection.model_provider}/{selection.model_name} not found"
+        )
+
+    async def _get_catalog_row(
+        self,
+        selection: ModelSelectionKey,
+    ) -> ResolvedCatalogRecord:
+        row = await self._get_catalog_row_model(selection)
+        source = (
+            await self.get_model_source(row.source_id)
+            if row.source_id is not None
+            else None
+        )
+        return self._resolved_from_catalog(row, source=source)
 
     async def _resolve_enableable_catalog_row(
         self,
-        catalog_ref: str,
+        selection: ModelSelectionKey,
         provider_credentials_cache: dict[str, dict[str, str] | None],
     ) -> ResolvedCatalogRecord:
-        row = await self._get_catalog_row(catalog_ref)
-        if builtin_row := get_builtin_catalog_by_ref().get(catalog_ref):
-            provider = builtin_row.runtime_provider
-            if provider not in provider_credentials_cache:
-                provider_credentials_cache[
-                    provider
-                ] = await self.get_provider_credentials(provider)
-            credentials = provider_credentials_cache[provider]
-            if not builtin_row.enableable:
-                raise TracecatNotFoundError(
-                    builtin_row.readiness_message
-                    or "This model cannot be enabled for agents."
-                )
-            if not self._provider_credentials_complete(
-                provider=provider,
-                credentials=credentials,
-            ):
-                raise TracecatNotFoundError(
-                    f"No complete credentials found for provider '{provider}'. "
-                    "Please configure this provider first."
-                )
+        row = await self._get_catalog_row(selection)
+        if row.source_id is None:
+            builtin_row = get_builtin_catalog_by_provider().get(row.model_provider, ())
+            builtin_model = next(
+                (item for item in builtin_row if item.model_id == row.model_name),
+                None,
+            )
+            if builtin_model is not None:
+                provider = builtin_model.model_provider
+                if provider not in provider_credentials_cache:
+                    provider_credentials_cache[
+                        provider
+                    ] = await self.get_provider_credentials(provider)
+                credentials = provider_credentials_cache[provider]
+                if not builtin_model.enableable:
+                    raise TracecatNotFoundError(
+                        builtin_model.readiness_message
+                        or "This model cannot be enabled for agents."
+                    )
+                if not self._provider_credentials_complete(
+                    provider=provider,
+                    credentials=credentials,
+                ):
+                    raise TracecatNotFoundError(
+                        f"No complete credentials found for provider '{provider}'. "
+                        "Please configure this provider first."
+                    )
         return row
 
     async def _enable_catalog_rows(
-        self, catalog_refs: list[str]
+        self,
+        selections: list[ModelSelectionKey],
     ) -> list[ResolvedCatalogRecord]:
         provider_credentials_cache: dict[str, dict[str, str] | None] = {}
-        seen_refs: set[str] = set()
-        rows: list[ResolvedCatalogRecord] = []
-        for catalog_ref in catalog_refs:
-            if catalog_ref in seen_refs:
-                continue
-            seen_refs.add(catalog_ref)
-            rows.append(
-                await self._resolve_enableable_catalog_row(
-                    catalog_ref,
-                    provider_credentials_cache,
-                )
+        unique_selections = list(dict.fromkeys(selections))
+        rows = [
+            await self._resolve_enableable_catalog_row(
+                selection, provider_credentials_cache
             )
+            for selection in unique_selections
+        ]
         if not rows:
             return []
         await self.session.execute(
@@ -1685,103 +1957,144 @@ class AgentManagementService(BaseOrgService):
                 [
                     {
                         "organization_id": self.organization_id,
-                        "catalog_ref": row.catalog_ref,
+                        "workspace_id": None,
                         "source_id": row.source_id,
-                        "source_type": row.source_type.value,
-                        "model_name": row.model_name,
                         "model_provider": row.model_provider,
-                        "runtime_provider": row.runtime_provider,
-                        "display_name": row.display_name,
-                        "base_url": row.base_url,
+                        "model_name": row.model_name,
                         "enabled_config": None,
                     }
                     for row in rows
                 ]
             )
-            .on_conflict_do_nothing(index_elements=["organization_id", "catalog_ref"])
+            .on_conflict_do_nothing(
+                index_elements=[
+                    "organization_id",
+                    "workspace_id",
+                    "source_id",
+                    "model_provider",
+                    "model_name",
+                ]
+            )
         )
         await self.session.commit()
         return rows
 
     @require_scope("agent:update")
     async def enable_model(self, params: EnabledModelOperation) -> ModelCatalogEntry:
-        rows = await self._enable_catalog_rows([params.catalog_ref])
-        row = rows[0]
-        return ModelCatalogEntry(
-            catalog_ref=row.catalog_ref,
-            model_name=row.model_name,
-            model_provider=row.model_provider,
-            runtime_provider=row.runtime_provider,
-            display_name=row.display_name,
-            source_type=row.source_type,
-            source_name=row.source_name,
-            source_id=row.source_id,
-            base_url=row.base_url,
-            enabled=True,
-            last_refreshed_at=row.last_refreshed_at,
-            metadata=row.metadata,
-            enabled_config=None,
-        )
+        selection = self._selection_key_from_model_selection(params)
+        await self._enable_catalog_rows([selection])
+        enabled_row = await self._get_enabled_row(selection)
+        if enabled_row is None:
+            raise TracecatNotFoundError(
+                f"Enabled model {params.model_provider}/{params.model_name} not found"
+            )
+        return (await self._build_enabled_model_entries([enabled_row]))[0]
 
     @require_scope("agent:update")
     async def enable_models(
         self, params: EnabledModelsBatchOperation
     ) -> list[ModelCatalogEntry]:
-        rows = await self._enable_catalog_rows(params.catalog_refs)
-        return [
-            ModelCatalogEntry(
-                catalog_ref=row.catalog_ref,
-                model_name=row.model_name,
-                model_provider=row.model_provider,
-                runtime_provider=row.runtime_provider,
-                display_name=row.display_name,
-                source_type=row.source_type,
-                source_name=row.source_name,
-                source_id=row.source_id,
-                base_url=row.base_url,
-                enabled=True,
-                last_refreshed_at=row.last_refreshed_at,
-                metadata=row.metadata,
-                enabled_config=None,
-            )
-            for row in rows
+        selections = [
+            self._selection_key_from_model_selection(item) for item in params.models
         ]
+        await self._enable_catalog_rows(selections)
+        selection_set = set(selections)
+        enabled_rows = [
+            row
+            for row in await self._list_org_enabled_rows()
+            if self._selection_key_from_enabled_row(row) in selection_set
+        ]
+        return await self._build_enabled_model_entries(enabled_rows)
 
-    async def _disable_catalog_refs(self, catalog_refs: list[str]) -> set[str]:
-        unique_refs = list(dict.fromkeys(catalog_refs))
-        if not unique_refs:
+    async def _disable_model_selections(
+        self,
+        selections: list[ModelSelectionKey],
+    ) -> set[ModelSelectionKey]:
+        unique_selections = list(dict.fromkeys(selections))
+        if not unique_selections:
             return set()
 
+        conditions = [
+            (AgentEnabledModel.organization_id == self.organization_id)
+            & (AgentEnabledModel.workspace_id.is_(None))
+            & (
+                AgentEnabledModel.source_id.is_(None)
+                if selection.source_id is None
+                else AgentEnabledModel.source_id == selection.source_id
+            )
+            & (AgentEnabledModel.model_provider == selection.model_provider)
+            & (AgentEnabledModel.model_name == selection.model_name)
+            for selection in unique_selections
+        ]
         result = await self.session.execute(
             delete(AgentEnabledModel)
-            .where(
-                AgentEnabledModel.organization_id == self.organization_id,
-                AgentEnabledModel.catalog_ref.in_(unique_refs),
+            .where(or_(*conditions))
+            .returning(
+                AgentEnabledModel.source_id,
+                AgentEnabledModel.model_provider,
+                AgentEnabledModel.model_name,
             )
-            .returning(AgentEnabledModel.catalog_ref)
         )
-        disabled_refs = set(result.scalars().all())
-        default_setting = await self.settings_service.get_org_setting(
-            "agent_default_model_ref"
-        )
-        if (
-            disabled_refs
-            and default_setting
-            and self.settings_service.get_value(default_setting) in disabled_refs
-        ):
-            await self.settings_service.update_org_setting(
-                default_setting, SettingUpdate(value=None)
+        disabled = {
+            self._selection_key(
+                source_id=source_id,
+                model_provider=model_provider,
+                model_name=model_name,
             )
+            for source_id, model_provider, model_name in result.tuples().all()
+        }
+        if disabled:
+            await self._revalidate_default_model_setting(disabled)
         await self.session.commit()
-        return disabled_refs
+        return disabled
+
+    async def _revalidate_default_model_setting(
+        self,
+        disabled: set[ModelSelectionKey],
+    ) -> None:
+        if not disabled:
+            return
+        setting = await self.settings_service.get_org_setting("agent_default_model")
+        if setting is None:
+            return
+
+        value = self.settings_service.get_value(setting)
+        if isinstance(value, dict):
+            try:
+                selection = ModelSelection.model_validate(value)
+            except Exception:
+                return
+            if self._selection_key_from_model_selection(selection) in disabled:
+                await self._clear_default_model_selection()
+            return
+
+        if not value:
+            return
+
+        legacy_model_name = str(value)
+        match await resolve_enabled_catalog_match_for_model_name(
+            self.session,
+            organization_id=self.organization_id,
+            model_name=legacy_model_name,
+        ):
+            case match_result:
+                selection = self._selection_from_legacy_match(match_result)
+                if (
+                    selection is not None
+                    and self._selection_key_from_model_selection(selection)
+                    not in disabled
+                ):
+                    return
+
+        await self._clear_default_model_selection()
 
     def _normalize_enabled_model_config(
         self,
         *,
-        runtime_provider: str,
+        model_provider: str,
         config: EnabledModelRuntimeConfig,
     ) -> dict[str, Any] | None:
-        match runtime_provider:
+        match model_provider:
             case "bedrock":
                 normalized: dict[str, Any] = {}
                 if inference_profile_id := config.bedrock_inference_profile_id:
@@ -1796,86 +2109,222 @@ class AgentManagementService(BaseOrgService):
                 return None
 
     @require_scope("agent:update")
-    async def disable_model(self, catalog_ref: str) -> None:
-        await self._disable_catalog_refs([catalog_ref])
+    async def disable_model(self, selection: ModelSelection) -> None:
+        await self._disable_model_selections(
+            [self._selection_key_from_model_selection(selection)]
+        )
 
     @require_scope("agent:update")
     async def disable_models(self, params: EnabledModelsBatchOperation) -> None:
-        await self._disable_catalog_refs(params.catalog_refs)
+        await self._disable_model_selections(
+            [self._selection_key_from_model_selection(item) for item in params.models]
+        )
 
     @require_scope("agent:update")
     async def update_enabled_model_config(
         self, params: EnabledModelRuntimeConfigUpdate
     ) -> ModelCatalogEntry:
-        row = await self._get_enabled_row(params.catalog_ref)
+        selection = self._selection_key(
+            source_id=params.source_id,
+            model_provider=params.model_provider,
+            model_name=params.model_name,
+        )
+        row = await self._get_enabled_row(selection)
         if row is None:
-            raise TracecatNotFoundError(f"Enabled model {params.catalog_ref} not found")
+            raise TracecatNotFoundError(
+                f"Enabled model {params.model_provider}/{params.model_name} not found"
+            )
+        catalog_row = await self._get_catalog_row_model(selection)
         row.enabled_config = self._normalize_enabled_model_config(
-            runtime_provider=row.runtime_provider,
+            model_provider=catalog_row.model_provider,
             config=params.config,
         )
         self.session.add(row)
         await self.session.commit()
         await self.session.refresh(row)
-        return self._catalog_entry_from_enabled_row(row)
+        return (await self._build_enabled_model_entries([row]))[0]
 
-    async def _resolve_legacy_default_model_ref(self) -> str | None:
+    async def _resolve_legacy_catalog_match(
+        self,
+        *,
+        model_provider: str,
+        model_name: str,
+        workspace_id: uuid.UUID | None = None,
+    ) -> LegacyCatalogMatch:
+        if model_provider == LEGACY_CUSTOM_PROVIDER:
+            await self._ensure_legacy_custom_provider_source_synced()
+        match_result = await resolve_catalog_match_for_provider_model(
+            self.session,
+            organization_id=self.organization_id,
+            workspace_id=workspace_id,
+            model_provider=model_provider,
+            model_name=model_name,
+        )
+        if match_result.status != "missing":
+            return match_result
+        runtime_target = self._provider_runtime_target(
+            provider=model_provider,
+            credentials=await self.get_provider_credentials(model_provider),
+        )
+        if runtime_target and runtime_target != model_name:
+            return await resolve_catalog_match_for_provider_model(
+                self.session,
+                organization_id=self.organization_id,
+                workspace_id=workspace_id,
+                model_provider=model_provider,
+                model_name=runtime_target,
+            )
+        return match_result
+
+    async def _resolve_accessible_legacy_catalog_match(
+        self,
+        *,
+        model_provider: str,
+        model_name: str,
+    ) -> LegacyCatalogMatch:
+        if model_provider == LEGACY_CUSTOM_PROVIDER:
+            await self._ensure_legacy_custom_provider_source_synced()
+        match_result = await resolve_accessible_catalog_match_for_provider_model(
+            self.session,
+            organization_id=self.organization_id,
+            model_provider=model_provider,
+            model_name=model_name,
+        )
+        if match_result.status != "missing":
+            return match_result
+        runtime_target = self._provider_runtime_target(
+            provider=model_provider,
+            credentials=await self.get_provider_credentials(model_provider),
+        )
+        if runtime_target and runtime_target != model_name:
+            return await resolve_accessible_catalog_match_for_provider_model(
+                self.session,
+                organization_id=self.organization_id,
+                model_provider=model_provider,
+                model_name=runtime_target,
+            )
+        return match_result
+
+    async def _resolve_accessible_legacy_default_model_match(
+        self,
+        *,
+        legacy_model_name: str,
+    ) -> LegacyCatalogMatch:
+        match_result = await resolve_accessible_catalog_match_for_model_name(
+            self.session,
+            organization_id=self.organization_id,
+            model_name=legacy_model_name,
+        )
+        if match_result.status != "missing":
+            return match_result
+        if legacy_model_name in PROVIDER_CREDENTIAL_CONFIGS:
+            return await self._resolve_accessible_legacy_catalog_match(
+                model_provider=legacy_model_name,
+                model_name=legacy_model_name,
+            )
+        return match_result
+
+    def _selection_from_legacy_match(
+        self,
+        match_result: LegacyCatalogMatch,
+    ) -> ModelSelection | None:
+        if (
+            match_result.status != "matched"
+            or match_result.model_provider is None
+            or match_result.model_name is None
+        ):
+            return None
+        return ModelSelection(
+            source_id=match_result.source_id,
+            model_provider=match_result.model_provider,
+            model_name=match_result.model_name,
+        )
+
+    async def _get_default_model_selection(self) -> ModelSelection | None:
         legacy_setting = await self.settings_service.get_org_setting(
             "agent_default_model"
         )
         if legacy_setting is None:
             return None
-        legacy_model_name = self.settings_service.get_value(legacy_setting)
-        if not legacy_model_name:
+        value = self.settings_service.get_value(legacy_setting)
+        if isinstance(value, dict):
+            try:
+                return ModelSelection.model_validate(value)
+            except Exception:
+                return None
+        if not value:
             return None
-        discovered = await self.list_discovered_models()
-        for item in discovered:
-            if item.model_name == legacy_model_name:
-                await self.set_default_model_ref(item.catalog_ref)
-                return item.catalog_ref
-        return None
+        legacy_model_name = str(value)
+        match await resolve_enabled_catalog_match_for_model_name(
+            self.session,
+            organization_id=self.organization_id,
+            model_name=legacy_model_name,
+        ):
+            case match_result:
+                selection = self._selection_from_legacy_match(match_result)
+                if selection is not None:
+                    await self.set_default_model_selection(selection)
+                    return selection
+                return None
 
     async def get_default_model(self) -> DefaultModelSelection | None:
-        setting = await self.settings_service.get_org_setting("agent_default_model_ref")
-        catalog_ref = self.settings_service.get_value(setting) if setting else None
-        if not catalog_ref:
-            catalog_ref = await self._resolve_legacy_default_model_ref()
-        if not catalog_ref:
+        selection = await self._get_default_model_selection()
+        if selection is None:
             return None
-        row = await self._get_catalog_row(str(catalog_ref))
+        row = await self._get_catalog_row(
+            self._selection_key_from_model_selection(selection)
+        )
         return DefaultModelSelection(
-            catalog_ref=row.catalog_ref,
-            model_name=row.model_name,
+            source_id=row.source_id,
             model_provider=row.model_provider,
-            display_name=row.display_name,
+            model_name=row.model_name,
+            source_type=row.source_type.value,
+            source_name=row.source_name,
         )
 
     @require_scope("agent:update")
-    async def set_default_model_ref(self, catalog_ref: str) -> DefaultModelSelection:
-        enabled_refs = {row.catalog_ref for row in await self._list_enabled_rows()}
-        if catalog_ref not in enabled_refs:
-            raise TracecatNotFoundError(f"Model {catalog_ref} is not enabled")
-        setting = await self.settings_service.get_org_setting("agent_default_model_ref")
+    async def set_default_model_selection(
+        self, selection: ModelSelection
+    ) -> DefaultModelSelection:
+        selection_key = self._selection_key_from_model_selection(selection)
+        enabled_keys = {
+            self._selection_key_from_enabled_row(row)
+            for row in await self._list_org_enabled_rows()
+        }
+        if selection_key not in enabled_keys:
+            raise TracecatNotFoundError(
+                f"Model {selection.model_provider}/{selection.model_name} is not enabled"
+            )
+        setting = await self.settings_service.get_org_setting("agent_default_model")
+        value = selection.model_dump(mode="json")
         if setting:
             await self.settings_service.update_org_setting(
-                setting, SettingUpdate(value=catalog_ref)
+                setting, SettingUpdate(value=value)
             )
         else:
             await self.settings_service.create_org_setting(
                 SettingCreate(
-                    key="agent_default_model_ref",
-                    value=catalog_ref,
+                    key="agent_default_model",
+                    value=value,
                     value_type=ValueType.JSON,
                     is_sensitive=False,
                 )
             )
-        row = await self._get_catalog_row(catalog_ref)
+        row = await self._get_catalog_row(selection_key)
         return DefaultModelSelection(
-            catalog_ref=row.catalog_ref,
-            model_name=row.model_name,
+            source_id=row.source_id,
             model_provider=row.model_provider,
-            display_name=row.display_name,
+            model_name=row.model_name,
+            source_type=row.source_type.value,
+            source_name=row.source_name,
         )
+
+    async def _clear_default_model_selection(self) -> None:
+        for key in ("agent_default_model", "agent_default_model_ref"):
+            if setting := await self.settings_service.get_org_setting(key):
+                await self.settings_service.update_org_setting(
+                    setting, SettingUpdate(value=None)
+                )
 
     @require_scope("agent:update")
     async def create_provider_credentials(
@@ -1998,11 +2447,9 @@ class AgentManagementService(BaseOrgService):
         self,
         *,
         catalog_entry: ResolvedCatalogRecord,
-        catalog_ref: str | None = None,
+        selection: ModelSelectionKey | None = None,
     ) -> dict[str, str]:
         source_type = catalog_entry.source_type
-        if source_type == ModelSourceType.DEFAULT_SIDECAR:
-            return {}
         if source_type in {
             ModelSourceType.OPENAI_COMPATIBLE_GATEWAY,
             ModelSourceType.MANUAL_CUSTOM,
@@ -2016,14 +2463,14 @@ class AgentManagementService(BaseOrgService):
                 credentials["OPENAI_API_KEY"] = api_key
             return credentials
         credentials = (
-            await self.get_provider_credentials(catalog_entry.runtime_provider) or {}
+            await self.get_provider_credentials(catalog_entry.model_provider) or {}
         )
-        if catalog_ref is None:
+        if selection is None:
             return credentials
-        enabled_row = await self._get_enabled_row(catalog_ref)
+        enabled_row = await self._get_enabled_row(selection)
         if (
             enabled_row
-            and enabled_row.runtime_provider == ModelSourceType.BEDROCK.value
+            and catalog_entry.model_provider == ModelSourceType.BEDROCK.value
             and enabled_row.enabled_config
         ):
             config = EnabledModelRuntimeConfig.model_validate(
@@ -2035,102 +2482,341 @@ class AgentManagementService(BaseOrgService):
                 )
         return credentials
 
-    async def get_runtime_credentials_for_catalog_ref(
+    async def get_runtime_credentials_for_selection(
         self,
         *,
-        catalog_ref: str,
+        selection: ModelSelection,
     ) -> dict[str, str]:
-        row = await self._get_catalog_row(catalog_ref)
+        selection_key = self._selection_key_from_model_selection(selection)
+        row = await self._get_catalog_row(selection_key)
         return await self._get_runtime_credentials(
             catalog_entry=row,
-            catalog_ref=catalog_ref,
+            selection=selection_key,
         )
 
     async def _resolve_catalog_agent_config(
         self,
         *,
-        catalog_ref: str,
+        selection: ModelSelectionKey,
     ) -> tuple[AgentConfig, dict[str, str]]:
-        row = await self._get_catalog_row(catalog_ref)
+        row = await self._get_catalog_row(selection)
         credentials = await self._get_runtime_credentials(
             catalog_entry=row,
-            catalog_ref=catalog_ref,
+            selection=selection,
         )
         if not credentials and row.source_type not in {
-            ModelSourceType.DEFAULT_SIDECAR,
             ModelSourceType.OPENAI_COMPATIBLE_GATEWAY,
             ModelSourceType.MANUAL_CUSTOM,
         }:
             raise TracecatNotFoundError(
-                f"No credentials found for provider '{row.runtime_provider}' at organization level. "
+                f"No credentials found for provider '{row.model_provider}' at organization level. "
                 "Please configure credentials for this provider first."
             )
         return (
             AgentConfig(
                 model_name=row.model_name,
-                model_provider=row.runtime_provider,
-                model_catalog_ref=row.catalog_ref,
-                model_source_type=row.source_type.value,
-                model_source_id=row.source_id,
+                model_provider=row.model_provider,
+                source_id=row.source_id,
                 base_url=row.base_url,
             ),
             credentials,
         )
 
-    async def require_enabled_catalog_ref(
+    def _overlay_runtime_config(
         self,
-        catalog_ref: str,
+        *,
+        resolved_config: AgentConfig,
+        overrides: AgentConfig,
+    ) -> AgentConfig:
+        """Merge non-model fields onto a catalog-resolved runtime config."""
+        return replace(
+            resolved_config,
+            base_url=overrides.base_url or resolved_config.base_url,
+            instructions=overrides.instructions,
+            output_type=overrides.output_type,
+            actions=overrides.actions,
+            namespaces=overrides.namespaces,
+            tool_approvals=overrides.tool_approvals,
+            model_settings=overrides.model_settings,
+            mcp_servers=overrides.mcp_servers,
+            retries=overrides.retries,
+            enable_internet_access=overrides.enable_internet_access,
+        )
+
+    async def resolve_runtime_agent_config(
+        self,
+        config: AgentConfig,
+    ) -> AgentConfig:
+        """Canonicalize an agent config to the catalog-backed runtime shape when possible."""
+        if (
+            config.model_name
+            and config.model_provider
+            and await self.is_model_enabled(
+                self._selection_key(
+                    source_id=config.source_id,
+                    model_provider=config.model_provider,
+                    model_name=config.model_name,
+                ),
+                workspace_id=self.role.workspace_id,
+            )
+        ):
+            selection = self._selection_key(
+                source_id=config.source_id,
+                model_provider=config.model_provider,
+                model_name=config.model_name,
+            )
+            resolved_config, _ = await self._resolve_catalog_agent_config(
+                selection=selection
+            )
+            return self._overlay_runtime_config(
+                resolved_config=resolved_config,
+                overrides=config,
+            )
+
+        if selection := await self._resolve_preset_selection(config):
+            resolved_config, _ = await self._resolve_catalog_agent_config(
+                selection=selection
+            )
+            return self._overlay_runtime_config(
+                resolved_config=resolved_config,
+                overrides=config,
+            )
+
+        return config
+
+    async def is_model_enabled(
+        self,
+        selection: ModelSelectionKey,
+        *,
+        workspace_id: uuid.UUID | None = None,
+    ) -> bool:
+        effective_workspace_id = workspace_id or self.role.workspace_id
+        enabled_rows = await self._filter_enabled_rows_for_workspace(
+            await self._list_org_enabled_rows(),
+            effective_workspace_id,
+        )
+        enabled_keys = {
+            self._selection_key_from_enabled_row(row) for row in enabled_rows
+        }
+        return selection in enabled_keys
+
+    async def require_enabled_model_selection(
+        self,
+        selection: ModelSelection,
         *,
         workspace_id: uuid.UUID | None = None,
     ) -> None:
-        effective_workspace_id = workspace_id or self.role.workspace_id
-        enabled_rows = await self._filter_enabled_rows_for_workspace(
-            await self._list_enabled_rows(),
-            effective_workspace_id,
-        )
-        enabled_refs = {row.catalog_ref for row in enabled_rows}
-        if catalog_ref not in enabled_refs:
-            raise TracecatNotFoundError(f"Model {catalog_ref} is not enabled")
-
-    async def _resolve_preset_catalog_ref(
-        self, preset_config: AgentConfig
-    ) -> str | None:
-        if preset_config.model_catalog_ref:
-            await self.require_enabled_catalog_ref(
-                preset_config.model_catalog_ref,
-                workspace_id=self.role.workspace_id,
+        selection_key = self._selection_key_from_model_selection(selection)
+        if not await self.is_model_enabled(selection_key, workspace_id=workspace_id):
+            raise TracecatNotFoundError(
+                f"Model {selection.model_provider}/{selection.model_name} is not enabled"
             )
-            return preset_config.model_catalog_ref
-        for item in await self.list_models(workspace_id=self.role.workspace_id):
-            if item.model_name == preset_config.model_name and (
-                item.model_provider == preset_config.model_provider
-                or item.runtime_provider == preset_config.model_provider
+
+    async def _resolve_preset_selection(
+        self, preset_config: AgentConfig
+    ) -> ModelSelectionKey | None:
+        if preset_config.source_id is not None or (
+            preset_config.model_provider and preset_config.model_name
+        ):
+            selection = self._selection_key(
+                source_id=preset_config.source_id,
+                model_provider=preset_config.model_provider,
+                model_name=preset_config.model_name,
+            )
+            if await self.is_model_enabled(
+                selection, workspace_id=self.role.workspace_id
             ):
-                return item.catalog_ref
-        for item in await self.list_discovered_models():
-            if item.model_name == preset_config.model_name and (
-                item.model_provider == preset_config.model_provider
-                or item.runtime_provider == preset_config.model_provider
+                return selection
+        match await resolve_enabled_catalog_match_for_provider_model(
+            self.session,
+            organization_id=self.organization_id,
+            workspace_id=self.role.workspace_id,
+            model_provider=preset_config.model_provider,
+            model_name=preset_config.model_name,
+        ):
+            case match_result:
+                if selection := self._selection_from_legacy_match(match_result):
+                    return self._selection_key_from_model_selection(selection)
+                return None
+
+    async def repair_legacy_model_selections(self) -> LegacyModelRepairSummary:
+        summary = LegacyModelRepairSummary()
+        await self._ensure_legacy_custom_provider_source_synced()
+        auto_enabled_selections: set[ModelSelectionKey] = set()
+        if legacy_setting := await self.settings_service.get_org_setting(
+            "agent_default_model"
+        ):
+            legacy_value = self.settings_service.get_value(legacy_setting)
+            if isinstance(legacy_value, str) and legacy_value:
+                match await self._resolve_accessible_legacy_default_model_match(
+                    legacy_model_name=legacy_value,
+                ):
+                    case match_result if (
+                        selection_obj := self._selection_from_legacy_match(match_result)
+                    ) is not None:
+                        selection = self._selection_key_from_model_selection(
+                            selection_obj
+                        )
+                        try:
+                            if selection not in auto_enabled_selections:
+                                await self._enable_catalog_rows([selection])
+                                auto_enabled_selections.add(selection)
+                            await self.set_default_model_selection(selection_obj)
+                            summary = replace(
+                                summary,
+                                migrated_defaults=summary.migrated_defaults + 1,
+                            )
+                        except TracecatNotFoundError:
+                            summary = replace(
+                                summary,
+                                unresolved_defaults=summary.unresolved_defaults + 1,
+                            )
+                    case LegacyCatalogMatch(status="ambiguous"):
+                        summary = replace(
+                            summary,
+                            ambiguous_defaults=summary.ambiguous_defaults + 1,
+                        )
+                    case _:
+                        summary = replace(
+                            summary,
+                            unresolved_defaults=summary.unresolved_defaults + 1,
+                        )
+
+        preset_rows = (
+            (
+                await self.session.execute(
+                    select(AgentPreset, Workspace.id)
+                    .join(Workspace, Workspace.id == AgentPreset.workspace_id)
+                    .where(
+                        Workspace.organization_id == self.organization_id,
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+        for preset, _workspace_id in preset_rows:
+            match await self._resolve_accessible_legacy_catalog_match(
+                model_provider=preset.model_provider,
+                model_name=preset.model_name,
             ):
-                return item.catalog_ref
-        return None
+                case match_result if (
+                    selection_obj := self._selection_from_legacy_match(match_result)
+                ) is not None:
+                    selection = self._selection_key_from_model_selection(selection_obj)
+                    try:
+                        if selection not in auto_enabled_selections:
+                            await self._enable_catalog_rows([selection])
+                            auto_enabled_selections.add(selection)
+                        if (
+                            preset.source_id != selection_obj.source_id
+                            or preset.model_provider != selection_obj.model_provider
+                            or preset.model_name != selection_obj.model_name
+                        ):
+                            preset.source_id = selection_obj.source_id
+                            preset.model_provider = selection_obj.model_provider
+                            preset.model_name = selection_obj.model_name
+                            self.session.add(preset)
+                            summary = replace(
+                                summary,
+                                migrated_presets=summary.migrated_presets + 1,
+                            )
+                    except TracecatNotFoundError:
+                        summary = replace(
+                            summary,
+                            unresolved_presets=summary.unresolved_presets + 1,
+                        )
+                case LegacyCatalogMatch(status="ambiguous"):
+                    summary = replace(
+                        summary,
+                        ambiguous_presets=summary.ambiguous_presets + 1,
+                    )
+                case _:
+                    summary = replace(
+                        summary,
+                        unresolved_presets=summary.unresolved_presets + 1,
+                    )
+
+        version_rows = (
+            (
+                await self.session.execute(
+                    select(AgentPresetVersion, Workspace.id)
+                    .join(Workspace, Workspace.id == AgentPresetVersion.workspace_id)
+                    .where(
+                        Workspace.organization_id == self.organization_id,
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+        for version, _workspace_id in version_rows:
+            match await self._resolve_accessible_legacy_catalog_match(
+                model_provider=version.model_provider,
+                model_name=version.model_name,
+            ):
+                case match_result if (
+                    selection_obj := self._selection_from_legacy_match(match_result)
+                ) is not None:
+                    selection = self._selection_key_from_model_selection(selection_obj)
+                    try:
+                        if selection not in auto_enabled_selections:
+                            await self._enable_catalog_rows([selection])
+                            auto_enabled_selections.add(selection)
+                        if (
+                            version.source_id != selection_obj.source_id
+                            or version.model_provider != selection_obj.model_provider
+                            or version.model_name != selection_obj.model_name
+                        ):
+                            version.source_id = selection_obj.source_id
+                            version.model_provider = selection_obj.model_provider
+                            version.model_name = selection_obj.model_name
+                            self.session.add(version)
+                            summary = replace(
+                                summary,
+                                migrated_versions=summary.migrated_versions + 1,
+                            )
+                    except TracecatNotFoundError:
+                        summary = replace(
+                            summary,
+                            unresolved_versions=summary.unresolved_versions + 1,
+                        )
+                case LegacyCatalogMatch(status="ambiguous"):
+                    summary = replace(
+                        summary,
+                        ambiguous_versions=summary.ambiguous_versions + 1,
+                    )
+                case _:
+                    summary = replace(
+                        summary,
+                        unresolved_versions=summary.unresolved_versions + 1,
+                    )
+
+        if (
+            summary.migrated_defaults
+            or summary.migrated_presets
+            or summary.migrated_versions
+        ):
+            await self.session.commit()
+
+        return summary
 
     @contextlib.asynccontextmanager
     async def with_model_config(
         self,
         *,
-        catalog_ref: str | None = None,
+        selection: ModelSelection | None = None,
     ) -> AsyncIterator[AgentConfig]:
         """Yield the resolved default model configuration and runtime credentials."""
-        if catalog_ref is None:
-            if not (selection := await self.get_default_model()):
+        if selection is None:
+            if not (default_selection := await self.get_default_model()):
                 raise TracecatNotFoundError("No default model set")
-            target_catalog_ref = selection.catalog_ref
+            selection_key = self._selection_key_from_model_selection(default_selection)
         else:
-            await self.require_enabled_catalog_ref(catalog_ref)
-            target_catalog_ref = catalog_ref
+            await self.require_enabled_model_selection(selection)
+            selection_key = self._selection_key_from_model_selection(selection)
         model_config, credentials = await self._resolve_catalog_agent_config(
-            catalog_ref=target_catalog_ref
+            selection=selection_key
         )
         with self._credentials_sandbox(credentials):
             yield model_config
@@ -2156,19 +2842,13 @@ class AgentManagementService(BaseOrgService):
             preset_version_id=preset_version_id,
             preset_version=preset_version,
         )
-        if catalog_ref := await self._resolve_preset_catalog_ref(preset_config):
+        if selection := await self._resolve_preset_selection(preset_config):
             resolved_config, credentials = await self._resolve_catalog_agent_config(
-                catalog_ref=catalog_ref
+                selection=selection
             )
-            resolved_config.instructions = preset_config.instructions
-            resolved_config.output_type = preset_config.output_type
-            resolved_config.actions = preset_config.actions
-            resolved_config.namespaces = preset_config.namespaces
-            resolved_config.tool_approvals = preset_config.tool_approvals
-            resolved_config.mcp_servers = preset_config.mcp_servers
-            resolved_config.retries = preset_config.retries
-            resolved_config.enable_internet_access = (
-                preset_config.enable_internet_access
+            resolved_config = self._overlay_runtime_config(
+                resolved_config=resolved_config,
+                overrides=preset_config,
             )
             with self._credentials_sandbox(credentials):
                 yield resolved_config
@@ -2212,72 +2892,59 @@ async def _sync_model_catalogs_as_leader(session: AsyncSession) -> None:
         )
         return
 
-    sidecar_service = AgentManagementService(
+    platform_service = AgentManagementService(
         session,
         role=_bootstrap_org_role(org_ids[0]),
     )
-    builtins_inventory = await sidecar_service.refresh_builtin_catalog()
+    builtins_inventory = await platform_service.refresh_builtin_catalog()
     logger.info(
-        "Completed built-in catalog gateway-startup sync",
+        "Completed platform catalog gateway-startup sync",
         litellm_version=LITELLM_PINNED_VERSION,
         models=len(builtins_inventory.models),
-    )
-    sidecar_inventory = await sidecar_service.refresh_default_sidecar_inventory(
-        populate_defaults=True
-    )
-    logger.info(
-        "Completed default-sidecar gateway-startup sync",
-        discovered_models=len(sidecar_inventory.discovered_models),
     )
 
     for org_id in org_ids:
         service = AgentManagementService(session, role=_bootstrap_org_role(org_id))
-        await service._ensure_default_enabled_models()
-        for provider in [
-            provider_type.value for provider_type in _BUILT_IN_PROVIDER_ORDER
-        ]:
-            if not await service.check_provider_credentials(provider):
-                continue
-            try:
-                provider_inventory = await service.refresh_provider_inventory(provider)
-                logger.info(
-                    "Completed built-in provider gateway-startup sync",
-                    organization_id=str(org_id),
-                    provider=provider,
-                    discovered_models=len(provider_inventory.discovered_models),
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Built-in provider gateway-startup sync failed",
-                    organization_id=str(org_id),
-                    provider=provider,
-                    error=str(exc),
-                )
-                await session.rollback()
         source_ids = [source.id for source in await service.list_model_sources()]
         if not source_ids:
             logger.debug(
                 "No org model sources to sync during gateway startup",
                 organization_id=str(org_id),
             )
-            continue
-        for source_id in source_ids:
-            try:
-                refreshed = await service.refresh_model_source(source_id)
-                logger.info(
-                    "Completed org model source gateway-startup sync",
-                    organization_id=str(org_id),
-                    source_id=str(source_id),
-                    discovered_models=len(refreshed),
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Org model source gateway-startup sync failed",
-                    organization_id=str(org_id),
-                    source_id=str(source_id),
-                    error=str(exc),
-                )
-                await session.rollback()
+        else:
+            for source_id in source_ids:
+                try:
+                    refreshed = await service.refresh_model_source(source_id)
+                    logger.info(
+                        "Completed org model source gateway-startup sync",
+                        organization_id=str(org_id),
+                        source_id=str(source_id),
+                        discovered_models=len(refreshed),
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Org model source gateway-startup sync failed",
+                        organization_id=str(org_id),
+                        source_id=str(source_id),
+                        error=str(exc),
+                    )
+                    await session.rollback()
+        await service._ensure_default_enabled_models()
+        if repair_legacy := getattr(service, "repair_legacy_model_selections", None):
+            repair_summary = await repair_legacy()
+            logger.info(
+                "Completed legacy agent model compatibility repair",
+                organization_id=str(org_id),
+                migrated_defaults=repair_summary.migrated_defaults,
+                migrated_presets=repair_summary.migrated_presets,
+                migrated_versions=repair_summary.migrated_versions,
+                unresolved_defaults=repair_summary.unresolved_defaults,
+                unresolved_presets=repair_summary.unresolved_presets,
+                unresolved_versions=repair_summary.unresolved_versions,
+                ambiguous_defaults=repair_summary.ambiguous_defaults,
+                ambiguous_presets=repair_summary.ambiguous_presets,
+                ambiguous_versions=repair_summary.ambiguous_versions,
+            )
 
 
 async def sync_model_catalogs_on_startup() -> None:

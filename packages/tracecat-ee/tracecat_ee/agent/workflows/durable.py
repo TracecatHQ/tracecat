@@ -318,7 +318,7 @@ class DurableAgentWorkflow:
                 tools=args.tools,
                 agent_preset_id=args.agent_preset_id,
                 agent_preset_version_id=args.agent_preset_version_id,
-                model_catalog_ref=(
+                source_id=(
                     None
                     if args.agent_args.preset_slug
                     or args.agent_preset_id is not None
@@ -327,7 +327,29 @@ class DurableAgentWorkflow:
                         AgentSessionEntity.AGENT_PRESET,
                         AgentSessionEntity.EXTERNAL_CHANNEL,
                     )
-                    else cfg.model_catalog_ref
+                    else cfg.source_id
+                ),
+                model_name=(
+                    None
+                    if args.agent_args.preset_slug
+                    or args.agent_preset_id is not None
+                    or args.entity_type
+                    in (
+                        AgentSessionEntity.AGENT_PRESET,
+                        AgentSessionEntity.EXTERNAL_CHANNEL,
+                    )
+                    else cfg.model_name
+                ),
+                model_provider=(
+                    None
+                    if args.agent_args.preset_slug
+                    or args.agent_preset_id is not None
+                    or args.entity_type
+                    in (
+                        AgentSessionEntity.AGENT_PRESET,
+                        AgentSessionEntity.EXTERNAL_CHANNEL,
+                    )
+                    else cfg.model_provider
                 ),
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,
@@ -416,9 +438,7 @@ class DurableAgentWorkflow:
             session_id=self.session_id,
             model=cfg.model_name,
             provider=cfg.model_provider,
-            model_catalog_ref=cfg.model_catalog_ref,
-            model_source_type=cfg.model_source_type,
-            model_source_id=cfg.model_source_id,
+            source_id=cfg.source_id,
             base_url=cfg.base_url,
             model_settings=cfg.model_settings,
         )

@@ -5,17 +5,23 @@ import uuid
 from typing import cast
 
 import pytest
+from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import (
+    AgentCatalog,
+    AgentEnabledModel,
     AgentPreset,
     AgentPresetVersion,
+    AgentSource,
+    OrganizationSecret,
     RegistryAction,
     RegistryIndex,
     RegistryRepository,
@@ -29,6 +35,9 @@ from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
     RegistryVersionManifestAction,
 )
+from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.secrets.enums import SecretType
+from tracecat.secrets.schemas import SecretKeyValue
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -326,12 +335,22 @@ class TestAgentPresetService:
         assert current_version.version == 1
         assert [version.version for version in versions.items] == [1]
 
-    async def test_create_preset_initial_version_keeps_model_catalog_ref(
+    async def test_create_preset_initial_version_keeps_source_id(
         self,
+        session: AsyncSession,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
+        svc_role: Role,
     ) -> None:
-        agent_preset_create_params.model_catalog_ref = "builtin:openai:test:gpt-5"
+        source = AgentSource(
+            organization_id=svc_role.organization_id,
+            display_name="Custom gateway",
+            model_provider="openai_compatible",
+            base_url="http://gateway.internal/v1",
+        )
+        session.add(source)
+        await session.commit()
+        agent_preset_create_params.source_id = source.id
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
@@ -340,8 +359,8 @@ class TestAgentPresetService:
             created_preset
         )
 
-        assert created_preset.model_catalog_ref == "builtin:openai:test:gpt-5"
-        assert current_version.model_catalog_ref == "builtin:openai:test:gpt-5"
+        assert created_preset.source_id == source.id
+        assert current_version.source_id == source.id
 
     async def test_update_preset_execution_fields_create_new_version(
         self,
@@ -371,12 +390,22 @@ class TestAgentPresetService:
         assert versions.items[0].instructions == "Updated instructions"
         assert versions.items[0].retries == 7
 
-    async def test_update_preset_versions_keep_model_catalog_ref(
+    async def test_update_preset_versions_keep_source_id(
         self,
+        session: AsyncSession,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
+        svc_role: Role,
     ) -> None:
-        agent_preset_create_params.model_catalog_ref = "source:custom:test:qwen"
+        source = AgentSource(
+            organization_id=svc_role.organization_id,
+            display_name="Custom gateway",
+            model_provider="openai_compatible",
+            base_url="http://gateway.internal/v1",
+        )
+        session.add(source)
+        await session.commit()
+        agent_preset_create_params.source_id = source.id
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
@@ -389,31 +418,167 @@ class TestAgentPresetService:
             updated_preset
         )
 
-        assert updated_preset.model_catalog_ref == "source:custom:test:qwen"
-        assert current_version.model_catalog_ref == "source:custom:test:qwen"
+        assert updated_preset.source_id == source.id
+        assert current_version.source_id == source.id
 
-    async def test_resolve_agent_preset_config_uses_head_catalog_ref_for_current_version(
+    async def test_repair_legacy_model_selections_backfills_existing_custom_preset(
         self,
         session: AsyncSession,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
+        svc_role: Role,
     ) -> None:
-        agent_preset_create_params.model_catalog_ref = "source:custom:test:qwen"
+        agent_preset_create_params.model_provider = "openai_compatible"
+        agent_preset_create_params.model_name = "qwen2.5:7b"
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
         current_version = await agent_preset_service.get_current_version_for_preset(
             created_preset
         )
-        current_version.model_catalog_ref = None
-        session.add(current_version)
+        assert created_preset.source_id is None
+        assert current_version.source_id is None
+
+        source = AgentSource(
+            organization_id=svc_role.organization_id,
+            display_name="Custom gateway",
+            model_provider="openai_compatible",
+            base_url="http://gateway.internal/v1",
+        )
+        session.add(source)
+        await session.flush()
+        catalog_row = AgentCatalog(
+            organization_id=svc_role.organization_id,
+            source_id=source.id,
+            model_provider="openai_compatible",
+            model_name="qwen2.5:7b",
+        )
+        session.add(catalog_row)
         await session.commit()
 
-        resolved = await agent_preset_service.resolve_agent_preset_config(
-            preset_id=created_preset.id
-        )
+        management_service = AgentManagementService(session=session, role=svc_role)
+        summary = await management_service.repair_legacy_model_selections()
+        await session.refresh(created_preset)
+        await session.refresh(current_version)
 
-        assert resolved.model_catalog_ref == "source:custom:test:qwen"
+        assert summary.migrated_presets == 1
+        assert summary.migrated_versions == 1
+        assert created_preset.source_id == catalog_row.source_id
+        assert current_version.source_id == catalog_row.source_id
+
+    async def test_repair_legacy_model_selections_imports_legacy_custom_provider(
+        self,
+        session: AsyncSession,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        svc_role: Role,
+    ) -> None:
+        agent_preset_create_params.model_provider = "custom-model-provider"
+        agent_preset_create_params.model_name = "custom"
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        assert created_preset.source_id is None
+        assert current_version.source_id is None
+
+        management_service = AgentManagementService(session=session, role=svc_role)
+        secret = OrganizationSecret(
+            organization_id=svc_role.organization_id,
+            name="agent-custom-model-provider-credentials",
+            environment=DEFAULT_SECRETS_ENVIRONMENT,
+            type=SecretType.CUSTOM,
+            description="Legacy custom model provider credentials",
+            tags={
+                "provider": "custom-model-provider",
+                "type": "agent-credentials",
+            },
+            encrypted_keys=management_service.secrets_service.encrypt_keys(
+                [
+                    SecretKeyValue(
+                        key="CUSTOM_MODEL_PROVIDER_API_KEY",
+                        value=SecretStr("test-key"),
+                    ),
+                    SecretKeyValue(
+                        key="CUSTOM_MODEL_PROVIDER_BASE_URL",
+                        value=SecretStr("http://gateway.internal:11434"),
+                    ),
+                    SecretKeyValue(
+                        key="CUSTOM_MODEL_PROVIDER_MODEL_NAME",
+                        value=SecretStr("custom"),
+                    ),
+                ]
+            ),
+        )
+        session.add(secret)
+        await session.commit()
+
+        summary = await management_service.repair_legacy_model_selections()
+        await session.refresh(created_preset)
+        await session.refresh(current_version)
+
+        source_rows = (
+            (
+                await session.execute(
+                    select(AgentSource).where(
+                        AgentSource.organization_id == svc_role.organization_id,
+                        AgentSource.display_name == "Imported legacy custom model",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(source_rows) == 1
+        source = source_rows[0]
+        assert source.base_url == "http://gateway.internal:11434"
+        assert source.declared_models == [
+            {
+                "model_name": "custom",
+                "display_name": "custom",
+                "model_provider": "custom-model-provider",
+            }
+        ]
+
+        catalog_rows = (
+            (
+                await session.execute(
+                    select(AgentCatalog).where(
+                        AgentCatalog.organization_id == svc_role.organization_id,
+                        AgentCatalog.source_id == source.id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(catalog_rows) == 1
+        catalog_row = catalog_rows[0]
+        assert catalog_row.model_provider == "custom-model-provider"
+        assert catalog_row.model_name == "custom"
+
+        enabled_rows = (
+            (
+                await session.execute(
+                    select(AgentEnabledModel).where(
+                        AgentEnabledModel.organization_id == svc_role.organization_id,
+                        AgentEnabledModel.workspace_id.is_(None),
+                        AgentEnabledModel.source_id == catalog_row.source_id,
+                        AgentEnabledModel.model_provider == catalog_row.model_provider,
+                        AgentEnabledModel.model_name == catalog_row.model_name,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(enabled_rows) == 1
+        assert summary.migrated_presets == 1
+        assert summary.migrated_versions == 1
+        assert created_preset.source_id == catalog_row.source_id
+        assert current_version.source_id == catalog_row.source_id
 
     async def test_list_versions_returns_cursor_paginated_versions(
         self,

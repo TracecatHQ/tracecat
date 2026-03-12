@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react"
-import type { AgentSessionsGetSessionVercelResponse } from "@/client"
+import type {
+  AgentSessionsGetSessionVercelResponse,
+  ModelSelection,
+} from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import {
   useAgentPreset,
@@ -7,15 +10,22 @@ import {
   useAgentPresetVersions,
 } from "@/hooks/use-agent-presets"
 import { parseChatError, type useUpdateChat } from "@/hooks/use-chat"
-import { useAgentDefaultModel, useAgentModels } from "@/lib/hooks"
-
-type AgentSessionWithModelSelection = AgentSessionsGetSessionVercelResponse & {
-  model_catalog_ref?: string | null
-}
+import {
+  getModelSelectionKey,
+  isSameModelSelection,
+  matchesModelSelection,
+  useAgentDefaultModel,
+  useAgentModels,
+} from "@/lib/hooks"
 
 type DraftSelection = {
   ownerId: string | null
   value: string | null
+}
+
+type DraftModelSelection = {
+  ownerId: string | null
+  value: ModelSelection | null
 }
 
 interface UseChatPresetManagerProps {
@@ -28,20 +38,42 @@ interface UseChatPresetManagerProps {
   enabled?: boolean
 }
 
-function getSessionModelCatalogRef(
+function getSessionModelSelection(
   chat: AgentSessionsGetSessionVercelResponse | undefined
-): string | null {
-  return (
-    (chat as AgentSessionWithModelSelection | undefined)?.model_catalog_ref ??
-    null
-  )
+): ModelSelection | null {
+  const selectionChat = chat as
+    | {
+        source_id?: string | null
+        model_name?: string | null
+        model_provider?: string | null
+      }
+    | undefined
+  if (!selectionChat?.model_name || !selectionChat.model_provider) {
+    return null
+  }
+  return {
+    source_id: selectionChat.source_id ?? null,
+    model_name: selectionChat.model_name,
+    model_provider: selectionChat.model_provider,
+  }
 }
 
-function getDraftSelectionValue(
+function getDraftStringValue(
   selection: DraftSelection | null,
   ownerId: string | null,
   fallback: string | null
 ): string | null {
+  if (selection?.ownerId === ownerId) {
+    return selection.value
+  }
+  return fallback
+}
+
+function getDraftModelSelectionValue(
+  selection: DraftModelSelection | null,
+  ownerId: string | null,
+  fallback: ModelSelection | null
+): ModelSelection | null {
   if (selection?.ownerId === ownerId) {
     return selection.value
   }
@@ -62,8 +94,8 @@ export function useChatPresetManager({
   )
   const [draftPresetVersionId, setDraftPresetVersionId] =
     useState<DraftSelection | null>(null)
-  const [draftModelCatalogRef, setDraftModelCatalogRef] =
-    useState<DraftSelection | null>(null)
+  const [draftModelSelection, setDraftModelSelection] =
+    useState<DraftModelSelection | null>(null)
 
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
@@ -74,23 +106,23 @@ export function useChatPresetManager({
 
   const presetOptions = enabled ? (presets ?? []) : []
   const selectionOwnerId = selectedChatId ?? null
-  const effectivePresetId = getDraftSelectionValue(
+  const effectivePresetId = getDraftStringValue(
     draftPresetId,
     selectionOwnerId,
     selectedChatId ? (chat?.agent_preset_id ?? null) : null
   )
-  const effectivePresetVersionId = getDraftSelectionValue(
+  const effectivePresetVersionId = getDraftStringValue(
     draftPresetVersionId,
     selectionOwnerId,
     selectedChatId ? (chat?.agent_preset_version_id ?? null) : null
   )
-  const effectiveSessionModelCatalogRef = selectedChatId
-    ? getSessionModelCatalogRef(chat)
+  const effectiveSessionModelSelection = selectedChatId
+    ? getSessionModelSelection(chat)
     : null
-  const effectiveModelCatalogRef = getDraftSelectionValue(
-    draftModelCatalogRef,
+  const effectiveModelSelection = getDraftModelSelectionValue(
+    draftModelSelection,
     selectionOwnerId,
-    effectiveSessionModelCatalogRef
+    effectiveSessionModelSelection
   )
 
   useEffect(() => {
@@ -105,14 +137,14 @@ export function useChatPresetManager({
       ownerId: selectedChatId,
       value: chat?.agent_preset_version_id ?? null,
     })
-    setDraftModelCatalogRef({
+    setDraftModelSelection({
       ownerId: selectedChatId,
-      value: effectiveSessionModelCatalogRef,
+      value: effectiveSessionModelSelection,
     })
   }, [
     chat?.agent_preset_id,
     chat?.agent_preset_version_id,
-    effectiveSessionModelCatalogRef,
+    effectiveSessionModelSelection,
     selectedChatId,
   ])
 
@@ -139,10 +171,11 @@ export function useChatPresetManager({
   const selectedPresetConfig = selectedPresetVersion ?? selectedPreset
 
   const selectedModel =
-    models?.find((model) => model.catalog_ref === effectiveModelCatalogRef) ??
-    null
+    models?.find((model) =>
+      matchesModelSelection(model, effectiveModelSelection)
+    ) ?? null
   const effectiveChatModel =
-    selectedModel ?? (effectiveModelCatalogRef ? null : (defaultModel ?? null))
+    selectedModel ?? (effectiveModelSelection ? null : (defaultModel ?? null))
 
   const handlePresetChange = async (nextPresetId: string | null) => {
     if (nextPresetId === effectivePresetId) {
@@ -153,19 +186,19 @@ export function useChatPresetManager({
       setDraftPresetId({ ownerId: null, value: nextPresetId })
       setDraftPresetVersionId({ ownerId: null, value: null })
       if (nextPresetId !== null) {
-        setDraftModelCatalogRef({ ownerId: null, value: null })
+        setDraftModelSelection({ ownerId: null, value: null })
       }
       return
     }
 
     const previousPresetId = effectivePresetId
     const previousPresetVersionId = effectivePresetVersionId
-    const previousModelCatalogRef = effectiveModelCatalogRef
+    const previousModelSelection = effectiveModelSelection
 
     setDraftPresetId({ ownerId: selectedChatId, value: nextPresetId })
     setDraftPresetVersionId({ ownerId: selectedChatId, value: null })
     if (nextPresetId !== null) {
-      setDraftModelCatalogRef({ ownerId: selectedChatId, value: null })
+      setDraftModelSelection({ ownerId: selectedChatId, value: null })
     }
 
     try {
@@ -174,7 +207,13 @@ export function useChatPresetManager({
         update: {
           agent_preset_id: nextPresetId,
           agent_preset_version_id: null,
-          ...(nextPresetId !== null ? { model_catalog_ref: null } : {}),
+          ...(nextPresetId !== null
+            ? {
+                source_id: null,
+                model_name: null,
+                model_provider: null,
+              }
+            : {}),
         },
       })
     } catch (error) {
@@ -183,9 +222,9 @@ export function useChatPresetManager({
         ownerId: selectedChatId,
         value: previousPresetVersionId,
       })
-      setDraftModelCatalogRef({
+      setDraftModelSelection({
         ownerId: selectedChatId,
-        value: previousModelCatalogRef,
+        value: previousModelSelection,
       })
       console.error("Failed to update chat preset:", error)
       toast({
@@ -231,25 +270,30 @@ export function useChatPresetManager({
     }
   }
 
-  const handleModelCatalogChange = async (nextCatalogRef: string | null) => {
-    if (nextCatalogRef === effectiveModelCatalogRef) {
+  const handleModelSelectionChange = async (
+    nextSelection: ModelSelection | null
+  ) => {
+    if (isSameModelSelection(nextSelection, effectiveModelSelection)) {
       return
     }
 
     if (!selectedChatId) {
       setDraftPresetId({ ownerId: null, value: null })
       setDraftPresetVersionId({ ownerId: null, value: null })
-      setDraftModelCatalogRef({ ownerId: null, value: nextCatalogRef })
+      setDraftModelSelection({ ownerId: null, value: nextSelection })
       return
     }
 
     const previousPresetId = effectivePresetId
     const previousPresetVersionId = effectivePresetVersionId
-    const previousCatalogRef = effectiveModelCatalogRef
+    const previousModelSelection = effectiveModelSelection
 
     setDraftPresetId({ ownerId: selectedChatId, value: null })
     setDraftPresetVersionId({ ownerId: selectedChatId, value: null })
-    setDraftModelCatalogRef({ ownerId: selectedChatId, value: nextCatalogRef })
+    setDraftModelSelection({
+      ownerId: selectedChatId,
+      value: nextSelection,
+    })
 
     try {
       await updateChat({
@@ -257,7 +301,9 @@ export function useChatPresetManager({
         update: {
           agent_preset_id: null,
           agent_preset_version_id: null,
-          model_catalog_ref: nextCatalogRef,
+          source_id: nextSelection?.source_id ?? null,
+          model_name: nextSelection?.model_name ?? null,
+          model_provider: nextSelection?.model_provider ?? null,
         },
       })
     } catch (error) {
@@ -266,9 +312,9 @@ export function useChatPresetManager({
         ownerId: selectedChatId,
         value: previousPresetVersionId,
       })
-      setDraftModelCatalogRef({
+      setDraftModelSelection({
         ownerId: selectedChatId,
-        value: previousCatalogRef,
+        value: previousModelSelection,
       })
       console.error("Failed to update chat model selection:", error)
       toast({
@@ -290,11 +336,11 @@ export function useChatPresetManager({
     isUpdatingChat ||
     versionsIsLoading
   const modelSelectorLabel = selectedModel
-    ? selectedModel.display_name
-    : effectiveChatModel?.display_name
-      ? `${effectiveChatModel.display_name} (default)`
+    ? selectedModel.model_name
+    : effectiveChatModel?.model_name
+      ? `${effectiveChatModel.model_name} (default)`
       : "Default model"
-  const defaultModelLabel = defaultModel?.display_name ?? "Default model"
+  const defaultModelLabel = defaultModel?.model_name ?? "Default model"
   const defaultModelProvider = defaultModel?.model_provider ?? null
   const modelSelectorDisabled = !enabled || chatLoading || isUpdatingChat
   const showModelSelectorSpinner =
@@ -323,9 +369,12 @@ export function useChatPresetManager({
     enabledModelsError: modelsError,
     enabledModelsLoading: modelsLoading,
     selectedModel,
-    selectedModelCatalogRef: effectiveModelCatalogRef,
+    selectedModelSelection: effectiveModelSelection,
+    selectedModelSelectionKey: effectiveModelSelection
+      ? getModelSelectionKey(effectiveModelSelection)
+      : null,
     effectiveChatModel,
-    handleModelCatalogChange,
+    handleModelSelectionChange,
     defaultModelLabel,
     defaultModelProvider,
     modelSelectorLabel,

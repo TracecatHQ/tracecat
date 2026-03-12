@@ -48,7 +48,12 @@ import {
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { type AgentCatalogEntry, useChatReadiness } from "@/lib/hooks"
+import {
+  type AgentCatalogEntry,
+  getModelSelectionKey,
+  matchesModelSelection,
+  useChatReadiness,
+} from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -67,8 +72,20 @@ type PendingFirstMessage = {
 
 type PresetConfigLike = Pick<
   AgentPresetRead,
-  "model_name" | "model_provider" | "base_url" | "actions" | "namespaces"
+  | "source_id"
+  | "model_name"
+  | "model_provider"
+  | "base_url"
+  | "actions"
+  | "namespaces"
 >
+
+type ChatSessionWithCompositeSelection =
+  AgentSessionsGetSessionVercelResponse & {
+    source_id?: string | null
+    model_provider?: string | null
+    model_name?: string | null
+  }
 
 const DEFAULT_CHAT_TOOLS: Partial<Record<AgentSessionEntity, string[]>> = {
   case: [
@@ -96,10 +113,52 @@ type ChatModelSelector = {
   models?: AgentCatalogEntry[]
   modelsError: unknown
   modelsIsLoading: boolean
-  selectedModelCatalogRef: string | null
-  onSelect: (catalogRef: string | null) => void | Promise<void>
+  selectedModel: AgentCatalogEntry | null
+  onSelect: (model: AgentCatalogEntry | null) => void | Promise<void>
   disabled?: boolean
   showSpinner?: boolean
+}
+
+function getCompositeModelKey(
+  model: Pick<AgentCatalogEntry, "source_id" | "model_provider" | "model_name">
+): string {
+  return getModelSelectionKey(model)
+}
+
+function findSelectedModel(
+  models: AgentCatalogEntry[] | undefined,
+  chat: AgentSessionsGetSessionVercelResponse | undefined
+): AgentCatalogEntry | null {
+  const selection = chat as ChatSessionWithCompositeSelection | undefined
+  if (!selection?.model_provider || !selection?.model_name) {
+    return null
+  }
+  const modelProvider = selection.model_provider
+  const modelName = selection.model_name
+  return (
+    models?.find((model) =>
+      matchesModelSelection(model, {
+        source_id: selection.source_id ?? null,
+        model_provider: modelProvider,
+        model_name: modelName,
+      })
+    ) ?? null
+  )
+}
+
+function getSessionModelFields(model: AgentCatalogEntry | null): {
+  source_id?: string | null
+  model_provider?: string | null
+  model_name?: string | null
+} {
+  if (!model) {
+    return {}
+  }
+  return {
+    source_id: model.source_id ?? null,
+    model_provider: model.model_provider,
+    model_name: model.model_name,
+  }
 }
 
 function getModelSelectorErrorMessage(error: unknown): string {
@@ -171,8 +230,8 @@ export function ChatInterface({
     enabledModels,
     enabledModelsError,
     enabledModelsLoading,
-    selectedModelCatalogRef,
-    handleModelCatalogChange,
+    selectedModel,
+    handleModelSelectionChange,
     defaultModelLabel,
     defaultModelProvider,
     modelSelectorLabel,
@@ -187,6 +246,8 @@ export function ChatInterface({
     selectedChatId,
     enabled: presetsEnabled,
   })
+  const effectiveSelectedModel =
+    selectedModel ?? findSelectedModel(enabledModels, chat)
   const activePreset = selectedPresetConfig ?? selectedPreset
   const fallbackTools = activePreset
     ? Array.from(
@@ -231,8 +292,8 @@ export function ChatInterface({
         entity_type: entityType,
         entity_id: entityId,
         ...(effectivePresetId ? { agent_preset_id: effectivePresetId } : {}),
-        ...(effectivePresetId === null && selectedModelCatalogRef
-          ? { model_catalog_ref: selectedModelCatalogRef }
+        ...(effectivePresetId === null
+          ? getSessionModelFields(effectiveSelectedModel)
           : {}),
       })
         .then((newChat) => {
@@ -253,7 +314,7 @@ export function ChatInterface({
     entityType,
     entityId,
     effectivePresetId,
-    selectedModelCatalogRef,
+    effectiveSelectedModel,
     autoCreateAttempted,
     isCaseDraftChat,
   ])
@@ -274,8 +335,8 @@ export function ChatInterface({
         entity_type: entityType,
         entity_id: entityId,
         ...(effectivePresetId ? { agent_preset_id: effectivePresetId } : {}),
-        ...(effectivePresetId === null && selectedModelCatalogRef
-          ? { model_catalog_ref: selectedModelCatalogRef }
+        ...(effectivePresetId === null
+          ? getSessionModelFields(effectiveSelectedModel)
           : {}),
       })
       setSelectedChatId(newChat.id)
@@ -303,8 +364,8 @@ export function ChatInterface({
         ...(effectivePresetId
           ? { agent_preset_version_id: selectedPresetVersionId }
           : {}),
-        ...(effectivePresetId === null && selectedModelCatalogRef
-          ? { model_catalog_ref: selectedModelCatalogRef }
+        ...(effectivePresetId === null
+          ? getSessionModelFields(effectiveSelectedModel)
           : {}),
       })
 
@@ -433,9 +494,17 @@ export function ChatInterface({
                   models: enabledModels,
                   modelsError: enabledModelsError,
                   modelsIsLoading: enabledModelsLoading,
-                  selectedModelCatalogRef,
-                  onSelect: (catalogRef) =>
-                    void handleModelCatalogChange(catalogRef),
+                  selectedModel: effectiveSelectedModel,
+                  onSelect: (model) =>
+                    void handleModelSelectionChange(
+                      model
+                        ? {
+                            source_id: model.source_id ?? null,
+                            model_provider: model.model_provider,
+                            model_name: model.model_name,
+                          }
+                        : null
+                    ),
                   disabled: modelSelectorDisabled,
                   showSpinner: showModelSelectorSpinner,
                 }
@@ -511,16 +580,24 @@ function ChatBody({
     selectedPreset
       ? {
           workspaceId,
-          modelOverride: {
-            name: selectedPreset.model_name,
-            provider: selectedPreset.model_provider,
-            baseUrl: selectedPreset.base_url ?? null,
+          selection: {
+            source_id: selectedPreset.source_id ?? null,
+            model_provider: selectedPreset.model_provider,
+            model_name: selectedPreset.model_name,
           },
         }
-      : {
-          catalogRef: modelSelector?.selectedModelCatalogRef ?? null,
-          workspaceId,
-        }
+      : modelSelector?.selectedModel
+        ? {
+            workspaceId,
+            selection: {
+              source_id: modelSelector.selectedModel.source_id ?? null,
+              model_provider: modelSelector.selectedModel.model_provider,
+              model_name: modelSelector.selectedModel.model_name,
+            },
+          }
+        : {
+            workspaceId,
+          }
   )
 
   if (chatError) {
@@ -630,6 +707,11 @@ function ChatBody({
 }
 
 function ChatModelSelectorBar({ selector }: { selector: ChatModelSelector }) {
+  const defaultValue = "__default__"
+  const selectedValue = selector.selectedModel
+    ? getCompositeModelKey(selector.selectedModel)
+    : defaultValue
+
   return (
     <div className="border-b px-4 py-3">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -644,22 +726,35 @@ function ChatModelSelectorBar({ selector }: { selector: ChatModelSelector }) {
         </div>
         <div className="flex w-full flex-col gap-2 md:w-[320px]">
           <Select
-            value={selector.selectedModelCatalogRef ?? "__default__"}
-            onValueChange={(value) =>
-              void selector.onSelect(value === "__default__" ? null : value)
-            }
+            value={selectedValue}
+            onValueChange={(value) => {
+              if (value === defaultValue) {
+                void selector.onSelect(null)
+                return
+              }
+              const nextModel =
+                selector.models?.find(
+                  (model) => getCompositeModelKey(model) === value
+                ) ?? null
+              void selector.onSelect(nextModel)
+            }}
             disabled={selector.disabled || selector.modelsIsLoading}
           >
             <SelectTrigger className="w-full">
               <SelectValue placeholder="Choose a model" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__default__">
+              <SelectItem value={defaultValue}>
                 Organization default · {selector.defaultLabel}
               </SelectItem>
               {selector.models?.map((model) => (
-                <SelectItem key={model.catalog_ref} value={model.catalog_ref}>
-                  {model.display_name} · {model.source_name}
+                <SelectItem
+                  key={getCompositeModelKey(model)}
+                  value={getCompositeModelKey(model)}
+                >
+                  {model.model_name} ·{" "}
+                  {model.source_name ??
+                    (model.source_id ? "Custom" : "Platform")}
                 </SelectItem>
               ))}
             </SelectContent>

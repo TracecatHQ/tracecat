@@ -358,7 +358,7 @@ export type AgentPresetCreate = {
   instructions?: string | null
   model_name: string
   model_provider: string
-  model_catalog_ref?: string | null
+  source_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -381,7 +381,7 @@ export type AgentPresetRead = {
   instructions?: string | null
   model_name: string
   model_provider: string
-  model_catalog_ref?: string | null
+  source_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -426,7 +426,7 @@ export type AgentPresetUpdate = {
   instructions?: string | null
   model_name?: string | null
   model_provider?: string | null
-  model_catalog_ref?: string | null
+  source_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -463,7 +463,7 @@ export type AgentPresetVersionRead = {
   instructions?: string | null
   model_name: string
   model_provider: string
-  model_catalog_ref?: string | null
+  source_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -489,7 +489,7 @@ export type AgentPresetVersionReadMinimal = {
   instructions?: string | null
   model_name: string
   model_provider: string
-  model_catalog_ref?: string | null
+  source_id?: string | null
   base_url?: string | null
   output_type?: OutputType | null
   actions?: Array<string> | null
@@ -544,10 +544,9 @@ export type AgentSessionCreate = {
    * Pinned preset version used for this session (if any)
    */
   agent_preset_version_id?: string | null
-  /**
-   * Enabled model catalog reference used when no preset is selected.
-   */
-  model_catalog_ref?: string | null
+  source_id?: string | null
+  model_name?: string | null
+  model_provider?: string | null
   /**
    * Agent harness type
    */
@@ -601,7 +600,9 @@ export type AgentSessionRead = {
   tools: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
-  model_catalog_ref: string | null
+  source_id: string | null
+  model_name: string | null
+  model_provider: string | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -625,7 +626,9 @@ export type AgentSessionReadVercel = {
   tools: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
-  model_catalog_ref: string | null
+  source_id: string | null
+  model_name: string | null
+  model_provider: string | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -653,7 +656,9 @@ export type AgentSessionReadWithMessages = {
   tools: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
-  model_catalog_ref: string | null
+  source_id: string | null
+  model_name: string | null
+  model_provider: string | null
   harness_type: string | null
   last_stream_id?: string | null
   parent_session_id?: string | null
@@ -685,10 +690,9 @@ export type AgentSessionUpdate = {
    * Pinned preset version to use for this session
    */
   agent_preset_version_id?: string | null
-  /**
-   * Enabled model catalog reference to use when no preset is selected.
-   */
-  model_catalog_ref?: string | null
+  source_id?: string | null
+  model_name?: string | null
+  model_provider?: string | null
   /**
    * Agent harness type
    */
@@ -1153,13 +1157,10 @@ export type Body_workflows_create_workflow = {
 }
 
 export type BuiltInCatalogEntry = {
-  catalog_ref: string
-  model_name: string
   model_provider: string
-  runtime_provider: string
-  display_name: string
-  source_type: ModelSourceType
-  source_name: string
+  model_name: string
+  source_type?: string | null
+  source_name?: string | null
   source_id?: string | null
   base_url?: string | null
   enabled?: boolean
@@ -2775,24 +2776,18 @@ export type DataUIPart = {
   data: unknown
 }
 
-export type DefaultModelInventoryRead = {
-  source_type?: ModelSourceType
-  source_name?: string
-  discovery_status: ModelDiscoveryStatus
-  last_refreshed_at?: string | null
-  last_error?: string | null
-  discovered_models?: Array<ModelCatalogEntry>
-}
-
 export type DefaultModelSelection = {
-  catalog_ref: string
-  model_name: string
+  source_id?: string | null
   model_provider: string
-  display_name: string
+  model_name: string
+  source_type?: string | null
+  source_name?: string | null
 }
 
 export type DefaultModelSelectionUpdate = {
-  catalog_ref: string
+  source_id?: string | null
+  model_provider: string
+  model_name: string
 }
 
 /**
@@ -2973,7 +2968,9 @@ export type EffectiveEntitlements = {
 }
 
 export type EnabledModelOperation = {
-  catalog_ref: string
+  source_id?: string | null
+  model_provider: string
+  model_name: string
 }
 
 export type EnabledModelRuntimeConfig = {
@@ -2981,12 +2978,14 @@ export type EnabledModelRuntimeConfig = {
 }
 
 export type EnabledModelRuntimeConfigUpdate = {
-  catalog_ref: string
+  source_id?: string | null
+  model_provider: string
+  model_name: string
   config?: EnabledModelRuntimeConfig
 }
 
 export type EnabledModelsBatchOperation = {
-  catalog_refs: Array<string>
+  models: Array<ModelSelection>
 }
 
 /**
@@ -4115,13 +4114,10 @@ export type MessageKind =
   | "internal"
 
 export type ModelCatalogEntry = {
-  catalog_ref: string
-  model_name: string
   model_provider: string
-  runtime_provider: string
-  display_name: string
-  source_type: ModelSourceType
-  source_name: string
+  model_name: string
+  source_type?: string | null
+  source_name?: string | null
   source_id?: string | null
   base_url?: string | null
   enabled?: boolean
@@ -4159,8 +4155,13 @@ export type ModelCredentialUpdate = {
 
 export type ModelDiscoveryStatus = "never" | "ready" | "failed"
 
+export type ModelSelection = {
+  source_id?: string | null
+  model_provider: string
+  model_name: string
+}
+
 export type ModelSourceType =
-  | "default_sidecar"
   | "openai_compatible_gateway"
   | "manual_custom"
   | "openai"
@@ -4475,6 +4476,23 @@ export type PayloadChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type PlatformCatalogEntry = {
+  id: string
+  model_provider: string
+  model_name: string
+  metadata?: {
+    [key: string]: unknown
+  } | null
+}
+
+export type PlatformCatalogRead = {
+  discovery_status: ModelDiscoveryStatus
+  last_refreshed_at?: string | null
+  last_error?: string | null
+  next_cursor?: string | null
+  models?: Array<PlatformCatalogEntry>
 }
 
 /**
@@ -7821,6 +7839,16 @@ export type WorkspaceMembershipRead = {
   workspace_id: string
 }
 
+export type WorkspaceModelSubsetRead = {
+  inherit_all?: boolean
+  models?: Array<ModelSelection>
+}
+
+export type WorkspaceModelSubsetUpdate = {
+  inherit_all?: boolean
+  models?: Array<ModelSelection>
+}
+
 export type WorkspaceRead = {
   id: string
   name: string
@@ -7840,7 +7868,6 @@ export type WorkspaceSettingsRead = {
   allowed_attachment_extensions?: Array<string> | null
   allowed_attachment_mime_types?: Array<string> | null
   validate_attachment_magic_number?: boolean | null
-  agent_enabled_model_refs?: Array<string> | null
   /**
    * Returns workspace-specific extensions if set, otherwise system defaults.
    */
@@ -7873,10 +7900,6 @@ export type WorkspaceSettingsUpdate = {
    * Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.
    */
   validate_attachment_magic_number?: boolean | null
-  /**
-   * Optional workspace-level subset of organization-enabled agent model catalog refs. When omitted, the workspace inherits the full organization-enabled catalog.
-   */
-  agent_enabled_model_refs?: Array<string> | null
 }
 
 export type WorkspaceUpdate = {
@@ -8922,7 +8945,26 @@ export type AgentListModelsData = {
 
 export type AgentListModelsResponse = Array<ModelCatalogEntry>
 
-export type AgentListBuiltinCatalogData = {
+export type AgentGetWorkspaceModelSubsetData = {
+  workspaceId: string
+}
+
+export type AgentGetWorkspaceModelSubsetResponse = WorkspaceModelSubsetRead
+
+export type AgentReplaceWorkspaceModelSubsetData = {
+  requestBody: WorkspaceModelSubsetUpdate
+  workspaceId: string
+}
+
+export type AgentReplaceWorkspaceModelSubsetResponse = WorkspaceModelSubsetRead
+
+export type AgentClearWorkspaceModelSubsetData = {
+  workspaceId: string
+}
+
+export type AgentClearWorkspaceModelSubsetResponse = void
+
+export type AgentListPlatformCatalogData = {
   /**
    * Opaque cursor for the next built-in catalog page.
    */
@@ -8938,18 +8980,9 @@ export type AgentListBuiltinCatalogData = {
   query?: string | null
 }
 
-export type AgentListBuiltinCatalogResponse = BuiltInCatalogRead
-
-export type AgentRefreshBuiltinCatalogResponse = BuiltInCatalogRead
-
-export type AgentListDiscoveredModelsResponse = Array<ModelCatalogEntry>
+export type AgentListPlatformCatalogResponse = BuiltInCatalogRead
 
 export type AgentListProvidersResponse = Array<BuiltInProviderRead>
-
-export type AgentGetDefaultModelInventoryResponse = DefaultModelInventoryRead
-
-export type AgentRefreshDefaultModelInventoryResponse =
-  DefaultModelInventoryRead
 
 export type AgentGetProvidersStatusResponse = {
   [key: string]: boolean
@@ -8963,12 +8996,6 @@ export type AgentGetProviderCredentialConfigData = {
 }
 
 export type AgentGetProviderCredentialConfigResponse = ProviderCredentialConfig
-
-export type AgentRefreshProviderInventoryData = {
-  provider: string
-}
-
-export type AgentRefreshProviderInventoryResponse = BuiltInProviderRead
 
 export type AgentCreateProviderCredentialsData = {
   requestBody: ModelCredentialCreate
@@ -9003,59 +9030,32 @@ export type AgentSetDefaultModelData = {
 
 export type AgentSetDefaultModelResponse = DefaultModelSelection
 
-export type AgentListCustomSourcesResponse = Array<AgentModelSourceRead>
+export type AgentListSourcesResponse = Array<AgentModelSourceRead>
 
-export type AgentCreateCustomSourceData = {
+export type AgentCreateSourceData = {
   requestBody: AgentModelSourceCreate
 }
 
-export type AgentCreateCustomSourceResponse = AgentModelSourceRead
+export type AgentCreateSourceResponse = AgentModelSourceRead
 
-export type AgentListCustomSources1Response = Array<AgentModelSourceRead>
-
-export type AgentCreateCustomSource1Data = {
-  requestBody: AgentModelSourceCreate
-}
-
-export type AgentCreateCustomSource1Response = AgentModelSourceRead
-
-export type AgentUpdateCustomSourceData = {
+export type AgentUpdateSourceData = {
   requestBody: AgentModelSourceUpdate
   sourceId: string
 }
 
-export type AgentUpdateCustomSourceResponse = AgentModelSourceRead
+export type AgentUpdateSourceResponse = AgentModelSourceRead
 
-export type AgentDeleteCustomSourceData = {
+export type AgentDeleteSourceData = {
   sourceId: string
 }
 
-export type AgentDeleteCustomSourceResponse = void
+export type AgentDeleteSourceResponse = void
 
-export type AgentUpdateCustomSource1Data = {
-  requestBody: AgentModelSourceUpdate
+export type AgentRefreshSourceData = {
   sourceId: string
 }
 
-export type AgentUpdateCustomSource1Response = AgentModelSourceRead
-
-export type AgentDeleteCustomSource1Data = {
-  sourceId: string
-}
-
-export type AgentDeleteCustomSource1Response = void
-
-export type AgentRefreshCustomSourceData = {
-  sourceId: string
-}
-
-export type AgentRefreshCustomSourceResponse = Array<ModelCatalogEntry>
-
-export type AgentRefreshCustomSource1Data = {
-  sourceId: string
-}
-
-export type AgentRefreshCustomSource1Response = Array<ModelCatalogEntry>
+export type AgentRefreshSourceResponse = Array<ModelCatalogEntry>
 
 export type AgentEnableModelData = {
   requestBody: EnabledModelOperation
@@ -9064,7 +9064,9 @@ export type AgentEnableModelData = {
 export type AgentEnableModelResponse = ModelCatalogEntry
 
 export type AgentDisableModelData = {
-  catalogRef: string
+  modelName: string
+  modelProvider: string
+  sourceId?: string | null
 }
 
 export type AgentDisableModelResponse = void
@@ -9559,6 +9561,17 @@ export type AdminDemoteFromSuperuserData = {
 }
 
 export type AdminDemoteFromSuperuserResponse = AdminUserRead
+
+export type AdminAgentListPlatformCatalogData = {
+  cursor?: string | null
+  limit?: number
+  provider?: string | null
+  query?: string | null
+}
+
+export type AdminAgentListPlatformCatalogResponse = PlatformCatalogRead
+
+export type AdminAgentRefreshPlatformCatalogResponse = PlatformCatalogRead
 
 export type AdminRegistryListPlatformRepositoriesResponse =
   Array<RegistryRepositoryReadMinimal>
@@ -12697,9 +12710,50 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/catalog/builtins": {
+  "/agent/workspaces/{workspace_id}/model-subset": {
     get: {
-      req: AgentListBuiltinCatalogData
+      req: AgentGetWorkspaceModelSubsetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceModelSubsetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: AgentReplaceWorkspaceModelSubsetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceModelSubsetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentClearWorkspaceModelSubsetData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/catalog/platform": {
+    get: {
+      req: AgentListPlatformCatalogData
       res: {
         /**
          * Successful Response
@@ -12712,26 +12766,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/catalog/builtins/refresh": {
-    post: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: BuiltInCatalogRead
-      }
-    }
-  }
-  "/agent/catalog/discovered": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<ModelCatalogEntry>
-      }
-    }
-  }
   "/agent/providers": {
     get: {
       res: {
@@ -12739,26 +12773,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<BuiltInProviderRead>
-      }
-    }
-  }
-  "/agent/default-models": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: DefaultModelInventoryRead
-      }
-    }
-  }
-  "/agent/default-models/refresh": {
-    post: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: DefaultModelInventoryRead
       }
     }
   }
@@ -12792,21 +12806,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ProviderCredentialConfig
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/agent/providers/{provider}/refresh": {
-    post: {
-      req: AgentRefreshProviderInventoryData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: BuiltInProviderRead
         /**
          * Validation Error
          */
@@ -12886,7 +12885,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/model-sources": {
+  "/agent/sources": {
     get: {
       res: {
         /**
@@ -12896,7 +12895,7 @@ export type $OpenApiTs = {
       }
     }
     post: {
-      req: AgentCreateCustomSourceData
+      req: AgentCreateSourceData
       res: {
         /**
          * Successful Response
@@ -12909,32 +12908,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/custom-sources": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<AgentModelSourceRead>
-      }
-    }
-    post: {
-      req: AgentCreateCustomSource1Data
-      res: {
-        /**
-         * Successful Response
-         */
-        201: AgentModelSourceRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/agent/model-sources/{source_id}": {
+  "/agent/sources/{source_id}": {
     patch: {
-      req: AgentUpdateCustomSourceData
+      req: AgentUpdateSourceData
       res: {
         /**
          * Successful Response
@@ -12947,7 +12923,7 @@ export type $OpenApiTs = {
       }
     }
     delete: {
-      req: AgentDeleteCustomSourceData
+      req: AgentDeleteSourceData
       res: {
         /**
          * Successful Response
@@ -12960,52 +12936,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/custom-sources/{source_id}": {
-    patch: {
-      req: AgentUpdateCustomSource1Data
-      res: {
-        /**
-         * Successful Response
-         */
-        200: AgentModelSourceRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: AgentDeleteCustomSource1Data
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/agent/model-sources/{source_id}/refresh": {
+  "/agent/sources/{source_id}/refresh": {
     post: {
-      req: AgentRefreshCustomSourceData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<ModelCatalogEntry>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/agent/custom-sources/{source_id}/refresh": {
-    post: {
-      req: AgentRefreshCustomSource1Data
+      req: AgentRefreshSourceData
       res: {
         /**
          * Successful Response
@@ -13931,6 +13864,31 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/agent/catalog/platform": {
+    get: {
+      req: AdminAgentListPlatformCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformCatalogRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/agent/catalog/platform/refresh": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformCatalogRead
       }
     }
   }

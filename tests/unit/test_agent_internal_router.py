@@ -46,30 +46,23 @@ def test_merge_runtime_overrides_preserves_unset_catalog_fields() -> None:
 @pytest.mark.anyio
 async def test_provider_secrets_context_preserves_explicit_base_url_override() -> None:
     config = AgentConfig(
-        model_name="ignored",
-        model_provider="ignored",
-        model_catalog_ref="builtin:openai:test:gpt-5",
+        model_name="gpt-5",
+        model_provider="openai",
         base_url="https://override.example/v1",
     )
     agent_svc = cast(
         AgentManagementService,
         SimpleNamespace(
-            _resolve_catalog_agent_config=AsyncMock(
-                return_value=(
-                    AgentConfig(
-                        model_name="gpt-5",
-                        model_provider="openai",
-                        base_url="https://catalog.example/v1",
-                    ),
-                    {"OPENAI_API_KEY": "test-key"},
-                )
+            get_provider_credentials=AsyncMock(
+                return_value={
+                    "OPENAI_API_KEY": "test-key",
+                    "OPENAI_BASE_URL": "https://creds.example/v1",
+                }
             )
         ),
     )
 
     async with _provider_secrets_context(agent_svc, config):
-        assert config.model_name == "gpt-5"
-        assert config.model_provider == "openai"
         assert config.base_url == "https://override.example/v1"
 
 
@@ -81,8 +74,7 @@ async def test_provider_secrets_context_loads_custom_source_credentials_without_
     config = AgentConfig(
         model_name="qwen2.5:0.5b",
         model_provider="openai_compatible_gateway",
-        model_source_type="openai_compatible_gateway",
-        model_source_id=source_id,
+        source_id=source_id,
         base_url=None,
     )
     agent_svc = cast(

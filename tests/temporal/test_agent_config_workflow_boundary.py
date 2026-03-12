@@ -47,6 +47,7 @@ def _build_agent_config() -> TracecatAgentConfig:
     return TracecatAgentConfig(
         model_name="gpt-5.2",
         model_provider="openai",
+        source_id=None,
         instructions="You are a security analyst.",
         actions=["tools.datadog.change_signal_state"],
         namespaces=["tools.datadog"],
@@ -102,6 +103,7 @@ class AgentConfigDecodeWorkflow:
         config = agent_config_from_payload(payload)
         assert config.model_name == "gpt-5.2"
         assert config.model_provider == "openai"
+        assert config.source_id is None
         assert config.instructions == "You are a security analyst."
         assert config.actions == ["tools.datadog.change_signal_state"]
         assert config.namespaces == ["tools.datadog"]
