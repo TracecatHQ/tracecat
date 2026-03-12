@@ -1,7 +1,7 @@
 "use client"
 
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import {
   type CasePriority,
@@ -157,26 +157,16 @@ type PersistedCaseDateFilter =
       value: PersistedCaseDateRange
     }
 
-interface PersistedCasesFilters {
-  searchQuery: string
-  sortBy: CaseSortValue
-  statusFilter: CaseStatus[]
-  statusMode: FilterMode
-  priorityFilter: CasePriority[]
-  priorityMode: FilterMode
-  prioritySortDirection: SortDirection
-  severityFilter: CaseSeverity[]
-  severityMode: FilterMode
-  severitySortDirection: SortDirection
-  assigneeFilter: string[]
-  assigneeMode: FilterMode
-  assigneeSortDirection: SortDirection
-  tagFilter: string[]
-  tagMode: FilterMode
-  tagSortDirection: SortDirection
-  dropdownFilters: Record<string, DropdownFilterState>
+type PersistedCasesFilters = Omit<
+  UseCasesFilters,
+  "updatedAfter" | "createdAfter"
+> & {
   updatedAfter: PersistedCaseDateFilter
   createdAfter: PersistedCaseDateFilter
+}
+
+type CasesFilterStateSnapshot = UseCasesFilters & {
+  hydratedWorkspaceId?: string
 }
 
 // Helper to get Date from preset filter value
@@ -228,6 +218,121 @@ export const DEFAULT_CREATED_PRESET: CaseDatePreset = "1m"
 export const DEFAULT_CREATED_FILTER: CaseDateFilterValue = {
   type: "preset",
   value: DEFAULT_CREATED_PRESET,
+}
+
+const DEFAULT_CASES_FILTERS: UseCasesFilters = {
+  searchQuery: "",
+  sortBy: DEFAULT_CASE_SORT,
+  statusFilter: [],
+  statusMode: "include",
+  priorityFilter: [],
+  priorityMode: "include",
+  prioritySortDirection: null,
+  severityFilter: [],
+  severityMode: "include",
+  severitySortDirection: null,
+  assigneeFilter: [],
+  assigneeMode: "include",
+  assigneeSortDirection: null,
+  tagFilter: [],
+  tagMode: "include",
+  tagSortDirection: null,
+  dropdownFilters: {},
+  updatedAfter: DEFAULT_DATE_FILTER,
+  createdAfter: DEFAULT_CREATED_FILTER,
+}
+
+function getCasesFilterStorageKey(workspaceId: string): string {
+  return `${workspaceId}:${CASES_FILTER_STORAGE_KEY}`
+}
+
+function getDefaultCasesFilterState(): CasesFilterStateSnapshot {
+  return {
+    ...DEFAULT_CASES_FILTERS,
+    hydratedWorkspaceId: undefined,
+  }
+}
+
+function loadPersistedCasesFilterState(
+  workspaceId: string | undefined
+): CasesFilterStateSnapshot {
+  const defaults = getDefaultCasesFilterState()
+  if (!workspaceId || typeof window === "undefined") {
+    return defaults
+  }
+
+  const storageKey = getCasesFilterStorageKey(workspaceId)
+  try {
+    const storedValue = window.localStorage.getItem(storageKey)
+    if (!storedValue) {
+      return { ...defaults, hydratedWorkspaceId: workspaceId }
+    }
+
+    const parsed = JSON.parse(storedValue) as Partial<PersistedCasesFilters>
+    return {
+      searchQuery: parsed.searchQuery ?? defaults.searchQuery,
+      sortBy: parsed.sortBy ?? defaults.sortBy,
+      statusFilter: parsed.statusFilter ?? defaults.statusFilter,
+      statusMode: parsed.statusMode ?? defaults.statusMode,
+      priorityFilter: parsed.priorityFilter ?? defaults.priorityFilter,
+      priorityMode: parsed.priorityMode ?? defaults.priorityMode,
+      prioritySortDirection:
+        parsed.prioritySortDirection ?? defaults.prioritySortDirection,
+      severityFilter: parsed.severityFilter ?? defaults.severityFilter,
+      severityMode: parsed.severityMode ?? defaults.severityMode,
+      severitySortDirection:
+        parsed.severitySortDirection ?? defaults.severitySortDirection,
+      assigneeFilter: parsed.assigneeFilter ?? defaults.assigneeFilter,
+      assigneeMode: parsed.assigneeMode ?? defaults.assigneeMode,
+      assigneeSortDirection:
+        parsed.assigneeSortDirection ?? defaults.assigneeSortDirection,
+      tagFilter: parsed.tagFilter ?? defaults.tagFilter,
+      tagMode: parsed.tagMode ?? defaults.tagMode,
+      tagSortDirection: parsed.tagSortDirection ?? defaults.tagSortDirection,
+      dropdownFilters: parsed.dropdownFilters ?? defaults.dropdownFilters,
+      updatedAfter: parsePersistedDateFilter(
+        parsed.updatedAfter,
+        defaults.updatedAfter
+      ),
+      createdAfter: parsePersistedDateFilter(
+        parsed.createdAfter,
+        defaults.createdAfter
+      ),
+      hydratedWorkspaceId: workspaceId,
+    }
+  } catch (error) {
+    console.error(error)
+    try {
+      window.localStorage.removeItem(storageKey)
+    } catch (removeError) {
+      console.error(removeError)
+    }
+    return { ...defaults, hydratedWorkspaceId: workspaceId }
+  }
+}
+
+function persistCasesFilterState(
+  workspaceId: string,
+  filters: PersistedCasesFilters
+): void {
+  try {
+    window.localStorage.setItem(
+      getCasesFilterStorageKey(workspaceId),
+      JSON.stringify(filters)
+    )
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+function serializePersistedCasesFilters(
+  filters: UseCasesFilters
+): PersistedCasesFilters {
+  return {
+    ...filters,
+    updatedAfter: serializeDateFilter(filters.updatedAfter),
+    createdAfter: serializeDateFilter(filters.createdAfter),
+  }
 }
 
 function parsePersistedDateFilter(
@@ -319,27 +424,55 @@ function resolveEnumIncludeFilter<T extends string>(
 export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const { enabled = true, autoRefresh = true } = options
   const workspaceId = useWorkspaceId()
+  const initialFilterStateRef = useRef<CasesFilterStateSnapshot | null>(null)
+  if (initialFilterStateRef.current === null) {
+    initialFilterStateRef.current = loadPersistedCasesFilterState(workspaceId)
+  }
+  const initialFilterState = initialFilterStateRef.current
 
-  const [searchQuery, setSearchQuery] = useState("")
-  const [sortBy, setSortByState] = useState<CaseSortValue>(DEFAULT_CASE_SORT)
-  const [statusFilter, setStatusFilter] = useState<CaseStatus[]>([])
-  const [statusMode, setStatusMode] = useState<FilterMode>("include")
-  const [priorityFilter, setPriorityFilter] = useState<CasePriority[]>([])
-  const [priorityMode, setPriorityMode] = useState<FilterMode>("include")
+  const [searchQuery, setSearchQuery] = useState(initialFilterState.searchQuery)
+  const [sortBy, setSortByState] = useState<CaseSortValue>(
+    initialFilterState.sortBy
+  )
+  const [statusFilter, setStatusFilter] = useState<CaseStatus[]>(
+    initialFilterState.statusFilter
+  )
+  const [statusMode, setStatusMode] = useState<FilterMode>(
+    initialFilterState.statusMode
+  )
+  const [priorityFilter, setPriorityFilter] = useState<CasePriority[]>(
+    initialFilterState.priorityFilter
+  )
+  const [priorityMode, setPriorityMode] = useState<FilterMode>(
+    initialFilterState.priorityMode
+  )
   const [prioritySortDirection, setPrioritySortDirectionState] =
-    useState<SortDirection>(null)
-  const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>([])
-  const [severityMode, setSeverityMode] = useState<FilterMode>("include")
+    useState<SortDirection>(initialFilterState.prioritySortDirection)
+  const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>(
+    initialFilterState.severityFilter
+  )
+  const [severityMode, setSeverityMode] = useState<FilterMode>(
+    initialFilterState.severityMode
+  )
   const [severitySortDirection, setSeveritySortDirectionState] =
-    useState<SortDirection>(null)
-  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([])
-  const [assigneeMode, setAssigneeModeState] = useState<FilterMode>("include")
+    useState<SortDirection>(initialFilterState.severitySortDirection)
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>(
+    initialFilterState.assigneeFilter
+  )
+  const [assigneeMode, setAssigneeModeState] = useState<FilterMode>(
+    initialFilterState.assigneeMode
+  )
   const [assigneeSortDirection, setAssigneeSortDirectionState] =
-    useState<SortDirection>(null)
-  const [tagFilter, setTagFilter] = useState<string[]>([])
-  const [tagMode, setTagModeState] = useState<FilterMode>("include")
-  const [tagSortDirection, setTagSortDirectionState] =
-    useState<SortDirection>(null)
+    useState<SortDirection>(initialFilterState.assigneeSortDirection)
+  const [tagFilter, setTagFilter] = useState<string[]>(
+    initialFilterState.tagFilter
+  )
+  const [tagMode, setTagModeState] = useState<FilterMode>(
+    initialFilterState.tagMode
+  )
+  const [tagSortDirection, setTagSortDirectionState] = useState<SortDirection>(
+    initialFilterState.tagSortDirection
+  )
 
   const setSortBy = useCallback((value: CaseSortValue) => {
     setSortByState(value)
@@ -385,15 +518,16 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   }, [])
   const [dropdownFilters, setDropdownFilters] = useState<
     Record<string, DropdownFilterState>
-  >({})
-  const [updatedAfter, setUpdatedAfter] =
-    useState<CaseDateFilterValue>(DEFAULT_DATE_FILTER)
+  >(initialFilterState.dropdownFilters)
+  const [updatedAfter, setUpdatedAfter] = useState<CaseDateFilterValue>(
+    initialFilterState.updatedAfter
+  )
   const [createdAfter, setCreatedAfter] = useState<CaseDateFilterValue>(
-    DEFAULT_CREATED_FILTER
+    initialFilterState.createdAfter
   )
   const [hydratedWorkspaceId, setHydratedWorkspaceId] = useState<
     string | undefined
-  >(() => (typeof window === "undefined" ? workspaceId : undefined))
+  >(initialFilterState.hydratedWorkspaceId)
   const hasHydratedFilters = workspaceId
     ? hydratedWorkspaceId === workspaceId
     : false
@@ -408,79 +542,61 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       return
     }
 
-    const storedValue = window.localStorage.getItem(
-      `${workspaceId}:${CASES_FILTER_STORAGE_KEY}`
-    )
-    if (!storedValue) {
-      setHydratedWorkspaceId(workspaceId)
+    if (hydratedWorkspaceId === workspaceId) {
       return
     }
 
-    try {
-      const parsed = JSON.parse(storedValue) as Partial<PersistedCasesFilters>
-
-      setSearchQuery(parsed.searchQuery ?? "")
-      setSortByState(parsed.sortBy ?? DEFAULT_CASE_SORT)
-      setStatusFilter(parsed.statusFilter ?? [])
-      setStatusMode(parsed.statusMode ?? "include")
-      setPriorityFilter(parsed.priorityFilter ?? [])
-      setPriorityMode(parsed.priorityMode ?? "include")
-      setPrioritySortDirectionState(parsed.prioritySortDirection ?? null)
-      setSeverityFilter(parsed.severityFilter ?? [])
-      setSeverityMode(parsed.severityMode ?? "include")
-      setSeveritySortDirectionState(parsed.severitySortDirection ?? null)
-      setAssigneeFilter(parsed.assigneeFilter ?? [])
-      setAssigneeModeState(parsed.assigneeMode ?? "include")
-      setAssigneeSortDirectionState(parsed.assigneeSortDirection ?? null)
-      setTagFilter(parsed.tagFilter ?? [])
-      setTagModeState(parsed.tagMode ?? "include")
-      setTagSortDirectionState(parsed.tagSortDirection ?? null)
-      setDropdownFilters(parsed.dropdownFilters ?? {})
-      setUpdatedAfter(
-        parsePersistedDateFilter(parsed.updatedAfter, DEFAULT_DATE_FILTER)
-      )
-      setCreatedAfter(
-        parsePersistedDateFilter(parsed.createdAfter, DEFAULT_CREATED_FILTER)
-      )
-    } catch {
-      window.localStorage.removeItem(
-        `${workspaceId}:${CASES_FILTER_STORAGE_KEY}`
-      )
-    }
-
-    setHydratedWorkspaceId(workspaceId)
-  }, [workspaceId])
+    const nextFilterState = loadPersistedCasesFilterState(workspaceId)
+    setSearchQuery(nextFilterState.searchQuery)
+    setSortByState(nextFilterState.sortBy)
+    setStatusFilter(nextFilterState.statusFilter)
+    setStatusMode(nextFilterState.statusMode)
+    setPriorityFilter(nextFilterState.priorityFilter)
+    setPriorityMode(nextFilterState.priorityMode)
+    setPrioritySortDirectionState(nextFilterState.prioritySortDirection)
+    setSeverityFilter(nextFilterState.severityFilter)
+    setSeverityMode(nextFilterState.severityMode)
+    setSeveritySortDirectionState(nextFilterState.severitySortDirection)
+    setAssigneeFilter(nextFilterState.assigneeFilter)
+    setAssigneeModeState(nextFilterState.assigneeMode)
+    setAssigneeSortDirectionState(nextFilterState.assigneeSortDirection)
+    setTagFilter(nextFilterState.tagFilter)
+    setTagModeState(nextFilterState.tagMode)
+    setTagSortDirectionState(nextFilterState.tagSortDirection)
+    setDropdownFilters(nextFilterState.dropdownFilters)
+    setUpdatedAfter(nextFilterState.updatedAfter)
+    setCreatedAfter(nextFilterState.createdAfter)
+    setHydratedWorkspaceId(nextFilterState.hydratedWorkspaceId)
+  }, [hydratedWorkspaceId, workspaceId])
 
   useEffect(() => {
     if (!workspaceId || !hasHydratedFilters || typeof window === "undefined") {
       return
     }
 
-    const persistedFilters: PersistedCasesFilters = {
-      searchQuery,
-      sortBy,
-      statusFilter,
-      statusMode,
-      priorityFilter,
-      priorityMode,
-      prioritySortDirection,
-      severityFilter,
-      severityMode,
-      severitySortDirection,
-      assigneeFilter,
-      assigneeMode,
-      assigneeSortDirection,
-      tagFilter,
-      tagMode,
-      tagSortDirection,
-      dropdownFilters,
-      updatedAfter: serializeDateFilter(updatedAfter),
-      createdAfter: serializeDateFilter(createdAfter),
-    }
-
-    window.localStorage.setItem(
-      `${workspaceId}:${CASES_FILTER_STORAGE_KEY}`,
-      JSON.stringify(persistedFilters)
+    persistCasesFilterState(
+      workspaceId,
+      serializePersistedCasesFilters({
+        searchQuery,
+        sortBy,
+        statusFilter,
+        statusMode,
+        priorityFilter,
+        priorityMode,
+        prioritySortDirection,
+        severityFilter,
+        severityMode,
+        severitySortDirection,
+        assigneeFilter,
+        assigneeMode,
+        assigneeSortDirection,
+        tagFilter,
+        tagMode,
+        tagSortDirection,
+        dropdownFilters,
+        updatedAfter,
+        createdAfter,
+      })
     )
   }, [
     workspaceId,
@@ -734,8 +850,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     staleTime: 60000,
   })
 
+  const visibleRowsData = hasHydratedFilters ? rowsData : undefined
+  const visibleAggregateData = hasHydratedFilters ? aggregateData : undefined
+
   const flattenedCases = useMemo(() => {
-    const pages = rowsData?.pages ?? []
+    const pages = visibleRowsData?.pages ?? []
     const deduped: CaseReadMinimal[] = []
     const seenIds = new Set<string>()
 
@@ -750,7 +869,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     }
 
     return deduped
-  }, [rowsData?.pages])
+  }, [visibleRowsData?.pages])
 
   const sortedCases = useMemo(() => {
     if (assigneeSortDirection) {
@@ -780,7 +899,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   const totalFilteredCaseEstimate = hasImpossibleEnumFilter
     ? 0
-    : (aggregateData?.total ?? rowsData?.pages[0]?.total_estimate ?? null)
+    : (visibleAggregateData?.total ??
+      visibleRowsData?.pages[0]?.total_estimate ??
+      null)
+  const isHydrationPending =
+    enabled && Boolean(workspaceId) && !hasHydratedFilters
 
   const refetch = useCallback(() => {
     void refetchRows()
@@ -796,7 +919,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   return {
     cases,
-    isLoading,
+    isLoading: isHydrationPending ? true : isLoading,
     error: error ?? null,
     refetch,
     filters: {
@@ -844,11 +967,17 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     totalFilteredCaseEstimate,
     stageCounts: hasImpossibleEnumFilter
       ? EMPTY_STAGE_COUNTS
-      : (aggregateData?.status_groups ?? null),
-    isCountsLoading: hasImpossibleEnumFilter ? false : isCountsLoading,
-    isCountsFetching: hasImpossibleEnumFilter ? false : isCountsFetching,
+      : (visibleAggregateData?.status_groups ?? null),
+    isCountsLoading: hasImpossibleEnumFilter
+      ? false
+      : isHydrationPending || isCountsLoading,
+    isCountsFetching: hasImpossibleEnumFilter
+      ? false
+      : hasHydratedFilters && isCountsFetching,
     hasNextPage: hasImpossibleEnumFilter ? false : Boolean(hasNextPage),
-    isFetchingNextPage: hasImpossibleEnumFilter ? false : isFetchingNextPage,
+    isFetchingNextPage: hasImpossibleEnumFilter
+      ? false
+      : hasHydratedFilters && isFetchingNextPage,
     fetchNextPage: handleFetchNextPage,
   }
 }
