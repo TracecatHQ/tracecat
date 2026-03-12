@@ -385,6 +385,14 @@ except urllib.error.HTTPError as exc:
     }))
 """
 
+_URLLIB_REQUEST_DATA_OVERRIDE_SCRIPT = """\
+import json, urllib.request
+opener = urllib.request.build_opener()
+request = urllib.request.Request('https://example.com/override')
+response = opener.open(request, data=b'hello=world')
+print(json.dumps({'status': response.status, 'body': json.loads(response.read().decode())}))
+"""
+
 _REQUESTS_MULTIPART_SCRIPT = """\
 import json, requests
 response = requests.post(
@@ -655,6 +663,21 @@ def test_bootstrap_urllib_raises_http_error_for_intercepted_error_statuses() -> 
         "reason": "Not Found",
     }
     assert len(gateway_state["requests"]) == 1
+
+
+def test_bootstrap_urllib_uses_post_for_request_data_override() -> None:
+    """urllib opener.open(Request(...), data=...) should preserve stdlib POST behavior."""
+    with _mock_gateway() as (gateway_url, gateway_state):
+        completed = _run_script(_URLLIB_REQUEST_DATA_OVERRIDE_SCRIPT, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.strip()) == {
+        "status": 200,
+        "body": {"ok": True},
+    }
+    [request] = gateway_state["requests"]
+    assert request["payload"]["method"] == "POST"
+    assert base64.b64decode(request["payload"]["body_base64"]) == b"hello=world"
 
 
 def test_bootstrap_patches_modules_imported_before_hook_install() -> None:

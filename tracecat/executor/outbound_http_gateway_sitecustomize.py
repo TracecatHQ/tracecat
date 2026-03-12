@@ -894,9 +894,11 @@ def _patch_urllib_request(urllib_request_module: types.ModuleType) -> None:
     ) -> object:
         if isinstance(fullurl, urllib_request_module.Request):
             url = fullurl.full_url
-            method = fullurl.get_method()
             headers = dict(fullurl.header_items())
             body = fullurl.data if data is None else data
+            method = getattr(fullurl, "method", None) or (
+                "POST" if body is not None else "GET"
+            )
         else:
             url = str(fullurl)
             method = "POST" if data is not None else "GET"
