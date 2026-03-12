@@ -30,6 +30,31 @@ const mockSearchCaseAggregates =
     typeof casesSearchCaseAggregates
   >
 
+function createPersistedFilters(overrides: Record<string, unknown> = {}) {
+  return {
+    searchQuery: "",
+    sortBy: { field: "updated_at", direction: "desc" },
+    statusFilter: [],
+    statusMode: "include",
+    priorityFilter: [],
+    priorityMode: "include",
+    prioritySortDirection: null,
+    severityFilter: [],
+    severityMode: "include",
+    severitySortDirection: null,
+    assigneeFilter: [],
+    assigneeMode: "include",
+    assigneeSortDirection: null,
+    tagFilter: [],
+    tagMode: "include",
+    tagSortDirection: null,
+    dropdownFilters: {},
+    updatedAfter: { type: "preset", value: null },
+    createdAfter: { type: "preset", value: "1m" },
+    ...overrides,
+  }
+}
+
 function createCase(index: number): CaseReadMinimal {
   const id = `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`
   return {
@@ -133,6 +158,11 @@ function SortStateProbe() {
 describe("useCases", () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    window.localStorage.clear()
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
   })
 
   it("uses paginated rows and separate global counts", async () => {
@@ -193,6 +223,389 @@ describe("useCases", () => {
     expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
+      })
+    )
+  })
+
+  it("hydrates persisted filters before issuing case queries", async () => {
+    const firstPage: CasesSearchCasesResponse = {
+      items: [createCase(1)],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      total_estimate: 1,
+    }
+
+    const aggregate: CasesSearchCaseAggregatesResponse = {
+      total: 1,
+      status_groups: {
+        new: 1,
+        in_progress: 0,
+        on_hold: 0,
+        resolved: 0,
+        other: 0,
+      },
+    }
+
+    window.localStorage.setItem(
+      "workspace-1:cases-filters:v1",
+      JSON.stringify(
+        createPersistedFilters({
+          searchQuery: "persisted query",
+          updatedAfter: { type: "preset", value: "1w" },
+        })
+      )
+    )
+
+    mockSearchCases.mockResolvedValue(firstPage)
+    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HookProbe />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rows")).toHaveTextContent("1")
+    })
+
+    expect(mockSearchCases).toHaveBeenCalledTimes(1)
+    expect(mockSearchCases).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        searchTerm: "persisted query",
+        updatedAfter: expect.stringContaining("T"),
+      })
+    )
+
+    expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
+    expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        searchTerm: "persisted query",
+        updatedAfter: expect.stringContaining("T"),
+      })
+    )
+  })
+
+  it("does not expose cached default-query rows before persisted filters hydrate", () => {
+    jest.useFakeTimers().setSystemTime(new Date("2026-03-12T12:00:00Z"))
+
+    const cachedDefaultPage: CasesSearchCasesResponse = {
+      items: [createCase(1), createCase(2)],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      total_estimate: 2,
+    }
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    const defaultFiltersKey = JSON.stringify({
+      apiQueryParams: {
+        startTime: new Date("2026-02-10T12:00:00.000Z").toISOString(),
+      },
+      hasImpossibleEnumFilter: false,
+    })
+    const defaultRowsKey = JSON.stringify({
+      filtersKey: defaultFiltersKey,
+      orderBy: "updated_at",
+      sort: "desc",
+    })
+
+    queryClient.setQueryData(["cases", "workspace-1", defaultRowsKey], {
+      pages: [cachedDefaultPage],
+      pageParams: [null],
+    })
+    queryClient.setQueryData(
+      ["cases", "aggregate", "workspace-1", defaultFiltersKey],
+      {
+        total: 2,
+        status_groups: {
+          new: 2,
+          in_progress: 0,
+          on_hold: 0,
+          resolved: 0,
+          other: 0,
+        },
+      } satisfies CasesSearchCaseAggregatesResponse
+    )
+
+    window.localStorage.setItem(
+      "workspace-1:cases-filters:v1",
+      JSON.stringify(
+        createPersistedFilters({
+          searchQuery: "persisted query",
+          updatedAfter: { type: "preset", value: "1w" },
+        })
+      )
+    )
+
+    mockSearchCases.mockImplementation(
+      () => new Promise(() => undefined) as ReturnType<typeof casesSearchCases>
+    )
+    mockSearchCaseAggregates.mockImplementation(
+      () =>
+        new Promise(() => undefined) as ReturnType<
+          typeof casesSearchCaseAggregates
+        >
+    )
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HookProbe />
+      </QueryClientProvider>
+    )
+
+    expect(screen.getByTestId("rows")).toHaveTextContent("0")
+    expect(screen.getByTestId("total")).toHaveTextContent("-1")
+    expect(screen.getByTestId("new-count")).toHaveTextContent("-1")
+  })
+
+  it("falls back to defaults when localStorage access throws", async () => {
+    const firstPage: CasesSearchCasesResponse = {
+      items: [createCase(1)],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      total_estimate: 1,
+    }
+
+    const aggregate: CasesSearchCaseAggregatesResponse = {
+      total: 1,
+      status_groups: {
+        new: 1,
+        in_progress: 0,
+        on_hold: 0,
+        resolved: 0,
+        other: 0,
+      },
+    }
+
+    const consoleErrorSpy = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined)
+    const getItemSpy = jest
+      .spyOn(Storage.prototype, "getItem")
+      .mockImplementation(() => {
+        throw new DOMException("Blocked", "SecurityError")
+      })
+    const setItemSpy = jest
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("Blocked", "SecurityError")
+      })
+    const removeItemSpy = jest
+      .spyOn(Storage.prototype, "removeItem")
+      .mockImplementation(() => {
+        throw new DOMException("Blocked", "SecurityError")
+      })
+
+    mockSearchCases.mockResolvedValue(firstPage)
+    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HookProbe />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rows")).toHaveTextContent("1")
+    })
+
+    expect(mockSearchCases).toHaveBeenCalledTimes(1)
+    expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
+    expect(consoleErrorSpy).toHaveBeenCalled()
+
+    getItemSpy.mockRestore()
+    setItemSpy.mockRestore()
+    removeItemSpy.mockRestore()
+    consoleErrorSpy.mockRestore()
+  })
+
+  it("sanitizes malformed persisted dropdown filters", async () => {
+    const firstPage: CasesSearchCasesResponse = {
+      items: [createCase(1)],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      total_estimate: 1,
+    }
+
+    const aggregate: CasesSearchCaseAggregatesResponse = {
+      total: 1,
+      status_groups: {
+        new: 1,
+        in_progress: 0,
+        on_hold: 0,
+        resolved: 0,
+        other: 0,
+      },
+    }
+
+    window.localStorage.setItem(
+      "workspace-1:cases-filters:v1",
+      JSON.stringify(
+        createPersistedFilters({
+          dropdownFilters: {
+            broken: null,
+            invalidMode: {
+              values: ["drop-me"],
+              mode: "bogus",
+              sortDirection: "asc",
+            },
+            invalidValues: {
+              values: "drop-me",
+              mode: "include",
+              sortDirection: "desc",
+            },
+            valid: {
+              values: ["keep-me"],
+              mode: "include",
+              sortDirection: "bogus",
+            },
+          },
+        })
+      )
+    )
+
+    mockSearchCases.mockResolvedValue(firstPage)
+    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HookProbe />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rows")).toHaveTextContent("1")
+    })
+
+    expect(mockSearchCases).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        dropdown: ["valid:keep-me"],
+      })
+    )
+    expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        dropdown: ["valid:keep-me"],
+      })
+    )
+  })
+
+  it("sanitizes malformed persisted scalar filters", async () => {
+    const firstPage: CasesSearchCasesResponse = {
+      items: [createCase(1)],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      total_estimate: 1,
+    }
+
+    const aggregate: CasesSearchCaseAggregatesResponse = {
+      total: 1,
+      status_groups: {
+        new: 1,
+        in_progress: 0,
+        on_hold: 0,
+        resolved: 0,
+        other: 0,
+      },
+    }
+
+    window.localStorage.setItem(
+      "workspace-1:cases-filters:v1",
+      JSON.stringify(
+        createPersistedFilters({
+          searchQuery: 42,
+          sortBy: { field: "bad-field", direction: "up" },
+          statusFilter: ["new", "bad-status", 99],
+          statusMode: "bogus",
+          assigneeFilter: ["user-1", 123],
+          tagFilter: ["tag-1", null],
+        })
+      )
+    )
+
+    mockSearchCases.mockResolvedValue(firstPage)
+    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HookProbe />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rows")).toHaveTextContent("1")
+    })
+
+    expect(mockSearchCases).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        searchTerm: undefined,
+        orderBy: "updated_at",
+        sort: "desc",
+        status: ["new"],
+        assigneeId: ["user-1"],
+        tags: ["tag-1"],
+      })
+    )
+    expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        searchTerm: undefined,
+        status: ["new"],
+        assigneeId: ["user-1"],
+        tags: ["tag-1"],
       })
     )
   })

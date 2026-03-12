@@ -1,7 +1,7 @@
 "use client"
 
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import {
   type CasePriority,
@@ -15,9 +15,10 @@ import {
   casesSearchCases,
 } from "@/client"
 import {
+  type CaseSortField,
   type CaseSortValue,
   DEFAULT_CASE_SORT,
-} from "@/components/cases/cases-header"
+} from "@/components/cases/case-sort"
 import type {
   FilterMode,
   SortDirection,
@@ -27,6 +28,7 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 const CASES_PAGE_SIZE = 100
 const CASES_REFETCH_INTERVAL_MS = 120000
+const CASES_FILTER_STORAGE_KEY = "cases-filters:v1"
 const ALL_CASE_STATUSES: ReadonlyArray<CaseStatus> = [
   "unknown",
   "new",
@@ -141,6 +143,33 @@ export interface UseCasesResult {
   fetchNextPage: () => void
 }
 
+interface PersistedCaseDateRange {
+  from?: string
+  to?: string
+}
+
+type PersistedCaseDateFilter =
+  | {
+      type: "preset"
+      value: CaseDatePreset
+    }
+  | {
+      type: "range"
+      value: PersistedCaseDateRange
+    }
+
+type PersistedCasesFilters = Omit<
+  UseCasesFilters,
+  "updatedAfter" | "createdAfter"
+> & {
+  updatedAfter: PersistedCaseDateFilter
+  createdAfter: PersistedCaseDateFilter
+}
+
+type CasesFilterStateSnapshot = UseCasesFilters & {
+  hydratedWorkspaceId?: string
+}
+
 // Helper to get Date from preset filter value
 function getDateFromPreset(preset: CaseDatePreset): Date | null {
   if (!preset) return null
@@ -192,6 +221,336 @@ export const DEFAULT_CREATED_FILTER: CaseDateFilterValue = {
   value: DEFAULT_CREATED_PRESET,
 }
 
+const DEFAULT_CASES_FILTERS: UseCasesFilters = {
+  searchQuery: "",
+  sortBy: DEFAULT_CASE_SORT,
+  statusFilter: [],
+  statusMode: "include",
+  priorityFilter: [],
+  priorityMode: "include",
+  prioritySortDirection: null,
+  severityFilter: [],
+  severityMode: "include",
+  severitySortDirection: null,
+  assigneeFilter: [],
+  assigneeMode: "include",
+  assigneeSortDirection: null,
+  tagFilter: [],
+  tagMode: "include",
+  tagSortDirection: null,
+  dropdownFilters: {},
+  updatedAfter: DEFAULT_DATE_FILTER,
+  createdAfter: DEFAULT_CREATED_FILTER,
+}
+
+function getCasesFilterStorageKey(workspaceId: string): string {
+  return `${workspaceId}:${CASES_FILTER_STORAGE_KEY}`
+}
+
+function getDefaultCasesFilterState(): CasesFilterStateSnapshot {
+  return {
+    ...DEFAULT_CASES_FILTERS,
+    hydratedWorkspaceId: undefined,
+  }
+}
+
+function loadPersistedCasesFilterState(
+  workspaceId: string | undefined
+): CasesFilterStateSnapshot {
+  const defaults = getDefaultCasesFilterState()
+  if (!workspaceId || typeof window === "undefined") {
+    return defaults
+  }
+
+  const storageKey = getCasesFilterStorageKey(workspaceId)
+  try {
+    const storedValue = window.localStorage.getItem(storageKey)
+    if (!storedValue) {
+      return { ...defaults, hydratedWorkspaceId: workspaceId }
+    }
+
+    const parsed = JSON.parse(storedValue) as Partial<PersistedCasesFilters>
+    return {
+      searchQuery: sanitizeSearchQuery(
+        parsed.searchQuery,
+        defaults.searchQuery
+      ),
+      sortBy: sanitizeSortBy(parsed.sortBy, defaults.sortBy),
+      statusFilter: sanitizeEnumArray(
+        parsed.statusFilter,
+        ALL_CASE_STATUSES,
+        defaults.statusFilter
+      ),
+      statusMode: sanitizeFilterMode(parsed.statusMode, defaults.statusMode),
+      priorityFilter: sanitizeEnumArray(
+        parsed.priorityFilter,
+        ALL_CASE_PRIORITIES,
+        defaults.priorityFilter
+      ),
+      priorityMode: sanitizeFilterMode(
+        parsed.priorityMode,
+        defaults.priorityMode
+      ),
+      prioritySortDirection: sanitizeSortDirection(
+        parsed.prioritySortDirection,
+        defaults.prioritySortDirection
+      ),
+      severityFilter: sanitizeEnumArray(
+        parsed.severityFilter,
+        ALL_CASE_SEVERITIES,
+        defaults.severityFilter
+      ),
+      severityMode: sanitizeFilterMode(
+        parsed.severityMode,
+        defaults.severityMode
+      ),
+      severitySortDirection: sanitizeSortDirection(
+        parsed.severitySortDirection,
+        defaults.severitySortDirection
+      ),
+      assigneeFilter: sanitizeStringArray(
+        parsed.assigneeFilter,
+        defaults.assigneeFilter
+      ),
+      assigneeMode: sanitizeFilterMode(
+        parsed.assigneeMode,
+        defaults.assigneeMode
+      ),
+      assigneeSortDirection: sanitizeSortDirection(
+        parsed.assigneeSortDirection,
+        defaults.assigneeSortDirection
+      ),
+      tagFilter: sanitizeStringArray(parsed.tagFilter, defaults.tagFilter),
+      tagMode: sanitizeFilterMode(parsed.tagMode, defaults.tagMode),
+      tagSortDirection: sanitizeSortDirection(
+        parsed.tagSortDirection,
+        defaults.tagSortDirection
+      ),
+      dropdownFilters: sanitizeDropdownFilters(parsed.dropdownFilters),
+      updatedAfter: parsePersistedDateFilter(
+        parsed.updatedAfter,
+        defaults.updatedAfter
+      ),
+      createdAfter: parsePersistedDateFilter(
+        parsed.createdAfter,
+        defaults.createdAfter
+      ),
+      hydratedWorkspaceId: workspaceId,
+    }
+  } catch (error) {
+    console.error(error)
+    try {
+      window.localStorage.removeItem(storageKey)
+    } catch (removeError) {
+      console.error(removeError)
+    }
+    return { ...defaults, hydratedWorkspaceId: workspaceId }
+  }
+}
+
+function persistCasesFilterState(
+  workspaceId: string,
+  filters: PersistedCasesFilters
+): void {
+  try {
+    window.localStorage.setItem(
+      getCasesFilterStorageKey(workspaceId),
+      JSON.stringify(filters)
+    )
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+function serializePersistedCasesFilters(
+  filters: UseCasesFilters
+): PersistedCasesFilters {
+  return {
+    ...filters,
+    updatedAfter: serializeDateFilter(filters.updatedAfter),
+    createdAfter: serializeDateFilter(filters.createdAfter),
+  }
+}
+
+function isFilterMode(value: unknown): value is FilterMode {
+  return value === "include" || value === "exclude"
+}
+
+function isSortDirection(value: unknown): value is SortDirection {
+  return value === "asc" || value === "desc" || value === null
+}
+
+function isCaseSortField(value: unknown): value is CaseSortField {
+  return (
+    value === "updated_at" ||
+    value === "created_at" ||
+    value === "priority" ||
+    value === "severity" ||
+    value === "status" ||
+    value === "tasks"
+  )
+}
+
+function sanitizeSearchQuery(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback
+}
+
+function sanitizeStringArray(value: unknown, fallback: string[]): string[] {
+  return Array.isArray(value)
+    ? value.filter((item: unknown): item is string => typeof item === "string")
+    : fallback
+}
+
+function sanitizeEnumArray<T extends string>(
+  value: unknown,
+  allowedValues: ReadonlyArray<T>,
+  fallback: T[]
+): T[] {
+  if (!Array.isArray(value)) {
+    return fallback
+  }
+
+  const allowedSet = new Set(allowedValues)
+  return value.filter(
+    (item: unknown): item is T =>
+      typeof item === "string" && allowedSet.has(item as T)
+  )
+}
+
+function sanitizeFilterMode(value: unknown, fallback: FilterMode): FilterMode {
+  return isFilterMode(value) ? value : fallback
+}
+
+function sanitizeSortDirection(
+  value: unknown,
+  fallback: SortDirection
+): SortDirection {
+  return isSortDirection(value) ? value : fallback
+}
+
+function sanitizeSortBy(
+  value: unknown,
+  fallback: CaseSortValue
+): CaseSortValue {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback
+  }
+
+  const candidate = value as {
+    field?: unknown
+    direction?: unknown
+  }
+
+  return isCaseSortField(candidate.field) &&
+    (candidate.direction === "asc" || candidate.direction === "desc")
+    ? { field: candidate.field, direction: candidate.direction }
+    : fallback
+}
+
+function sanitizeDropdownFilters(
+  dropdownFilters: unknown
+): Record<string, DropdownFilterState> {
+  if (
+    !dropdownFilters ||
+    typeof dropdownFilters !== "object" ||
+    Array.isArray(dropdownFilters)
+  ) {
+    return {}
+  }
+
+  const sanitized: Record<string, DropdownFilterState> = {}
+  for (const [definitionRef, state] of Object.entries(dropdownFilters)) {
+    if (!state || typeof state !== "object" || Array.isArray(state)) {
+      continue
+    }
+
+    const values = Array.isArray(state.values)
+      ? state.values.filter(
+          (value: unknown): value is string => typeof value === "string"
+        )
+      : null
+    if (!values || !isFilterMode(state.mode)) {
+      continue
+    }
+
+    sanitized[definitionRef] = {
+      values,
+      mode: state.mode,
+      sortDirection: isSortDirection(state.sortDirection)
+        ? state.sortDirection
+        : null,
+    }
+  }
+
+  return sanitized
+}
+
+function parsePersistedDateFilter(
+  filter: PersistedCaseDateFilter | undefined,
+  fallback: CaseDateFilterValue
+): CaseDateFilterValue {
+  if (!filter) {
+    return fallback
+  }
+
+  if (filter.type === "preset") {
+    if (filter.value === null) {
+      return { type: "preset", value: null }
+    }
+
+    if (
+      filter.value === "1d" ||
+      filter.value === "3d" ||
+      filter.value === "1w" ||
+      filter.value === "1m"
+    ) {
+      return { type: "preset", value: filter.value }
+    }
+
+    return fallback
+  }
+
+  if (filter.type === "range" && typeof filter.value === "object") {
+    const from =
+      typeof filter.value.from === "string"
+        ? new Date(filter.value.from)
+        : undefined
+    const to =
+      typeof filter.value.to === "string"
+        ? new Date(filter.value.to)
+        : undefined
+
+    return {
+      type: "range",
+      value: {
+        from: from && !Number.isNaN(from.getTime()) ? from : undefined,
+        to: to && !Number.isNaN(to.getTime()) ? to : undefined,
+      },
+    }
+  }
+
+  return fallback
+}
+
+function serializeDateFilter(
+  filter: CaseDateFilterValue
+): PersistedCaseDateFilter {
+  if (filter.type === "preset") {
+    return {
+      type: "preset",
+      value: filter.value,
+    }
+  }
+
+  return {
+    type: "range",
+    value: {
+      from: filter.value.from?.toISOString(),
+      to: filter.value.to?.toISOString(),
+    },
+  }
+}
+
 function resolveEnumIncludeFilter<T extends string>(
   selected: T[],
   mode: FilterMode,
@@ -215,27 +574,55 @@ function resolveEnumIncludeFilter<T extends string>(
 export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const { enabled = true, autoRefresh = true } = options
   const workspaceId = useWorkspaceId()
+  const initialFilterStateRef = useRef<CasesFilterStateSnapshot | null>(null)
+  if (initialFilterStateRef.current === null) {
+    initialFilterStateRef.current = loadPersistedCasesFilterState(workspaceId)
+  }
+  const initialFilterState = initialFilterStateRef.current
 
-  const [searchQuery, setSearchQuery] = useState("")
-  const [sortBy, setSortByState] = useState<CaseSortValue>(DEFAULT_CASE_SORT)
-  const [statusFilter, setStatusFilter] = useState<CaseStatus[]>([])
-  const [statusMode, setStatusMode] = useState<FilterMode>("include")
-  const [priorityFilter, setPriorityFilter] = useState<CasePriority[]>([])
-  const [priorityMode, setPriorityMode] = useState<FilterMode>("include")
+  const [searchQuery, setSearchQuery] = useState(initialFilterState.searchQuery)
+  const [sortBy, setSortByState] = useState<CaseSortValue>(
+    initialFilterState.sortBy
+  )
+  const [statusFilter, setStatusFilter] = useState<CaseStatus[]>(
+    initialFilterState.statusFilter
+  )
+  const [statusMode, setStatusMode] = useState<FilterMode>(
+    initialFilterState.statusMode
+  )
+  const [priorityFilter, setPriorityFilter] = useState<CasePriority[]>(
+    initialFilterState.priorityFilter
+  )
+  const [priorityMode, setPriorityMode] = useState<FilterMode>(
+    initialFilterState.priorityMode
+  )
   const [prioritySortDirection, setPrioritySortDirectionState] =
-    useState<SortDirection>(null)
-  const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>([])
-  const [severityMode, setSeverityMode] = useState<FilterMode>("include")
+    useState<SortDirection>(initialFilterState.prioritySortDirection)
+  const [severityFilter, setSeverityFilter] = useState<CaseSeverity[]>(
+    initialFilterState.severityFilter
+  )
+  const [severityMode, setSeverityMode] = useState<FilterMode>(
+    initialFilterState.severityMode
+  )
   const [severitySortDirection, setSeveritySortDirectionState] =
-    useState<SortDirection>(null)
-  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([])
-  const [assigneeMode, setAssigneeModeState] = useState<FilterMode>("include")
+    useState<SortDirection>(initialFilterState.severitySortDirection)
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>(
+    initialFilterState.assigneeFilter
+  )
+  const [assigneeMode, setAssigneeModeState] = useState<FilterMode>(
+    initialFilterState.assigneeMode
+  )
   const [assigneeSortDirection, setAssigneeSortDirectionState] =
-    useState<SortDirection>(null)
-  const [tagFilter, setTagFilter] = useState<string[]>([])
-  const [tagMode, setTagModeState] = useState<FilterMode>("include")
-  const [tagSortDirection, setTagSortDirectionState] =
-    useState<SortDirection>(null)
+    useState<SortDirection>(initialFilterState.assigneeSortDirection)
+  const [tagFilter, setTagFilter] = useState<string[]>(
+    initialFilterState.tagFilter
+  )
+  const [tagMode, setTagModeState] = useState<FilterMode>(
+    initialFilterState.tagMode
+  )
+  const [tagSortDirection, setTagSortDirectionState] = useState<SortDirection>(
+    initialFilterState.tagSortDirection
+  )
 
   const setSortBy = useCallback((value: CaseSortValue) => {
     setSortByState(value)
@@ -281,12 +668,109 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   }, [])
   const [dropdownFilters, setDropdownFilters] = useState<
     Record<string, DropdownFilterState>
-  >({})
-  const [updatedAfter, setUpdatedAfter] =
-    useState<CaseDateFilterValue>(DEFAULT_DATE_FILTER)
-  const [createdAfter, setCreatedAfter] = useState<CaseDateFilterValue>(
-    DEFAULT_CREATED_FILTER
+  >(initialFilterState.dropdownFilters)
+  const [updatedAfter, setUpdatedAfter] = useState<CaseDateFilterValue>(
+    initialFilterState.updatedAfter
   )
+  const [createdAfter, setCreatedAfter] = useState<CaseDateFilterValue>(
+    initialFilterState.createdAfter
+  )
+  const [hydratedWorkspaceId, setHydratedWorkspaceId] = useState<
+    string | undefined
+  >(initialFilterState.hydratedWorkspaceId)
+  const hasHydratedFilters = workspaceId
+    ? hydratedWorkspaceId === workspaceId
+    : false
+
+  useEffect(() => {
+    if (!workspaceId) {
+      setHydratedWorkspaceId(undefined)
+      return
+    }
+
+    if (typeof window === "undefined") {
+      return
+    }
+
+    if (hydratedWorkspaceId === workspaceId) {
+      return
+    }
+
+    const nextFilterState = loadPersistedCasesFilterState(workspaceId)
+    setSearchQuery(nextFilterState.searchQuery)
+    setSortByState(nextFilterState.sortBy)
+    setStatusFilter(nextFilterState.statusFilter)
+    setStatusMode(nextFilterState.statusMode)
+    setPriorityFilter(nextFilterState.priorityFilter)
+    setPriorityMode(nextFilterState.priorityMode)
+    setPrioritySortDirectionState(nextFilterState.prioritySortDirection)
+    setSeverityFilter(nextFilterState.severityFilter)
+    setSeverityMode(nextFilterState.severityMode)
+    setSeveritySortDirectionState(nextFilterState.severitySortDirection)
+    setAssigneeFilter(nextFilterState.assigneeFilter)
+    setAssigneeModeState(nextFilterState.assigneeMode)
+    setAssigneeSortDirectionState(nextFilterState.assigneeSortDirection)
+    setTagFilter(nextFilterState.tagFilter)
+    setTagModeState(nextFilterState.tagMode)
+    setTagSortDirectionState(nextFilterState.tagSortDirection)
+    setDropdownFilters(nextFilterState.dropdownFilters)
+    setUpdatedAfter(nextFilterState.updatedAfter)
+    setCreatedAfter(nextFilterState.createdAfter)
+    setHydratedWorkspaceId(nextFilterState.hydratedWorkspaceId)
+  }, [hydratedWorkspaceId, workspaceId])
+
+  useEffect(() => {
+    if (!workspaceId || !hasHydratedFilters || typeof window === "undefined") {
+      return
+    }
+
+    persistCasesFilterState(
+      workspaceId,
+      serializePersistedCasesFilters({
+        searchQuery,
+        sortBy,
+        statusFilter,
+        statusMode,
+        priorityFilter,
+        priorityMode,
+        prioritySortDirection,
+        severityFilter,
+        severityMode,
+        severitySortDirection,
+        assigneeFilter,
+        assigneeMode,
+        assigneeSortDirection,
+        tagFilter,
+        tagMode,
+        tagSortDirection,
+        dropdownFilters,
+        updatedAfter,
+        createdAfter,
+      })
+    )
+  }, [
+    workspaceId,
+    searchQuery,
+    sortBy,
+    statusFilter,
+    statusMode,
+    priorityFilter,
+    priorityMode,
+    prioritySortDirection,
+    severityFilter,
+    severityMode,
+    severitySortDirection,
+    assigneeFilter,
+    assigneeMode,
+    assigneeSortDirection,
+    tagFilter,
+    tagMode,
+    tagSortDirection,
+    dropdownFilters,
+    updatedAfter,
+    createdAfter,
+    hasHydratedFilters,
+  ])
 
   const setAssigneeMode = useCallback((_mode: FilterMode) => {
     setAssigneeModeState("include")
@@ -475,7 +959,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         limit: CASES_PAGE_SIZE,
         cursor: (pageParam as string | null) ?? undefined,
       }),
-    enabled: enabled && Boolean(workspaceId) && !hasImpossibleEnumFilter,
+    enabled:
+      enabled &&
+      Boolean(workspaceId) &&
+      hasHydratedFilters &&
+      !hasImpossibleEnumFilter,
     initialPageParam: null,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more || !lastPage.next_cursor) {
@@ -501,15 +989,22 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         workspaceId,
         ...apiQueryParams,
       }),
-    enabled: enabled && Boolean(workspaceId) && !hasImpossibleEnumFilter,
+    enabled:
+      enabled &&
+      Boolean(workspaceId) &&
+      hasHydratedFilters &&
+      !hasImpossibleEnumFilter,
     retry: retryHandler,
     refetchInterval: computeRefetchInterval(),
     refetchOnWindowFocus: false,
     staleTime: 60000,
   })
 
+  const visibleRowsData = hasHydratedFilters ? rowsData : undefined
+  const visibleAggregateData = hasHydratedFilters ? aggregateData : undefined
+
   const flattenedCases = useMemo(() => {
-    const pages = rowsData?.pages ?? []
+    const pages = visibleRowsData?.pages ?? []
     const deduped: CaseReadMinimal[] = []
     const seenIds = new Set<string>()
 
@@ -524,7 +1019,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     }
 
     return deduped
-  }, [rowsData?.pages])
+  }, [visibleRowsData?.pages])
 
   const sortedCases = useMemo(() => {
     if (assigneeSortDirection) {
@@ -554,7 +1049,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   const totalFilteredCaseEstimate = hasImpossibleEnumFilter
     ? 0
-    : (aggregateData?.total ?? rowsData?.pages[0]?.total_estimate ?? null)
+    : (visibleAggregateData?.total ??
+      visibleRowsData?.pages[0]?.total_estimate ??
+      null)
+  const isHydrationPending =
+    enabled && Boolean(workspaceId) && !hasHydratedFilters
 
   const refetch = useCallback(() => {
     void refetchRows()
@@ -570,7 +1069,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   return {
     cases,
-    isLoading,
+    isLoading: isHydrationPending ? true : isLoading,
     error: error ?? null,
     refetch,
     filters: {
@@ -618,11 +1117,17 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     totalFilteredCaseEstimate,
     stageCounts: hasImpossibleEnumFilter
       ? EMPTY_STAGE_COUNTS
-      : (aggregateData?.status_groups ?? null),
-    isCountsLoading: hasImpossibleEnumFilter ? false : isCountsLoading,
-    isCountsFetching: hasImpossibleEnumFilter ? false : isCountsFetching,
+      : (visibleAggregateData?.status_groups ?? null),
+    isCountsLoading: hasImpossibleEnumFilter
+      ? false
+      : isHydrationPending || isCountsLoading,
+    isCountsFetching: hasImpossibleEnumFilter
+      ? false
+      : hasHydratedFilters && isCountsFetching,
     hasNextPage: hasImpossibleEnumFilter ? false : Boolean(hasNextPage),
-    isFetchingNextPage: hasImpossibleEnumFilter ? false : isFetchingNextPage,
+    isFetchingNextPage: hasImpossibleEnumFilter
+      ? false
+      : hasHydratedFilters && isFetchingNextPage,
     fetchNextPage: handleFetchNextPage,
   }
 }
