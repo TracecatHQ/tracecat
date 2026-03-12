@@ -50,10 +50,10 @@ export function OrganizationSidebar({
 
   const navSettings = [
     {
-      title: "Git repository",
-      url: "/organization/settings/git",
+      title: "Custom registry",
+      url: "/organization/settings/custom-registry",
       icon: GitBranchIcon,
-      isActive: pathname?.includes("/organization/settings/git"),
+      isActive: pathname?.includes("/organization/settings/custom-registry"),
       visible: canViewSettings === true,
       locked: !customRegistryEnabled,
     },

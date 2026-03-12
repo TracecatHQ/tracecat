@@ -1,4 +1,5 @@
-import { gitFormSchema } from "@/components/organization/org-settings-git"
+import type { ZodIssue } from "zod"
+import { gitFormSchema as customRegistryFormSchema } from "@/components/organization/org-settings-custom-registry"
 
 const baseFormData = {
   git_allowed_domains: [{ id: "0", text: "github.com" }],
@@ -8,7 +9,7 @@ const baseFormData = {
 
 describe("gitFormSchema git_repo_url superRefine", () => {
   it("accepts a valid git+ssh URL with nested groups", () => {
-    const result = gitFormSchema.safeParse({
+    const result = customRegistryFormSchema.safeParse({
       ...baseFormData,
       git_repo_url: "git+ssh://git@gitlab.example.com/group/subgroup/repo.git",
     })
@@ -53,28 +54,30 @@ describe("gitFormSchema git_repo_url superRefine", () => {
       "Repository path must have at least 2 segments (e.g., org/repo)",
     ],
   ])("returns specific error when %s", (_, url, message) => {
-    const result = gitFormSchema.safeParse({
+    const result = customRegistryFormSchema.safeParse({
       ...baseFormData,
       git_repo_url: url,
     })
 
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(result.error.issues.map((issue) => issue.message)).toContain(
-        message
-      )
+      expect(
+        result.error.issues.map((issue: ZodIssue) => issue.message)
+      ).toContain(message)
     }
   })
 
   it("falls back to generic error when validation fails for other reasons", () => {
-    const result = gitFormSchema.safeParse({
+    const result = customRegistryFormSchema.safeParse({
       ...baseFormData,
       git_repo_url: "git+ssh://git@github.com/org/repo.git@@",
     })
 
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(result.error.issues.map((issue) => issue.message)).toContain(
+      expect(
+        result.error.issues.map((issue: ZodIssue) => issue.message)
+      ).toContain(
         "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)"
       )
     }
