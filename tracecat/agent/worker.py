@@ -60,7 +60,6 @@ with workflow.unsafe.imports_passed_through():
         resolve_agent_preset_config_activity,
         resolve_agent_preset_version_ref_activity,
     )
-    from tracecat.agent.service import sync_model_catalogs_on_startup
     from tracecat.agent.session.activities import get_session_activities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
@@ -301,15 +300,8 @@ async def main() -> None:
         "Starting AgentWorker",
     )
 
-    model_catalog_sync_task: asyncio.Task[None] | None = None
-
     # Initialize services before accepting tasks
     await start_litellm_proxy()
-    model_catalog_sync_task = asyncio.create_task(
-        sync_model_catalogs_on_startup(),
-        name="model_catalog_gateway_startup_sync",
-    )
-    logger.debug("Spawned background task for model catalog gateway-startup sync")
     await start_mcp_server()
 
     try:
@@ -360,38 +352,6 @@ async def main() -> None:
 
     finally:
         logger.info("Shutting down services")
-        if model_catalog_sync_task is not None and not model_catalog_sync_task.done():
-            logger.info(
-                "Waiting for model catalog gateway-startup sync task to complete..."
-            )
-            try:
-                await asyncio.wait_for(model_catalog_sync_task, timeout=10.0)
-                logger.info("Model catalog gateway-startup sync task completed")
-            except TimeoutError:
-                logger.warning(
-                    "Model catalog gateway-startup sync task did not complete in time, cancelling"
-                )
-                model_catalog_sync_task.cancel()
-                try:
-                    await model_catalog_sync_task
-                except asyncio.CancelledError:
-                    logger.debug("Model catalog gateway-startup sync task cancelled")
-            except Exception as e:
-                logger.warning(
-                    "Model catalog gateway-startup sync task failed during shutdown",
-                    error=e,
-                )
-        elif model_catalog_sync_task is not None:
-            try:
-                model_catalog_sync_task.result()
-                logger.debug(
-                    "Model catalog gateway-startup sync task had already completed"
-                )
-            except Exception as e:
-                logger.warning(
-                    "Model catalog gateway-startup sync task failed before shutdown",
-                    error=e,
-                )
         await stop_mcp_server()
         await stop_litellm_proxy()
 

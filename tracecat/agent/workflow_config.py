@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
     MCPServerConfig,
@@ -84,6 +86,7 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
     return AgentConfigPayload(
         model_name=config.model_name,
         model_provider=config.model_provider,
+        source_id=(str(config.source_id) if config.source_id is not None else None),
         base_url=config.base_url,
         instructions=config.instructions,
         output_type=config.output_type,
@@ -106,6 +109,9 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
     return AgentConfig(
         model_name=payload.model_name,
         model_provider=payload.model_provider,
+        source_id=(
+            uuid.UUID(payload.source_id) if payload.source_id is not None else None
+        ),
         base_url=payload.base_url,
         instructions=payload.instructions,
         output_type=payload.output_type,

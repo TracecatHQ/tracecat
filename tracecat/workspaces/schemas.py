@@ -22,7 +22,6 @@ class WorkspaceSettings(TypedDict):
     allowed_attachment_extensions: NotRequired[list[str] | None]
     allowed_attachment_mime_types: NotRequired[list[str] | None]
     validate_attachment_magic_number: NotRequired[bool | None]
-    agent_enabled_model_refs: NotRequired[list[str] | None]
 
 
 # Schema
@@ -33,7 +32,6 @@ class WorkspaceSettingsRead(Schema):
     allowed_attachment_extensions: list[str] | None = None
     allowed_attachment_mime_types: list[str] | None = None
     validate_attachment_magic_number: bool | None = None
-    agent_enabled_model_refs: list[str] | None = None
 
     @computed_field
     @property
@@ -74,10 +72,6 @@ class WorkspaceSettingsUpdate(Schema):
     validate_attachment_magic_number: bool | None = Field(
         default=None,
         description="Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
-    )
-    agent_enabled_model_refs: list[str] | None = Field(
-        default=None,
-        description="Optional workspace-level subset of organization-enabled agent model catalog refs. When omitted, the workspace inherits the full organization-enabled catalog.",
     )
 
     @field_validator("git_repo_url", mode="before")

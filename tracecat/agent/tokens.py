@@ -240,17 +240,9 @@ class LLMTokenClaims(BaseModel):
     provider: str = Field(
         ..., description="The provider for the model (e.g., openai, anthropic, bedrock)"
     )
-    model_catalog_ref: str | None = Field(
+    source_id: uuid.UUID | None = Field(
         default=None,
-        description="Stable catalog reference for the selected model, when resolved from the merged catalog.",
-    )
-    model_source_type: str | None = Field(
-        default=None,
-        description="Resolved source type for the selected model.",
-    )
-    model_source_id: uuid.UUID | None = Field(
-        default=None,
-        description="Resolved source identifier for org-scoped model sources.",
+        description="Custom source identifier for source-backed model selections.",
     )
     base_url: str | None = Field(
         default=None,
@@ -272,9 +264,7 @@ def mint_llm_token(
     session_id: uuid.UUID,
     model: str,
     provider: str,
-    model_catalog_ref: str | None = None,
-    model_source_type: str | None = None,
-    model_source_id: uuid.UUID | None = None,
+    source_id: uuid.UUID | None = None,
     base_url: str | None = None,
     model_settings: dict[str, Any] | None = None,
     ttl_seconds: int | None = None,
@@ -318,9 +308,7 @@ def mint_llm_token(
         # Model configuration
         "model": model,
         "provider": provider,
-        "model_catalog_ref": model_catalog_ref,
-        "model_source_type": model_source_type,
-        "model_source_id": str(model_source_id) if model_source_id else None,
+        "source_id": str(source_id) if source_id else None,
         "base_url": base_url,
         "model_settings": model_settings or {},
     }

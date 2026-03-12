@@ -1,10 +1,28 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { type ReactNode, useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import {
+  type ManualDiscoveredModel as AgentManualDiscoveredModel,
+  agentDisableModel,
+  agentDisableModels,
+  agentEnableModel,
+  agentEnableModels,
+  agentGetDefaultModel,
+  agentSetDefaultModel,
+  agentUpdateEnabledModelConfig,
+  type BuiltInCatalogEntry,
+  type DefaultModelSelection,
+  type DefaultModelSelectionUpdate,
+  type EnabledModelOperation,
+  type EnabledModelRuntimeConfigUpdate,
+  type EnabledModelsBatchOperation,
+  type ModelCatalogEntry,
+  type ModelSelection,
+} from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -64,19 +82,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
 import { useDebounce } from "@/hooks"
 import {
-  type AgentCatalogEntry,
-  type AgentManualDiscoveredModel,
   type AgentModelSourceRead,
-  type BuiltInCatalogEntry,
   type BuiltInProviderRead,
   listAllBuiltInAgentCatalog,
   useAgentCatalogMutations,
   useAgentCredentials,
-  useAgentDefaultModel,
   useAgentModelSources,
   useAgentModels,
   useBuiltInAgentCatalog,
-  useDiscoveredAgentModels,
   useModelProviders,
 } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -317,27 +330,71 @@ function normalizeOptionalInput(value?: string): string | undefined {
   return trimmed ? trimmed : undefined
 }
 
+function toModelSelection(
+  model: Pick<ModelCatalogEntry, "source_id" | "model_provider" | "model_name">
+): ModelSelection {
+  return {
+    source_id: model.source_id ?? null,
+    model_provider: model.model_provider,
+    model_name: model.model_name,
+  }
+}
+
+function getModelSelectionKey(selection: {
+  source_id?: string | null
+  model_provider?: string | null
+  model_name?: string | null
+}): string {
+  return `${selection.source_id ?? "platform"}::${selection.model_provider ?? ""}::${selection.model_name ?? ""}`
+}
+
+function hasSameModelSelection(
+  left:
+    | Pick<ModelSelection, "source_id" | "model_provider" | "model_name">
+    | null
+    | undefined,
+  right:
+    | Pick<ModelSelection, "source_id" | "model_provider" | "model_name">
+    | null
+    | undefined
+): boolean {
+  if (!left || !right) {
+    return left == null && right == null
+  }
+  return getModelSelectionKey(left) === getModelSelectionKey(right)
+}
+
+function getModelLabel(model: Pick<ModelCatalogEntry, "model_name">): string {
+  return model.model_name
+}
+
+function getModelSourceLabel(
+  model: Pick<ModelCatalogEntry, "source_id" | "source_name">
+): string {
+  return model.source_name ?? (model.source_id ? "Custom" : "Platform")
+}
+
 function ModelRow({
   disabled,
   model,
   onToggle,
 }: {
   disabled: boolean
-  model: AgentCatalogEntry
-  onToggle: (model: AgentCatalogEntry) => Promise<void>
+  model: ModelCatalogEntry
+  onToggle: (model: ModelCatalogEntry) => Promise<void>
 }) {
   return (
     <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm font-medium">{model.display_name}</p>
+          <p className="text-sm font-medium">{getModelLabel(model)}</p>
           <Badge variant="outline">{model.model_provider}</Badge>
           {model.base_url ? <Badge variant="outline">Custom URL</Badge> : null}
         </div>
         <p className="text-xs text-muted-foreground">
           {model.model_name}
           {" · "}
-          {model.source_name}
+          {getModelSourceLabel(model)}
         </p>
       </div>
       <Button
@@ -368,13 +425,13 @@ function ProviderAllowlistModelRow({
       bedrockInferenceProfileId?: string | null
     }
   ) => Promise<void>
-  onToggle: (model: AgentCatalogEntry) => Promise<void>
+  onToggle: (model: ModelCatalogEntry) => Promise<void>
 }) {
   const [bedrockInferenceProfileId, setBedrockInferenceProfileId] = useState(
     model.enabled_config?.bedrock_inference_profile_id ?? ""
   )
   const canEnable = canEnableBuiltInCatalogModel(model)
-  const isEnabledBedrock = model.enabled && model.runtime_provider === "bedrock"
+  const isEnabledBedrock = model.enabled && model.model_provider === "bedrock"
   const savedBedrockInferenceProfileId =
     model.enabled_config?.bedrock_inference_profile_id ?? ""
   const hasPendingBedrockConfigChange =
@@ -383,14 +440,16 @@ function ProviderAllowlistModelRow({
   if (!statusMessage && model.runtime_target_configured === false) {
     statusMessage =
       "Finish provider setup before allowing this model for selection."
-  } else if (!statusMessage && model.discovered === false) {
-    statusMessage =
-      "Available in the catalog, but not yet confirmed by refresh."
   }
 
   useEffect(() => {
     setBedrockInferenceProfileId(savedBedrockInferenceProfileId)
-  }, [savedBedrockInferenceProfileId, model.catalog_ref])
+  }, [
+    savedBedrockInferenceProfileId,
+    model.model_name,
+    model.model_provider,
+    model.source_id,
+  ])
 
   return (
     <div className="border-b border-border/40 py-3 last:border-b-0">
@@ -398,13 +457,10 @@ function ProviderAllowlistModelRow({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-medium">{model.display_name}</p>
+              <p className="text-sm font-medium">{getModelLabel(model)}</p>
               <ProviderMetaPill>{model.model_provider}</ProviderMetaPill>
               {model.ready === false ? (
                 <ProviderMetaPill>Setup required</ProviderMetaPill>
-              ) : null}
-              {model.discovered === false ? (
-                <ProviderMetaPill>Catalog only</ProviderMetaPill>
               ) : null}
             </div>
             <p className="text-xs text-muted-foreground">{model.model_name}</p>
@@ -478,7 +534,6 @@ function ProviderConnectionItem({
   onUpdateModelConfig,
   onDeleteCredentials,
   onExpandedChange,
-  onRefreshProvider,
   onToggleModel,
   provider,
 }: {
@@ -496,8 +551,7 @@ function ProviderConnectionItem({
   ) => Promise<void>
   onDeleteCredentials: (provider: string, label: string) => Promise<void>
   onExpandedChange: (expanded: boolean) => void
-  onRefreshProvider: (provider: string, label: string) => Promise<void>
-  onToggleModel: (model: AgentCatalogEntry) => Promise<void>
+  onToggleModel: (model: ModelCatalogEntry) => Promise<void>
   provider: BuiltInProviderRead
 }) {
   const [catalogQueryInput, setCatalogQueryInput] = useState("")
@@ -553,6 +607,12 @@ function ProviderConnectionItem({
     !isWhitelistMode && (allowAllOverride ?? allSelectableAllowed)
   const showWhitelistControls = isWhitelistMode || !allowAllChecked
   const showModelList = provider.provider === "bedrock" || showWhitelistControls
+  const showLoadMore =
+    hasNextPage &&
+    provider.credentials_configured &&
+    showModelList &&
+    !allowAllChecked &&
+    providerModels.length > 0
   const subtitle = provider.credentials_configured
     ? provider.base_url || provider.runtime_target
       ? [provider.base_url, provider.runtime_target].filter(Boolean).join(" · ")
@@ -610,15 +670,6 @@ function ProviderConnectionItem({
           <div className="flex flex-wrap gap-2">
             <Button
               onClick={() => {
-                void onRefreshProvider(provider.provider, provider.label)
-              }}
-              size="sm"
-              variant="outline"
-            >
-              Refresh models
-            </Button>
-            <Button
-              onClick={() => {
                 void onDeleteCredentials(provider.provider, provider.label)
               }}
               size="sm"
@@ -634,7 +685,7 @@ function ProviderConnectionItem({
                 <p className="text-sm font-medium">Connect {provider.label}</p>
                 <p className="text-xs text-muted-foreground">
                   Use the Connect action above to add organization credentials
-                  before discovery and model allowlisting become available.
+                  before these models can be enabled for organization use.
                 </p>
               </div>
             </div>
@@ -715,10 +766,7 @@ function ProviderConnectionItem({
                     ? `${enabledSelectableProviderCount} enabled`
                     : provider.credentials_configured
                       ? "No selectable models available"
-                      : "Connect to discover models"}
-            </ProviderMetaPill>
-            <ProviderMetaPill>
-              Last refreshed: {formatDateTime(provider.last_refreshed_at)}
+                      : "Connect to manage platform models"}
             </ProviderMetaPill>
           </div>
         </div>
@@ -760,7 +808,7 @@ function ProviderConnectionItem({
                     {providerModels.map((model) => (
                       <ProviderAllowlistModelRow
                         disabled={disabled}
-                        key={model.catalog_ref}
+                        key={getModelSelectionKey(toModelSelection(model))}
                         model={model}
                         onUpdateConfig={onUpdateModelConfig}
                         onToggle={async (nextModel) => {
@@ -797,8 +845,8 @@ function ProviderConnectionItem({
             </div>
           ) : (
             <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-              Connect this provider to confirm discovered models, then allow the
-              ones your organization should be able to choose.
+              Connect this provider, then allow the platform models your
+              organization should be able to choose.
             </div>
           )
         ) : (
@@ -808,7 +856,7 @@ function ProviderConnectionItem({
           </div>
         )}
 
-        {hasNextPage ? (
+        {showLoadMore ? (
           <Button
             disabled={Boolean(isFetchingNextPage)}
             onClick={() => {
@@ -1133,6 +1181,9 @@ function CustomSourceDialog({
 export function OrgSettingsAgentForm() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  const [sourceCatalogRowsById, setSourceCatalogRowsById] = useState<
+    Record<string, ModelCatalogEntry[]>
+  >({})
   const [credentialsProvider, setCredentialsProvider] = useState<string | null>(
     null
   )
@@ -1142,12 +1193,13 @@ export function OrgSettingsAgentForm() {
     useState<AgentModelSourceRead | null>(null)
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null)
   const [isCreateSourceOpen, setIsCreateSourceOpen] = useState(false)
-  const {
-    defaultModel,
-    defaultModelError,
-    isUpdating: defaultModelUpdating,
-    updateDefaultModel,
-  } = useAgentDefaultModel()
+  const { data: defaultModel, error: defaultModelError } = useQuery<
+    DefaultModelSelection | null,
+    Error
+  >({
+    queryKey: ["agent-default-model"],
+    queryFn: async () => await agentGetDefaultModel(),
+  })
   const {
     error: providersError,
     isLoading: providersLoading,
@@ -1159,43 +1211,101 @@ export function OrgSettingsAgentForm() {
     sources,
   } = useAgentModelSources()
   const { models, modelsError, modelsLoading } = useAgentModels()
-  const {
-    error: discoveredModelsError,
-    isLoading: discoveredModelsLoading,
-    models: discoveredModels,
-  } = useDiscoveredAgentModels()
-  const selectedDefaultCatalogModel = models?.find(
-    (model) => model.catalog_ref === defaultModel?.catalog_ref
+  const selectedDefaultCatalogModel = models?.find((model) =>
+    hasSameModelSelection(toModelSelection(model), defaultModel)
   )
   const currentDefaultModel =
     selectedDefaultCatalogModel ?? defaultModel ?? null
+  const currentDefaultModelKey = currentDefaultModel
+    ? getModelSelectionKey({
+        source_id: currentDefaultModel.source_id ?? null,
+        model_provider: currentDefaultModel.model_provider,
+        model_name: currentDefaultModel.model_name,
+      })
+    : ""
+  const modelLookupByKey = new Map(
+    (models ?? []).map((model) => [
+      getModelSelectionKey(toModelSelection(model)),
+      model,
+    ])
+  )
   const {
     createSource,
     deleteSource,
-    disableModel,
-    disableModels,
-    enableModel,
-    enableModels,
     isUpdating,
-    refreshDefaultInventory,
-    refreshProvider,
     refreshSource,
-    updateEnabledModelConfig,
     updateSource,
   } = useAgentCatalogMutations()
   const { deleteCredentials } = useAgentCredentials()
+  const invalidateAgentModelQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["agent-models"] })
+    queryClient.invalidateQueries({ queryKey: ["agent-models", "custom"] })
+    queryClient.invalidateQueries({ queryKey: ["agent-models", "builtins"] })
+    queryClient.invalidateQueries({ queryKey: ["agent-providers"] })
+    queryClient.invalidateQueries({ queryKey: ["agent-sources"] })
+    queryClient.invalidateQueries({ queryKey: ["agent-default-model"] })
+  }
+  const { mutateAsync: enableModel, isPending: isEnablingModel } = useMutation({
+    mutationFn: async (selection: EnabledModelOperation) =>
+      await agentEnableModel({ requestBody: selection }),
+    onSuccess: invalidateAgentModelQueries,
+  })
+  const { mutateAsync: enableModels, isPending: isEnablingModels } =
+    useMutation({
+      mutationFn: async (modelsToEnable: EnabledModelsBatchOperation) =>
+        await agentEnableModels({ requestBody: modelsToEnable }),
+      onSuccess: invalidateAgentModelQueries,
+    })
+  const { mutateAsync: disableModel, isPending: isDisablingModel } =
+    useMutation({
+      mutationFn: async (selection: ModelSelection) =>
+        await agentDisableModel({
+          sourceId: selection.source_id ?? null,
+          modelProvider: selection.model_provider,
+          modelName: selection.model_name,
+        }),
+      onSuccess: invalidateAgentModelQueries,
+    })
+  const { mutateAsync: disableModels, isPending: isDisablingModels } =
+    useMutation({
+      mutationFn: async (modelsToDisable: EnabledModelsBatchOperation) =>
+        await agentDisableModels({ requestBody: modelsToDisable }),
+      onSuccess: invalidateAgentModelQueries,
+    })
+  const { mutateAsync: updateDefaultModel, isPending: defaultModelUpdating } =
+    useMutation({
+      mutationFn: async (selection: DefaultModelSelectionUpdate) =>
+        await agentSetDefaultModel({ requestBody: selection }),
+      onSuccess: invalidateAgentModelQueries,
+    })
+  const {
+    mutateAsync: updateEnabledModelConfig,
+    isPending: isUpdatingEnabledModelConfig,
+  } = useMutation({
+    mutationFn: async (requestBody: EnabledModelRuntimeConfigUpdate) =>
+      await agentUpdateEnabledModelConfig({ requestBody }),
+    onSuccess: invalidateAgentModelQueries,
+  })
+  const isSelectionUpdating =
+    defaultModelUpdating ||
+    isEnablingModel ||
+    isEnablingModels ||
+    isDisablingModel ||
+    isDisablingModels ||
+    isUpdatingEnabledModelConfig
 
-  async function handleModelToggle(model: AgentCatalogEntry) {
+  async function handleModelToggle(model: ModelCatalogEntry) {
+    const selection = toModelSelection(model)
     try {
       if (model.enabled) {
-        await disableModel(model.catalog_ref)
+        await disableModel(selection)
       } else {
-        await enableModel(model.catalog_ref)
+        await enableModel(selection)
       }
     } catch (error) {
       toast({
         description: getErrorMessage(error),
-        title: `Failed to ${model.enabled ? "disable" : "enable"} ${model.display_name}`,
+        title: `Failed to ${model.enabled ? "disable" : "enable"} ${getModelLabel(model)}`,
         variant: "destructive",
       })
     }
@@ -1213,7 +1323,9 @@ export function OrgSettingsAgentForm() {
         (model) => canEnableBuiltInCatalogModel(model) && !model.enabled
       )
       if (modelsToEnable.length) {
-        await enableModels(modelsToEnable.map((model) => model.catalog_ref))
+        await enableModels({
+          models: modelsToEnable.map((model) => toModelSelection(model)),
+        })
       }
 
       toast({
@@ -1242,7 +1354,9 @@ export function OrgSettingsAgentForm() {
       })
       const modelsToDisable = discoveredModels.filter((model) => model.enabled)
       if (modelsToDisable.length) {
-        await disableModels(modelsToDisable.map((model) => model.catalog_ref))
+        await disableModels({
+          models: modelsToDisable.map((model) => toModelSelection(model)),
+        })
       }
 
       toast({
@@ -1261,41 +1375,13 @@ export function OrgSettingsAgentForm() {
     }
   }
 
-  async function handleRefreshDefaultInventory() {
-    try {
-      await refreshDefaultInventory()
-      toast({
-        description: "Updated the built-in model catalog.",
-        title: "Allowed models refreshed",
-      })
-    } catch (error) {
-      toast({
-        description: getErrorMessage(error),
-        title: "Failed to refresh allowed models",
-        variant: "destructive",
-      })
-    }
-  }
-
-  async function handleRefreshProvider(provider: string, label: string) {
-    try {
-      await refreshProvider(provider)
-      toast({
-        description: `Updated ${label} discovery data.`,
-        title: `${label} refreshed`,
-      })
-    } catch (error) {
-      toast({
-        description: getErrorMessage(error),
-        title: `Failed to refresh ${label}`,
-        variant: "destructive",
-      })
-    }
-  }
-
   async function handleRefreshSource(source: AgentModelSourceRead) {
     try {
-      await refreshSource(source.id)
+      const rows = await refreshSource(source.id)
+      setSourceCatalogRowsById((current) => ({
+        ...current,
+        [source.id]: rows,
+      }))
       toast({
         description: `Updated ${source.display_name}.`,
         title: "Custom source refreshed",
@@ -1335,6 +1421,11 @@ export function OrgSettingsAgentForm() {
   async function handleDeleteSource(source: AgentModelSourceRead) {
     try {
       await deleteSource(source.id)
+      setSourceCatalogRowsById((current) => {
+        const next = { ...current }
+        delete next[source.id]
+        return next
+      })
       toast({
         description: `${source.display_name} was removed.`,
         title: "Custom source deleted",
@@ -1348,9 +1439,9 @@ export function OrgSettingsAgentForm() {
     }
   }
 
-  async function handleSetDefaultModel(catalogRef: string) {
+  async function handleSetDefaultModel(selection: DefaultModelSelectionUpdate) {
     try {
-      await updateDefaultModel(catalogRef)
+      await updateDefaultModel(selection)
       toast({
         title: "Default model updated",
       })
@@ -1371,13 +1462,17 @@ export function OrgSettingsAgentForm() {
   ) {
     try {
       await updateEnabledModelConfig({
-        bedrockInferenceProfileId: config.bedrockInferenceProfileId,
-        catalogRef: model.catalog_ref,
+        source_id: model.source_id ?? null,
+        model_provider: model.model_provider,
+        model_name: model.model_name,
+        config: {
+          bedrock_inference_profile_id: config.bedrockInferenceProfileId,
+        },
       })
     } catch (error) {
       toast({
         description: getErrorMessage(error),
-        title: `Failed to update ${model.display_name}`,
+        title: `Failed to update ${getModelLabel(model)}`,
         variant: "destructive",
       })
       throw error
@@ -1440,29 +1535,21 @@ export function OrgSettingsAgentForm() {
     queryClient.invalidateQueries({ queryKey: ["agent-providers"] })
     queryClient.invalidateQueries({ queryKey: ["agent-models", "builtins"] })
     queryClient.invalidateQueries({ queryKey: ["agent-models"] })
-    queryClient.invalidateQueries({ queryKey: ["agent-models", "discovered"] })
+    queryClient.invalidateQueries({ queryKey: ["agent-models", "custom"] })
   }
 
   if (
     !providers &&
     !sources &&
     !models &&
-    !discoveredModels &&
-    (providersLoading ||
-      sourcesLoading ||
-      modelsLoading ||
-      discoveredModelsLoading)
+    (providersLoading || sourcesLoading || modelsLoading)
   ) {
     return <CenteredSpinner />
   }
 
   return (
     <div className="space-y-12">
-      {providersError ||
-      sourcesError ||
-      modelsError ||
-      discoveredModelsError ||
-      defaultModelError ? (
+      {providersError || sourcesError || modelsError || defaultModelError ? (
         <AlertNotification
           level="error"
           message={
@@ -1470,7 +1557,6 @@ export function OrgSettingsAgentForm() {
             providersError?.message ||
             sourcesError?.message ||
             modelsError?.message ||
-            discoveredModelsError?.message ||
             "Unable to load model provider settings."
           }
         />
@@ -1490,64 +1576,78 @@ export function OrgSettingsAgentForm() {
         <Card>
           <CardContent className="space-y-4 pt-6">
             {!models?.length ? (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Enable at least one model from the sections below before
                 choosing a default.
-              </div>
+              </p>
             ) : (
               <div className="space-y-3">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Choose default</p>
-                  <p className="text-xs text-muted-foreground">
-                    Select an enabled model for the organization default.
-                  </p>
-                </div>
                 <Select
-                  disabled={defaultModelUpdating || isUpdating || modelsLoading}
-                  onValueChange={(catalogRef) => {
-                    if (catalogRef === defaultModel?.catalog_ref) {
+                  disabled={isSelectionUpdating || isUpdating || modelsLoading}
+                  onValueChange={(selectionKey) => {
+                    const nextModel = modelLookupByKey.get(selectionKey)
+                    if (
+                      !nextModel ||
+                      hasSameModelSelection(
+                        toModelSelection(nextModel),
+                        defaultModel
+                      )
+                    ) {
                       return
                     }
-                    void handleSetDefaultModel(catalogRef)
+                    void handleSetDefaultModel(toModelSelection(nextModel))
                   }}
-                  value={defaultModel?.catalog_ref}
+                  value={currentDefaultModelKey}
                 >
-                  <SelectTrigger className="h-auto min-h-16 px-4 py-3 [&>span]:w-full">
+                  <SelectTrigger
+                    className={cn(
+                      "cursor-pointer border-0 bg-transparent px-4 shadow-none transition-colors hover:bg-muted/20 focus:ring-0 focus-visible:ring-0 [&>span]:w-full [&>span]:text-left",
+                      currentDefaultModel ? "h-10 py-1" : "h-auto min-h-16 py-3"
+                    )}
+                  >
                     {currentDefaultModel ? (
-                      <div className="flex min-w-0 items-start gap-3 text-left">
+                      <div className="flex min-w-0 items-center gap-3 text-left">
                         <ProviderIcon
-                          className="mt-0.5 size-6 rounded-sm p-0.5"
+                          className="size-6 rounded-sm p-0.5"
                           providerId={getProviderIconId(
                             currentDefaultModel.model_provider
                           )}
                         />
-                        <div className="min-w-0 space-y-1">
+                        <div className="min-w-0 space-y-0.5">
                           <div className="flex min-w-0 items-center gap-2">
                             <p className="truncate text-sm font-medium">
-                              {currentDefaultModel.display_name}
+                              {currentDefaultModel.model_name}
                             </p>
                           </div>
                           <p className="truncate text-xs text-muted-foreground">
                             {selectedDefaultCatalogModel?.source_name ??
+                              currentDefaultModel.source_name ??
                               currentDefaultModel.model_provider}
                           </p>
                         </div>
                       </div>
                     ) : (
-                      <span className="text-sm text-muted-foreground">
-                        Select a default model
-                      </span>
+                      <div className="min-w-0 space-y-1 text-left">
+                        <p className="text-sm font-medium text-foreground">
+                          Choose a default model
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Click to choose from enabled models.
+                        </p>
+                      </div>
                     )}
                   </SelectTrigger>
                   <SelectContent>
                     {models.map((model) => {
-                      const isSelected =
-                        model.catalog_ref === defaultModel?.catalog_ref
+                      const isSelected = hasSameModelSelection(
+                        toModelSelection(model),
+                        defaultModel
+                      )
+                      const modelKey = getModelSelectionKey(
+                        toModelSelection(model)
+                      )
                       return (
-                        <SelectItem
-                          key={model.catalog_ref}
-                          value={model.catalog_ref}
-                        >
+                        <SelectItem key={modelKey} value={modelKey}>
                           <div className="flex min-w-0 items-start gap-3 py-1">
                             <ProviderIcon
                               className="mt-0.5 size-5 rounded-sm p-0.5"
@@ -1558,7 +1658,7 @@ export function OrgSettingsAgentForm() {
                             <div className="min-w-0 space-y-1">
                               <div className="flex min-w-0 items-center gap-2">
                                 <span className="truncate text-sm font-medium">
-                                  {model.display_name}
+                                  {getModelLabel(model)}
                                 </span>
                                 {isSelected ? (
                                   <span className="shrink-0 text-xs text-muted-foreground">
@@ -1567,7 +1667,7 @@ export function OrgSettingsAgentForm() {
                                 ) : null}
                               </div>
                               <p className="truncate text-xs text-muted-foreground">
-                                {model.source_name}
+                                {getModelSourceLabel(model)}
                               </p>
                             </div>
                           </div>
@@ -1579,7 +1679,7 @@ export function OrgSettingsAgentForm() {
               </div>
             )}
 
-            {defaultModelUpdating || isUpdating ? (
+            {isSelectionUpdating || isUpdating ? (
               <p className="text-xs text-muted-foreground">Saving changes…</p>
             ) : null}
           </CardContent>
@@ -1597,19 +1697,10 @@ export function OrgSettingsAgentForm() {
               models your workspaces can draw from.
             </p>
           </div>
-          <Button
-            disabled={isUpdating}
-            onClick={() => {
-              void handleRefreshDefaultInventory()
-            }}
-            variant="outline"
-          >
-            Refresh catalog
-          </Button>
         </div>
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">
-            The built-in catalog stays shared, while each workspace can still
+            The platform catalog stays shared, while each workspace can still
             restrict itself to a smaller subset of the organization-enabled
             catalog.
           </p>
@@ -1620,9 +1711,7 @@ export function OrgSettingsAgentForm() {
               {providers.map((provider) => {
                 const enabledCount =
                   models?.filter(
-                    (model) =>
-                      model.runtime_provider === provider.provider ||
-                      model.source_type === provider.provider
+                    (model) => model.model_provider === provider.provider
                   ).length ?? 0
                 return (
                   <ProviderConnectionItem
@@ -1637,7 +1726,6 @@ export function OrgSettingsAgentForm() {
                     onExpandedChange={(expanded) => {
                       setExpandedProvider(expanded ? provider.provider : null)
                     }}
-                    onRefreshProvider={handleRefreshProvider}
                     onToggleModel={handleModelToggle}
                     onUpdateModelConfig={handleUpdateEnabledModelConfig}
                     provider={provider}
@@ -1647,7 +1735,7 @@ export function OrgSettingsAgentForm() {
             </RbacListContainer>
           ) : (
             <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-              No built-in providers are available.
+              No platform providers are available.
             </div>
           )}
         </div>
@@ -1673,9 +1761,9 @@ export function OrgSettingsAgentForm() {
           <div className="space-y-4">
             {sources.map((source) => {
               const sourceModels =
-                discoveredModels?.filter(
-                  (model) => model.source_id === source.id
-                ) ?? []
+                sourceCatalogRowsById[source.id] ??
+                models?.filter((model) => model.source_id === source.id) ??
+                []
               return (
                 <Card key={source.id}>
                   <CardHeader className="space-y-4">
@@ -1787,15 +1875,15 @@ export function OrgSettingsAgentForm() {
                       sourceModels.map((model) => (
                         <ModelRow
                           disabled={isUpdating}
-                          key={model.catalog_ref}
+                          key={getModelSelectionKey(toModelSelection(model))}
                           model={model}
                           onToggle={handleModelToggle}
                         />
                       ))
                     ) : (
                       <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                        Refresh this source to cache its models, then enable the
-                        entries you want available to presets and defaults.
+                        Refresh this source, then enable the entries you want
+                        available to presets and defaults.
                       </div>
                     )}
                   </CardContent>
@@ -1810,7 +1898,8 @@ export function OrgSettingsAgentForm() {
                 <p className="text-sm font-medium">No custom sources yet</p>
                 <p className="text-sm text-muted-foreground">
                   Use custom sources only when you need a user-defined endpoint
-                  beyond the built-in provider cards and built-in model catalog.
+                  beyond the platform provider cards and shared platform
+                  catalog.
                 </p>
               </div>
             </CardContent>
