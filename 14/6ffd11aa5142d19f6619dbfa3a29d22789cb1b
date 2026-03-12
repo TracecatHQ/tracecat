@@ -1,0 +1,25 @@
+tests/unit/executor/test_outbound_http_gateway_bootstrap.py
+  82c47a58736378b7 357-366
+tracecat/executor/outbound_http_gateway_sitecustomize.py
+  82c47a58736378b7 556-563
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "146ffd11aa5142d19f6619dbfa3a29d22789cb1b",
+  "prompts": {
+    "82c47a58736378b7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce319-ea55-7101-aa61-e5d1136ef1d9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 0,
+      "accepted_lines": 18,
+      "overriden_lines": 0
+    }
+  }
+}
