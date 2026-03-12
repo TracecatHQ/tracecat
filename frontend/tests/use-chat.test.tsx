@@ -22,14 +22,20 @@ const mockAgentSessionsUpdateSession =
   >
 
 type AgentSessionReadWithModelSelection = AgentSessionRead & {
-  model_catalog_ref?: string | null
+  source_id?: string | null
+  model_name?: string | null
+  model_provider?: string | null
 }
 type AgentSessionReadWithMessagesWithModelSelection =
   AgentSessionReadWithMessages & {
-    model_catalog_ref?: string | null
+    source_id?: string | null
+    model_name?: string | null
+    model_provider?: string | null
   }
 type AgentSessionReadVercelWithModelSelection = AgentSessionReadVercel & {
-  model_catalog_ref?: string | null
+  source_id?: string | null
+  model_name?: string | null
+  model_provider?: string | null
 }
 
 function createDeferred<T>() {
@@ -56,7 +62,9 @@ function createSessionRead(
     tools: [],
     agent_preset_id: null,
     agent_preset_version_id: null,
-    model_catalog_ref: null,
+    source_id: null,
+    model_name: null,
+    model_provider: null,
     harness_type: null,
     created_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
     updated_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
@@ -285,15 +293,23 @@ describe("useUpdateChat", () => {
 
     const mutationPromise = result.current.updateChat({
       chatId: "chat-1",
-      update: { model_catalog_ref: "catalog:source:model" },
+      update: {
+        source_id: null,
+        model_provider: "openai",
+        model_name: "gpt-5.2",
+      },
     })
 
     await waitFor(() => {
       expect(
         queryClient.getQueryData<AgentSessionReadWithMessagesWithModelSelection>(
           ["chat", "chat-1", "workspace-1"]
-        )?.model_catalog_ref
-      ).toBe("catalog:source:model")
+        )
+      ).toMatchObject({
+        source_id: null,
+        model_provider: "openai",
+        model_name: "gpt-5.2",
+      })
     })
     expect(
       queryClient.getQueryData<AgentSessionReadVercelWithModelSelection>([
@@ -301,8 +317,12 @@ describe("useUpdateChat", () => {
         "chat-1",
         "workspace-1",
         "vercel",
-      ])?.model_catalog_ref
-    ).toBe("catalog:source:model")
+      ])
+    ).toMatchObject({
+      source_id: null,
+      model_provider: "openai",
+      model_name: "gpt-5.2",
+    })
     expect(
       queryClient.getQueryData<AgentSessionReadWithModelSelection[]>([
         "chats",
@@ -310,12 +330,18 @@ describe("useUpdateChat", () => {
         "case",
         "case-1",
         50,
-      ])?.[0]?.model_catalog_ref
-    ).toBe("catalog:source:model")
+      ])?.[0]
+    ).toMatchObject({
+      source_id: null,
+      model_provider: "openai",
+      model_name: "gpt-5.2",
+    })
 
     deferred.resolve(
       createSessionRead({
-        model_catalog_ref: "catalog:source:model",
+        source_id: null,
+        model_provider: "openai",
+        model_name: "gpt-5.2",
       })
     )
     await mutationPromise

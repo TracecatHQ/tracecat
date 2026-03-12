@@ -6,9 +6,9 @@ import {
   Box,
   Braces,
   Brackets,
-  CopyPlus,
   Check,
   ChevronsUpDown,
+  CopyPlus,
   Hash,
   History,
   List,
@@ -41,6 +41,7 @@ import type {
   AgentPresetCreate,
   AgentPresetRead,
   AgentPresetUpdate,
+  ModelCatalogEntry,
 } from "@/client"
 import { AgentPresetDeleteDialog } from "@/components/agents/agent-preset-delete-dialog"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
@@ -109,6 +110,11 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import {
   useAgentPreset,
@@ -132,7 +138,6 @@ import {
 } from "@/lib/agent-presets"
 import type { ModelInfo } from "@/lib/chat"
 import {
-  type AgentCatalogEntry,
   useAgentModels,
   useChatReadiness,
   useListMcpIntegrations,
@@ -156,7 +161,6 @@ const DATA_TYPE_OUTPUT_TYPES = [
 const NEW_PRESET_ID = "new"
 const DEFAULT_RETRIES = 3
 const CATALOG_FREE_SOURCE_TYPES = new Set([
-  "default_sidecar",
   "openai_compatible_gateway",
   "manual_custom",
 ])
@@ -215,7 +219,7 @@ const agentPresetSchema = z
     slug: z.string().trim().min(1, "Slug is required"),
     description: z.string().max(1000).optional(),
     instructions: z.string().optional(),
-    model_catalog_ref: z.string().min(1, "Model is required"),
+    source_id: z.string().optional(),
     model_provider: z.string().min(1, "Model provider is required"),
     model_name: z.string().min(1, "Model name is required"),
     base_url: z.union([z.string().url(), z.literal(""), z.undefined()]),
@@ -287,7 +291,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   slug: "",
   description: "",
   instructions: "",
-  model_catalog_ref: "",
+  source_id: "",
   model_provider: "",
   model_name: "",
   base_url: "",
@@ -549,7 +553,7 @@ function AgentPresetChatPane({
     () =>
       preset
         ? findEnabledModelOption(enabledModelOptions, {
-            catalogRef: getPresetModelCatalogRef(preset),
+            sourceId: preset.source_id ?? null,
             modelProvider: preset.model_provider,
             modelName: preset.model_name,
             baseUrl: preset.base_url ?? null,
@@ -600,7 +604,7 @@ function AgentPresetChatPane({
     }
     return {
       name: selectedModel?.modelName ?? preset.model_name,
-      provider: selectedModel?.runtimeProvider ?? preset.model_provider,
+      provider: selectedModel?.modelProvider ?? preset.model_provider,
       baseUrl: selectedModel?.baseUrl ?? preset.base_url ?? null,
     }
   }, [preset, selectedModel])
@@ -613,7 +617,7 @@ function AgentPresetChatPane({
       if (CATALOG_FREE_SOURCE_TYPES.has(selectedModel.sourceType)) {
         return true
       }
-      return providersStatus?.[selectedModel.runtimeProvider] ?? false
+      return providersStatus?.[selectedModel.modelProvider] ?? false
     }
     if (CATALOG_FREE_SOURCE_TYPES.has(preset.model_provider)) {
       return true
@@ -722,7 +726,7 @@ function AgentPresetChatPane({
             <p className="text-pretty">
               This agent needs organization-level credentials for{" "}
               <span className="font-medium">
-                {selectedModel?.runtimeProvider ?? preset.model_provider}
+                {selectedModel?.modelProvider ?? preset.model_provider}
               </span>
               . Configure them in{" "}
               <Link
@@ -918,7 +922,6 @@ function getAgentPresetErrorTab(
   }
   if (
     errors.instructions ||
-    errors.model_catalog_ref ||
     errors.model_provider ||
     errors.model_name ||
     errors.base_url
@@ -939,10 +942,9 @@ type McpIntegrationOption = {
 }
 
 type EnabledModelOption = {
-  catalogRef: string
+  sourceId: string | null
   modelName: string
   modelProvider: string
-  runtimeProvider: string
   iconId: string
   displayName: string
   label: string
@@ -952,33 +954,34 @@ type EnabledModelOption = {
   baseUrl?: string | null
 }
 
-type AgentPresetReadWithCatalogRef = AgentPresetRead & {
-  model_catalog_ref?: string | null
-}
+type AgentPresetPayload = AgentPresetCreate
 
-type AgentPresetPayload = AgentPresetCreate & {
-  model_catalog_ref?: string | null
-}
+type AgentPresetUpdatePayload = AgentPresetUpdate
 
-type AgentPresetUpdatePayload = AgentPresetUpdate & {
-  model_catalog_ref?: string | null
+function getModelSelectionKey(selection: {
+  source_id?: string | null
+  model_provider?: string | null
+  model_name?: string | null
+}): string {
+  return `${selection.source_id ?? "platform"}::${selection.model_provider ?? ""}::${selection.model_name ?? ""}`
 }
 
 function buildEnabledModelOptions(
-  models: AgentCatalogEntry[] | undefined
+  models: ModelCatalogEntry[] | undefined
 ): EnabledModelOption[] {
   return (models ?? [])
     .map((model) => ({
-      catalogRef: model.catalog_ref,
+      sourceId: model.source_id ?? null,
       modelName: model.model_name,
       modelProvider: model.model_provider,
-      runtimeProvider: model.runtime_provider,
       iconId: getEnabledModelIconId(model),
-      displayName: model.display_name,
-      label: model.display_name,
+      displayName: model.model_name,
+      label: model.model_name,
       metadata: getEnabledModelMetadata(model),
-      sourceName: model.source_name,
-      sourceType: model.source_type,
+      sourceName:
+        model.source_name ?? (model.source_id ? "Custom" : "Platform"),
+      sourceType:
+        model.source_type ?? (model.source_id ? "custom" : "platform"),
       baseUrl: model.base_url ?? null,
     }))
     .sort((a, b) => {
@@ -990,11 +993,9 @@ function buildEnabledModelOptions(
     })
 }
 
-function getEnabledModelMetadata(model: AgentCatalogEntry): string {
+function getEnabledModelMetadata(model: ModelCatalogEntry): string {
   const sourceLabel =
-    model.source_name === "Default models"
-      ? "Default models"
-      : model.source_name
+    model.source_name ?? (model.source_id ? "Custom" : "Platform")
   if (sourceLabel === model.model_provider) {
     return sourceLabel
   }
@@ -1025,13 +1026,16 @@ function getCustomSourceIconId(sourceType: string, sourceName: string): string {
   return "custom"
 }
 
-function getEnabledModelIconId(model: AgentCatalogEntry): string {
+function getEnabledModelIconId(model: ModelCatalogEntry): string {
   switch (model.source_type) {
     case "openai_compatible_gateway":
     case "manual_custom":
-      return getCustomSourceIconId(model.source_type, model.source_name)
+      return getCustomSourceIconId(
+        model.source_type,
+        model.source_name ?? model.model_name
+      )
     default:
-      return getProviderIconId(model.runtime_provider)
+      return getProviderIconId(model.model_provider)
   }
 }
 
@@ -1054,41 +1058,35 @@ function getProviderIconId(provider: string): string {
   }
 }
 
-function getPresetModelCatalogRef(preset: AgentPresetRead): string | null {
-  return (preset as AgentPresetReadWithCatalogRef).model_catalog_ref ?? null
-}
-
 function findEnabledModelOption(
   options: EnabledModelOption[],
   selection: {
-    catalogRef?: string | null
+    sourceId?: string | null
     modelProvider?: string | null
     modelName?: string | null
     baseUrl?: string | null
   }
 ): EnabledModelOption | null {
-  if (selection.catalogRef) {
-    const byCatalogRef = options.find(
-      (option) => option.catalogRef === selection.catalogRef
-    )
-    if (byCatalogRef) {
-      return byCatalogRef
-    }
-  }
-
   if (!selection.modelProvider || !selection.modelName) {
     return null
   }
 
+  const normalizedSourceId = selection.sourceId ?? null
   const normalizedBaseUrl = normalizeOptional(selection.baseUrl)
   return (
     options.find(
       (option) =>
-        (option.runtimeProvider === selection.modelProvider ||
-          option.modelProvider === selection.modelProvider) &&
+        option.sourceId === normalizedSourceId &&
+        option.modelProvider === selection.modelProvider &&
+        option.modelName === selection.modelName
+    ) ??
+    options.find(
+      (option) =>
+        option.modelProvider === selection.modelProvider &&
         option.modelName === selection.modelName &&
         normalizeOptional(option.baseUrl) === normalizedBaseUrl
-    ) ?? null
+    ) ??
+    null
   )
 }
 
@@ -1097,8 +1095,8 @@ function syncFormModelSelection(
   option: EnabledModelOption,
   shouldDirty: boolean
 ) {
-  form.setValue("model_catalog_ref", option.catalogRef, { shouldDirty })
-  form.setValue("model_provider", option.runtimeProvider, { shouldDirty })
+  form.setValue("source_id", option.sourceId ?? "", { shouldDirty })
+  form.setValue("model_provider", option.modelProvider, { shouldDirty })
   form.setValue("model_name", option.modelName, { shouldDirty })
   form.setValue("base_url", option.baseUrl ?? "", { shouldDirty })
 }
@@ -1183,19 +1181,19 @@ function AgentPresetForm({
   }, [form, mode, preset])
 
   const watchedName = form.watch("name")
-  const modelCatalogRef = form.watch("model_catalog_ref")
+  const sourceId = form.watch("source_id")
   const modelProvider = form.watch("model_provider")
   const modelName = form.watch("model_name")
   const baseUrl = form.watch("base_url")
   const selectedModel = useMemo(
     () =>
       findEnabledModelOption(enabledModelOptions, {
-        catalogRef: modelCatalogRef,
+        sourceId,
         modelProvider,
         modelName,
         baseUrl,
       }),
-    [baseUrl, enabledModelOptions, modelCatalogRef, modelName, modelProvider]
+    [baseUrl, enabledModelOptions, sourceId, modelName, modelProvider]
   )
 
   useEffect(() => {
@@ -1214,12 +1212,12 @@ function AgentPresetForm({
       return
     }
     if (
-      form.getValues("model_catalog_ref") ||
+      form.getValues("source_id") ||
       form.getValues("model_provider") ||
       form.getValues("model_name") ||
       form.getValues("base_url")
     ) {
-      form.setValue("model_catalog_ref", "", { shouldDirty: false })
+      form.setValue("source_id", "", { shouldDirty: false })
       form.setValue("model_provider", "", { shouldDirty: false })
       form.setValue("model_name", "", { shouldDirty: false })
       form.setValue("base_url", "", { shouldDirty: false })
@@ -1255,7 +1253,6 @@ function AgentPresetForm({
     form.formState.isDirty ||
     (mode === "create" &&
       Boolean(form.watch("name")) &&
-      Boolean(form.watch("model_catalog_ref")) &&
       Boolean(form.watch("model_provider")) &&
       Boolean(form.watch("model_name")))
 
@@ -1712,7 +1709,7 @@ function AgentPresetConfigurationPanel({
   onAddToolApproval: () => void
   onRemoveToolApproval: (index: number) => void
 }) {
-  const modelCatalogRef = form.watch("model_catalog_ref")
+  const sourceId = form.watch("source_id")
   const modelProvider = form.watch("model_provider")
   const modelName = form.watch("model_name")
   const baseUrl = form.watch("base_url")
@@ -1720,12 +1717,12 @@ function AgentPresetConfigurationPanel({
   const selectedModel = useMemo(
     () =>
       findEnabledModelOption(enabledModelOptions, {
-        catalogRef: modelCatalogRef,
+        sourceId,
         modelProvider,
         modelName,
         baseUrl,
       }),
-    [baseUrl, enabledModelOptions, modelCatalogRef, modelName, modelProvider]
+    [baseUrl, enabledModelOptions, sourceId, modelName, modelProvider]
   )
   const hasMissingEnabledModel =
     enabledModelsLoaded && !selectedModel && Boolean(modelProvider || modelName)
@@ -1738,7 +1735,7 @@ function AgentPresetConfigurationPanel({
           <div className="grid gap-4">
             <FormField
               control={form.control}
-              name="model_catalog_ref"
+              name="model_name"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Model</FormLabel>
@@ -1799,13 +1796,18 @@ function AgentPresetConfigurationPanel({
                       <Command
                         filter={(value, search) => {
                           const option = enabledModelOptions.find(
-                            (o) => o.catalogRef === value
+                            (o) =>
+                              getModelSelectionKey({
+                                source_id: o.sourceId,
+                                model_provider: o.modelProvider,
+                                model_name: o.modelName,
+                              }) === value
                           )
                           if (!option) {
                             return 0
                           }
                           const haystack =
-                            `${option.displayName} ${option.modelName} ${option.sourceName} ${option.modelProvider} ${option.runtimeProvider}`.toLowerCase()
+                            `${option.displayName} ${option.modelName} ${option.sourceName} ${option.modelProvider}`.toLowerCase()
                           return haystack.includes(search.toLowerCase()) ? 1 : 0
                         }}
                       >
@@ -1816,14 +1818,27 @@ function AgentPresetConfigurationPanel({
                           </CommandEmpty>
                           <CommandGroup>
                             {enabledModelOptions.map((option) => {
+                              const optionKey = getModelSelectionKey({
+                                source_id: option.sourceId,
+                                model_provider: option.modelProvider,
+                                model_name: option.modelName,
+                              })
                               const isSelected =
-                                option.catalogRef === selectedModel?.catalogRef
+                                optionKey ===
+                                (selectedModel
+                                  ? getModelSelectionKey({
+                                      source_id: selectedModel.sourceId,
+                                      model_provider:
+                                        selectedModel.modelProvider,
+                                      model_name: selectedModel.modelName,
+                                    })
+                                  : null)
                               return (
                                 <CommandItem
-                                  key={option.catalogRef}
-                                  value={option.catalogRef}
+                                  key={optionKey}
+                                  value={optionKey}
                                   onSelect={() => {
-                                    field.onChange(option.catalogRef)
+                                    field.onChange(option.modelName)
                                     syncFormModelSelection(form, option, true)
                                     setIsModelPickerOpen(false)
                                   }}
@@ -1875,24 +1890,41 @@ function AgentPresetConfigurationPanel({
                 </FormItem>
               )}
             />
-          </div>
-          <div className="flex items-center gap-2">
-            <Switch
-              id="enable-internet-access"
-              checked={internetAccessEnabled}
-              onCheckedChange={(checked) =>
-                form.setValue("enableInternetAccess", checked, {
-                  shouldDirty: true,
-                })
-              }
-              disabled={isSaving}
-            />
-            <label
-              htmlFor="enable-internet-access"
-              className="text-sm font-medium"
-            >
-              Enable internet access
-            </label>
+            <FormItem>
+              <div className="flex items-center gap-1.5">
+                <FormLabel>Internet access</FormLabel>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <AlertCircle className="size-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Required for in-process MCP servers.
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <div className="flex h-10 items-center justify-end rounded-md border px-3">
+                <span className="mr-auto text-sm text-muted-foreground">
+                  Allow web access
+                </span>
+                <FormControl>
+                  <Switch
+                    id="enable-internet-access"
+                    checked={internetAccessEnabled}
+                    onCheckedChange={(checked) =>
+                      form.setValue("enableInternetAccess", checked, {
+                        shouldDirty: true,
+                      })
+                    }
+                    disabled={isSaving}
+                  />
+                </FormControl>
+              </div>
+            </FormItem>
           </div>
         </section>
 
@@ -2452,7 +2484,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
     slug: preset.slug,
     description: preset.description ?? "",
     instructions: preset.instructions ?? "",
-    model_catalog_ref: getPresetModelCatalogRef(preset) ?? "",
+    source_id: preset.source_id ?? "",
     model_provider: preset.model_provider,
     model_name: preset.model_name,
     base_url: preset.base_url ?? "",
@@ -2504,7 +2536,7 @@ function formValuesToPayload(
         : null,
     model_name: values.model_name.trim(),
     model_provider: values.model_provider.trim(),
-    model_catalog_ref: normalizeOptional(values.model_catalog_ref),
+    source_id: normalizeOptional(values.source_id),
     base_url: normalizeOptional(values.base_url),
     output_type: outputType ?? null,
     actions: values.actions.length > 0 ? values.actions : null,

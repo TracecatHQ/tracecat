@@ -173,14 +173,17 @@ class EnabledModelRuntimeConfig(BaseModel):
     )
 
 
-class ModelCatalogEntry(BaseModel):
-    catalog_ref: str = Field(..., min_length=1, max_length=500)
-    model_name: str = Field(..., min_length=1, max_length=200)
+class ModelSelection(BaseModel):
+    source_id: uuid.UUID | None = None
     model_provider: str = Field(..., min_length=1, max_length=120)
-    runtime_provider: str = Field(..., min_length=1, max_length=120)
-    display_name: str = Field(..., min_length=1, max_length=200)
-    source_type: ModelSourceType
-    source_name: str = Field(..., min_length=1, max_length=200)
+    model_name: str = Field(..., min_length=1, max_length=500)
+
+
+class ModelCatalogEntry(BaseModel):
+    model_provider: str = Field(..., min_length=1, max_length=120)
+    model_name: str = Field(..., min_length=1, max_length=500)
+    source_type: str | None = Field(default=None, min_length=1, max_length=120)
+    source_name: str | None = Field(default=None, min_length=1, max_length=200)
     source_id: uuid.UUID | None = None
     base_url: str | None = Field(default=None, max_length=500)
     enabled: bool = Field(default=False)
@@ -202,8 +205,8 @@ class BuiltInCatalogEntry(ModelCatalogEntry):
 
 
 class BuiltInCatalogRead(BaseModel):
-    source_type: str = Field(default="builtin_catalog")
-    source_name: str = Field(default="Built-in catalog")
+    source_type: str = Field(default="platform_catalog")
+    source_name: str = Field(default="Platform catalog")
     discovery_status: ModelDiscoveryStatus
     last_refreshed_at: datetime | None = None
     last_error: str | None = None
@@ -249,37 +252,38 @@ class AgentModelSourceRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class EnabledModelOperation(BaseModel):
-    catalog_ref: str = Field(..., min_length=1, max_length=500)
+class EnabledModelOperation(ModelSelection):
+    pass
 
 
 class EnabledModelsBatchOperation(BaseModel):
-    catalog_refs: list[str] = Field(..., min_length=1, max_length=200)
+    models: list[ModelSelection] = Field(..., min_length=1, max_length=200)
 
 
 class EnabledModelRuntimeConfigUpdate(BaseModel):
-    catalog_ref: str = Field(..., min_length=1, max_length=500)
+    source_id: uuid.UUID | None = None
+    model_provider: str = Field(..., min_length=1, max_length=120)
+    model_name: str = Field(..., min_length=1, max_length=500)
     config: EnabledModelRuntimeConfig = Field(default_factory=EnabledModelRuntimeConfig)
 
 
-class DefaultModelSelection(BaseModel):
-    catalog_ref: str = Field(..., min_length=1, max_length=500)
-    model_name: str = Field(..., min_length=1, max_length=200)
-    model_provider: str = Field(..., min_length=1, max_length=120)
-    display_name: str = Field(..., min_length=1, max_length=200)
+class WorkspaceModelSubsetRead(BaseModel):
+    inherit_all: bool = Field(default=True)
+    models: list[ModelSelection] = Field(default_factory=list)
 
 
-class DefaultModelSelectionUpdate(BaseModel):
-    catalog_ref: str = Field(..., min_length=1, max_length=500)
+class WorkspaceModelSubsetUpdate(BaseModel):
+    inherit_all: bool = Field(default=True)
+    models: list[ModelSelection] = Field(default_factory=list, max_length=200)
 
 
-class DefaultModelInventoryRead(BaseModel):
-    source_type: ModelSourceType = Field(default=ModelSourceType.DEFAULT_SIDECAR)
-    source_name: str = Field(default="Default models")
-    discovery_status: ModelDiscoveryStatus
-    last_refreshed_at: datetime | None = None
-    last_error: str | None = None
-    discovered_models: list[ModelCatalogEntry] = Field(default_factory=list)
+class DefaultModelSelection(ModelSelection):
+    source_type: str | None = Field(default=None, min_length=1, max_length=120)
+    source_name: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class DefaultModelSelectionUpdate(ModelSelection):
+    pass
 
 
 class BuiltInProviderRead(BaseModel):
@@ -389,9 +393,7 @@ class AgentConfigSchema(BaseModel):
 
     model_name: str
     model_provider: str
-    model_catalog_ref: str | None = None
-    model_source_type: str | None = None
-    model_source_id: uuid.UUID | None = None
+    source_id: uuid.UUID | None = None
     base_url: str | None = None
     instructions: str | None = None
     output_type: Any | None = None

@@ -1595,10 +1595,10 @@ class PlatformSetting(Base, TimestampMixin):
     )
 
 
-class AgentModelSource(OrganizationModel):
-    """Organization-scoped model source configuration."""
+class AgentSource(OrganizationModel):
+    """Organization-scoped custom source configuration."""
 
-    __tablename__ = "agent_model_sources"
+    __tablename__ = "agent_custom_sources"
     __table_args__ = (UniqueConstraint("organization_id", "id"),)
 
     organization_id: Mapped[OrganizationID] = mapped_column(
@@ -1613,8 +1613,8 @@ class AgentModelSource(OrganizationModel):
         unique=True,
         index=True,
     )
-    type: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    model_provider: Mapped[str | None] = mapped_column(String(120), nullable=True)
     base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     encrypted_config: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     api_key_header: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -1632,34 +1632,38 @@ class AgentModelSource(OrganizationModel):
     declared_models: Mapped[list[dict[str, Any]] | None] = mapped_column(
         JSONB,
         nullable=True,
-        doc="Manual model declarations for manual_custom sources.",
+        doc="Manual or declared model entries associated with this custom source.",
     )
 
-    discovered_models: Mapped[list[AgentDiscoveredModel]] = relationship(
-        "AgentDiscoveredModel",
+    catalog_rows: Mapped[list[AgentCatalog]] = relationship(
+        "AgentCatalog",
         back_populates="source",
         cascade="all, delete-orphan",
     )
 
 
-class AgentDiscoveredModel(Base, TimestampMixin):
-    """Normalized discovered model catalog entries."""
+class AgentCatalog(Base, TimestampMixin):
+    """Normalized agent catalog entries."""
 
-    __tablename__ = "agent_discovered_models"
+    __tablename__ = "agent_catalog"
     __table_args__ = (
-        Index("ix_agent_discovered_models_source_id", "source_id"),
         Index(
-            "uq_agent_discovered_models_catalog_ref_global",
-            "catalog_ref",
-            unique=True,
-            postgresql_where=text("organization_id IS NULL"),
+            "ix_agent_catalog_organization_id_source_id",
+            "organization_id",
+            "source_id",
         ),
         Index(
-            "uq_agent_discovered_models_organization_id_catalog_ref",
-            "organization_id",
-            "catalog_ref",
+            "uq_agent_catalog_source_id_model_provider_model_name",
+            "source_id",
+            "model_provider",
+            "model_name",
             unique=True,
-            postgresql_where=text("organization_id IS NOT NULL"),
+            postgresql_nulls_not_distinct=True,
+        ),
+        CheckConstraint(
+            "(source_id IS NULL AND organization_id IS NULL) "
+            "OR (source_id IS NOT NULL AND organization_id IS NOT NULL)",
+            name="ck_agent_catalog_scope",
         ),
     )
 
@@ -1672,38 +1676,41 @@ class AgentDiscoveredModel(Base, TimestampMixin):
     )
     source_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
-        ForeignKey("agent_model_sources.id", ondelete="CASCADE"),
+        ForeignKey("agent_custom_sources.id", ondelete="CASCADE"),
         nullable=True,
     )
-    source_type: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
-    source_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    catalog_ref: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
-    model_name: Mapped[str] = mapped_column(String(200), nullable=False)
     model_provider: Mapped[str] = mapped_column(String(120), nullable=False)
-    runtime_provider: Mapped[str] = mapped_column(String(120), nullable=False)
-    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    raw_model_id: Mapped[str] = mapped_column(String(500), nullable=False)
-    base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    model_name: Mapped[str] = mapped_column(String(500), nullable=False)
     model_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     last_refreshed_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
 
-    source: Mapped[AgentModelSource | None] = relationship(
-        "AgentModelSource", back_populates="discovered_models"
+    source: Mapped[AgentSource | None] = relationship(
+        "AgentSource", back_populates="catalog_rows"
     )
 
 
 class AgentEnabledModel(OrganizationModel):
-    """Organization-enabled subset of the discovered model catalog."""
+    """Organization- and workspace-scoped enabled subset of the agent catalog."""
 
     __tablename__ = "agent_enabled_models"
-    __table_args__ = (UniqueConstraint("organization_id", "catalog_ref"),)
-
-    organization_id: Mapped[OrganizationID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="CASCADE"),
-        nullable=False,
+    __table_args__ = (
+        CheckConstraint(
+            "workspace_id IS NULL OR enabled_config IS NULL",
+            name="ck_agent_enabled_models_workspace_config",
+        ),
+        Index("ix_agent_enabled_models_workspace_id", "workspace_id"),
+        Index(
+            "uq_agent_enabled_models_identity",
+            "organization_id",
+            "workspace_id",
+            "source_id",
+            "model_provider",
+            "model_name",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
     )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -1712,19 +1719,29 @@ class AgentEnabledModel(OrganizationModel):
         unique=True,
         index=True,
     )
-    catalog_ref: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
-    source_id: Mapped[uuid.UUID | None] = mapped_column(
+    organization_id: Mapped[OrganizationID] = mapped_column(
         UUID,
-        ForeignKey("agent_model_sources.id", ondelete="SET NULL"),
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workspace_id: Mapped[WorkspaceID | None] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=True,
     )
-    source_type: Mapped[str] = mapped_column(String(120), nullable=False)
-    model_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_custom_sources.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     model_provider: Mapped[str] = mapped_column(String(120), nullable=False)
-    runtime_provider: Mapped[str] = mapped_column(String(120), nullable=False)
-    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    model_name: Mapped[str] = mapped_column(String(500), nullable=False)
     enabled_config: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+
+AgentModelSource = AgentSource
+AgentDiscoveredModel = AgentCatalog
 
 
 class Table(WorkspaceModel):
@@ -2620,11 +2637,22 @@ class AgentSession(WorkspaceModel):
         nullable=True,
         doc="Pinned agent preset version used for this session (if any)",
     )
-    model_catalog_ref: Mapped[str | None] = mapped_column(
-        String(500),
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_custom_sources.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
-        doc="Enabled model catalog reference used when this session runs without a preset.",
+        doc="Optional custom source for the explicit model selected on this session.",
+    )
+    model_name: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        doc="Model name used when this session runs without a preset.",
+    )
+    model_provider: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+        doc="Provider used when this session runs without a preset.",
     )
     # Agent harness fields
     harness_type: Mapped[str | None] = mapped_column(
@@ -3168,17 +3196,18 @@ class AgentPreset(WorkspaceModel):
         nullable=True,
         doc="System instructions for the agent",
     )
-    model_catalog_ref: Mapped[str | None] = mapped_column(
-        String(500),
-        nullable=True,
-        index=True,
-        doc="Stable catalog reference used to resolve model routing and validation.",
-    )
     model_name: Mapped[str] = mapped_column(
-        String(120), nullable=False, doc="Model name used for execution"
+        String(500), nullable=False, doc="Model name used for execution"
     )
     model_provider: Mapped[str] = mapped_column(
         String(120), nullable=False, doc="LLM provider identifier"
+    )
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_custom_sources.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Optional custom source used to resolve model routing.",
     )
     base_url: Mapped[str | None] = mapped_column(
         String(500),
@@ -3273,16 +3302,17 @@ class AgentPresetVersion(WorkspaceModel):
         doc="System instructions for the agent",
     )
     model_name: Mapped[str] = mapped_column(
-        String(120), nullable=False, doc="Model name used for execution"
+        String(500), nullable=False, doc="Model name used for execution"
     )
     model_provider: Mapped[str] = mapped_column(
         String(120), nullable=False, doc="LLM provider identifier"
     )
-    model_catalog_ref: Mapped[str | None] = mapped_column(
-        String(500),
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_custom_sources.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
-        doc="Optional enabled catalog reference used for execution",
+        doc="Optional custom source used to resolve model routing.",
     )
     base_url: Mapped[str | None] = mapped_column(
         String(500),

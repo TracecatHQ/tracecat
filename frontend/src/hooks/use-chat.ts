@@ -38,7 +38,9 @@ type UpdateableChatRecord =
   | AgentSessionsListSessionsResponse[number]
 
 type SessionModelSelectionFields = {
-  model_catalog_ref?: string | null
+  source_id?: string | null
+  model_name?: string | null
+  model_provider?: string | null
 }
 
 type AgentSessionCreateWithModelSelection = AgentSessionCreate &
@@ -56,10 +58,24 @@ type UpdateChatContext = {
   >
 }
 
+function normalizeSelectionFields(
+  fields: SessionModelSelectionFields
+): Pick<
+  SessionModelSelectionFields,
+  "source_id" | "model_name" | "model_provider"
+> {
+  return {
+    source_id: fields.source_id ?? undefined,
+    model_name: fields.model_name ?? undefined,
+    model_provider: fields.model_provider ?? undefined,
+  }
+}
+
 function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
   chat: T,
   update: AgentSessionUpdateWithModelSelection
 ): T {
+  const normalizedSelection = normalizeSelectionFields(update)
   const updatedChat: UpdateableChatRecordWithModelSelection = {
     ...(chat as UpdateableChatRecordWithModelSelection),
     updated_at: new Date().toISOString(),
@@ -71,8 +87,14 @@ function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
     ...(update.agent_preset_version_id !== undefined
       ? { agent_preset_version_id: update.agent_preset_version_id }
       : {}),
-    ...(update.model_catalog_ref !== undefined
-      ? { model_catalog_ref: update.model_catalog_ref }
+    ...(normalizedSelection.source_id !== undefined
+      ? { source_id: normalizedSelection.source_id ?? null }
+      : {}),
+    ...(normalizedSelection.model_name !== undefined
+      ? { model_name: normalizedSelection.model_name ?? null }
+      : {}),
+    ...(normalizedSelection.model_provider !== undefined
+      ? { model_provider: normalizedSelection.model_provider ?? null }
       : {}),
     ...("harness_type" in chat && update.harness_type !== undefined
       ? { harness_type: update.harness_type }
@@ -145,7 +167,10 @@ export function useCreateChat(workspaceId: string) {
   >({
     mutationFn: (request: AgentSessionCreateWithModelSelection) =>
       agentSessionsCreateSession({
-        requestBody: request as AgentSessionCreate,
+        requestBody: {
+          ...request,
+          ...normalizeSelectionFields(request),
+        } as AgentSessionCreate,
         workspaceId,
       }),
     onSuccess: () => {
@@ -236,7 +261,10 @@ export function useUpdateChat(workspaceId: string) {
       agentSessionsUpdateSession({
         sessionId: chatId,
         workspaceId,
-        requestBody: update as AgentSessionUpdate,
+        requestBody: {
+          ...update,
+          ...normalizeSelectionFields(update),
+        } as AgentSessionUpdate,
       }),
     onMutate: async ({ chatId, update }) => {
       await Promise.all([

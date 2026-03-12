@@ -10,7 +10,9 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
-_LEGACY_AGENT_CONFIG_KEYS = frozenset({"deps_type", "custom_tools"})
+_LEGACY_AGENT_CONFIG_KEYS = frozenset(
+    {"deps_type", "custom_tools", "model_source_type"}
+)
 
 
 def _normalize_legacy_mcp_server_payload(value: Any) -> Any:
@@ -88,6 +90,7 @@ class AgentConfigPayload(BaseModel):
 
     model_name: str
     model_provider: str
+    source_id: str | None = Field(default=None)
     base_url: str | None = Field(default=None)
     instructions: str | None = Field(default=None)
     output_type: str | dict[str, Any] | None = Field(default=None)

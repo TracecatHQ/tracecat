@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -47,7 +48,7 @@ class PresetCreateRequest(BaseModel):
     model_name: PresetModelField
     model_provider: PresetModelField
     slug: PresetSlug | None = None
-    model_catalog_ref: str | None = Field(default=None, min_length=1, max_length=500)
+    source_id: uuid.UUID | None = Field(default=None)
     description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
     base_url: str | None = Field(default=None, max_length=500)
@@ -64,7 +65,7 @@ class PresetUpdateRequest(BaseModel):
     instructions: str | None = Field(default=None)
     model_name: PresetModelField | None = None
     model_provider: PresetModelField | None = None
-    model_catalog_ref: str | None = Field(default=None, min_length=1, max_length=500)
+    source_id: uuid.UUID | None = Field(default=None)
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)

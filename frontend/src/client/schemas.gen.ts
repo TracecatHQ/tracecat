@@ -1455,28 +1455,27 @@ export const $AgentPresetCreate = {
     },
     model_name: {
       type: "string",
-      maxLength: 120,
+      maxLength: 500,
       minLength: 1,
       title: "Model Name",
     },
     model_provider: {
       type: "string",
-      maxLength: 120,
+      maxLength: 500,
       minLength: 1,
       title: "Model Provider",
     },
-    model_catalog_ref: {
+    source_id: {
       anyOf: [
         {
           type: "string",
-          maxLength: 500,
-          minLength: 1,
+          format: "uuid",
         },
         {
           type: "null",
         },
       ],
-      title: "Model Catalog Ref",
+      title: "Source Id",
     },
     base_url: {
       anyOf: [
@@ -1620,26 +1619,25 @@ export const $AgentPresetRead = {
     },
     model_name: {
       type: "string",
-      maxLength: 120,
+      maxLength: 500,
       title: "Model Name",
     },
     model_provider: {
       type: "string",
-      maxLength: 120,
+      maxLength: 500,
       title: "Model Provider",
     },
-    model_catalog_ref: {
+    source_id: {
       anyOf: [
         {
           type: "string",
-          maxLength: 500,
-          minLength: 1,
+          format: "uuid",
         },
         {
           type: "null",
         },
       ],
-      title: "Model Catalog Ref",
+      title: "Source Id",
     },
     base_url: {
       anyOf: [
@@ -1921,7 +1919,7 @@ export const $AgentPresetUpdate = {
       anyOf: [
         {
           type: "string",
-          maxLength: 120,
+          maxLength: 500,
           minLength: 1,
         },
         {
@@ -1934,7 +1932,7 @@ export const $AgentPresetUpdate = {
       anyOf: [
         {
           type: "string",
-          maxLength: 120,
+          maxLength: 500,
           minLength: 1,
         },
         {
@@ -1943,18 +1941,17 @@ export const $AgentPresetUpdate = {
       ],
       title: "Model Provider",
     },
-    model_catalog_ref: {
+    source_id: {
       anyOf: [
         {
           type: "string",
-          maxLength: 500,
-          minLength: 1,
+          format: "uuid",
         },
         {
           type: "null",
         },
       ],
-      title: "Model Catalog Ref",
+      title: "Source Id",
     },
     base_url: {
       anyOf: [
@@ -2163,26 +2160,25 @@ export const $AgentPresetVersionRead = {
     },
     model_name: {
       type: "string",
-      maxLength: 120,
+      maxLength: 500,
       title: "Model Name",
     },
     model_provider: {
       type: "string",
-      maxLength: 120,
+      maxLength: 500,
       title: "Model Provider",
     },
-    model_catalog_ref: {
+    source_id: {
       anyOf: [
         {
           type: "string",
-          maxLength: 500,
-          minLength: 1,
+          format: "uuid",
         },
         {
           type: "null",
         },
       ],
-      title: "Model Catalog Ref",
+      title: "Source Id",
     },
     base_url: {
       anyOf: [
@@ -2333,26 +2329,25 @@ export const $AgentPresetVersionReadMinimal = {
     },
     model_name: {
       type: "string",
-      maxLength: 120,
+      maxLength: 500,
       title: "Model Name",
     },
     model_provider: {
       type: "string",
-      maxLength: 120,
+      maxLength: 500,
       title: "Model Provider",
     },
-    model_catalog_ref: {
+    source_id: {
       anyOf: [
         {
           type: "string",
-          maxLength: 500,
-          minLength: 1,
+          format: "uuid",
         },
         {
           type: "null",
         },
       ],
-      title: "Model Catalog Ref",
+      title: "Source Id",
     },
     base_url: {
       anyOf: [
@@ -2576,7 +2571,19 @@ export const $AgentSessionCreate = {
       title: "Agent Preset Version Id",
       description: "Pinned preset version used for this session (if any)",
     },
-    model_catalog_ref: {
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+    },
+    model_name: {
       anyOf: [
         {
           type: "string",
@@ -2587,9 +2594,20 @@ export const $AgentSessionCreate = {
           type: "null",
         },
       ],
-      title: "Model Catalog Ref",
-      description:
-        "Enabled model catalog reference used when no preset is selected.",
+      title: "Model Name",
+    },
+    model_provider: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Provider",
     },
     harness_type: {
       $ref: "#/components/schemas/HarnessType",
@@ -2734,7 +2752,19 @@ export const $AgentSessionRead = {
       ],
       title: "Agent Preset Version Id",
     },
-    model_catalog_ref: {
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+    },
+    model_name: {
       anyOf: [
         {
           type: "string",
@@ -2743,7 +2773,18 @@ export const $AgentSessionRead = {
           type: "null",
         },
       ],
-      title: "Model Catalog Ref",
+      title: "Model Name",
+    },
+    model_provider: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Provider",
     },
     harness_type: {
       anyOf: [
@@ -2802,7 +2843,9 @@ export const $AgentSessionRead = {
     "tools",
     "agent_preset_id",
     "agent_preset_version_id",
-    "model_catalog_ref",
+    "source_id",
+    "model_name",
+    "model_provider",
     "harness_type",
     "created_at",
     "updated_at",
@@ -2898,7 +2941,19 @@ export const $AgentSessionReadVercel = {
       ],
       title: "Agent Preset Version Id",
     },
-    model_catalog_ref: {
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+    },
+    model_name: {
       anyOf: [
         {
           type: "string",
@@ -2907,7 +2962,18 @@ export const $AgentSessionReadVercel = {
           type: "null",
         },
       ],
-      title: "Model Catalog Ref",
+      title: "Model Name",
+    },
+    model_provider: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Provider",
     },
     harness_type: {
       anyOf: [
@@ -2974,7 +3040,9 @@ export const $AgentSessionReadVercel = {
     "tools",
     "agent_preset_id",
     "agent_preset_version_id",
-    "model_catalog_ref",
+    "source_id",
+    "model_name",
+    "model_provider",
     "harness_type",
     "created_at",
     "updated_at",
@@ -3070,7 +3138,19 @@ export const $AgentSessionReadWithMessages = {
       ],
       title: "Agent Preset Version Id",
     },
-    model_catalog_ref: {
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+    },
+    model_name: {
       anyOf: [
         {
           type: "string",
@@ -3079,7 +3159,18 @@ export const $AgentSessionReadWithMessages = {
           type: "null",
         },
       ],
-      title: "Model Catalog Ref",
+      title: "Model Name",
+    },
+    model_provider: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Provider",
     },
     harness_type: {
       anyOf: [
@@ -3144,7 +3235,9 @@ export const $AgentSessionReadWithMessages = {
     "tools",
     "agent_preset_id",
     "agent_preset_version_id",
-    "model_catalog_ref",
+    "source_id",
+    "model_name",
+    "model_provider",
     "harness_type",
     "created_at",
     "updated_at",
@@ -3211,7 +3304,19 @@ export const $AgentSessionUpdate = {
       title: "Agent Preset Version Id",
       description: "Pinned preset version to use for this session",
     },
-    model_catalog_ref: {
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+    },
+    model_name: {
       anyOf: [
         {
           type: "string",
@@ -3222,9 +3327,20 @@ export const $AgentSessionUpdate = {
           type: "null",
         },
       ],
-      title: "Model Catalog Ref",
-      description:
-        "Enabled model catalog reference to use when no preset is selected.",
+      title: "Model Name",
+    },
+    model_provider: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Provider",
     },
     harness_type: {
       anyOf: [
@@ -4655,43 +4771,42 @@ export const $Body_workflows_create_workflow = {
 
 export const $BuiltInCatalogEntry = {
   properties: {
-    catalog_ref: {
-      type: "string",
-      maxLength: 500,
-      minLength: 1,
-      title: "Catalog Ref",
-    },
-    model_name: {
-      type: "string",
-      maxLength: 200,
-      minLength: 1,
-      title: "Model Name",
-    },
     model_provider: {
       type: "string",
       maxLength: 120,
       minLength: 1,
       title: "Model Provider",
     },
-    runtime_provider: {
+    model_name: {
       type: "string",
-      maxLength: 120,
+      maxLength: 500,
       minLength: 1,
-      title: "Runtime Provider",
-    },
-    display_name: {
-      type: "string",
-      maxLength: 200,
-      minLength: 1,
-      title: "Display Name",
+      title: "Model Name",
     },
     source_type: {
-      $ref: "#/components/schemas/ModelSourceType",
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Type",
     },
     source_name: {
-      type: "string",
-      maxLength: 200,
-      minLength: 1,
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 200,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Source Name",
     },
     source_id: {
@@ -4836,15 +4951,7 @@ export const $BuiltInCatalogEntry = {
     },
   },
   type: "object",
-  required: [
-    "catalog_ref",
-    "model_name",
-    "model_provider",
-    "runtime_provider",
-    "display_name",
-    "source_type",
-    "source_name",
-  ],
+  required: ["model_provider", "model_name"],
   title: "BuiltInCatalogEntry",
 } as const
 
@@ -4853,12 +4960,12 @@ export const $BuiltInCatalogRead = {
     source_type: {
       type: "string",
       title: "Source Type",
-      default: "builtin_catalog",
+      default: "platform_catalog",
     },
     source_name: {
       type: "string",
       title: "Source Name",
-      default: "Built-in catalog",
+      default: "Platform catalog",
     },
     discovery_status: {
       $ref: "#/components/schemas/ModelDiscoveryStatus",
@@ -9897,69 +10004,19 @@ export const $DataUIPart = {
   description: "A custom data part, where type matches 'data-...'.",
 } as const
 
-export const $DefaultModelInventoryRead = {
-  properties: {
-    source_type: {
-      $ref: "#/components/schemas/ModelSourceType",
-      default: "default_sidecar",
-    },
-    source_name: {
-      type: "string",
-      title: "Source Name",
-      default: "Default models",
-    },
-    discovery_status: {
-      $ref: "#/components/schemas/ModelDiscoveryStatus",
-    },
-    last_refreshed_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Last Refreshed At",
-    },
-    last_error: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Last Error",
-    },
-    discovered_models: {
-      items: {
-        $ref: "#/components/schemas/ModelCatalogEntry",
-      },
-      type: "array",
-      title: "Discovered Models",
-    },
-  },
-  type: "object",
-  required: ["discovery_status"],
-  title: "DefaultModelInventoryRead",
-} as const
-
 export const $DefaultModelSelection = {
   properties: {
-    catalog_ref: {
-      type: "string",
-      maxLength: 500,
-      minLength: 1,
-      title: "Catalog Ref",
-    },
-    model_name: {
-      type: "string",
-      maxLength: 200,
-      minLength: 1,
-      title: "Model Name",
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
     },
     model_provider: {
       type: "string",
@@ -9967,29 +10024,73 @@ export const $DefaultModelSelection = {
       minLength: 1,
       title: "Model Provider",
     },
-    display_name: {
+    model_name: {
       type: "string",
-      maxLength: 200,
+      maxLength: 500,
       minLength: 1,
-      title: "Display Name",
+      title: "Model Name",
+    },
+    source_type: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Type",
+    },
+    source_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 200,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Name",
     },
   },
   type: "object",
-  required: ["catalog_ref", "model_name", "model_provider", "display_name"],
+  required: ["model_provider", "model_name"],
   title: "DefaultModelSelection",
 } as const
 
 export const $DefaultModelSelectionUpdate = {
   properties: {
-    catalog_ref: {
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    model_name: {
       type: "string",
       maxLength: 500,
       minLength: 1,
-      title: "Catalog Ref",
+      title: "Model Name",
     },
   },
   type: "object",
-  required: ["catalog_ref"],
+  required: ["model_provider", "model_name"],
   title: "DefaultModelSelectionUpdate",
 } as const
 
@@ -10524,15 +10625,33 @@ Values are resolved from org overrides falling back to tier defaults.`,
 
 export const $EnabledModelOperation = {
   properties: {
-    catalog_ref: {
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    model_name: {
       type: "string",
       maxLength: 500,
       minLength: 1,
-      title: "Catalog Ref",
+      title: "Model Name",
     },
   },
   type: "object",
-  required: ["catalog_ref"],
+  required: ["model_provider", "model_name"],
   title: "EnabledModelOperation",
 } as const
 
@@ -10558,35 +10677,53 @@ export const $EnabledModelRuntimeConfig = {
 
 export const $EnabledModelRuntimeConfigUpdate = {
   properties: {
-    catalog_ref: {
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    model_name: {
       type: "string",
       maxLength: 500,
       minLength: 1,
-      title: "Catalog Ref",
+      title: "Model Name",
     },
     config: {
       $ref: "#/components/schemas/EnabledModelRuntimeConfig",
     },
   },
   type: "object",
-  required: ["catalog_ref"],
+  required: ["model_provider", "model_name"],
   title: "EnabledModelRuntimeConfigUpdate",
 } as const
 
 export const $EnabledModelsBatchOperation = {
   properties: {
-    catalog_refs: {
+    models: {
       items: {
-        type: "string",
+        $ref: "#/components/schemas/ModelSelection",
       },
       type: "array",
       maxItems: 200,
       minItems: 1,
-      title: "Catalog Refs",
+      title: "Models",
     },
   },
   type: "object",
-  required: ["catalog_refs"],
+  required: ["models"],
   title: "EnabledModelsBatchOperation",
 } as const
 
@@ -13725,43 +13862,42 @@ export const $MessageKind = {
 
 export const $ModelCatalogEntry = {
   properties: {
-    catalog_ref: {
-      type: "string",
-      maxLength: 500,
-      minLength: 1,
-      title: "Catalog Ref",
-    },
-    model_name: {
-      type: "string",
-      maxLength: 200,
-      minLength: 1,
-      title: "Model Name",
-    },
     model_provider: {
       type: "string",
       maxLength: 120,
       minLength: 1,
       title: "Model Provider",
     },
-    runtime_provider: {
+    model_name: {
       type: "string",
-      maxLength: 120,
+      maxLength: 500,
       minLength: 1,
-      title: "Runtime Provider",
-    },
-    display_name: {
-      type: "string",
-      maxLength: 200,
-      minLength: 1,
-      title: "Display Name",
+      title: "Model Name",
     },
     source_type: {
-      $ref: "#/components/schemas/ModelSourceType",
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Type",
     },
     source_name: {
-      type: "string",
-      maxLength: 200,
-      minLength: 1,
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 200,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Source Name",
     },
     source_id: {
@@ -13829,15 +13965,7 @@ export const $ModelCatalogEntry = {
     },
   },
   type: "object",
-  required: [
-    "catalog_ref",
-    "model_name",
-    "model_provider",
-    "runtime_provider",
-    "display_name",
-    "source_type",
-    "source_name",
-  ],
+  required: ["model_provider", "model_name"],
   title: "ModelCatalogEntry",
 } as const
 
@@ -13887,10 +14015,41 @@ export const $ModelDiscoveryStatus = {
   title: "ModelDiscoveryStatus",
 } as const
 
+export const $ModelSelection = {
+  properties: {
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Model Name",
+    },
+  },
+  type: "object",
+  required: ["model_provider", "model_name"],
+  title: "ModelSelection",
+} as const
+
 export const $ModelSourceType = {
   type: "string",
   enum: [
-    "default_sidecar",
     "openai_compatible_gateway",
     "manual_custom",
     "openai",
@@ -15245,6 +15404,95 @@ export const $PayloadChangedEventRead = {
   required: ["created_at"],
   title: "PayloadChangedEventRead",
   description: "Event for when a case payload is changed.",
+} as const
+
+export const $PlatformCatalogEntry = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Model Name",
+    },
+    metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metadata",
+    },
+  },
+  type: "object",
+  required: ["id", "model_provider", "model_name"],
+  title: "PlatformCatalogEntry",
+} as const
+
+export const $PlatformCatalogRead = {
+  properties: {
+    discovery_status: {
+      $ref: "#/components/schemas/ModelDiscoveryStatus",
+    },
+    last_refreshed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Refreshed At",
+    },
+    last_error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Error",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+    models: {
+      items: {
+        $ref: "#/components/schemas/PlatformCatalogEntry",
+      },
+      type: "array",
+      title: "Models",
+    },
+  },
+  type: "object",
+  required: ["discovery_status"],
+  title: "PlatformCatalogRead",
 } as const
 
 export const $PlatformRegistrySettingsRead = {
@@ -26577,6 +26825,45 @@ export const $WorkspaceMembershipRead = {
   title: "WorkspaceMembershipRead",
 } as const
 
+export const $WorkspaceModelSubsetRead = {
+  properties: {
+    inherit_all: {
+      type: "boolean",
+      title: "Inherit All",
+      default: true,
+    },
+    models: {
+      items: {
+        $ref: "#/components/schemas/ModelSelection",
+      },
+      type: "array",
+      title: "Models",
+    },
+  },
+  type: "object",
+  title: "WorkspaceModelSubsetRead",
+} as const
+
+export const $WorkspaceModelSubsetUpdate = {
+  properties: {
+    inherit_all: {
+      type: "boolean",
+      title: "Inherit All",
+      default: true,
+    },
+    models: {
+      items: {
+        $ref: "#/components/schemas/ModelSelection",
+      },
+      type: "array",
+      maxItems: 200,
+      title: "Models",
+    },
+  },
+  type: "object",
+  title: "WorkspaceModelSubsetUpdate",
+} as const
+
 export const $WorkspaceRead = {
   properties: {
     id: {
@@ -26700,20 +26987,6 @@ export const $WorkspaceSettingsRead = {
       ],
       title: "Validate Attachment Magic Number",
     },
-    agent_enabled_model_refs: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Agent Enabled Model Refs",
-    },
     effective_allowed_attachment_extensions: {
       items: {
         type: "string",
@@ -26827,22 +27100,6 @@ export const $WorkspaceSettingsUpdate = {
       title: "Validate Attachment Magic Number",
       description:
         "Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
-    },
-    agent_enabled_model_refs: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Agent Enabled Model Refs",
-      description:
-        "Optional workspace-level subset of organization-enabled agent model catalog refs. When omitted, the workspace inherits the full organization-enabled catalog.",
     },
   },
   type: "object",
