@@ -1,7 +1,7 @@
 """remove legacy org scoped builtin registry repository
 
 Revision ID: 0a1e3100a432
-Revises: 6171727be56a
+Revises: cd84c08340a5
 Create Date: 2026-03-11 18:26:36.376624
 
 """
