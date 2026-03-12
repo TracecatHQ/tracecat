@@ -6,14 +6,16 @@ import { Card, Columns } from "/snippets/components.mdx";
 
 Tracecat helps security teams automate work and secure agents.
 
-## Automating work
+## Automating security work
+
+The AI-native security automation platform.
 
 <Columns cols={2}>
   <Card title="Automations" icon="workflow" href="/automations/overview">
     Turn prompts into workflows, triggers, and tables via Tracecat MCP.
   </Card>
   <Card title="Agents" icon="sparkles" href="/agents/ai-agent">
-    Build AI assistants that call tools and 3rd-party MCPs to solve complex tasks.
+    Build custom AI agents that call tools and MCP (stdio, remote) servers.
   </Card>
   <Card title="Cases" icon="layers" href="/agents/ai-agent">
     Resolve work items with agents and workflows.
@@ -23,16 +25,26 @@ Tracecat helps security teams automate work and secure agents.
   </Card>
 </Columns>
 
-## Securing agents
+## Securing agents at scale
+
+> 🔒 Available in the Enterprise plan. Learn more at [https://tracecat.com/enterprise](https://tracecat.com/enterprise).
+
+Protect your organization's agent rollout with the same security features as Tracecat automation.
 
 <Columns cols={2}>
-  <Card title="Monitor local agents" icon="eye" href="/automations/overview">
-    Turn prompts into workflows, triggers, and tables via Tracecat MCP.
+  <Card title="Agent control plane" icon="server" href="/automations/overview" disabled>
+    Connect local agents to any tool, MCP server, workflow, or agent in Tracecat.
   </Card>
-  <Card title="Monitor local agents" icon="eye" href="/automations/overview">
-    Turn prompts into workflows, triggers, and tables via Tracecat MCP.
+  <Card title="Deploy MCP servers" icon="boxes" href="/automations/overview" disabled>
+    Host your own sandboxed MCP server in Tracecat.
   </Card>
-  <Card title="MCP gateway" icon="shield-check" href="/automations/overview">
-
+  <Card title="Monitor agents" icon="eye" href="/automations/overview" disabled>
+    Monitor agent tool calls and activity across all connected agents (Claude Code, Cursor, OpenAI Codex).
+  </Card>
+  <Card title="Detections" icon="brick-wall-shield" href="/automations/overview" disabled>
+    Detect and block malicious tool calls with pre-built and custom rules.
+  </Card>
+  <Card title="Human-in-the-loop" icon="shield-check" href="/automations/overview" disabled>
+    Approve or reject agent tools calls from within Tracecat UI, Slack, or Microsoft Teams.
   </Card>
 </Columns>
