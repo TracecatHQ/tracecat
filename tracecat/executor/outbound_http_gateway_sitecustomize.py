@@ -160,6 +160,8 @@ def _resolve_timeout_ms(value: object) -> int | None:
         return max(int(float(total) * 1000), 0)
     connect = getattr(value, "connect", None)
     read = getattr(value, "read", None)
+    if total is None and connect is None and read is None:
+        return None
     if isinstance(connect, (int, float)) or isinstance(read, (int, float)):
         numeric_values = [
             float(item) for item in (connect, read) if isinstance(item, (int, float))

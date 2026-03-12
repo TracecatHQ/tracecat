@@ -81,6 +81,20 @@ def test_resolve_timeout_ms_rejects_unsupported_timeout_objects() -> None:
         )
 
 
+def test_resolve_timeout_ms_returns_none_for_disabled_timeout_objects() -> None:
+    class DisabledTimeout:
+        total = None
+        connect = None
+        read = None
+
+    assert (
+        outbound_http_gateway_sitecustomize_module._resolve_timeout_ms(
+            DisabledTimeout()
+        )
+        is None
+    )
+
+
 @contextmanager
 def _mock_gateway() -> Any:
     """Start a local HTTP server that mimics the outbound HTTP gateway.
