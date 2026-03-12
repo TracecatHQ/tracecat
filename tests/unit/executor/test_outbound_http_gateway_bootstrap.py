@@ -316,6 +316,32 @@ async def main():
 asyncio.run(main())
 """
 
+_AIOHTTP_SESSION_AUTH_SCRIPT = """\
+import asyncio, json, aiohttp
+
+async def main():
+    auth = aiohttp.BasicAuth('alice', 'wonderland')
+    async with aiohttp.ClientSession(auth=auth) as session:
+        async with session.get('https://example.com/auth') as response:
+            payload = await response.json()
+            print(json.dumps({'status': response.status, 'body': payload}))
+
+asyncio.run(main())
+"""
+
+_AIOHTTP_REQUEST_AUTH_SCRIPT = """\
+import asyncio, json, aiohttp
+
+async def main():
+    async with aiohttp.ClientSession() as session:
+        auth = aiohttp.BasicAuth('alice', 'wonderland')
+        async with session.get('https://example.com/auth', auth=auth) as response:
+            payload = await response.json()
+            print(json.dumps({'status': response.status, 'body': payload}))
+
+asyncio.run(main())
+"""
+
 _URLLIB_HTTP_ERROR_SCRIPT = """\
 import json, urllib.error, urllib.request
 try:
@@ -436,6 +462,25 @@ def test_bootstrap_applies_httpx_send_auth(script: str) -> None:
         "payload"
     ]["headers"].get("authorization")
     assert auth_header == ("Basic YWxpY2U6d29uZGVybGFuZA==")
+
+
+@pytest.mark.parametrize(
+    "script",
+    [_AIOHTTP_SESSION_AUTH_SCRIPT, _AIOHTTP_REQUEST_AUTH_SCRIPT],
+)
+def test_bootstrap_applies_aiohttp_auth(script: str) -> None:
+    """aiohttp auth helpers should preserve Authorization headers under interception."""
+    with _mock_gateway() as (gateway_url, state):
+        completed = _run_script(script, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout.strip())
+    assert payload == {"status": 200, "body": {"ok": True}}
+    [request] = state["requests"]
+    auth_header = request["payload"]["headers"].get("Authorization") or request[
+        "payload"
+    ]["headers"].get("authorization")
+    assert auth_header == "Basic YWxpY2U6d29uZGVybGFuZA=="
 
 
 def test_bootstrap_preserves_requests_session_cookies() -> None:

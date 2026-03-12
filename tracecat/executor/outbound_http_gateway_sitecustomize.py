@@ -502,6 +502,19 @@ async def _finalize_httpx_auth_async(
         await auth_flow.aclose()
 
 
+def _apply_aiohttp_auth(headers: dict[str, str], auth: object | None) -> None:
+    if auth is None:
+        return
+    if "Authorization" in headers or "authorization" in headers:
+        return
+    if hasattr(auth, "encode"):
+        headers["Authorization"] = auth.encode()
+        return
+    raise TracecatOutboundHTTPGatewayError(
+        "Unsupported aiohttp auth configuration with outbound HTTP interception"
+    )
+
+
 def _build_urllib3_response(
     urllib3_module: types.ModuleType,
     envelope: _GatewayDispatchResponse,
@@ -944,6 +957,10 @@ def _patch_aiohttp(aiohttp_module: types.ModuleType) -> None:
         headers = dict(getattr(self, "_default_headers", {}) or {})
         if isinstance(kwargs.get("headers"), Mapping):
             headers.update(kwargs["headers"])
+        auth = (
+            kwargs["auth"] if "auth" in kwargs else getattr(self, "_default_auth", None)
+        )
+        _apply_aiohttp_auth(headers, auth)
         encoded_body, content_type = _encode_body(
             data,
             json_value=kwargs.get("json"),
