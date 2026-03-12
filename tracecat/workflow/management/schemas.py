@@ -56,7 +56,7 @@ class WorkflowRead(Schema):
     @field_validator("outbound_http_interception_enabled", mode="before")
     @classmethod
     def coerce_outbound_http_interception_enabled(cls, value: Any) -> bool:
-        return False if value is None else bool(value)
+        return False if value is None else value
 
 
 class WorkflowDefinitionReadMinimal(Schema):
@@ -107,7 +107,7 @@ class WorkflowReadMinimal(Schema):
     @field_validator("outbound_http_interception_enabled", mode="before")
     @classmethod
     def coerce_outbound_http_interception_enabled(cls, value: Any) -> bool:
-        return False if value is None else bool(value)
+        return False if value is None else value
 
 
 class WorkflowUpdate(BaseModel):

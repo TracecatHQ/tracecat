@@ -12,6 +12,7 @@ from tracecat.auth.types import Role
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.dsl.schemas import RunActionInput, RunContext
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.workflow.management.schemas import WorkflowRead, WorkflowReadMinimal
 
 
 def _role() -> Role:
@@ -119,3 +120,51 @@ def test_mcp_token_claims_defaults_outbound_http_interception_and_entity_metadat
     assert claims.outbound_http_interception_enabled is False
     assert claims.entity_type is None
     assert claims.entity_id is None
+
+
+def test_workflow_read_parses_string_false_for_outbound_http_interception() -> None:
+    wf_id = WorkflowUUID.new_uuid4()
+    workflow = WorkflowRead.model_validate(
+        {
+            "id": wf_id.short(),
+            "title": "Test workflow",
+            "description": "desc",
+            "status": "offline",
+            "actions": {},
+            "workspace_id": str(uuid.uuid4()),
+            "webhook": {
+                "id": str(uuid.uuid4()),
+                "secret": "secret",
+                "status": "offline",
+                "workflow_id": wf_id.short(),
+                "url": "https://example.com/webhook",
+            },
+            "schedules": [],
+            "entrypoint": None,
+            "returns": None,
+            "config": None,
+            "outbound_http_interception_enabled": "false",
+        }
+    )
+
+    assert workflow.outbound_http_interception_enabled is False
+
+
+def test_workflow_read_minimal_parses_string_false_for_outbound_http_interception() -> (
+    None
+):
+    workflow = WorkflowReadMinimal.model_validate(
+        {
+            "id": WorkflowUUID.new_uuid4().short(),
+            "title": "Test workflow",
+            "description": "desc",
+            "status": "offline",
+            "icon_url": None,
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
+            "version": None,
+            "outbound_http_interception_enabled": "false",
+        }
+    )
+
+    assert workflow.outbound_http_interception_enabled is False
