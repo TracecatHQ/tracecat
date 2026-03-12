@@ -74,9 +74,13 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "case_table_row",
     "agent_channel_token",
     "agent_preset_version",
+    "workspace_api_key",
 )
 
-POST_RLS_ORG_SCOPED_TABLES = ("watchtower_agent",)
+POST_RLS_ORG_SCOPED_TABLES = (
+    "watchtower_agent",
+    "organization_api_key",
+)
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "watchtower_agent_session",

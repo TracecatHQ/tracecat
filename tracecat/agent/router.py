@@ -22,6 +22,7 @@ OrganizationAdminUserRole = Annotated[
     RoleACL(
         allow_user=True,
         allow_service=False,
+        allow_api_key=True,
         require_workspace="no",
     ),
 ]
@@ -31,6 +32,7 @@ OrganizationUserRole = Annotated[
     RoleACL(
         allow_user=True,
         allow_service=False,
+        allow_api_key=True,
         require_workspace="no",
     ),
 ]
@@ -40,6 +42,7 @@ WorkspaceUserRole = Annotated[
     RoleACL(
         allow_user=True,
         allow_service=False,
+        allow_api_key=True,
         require_workspace="yes",
     ),
 ]

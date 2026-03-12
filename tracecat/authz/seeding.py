@@ -89,6 +89,30 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "delete",
         "Delete roles, scopes, groups, and assignments",
     ),
+    ScopeDefinition(
+        "org:api_key:read",
+        "org:api_key",
+        "read",
+        "View organization API keys",
+    ),
+    ScopeDefinition(
+        "org:api_key:create",
+        "org:api_key",
+        "create",
+        "Create organization API keys",
+    ),
+    ScopeDefinition(
+        "org:api_key:update",
+        "org:api_key",
+        "update",
+        "Update organization API keys",
+    ),
+    ScopeDefinition(
+        "org:api_key:revoke",
+        "org:api_key",
+        "revoke",
+        "Revoke organization API keys",
+    ),
     # Org settings management
     ScopeDefinition(
         "org:settings:read",
@@ -181,6 +205,30 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "workspace:rbac",
         "manage",
         "Manage workspace role assignments and group permissions",
+    ),
+    ScopeDefinition(
+        "workspace:api_key:read",
+        "workspace:api_key",
+        "read",
+        "View workspace API keys",
+    ),
+    ScopeDefinition(
+        "workspace:api_key:create",
+        "workspace:api_key",
+        "create",
+        "Create workspace API keys",
+    ),
+    ScopeDefinition(
+        "workspace:api_key:update",
+        "workspace:api_key",
+        "update",
+        "Update workspace API keys",
+    ),
+    ScopeDefinition(
+        "workspace:api_key:revoke",
+        "workspace:api_key",
+        "revoke",
+        "Revoke workspace API keys",
     ),
     # Workflow scopes
     ScopeDefinition(

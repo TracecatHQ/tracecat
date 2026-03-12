@@ -184,7 +184,12 @@ class AuditService(BaseService):
             )
 
     async def _get_actor_label(self) -> str | None:
-        if self.role is None or self.role.user_id is None:
+        if self.role is None:
+            return None
+        if getattr(self.role, "type", None) == "api_key":
+            api_key_name = getattr(self.role, "api_key_name", None)
+            return str(api_key_name) if api_key_name is not None else None
+        if self.role.user_id is None:
             return None
         actor_label: str | None = None
         try:
@@ -207,15 +212,20 @@ class AuditService(BaseService):
         actor_label: str | None,
         data: dict[str, Any] | None,
     ) -> AuditEvent:
-        if self.role is None or self.role.user_id is None:
-            raise ValueError("Audit payload requires a user-scoped role")
+        if self.role is None or self.role.actor_id is None:
+            raise ValueError("Audit payload requires an auditable actor")
         organization_id = getattr(self.role, "organization_id", None)
         workspace_id = getattr(self.role, "workspace_id", None)
+        actor_type = (
+            AuditEventActor.API_KEY
+            if getattr(self.role, "type", None) == "api_key"
+            else AuditEventActor.USER
+        )
         return AuditEvent(
             organization_id=organization_id,
             workspace_id=workspace_id,
-            actor_type=AuditEventActor.USER,
-            actor_id=self.role.user_id,
+            actor_type=actor_type,
+            actor_id=self.role.actor_id,
             actor_label=actor_label,
             resource_type=resource_type,
             resource_id=resource_id,
@@ -234,11 +244,9 @@ class AuditService(BaseService):
         status: AuditEventStatus = AuditEventStatus.SUCCESS,
         data: dict[str, Any] | None = None,
     ) -> None:
-        # Skip audit if no role or no user_id (non-user operations)
-        # Note: PlatformRole.user_id is required, Role.user_id is optional
-        if self.role is None or self.role.user_id is None:
+        if self.role is None or getattr(self.role, "actor_id", None) is None:
             self.logger.debug(
-                "Skipping audit log", reason="non_user_role", role=self.role
+                "Skipping audit log", reason="non_auditable_role", role=self.role
             )
             return
 

@@ -5,6 +5,7 @@ class AuditEventActor(StrEnum):
     """Valid actor types for audit logging."""
 
     USER = "USER"
+    API_KEY = "API_KEY"
 
 
 class AuditEventStatus(StrEnum):

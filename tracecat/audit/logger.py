@@ -56,8 +56,7 @@ def audit_log(
         async def wrapper(self: Any, *args: P.args, **kwargs: P.kwargs) -> R:
             role: Role | None = ctx_role.get()
 
-            # Skip audit if we don't have a user role
-            if role is None or role.user_id is None:
+            if role is None or role.actor_id is None:
                 return await func(self, *args, **kwargs)
 
             # Get existing session. Currently only BaseService has a session.

@@ -274,6 +274,8 @@ class OrganizationDomain(Base, TimestampMixin):
         default="platform_admin",
         server_default=text("'platform_admin'"),
     )
+    verification_token: Mapped[str | None] = mapped_column(String(255))
+    verification_record_name: Mapped[str | None] = mapped_column(String(255))
 
     organization: Mapped[Organization] = relationship(
         "Organization",
@@ -960,6 +962,68 @@ class WebhookApiKey(WorkspaceModel):
     revoked_by: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
 
     webhook: Mapped[Webhook | None] = relationship(back_populates="api_key")
+
+
+class ApiKeyMixin:
+    """Shared columns for organization/workspace API keys."""
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    key_id: Mapped[str] = mapped_column(
+        String(32), nullable=False, unique=True, index=True
+    )
+    hashed: Mapped[str] = mapped_column(String(128), nullable=False)
+    salt: Mapped[str] = mapped_column(String(64), nullable=False)
+    preview: Mapped[str] = mapped_column(String(32), nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    revoked_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+
+class OrganizationApiKey(OrganizationModel, ApiKeyMixin):
+    __tablename__ = "organization_api_key"
+
+    scopes: Mapped[list[Scope]] = relationship(
+        "Scope",
+        secondary="organization_api_key_scope",
+        lazy="select",
+    )
+
+
+class WorkspaceApiKey(WorkspaceModel, ApiKeyMixin):
+    __tablename__ = "workspace_api_key"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    scopes: Mapped[list[Scope]] = relationship(
+        "Scope",
+        secondary="workspace_api_key_scope",
+        lazy="select",
+    )
 
 
 class Webhook(WorkspaceModel):
@@ -3963,6 +4027,40 @@ class RoleScope(Base):
     )
     scope_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("scope.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class OrganizationApiKeyScope(Base):
+    """Junction table linking organization API keys to scopes."""
+
+    __tablename__ = "organization_api_key_scope"
+
+    api_key_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization_api_key.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    scope_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("scope.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+
+class WorkspaceApiKeyScope(Base):
+    """Junction table linking workspace API keys to scopes."""
+
+    __tablename__ = "workspace_api_key_scope"
+
+    api_key_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("workspace_api_key.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    scope_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("scope.id", ondelete="CASCADE"),
+        primary_key=True,
     )
 
 

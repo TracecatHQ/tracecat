@@ -89,6 +89,11 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
         # Workspace RBAC (delegated admin)
         "workspace:rbac:read",
         "workspace:rbac:manage",
+        # Workspace API key management
+        "workspace:api_key:read",
+        "workspace:api_key:create",
+        "workspace:api_key:update",
+        "workspace:api_key:revoke",
         # Full action execution
         "action:*:execute",
     }
@@ -122,6 +127,11 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "org:rbac:create",
         "org:rbac:update",
         "org:rbac:delete",
+        # API key management
+        "org:api_key:read",
+        "org:api_key:create",
+        "org:api_key:update",
+        "org:api_key:revoke",
         # Org settings management
         "org:settings:read",
         "org:settings:update",
@@ -145,6 +155,10 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         # Workspace RBAC (delegated admin)
         "workspace:rbac:read",
         "workspace:rbac:manage",
+        "workspace:api_key:read",
+        "workspace:api_key:create",
+        "workspace:api_key:update",
+        "workspace:api_key:revoke",
         # Full resource control
         "inbox:read",
         "workflow:read",
@@ -213,6 +227,11 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "org:rbac:create",
         "org:rbac:update",
         "org:rbac:delete",
+        # API key management
+        "org:api_key:read",
+        "org:api_key:create",
+        "org:api_key:update",
+        "org:api_key:revoke",
         # Org settings management
         "org:settings:read",
         "org:settings:update",
@@ -236,6 +255,10 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         # Workspace RBAC (delegated admin)
         "workspace:rbac:read",
         "workspace:rbac:manage",
+        "workspace:api_key:read",
+        "workspace:api_key:create",
+        "workspace:api_key:update",
+        "workspace:api_key:revoke",
         # Full resource control
         "inbox:read",
         "workflow:read",

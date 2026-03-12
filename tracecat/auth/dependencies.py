@@ -14,7 +14,12 @@ from tracecat.settings.service import get_setting
 
 WorkspaceUserRole = Annotated[
     Role,
-    RoleACL(allow_user=True, allow_service=False, require_workspace="yes"),
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        allow_api_key=True,
+        require_workspace="yes",
+    ),
 ]
 """Dependency for a user role for a workspace.
 
@@ -49,6 +54,7 @@ OrgUserRole = Annotated[
     RoleACL(
         allow_user=True,
         allow_service=False,
+        allow_api_key=True,
         require_workspace="no",
     ),
 ]
@@ -56,6 +62,18 @@ OrgUserRole = Annotated[
 
 Sets the `ctx_role` context variable.
 """
+
+
+OrgUserOnlyRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        allow_api_key=False,
+        require_workspace="no",
+    ),
+]
+"""Dependency for a user-only organization role."""
 
 
 async def verify_auth_type(
