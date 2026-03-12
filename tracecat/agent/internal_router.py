@@ -16,8 +16,12 @@ from tracecat.agent.schemas import (
     InternalRankItemsPairwiseRequest,
     InternalRankItemsRequest,
     InternalRunAgentRequest,
+    ModelSelection,
 )
-from tracecat.agent.service import AgentManagementService
+from tracecat.agent.service import (
+    SOURCE_RUNTIME_BASE_URL,
+    AgentManagementService,
+)
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.ai.ranker import rank_items as ranker_rank_items
 from tracecat.ai.ranker import rank_items_pairwise as ranker_rank_items_pairwise
@@ -111,15 +115,17 @@ async def _provider_secrets_context(
         return
 
     if config.source_id is not None:
-        credentials = {}
-        source = await agent_svc.get_model_source(config.source_id)
-        source_config = agent_svc._deserialize_sensitive_config(source.encrypted_config)
-        if api_key := source_config.get("api_key"):
-            credentials["OPENAI_API_KEY"] = api_key
-        if config.base_url is None and source.base_url is not None:
-            config.base_url = source.base_url
-        if config.base_url is not None:
-            credentials["OPENAI_BASE_URL"] = config.base_url
+        credentials = await agent_svc.get_runtime_credentials_for_selection(
+            selection=ModelSelection(
+                source_id=config.source_id,
+                model_provider=config.model_provider,
+                model_name=config.model_name,
+            )
+        )
+        if config.base_url is None and (
+            source_base_url := credentials.get(SOURCE_RUNTIME_BASE_URL)
+        ):
+            config.base_url = source_base_url
     else:
         credentials = await agent_svc.get_provider_credentials(config.model_provider)
         if not credentials:

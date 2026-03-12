@@ -63,7 +63,9 @@ from tracecat.agent.types import (
 )
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+)
 from tracecat.db.locks import (
     derive_lock_key_from_parts,
     pg_advisory_unlock,
@@ -641,6 +643,15 @@ class AgentManagementService(BaseOrgService):
 
         stale_identities = existing_identities - set(ordered_identities)
         if stale_identities:
+            stale_selections = [
+                self._selection_key(
+                    source_id=source_id,
+                    model_provider=model_provider,
+                    model_name=model_name,
+                )
+                for model_provider, model_name in stale_identities
+            ]
+            await self._prune_stale_model_selections(stale_selections)
             stale_conditions = [
                 (AgentCatalog.model_provider == model_provider)
                 & (AgentCatalog.model_name == model_name)
@@ -718,6 +729,21 @@ class AgentManagementService(BaseOrgService):
         current_ids = {row.agent_catalog_id for row in builtin_rows}
         stale_ids = existing_ids - current_ids
         if stale_ids:
+            stale_rows = list(
+                (
+                    await self.session.execute(
+                        select(AgentCatalog).where(
+                            AgentCatalog.organization_id.is_(None),
+                            AgentCatalog.id.in_(stale_ids),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            await self._prune_stale_model_selections(
+                [self._selection_key_from_catalog_row(row) for row in stale_rows]
+            )
             await self.session.execute(
                 delete(AgentCatalog).where(
                     AgentCatalog.organization_id.is_(None),
@@ -1618,20 +1644,7 @@ class AgentManagementService(BaseOrgService):
             self._selection_key_from_catalog_row(row) for row in source_catalog_rows
         ]
         if source_keys:
-            delete_conditions = [
-                (AgentEnabledModel.organization_id == self.organization_id)
-                & (
-                    AgentEnabledModel.source_id.is_(None)
-                    if key.source_id is None
-                    else AgentEnabledModel.source_id == key.source_id
-                )
-                & (AgentEnabledModel.model_provider == key.model_provider)
-                & (AgentEnabledModel.model_name == key.model_name)
-                for key in source_keys
-            ]
-            await self.session.execute(
-                delete(AgentEnabledModel).where(or_(*delete_conditions))
-            )
+            await self._prune_stale_model_selections(source_keys)
             await self.session.flush()
         await self.session.delete(source)
         await self.session.commit()
@@ -2027,13 +2040,20 @@ class AgentManagementService(BaseOrgService):
         self,
         selections: list[ModelSelectionKey],
     ) -> set[ModelSelectionKey]:
+        disabled = await self._prune_stale_model_selections(selections)
+        await self.session.commit()
+        return disabled
+
+    async def _prune_stale_model_selections(
+        self,
+        selections: list[ModelSelectionKey],
+    ) -> set[ModelSelectionKey]:
         unique_selections = list(dict.fromkeys(selections))
         if not unique_selections:
             return set()
 
         conditions = [
             (AgentEnabledModel.organization_id == self.organization_id)
-            & (AgentEnabledModel.workspace_id.is_(None))
             & (
                 AgentEnabledModel.source_id.is_(None)
                 if selection.source_id is None
@@ -2060,9 +2080,7 @@ class AgentManagementService(BaseOrgService):
             )
             for source_id, model_provider, model_name in result.tuples().all()
         }
-        if disabled:
-            await self._revalidate_default_model_setting(disabled)
-        await self.session.commit()
+        await self._revalidate_default_model_setting(set(unique_selections))
         return disabled
 
     async def _revalidate_default_model_setting(
@@ -3020,7 +3038,7 @@ async def _sync_model_catalogs_as_leader(session: AsyncSession) -> None:
 async def sync_model_catalogs_on_startup() -> None:
     logger.info("Attempting model catalog gateway-startup sync")
     try:
-        async with get_async_session_context_manager() as session:
+        async with get_async_session_bypass_rls_context_manager() as session:
             acquired = await try_pg_advisory_lock(
                 session,
                 MODEL_CATALOG_STARTUP_SYNC_LOCK_KEY,

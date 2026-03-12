@@ -1,7 +1,7 @@
 import uuid
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -67,28 +67,48 @@ async def test_provider_secrets_context_preserves_explicit_base_url_override() -
 
 
 @pytest.mark.anyio
-async def test_provider_secrets_context_loads_custom_source_credentials_without_catalog_ref() -> (
-    None
-):
+async def test_provider_secrets_context_loads_custom_source_credentials_without_catalog_ref(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     source_id = uuid.uuid4()
     config = AgentConfig(
-        model_name="qwen2.5:0.5b",
-        model_provider="openai_compatible_gateway",
+        model_name="claude-3-7-sonnet",
+        model_provider="anthropic",
         source_id=source_id,
         base_url=None,
     )
+    captured: dict[str, str] = {}
+
+    def _set_context(credentials: dict[str, str]) -> str:
+        captured.update(credentials)
+        return "token"
+
     agent_svc = cast(
         AgentManagementService,
         SimpleNamespace(
-            get_model_source=AsyncMock(
-                return_value=SimpleNamespace(
-                    encrypted_config=b"encrypted",
-                    base_url="http://localhost:11434/v1",
-                )
+            get_runtime_credentials_for_selection=AsyncMock(
+                return_value={
+                    "ANTHROPIC_API_KEY": "test-key",
+                    "TRACECAT_SOURCE_BASE_URL": "https://anthropic.gateway.example",
+                }
             ),
-            _deserialize_sensitive_config=Mock(return_value={"api_key": "test-key"}),
         ),
     )
 
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.registry_secrets.set_context",
+        _set_context,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.registry_secrets.reset_context",
+        lambda _token: None,
+    )
+
     async with _provider_secrets_context(agent_svc, config):
-        assert config.base_url == "http://localhost:11434/v1"
+        assert config.base_url == "https://anthropic.gateway.example"
+        assert captured == {
+            "ANTHROPIC_API_KEY": "test-key",
+            "TRACECAT_SOURCE_BASE_URL": "https://anthropic.gateway.example",
+        }
+
+    agent_svc.get_runtime_credentials_for_selection.assert_awaited_once()

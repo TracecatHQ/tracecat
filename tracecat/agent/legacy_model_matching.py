@@ -167,7 +167,9 @@ def _enabled_catalog_match_stmt(
             and_(
                 workspace_enabled.organization_id == organization_id,
                 workspace_enabled.workspace_id == workspace_id,
-                workspace_enabled.source_id == AgentEnabledModel.source_id,
+                workspace_enabled.source_id.is_not_distinct_from(
+                    AgentEnabledModel.source_id
+                ),
                 workspace_enabled.model_provider == AgentEnabledModel.model_provider,
                 workspace_enabled.model_name == AgentEnabledModel.model_name,
             ),
