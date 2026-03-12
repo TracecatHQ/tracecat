@@ -356,6 +356,36 @@ variable "executor_backend" {
   default     = "ephemeral"
 }
 
+variable "executor_warm_cache_enabled" {
+  description = "Enable executor startup warm cache preloading"
+  type        = bool
+  default     = true
+}
+
+variable "executor_warm_cache_timeout_seconds" {
+  description = "Maximum startup warm cache duration in seconds"
+  type        = number
+  default     = 20
+}
+
+variable "executor_warm_cache_concurrency" {
+  description = "Max concurrent tarball warm operations at startup"
+  type        = number
+  default     = 4
+}
+
+variable "executor_warm_cache_max_locked_versions" {
+  description = "Max number of distinct locked platform versions scanned for warmup"
+  type        = number
+  default     = 100
+}
+
+variable "executor_warm_cache_max_tarballs" {
+  description = "Max number of tarballs warmed during startup"
+  type        = number
+  default     = 2000
+}
+
 variable "agent_executor_replicas" {
   description = "Number of agent-executor replicas"
   type        = number

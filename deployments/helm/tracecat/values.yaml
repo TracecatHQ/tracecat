@@ -304,6 +304,23 @@ executor:
       memory: "8192Mi"
   queue: "shared-action-queue"
   workerPoolSize: ""
+  warmCache:
+    enabled: true
+    timeoutSeconds: 20
+    concurrency: 4
+    maxLockedVersions: 100
+    maxTarballs: 2000
+    readyFile: /tmp/tracecat/executor-warm.ready
+  startupProbe:
+    enabled: true
+    periodSeconds: 2
+    timeoutSeconds: 1
+    failureThreshold: 30
+  readinessProbe:
+    enabled: true
+    periodSeconds: 2
+    timeoutSeconds: 1
+    failureThreshold: 3
   contextCompression:
     enabled: false
     thresholdKb: 16
