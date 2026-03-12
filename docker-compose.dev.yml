@@ -349,7 +349,7 @@ services:
         condition: service_healthy
 
   ui:
-    # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.0.0-beta.30}
+    # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.0.0-beta.31}
     # container_name: ui
     build:
       context: ./frontend
