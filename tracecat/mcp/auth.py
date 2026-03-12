@@ -510,27 +510,21 @@ def create_mcp_auth() -> AuthProvider:
     class TracecatOIDCProxy(OIDCProxy):
         """OIDC proxy with user-existence validation and a custom consent page."""
 
-        def _should_request_refresh_scope(self) -> bool:
-            """Return whether the upstream IdP appears to support offline refresh scopes."""
-            return supports_refresh_scope(self.oidc_config.scopes_supported)
-
         async def authorize(
             self,
             client: OAuthClientInformationFull,
             params: AuthorizationParams,
         ) -> str:
-            """Inject refresh scope by default for MCP clients."""
-            scopes = merge_unique_scopes(list(params.scopes or []), oidc_config.scopes)
-            if self._should_request_refresh_scope():
-                scopes = append_scope_if_missing(scopes, _MCP_REFRESH_SCOPE)
-            else:
-                scopes = remove_scope(scopes, _MCP_REFRESH_SCOPE)
-                logger.info(
-                    "Removing refresh scope: upstream metadata does not advertise it",
-                    scope=_MCP_REFRESH_SCOPE,
-                    issuer=self.oidc_config.issuer,
-                )
+            """Inject refresh scope by default for MCP clients.
 
+            Request `offline_access` optimistically even if the upstream OIDC
+            metadata omits it. Some providers issue refresh tokens despite not
+            advertising the scope in discovery metadata. If the provider truly
+            rejects the scope, `_retry_without_refresh_scope()` handles a single
+            retry without it.
+            """
+            scopes = merge_unique_scopes(list(params.scopes or []), oidc_config.scopes)
+            scopes = append_scope_if_missing(scopes, _MCP_REFRESH_SCOPE)
             params_with_refresh = params.model_copy(update={"scopes": scopes})
             return await super().authorize(client, params_with_refresh)
 
@@ -783,7 +777,7 @@ def create_mcp_auth() -> AuthProvider:
         client_storage = prefixed_store
 
     config_url = f"{oidc_config.issuer}/.well-known/openid-configuration"
-    return TracecatOIDCProxy(
+    auth = TracecatOIDCProxy(
         config_url=config_url,
         client_id=oidc_config.client_id,
         client_secret=oidc_config.client_secret,
@@ -791,6 +785,11 @@ def create_mcp_auth() -> AuthProvider:
         client_storage=client_storage,
         fallback_access_token_expiry_seconds=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
     )
+    advertised_scopes = list(oidc_config.scopes)
+    if auth.client_registration_options is not None:
+        auth.client_registration_options.valid_scopes = advertised_scopes
+        auth.client_registration_options.default_scopes = advertised_scopes
+    return auth
 
 
 async def resolve_user_by_email(email: str) -> User:
