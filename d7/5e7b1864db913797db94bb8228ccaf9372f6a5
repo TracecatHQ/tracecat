@@ -1,0 +1,43 @@
+tracecat/settings/schemas.py
+  79c4973c64942c7d 82-86,96-99,128-143
+frontend/src/components/organization/org-settings-app.tsx
+  79c4973c64942c7d 6,19-25,36-39,67-70,85-88,242-335
+frontend/src/app/workspaces/layout.tsx
+  6c5be92738abec85 15
+  79c4973c64942c7d 153
+frontend/src/components/hud-overlay.tsx
+  79c4973c64942c7d 1-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.10",
+  "base_commit_sha": "d75e7b1864db913797db94bb8228ccaf9372f6a5",
+  "prompts": {
+    "6c5be92738abec85": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cde30-e8cd-73b3-9117-e3cce30ada1c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 6,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "79c4973c64942c7d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4765efe9-4eaf-4b6c-816a-41838c0adf4e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 191,
+      "total_deletions": 0,
+      "accepted_lines": 186,
+      "overriden_lines": 0
+    }
+  }
+}
