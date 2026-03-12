@@ -11,7 +11,7 @@ This document lists the currently registered MCP tools in
 - `get_workflow_file(workspace_id, workflow_id, draft=True)`
 - `prepare_workflow_file_upload(workspace_id, relative_path, operation, workflow_id=None, update_mode="patch")`
 - `create_workflow_from_uploaded_file(workspace_id, artifact_id, title=None, description="", use_workflow_id=False)`
-- `update_workflow_from_uploaded_file(workspace_id, workflow_id, artifact_id, title=None, description=None, status=None, alias=None, error_handler=None, update_mode="patch")`
+- `update_workflow_from_uploaded_file(workspace_id, workflow_id, artifact_id, title=None, description=None, status=None, alias=None, error_handler=None, update_mode=None)`
 - `update_workflow(workspace_id, workflow_id, title=None, description=None, status=None, alias=None, error_handler=None)`
 - `list_workflows(workspace_id, status=None, limit=50, search=None)`
 - `validate_workflow(workspace_id, workflow_id)`
@@ -27,6 +27,7 @@ This document lists the currently registered MCP tools in
   - `get_workflow_file` returns a short-lived `download_url`
   - `prepare_workflow_file_upload` returns a short-lived `upload_url` plus an opaque `artifact_id`
   - `create_workflow_from_uploaded_file` and `update_workflow_from_uploaded_file` finalize from that staged artifact
+- For workflow updates, `update_mode` is bound during `prepare_workflow_file_upload`; the finalize call may omit it or repeat the same value, but it cannot override the prepared artifact.
 - Staged workflow files are stored in the existing workflow blob bucket under workspace-scoped prefixes and artifact metadata is bound server-side to workspace, organization, MCP client, and MCP session to prevent cross-tenant IDOR.
 - Legacy workflow CRUD tools are metadata-only; workflow definitions are only read or written through the workflow file tools.
 

@@ -2728,6 +2728,7 @@ async def create_workflow_from_uploaded_file(
     """Create a workflow from a previously staged workflow file upload."""
 
     try:
+        _require_remote_mcp_context(ctx, tool_name="create_workflow_from_uploaded_file")
         _, role = await _resolve_workspace_role(workspace_id)
         artifact = await _require_workflow_file_artifact(
             artifact_id=artifact_id,
@@ -2788,16 +2789,15 @@ async def update_workflow_from_uploaded_file(
     status: str | None = None,
     alias: str | None = None,
     error_handler: str | None = None,
-    update_mode: str = "patch",
+    update_mode: str | None = None,
     ctx: Context | None = None,
 ) -> str:
     """Update a workflow from a previously staged workflow file upload."""
 
     try:
+        _require_remote_mcp_context(ctx, tool_name="update_workflow_from_uploaded_file")
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
-        if update_mode not in {"replace", "patch"}:
-            raise ToolError("update_mode must be 'replace' or 'patch'")
         artifact = await _require_workflow_file_artifact(
             artifact_id=artifact_id,
             role=role,
@@ -2805,6 +2805,15 @@ async def update_workflow_from_uploaded_file(
             operation=WorkflowFileOperation.UPDATE,
             workflow_id=wf_id,
         )
+        effective_update_mode = artifact.update_mode
+        if update_mode is not None:
+            if update_mode not in {"replace", "patch"}:
+                raise ToolError("update_mode must be 'replace' or 'patch'")
+            if update_mode != artifact.update_mode:
+                raise ToolError(
+                    "update_mode does not match the prepared upload artifact"
+                )
+            effective_update_mode = cast(Literal["replace", "patch"], update_mode)
         if not await blob.file_exists(artifact.blob_key, _workflow_file_bucket()):
             raise ToolError("Uploaded workflow file was not found in staged storage")
 
@@ -2837,7 +2846,7 @@ async def update_workflow_from_uploaded_file(
                 update_params=update_params,
                 yaml_payload=yaml_payload,
                 definition_yaml=definition_yaml,
-                update_mode=cast(Literal["replace", "patch"], update_mode),
+                update_mode=effective_update_mode,
             )
             await _assign_workflow_to_folder(
                 role=role,
@@ -2850,7 +2859,7 @@ async def update_workflow_from_uploaded_file(
         return _json(
             {
                 "message": f"Workflow {workflow_id} updated successfully",
-                "mode": update_mode,
+                "mode": effective_update_mode,
                 "folder_path": artifact.folder_path,
                 "artifact_id": str(artifact.artifact_id),
             }

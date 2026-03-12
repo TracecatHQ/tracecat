@@ -930,6 +930,23 @@ async def test_create_workflow_from_uploaded_file_rejects_expired_artifact(monke
 
 
 @pytest.mark.anyio
+async def test_create_workflow_from_uploaded_file_rejects_stdio_transport(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    with pytest.raises(
+        ToolError, match="only supported for remote streamable-http MCP clients"
+    ):
+        await _tool(mcp_server.create_workflow_from_uploaded_file)(
+            workspace_id=str(uuid.uuid4()),
+            artifact_id=str(uuid.uuid4()),
+            ctx=_fake_ctx(transport="stdio"),
+        )
+
+
+@pytest.mark.anyio
 async def test_create_workflow_from_uploaded_file_rejects_client_mismatch(monkeypatch):
     workspace_id = uuid.uuid4()
     organization_id = uuid.uuid4()
@@ -1078,6 +1095,7 @@ async def test_update_workflow_from_uploaded_file_updates_and_rejects_replay(
         folder_path="/detections/critical/",
         blob_key="blob-key",
         workflow_id=workflow_id,
+        update_mode="replace",
         expires_at=datetime.now(UTC) + timedelta(minutes=5),
     )
 
@@ -1140,15 +1158,78 @@ async def test_update_workflow_from_uploaded_file_updates_and_rejects_replay(
     )
 
     payload = _payload(result)
-    assert payload["mode"] == "patch"
+    assert payload["mode"] == "replace"
     assert captured["folder_path"] == "/detections/critical/"
     assert captured["workflow_id"] == mcp_server.WorkflowUUID.new(workflow_id)
+    assert captured["update"]["update_mode"] == "replace"
 
     with pytest.raises(ToolError, match="already been consumed"):
         await _tool(mcp_server.update_workflow_from_uploaded_file)(
             workspace_id=str(workspace_id),
             workflow_id=str(workflow_id),
             artifact_id=str(artifact.artifact_id),
+            ctx=_fake_ctx(session_id="session-a"),
+        )
+
+
+@pytest.mark.anyio
+async def test_update_workflow_from_uploaded_file_rejects_stdio_transport(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    with pytest.raises(
+        ToolError, match="only supported for remote streamable-http MCP clients"
+    ):
+        await _tool(mcp_server.update_workflow_from_uploaded_file)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(uuid.uuid4()),
+            artifact_id=str(uuid.uuid4()),
+            ctx=_fake_ctx(transport="stdio"),
+        )
+
+
+@pytest.mark.anyio
+async def test_update_workflow_from_uploaded_file_rejects_update_mode_mismatch(
+    monkeypatch,
+):
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+    workflow_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id, organization_id=organization_id)
+    fake_redis = _FakeRedis()
+    artifact = mcp_server.WorkflowFileArtifact(
+        artifact_id=uuid.uuid4(),
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        client_id="client-a",
+        session_id="session-a",
+        operation=mcp_server.WorkflowFileOperation.UPDATE,
+        relative_path="workflow.yaml",
+        folder_path=None,
+        blob_key="blob-key",
+        workflow_id=workflow_id,
+        update_mode="replace",
+        expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+
+    async def _resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_get_workflow_artifact_redis", lambda: fake_redis)
+    monkeypatch.setattr(mcp_server, "_current_mcp_client_id", lambda: "client-a")
+    await mcp_server._store_workflow_file_artifact(artifact)
+
+    with pytest.raises(
+        ToolError, match="update_mode does not match the prepared upload artifact"
+    ):
+        await _tool(mcp_server.update_workflow_from_uploaded_file)(
+            workspace_id=str(workspace_id),
+            workflow_id=str(workflow_id),
+            artifact_id=str(artifact.artifact_id),
+            update_mode="patch",
             ctx=_fake_ctx(session_id="session-a"),
         )
 
