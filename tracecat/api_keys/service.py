@@ -221,6 +221,7 @@ class OrganizationApiKeyService(BaseOrgService):
         *,
         name: str | None,
         description: str | None,
+        description_provided: bool,
         scope_ids: list[uuid.UUID] | None,
     ) -> OrganizationApiKey:
         api_key = await self.get_key(api_key_id)
@@ -228,7 +229,7 @@ class OrganizationApiKeyService(BaseOrgService):
             raise TracecatAuthorizationError("Revoked API keys cannot be updated")
         if name is not None:
             api_key.name = name
-        if description is not None:
+        if description_provided:
             api_key.description = description
         if scope_ids is not None:
             api_key.scopes = await self._resolve_assignable_scopes(scope_ids)
@@ -354,6 +355,7 @@ class WorkspaceApiKeyService(BaseWorkspaceService):
         *,
         name: str | None,
         description: str | None,
+        description_provided: bool,
         scope_ids: list[uuid.UUID] | None,
     ) -> WorkspaceApiKey:
         api_key = await self.get_key(api_key_id)
@@ -361,7 +363,7 @@ class WorkspaceApiKeyService(BaseWorkspaceService):
             raise TracecatAuthorizationError("Revoked API keys cannot be updated")
         if name is not None:
             api_key.name = name
-        if description is not None:
+        if description_provided:
             api_key.description = description
         if scope_ids is not None:
             api_key.scopes = await self._resolve_assignable_scopes(scope_ids)
