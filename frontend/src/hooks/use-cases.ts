@@ -289,7 +289,7 @@ function loadPersistedCasesFilterState(
       tagFilter: parsed.tagFilter ?? defaults.tagFilter,
       tagMode: parsed.tagMode ?? defaults.tagMode,
       tagSortDirection: parsed.tagSortDirection ?? defaults.tagSortDirection,
-      dropdownFilters: parsed.dropdownFilters ?? defaults.dropdownFilters,
+      dropdownFilters: sanitizeDropdownFilters(parsed.dropdownFilters),
       updatedAfter: parsePersistedDateFilter(
         parsed.updatedAfter,
         defaults.updatedAfter
@@ -333,6 +333,52 @@ function serializePersistedCasesFilters(
     updatedAfter: serializeDateFilter(filters.updatedAfter),
     createdAfter: serializeDateFilter(filters.createdAfter),
   }
+}
+
+function isFilterMode(value: unknown): value is FilterMode {
+  return value === "include" || value === "exclude"
+}
+
+function isSortDirection(value: unknown): value is SortDirection {
+  return value === "asc" || value === "desc" || value === null
+}
+
+function sanitizeDropdownFilters(
+  dropdownFilters: unknown
+): Record<string, DropdownFilterState> {
+  if (
+    !dropdownFilters ||
+    typeof dropdownFilters !== "object" ||
+    Array.isArray(dropdownFilters)
+  ) {
+    return {}
+  }
+
+  const sanitized: Record<string, DropdownFilterState> = {}
+  for (const [definitionRef, state] of Object.entries(dropdownFilters)) {
+    if (!state || typeof state !== "object" || Array.isArray(state)) {
+      continue
+    }
+
+    const values = Array.isArray(state.values)
+      ? state.values.filter(
+          (value: unknown): value is string => typeof value === "string"
+        )
+      : null
+    if (!values || !isFilterMode(state.mode)) {
+      continue
+    }
+
+    sanitized[definitionRef] = {
+      values,
+      mode: state.mode,
+      sortDirection: isSortDirection(state.sortDirection)
+        ? state.sortDirection
+        : null,
+    }
+  }
+
+  return sanitized
 }
 
 function parsePersistedDateFilter(

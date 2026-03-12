@@ -450,6 +450,88 @@ describe("useCases", () => {
     consoleErrorSpy.mockRestore()
   })
 
+  it("sanitizes malformed persisted dropdown filters", async () => {
+    const firstPage: CasesSearchCasesResponse = {
+      items: [createCase(1)],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      total_estimate: 1,
+    }
+
+    const aggregate: CasesSearchCaseAggregatesResponse = {
+      total: 1,
+      status_groups: {
+        new: 1,
+        in_progress: 0,
+        on_hold: 0,
+        resolved: 0,
+        other: 0,
+      },
+    }
+
+    window.localStorage.setItem(
+      "workspace-1:cases-filters:v1",
+      JSON.stringify(
+        createPersistedFilters({
+          dropdownFilters: {
+            broken: null,
+            invalidMode: {
+              values: ["drop-me"],
+              mode: "bogus",
+              sortDirection: "asc",
+            },
+            invalidValues: {
+              values: "drop-me",
+              mode: "include",
+              sortDirection: "desc",
+            },
+            valid: {
+              values: ["keep-me"],
+              mode: "include",
+              sortDirection: "bogus",
+            },
+          },
+        })
+      )
+    )
+
+    mockSearchCases.mockResolvedValue(firstPage)
+    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HookProbe />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rows")).toHaveTextContent("1")
+    })
+
+    expect(mockSearchCases).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        dropdown: ["valid:keep-me"],
+      })
+    )
+    expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        dropdown: ["valid:keep-me"],
+      })
+    )
+  })
+
   it("clears rows when enum exclude filters match no records", async () => {
     const firstPage: CasesSearchCasesResponse = {
       items: [createCase(1)],
