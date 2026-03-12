@@ -75,6 +75,32 @@ async def test_set_default_model_not_found(
 
 
 @pytest.mark.anyio
+async def test_disable_models_uses_post_batch_endpoint(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_service_cls.return_value = mock_svc
+
+        response = client.post(
+            "/agent/models/disabled/batch",
+            json={
+                "models": [
+                    {
+                        "source_id": None,
+                        "model_provider": "openai",
+                        "model_name": "gpt-5.2",
+                    }
+                ]
+            },
+        )
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    mock_svc.disable_models.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_get_workspace_model_subset_success(
     client: TestClient,
     test_admin_role: Role,

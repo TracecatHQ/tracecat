@@ -36,7 +36,7 @@ def test_custom_source_preserves_custom_header_and_api_version():
         source_id="00000000-0000-0000-0000-000000000001",
     )
 
-    assert data["api_key"] == "not-needed"
+    assert "api_key" not in data
     assert data["api_base"] == "https://gateway.example/v1"
     assert data["api_version"] == "2024-06-01"
     assert data["extra_headers"] == {"X-Api-Key": "source-key"}
