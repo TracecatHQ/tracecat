@@ -53,6 +53,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.schemas import ModelSelection
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
@@ -489,7 +490,7 @@ async def _resolve_agent_preset_model(
     *,
     model_name: str | None,
     model_provider: str | None,
-) -> tuple[str, str]:
+) -> ModelSelection:
     """Resolve explicit or default model inputs for preset creation."""
     async with AgentManagementService.with_session(role=role) as svc:
         list_models = getattr(svc, "list_models", None)
@@ -505,17 +506,20 @@ async def _resolve_agent_preset_model(
                 models = await _list_authoring_models(
                     svc, workspace_id=role.workspace_id
                 )
-                model = next(
-                    (item for item in models if item["model_name"] == model_name),
-                    None,
-                )
-                if model is None:
+                matches = [
+                    item
+                    for item in models
+                    if item["model_name"] == model_name
+                    and item["model_provider"] == model_provider
+                ]
+                if not matches:
                     raise ToolError(f"Model '{model_name}' not found")
-                actual_provider = str(model["model_provider"])
-                if actual_provider != model_provider:
+                if len(matches) > 1:
                     raise ToolError(
-                        f"Model '{model_name}' belongs to provider '{actual_provider}', not '{model_provider}'"
+                        f"Model '{model_provider}/{model_name}' is ambiguous across multiple sources. "
+                        "Set the organization default model to the desired source-backed selection, then create the preset without explicit model fields."
                     )
+                selection = ModelSelection.model_validate(matches[0])
             else:
                 model_config = await svc.get_model_config(model_name)
                 actual_provider = str(model_config.provider)
@@ -523,37 +527,46 @@ async def _resolve_agent_preset_model(
                     raise ToolError(
                         f"Model '{model_name}' belongs to provider '{actual_provider}', not '{model_provider}'"
                     )
+                selection = ModelSelection(
+                    source_id=None,
+                    model_provider=model_provider,
+                    model_name=model_name,
+                )
         else:
             if not (default_model := await svc.get_default_model()):
                 raise ToolError(
                     "No default model configured for this organization. Set one before creating a preset without explicit model fields."
                 )
             if isinstance(default_model, str):
-                model_name = default_model
-                model_provider = str(
-                    (await svc.get_model_config(default_model)).provider
+                selection = ModelSelection(
+                    source_id=None,
+                    model_provider=str(
+                        (await svc.get_model_config(default_model)).provider
+                    ),
+                    model_name=default_model,
                 )
             else:
-                model_name = default_model.model_name
-                model_provider = default_model.model_provider
-        assert model_name is not None
-        assert model_provider is not None
+                selection = ModelSelection(
+                    source_id=default_model.source_id,
+                    model_provider=default_model.model_provider,
+                    model_name=default_model.model_name,
+                )
         if check_workspace_credentials := getattr(
             svc, "check_workspace_provider_credentials", None
         ):
-            if not await check_workspace_credentials(model_provider):
+            if not await check_workspace_credentials(selection.model_provider):
                 raise ToolError(
-                    f"Workspace credentials for provider '{model_provider}' are not configured"
+                    f"Workspace credentials for provider '{selection.model_provider}' are not configured"
                 )
         elif (
             provider_status_org is not None
-            and model_provider in provider_status_org
-            and not provider_status_org[model_provider]
+            and selection.model_provider in provider_status_org
+            and not provider_status_org[selection.model_provider]
         ):
             raise ToolError(
-                f"Credentials for provider '{model_provider}' are not configured"
+                f"Credentials for provider '{selection.model_provider}' are not configured"
             )
-        return model_name, model_provider
+        return selection
 
 
 async def _list_authoring_models(
@@ -5953,10 +5966,7 @@ async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
     integrations = await _build_integrations_inventory(role)
     truncated_sections, truncation = _truncate_named_sections(
         {
-            "models": [
-                model.model_dump(mode="json")
-                for _, model in sorted(models.items(), key=lambda item: item[0])
-            ],
+            "models": models,
             "agent_credentials.providers": agent_credentials["providers"],
             "workspace_variables": [
                 {
@@ -6073,18 +6083,16 @@ async def create_agent_preset(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        (
-            resolved_model_name,
-            resolved_model_provider,
-        ) = await _resolve_agent_preset_model(
+        selection = await _resolve_agent_preset_model(
             role,
             model_name=model_name,
             model_provider=model_provider,
         )
         create_data: dict[str, Any] = {
             "name": name,
-            "model_name": resolved_model_name,
-            "model_provider": resolved_model_provider,
+            "model_name": selection.model_name,
+            "model_provider": selection.model_provider,
+            "source_id": selection.source_id,
         }
         optional_fields = {
             "slug": slug,
@@ -6167,16 +6175,14 @@ async def update_agent_preset(
             }
         )
         if model_name is not None or model_provider is not None:
-            (
-                resolved_model_name,
-                resolved_model_provider,
-            ) = await _resolve_agent_preset_model(
+            selection = await _resolve_agent_preset_model(
                 role,
                 model_name=model_name,
                 model_provider=model_provider,
             )
-            update_data["model_name"] = resolved_model_name
-            update_data["model_provider"] = resolved_model_provider
+            update_data["model_name"] = selection.model_name
+            update_data["model_provider"] = selection.model_provider
+            update_data["source_id"] = selection.source_id
         params = AgentPresetUpdate.model_validate(update_data)
         async with AgentPresetService.with_session(role=role) as svc:
             preset = await svc.get_preset_by_slug(preset_slug)

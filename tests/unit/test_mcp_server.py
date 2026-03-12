@@ -23,6 +23,7 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.schemas import ModelSelection
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.expressions.common import ExprType
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
@@ -3940,6 +3941,7 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
                 instructions=params.instructions,
                 model_name=params.model_name,
                 model_provider=params.model_provider,
+                source_id=params.source_id,
                 base_url=params.base_url,
                 output_type=params.output_type,
                 actions=params.actions,
@@ -3983,6 +3985,7 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
     params = created["params"]
     assert params.model_name == "gpt-4o-mini"
     assert params.model_provider == "openai"
+    assert params.source_id is None
     assert params.mcp_integrations is not None
     assert params.enable_internet_access is True
     assert payload["model_name"] == "gpt-4o-mini"
@@ -4076,12 +4079,87 @@ async def test_update_agent_preset_updates_existing_preset(
 
 
 @pytest.mark.anyio
+async def test_create_agent_preset_preserves_source_id_from_default_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    source_id = uuid.uuid4()
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                source_id=source_id,
+                model_name="claude-3-7-sonnet",
+                model_provider="anthropic",
+            )
+
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            assert provider == "anthropic"
+            return True
+
+    class _PresetService:
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            now = datetime.now(UTC)
+            return SimpleNamespace(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name=params.name,
+                slug="security-triage",
+                description=params.description,
+                instructions=params.instructions,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                source_id=params.source_id,
+                base_url=params.base_url,
+                output_type=params.output_type,
+                actions=params.actions,
+                namespaces=params.namespaces,
+                tool_approvals=params.tool_approvals,
+                mcp_integrations=params.mcp_integrations,
+                retries=params.retries,
+                enable_internet_access=params.enable_internet_access,
+                current_version_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+    )
+
+    payload = _payload(result)
+    params = created["params"]
+    assert params.source_id == source_id
+    assert payload["source_id"] == str(source_id)
+
+
+@pytest.mark.anyio
 async def test_update_agent_preset_resolves_explicit_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
     now = datetime.now(UTC)
+    source_id = uuid.uuid4()
     preset = SimpleNamespace(
         id=uuid.uuid4(),
         workspace_id=workspace_id,
@@ -4113,11 +4191,15 @@ async def test_update_agent_preset_resolves_explicit_model(
         *,
         model_name: str | None,
         model_provider: str | None,
-    ) -> tuple[str, str]:
+    ) -> ModelSelection:
         assert resolved_role is role
         assert model_name == "o3-mini"
         assert model_provider == "openai"
-        return "o3-mini", "openai"
+        return ModelSelection(
+            source_id=source_id,
+            model_name="o3-mini",
+            model_provider="openai",
+        )
 
     class _PresetService:
         async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
@@ -4133,6 +4215,7 @@ async def test_update_agent_preset_resolves_explicit_model(
                 **preset.__dict__,
                 "model_name": params.model_name,
                 "model_provider": params.model_provider,
+                "source_id": params.source_id,
                 "updated_at": datetime.now(UTC),
             }
             return SimpleNamespace(**updated_fields)
@@ -4156,6 +4239,7 @@ async def test_update_agent_preset_resolves_explicit_model(
     params = captured["params"]
     assert params.model_name == "o3-mini"
     assert params.model_provider == "openai"
+    assert params.source_id == source_id
     assert payload["model_name"] == "o3-mini"
     assert payload["model_provider"] == "openai"
 
@@ -4257,6 +4341,7 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
                 instructions=params.instructions,
                 model_name=params.model_name,
                 model_provider=params.model_provider,
+                source_id=params.source_id,
                 base_url=params.base_url,
                 output_type=params.output_type,
                 actions=params.actions,
@@ -4328,6 +4413,106 @@ async def test_create_agent_preset_validates_explicit_model_provider_pair(
             model_name="gpt-4o-mini",
             model_provider="opneai",
         )
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_matches_explicit_model_on_provider_and_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _Model:
+        def __init__(
+            self,
+            *,
+            model_name: str,
+            model_provider: str,
+            source_id: uuid.UUID | None = None,
+        ) -> None:
+            self._payload = {
+                "model_name": model_name,
+                "model_provider": model_provider,
+                "source_id": source_id,
+            }
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            assert mode == "json"
+            return self._payload
+
+    class _AgentManagementService:
+        async def list_models(self, workspace_id: uuid.UUID) -> list[_Model]:
+            assert workspace_id == role.workspace_id
+            return [
+                _Model(
+                    model_name="claude-3-7-sonnet",
+                    model_provider="anthropic",
+                ),
+                _Model(
+                    model_name="claude-3-7-sonnet",
+                    model_provider="bedrock",
+                ),
+            ]
+
+        async def check_workspace_provider_credentials(self, provider: str) -> bool:
+            assert provider == "bedrock"
+            return True
+
+    class _PresetService:
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            now = datetime.now(UTC)
+            return SimpleNamespace(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name=params.name,
+                slug="security-triage",
+                description=params.description,
+                instructions=params.instructions,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                source_id=params.source_id,
+                base_url=params.base_url,
+                output_type=params.output_type,
+                actions=params.actions,
+                namespaces=params.namespaces,
+                tool_approvals=params.tool_approvals,
+                mcp_integrations=params.mcp_integrations,
+                retries=params.retries,
+                enable_internet_access=params.enable_internet_access,
+                current_version_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+        model_name="claude-3-7-sonnet",
+        model_provider="bedrock",
+    )
+
+    payload = _payload(result)
+    params = created["params"]
+    assert params.model_name == "claude-3-7-sonnet"
+    assert params.model_provider == "bedrock"
+    assert payload["model_provider"] == "bedrock"
 
 
 @pytest.mark.anyio
