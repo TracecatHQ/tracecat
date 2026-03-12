@@ -352,7 +352,7 @@ def _inject_provider_credentials(
         api_key_header = creds.get(SOURCE_RUNTIME_API_KEY_HEADER)
         if api_key and api_key_header and api_key_header.lower() != "authorization":
             _set_extra_headers(data, {api_key_header: api_key})
-            data["api_key"] = "not-needed"
+            data.pop("api_key", None)
         else:
             data["api_key"] = api_key or "not-needed"
         if base_url := creds.get(SOURCE_RUNTIME_BASE_URL) or creds.get(

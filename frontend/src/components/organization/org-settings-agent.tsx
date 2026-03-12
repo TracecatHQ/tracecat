@@ -970,7 +970,7 @@ function CustomSourceDialog({
           <form
             className="space-y-5"
             onSubmit={form.handleSubmit((values) => {
-              void onSubmit(values)
+              void onSubmit(values).catch(() => {})
             })}
           >
             <FormField
@@ -1711,7 +1711,9 @@ export function OrgSettingsAgentForm() {
               {providers.map((provider) => {
                 const enabledCount =
                   models?.filter(
-                    (model) => model.model_provider === provider.provider
+                    (model) =>
+                      !model.source_id &&
+                      model.model_provider === provider.provider
                   ).length ?? 0
                 return (
                   <ProviderConnectionItem

@@ -270,7 +270,7 @@ def test_normalize_agent_settings_read_values_preserves_legacy_contract() -> Non
         }
     )
 
-    assert normalized["agent_default_model"] == "gpt-5.2"
+    assert normalized.agent_default_model == "gpt-5.2"
 
 
 @pytest.mark.anyio

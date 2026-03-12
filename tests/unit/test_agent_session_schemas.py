@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from tracecat.agent.session.schemas import AgentSessionCreate
+from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
 from tracecat.agent.session.types import AgentSessionEntity
 
 
@@ -69,3 +69,10 @@ def test_agent_session_create_rejects_partial_explicit_model_selection(
                 **payload,
             }
         )
+
+
+def test_agent_session_update_allows_partial_explicit_model_selection() -> None:
+    update = AgentSessionUpdate.model_validate({"model_name": "gpt-5"})
+
+    assert update.model_name == "gpt-5"
+    assert update.model_provider is None

@@ -700,11 +700,11 @@ export type AgentSessionUpdate = {
 }
 
 export type AgentSettingsRead = {
-  agent_default_model: string | null
-  agent_default_model_ref: string | null
-  agent_fixed_args: string | null
-  agent_case_chat_prompt: string
-  agent_case_chat_inject_content: boolean
+  agent_default_model?: string | null
+  agent_default_model_ref?: string | null
+  agent_fixed_args?: string | null
+  agent_case_chat_prompt?: string
+  agent_case_chat_inject_content?: boolean
 }
 
 export type AgentSettingsUpdate = {
@@ -2780,7 +2780,7 @@ export type DefaultModelSelection = {
   source_id?: string | null
   model_provider: string
   model_name: string
-  source_type?: string | null
+  source_type?: ModelSourceType | null
   source_name?: string | null
 }
 
@@ -9101,6 +9101,12 @@ export type AgentEnableModelsData = {
 
 export type AgentEnableModelsResponse = Array<ModelCatalogEntry>
 
+export type AgentDisableModelsLegacyData = {
+  requestBody: EnabledModelsBatchOperation
+}
+
+export type AgentDisableModelsLegacyResponse = void
+
 export type AgentDisableModelsData = {
   requestBody: EnabledModelsBatchOperation
 }
@@ -13032,6 +13038,21 @@ export type $OpenApiTs = {
       }
     }
     delete: {
+      req: AgentDisableModelsLegacyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/models/disabled/batch": {
+    post: {
       req: AgentDisableModelsData
       res: {
         /**

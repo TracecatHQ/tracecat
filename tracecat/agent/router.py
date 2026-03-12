@@ -465,9 +465,7 @@ async def disable_model(
     )
 
 
-@router.delete("/models/enabled/batch", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("agent:update")
-async def disable_models(
+async def _disable_models(
     *,
     params: EnabledModelsBatchOperation,
     role: OrganizationAdminUserRole,
@@ -475,6 +473,32 @@ async def disable_models(
 ) -> None:
     service = AgentManagementService(session, role=role)
     await service.disable_models(params)
+
+
+@router.post("/models/disabled/batch", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("agent:update")
+async def disable_models(
+    *,
+    params: EnabledModelsBatchOperation,
+    role: OrganizationAdminUserRole,
+    session: AsyncDBSession,
+) -> None:
+    await _disable_models(params=params, role=role, session=session)
+
+
+@router.delete(
+    "/models/enabled/batch",
+    status_code=status.HTTP_204_NO_CONTENT,
+    deprecated=True,
+)
+@require_scope("agent:update")
+async def disable_models_legacy(
+    *,
+    params: EnabledModelsBatchOperation,
+    role: OrganizationAdminUserRole,
+    session: AsyncDBSession,
+) -> None:
+    await _disable_models(params=params, role=role, session=session)
 
 
 @router.patch("/models/enabled")

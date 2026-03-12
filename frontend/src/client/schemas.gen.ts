@@ -3397,20 +3397,15 @@ export const $AgentSettingsRead = {
     agent_case_chat_prompt: {
       type: "string",
       title: "Agent Case Chat Prompt",
+      default: "",
     },
     agent_case_chat_inject_content: {
       type: "boolean",
       title: "Agent Case Chat Inject Content",
+      default: false,
     },
   },
   type: "object",
-  required: [
-    "agent_default_model",
-    "agent_default_model_ref",
-    "agent_fixed_args",
-    "agent_case_chat_prompt",
-    "agent_case_chat_inject_content",
-  ],
   title: "AgentSettingsRead",
 } as const
 
@@ -9863,15 +9858,12 @@ export const $DefaultModelSelection = {
     source_type: {
       anyOf: [
         {
-          type: "string",
-          maxLength: 120,
-          minLength: 1,
+          $ref: "#/components/schemas/ModelSourceType",
         },
         {
           type: "null",
         },
       ],
-      title: "Source Type",
     },
     source_name: {
       anyOf: [
