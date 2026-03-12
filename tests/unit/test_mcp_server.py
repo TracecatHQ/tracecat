@@ -1468,6 +1468,22 @@ async def test_get_mcp_client_id_extracts_email():
 
 
 @pytest.mark.anyio
+async def test_get_mcp_client_id_extracts_email_from_upstream_claims():
+    from fastmcp.server.context import Context
+
+    from tracecat.mcp.middleware import get_mcp_client_id
+
+    token = SimpleNamespace(claims={"upstream_claims": {"email": " user@example.com "}})
+    fastmcp_ctx = SimpleNamespace(get_access_token=lambda: token)
+    ctx = MiddlewareContext(
+        message=CallToolRequestParams(name="t", arguments=None),
+        fastmcp_context=cast(Context, fastmcp_ctx),
+        method="tools/call",
+    )
+    assert get_mcp_client_id(ctx) == "user@example.com"
+
+
+@pytest.mark.anyio
 async def test_get_mcp_client_id_returns_anonymous_without_token():
     from fastmcp.server.context import Context
 
