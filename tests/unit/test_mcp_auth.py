@@ -86,7 +86,7 @@ def test_create_mcp_auth_uses_oidc_mode(
     auth = _build_test_auth(monkeypatch)
 
     assert isinstance(auth, mcp_auth.OIDCProxy)
-    assert getattr(auth, "_fallback_access_token_expiry_seconds", None) == 3600
+    assert getattr(auth, "_fallback_access_token_expiry_seconds", None) == 24 * 60 * 60
 
 
 def test_create_mcp_auth_metadata_advertises_public_client_auth(

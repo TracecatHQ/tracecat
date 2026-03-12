@@ -72,7 +72,7 @@ _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
 }
 
 _MCP_REFRESH_SCOPE = "offline_access"
-_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 60 * 60
+_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 24 * 60 * 60
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
 _MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
 
