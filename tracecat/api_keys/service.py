@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import sqlalchemy as sa
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
@@ -80,6 +80,7 @@ async def _paginate_keys[T: OrganizationApiKey | WorkspaceApiKey](
     stmt: sa.Select[Any],
     model: type[T],
     params: CursorPaginationParams,
+    total_estimate: int | None = None,
 ) -> CursorPaginatedResponse[T]:
     if params.reverse:
         ordered_stmt = stmt.order_by(model.created_at.asc(), model.id.asc())
@@ -125,9 +126,7 @@ async def _paginate_keys[T: OrganizationApiKey | WorkspaceApiKey](
         prev_cursor=prev_cursor,
         has_more=has_more,
         has_previous=params.cursor is not None,
-        total_estimate=await BaseCursorPaginator(session).get_table_row_estimate(
-            model.__tablename__
-        ),
+        total_estimate=total_estimate,
     )
 
 
@@ -181,11 +180,17 @@ class OrganizationApiKeyService(BaseOrgService):
             .where(OrganizationApiKey.organization_id == self.organization_id)
             .options(selectinload(OrganizationApiKey.scopes))
         )
+        count_stmt = (
+            select(func.count())
+            .select_from(OrganizationApiKey)
+            .where(OrganizationApiKey.organization_id == self.organization_id)
+        )
         return await _paginate_keys(
             self.session,
             stmt=stmt,
             model=OrganizationApiKey,
             params=params,
+            total_estimate=int(await self.session.scalar(count_stmt) or 0),
         )
 
     async def get_key(self, api_key_id: uuid.UUID) -> OrganizationApiKey:
@@ -319,11 +324,17 @@ class WorkspaceApiKeyService(BaseWorkspaceService):
             .where(WorkspaceApiKey.workspace_id == self.workspace_id)
             .options(selectinload(WorkspaceApiKey.scopes))
         )
+        count_stmt = (
+            select(func.count())
+            .select_from(WorkspaceApiKey)
+            .where(WorkspaceApiKey.workspace_id == self.workspace_id)
+        )
         return await _paginate_keys(
             self.session,
             stmt=stmt,
             model=WorkspaceApiKey,
             params=params,
+            total_estimate=int(await self.session.scalar(count_stmt) or 0),
         )
 
     async def get_key(self, api_key_id: uuid.UUID) -> WorkspaceApiKey:
