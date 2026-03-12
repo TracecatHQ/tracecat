@@ -15,7 +15,13 @@ from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
 from litellm.types.utils import CallTypesLiteral
 
-from tracecat.agent.service import AgentManagementService
+from tracecat.agent.service import (
+    SOURCE_RUNTIME_API_KEY,
+    SOURCE_RUNTIME_API_KEY_HEADER,
+    SOURCE_RUNTIME_API_VERSION,
+    SOURCE_RUNTIME_BASE_URL,
+    AgentManagementService,
+)
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -205,10 +211,24 @@ def _inject_provider_credentials(
     source_id: str | None,
 ) -> None:
     """Inject provider-specific credentials into request."""
-    if source_id is not None:
-        data["api_key"] = creds.get("OPENAI_API_KEY") or "not-needed"
-        if base_url := creds.get("OPENAI_BASE_URL"):
+    if source_id is not None and provider in {
+        "openai_compatible_gateway",
+        "manual_custom",
+        "direct_endpoint",
+    }:
+        api_key = creds.get(SOURCE_RUNTIME_API_KEY)
+        api_key_header = creds.get(SOURCE_RUNTIME_API_KEY_HEADER)
+        if api_key and api_key_header and api_key_header.lower() != "authorization":
+            _set_extra_headers(data, {api_key_header: api_key})
+            data["api_key"] = "not-needed"
+        else:
+            data["api_key"] = api_key or "not-needed"
+        if base_url := creds.get(SOURCE_RUNTIME_BASE_URL) or creds.get(
+            "OPENAI_BASE_URL"
+        ):
             data["api_base"] = base_url
+        if api_version := creds.get(SOURCE_RUNTIME_API_VERSION):
+            data["api_version"] = api_version
         if not str(data.get("model", "")).startswith("openai/"):
             data["model"] = f"openai/{data['model']}"
         return
@@ -460,3 +480,25 @@ def _inject_provider_credentials(
                 param=None,
                 code=400,
             )
+
+    if source_id is not None:
+        _apply_source_request_overrides(data, creds)
+
+
+def _set_extra_headers(data: dict, extra_headers: dict[str, str]) -> None:
+    current = data.get("extra_headers")
+    headers = dict(current) if isinstance(current, dict) else {}
+    headers.update(extra_headers)
+    data["extra_headers"] = headers
+
+
+def _apply_source_request_overrides(data: dict, creds: dict[str, str]) -> None:
+    api_key = creds.get(SOURCE_RUNTIME_API_KEY)
+    api_key_header = creds.get(SOURCE_RUNTIME_API_KEY_HEADER)
+    if api_key and api_key_header and api_key_header.lower() != "authorization":
+        _set_extra_headers(data, {api_key_header: api_key})
+        data.pop("api_key", None)
+    if base_url := creds.get(SOURCE_RUNTIME_BASE_URL):
+        data["api_base"] = base_url
+    if api_version := creds.get(SOURCE_RUNTIME_API_VERSION):
+        data["api_version"] = api_version

@@ -13,10 +13,12 @@ from tracecat.db.models import OrganizationDomain
 from tracecat.organization.domains import normalize_domain
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.router import (
+    _normalize_agent_settings_read_values,
     check_other_auth_enabled,
     check_saml_domain_prerequisites,
 )
 from tracecat.settings.schemas import (
+    AgentSettingsRead,
     AuditSettingsUpdate,
     GitSettingsUpdate,
     SAMLSettingsUpdate,
@@ -245,6 +247,30 @@ async def test_update_audit_settings_can_clear(
     settings = await service.list_org_settings(keys={"audit_webhook_url"})
     settings_dict = {setting.key: service.get_value(setting) for setting in settings}
     assert settings_dict["audit_webhook_url"] is None
+
+
+def test_agent_settings_read_defaults_missing_optional_fields() -> None:
+    settings = AgentSettingsRead()
+
+    assert settings.agent_default_model is None
+    assert settings.agent_default_model_ref is None
+    assert settings.agent_fixed_args is None
+    assert settings.agent_case_chat_prompt == ""
+    assert settings.agent_case_chat_inject_content is False
+
+
+def test_normalize_agent_settings_read_values_preserves_legacy_contract() -> None:
+    normalized = _normalize_agent_settings_read_values(
+        {
+            "agent_default_model": {
+                "source_id": None,
+                "model_provider": "openai",
+                "model_name": "gpt-5.2",
+            }
+        }
+    )
+
+    assert normalized["agent_default_model"] == "gpt-5.2"
 
 
 @pytest.mark.anyio
