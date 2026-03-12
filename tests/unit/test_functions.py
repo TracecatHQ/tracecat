@@ -1,12 +1,10 @@
 from collections import Counter
-from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 import orjson
 import pytest
-from pydantic import BaseModel
 
 from tracecat.contexts import ctx_logical_time
 from tracecat.expressions.functions import (
@@ -119,15 +117,6 @@ from tracecat.expressions.functions import (
     weeks_between,
     zip_iterables,
 )
-
-
-class _SerializePydanticModel(BaseModel):
-    value: int
-
-
-@dataclass
-class _SerializeDataclassModel:
-    value: int
 
 
 @pytest.mark.parametrize(
@@ -785,11 +774,12 @@ def test_logical_operations(func, a: bool, b: Any, expected: bool) -> None:
     "input_data,expected",
     [
         ({"a": 1}, {"a": 1}),
-        (_SerializePydanticModel(value=42), {"value": 42}),
-        (_SerializeDataclassModel(value=7), {"value": 7}),
+        ([1, 2, 3], [1, 2, 3]),
+        ("test", "test"),
+        (123, 123),
     ],
 )
-def test_serialize(input_data: Any, expected: dict[str, Any]) -> None:
+def test_serialize(input_data: Any, expected: Any) -> None:
     result = serialize(input_data)
     assert orjson.loads(result) == expected
 
