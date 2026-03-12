@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from tracecat.agent.session.schemas import AgentSessionUpdate
+from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionUpdate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
@@ -144,6 +144,29 @@ async def test_update_session_rejects_explicit_model_selection_when_preset_exist
                 model_name="gpt-5",
                 model_provider="openai_compatible_gateway",
             ),
+        )
+
+
+@pytest.mark.anyio
+async def test_create_session_rejects_explicit_model_selection_for_preset_entity(
+    role: Role,
+) -> None:
+    session = AsyncMock()
+    session.add = Mock()
+    service = AgentSessionService(session, role)
+
+    with pytest.raises(
+        ValueError,
+        match="explicit model selection cannot be set when the session resolves to a preset",
+    ):
+        await service.create_session(
+            AgentSessionCreate(
+                title="Preset chat",
+                entity_type=AgentSessionEntity.AGENT_PRESET,
+                entity_id=uuid.uuid4(),
+                model_name="gpt-5",
+                model_provider="openai",
+            )
         )
 
 

@@ -83,6 +83,7 @@ from tracecat.db.models import (
     Organization,
     OrganizationSecret,
     PlatformSetting,
+    Secret,
     Workspace,
 )
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
@@ -2525,6 +2526,35 @@ class AgentManagementService(BaseOrgService):
             return None
         return await self._augment_runtime_provider_credentials(provider, credentials)
 
+    async def _get_workspace_provider_credentials_compat(
+        self, provider: str
+    ) -> dict[str, str] | None:
+        """Fallback to legacy workspace-scoped provider secrets during cutover."""
+        self._ensure_builtin_provider(provider)
+        if self.role.workspace_id is None:
+            return None
+
+        secret_name = self._get_credential_secret_name(provider)
+        result = await self.session.execute(
+            select(Secret.encrypted_keys).where(
+                Secret.workspace_id == self.role.workspace_id,
+                Secret.name == secret_name,
+                Secret.environment == DEFAULT_SECRETS_ENVIRONMENT,
+            )
+        )
+        if (encrypted_keys := result.scalar_one_or_none()) is None:
+            return None
+        decrypted_keys = self.secrets_service.decrypt_keys(encrypted_keys)
+        return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
+
+    async def get_provider_credentials_compat(
+        self, provider: str
+    ) -> dict[str, str] | None:
+        """Get org-scoped credentials with legacy workspace fallback during cutover."""
+        if credentials := await self.get_provider_credentials(provider):
+            return credentials
+        return await self._get_workspace_provider_credentials_compat(provider)
+
     @require_scope("agent:update")
     async def delete_provider_credentials(self, provider: str) -> None:
         """Delete credentials for an AI provider."""
@@ -2565,6 +2595,17 @@ class AgentManagementService(BaseOrgService):
             status[provider] = self._provider_credentials_complete(
                 provider=provider,
                 credentials=await self.get_provider_credentials(provider),
+            )
+        return status
+
+    async def get_workspace_providers_status(self) -> dict[str, bool]:
+        """Get provider status using workspace fallback credentials during cutover."""
+        providers = [provider.value for provider in _BUILT_IN_PROVIDER_ORDER]
+        status = {}
+        for provider in providers:
+            status[provider] = self._provider_credentials_complete(
+                provider=provider,
+                credentials=await self.get_provider_credentials_compat(provider),
             )
         return status
 
@@ -2643,7 +2684,8 @@ class AgentManagementService(BaseOrgService):
                     pass
             return credentials
         credentials = (
-            await self.get_provider_credentials(catalog_entry.model_provider) or {}
+            await self.get_provider_credentials_compat(catalog_entry.model_provider)
+            or {}
         )
         if selection is None:
             return credentials
@@ -2673,6 +2715,28 @@ class AgentManagementService(BaseOrgService):
             catalog_entry=row,
             selection=selection_key,
         )
+
+    async def get_runtime_credentials_for_config(
+        self,
+        config: AgentConfig,
+    ) -> dict[str, str] | None:
+        """Resolve runtime credentials for a config, preferring enabled selections."""
+        if config.model_name and config.model_provider:
+            selection = ModelSelection(
+                source_id=config.source_id,
+                model_provider=config.model_provider,
+                model_name=config.model_name,
+            )
+            if await self.is_model_enabled(
+                self._selection_key_from_model_selection(selection),
+                workspace_id=self.role.workspace_id,
+            ):
+                return await self.get_runtime_credentials_for_selection(
+                    selection=selection
+                )
+        if config.model_provider:
+            return await self.get_provider_credentials_compat(config.model_provider)
+        return None
 
     async def _resolve_catalog_agent_config(
         self,
@@ -2810,6 +2874,12 @@ class AgentManagementService(BaseOrgService):
             try:
                 await self._get_catalog_row_model(selection)
             except TracecatNotFoundError:
+                if preset_config.source_id is not None:
+                    raise TracecatNotFoundError(
+                        "Source-backed model selection "
+                        f"{preset_config.model_provider}/{preset_config.model_name} "
+                        "is no longer available"
+                    ) from None
                 pass
             else:
                 raise TracecatNotFoundError(
@@ -2989,6 +3059,40 @@ class AgentManagementService(BaseOrgService):
 
         return summary
 
+    async def prune_stale_builtin_model_selections(self) -> set[ModelSelectionKey]:
+        """Remove enabled builtin selections whose shared catalog rows were pruned."""
+        builtin_keys = {
+            (model_provider, model_name)
+            for model_provider, model_name in (
+                await self.session.execute(
+                    select(
+                        AgentCatalog.model_provider,
+                        AgentCatalog.model_name,
+                    ).where(
+                        AgentCatalog.organization_id.is_(None),
+                        AgentCatalog.source_id.is_(None),
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        }
+        stale_selections = [
+            self._selection_key_from_enabled_row(row)
+            for row in await self._list_org_enabled_rows()
+            if row.source_id is None
+            and (row.model_provider, row.model_name) not in builtin_keys
+        ]
+        if not stale_selections:
+            return set()
+        disabled = await self._disable_model_selections(stale_selections)
+        self.logger.info(
+            "Pruned stale builtin model selections",
+            organization_id=str(self.organization_id),
+            disabled_rows=len(disabled),
+        )
+        return disabled
+
     @contextlib.asynccontextmanager
     async def with_model_config(
         self,
@@ -2999,6 +3103,10 @@ class AgentManagementService(BaseOrgService):
         if selection is None:
             if not (default_selection := await self.get_default_model()):
                 raise TracecatNotFoundError("No default model set")
+            await self.require_enabled_model_selection(
+                default_selection,
+                workspace_id=self.role.workspace_id,
+            )
             selection_key = self._selection_key_from_model_selection(default_selection)
         else:
             await self.require_enabled_model_selection(selection)
@@ -3043,7 +3151,9 @@ class AgentManagementService(BaseOrgService):
             return
 
         # Legacy fallback for presets that have not been migrated into the catalog yet.
-        credentials = await self.get_provider_credentials(preset_config.model_provider)
+        credentials = await self.get_provider_credentials_compat(
+            preset_config.model_provider
+        )
         if not credentials:
             raise TracecatNotFoundError(
                 f"No credentials found for provider '{preset_config.model_provider}'. "
@@ -3117,6 +3227,7 @@ async def _sync_model_catalogs_as_leader(session: AsyncSession) -> None:
                         error=str(exc),
                     )
                     await session.rollback()
+        await service.prune_stale_builtin_model_selections()
         await service._ensure_default_enabled_models()
         if repair_legacy := getattr(service, "repair_legacy_model_selections", None):
             repair_summary = await repair_legacy()

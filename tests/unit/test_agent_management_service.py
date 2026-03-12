@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from sqlalchemy import null, select
+from sqlalchemy import insert, null, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.builtin_catalog import BuiltInCatalogModel
@@ -106,6 +106,7 @@ async def test_sync_model_catalogs_on_startup_refreshes_platform_and_sources() -
         org_ids[1]: [uuid.uuid4(), uuid.uuid4()],
     }
     observed_roles: list[uuid.UUID] = []
+    pruned_orgs: list[uuid.UUID] = []
 
     @asynccontextmanager
     async def session_cm():
@@ -127,6 +128,10 @@ async def test_sync_model_catalogs_on_startup_refreshes_platform_and_sources() -
         async def check_provider_credentials(self, provider: str) -> bool:
             del provider
             return False
+
+        async def prune_stale_builtin_model_selections(self) -> set[object]:
+            pruned_orgs.append(self.organization_id)
+            return set()
 
         async def list_model_sources(self) -> list[object]:
             return [
@@ -173,6 +178,7 @@ async def test_sync_model_catalogs_on_startup_refreshes_platform_and_sources() -
         monkeypatch.undo()
 
     assert observed_roles == [org_ids[0], *org_ids]
+    assert pruned_orgs == org_ids
     unlock.assert_awaited_once()
 
 
@@ -442,6 +448,97 @@ async def test_get_runtime_credentials_for_selection_preserves_source_protocol_d
 
 
 @pytest.mark.anyio
+async def test_get_runtime_credentials_for_selection_falls_back_to_workspace_secret(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    selection = ModelSelection(
+        source_id=None,
+        model_provider="openai",
+        model_name="gpt-5.2",
+    )
+    service._get_catalog_row = AsyncMock(
+        return_value=ResolvedCatalogRecord(
+            source_id=None,
+            model_provider="openai",
+            model_name="gpt-5.2",
+            source_type=ModelSourceType.OPENAI,
+            source_name="OpenAI",
+            base_url=None,
+            last_refreshed_at=None,
+            metadata=None,
+        )
+    )
+    service.get_provider_credentials = AsyncMock(return_value=None)
+    service._get_workspace_provider_credentials_compat = AsyncMock(
+        return_value={"OPENAI_API_KEY": "workspace-key"}
+    )
+    service._get_enabled_row = AsyncMock(return_value=None)
+
+    credentials = await service.get_runtime_credentials_for_selection(
+        selection=selection
+    )
+
+    assert credentials == {"OPENAI_API_KEY": "workspace-key"}
+
+
+@pytest.mark.anyio
+async def test_get_provider_credentials_compat_falls_back_to_workspace_secret(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.get_provider_credentials = AsyncMock(return_value=None)
+    service._get_workspace_provider_credentials_compat = AsyncMock(
+        return_value={"OPENAI_API_KEY": "workspace-key"}
+    )
+
+    credentials = await service.get_provider_credentials_compat("openai")
+
+    assert credentials == {"OPENAI_API_KEY": "workspace-key"}
+
+
+@pytest.mark.anyio
+async def test_get_workspace_providers_status_uses_workspace_fallback(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.get_provider_credentials_compat = AsyncMock(
+        side_effect=lambda provider: (
+            {"OPENAI_API_KEY": "workspace-key"} if provider == "openai" else None
+        )
+    )
+
+    status = await service.get_workspace_providers_status()
+
+    assert status["openai"] is True
+    assert status["anthropic"] is False
+
+
+@pytest.mark.anyio
+async def test_get_runtime_credentials_for_config_prefers_enabled_selection(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    config = AgentConfig(
+        model_name="claude-3-7-sonnet",
+        model_provider="bedrock",
+    )
+    service.is_model_enabled = AsyncMock(return_value=True)
+    service.get_runtime_credentials_for_selection = AsyncMock(
+        return_value={"AWS_INFERENCE_PROFILE_ID": "profile-123"}
+    )
+    service.get_provider_credentials_compat = AsyncMock(
+        return_value={"AWS_ACCESS_KEY_ID": "raw-key"}
+    )
+
+    credentials = await service.get_runtime_credentials_for_config(config)
+
+    assert credentials == {"AWS_INFERENCE_PROFILE_ID": "profile-123"}
+    service.get_runtime_credentials_for_selection.assert_awaited_once()
+    service.get_provider_credentials_compat.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_get_default_model_reads_composite_setting(role: Role) -> None:
     service = AgentManagementService(AsyncMock(), role=role)
     setting = type(
@@ -476,9 +573,43 @@ async def test_get_default_model_reads_composite_setting(role: Role) -> None:
         source_id=None,
         model_provider="openai",
         model_name="gpt-5.2",
-        source_type="openai",
+        source_type=ModelSourceType.OPENAI,
         source_name="OpenAI",
     )
+
+
+@pytest.mark.anyio
+async def test_with_model_config_rejects_workspace_excluded_default_model(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    default_selection = DefaultModelSelection(
+        source_id=None,
+        model_provider="openai",
+        model_name="gpt-5.2",
+        source_type=ModelSourceType.OPENAI,
+        source_name="OpenAI",
+    )
+    service.get_default_model = AsyncMock(return_value=default_selection)
+    service.require_enabled_model_selection = AsyncMock(
+        side_effect=TracecatNotFoundError("Model openai/gpt-5.2 is not enabled")
+    )
+    service._resolve_catalog_agent_config = AsyncMock()
+
+    with pytest.raises(
+        TracecatNotFoundError,
+        match="Model openai/gpt-5.2 is not enabled",
+    ):
+        async with service.with_model_config():
+            pytest.fail(
+                "with_model_config should not yield when the default is excluded"
+            )
+
+    service.require_enabled_model_selection.assert_awaited_once_with(
+        default_selection,
+        workspace_id=role.workspace_id,
+    )
+    service._resolve_catalog_agent_config.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -558,6 +689,8 @@ async def test_upsert_catalog_rows_prunes_stale_workspace_subset_and_default(
     svc_admin_role: Role,
 ) -> None:
     service = AgentManagementService(session, role=svc_admin_role)
+    workspace_id = svc_admin_role.workspace_id
+    assert workspace_id is not None
     source = AgentModelSource(
         organization_id=svc_admin_role.organization_id,
         model_provider=CustomModelSourceType.MANUAL_CUSTOM.value,
@@ -593,9 +726,9 @@ async def test_upsert_catalog_rows_prunes_stale_workspace_subset_and_default(
     await session.commit()
     await service.set_default_model_selection(stale_selection)
     await session.execute(
-        AgentEnabledModel.__table__.insert().values(
+        insert(AgentEnabledModel).values(
             organization_id=svc_admin_role.organization_id,
-            workspace_id=svc_admin_role.workspace_id,
+            workspace_id=workspace_id,
             source_id=source.id,
             model_provider=stale_selection.model_provider,
             model_name=stale_selection.model_name,
@@ -619,7 +752,7 @@ async def test_upsert_catalog_rows_prunes_stale_workspace_subset_and_default(
     )
 
     assert await service.get_default_model() is None
-    assert await service.get_workspace_model_subset(svc_admin_role.workspace_id) == (
+    assert await service.get_workspace_model_subset(workspace_id) == (
         WorkspaceModelSubsetRead(inherit_all=True, models=[])
     )
     assert [
@@ -636,6 +769,8 @@ async def test_upsert_builtin_catalog_rows_prunes_stale_workspace_subset_and_def
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = AgentManagementService(session, role=svc_admin_role)
+    workspace_id = svc_admin_role.workspace_id
+    assert workspace_id is not None
     stale_selection = ModelSelection(
         source_id=None,
         model_provider="openai",
@@ -663,9 +798,9 @@ async def test_upsert_builtin_catalog_rows_prunes_stale_workspace_subset_and_def
     await session.commit()
     await service.set_default_model_selection(stale_selection)
     await session.execute(
-        AgentEnabledModel.__table__.insert().values(
+        insert(AgentEnabledModel).values(
             organization_id=svc_admin_role.organization_id,
-            workspace_id=svc_admin_role.workspace_id,
+            workspace_id=workspace_id,
             source_id=None,
             model_provider=stale_selection.model_provider,
             model_name=stale_selection.model_name,
@@ -694,7 +829,7 @@ async def test_upsert_builtin_catalog_rows_prunes_stale_workspace_subset_and_def
     await service._upsert_builtin_catalog_rows()
 
     assert await service.get_default_model() is None
-    assert await service.get_workspace_model_subset(svc_admin_role.workspace_id) == (
+    assert await service.get_workspace_model_subset(workspace_id) == (
         WorkspaceModelSubsetRead(inherit_all=True, models=[])
     )
     assert [
@@ -710,6 +845,8 @@ async def test_disable_model_removes_workspace_subset_rows(
     svc_role: Role,
 ) -> None:
     service = AgentManagementService(session, role=svc_role)
+    workspace_id = svc_role.workspace_id
+    assert workspace_id is not None
     selection = ModelSelection(
         source_id=None,
         model_provider="openai",
@@ -736,9 +873,9 @@ async def test_disable_model_removes_workspace_subset_rows(
     )
     await session.commit()
     await session.execute(
-        AgentEnabledModel.__table__.insert().values(
+        insert(AgentEnabledModel).values(
             organization_id=svc_role.organization_id,
-            workspace_id=svc_role.workspace_id,
+            workspace_id=workspace_id,
             source_id=None,
             model_provider=selection.model_provider,
             model_name=selection.model_name,
@@ -749,7 +886,7 @@ async def test_disable_model_removes_workspace_subset_rows(
 
     await service.disable_model(selection)
 
-    assert await service.get_workspace_model_subset(svc_role.workspace_id) == (
+    assert await service.get_workspace_model_subset(workspace_id) == (
         WorkspaceModelSubsetRead(inherit_all=True, models=[])
     )
     assert await service._list_org_enabled_rows() == []
@@ -770,6 +907,33 @@ async def test_resolve_preset_selection_rejects_disabled_catalog_selection(
     with pytest.raises(
         TracecatNotFoundError,
         match="Model openai/gpt-5.2 is not enabled",
+    ):
+        await service._resolve_preset_selection(config)
+
+
+@pytest.mark.anyio
+async def test_resolve_preset_selection_does_not_fallback_when_source_backed_model_is_missing(
+    role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    config = AgentConfig(
+        source_id=uuid.uuid4(),
+        model_name="gpt-5.2",
+        model_provider="openai",
+    )
+    service.is_model_enabled = AsyncMock(return_value=False)
+    service._get_catalog_row_model = AsyncMock(
+        side_effect=TracecatNotFoundError("missing")
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.service.resolve_enabled_catalog_match_for_provider_model",
+        AsyncMock(side_effect=AssertionError("legacy fallback should not run")),
+    )
+
+    with pytest.raises(
+        TracecatNotFoundError,
+        match="Source-backed model selection openai/gpt-5.2 is no longer available",
     ):
         await service._resolve_preset_selection(config)
 

@@ -132,16 +132,6 @@ class AgentSessionService(BaseWorkspaceService):
         Returns:
             The created AgentSession model.
         """
-        if args.model_provider is not None and args.model_name is not None:
-            agent_svc = AgentManagementService(self.session, self.role)
-            await agent_svc.require_enabled_model_selection(
-                selection=ModelSelection(
-                    source_id=args.source_id,
-                    model_provider=args.model_provider,
-                    model_name=args.model_name,
-                )
-            )
-
         # Apply default tools based on entity type if tools not provided
         tools = args.tools
         if not tools and args.entity_type:
@@ -151,6 +141,22 @@ class AgentSessionService(BaseWorkspaceService):
             entity_id=args.entity_id,
             agent_preset_id=args.agent_preset_id,
         )
+        if logical_preset_id is not None and any(
+            value is not None
+            for value in (args.source_id, args.model_name, args.model_provider)
+        ):
+            raise ValueError(
+                "explicit model selection cannot be set when the session resolves to a preset"
+            )
+        if args.model_provider is not None and args.model_name is not None:
+            agent_svc = AgentManagementService(self.session, self.role)
+            await agent_svc.require_enabled_model_selection(
+                selection=ModelSelection(
+                    source_id=args.source_id,
+                    model_provider=args.model_provider,
+                    model_name=args.model_name,
+                )
+            )
         pinned_preset_version_id = await self._resolve_preset_version_for_assignment(
             entity_type=args.entity_type,
             entity_id=args.entity_id,

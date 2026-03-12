@@ -6,10 +6,11 @@ from collections import Counter
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import Request
+from fastapi import FastAPI, Request
 
 from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.api.app import info, lifespan
@@ -262,6 +263,67 @@ def test_resolve_auth_organization_id_uses_bypass_session_manager() -> None:
 def test_api_lifespan_rbac_seeding_uses_bypass_session_manager() -> None:
     source = inspect.getsource(lifespan)
     assert "get_async_session_bypass_rls_context_manager" in source
+
+
+@pytest.mark.anyio
+async def test_api_lifespan_waits_for_model_catalog_sync_before_serving_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_task_names: list[str] = []
+
+    class _FakeTask:
+        def __init__(self) -> None:
+            self._done = True
+
+        def done(self) -> bool:
+            return self._done
+
+        def cancel(self) -> None:
+            self._done = True
+
+        def result(self) -> None:
+            return None
+
+        def __await__(self):
+            async def _wait() -> None:
+                return None
+
+            return _wait().__await__()
+
+    def _capture_create_task(coro, *, name: str | None = None) -> _FakeTask:
+        created_task_names.append(name or "")
+        coro.close()
+        return _FakeTask()
+
+    @asynccontextmanager
+    async def _fake_bypass_session_manager():
+        yield SimpleNamespace()
+
+    monkeypatch.setattr("tracecat.api.app.ensure_bucket_exists", AsyncMock())
+    monkeypatch.setattr("tracecat.api.app.configure_bucket_lifecycle", AsyncMock())
+    monkeypatch.setattr("tracecat.api.app.ensure_default_organization", AsyncMock())
+    monkeypatch.setattr("tracecat.api.app.setup_rbac_defaults", AsyncMock())
+    monkeypatch.setattr(
+        "tracecat.api.app.get_async_session_bypass_rls_context_manager",
+        _fake_bypass_session_manager,
+    )
+    sync_mock = AsyncMock()
+    monkeypatch.setattr("tracecat.api.app.sync_model_catalogs_on_startup", sync_mock)
+    monkeypatch.setattr(
+        "tracecat.api.app.sync_platform_registry_on_startup",
+        AsyncMock(),
+    )
+    monkeypatch.setattr("tracecat.api.app.add_temporal_search_attributes", AsyncMock())
+    monkeypatch.setattr("tracecat.api.app.asyncio.create_task", _capture_create_task)
+    monkeypatch.setattr(
+        "tracecat.api.app.config.TRACECAT__CASE_TRIGGERS_ENABLED", False
+    )
+
+    async with lifespan(FastAPI()):
+        pass
+
+    assert "model_catalog_sync" not in created_task_names
+    sync_mock.assert_awaited_once()
 
 
 def test_registry_sync_startup_uses_bypass_session_manager() -> None:
