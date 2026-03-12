@@ -26,6 +26,7 @@ import ssl
 import sys
 import types
 from collections.abc import Iterable, Mapping
+from http.cookies import SimpleCookie
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.response import addinfourl
@@ -515,6 +516,47 @@ def _apply_aiohttp_auth(headers: dict[str, str], auth: object | None) -> None:
     )
 
 
+def _apply_aiohttp_cookies(
+    aiohttp_module: types.ModuleType,
+    session: object,
+    headers: dict[str, str],
+    url: str,
+    cookies: object | None,
+) -> None:
+    if "Cookie" in headers or "cookie" in headers:
+        return
+    url_obj = aiohttp_module.client_reqrep.URL(url)
+    merged = SimpleCookie()
+    if (cookie_jar := getattr(session, "_cookie_jar", None)) is not None:
+        session_cookies = cookie_jar.filter_cookies(url_obj)
+        if session_cookies:
+            merged.load(session_cookies)
+    if cookies is not None and (
+        (cookie_jar := getattr(session, "_cookie_jar", None)) is not None
+    ):
+        temp_jar = aiohttp_module.CookieJar(quote_cookie=cookie_jar.quote_cookie)
+        temp_jar.update_cookies(cookies)
+        request_cookies = temp_jar.filter_cookies(url_obj)
+        if request_cookies:
+            merged.load(request_cookies)
+    if merged:
+        headers["Cookie"] = merged.output(header="", sep=";").strip()
+
+
+def _update_aiohttp_cookie_jar(
+    aiohttp_module: types.ModuleType,
+    session: object,
+    response: object,
+) -> None:
+    if (cookie_jar := getattr(session, "_cookie_jar", None)) is None:
+        return
+    if set_cookie := response.headers.get("Set-Cookie"):
+        cookie_jar.update_cookies(
+            SimpleCookie(set_cookie),
+            response_url=aiohttp_module.client_reqrep.URL(response.url),
+        )
+
+
 def _build_urllib3_response(
     urllib3_module: types.ModuleType,
     envelope: _GatewayDispatchResponse,
@@ -965,6 +1007,9 @@ def _patch_aiohttp(aiohttp_module: types.ModuleType) -> None:
             kwargs["auth"] if "auth" in kwargs else getattr(self, "_default_auth", None)
         )
         _apply_aiohttp_auth(headers, auth)
+        _apply_aiohttp_cookies(
+            aiohttp_module, self, headers, url, kwargs.get("cookies")
+        )
         encoded_body, content_type = _encode_body(
             data,
             json_value=kwargs.get("json"),
@@ -984,7 +1029,9 @@ def _patch_aiohttp(aiohttp_module: types.ModuleType) -> None:
                 kwargs.get("allow_redirects"), True
             ),
         )
-        return _AiohttpProxyResponse(aiohttp_module, envelope)
+        response = _AiohttpProxyResponse(aiohttp_module, envelope)
+        _update_aiohttp_cookie_jar(aiohttp_module, self, response)
+        return response
 
     patched.__tracecat_outbound_http_gateway__ = True
     session_cls._request = patched

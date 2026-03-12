@@ -373,6 +373,20 @@ async def main():
 asyncio.run(main())
 """
 
+_AIOHTTP_SESSION_COOKIE_SCRIPT = """\
+import asyncio, json, aiohttp
+
+async def main():
+    async with aiohttp.ClientSession() as session:
+        async with session.get('https://example.com/login') as response:
+            await response.read()
+        async with session.get('https://example.com/data') as response:
+            payload = await response.json()
+            print(json.dumps({'status': response.status, 'body': payload}))
+
+asyncio.run(main())
+"""
+
 _URLLIB_HTTP_ERROR_SCRIPT = """\
 import json, urllib.error, urllib.request
 try:
@@ -542,6 +556,44 @@ def test_bootstrap_applies_aiohttp_auth(script: str) -> None:
         "payload"
     ]["headers"].get("authorization")
     assert auth_header == "Basic YWxpY2U6d29uZGVybGFuZA=="
+
+
+def test_bootstrap_preserves_aiohttp_session_cookies() -> None:
+    """aiohttp intercepted responses should round-trip cookies through the session jar."""
+
+    def gateway_response(
+        payload: dict[str, Any],
+        _state: dict[str, Any],
+    ) -> dict[str, Any]:
+        if payload["url"] == "https://example.com/login":
+            return {
+                "status_code": 200,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Set-Cookie": "sessionid=abc123; Path=/",
+                },
+                "body_base64": base64.b64encode(b'{"ok":true}').decode("ascii"),
+                "url": payload["url"],
+                "reason_phrase": "OK",
+            }
+        return {
+            "status_code": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body_base64": base64.b64encode(b'{"ok":true}').decode("ascii"),
+            "url": payload["url"],
+            "reason_phrase": "OK",
+        }
+
+    with _mock_gateway(response=gateway_response) as (gateway_url, state):
+        completed = _run_script(_AIOHTTP_SESSION_COOKIE_SCRIPT, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.strip()) == {
+        "status": 200,
+        "body": {"ok": True},
+    }
+    assert len(state["requests"]) == 2
+    assert state["requests"][1]["payload"]["headers"]["Cookie"] == "sessionid=abc123"
 
 
 def test_bootstrap_preserves_requests_session_cookies() -> None:
