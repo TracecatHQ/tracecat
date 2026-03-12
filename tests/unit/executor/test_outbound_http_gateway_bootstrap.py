@@ -264,6 +264,26 @@ response = httpx.get(
 print(json.dumps({'status': response.status_code, 'body': response.json()}))
 """
 
+_HTTPX_SEND_AUTH_SCRIPT = """\
+import json, httpx
+with httpx.Client() as client:
+    request = client.build_request('GET', 'https://example.com/auth')
+    response = client.send(request, auth=('alice', 'wonderland'))
+    print(json.dumps({'status': response.status_code, 'body': response.json()}))
+"""
+
+_HTTPX_ASYNC_SEND_AUTH_SCRIPT = """\
+import asyncio, json, httpx
+
+async def main():
+    async with httpx.AsyncClient() as client:
+        request = client.build_request('GET', 'https://example.com/auth')
+        response = await client.send(request, auth=('alice', 'wonderland'))
+        print(json.dumps({'status': response.status_code, 'body': response.json()}))
+
+asyncio.run(main())
+"""
+
 _URLLIB_SCRIPT = """\
 import json, urllib.request
 request = urllib.request.Request(
@@ -397,6 +417,25 @@ def test_bootstrap_routes_requests_multipart_via_gateway() -> None:
     assert 'name="kind"' in decoded_body
     assert 'name="file"; filename="hello.txt"' in decoded_body
     assert "hello world" in decoded_body
+
+
+@pytest.mark.parametrize(
+    "script",
+    [_HTTPX_SEND_AUTH_SCRIPT, _HTTPX_ASYNC_SEND_AUTH_SCRIPT],
+)
+def test_bootstrap_applies_httpx_send_auth(script: str) -> None:
+    """httpx send(auth=...) should preserve auth headers under interception."""
+    with _mock_gateway() as (gateway_url, state):
+        completed = _run_script(script, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout.strip())
+    assert payload == {"status": 200, "body": {"ok": True}}
+    [request] = state["requests"]
+    auth_header = request["payload"]["headers"].get("Authorization") or request[
+        "payload"
+    ]["headers"].get("authorization")
+    assert auth_header == ("Basic YWxpY2U6d29uZGVybGFuZA==")
 
 
 def test_bootstrap_preserves_requests_session_cookies() -> None:

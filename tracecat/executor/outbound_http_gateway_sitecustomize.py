@@ -434,6 +434,74 @@ def _build_httpx_response(
     return response
 
 
+def _prepare_httpx_auth(
+    client: object,
+    request: object,
+    auth: object,
+    sentinel: object,
+) -> tuple[object, object | None]:
+    auth_obj = client._build_request_auth(
+        request, auth if auth is not sentinel else sentinel
+    )
+    auth_flow = auth_obj.sync_auth_flow(request)
+    try:
+        prepared_request = next(auth_flow)
+    except StopIteration:
+        auth_flow.close()
+        return request, None
+    return prepared_request, auth_flow
+
+
+def _finalize_httpx_auth(response: object, auth_flow: object | None) -> None:
+    if auth_flow is None:
+        return
+    try:
+        try:
+            auth_flow.send(response)
+        except StopIteration:
+            return
+        raise TracecatOutboundHTTPGatewayError(
+            "Challenge-based httpx auth is not supported with outbound HTTP interception"
+        )
+    finally:
+        auth_flow.close()
+
+
+async def _prepare_httpx_auth_async(
+    client: object,
+    request: object,
+    auth: object,
+    sentinel: object,
+) -> tuple[object, object | None]:
+    auth_obj = client._build_request_auth(
+        request, auth if auth is not sentinel else sentinel
+    )
+    auth_flow = auth_obj.async_auth_flow(request)
+    try:
+        prepared_request = await auth_flow.__anext__()
+    except StopAsyncIteration:
+        await auth_flow.aclose()
+        return request, None
+    return prepared_request, auth_flow
+
+
+async def _finalize_httpx_auth_async(
+    response: object, auth_flow: object | None
+) -> None:
+    if auth_flow is None:
+        return
+    try:
+        try:
+            await auth_flow.asend(response)
+        except StopAsyncIteration:
+            return
+        raise TracecatOutboundHTTPGatewayError(
+            "Challenge-based httpx auth is not supported with outbound HTTP interception"
+        )
+    finally:
+        await auth_flow.aclose()
+
+
 def _build_urllib3_response(
     urllib3_module: types.ModuleType,
     envelope: _GatewayDispatchResponse,
@@ -662,6 +730,7 @@ def _patch_httpx(httpx_module: types.ModuleType) -> None:
             raise TracecatOutboundHTTPGatewayError(
                 "Streaming responses are not supported with outbound HTTP interception"
             )
+        request, auth_flow = _prepare_httpx_auth(self, request, auth, sentinel)
         body = request.content
         envelope = _dispatch_to_gateway(
             method=request.method,
@@ -676,7 +745,9 @@ def _patch_httpx(httpx_module: types.ModuleType) -> None:
                 bool(self.follow_redirects),
             ),
         )
-        return _build_httpx_response(httpx_module, request, envelope)
+        response = _build_httpx_response(httpx_module, request, envelope)
+        _finalize_httpx_auth(response, auth_flow)
+        return response
 
     async def async_patched(
         self: object,
@@ -699,6 +770,9 @@ def _patch_httpx(httpx_module: types.ModuleType) -> None:
             raise TracecatOutboundHTTPGatewayError(
                 "Streaming responses are not supported with outbound HTTP interception"
             )
+        request, auth_flow = await _prepare_httpx_auth_async(
+            self, request, auth, sentinel
+        )
         body = await request.aread()
         envelope = await _dispatch_to_gateway_async(
             method=request.method,
@@ -713,7 +787,9 @@ def _patch_httpx(httpx_module: types.ModuleType) -> None:
                 bool(self.follow_redirects),
             ),
         )
-        return _build_httpx_response(httpx_module, request, envelope)
+        response = _build_httpx_response(httpx_module, request, envelope)
+        await _finalize_httpx_auth_async(response, auth_flow)
+        return response
 
     sync_patched.__tracecat_outbound_http_gateway__ = True
     async_patched.__tracecat_outbound_http_gateway__ = True
