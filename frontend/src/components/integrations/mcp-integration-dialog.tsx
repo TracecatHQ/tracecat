@@ -865,7 +865,13 @@ export function MCPIntegrationDialog({
                           <FormDescription className="text-xs">
                             JSON object with environment variables for the stdio
                             command. Template expressions are supported, for
-                            example <code>{'{"GITHUB_TOKEN": "${{ SECRETS.github.TOKEN }}"}'}</code>.
+                            example{" "}
+                            <code>
+                              {
+                                '{"GITHUB_TOKEN": "${{ SECRETS.github.TOKEN }}"}'
+                              }
+                            </code>
+                            .
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
