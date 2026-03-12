@@ -67,8 +67,8 @@ function NavItem({
   )
 }
 
-export function SettingsModal() {
-  const { open, setOpen, activeSection, setActiveSection } = useSettingsModal()
+function SettingsModalContent() {
+  const { setOpen, activeSection, setActiveSection } = useSettingsModal()
   const { logout } = useAuthActions()
   const { hasEntitlement } = useEntitlements()
 
@@ -87,95 +87,103 @@ export function SettingsModal() {
   const showSyncNav = hasEntitlement("git_sync")
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="h-[600px] max-w-[900px] gap-0 overflow-hidden p-0">
-        <TooltipProvider>
-          <DialogTitle className="sr-only">Settings</DialogTitle>
-          <DialogDescription className="sr-only">
-            Manage your account and workspace settings
-          </DialogDescription>
-          <div className="flex h-full">
-            {/* Left nav panel */}
-            <div className="flex w-[200px] shrink-0 flex-col border-r">
-              <div className="flex flex-col gap-1 p-3">
-                <span className="px-2 py-1 text-xs font-medium text-muted-foreground">
-                  Account
-                </span>
-                <NavItem
-                  icon={UserIcon}
-                  label="Profile"
-                  section="profile"
-                  activeSection={activeSection}
-                  onSelect={setActiveSection}
-                />
+    <DialogContent className="h-[600px] max-w-[900px] gap-0 overflow-hidden p-0">
+      <TooltipProvider>
+        <DialogTitle className="sr-only">Settings</DialogTitle>
+        <DialogDescription className="sr-only">
+          Manage your account and workspace settings
+        </DialogDescription>
+        <div className="flex h-full">
+          {/* Left nav panel */}
+          <div className="flex w-[200px] shrink-0 flex-col border-r">
+            <div className="flex flex-col gap-1 p-3">
+              <span className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                Account
+              </span>
+              <NavItem
+                icon={UserIcon}
+                label="Profile"
+                section="profile"
+                activeSection={activeSection}
+                onSelect={setActiveSection}
+              />
 
-                {showWorkspaceSection && (
-                  <>
-                    <span className="mt-3 px-2 py-1 text-xs font-medium text-muted-foreground">
-                      Workspace
-                    </span>
-                    <NavItem
-                      icon={Settings2}
-                      label="General"
-                      section="workspace-general"
-                      activeSection={activeSection}
-                      onSelect={setActiveSection}
-                    />
-                    <NavItem
-                      icon={WorkflowIcon}
-                      label="Workflows"
-                      section="workspace-runtime"
-                      activeSection={activeSection}
-                      onSelect={setActiveSection}
-                    />
-                    <NavItem
-                      icon={FileIcon}
-                      label="Files"
-                      section="workspace-files"
-                      activeSection={activeSection}
-                      onSelect={setActiveSection}
-                    />
-                    <NavItem
-                      icon={GitBranchIcon}
-                      label="Git sync"
-                      section="workspace-sync"
-                      activeSection={activeSection}
-                      onSelect={setActiveSection}
-                      blocked={!showSyncNav}
-                    />
-                  </>
-                )}
-              </div>
-              <div className="mt-auto p-3">
-                <Separator className="mb-3" />
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                  onClick={() => {
-                    setOpen(false)
-                    logout()
-                  }}
-                >
-                  <LogOut className="size-4" />
-                  Sign out
-                </button>
-              </div>
+              {showWorkspaceSection && (
+                <>
+                  <span className="mt-3 px-2 py-1 text-xs font-medium text-muted-foreground">
+                    Workspace
+                  </span>
+                  <NavItem
+                    icon={Settings2}
+                    label="General"
+                    section="workspace-general"
+                    activeSection={activeSection}
+                    onSelect={setActiveSection}
+                  />
+                  <NavItem
+                    icon={WorkflowIcon}
+                    label="Workflows"
+                    section="workspace-runtime"
+                    activeSection={activeSection}
+                    onSelect={setActiveSection}
+                  />
+                  <NavItem
+                    icon={FileIcon}
+                    label="Files"
+                    section="workspace-files"
+                    activeSection={activeSection}
+                    onSelect={setActiveSection}
+                  />
+                  <NavItem
+                    icon={GitBranchIcon}
+                    label="Git sync"
+                    section="workspace-sync"
+                    activeSection={activeSection}
+                    onSelect={setActiveSection}
+                    blocked={!showSyncNav}
+                  />
+                </>
+              )}
             </div>
-
-            {/* Right content panel */}
-            <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-8">
-              {activeSection === "profile" ? (
-                <ProfileSettings />
-              ) : workspaceId ? (
-                <WorkspaceSettingsContainer
-                  workspaceId={workspaceId}
-                  activeSection={activeSection}
-                />
-              ) : null}
+            <div className="mt-auto p-3">
+              <Separator className="mb-3" />
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => {
+                  setOpen(false)
+                  logout()
+                }}
+              >
+                <LogOut className="size-4" />
+                Sign out
+              </button>
             </div>
           </div>
-        </TooltipProvider>
-      </DialogContent>
+
+          {/* Right content panel */}
+          <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-8">
+            {activeSection === "profile" ? (
+              <ProfileSettings />
+            ) : workspaceId ? (
+              <WorkspaceSettingsContainer
+                workspaceId={workspaceId}
+                activeSection={activeSection}
+              />
+            ) : null}
+          </div>
+        </div>
+      </TooltipProvider>
+    </DialogContent>
+  )
+}
+
+export function SettingsModal() {
+  const { open, setOpen } = useSettingsModal()
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      {open ? <SettingsModalContent /> : null}
     </Dialog>
   )
 }

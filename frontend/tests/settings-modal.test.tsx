@@ -9,14 +9,18 @@ import { SettingsModal } from "@/components/settings/settings-modal"
 const mockSetOpen = jest.fn()
 const mockSetActiveSection = jest.fn()
 const mockLogout = jest.fn()
+const mockUseEntitlements = jest.fn()
+const mockUseUserScopes = jest.fn()
+const mockUseWorkspaceManager = jest.fn()
 
 let mockScopes = ["*"]
 let mockWorkspaceId: string | undefined = "workspace-123"
 let mockHasGitSync = false
+let mockOpen = true
 
 jest.mock("@/components/settings/settings-modal-context", () => ({
   useSettingsModal: () => ({
-    open: true,
+    open: mockOpen,
     setOpen: mockSetOpen,
     activeSection: "profile",
     setActiveSection: mockSetActiveSection,
@@ -72,20 +76,29 @@ jest.mock("@/hooks/use-auth", () => ({
 }))
 
 jest.mock("@/hooks/use-entitlements", () => ({
-  useEntitlements: () => ({
-    hasEntitlement: (entitlement: string) =>
-      mockHasGitSync && entitlement === "git_sync",
-  }),
+  useEntitlements: () => {
+    mockUseEntitlements()
+    return {
+      hasEntitlement: (entitlement: string) =>
+        mockHasGitSync && entitlement === "git_sync",
+    }
+  },
 }))
 
 jest.mock("@/lib/hooks", () => ({
-  useUserScopes: () => ({
-    userScopes: { scopes: mockScopes },
-    isLoading: false,
-  }),
-  useWorkspaceManager: () => ({
-    getLastWorkspaceId: () => mockWorkspaceId,
-  }),
+  useUserScopes: () => {
+    mockUseUserScopes()
+    return {
+      userScopes: { scopes: mockScopes },
+      isLoading: false,
+    }
+  },
+  useWorkspaceManager: () => {
+    mockUseWorkspaceManager()
+    return {
+      getLastWorkspaceId: () => mockWorkspaceId,
+    }
+  },
 }))
 
 jest.mock("@/providers/workspace-id", () => ({
@@ -98,6 +111,7 @@ describe("SettingsModal workspace navigation", () => {
     mockScopes = ["*"]
     mockWorkspaceId = "workspace-123"
     mockHasGitSync = false
+    mockOpen = true
   })
 
   it("shows workspace settings sections for wildcard scopes", () => {
@@ -128,5 +142,15 @@ describe("SettingsModal workspace navigation", () => {
     expect(
       screen.queryByRole("button", { name: "Git sync" })
     ).not.toBeInTheDocument()
+  })
+
+  it("does not run workspace or entitlement hooks while closed", () => {
+    mockOpen = false
+
+    render(<SettingsModal />)
+
+    expect(mockUseWorkspaceManager).not.toHaveBeenCalled()
+    expect(mockUseUserScopes).not.toHaveBeenCalled()
+    expect(mockUseEntitlements).not.toHaveBeenCalled()
   })
 })
