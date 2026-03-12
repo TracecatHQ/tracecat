@@ -42,7 +42,7 @@ export const gitFormSchema = z.object({
 
 type GitFormValues = z.infer<typeof gitFormSchema>
 
-export function OrgSettingsGitForm() {
+export function OrgSettingsCustomRegistryForm() {
   const {
     gitSettings,
     gitSettingsIsLoading,
