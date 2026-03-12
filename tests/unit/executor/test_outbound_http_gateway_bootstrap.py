@@ -690,6 +690,24 @@ def test_bootstrap_honors_aiohttp_request_raise_for_status_override() -> None:
     assert len(gateway_state["requests"]) == 1
 
 
+def test_bootstrap_errors_on_aiohttp_tls_overrides() -> None:
+    """aiohttp TLS overrides should fail fast instead of being silently ignored."""
+    script = """\
+import asyncio, aiohttp
+
+async def main():
+    async with aiohttp.ClientSession() as session:
+        await session.get('https://example.com/test', ssl=False)
+
+asyncio.run(main())
+"""
+    with _mock_gateway() as (gateway_url, _state):
+        completed = _run_script(script, gateway_url)
+
+    assert completed.returncode != 0
+    assert "tls overrides are not supported" in completed.stderr.lower()
+
+
 def test_bootstrap_preserves_requests_session_cookies() -> None:
     """Set-Cookie responses should update the session jar for later intercepted requests."""
 

@@ -1011,6 +1011,16 @@ def _patch_aiohttp(aiohttp_module: types.ModuleType) -> None:
             raise TracecatOutboundHTTPGatewayError(
                 "Explicit proxy overrides are not supported with outbound HTTP interception"
             )
+        if (
+            kwargs.get("verify_ssl") is not None
+            or kwargs.get("fingerprint") is not None
+            or kwargs.get("ssl_context") is not None
+            or kwargs.get("ssl", True) is not True
+            or kwargs.get("server_hostname") is not None
+        ):
+            raise TracecatOutboundHTTPGatewayError(
+                "TLS overrides are not supported with outbound HTTP interception"
+            )
         if _bool_or_default(kwargs.get("chunked"), False):
             raise TracecatOutboundHTTPGatewayError(
                 "Streaming request bodies are not supported with outbound HTTP interception"
