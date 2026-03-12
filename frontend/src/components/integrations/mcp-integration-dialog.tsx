@@ -855,15 +855,23 @@ export function MCPIntegrationDialog({
                         <FormItem>
                           <FormLabel>Stdio environment variables</FormLabel>
                           <FormControl>
-                            <Textarea
-                              placeholder='{"GITHUB_TOKEN": "${{ SECRETS.github.TOKEN }}"}'
-                              className="font-mono text-sm min-h-[80px]"
-                              {...field}
+                            <CodeEditor
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              language="json"
+                              className="font-mono text-xs [&_.cm-content]:text-xs [&_.cm-editor]:min-h-[80px]"
                             />
                           </FormControl>
                           <FormDescription className="text-xs">
                             JSON object with environment variables for the stdio
-                            command. Template expressions are supported.
+                            command. Template expressions are supported, for
+                            example{" "}
+                            <code>
+                              {
+                                '{"GITHUB_TOKEN": "${{ SECRETS.github.TOKEN }}"}'
+                              }
+                            </code>
+                            .
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
