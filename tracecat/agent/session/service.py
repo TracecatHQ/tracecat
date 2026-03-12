@@ -1424,10 +1424,9 @@ class AgentSessionService(BaseWorkspaceService):
                             if preset_config.instructions
                             else fork_context.strip()
                         )
-                        yield AgentConfig(
+                        yield replace(
+                            preset_config,
                             instructions=combined_instructions,
-                            model_name=preset_config.model_name,
-                            model_provider=preset_config.model_provider,
                             actions=[],  # No tools for forked sessions
                         )
                 else:

@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.schemas import (
     DefaultModelSelection,
@@ -22,9 +24,10 @@ from tracecat.agent.service import (
     ResolvedCatalogRecord,
     sync_model_catalogs_on_startup,
 )
-from tracecat.agent.types import AgentConfig, ModelSourceType
+from tracecat.agent.types import AgentConfig, CustomModelSourceType, ModelSourceType
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentEnabledModel
+from tracecat.db.models import AgentCatalog, AgentEnabledModel, AgentModelSource
+from tracecat.exceptions import TracecatNotFoundError
 
 
 @pytest.fixture
@@ -380,6 +383,57 @@ async def test_get_runtime_credentials_for_selection_prefers_enabled_bedrock_pro
 
 
 @pytest.mark.anyio
+async def test_get_runtime_credentials_for_selection_preserves_source_protocol_details(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    source_id = uuid.uuid4()
+    selection = ModelSelection(
+        source_id=source_id,
+        model_provider="anthropic",
+        model_name="claude-3-7-sonnet",
+    )
+    service._get_catalog_row = AsyncMock(
+        return_value=ResolvedCatalogRecord(
+            source_id=source_id,
+            model_provider="anthropic",
+            model_name="claude-3-7-sonnet",
+            source_type=ModelSourceType.MANUAL_CUSTOM,
+            source_name="Manual source",
+            base_url="https://anthropic.gateway.example",
+            last_refreshed_at=None,
+            metadata=None,
+        )
+    )
+    service.get_model_source = AsyncMock(
+        return_value=type(
+            "SourceRow",
+            (),
+            {
+                "encrypted_config": b"encrypted",
+                "base_url": "https://anthropic.gateway.example",
+                "api_key_header": "X-Api-Key",
+                "api_version": "2024-06-01",
+            },
+        )()
+    )
+    service._deserialize_sensitive_config = Mock(return_value={"api_key": "source-key"})
+
+    credentials = await service.get_runtime_credentials_for_selection(
+        selection=selection
+    )
+
+    assert credentials == {
+        "TRACECAT_SOURCE_API_KEY": "source-key",
+        "TRACECAT_SOURCE_API_KEY_HEADER": "X-Api-Key",
+        "TRACECAT_SOURCE_API_VERSION": "2024-06-01",
+        "TRACECAT_SOURCE_BASE_URL": "https://anthropic.gateway.example",
+        "ANTHROPIC_API_KEY": "source-key",
+        "ANTHROPIC_BASE_URL": "https://anthropic.gateway.example",
+    }
+
+
+@pytest.mark.anyio
 async def test_get_default_model_reads_composite_setting(role: Role) -> None:
     service = AgentManagementService(AsyncMock(), role=role)
     setting = type(
@@ -417,3 +471,116 @@ async def test_get_default_model_reads_composite_setting(role: Role) -> None:
         source_type="openai",
         source_name="OpenAI",
     )
+
+
+@pytest.mark.anyio
+async def test_delete_model_source_skips_enabled_model_delete_when_catalog_is_empty(
+    role: Role,
+) -> None:
+    session = AsyncMock()
+    select_result = Mock()
+    select_result.scalars.return_value.all.return_value = []
+    session.execute = AsyncMock(return_value=select_result)
+    source = Mock()
+
+    service = AgentManagementService(session, role=role)
+    service.get_model_source = AsyncMock(return_value=source)
+    service._validate_source_uniqueness = AsyncMock()
+
+    await service.delete_model_source(uuid.uuid4())
+
+    session.execute.assert_awaited_once()
+    session.flush.assert_not_awaited()
+    session.delete.assert_awaited_once_with(source)
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_resolve_preset_selection_rejects_disabled_catalog_selection(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    config = AgentConfig(
+        model_name="gpt-5.2",
+        model_provider="openai",
+    )
+    service.is_model_enabled = AsyncMock(return_value=False)
+    service._get_catalog_row_model = AsyncMock(return_value=Mock())
+
+    with pytest.raises(
+        TracecatNotFoundError,
+        match="Model openai/gpt-5.2 is not enabled",
+    ):
+        await service._resolve_preset_selection(config)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_upsert_catalog_rows_keeps_duplicate_model_names_across_providers(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    service = AgentManagementService(session, role=svc_role)
+    source = AgentModelSource(
+        organization_id=svc_role.organization_id,
+        model_provider=CustomModelSourceType.MANUAL_CUSTOM.value,
+        display_name="Manual source",
+        declared_models=[],
+    )
+    session.add(source)
+    await session.flush()
+    session.add_all(
+        [
+            AgentCatalog(
+                organization_id=svc_role.organization_id,
+                source_id=source.id,
+                model_provider="openai",
+                model_name="shared-model",
+            ),
+            AgentCatalog(
+                organization_id=svc_role.organization_id,
+                source_id=source.id,
+                model_provider="anthropic",
+                model_name="shared-model",
+            ),
+        ]
+    )
+    await session.commit()
+
+    await service._upsert_catalog_rows(
+        source_type=ModelSourceType.MANUAL_CUSTOM,
+        source_name="Manual source",
+        source_id=source.id,
+        organization_scoped=True,
+        models=[
+            {
+                "model_provider": "openai",
+                "model_name": "shared-model",
+                "metadata": {"slot": "openai"},
+            },
+            {
+                "model_provider": "anthropic",
+                "model_name": "shared-model",
+                "metadata": {"slot": "anthropic"},
+            },
+        ],
+    )
+
+    rows = list(
+        (
+            await session.execute(
+                select(AgentCatalog).where(
+                    AgentCatalog.organization_id == svc_role.organization_id,
+                    AgentCatalog.source_id == source.id,
+                    AgentCatalog.model_name == "shared-model",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    assert {(row.model_provider, row.model_name) for row in rows} == {
+        ("anthropic", "shared-model"),
+        ("openai", "shared-model"),
+    }
