@@ -1,0 +1,63 @@
+scripts/cluster
+  19fcbeae7e901e51 204,225,434-442
+  39f3f11361e6d47e 117,140-141,408-409
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "f4491ed0269a6501abab46901b88be2486dda88b",
+  "prompts": {
+    "19fcbeae7e901e51": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "180d6526-cade-41d1-b621-07f43f7f5f00",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 0,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    },
+    "39f3f11361e6d47e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70bd4cd0-7ef3-41f0-ab89-5e5b5b354050",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 87,
+      "total_deletions": 50,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    },
+    "58551d0a05beb2eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2dfd8f43-91b1-4410-8559-fdfb406ee4fa",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "dc09a59aef39acfb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb849458-d93b-4fd5-aca0-2668e34c9f69",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}
