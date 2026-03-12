@@ -73,9 +73,12 @@ async def list_organization_api_keys(
     reverse: bool = Query(default=False),
 ) -> CursorPaginatedResponse[OrganizationApiKeyRead]:
     service = OrganizationApiKeyService(session, role=role)
-    page = await service.list_keys(
-        CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse)
-    )
+    try:
+        page = await service.list_keys(
+            CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse)
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
     return CursorPaginatedResponse(
         items=OrganizationApiKeyRead.list_adapter().validate_python(page.items),
         next_cursor=page.next_cursor,
@@ -191,9 +194,12 @@ async def list_workspace_api_keys(
     reverse: bool = Query(default=False),
 ) -> CursorPaginatedResponse[WorkspaceApiKeyRead]:
     service = WorkspaceApiKeyService(session, role=role)
-    page = await service.list_keys(
-        CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse)
-    )
+    try:
+        page = await service.list_keys(
+            CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse)
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
     return CursorPaginatedResponse(
         items=WorkspaceApiKeyRead.list_adapter().validate_python(page.items),
         next_cursor=page.next_cursor,
