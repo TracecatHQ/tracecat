@@ -1,7 +1,7 @@
 """add api key tables
 
 Revision ID: 548aa7691799
-Revises: 6171727be56a
+Revises: 0a1e3100a432
 Create Date: 2026-03-11 17:38:27.533527
 
 """
@@ -20,7 +20,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "548aa7691799"
-down_revision: str | None = "6171727be56a"
+down_revision: str | None = "0a1e3100a432"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
