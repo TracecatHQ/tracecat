@@ -1,7 +1,7 @@
 "use client"
 
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import {
   type CasePriority,
@@ -391,10 +391,20 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const [createdAfter, setCreatedAfter] = useState<CaseDateFilterValue>(
     DEFAULT_CREATED_FILTER
   )
-  const hasHydratedFiltersRef = useRef(false)
+  const [hydratedWorkspaceId, setHydratedWorkspaceId] = useState<
+    string | undefined
+  >(() => (typeof window === "undefined" ? workspaceId : undefined))
+  const hasHydratedFilters = workspaceId
+    ? hydratedWorkspaceId === workspaceId
+    : false
 
   useEffect(() => {
-    if (!workspaceId || typeof window === "undefined") {
+    if (!workspaceId) {
+      setHydratedWorkspaceId(undefined)
+      return
+    }
+
+    if (typeof window === "undefined") {
       return
     }
 
@@ -402,7 +412,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       `${workspaceId}:${CASES_FILTER_STORAGE_KEY}`
     )
     if (!storedValue) {
-      hasHydratedFiltersRef.current = true
+      setHydratedWorkspaceId(workspaceId)
       return
     }
 
@@ -438,15 +448,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       )
     }
 
-    hasHydratedFiltersRef.current = true
+    setHydratedWorkspaceId(workspaceId)
   }, [workspaceId])
 
   useEffect(() => {
-    if (
-      !workspaceId ||
-      !hasHydratedFiltersRef.current ||
-      typeof window === "undefined"
-    ) {
+    if (!workspaceId || !hasHydratedFilters || typeof window === "undefined") {
       return
     }
 
@@ -497,6 +503,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     dropdownFilters,
     updatedAfter,
     createdAfter,
+    hasHydratedFilters,
   ])
 
   const setAssigneeMode = useCallback((_mode: FilterMode) => {
@@ -686,7 +693,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         limit: CASES_PAGE_SIZE,
         cursor: (pageParam as string | null) ?? undefined,
       }),
-    enabled: enabled && Boolean(workspaceId) && !hasImpossibleEnumFilter,
+    enabled:
+      enabled &&
+      Boolean(workspaceId) &&
+      hasHydratedFilters &&
+      !hasImpossibleEnumFilter,
     initialPageParam: null,
     getNextPageParam: (lastPage) => {
       if (!lastPage.has_more || !lastPage.next_cursor) {
@@ -712,7 +723,11 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         workspaceId,
         ...apiQueryParams,
       }),
-    enabled: enabled && Boolean(workspaceId) && !hasImpossibleEnumFilter,
+    enabled:
+      enabled &&
+      Boolean(workspaceId) &&
+      hasHydratedFilters &&
+      !hasImpossibleEnumFilter,
     retry: retryHandler,
     refetchInterval: computeRefetchInterval(),
     refetchOnWindowFocus: false,

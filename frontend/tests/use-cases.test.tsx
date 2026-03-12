@@ -133,6 +133,7 @@ function SortStateProbe() {
 describe("useCases", () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    window.localStorage.clear()
   })
 
   it("uses paginated rows and separate global counts", async () => {
@@ -193,6 +194,92 @@ describe("useCases", () => {
     expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
+      })
+    )
+  })
+
+  it("hydrates persisted filters before issuing case queries", async () => {
+    const firstPage: CasesSearchCasesResponse = {
+      items: [createCase(1)],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      total_estimate: 1,
+    }
+
+    const aggregate: CasesSearchCaseAggregatesResponse = {
+      total: 1,
+      status_groups: {
+        new: 1,
+        in_progress: 0,
+        on_hold: 0,
+        resolved: 0,
+        other: 0,
+      },
+    }
+
+    window.localStorage.setItem(
+      "workspace-1:cases-filters:v1",
+      JSON.stringify({
+        searchQuery: "persisted query",
+        sortBy: { field: "updated_at", direction: "desc" },
+        statusFilter: [],
+        statusMode: "include",
+        priorityFilter: [],
+        priorityMode: "include",
+        prioritySortDirection: null,
+        severityFilter: [],
+        severityMode: "include",
+        severitySortDirection: null,
+        assigneeFilter: [],
+        assigneeMode: "include",
+        assigneeSortDirection: null,
+        tagFilter: [],
+        tagMode: "include",
+        tagSortDirection: null,
+        dropdownFilters: {},
+        updatedAfter: { type: "preset", value: "1w" },
+        createdAfter: { type: "preset", value: "1m" },
+      })
+    )
+
+    mockSearchCases.mockResolvedValue(firstPage)
+    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HookProbe />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rows")).toHaveTextContent("1")
+    })
+
+    expect(mockSearchCases).toHaveBeenCalledTimes(1)
+    expect(mockSearchCases).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        searchTerm: "persisted query",
+        updatedAfter: expect.stringContaining("T"),
+      })
+    )
+
+    expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
+    expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        searchTerm: "persisted query",
+        updatedAfter: expect.stringContaining("T"),
       })
     )
   })
