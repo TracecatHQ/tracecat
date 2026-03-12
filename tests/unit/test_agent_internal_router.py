@@ -50,20 +50,82 @@ async def test_provider_secrets_context_preserves_explicit_base_url_override() -
         model_provider="openai",
         base_url="https://override.example/v1",
     )
+    get_runtime_credentials_for_config = AsyncMock(
+        return_value={
+            "OPENAI_API_KEY": "test-key",
+            "OPENAI_BASE_URL": "https://creds.example/v1",
+        }
+    )
     agent_svc = cast(
         AgentManagementService,
         SimpleNamespace(
-            get_provider_credentials=AsyncMock(
-                return_value={
-                    "OPENAI_API_KEY": "test-key",
-                    "OPENAI_BASE_URL": "https://creds.example/v1",
-                }
-            )
+            get_runtime_credentials_for_config=get_runtime_credentials_for_config
         ),
     )
 
     async with _provider_secrets_context(agent_svc, config):
         assert config.base_url == "https://override.example/v1"
+
+
+@pytest.mark.anyio
+async def test_provider_secrets_context_uses_workspace_credentials_fallback() -> None:
+    config = AgentConfig(
+        model_name="gpt-5",
+        model_provider="openai",
+    )
+    get_runtime_credentials_for_config = AsyncMock(
+        return_value={"OPENAI_API_KEY": "workspace-key"}
+    )
+    agent_svc = cast(
+        AgentManagementService,
+        SimpleNamespace(
+            get_runtime_credentials_for_config=get_runtime_credentials_for_config
+        ),
+    )
+
+    async with _provider_secrets_context(agent_svc, config):
+        pass
+
+    get_runtime_credentials_for_config.assert_awaited_once_with(config)
+
+
+@pytest.mark.anyio
+async def test_provider_secrets_context_prefers_runtime_credentials_for_enabled_builtin_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = AgentConfig(
+        model_name="claude-3-7-sonnet",
+        model_provider="bedrock",
+    )
+    captured: dict[str, str] = {}
+
+    def _set_context(credentials: dict[str, str]) -> str:
+        captured.update(credentials)
+        return "token"
+
+    get_runtime_credentials_for_config = AsyncMock(
+        return_value={"AWS_INFERENCE_PROFILE_ID": "profile-123"}
+    )
+    agent_svc = cast(
+        AgentManagementService,
+        SimpleNamespace(
+            get_runtime_credentials_for_config=get_runtime_credentials_for_config,
+        ),
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.registry_secrets.set_context",
+        _set_context,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.registry_secrets.reset_context",
+        lambda _token: None,
+    )
+
+    async with _provider_secrets_context(agent_svc, config):
+        assert captured == {"AWS_INFERENCE_PROFILE_ID": "profile-123"}
+
+    get_runtime_credentials_for_config.assert_awaited_once_with(config)
 
 
 @pytest.mark.anyio
@@ -83,15 +145,16 @@ async def test_provider_secrets_context_loads_custom_source_credentials_without_
         captured.update(credentials)
         return "token"
 
+    get_runtime_credentials_for_selection = AsyncMock(
+        return_value={
+            "ANTHROPIC_API_KEY": "test-key",
+            "TRACECAT_SOURCE_BASE_URL": "https://anthropic.gateway.example",
+        }
+    )
     agent_svc = cast(
         AgentManagementService,
         SimpleNamespace(
-            get_runtime_credentials_for_selection=AsyncMock(
-                return_value={
-                    "ANTHROPIC_API_KEY": "test-key",
-                    "TRACECAT_SOURCE_BASE_URL": "https://anthropic.gateway.example",
-                }
-            ),
+            get_runtime_credentials_for_config=get_runtime_credentials_for_selection,
         ),
     )
 
@@ -111,4 +174,4 @@ async def test_provider_secrets_context_loads_custom_source_credentials_without_
             "TRACECAT_SOURCE_BASE_URL": "https://anthropic.gateway.example",
         }
 
-    agent_svc.get_runtime_credentials_for_selection.assert_awaited_once()
+    get_runtime_credentials_for_selection.assert_awaited_once_with(config)

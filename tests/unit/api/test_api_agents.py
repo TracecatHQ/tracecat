@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from tracecat.agent import router as agent_router
 from tracecat.agent.schemas import ModelSelection, WorkspaceModelSubsetRead
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
 from tracecat.exceptions import TracecatNotFoundError
 
 
@@ -265,3 +266,28 @@ async def test_clear_workspace_model_subset_not_found(
         response = client.delete(f"/agent/workspaces/{workspace_id}/model-subset")
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_list_models_rejects_workspace_filter_without_org_workspace_scope(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    restricted_role = test_admin_role.model_copy(
+        update={
+            "scopes": frozenset(
+                scope
+                for scope in (test_admin_role.scopes or frozenset())
+                if scope != "org:workspace:read"
+            )
+        }
+    )
+    token = ctx_role.set(restricted_role)
+    try:
+        with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+            response = client.get(f"/agent/models?workspace_id={uuid.uuid4()}")
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    mock_service_cls.assert_not_called()

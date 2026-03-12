@@ -59,7 +59,15 @@ async def create_session(
 ) -> AgentSessionRead:
     """Create a new agent session associated with an entity."""
     svc = AgentSessionService(session, role)
-    agent_session = await svc.create_session(request)
+    try:
+        agent_session = await svc.create_session(request)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     return AgentSessionRead.model_validate(agent_session, from_attributes=True)
 
 
@@ -264,7 +272,15 @@ async def update_session(
             detail="Session not found",
         )
 
-    updated = await svc.update_session(agent_session, params=params)
+    try:
+        updated = await svc.update_session(agent_session, params=params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     return AgentSessionRead.model_validate(updated, from_attributes=True)
 
 

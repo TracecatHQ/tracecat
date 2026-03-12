@@ -486,6 +486,11 @@ async def _resolve_agent_preset_model(
         provider_status_org: dict[str, bool] | None = None
         if get_provider_status := getattr(svc, "get_providers_status", None):
             provider_status_org = await get_provider_status()
+        provider_status_workspace: dict[str, bool] | None = None
+        if get_workspace_provider_status := getattr(
+            svc, "get_workspace_providers_status", None
+        ):
+            provider_status_workspace = await get_workspace_provider_status()
         if model_name is not None or model_provider is not None:
             if not model_name or not model_provider:
                 raise ToolError(
@@ -540,7 +545,17 @@ async def _resolve_agent_preset_model(
                     model_provider=default_model.model_provider,
                     model_name=default_model.model_name,
                 )
-        if check_workspace_credentials := getattr(
+        if selection.source_id is not None:
+            return selection
+        if provider_status_workspace is not None:
+            if (
+                selection.model_provider in provider_status_workspace
+                and not provider_status_workspace[selection.model_provider]
+            ):
+                raise ToolError(
+                    f"Workspace credentials for provider '{selection.model_provider}' are not configured"
+                )
+        elif check_workspace_credentials := getattr(
             svc, "check_workspace_provider_credentials", None
         ):
             if not await check_workspace_credentials(selection.model_provider):

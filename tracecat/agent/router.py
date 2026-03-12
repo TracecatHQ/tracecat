@@ -88,6 +88,8 @@ async def list_models(
     ),
 ) -> list[ModelCatalogEntry]:
     """List all available AI models."""
+    if workspace_id is not None:
+        _require_org_workspace_access(role)
     service = AgentManagementService(session, role=role)
     return await service.list_models(workspace_id=workspace_id)
 
