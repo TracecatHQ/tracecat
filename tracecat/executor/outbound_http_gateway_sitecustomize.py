@@ -28,7 +28,7 @@ import types
 from collections.abc import Awaitable, Iterable, Mapping
 from http.cookies import SimpleCookie
 from typing import TYPE_CHECKING
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlencode, urlsplit
 from urllib.response import addinfourl
 
 if TYPE_CHECKING:
@@ -223,23 +223,6 @@ def _encode_body(
     raise TracecatOutboundHTTPGatewayError(
         f"Unsupported request body type: {type(body).__name__}"
     )
-
-
-def _merge_query(url: str, params: object | None) -> str:
-    if params is None:
-        return url
-    split = urlsplit(url)
-    existing = parse_qsl(split.query, keep_blank_values=True)
-    if isinstance(params, Mapping):
-        new_pairs = list(params.items())
-    elif isinstance(params, list | tuple):
-        new_pairs = list(params)
-    else:
-        raise TracecatOutboundHTTPGatewayError(
-            f"Unsupported query params type: {type(params).__name__}"
-        )
-    query = urlencode(existing + new_pairs, doseq=True)
-    return urlunsplit((split.scheme, split.netloc, split.path, query, split.fragment))
 
 
 def _should_bypass(url: str) -> bool:
@@ -514,6 +497,23 @@ def _apply_aiohttp_auth(headers: dict[str, str], auth: object | None) -> None:
     raise TracecatOutboundHTTPGatewayError(
         "Unsupported aiohttp auth configuration with outbound HTTP interception"
     )
+
+
+def _resolve_aiohttp_url(
+    aiohttp_module: types.ModuleType,
+    session: object,
+    str_or_url: object,
+    params: object | None,
+) -> str:
+    build_url = getattr(session, "_build_url", None)
+    url_obj = (
+        build_url(str_or_url)
+        if callable(build_url)
+        else aiohttp_module.client_reqrep.URL(str_or_url)
+    )
+    if params is not None:
+        url_obj = url_obj.update_query(params)
+    return str(url_obj)
 
 
 def _apply_aiohttp_cookies(
@@ -999,7 +999,12 @@ def _patch_aiohttp(aiohttp_module: types.ModuleType) -> None:
         str_or_url: object,
         **kwargs: object,
     ) -> object:
-        url = _merge_query(str(str_or_url), kwargs.get("params"))
+        url = _resolve_aiohttp_url(
+            aiohttp_module,
+            self,
+            str_or_url,
+            kwargs.get("params"),
+        )
         if _should_bypass(url):
             return await original(self, method, str_or_url, **kwargs)
         if kwargs.get("proxy") is not None or kwargs.get("proxy_auth") is not None:

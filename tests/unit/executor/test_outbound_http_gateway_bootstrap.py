@@ -347,6 +347,18 @@ async def main():
 asyncio.run(main())
 """
 
+_AIOHTTP_BASE_URL_SCRIPT = """\
+import asyncio, json, aiohttp
+
+async def main():
+    async with aiohttp.ClientSession(base_url='https://example.com') as session:
+        async with session.get('/v1/items', params={'q': '1'}) as response:
+            payload = await response.json()
+            print(json.dumps({'status': response.status, 'body': payload}))
+
+asyncio.run(main())
+"""
+
 _AIOHTTP_SESSION_AUTH_SCRIPT = """\
 import asyncio, json, aiohttp
 
@@ -620,6 +632,20 @@ def test_bootstrap_preserves_aiohttp_session_cookies() -> None:
     }
     assert len(state["requests"]) == 2
     assert state["requests"][1]["payload"]["headers"]["Cookie"] == "sessionid=abc123"
+
+
+def test_bootstrap_resolves_aiohttp_base_url_before_dispatch() -> None:
+    """aiohttp base_url sessions should dispatch absolute URLs to the gateway."""
+    with _mock_gateway() as (gateway_url, state):
+        completed = _run_script(_AIOHTTP_BASE_URL_SCRIPT, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.strip()) == {
+        "status": 200,
+        "body": {"ok": True},
+    }
+    [request] = state["requests"]
+    assert request["payload"]["url"] == "https://example.com/v1/items?q=1"
 
 
 def test_bootstrap_honors_aiohttp_session_raise_for_status() -> None:
