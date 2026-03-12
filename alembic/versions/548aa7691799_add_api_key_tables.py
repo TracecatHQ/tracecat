@@ -12,10 +12,10 @@ import sqlalchemy as sa
 
 from alembic import op
 from tracecat.db.tenant_rls import (
+    disable_org_optional_workspace_table_rls,
     disable_org_table_rls,
-    disable_workspace_table_rls,
+    enable_org_optional_workspace_table_rls,
     enable_org_table_rls,
-    enable_workspace_table_rls,
 )
 
 # revision identifiers, used by Alembic.
@@ -217,11 +217,11 @@ def upgrade() -> None:
     )
 
     op.execute(enable_org_table_rls("organization_api_key"))
-    op.execute(enable_workspace_table_rls("workspace_api_key"))
+    op.execute(enable_org_optional_workspace_table_rls("workspace_api_key"))
 
 
 def downgrade() -> None:
-    op.execute(disable_workspace_table_rls("workspace_api_key"))
+    op.execute(disable_org_optional_workspace_table_rls("workspace_api_key"))
     op.execute(disable_org_table_rls("organization_api_key"))
     op.drop_table("workspace_api_key_scope")
     op.drop_table("organization_api_key_scope")
