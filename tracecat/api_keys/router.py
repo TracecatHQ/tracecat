@@ -21,7 +21,12 @@ from tracecat.auth.dependencies import OrgUserOnlyRole
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
+from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 org_router = APIRouter(prefix="/organization/api-keys", tags=["api_keys"])
@@ -42,11 +47,19 @@ WorkspaceUserOnlyInPath = Annotated[
 
 
 def _translate_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, HTTPException):
+        return exc
     if isinstance(exc, TracecatNotFoundError):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     if isinstance(exc, TracecatAuthorizationError):
         return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
-    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    if isinstance(exc, TracecatValidationError):
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    logger.exception("Unhandled API key route error")
+    return HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Internal server error",
+    )
 
 
 @org_router.get("", response_model=CursorPaginatedResponse[OrganizationApiKeyRead])
