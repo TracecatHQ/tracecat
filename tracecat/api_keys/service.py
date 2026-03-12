@@ -78,7 +78,10 @@ async def _paginate_keys[T: OrganizationApiKey | WorkspaceApiKey](
     model: type[T],
     params: CursorPaginationParams,
 ) -> CursorPaginatedResponse[T]:
-    ordered_stmt = stmt.order_by(model.created_at.desc(), model.id.desc())
+    if params.reverse:
+        ordered_stmt = stmt.order_by(model.created_at.asc(), model.id.asc())
+    else:
+        ordered_stmt = stmt.order_by(model.created_at.desc(), model.id.desc())
     paged_stmt = _apply_created_cursor(ordered_stmt, model=model, params=params).limit(
         params.limit + 1
     )
