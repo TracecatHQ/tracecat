@@ -22,7 +22,11 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.api_keys import generate_managed_api_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import OrganizationApiKey, Scope, WorkspaceApiKey
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -40,11 +44,14 @@ def _apply_created_cursor(
     if not params.cursor:
         return stmt
 
-    cursor_data = BaseCursorPaginator.decode_cursor(params.cursor)
-    cursor_id = uuid.UUID(cursor_data.id)
+    try:
+        cursor_data = BaseCursorPaginator.decode_cursor(params.cursor)
+        cursor_id = uuid.UUID(cursor_data.id)
+    except ValueError as exc:
+        raise TracecatValidationError("Invalid cursor for API keys") from exc
     cursor_sort_value = cursor_data.sort_value
     if not isinstance(cursor_sort_value, datetime):
-        raise TracecatAuthorizationError("Invalid cursor for API keys")
+        raise TracecatValidationError("Invalid cursor for API keys")
 
     created_at = cast(InstrumentedAttribute[datetime], model.created_at)
     id_col = cast(InstrumentedAttribute[uuid.UUID], model.id)

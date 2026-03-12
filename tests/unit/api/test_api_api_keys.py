@@ -12,6 +12,7 @@ from tracecat.api_keys import router as api_keys_router
 from tracecat.api_keys.schemas import ApiKeyScopeRead, OrganizationApiKeyRead
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
+from tracecat.exceptions import TracecatValidationError
 from tracecat.pagination import CursorPaginatedResponse
 
 
@@ -165,3 +166,61 @@ async def test_list_organization_api_keys_success(
     payload = response.json()
     assert payload["items"][0]["id"] == str(api_key.id)
     assert payload["items"][0]["organization_id"] == str(organization_id)
+
+
+@pytest.mark.anyio
+async def test_list_organization_api_keys_hides_internal_errors(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    role_with_scope = test_admin_role.model_copy(
+        update={
+            "scopes": frozenset(
+                set(test_admin_role.scopes or frozenset()) | {"org:api_key:read"}
+            ),
+        }
+    )
+
+    with patch.object(api_keys_router, "OrganizationApiKeyService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.list_keys.side_effect = RuntimeError("constraint api_key_name_key")
+        MockService.return_value = mock_svc
+
+        token = ctx_role.set(role_with_scope)
+        try:
+            response = client.get("/organization/api-keys")
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert response.json() == {"detail": "Internal server error"}
+
+
+@pytest.mark.anyio
+async def test_list_organization_api_keys_returns_bad_request_for_validation_errors(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    role_with_scope = test_admin_role.model_copy(
+        update={
+            "scopes": frozenset(
+                set(test_admin_role.scopes or frozenset()) | {"org:api_key:read"}
+            ),
+        }
+    )
+
+    with patch.object(api_keys_router, "OrganizationApiKeyService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.list_keys.side_effect = TracecatValidationError(
+            "Invalid cursor for API keys"
+        )
+        MockService.return_value = mock_svc
+
+        token = ctx_role.set(role_with_scope)
+        try:
+            response = client.get("/organization/api-keys")
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {"detail": "Invalid cursor for API keys"}
