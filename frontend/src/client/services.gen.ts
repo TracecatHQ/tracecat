@@ -109,6 +109,8 @@ import type {
   AgentDisableModelData,
   AgentDisableModelResponse,
   AgentDisableModelsData,
+  AgentDisableModelsLegacyData,
+  AgentDisableModelsLegacyResponse,
   AgentDisableModelsResponse,
   AgentEnableModelData,
   AgentEnableModelResponse,
@@ -4331,6 +4333,28 @@ export const agentEnableModels = (
 }
 
 /**
+ * @deprecated
+ * Disable Models Legacy
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentDisableModelsLegacy = (
+  data: AgentDisableModelsLegacyData
+): CancelablePromise<AgentDisableModelsLegacyResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/models/enabled/batch",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Disable Models
  * @param data The data for the request.
  * @param data.requestBody
@@ -4341,8 +4365,8 @@ export const agentDisableModels = (
   data: AgentDisableModelsData
 ): CancelablePromise<AgentDisableModelsResponse> => {
   return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/agent/models/enabled/batch",
+    method: "POST",
+    url: "/agent/models/disabled/batch",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {

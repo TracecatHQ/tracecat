@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.stream import connector as connector_module
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
@@ -148,3 +149,36 @@ async def test_set_last_stream_id_bootstraps_workspace_role(
     with_session.assert_called_once()
     assert with_session.call_args.kwargs["role"] == role
     fake_session_service.update_last_stream_id.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_build_session_service_role_caches_workspace_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+    stream = AgentStream(
+        client=cast(RedisClient, SimpleNamespace()),
+        workspace_id=workspace_id,
+        session_id=uuid.uuid4(),
+    )
+    result = SimpleNamespace(
+        scalar_one_or_none=Mock(return_value=organization_id),
+    )
+    session = SimpleNamespace(execute=AsyncMock(return_value=result))
+
+    @asynccontextmanager
+    async def fake_get_session():
+        yield session
+
+    monkeypatch.setattr(
+        connector_module,
+        "get_async_session_bypass_rls_context_manager",
+        fake_get_session,
+    )
+
+    first_role = await stream._build_session_service_role()
+    second_role = await stream._build_session_service_role()
+
+    assert first_role == second_role
+    session.execute.assert_awaited_once()

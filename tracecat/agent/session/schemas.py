@@ -102,24 +102,6 @@ class AgentSessionUpdate(BaseModel):
         default=None, description="Agent harness type"
     )
 
-    @model_validator(mode="after")
-    def validate_model_selection(self) -> AgentSessionUpdate:
-        if self.agent_preset_id is not None and any(
-            value is not None
-            for value in (self.source_id, self.model_name, self.model_provider)
-        ):
-            raise ValueError(
-                "explicit model selection cannot be set when agent_preset_id is configured"
-            )
-        if any(
-            value is not None
-            for value in (self.source_id, self.model_name, self.model_provider)
-        ) and (self.model_name is None or self.model_provider is None):
-            raise ValueError(
-                "model_name and model_provider must be set together when selecting a model"
-            )
-        return self
-
 
 class AgentSessionHistoryRead(BaseModel):
     """Response schema for agent session history entries."""
