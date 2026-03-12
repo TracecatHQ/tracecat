@@ -32,6 +32,8 @@ from tracecat.db.models import Workspace
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 
+_SESSION_SERVICE_ROLE_UNSET = object()
+
 
 class AgentStream:
     """Stream adapter backed by Redis streams."""
@@ -49,6 +51,7 @@ class AgentStream:
         self.workspace_id = workspace_id
         self.session_id = session_id
         self._stream_key = StreamKey(workspace_id, session_id)
+        self._session_service_role: Role | None | object = _SESSION_SERVICE_ROLE_UNSET
 
     @classmethod
     async def new(cls, session_id: uuid.UUID, workspace_id: uuid.UUID) -> AgentStream:
@@ -94,6 +97,13 @@ class AgentStream:
 
     async def _build_session_service_role(self) -> Role | None:
         """Resolve an internal workspace-scoped role for stream cursor updates."""
+        if self._session_service_role is not _SESSION_SERVICE_ROLE_UNSET:
+            return (
+                self._session_service_role
+                if isinstance(self._session_service_role, Role)
+                else None
+            )
+
         async with get_async_session_bypass_rls_context_manager() as session:
             stmt = select(Workspace.organization_id).where(
                 Workspace.id == self.workspace_id
@@ -106,9 +116,10 @@ class AgentStream:
                 workspace_id=self.workspace_id,
                 session_id=self.session_id,
             )
+            self._session_service_role = None
             return None
 
-        return Role(
+        self._session_service_role = Role(
             type="service",
             user_id=None,
             service_id="tracecat-api",
@@ -116,6 +127,7 @@ class AgentStream:
             organization_id=organization_id,
             scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-api"],
         )
+        return self._session_service_role
 
     async def _set_last_stream_id(self, last_stream_id: str | None) -> None:
         """Update last stream ID for reconnection support."""

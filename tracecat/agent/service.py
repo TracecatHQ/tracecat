@@ -677,7 +677,9 @@ class AgentManagementService(BaseOrgService):
                         AgentCatalog.source_id == source_id,
                     )
                 )
-            ).all()
+            )
+            .tuples()
+            .all()
         )
         models_by_identity: dict[tuple[str, str], dict[str, object]] = {}
         ordered_identities: list[tuple[str, str]] = []
@@ -2347,7 +2349,7 @@ class AgentManagementService(BaseOrgService):
             source_id=row.source_id,
             model_provider=row.model_provider,
             model_name=row.model_name,
-            source_type=row.source_type.value,
+            source_type=row.source_type,
             source_name=row.source_name,
         )
 
@@ -2384,7 +2386,7 @@ class AgentManagementService(BaseOrgService):
             source_id=row.source_id,
             model_provider=row.model_provider,
             model_name=row.model_name,
-            source_type=row.source_type.value,
+            source_type=row.source_type,
             source_name=row.source_name,
         )
 

@@ -148,6 +148,47 @@ async def test_update_session_rejects_explicit_model_selection_when_preset_exist
 
 
 @pytest.mark.anyio
+async def test_update_session_merges_partial_model_selection(role: Role) -> None:
+    session = AsyncMock()
+    session.add = Mock()
+    service = AgentSessionService(session, role)
+    source_id = uuid.uuid4()
+    agent_session = AgentSession(
+        workspace_id=role.workspace_id,
+        title="New Chat",
+        entity_type=AgentSessionEntity.CASE,
+        entity_id=uuid.uuid4(),
+        source_id=source_id,
+        model_name="gpt-5",
+        model_provider="openai_compatible_gateway",
+    )
+
+    class _FakeAgentManagementService:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def require_enabled_model_selection(self, *, selection) -> None:
+            assert selection.source_id == source_id
+            assert selection.model_name == "gpt-5.1"
+            assert selection.model_provider == "openai_compatible_gateway"
+
+    with patch(
+        "tracecat.agent.session.service.AgentManagementService",
+        _FakeAgentManagementService,
+    ):
+        updated = await service.update_session(
+            agent_session,
+            params=AgentSessionUpdate(model_name="gpt-5.1"),
+        )
+
+    assert updated.source_id == source_id
+    assert updated.model_name == "gpt-5.1"
+    assert updated.model_provider == "openai_compatible_gateway"
+    session.commit.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(agent_session)
+
+
+@pytest.mark.anyio
 async def test_fork_session_copies_parent_model_selection(role: Role) -> None:
     session = AsyncMock()
     session.add = Mock()
@@ -239,6 +280,7 @@ async def test_build_agent_config_preserves_preset_source_routing_for_forks(
             assert config.model_provider == "anthropic"
             assert config.model_name == "claude-sonnet-4-5"
             assert config.actions == []
+            assert config.instructions is not None
             assert config.instructions.startswith(
                 "You do not have access to any tools in this conversation."
             )

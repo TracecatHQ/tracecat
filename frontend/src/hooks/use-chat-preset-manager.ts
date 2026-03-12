@@ -116,9 +116,30 @@ export function useChatPresetManager({
     selectionOwnerId,
     selectedChatId ? (chat?.agent_preset_version_id ?? null) : null
   )
-  const effectiveSessionModelSelection = selectedChatId
-    ? getSessionModelSelection(chat)
+  const selectionChat = chat as
+    | {
+        source_id?: string | null
+        model_name?: string | null
+        model_provider?: string | null
+      }
+    | undefined
+  const sessionModelSourceId = selectedChatId
+    ? (selectionChat?.source_id ?? null)
     : null
+  const sessionModelName = selectedChatId
+    ? (selectionChat?.model_name ?? null)
+    : null
+  const sessionModelProvider = selectedChatId
+    ? (selectionChat?.model_provider ?? null)
+    : null
+  const effectiveSessionModelSelection =
+    sessionModelName && sessionModelProvider
+      ? {
+          source_id: sessionModelSourceId,
+          model_name: sessionModelName,
+          model_provider: sessionModelProvider,
+        }
+      : null
   const effectiveModelSelection = getDraftModelSelectionValue(
     draftModelSelection,
     selectionOwnerId,
@@ -139,12 +160,14 @@ export function useChatPresetManager({
     })
     setDraftModelSelection({
       ownerId: selectedChatId,
-      value: effectiveSessionModelSelection,
+      value: getSessionModelSelection(chat),
     })
   }, [
     chat?.agent_preset_id,
     chat?.agent_preset_version_id,
-    effectiveSessionModelSelection,
+    sessionModelName,
+    sessionModelProvider,
+    sessionModelSourceId,
     selectedChatId,
   ])
 

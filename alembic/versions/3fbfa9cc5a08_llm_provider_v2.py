@@ -365,6 +365,15 @@ def downgrade() -> None:
     op.drop_index(
         op.f("ix_agent_preset_version_source_id"), table_name="agent_preset_version"
     )
+    op.execute(
+        sa.text(
+            """
+            UPDATE agent_preset_version
+            SET model_name = LEFT(model_name, 120)
+            WHERE char_length(model_name) > 120
+            """
+        )
+    )
     op.alter_column(
         "agent_preset_version",
         "model_name",
@@ -380,6 +389,15 @@ def downgrade() -> None:
         type_="foreignkey",
     )
     op.drop_index(op.f("ix_agent_preset_source_id"), table_name="agent_preset")
+    op.execute(
+        sa.text(
+            """
+            UPDATE agent_preset
+            SET model_name = LEFT(model_name, 120)
+            WHERE char_length(model_name) > 120
+            """
+        )
+    )
     op.alter_column(
         "agent_preset",
         "model_name",

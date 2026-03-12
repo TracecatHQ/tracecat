@@ -278,7 +278,7 @@ class WorkspaceModelSubsetUpdate(BaseModel):
 
 
 class DefaultModelSelection(ModelSelection):
-    source_type: str | None = Field(default=None, min_length=1, max_length=120)
+    source_type: ModelSourceType | None = Field(default=None)
     source_name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
