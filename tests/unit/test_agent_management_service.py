@@ -133,6 +133,9 @@ async def test_sync_model_catalogs_on_startup_refreshes_platform_and_sources() -
             pruned_orgs.append(self.organization_id)
             return set()
 
+        async def prune_unconfigured_builtin_model_selections(self) -> set[object]:
+            return set()
+
         async def list_model_sources(self) -> list[object]:
             return [
                 type("SourceRow", (), {"id": source_id})()
@@ -261,7 +264,7 @@ async def test_ensure_default_enabled_models_defers_when_catalog_is_empty(
 
 
 @pytest.mark.anyio
-async def test_ensure_default_enabled_models_enables_all_catalog_rows_once(
+async def test_ensure_default_enabled_models_only_enables_configured_builtin_rows(
     role: Role,
 ) -> None:
     session = AsyncMock()
@@ -273,6 +276,15 @@ async def test_ensure_default_enabled_models_enables_all_catalog_rows_once(
                 "source_id": None,
                 "model_provider": "openai",
                 "model_name": "gpt-5.2",
+            },
+        )(),
+        type(
+            "CatalogRow",
+            (),
+            {
+                "source_id": None,
+                "model_provider": "anthropic",
+                "model_name": "claude-sonnet-4-5",
             },
         )(),
         type(
@@ -294,6 +306,11 @@ async def test_ensure_default_enabled_models_enables_all_catalog_rows_once(
     upgrade_setting = object()
     service.settings_service.get_org_setting = AsyncMock(return_value=upgrade_setting)
     service.settings_service.delete_org_setting = AsyncMock()
+    service.get_provider_credentials = AsyncMock(
+        side_effect=lambda provider: (
+            {"OPENAI_API_KEY": "sk-test"} if provider == "openai" else None
+        )
+    )
 
     await service._ensure_default_enabled_models()
 
@@ -304,7 +321,81 @@ async def test_ensure_default_enabled_models_enables_all_catalog_rows_once(
         upgrade_setting
     )
     assert session.execute.await_count == 2
+    insert_stmt = session.execute.await_args_list[1].args[0]
+    compiled_params = insert_stmt.compile().params
+    assert compiled_params["model_provider_m0"] == "openai"
+    assert compiled_params["model_name_m0"] == "gpt-5.2"
+    assert compiled_params["model_provider_m1"] == "openai_compatible_gateway"
+    assert compiled_params["model_name_m1"] == "qwen2.5:7b"
+    assert "model_provider_m2" not in compiled_params
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_prune_unconfigured_builtin_model_selections_disables_only_disconnected_providers(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    enabled_rows = [
+        AgentEnabledModel(
+            organization_id=role.organization_id,
+            workspace_id=None,
+            source_id=None,
+            model_provider="openai",
+            model_name="gpt-5.2",
+            enabled_config=None,
+        ),
+        AgentEnabledModel(
+            organization_id=role.organization_id,
+            workspace_id=None,
+            source_id=None,
+            model_provider="gemini",
+            model_name="gemini-2.5-pro",
+            enabled_config=None,
+        ),
+        AgentEnabledModel(
+            organization_id=role.organization_id,
+            workspace_id=None,
+            source_id=uuid.uuid4(),
+            model_provider="openai_compatible_gateway",
+            model_name="qwen2.5:7b",
+            enabled_config=None,
+        ),
+    ]
+    service._list_org_enabled_rows = AsyncMock(return_value=enabled_rows)
+    service.get_provider_credentials = AsyncMock(
+        side_effect=lambda provider: (
+            {"OPENAI_API_KEY": "sk-test"} if provider == "openai" else None
+        )
+    )
+    service._disable_model_selections = AsyncMock(
+        return_value={
+            service._selection_key(
+                source_id=None,
+                model_provider="gemini",
+                model_name="gemini-2.5-pro",
+            )
+        }
+    )
+
+    disabled = await service.prune_unconfigured_builtin_model_selections()
+
+    service._disable_model_selections.assert_awaited_once_with(
+        [
+            service._selection_key(
+                source_id=None,
+                model_provider="gemini",
+                model_name="gemini-2.5-pro",
+            )
+        ]
+    )
+    assert disabled == {
+        service._selection_key(
+            source_id=None,
+            model_provider="gemini",
+            model_name="gemini-2.5-pro",
+        )
+    }
 
 
 @pytest.mark.anyio

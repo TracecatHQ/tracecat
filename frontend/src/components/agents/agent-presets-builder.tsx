@@ -6,9 +6,9 @@ import {
   Box,
   Braces,
   Brackets,
-  CopyPlus,
   Check,
   ChevronsUpDown,
+  CopyPlus,
   Hash,
   History,
   List,
@@ -110,12 +110,12 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { toast } from "@/components/ui/use-toast"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import {
   useAgentPreset,
   useAgentPresets,

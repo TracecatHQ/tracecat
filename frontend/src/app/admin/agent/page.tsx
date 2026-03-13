@@ -61,18 +61,49 @@ function getProviderLabel(provider?: string | null): string {
   }
 }
 
-function getModelLabel(model: {
-  display_name?: string | null
-  model_name?: string | null
-}): string {
-  return model.display_name || model.model_name || "Unnamed model"
+function getModelLabel(model: { model_name?: string | null }): string {
+  return model.model_name || "Unnamed model"
 }
 
-function getModelSecondaryLabel(model: {
-  model_id?: string | null
-  model_name?: string | null
-}): string {
-  return model.model_id || model.model_name || ""
+function getMetadataNumber(metadata: unknown, key: string): number | null {
+  if (!metadata || typeof metadata !== "object") {
+    return null
+  }
+  const value = (metadata as Record<string, unknown>)[key]
+  return typeof value === "number" && Number.isFinite(value) ? value : null
+}
+
+function getMetadataString(metadata: unknown, key: string): string | null {
+  if (!metadata || typeof metadata !== "object") {
+    return null
+  }
+  const value = (metadata as Record<string, unknown>)[key]
+  return typeof value === "string" && value.trim() ? value : null
+}
+
+function formatTokenCount(value: number | null): string {
+  if (value == null) {
+    return "n/a"
+  }
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 1,
+    notation: "compact",
+  }).format(value)
+}
+
+function getModelContextLabel(model: { metadata?: unknown | null }): string {
+  return formatTokenCount(getMetadataNumber(model.metadata, "max_input_tokens"))
+}
+
+function getModelOutputLabel(model: { metadata?: unknown | null }): string {
+  return formatTokenCount(
+    getMetadataNumber(model.metadata, "max_output_tokens") ??
+      getMetadataNumber(model.metadata, "max_tokens")
+  )
+}
+
+function getModelModeLabel(model: { metadata?: unknown | null }): string {
+  return getMetadataString(model.metadata, "mode") ?? "n/a"
 }
 
 function formatDateTime(value?: string | null): string {
@@ -267,20 +298,37 @@ export default function AdminAgentPage() {
                       </div>
                     </AccordionTrigger>
                     <AccordionContent className="pt-0">
-                      <div className="space-y-1 pb-4">
+                      <div className="pb-4">
+                        <div className="hidden grid-cols-[minmax(0,1fr)_88px_88px_72px] gap-4 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+                          <span>Model</span>
+                          <span className="text-right">Context</span>
+                          <span className="text-right">Output</span>
+                          <span className="text-right">Mode</span>
+                        </div>
                         {section.models.map((model) => (
                           <div
                             key={model.id}
-                            className="flex min-w-0 items-start gap-3 rounded-md px-3 py-2 transition-colors hover:bg-muted/30"
+                            className="grid min-w-0 grid-cols-1 gap-2 rounded-md px-3 py-2 transition-colors hover:bg-muted/30 sm:grid-cols-[minmax(0,1fr)_88px_88px_72px] sm:items-center sm:gap-4"
                           >
-                            <div className="min-w-0 flex-1">
+                            <div className="min-w-0">
                               <p className="truncate text-sm font-medium">
                                 {getModelLabel(model)}
                               </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {getModelSecondaryLabel(model)}
+                              <p className="text-xs text-muted-foreground sm:hidden">
+                                {getModelContextLabel(model)} ctx {"·"}{" "}
+                                {getModelOutputLabel(model)} out {"·"}{" "}
+                                {getModelModeLabel(model)}
                               </p>
                             </div>
+                            <p className="hidden text-right text-xs text-muted-foreground sm:block">
+                              {getModelContextLabel(model)}
+                            </p>
+                            <p className="hidden text-right text-xs text-muted-foreground sm:block">
+                              {getModelOutputLabel(model)}
+                            </p>
+                            <p className="hidden text-right text-xs capitalize text-muted-foreground sm:block">
+                              {getModelModeLabel(model)}
+                            </p>
                           </div>
                         ))}
                       </div>
