@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from tracecat.auth.credentials import _authenticate_service
 from tracecat.auth.types import Role
@@ -46,16 +47,19 @@ class TestRoleToHeaders:
         assert headers["x-tracecat-role-service-id"] == "tracecat-runner"
         assert "x-tracecat-role-user-id" not in headers
         assert "x-tracecat-role-workspace-id" not in headers
+        assert "x-tracecat-role-bound-workspace-id" not in headers
         assert "x-tracecat-role-organization-id" not in headers
         assert "x-tracecat-role-scopes" not in headers
 
     def test_to_headers_includes_service_account_metadata(self) -> None:
         service_account_id = uuid4()
+        workspace_id = uuid4()
         role = Role(
             type="service_account",
             service_id="tracecat-api",
             organization_id=uuid4(),
-            workspace_id=uuid4(),
+            workspace_id=workspace_id,
+            bound_workspace_id=workspace_id,
             service_account_id=service_account_id,
             scopes=frozenset({"workflow:read"}),
         )
@@ -65,6 +69,70 @@ class TestRoleToHeaders:
         assert headers["x-tracecat-role-type"] == "service_account"
         assert headers["x-tracecat-role-service-id"] == "tracecat-api"
         assert headers["x-tracecat-role-service-account-id"] == str(service_account_id)
+        assert headers["x-tracecat-role-bound-workspace-id"] == str(workspace_id)
+
+    def test_service_account_role_requires_organization_id(self) -> None:
+        with pytest.raises(ValidationError, match="organization_id"):
+            Role(
+                type="service_account",
+                service_id="tracecat-api",
+                service_account_id=uuid4(),
+            )
+
+    def test_service_account_role_requires_service_account_id(self) -> None:
+        with pytest.raises(ValidationError, match="service_account_id"):
+            Role(
+                type="service_account",
+                service_id="tracecat-api",
+                organization_id=uuid4(),
+            )
+
+    def test_service_account_role_rejects_user_id(self) -> None:
+        with pytest.raises(ValidationError, match="must not set user_id"):
+            Role(
+                type="service_account",
+                service_id="tracecat-api",
+                organization_id=uuid4(),
+                service_account_id=uuid4(),
+                user_id=uuid4(),
+            )
+
+    def test_service_account_role_rejects_mismatched_bound_workspace(self) -> None:
+        with pytest.raises(ValidationError, match="bound_workspace_id"):
+            Role(
+                type="service_account",
+                service_id="tracecat-api",
+                organization_id=uuid4(),
+                workspace_id=uuid4(),
+                bound_workspace_id=uuid4(),
+                service_account_id=uuid4(),
+            )
+
+    def test_service_account_role_requires_organization_id(self) -> None:
+        with pytest.raises(ValidationError, match="organization_id"):
+            Role(
+                type="service_account",
+                service_id="tracecat-api",
+                service_account_id=uuid4(),
+            )
+
+    def test_service_account_role_requires_service_account_id(self) -> None:
+        with pytest.raises(ValidationError, match="service_account_id"):
+            Role(
+                type="service_account",
+                service_id="tracecat-api",
+                organization_id=uuid4(),
+            )
+
+    def test_service_account_role_rejects_user_id(self) -> None:
+        with pytest.raises(ValidationError, match="must not set user_id"):
+            Role(
+                type="service_account",
+                service_id="tracecat-api",
+                organization_id=uuid4(),
+                service_account_id=uuid4(),
+                user_id=uuid4(),
+            )
 
 
 @pytest.mark.anyio
@@ -159,3 +227,30 @@ class TestAuthenticateServiceRoundtrip:
 
         assert role is not None
         assert role.organization_id == derived_org_id
+
+    async def test_authenticate_service_reads_workspace_provenance(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "tracecat.auth.credentials.config.TRACECAT__SERVICE_KEY", "test-key"
+        )
+        monkeypatch.setattr(
+            "tracecat.auth.credentials.config.TRACECAT__SERVICE_ROLES_WHITELIST",
+            ["tracecat-runner"],
+        )
+
+        workspace_id = uuid4()
+        request = MagicMock()
+        request.headers = MockHeaders(
+            {
+                "x-tracecat-role-service-id": "tracecat-runner",
+                "x-tracecat-role-workspace-id": str(workspace_id),
+                "x-tracecat-role-bound-workspace-id": str(workspace_id),
+            }
+        )
+
+        role = await _authenticate_service(request, api_key="test-key")
+
+        assert role is not None
+        assert role.workspace_id == workspace_id
+        assert role.bound_workspace_id == workspace_id
