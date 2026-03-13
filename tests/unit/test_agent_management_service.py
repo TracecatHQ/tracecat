@@ -12,6 +12,7 @@ from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.secrets import secrets_manager
 
 
@@ -76,3 +77,56 @@ async def test_with_preset_config_sets_registry_and_env_context(role: Role) -> N
 
     assert registry_secrets.get_or_default("ANTHROPIC_API_KEY") is None
     assert secrets_manager.get("ANTHROPIC_API_KEY") is None
+
+
+@pytest.mark.anyio
+async def test_get_runtime_provider_credentials_injects_bedrock_external_id(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.get_workspace_provider_credentials = AsyncMock(
+        return_value={
+            "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+            "AWS_REGION": "us-east-1",
+            "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        }
+    )
+
+    credentials = await service.get_runtime_provider_credentials("bedrock")
+    assert role.workspace_id is not None
+
+    assert credentials is not None
+    assert credentials["TRACECAT_AWS_EXTERNAL_ID"] == build_workspace_external_id(
+        role.workspace_id
+    )
+
+
+@pytest.mark.anyio
+async def test_with_model_config_injects_bedrock_external_id(role: Role) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.get_default_model = AsyncMock(return_value="bedrock")
+    service.get_provider_credentials = AsyncMock(
+        return_value={
+            "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+            "AWS_REGION": "us-east-1",
+            "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        }
+    )
+    assert role.workspace_id is not None
+
+    assert registry_secrets.get_or_default("TRACECAT_AWS_EXTERNAL_ID") is None
+    assert secrets_manager.get("TRACECAT_AWS_EXTERNAL_ID") is None
+
+    async with service.with_model_config(
+        use_workspace_credentials=False
+    ) as model_config:
+        assert model_config.name == "us.anthropic.claude-sonnet-4-20250514-v1:0"
+        assert registry_secrets.get("TRACECAT_AWS_EXTERNAL_ID") == (
+            build_workspace_external_id(role.workspace_id)
+        )
+        assert secrets_manager.get("TRACECAT_AWS_EXTERNAL_ID") == (
+            build_workspace_external_id(role.workspace_id)
+        )
+
+    assert registry_secrets.get_or_default("TRACECAT_AWS_EXTERNAL_ID") is None
+    assert secrets_manager.get("TRACECAT_AWS_EXTERNAL_ID") is None

@@ -22,6 +22,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import OrganizationSecret, Secret
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -31,6 +32,8 @@ from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseOrgService
 from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
+
+_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 
 
 class AgentManagementService(BaseOrgService):
@@ -166,6 +169,37 @@ class AgentManagementService(BaseOrgService):
             return {kv.key: kv.value.get_secret_value() for kv in secret_keys}
         except TracecatNotFoundError:
             return None
+
+    def _augment_runtime_provider_credentials(
+        self, provider: str, credentials: dict[str, str]
+    ) -> dict[str, str]:
+        """Augment provider credentials with runtime-only values when required."""
+        if (
+            provider != "bedrock"
+            or "AWS_ROLE_ARN" not in credentials
+            or self.role.workspace_id is None
+            or _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY in credentials
+        ):
+            return credentials
+
+        runtime_credentials = credentials.copy()
+        runtime_credentials[_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY] = (
+            build_workspace_external_id(self.role.workspace_id)
+        )
+        return runtime_credentials
+
+    async def get_runtime_provider_credentials(
+        self, provider: str, *, use_workspace_credentials: bool = True
+    ) -> dict[str, str] | None:
+        """Get provider credentials augmented for runtime consumers."""
+        if use_workspace_credentials:
+            credentials = await self.get_workspace_provider_credentials(provider)
+        else:
+            credentials = await self.get_provider_credentials(provider)
+
+        if credentials is None:
+            return None
+        return self._augment_runtime_provider_credentials(provider, credentials)
 
     @require_scope("agent:update")
     async def delete_provider_credentials(self, provider: str) -> None:
@@ -305,10 +339,9 @@ class AgentManagementService(BaseOrgService):
         )
 
         # Fetch credentials from appropriate scope
-        if use_workspace_credentials:
-            credentials = await self.get_workspace_provider_credentials(provider)
-        else:
-            credentials = await self.get_provider_credentials(provider)
+        credentials = await self.get_runtime_provider_credentials(
+            provider, use_workspace_credentials=use_workspace_credentials
+        )
 
         if not credentials:
             scope = "workspace" if use_workspace_credentials else "organization"
@@ -398,14 +431,10 @@ class AgentManagementService(BaseOrgService):
         )
 
         # Get credentials from appropriate scope
-        if use_workspace_credentials:
-            credentials = await self.get_workspace_provider_credentials(
-                preset_config.model_provider
-            )
-        else:
-            credentials = await self.get_provider_credentials(
-                preset_config.model_provider
-            )
+        credentials = await self.get_runtime_provider_credentials(
+            preset_config.model_provider,
+            use_workspace_credentials=use_workspace_credentials,
+        )
 
         if not credentials:
             raise TracecatNotFoundError(

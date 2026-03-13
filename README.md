@@ -33,6 +33,9 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 
 ## Features
 
+> [!IMPORTANT]
+> Tracecat is in active development. Review the release [changelog](https://github.com/TracecatHQ/tracecat/releases) before updating.
+
 ### Key Capabilities
 
 - **Agents**: build custom agents with prompts, tools, chat, and any MCP server (remote HTTP / OAuth or local via `npx` / `uvx` commands)
@@ -56,41 +59,6 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 - **Human-in-the-loop**: review and approve sensitive tools calls from a unified inbox, Slack, or email
 - **Workflow version control**: sync to GitHub, GitLab, Bitbucket, etc.
 - **Metrics and monitoring**: for workflows, agents, and cases
-
-## Getting Started
-
-> [!IMPORTANT]
-> Tracecat is in active development. Review the release [changelog](https://github.com/TracecatHQ/tracecat/releases) before updating.
-
-### Self-hosting
-
-### Run Tracecat locally
-
-Deploy a local Tracecat stack using Docker Compose. View full instructions [here](https://docs.tracecat.com/self-hosting/deployment-options/docker-compose).
-
-```bash
-# Setup environment variables and secrets
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.15/env.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.15/.env.example
-chmod +x env.sh && ./env.sh
-
-# Download Caddyfile
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.15/Caddyfile
-
-# Download Docker Compose file
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.15/docker-compose.yml
-
-# Start Tracecat
-docker compose up -d
-```
-
-### Cloud deployments
-
-For production deployments, check out one of the following IaaC (Infrastructure as Code) options:
-
-- Kubernetes (Helm chart) under [`deployments/helm`](https://github.com/TracecatHQ/tracecat/tree/main/deployments/helm)
-- AWS ECS Fargate (Terraform) under [`deployments/fargate`](https://github.com/TracecatHQ/tracecat/tree/main/deployments/fargate)
-- AWS EKS (Terraform) under [`deployments/eks`](https://github.com/TracecatHQ/tracecat/tree/main/deployments/eks)
 
 ## Tech Stack
 

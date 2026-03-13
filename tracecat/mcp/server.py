@@ -8,23 +8,26 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hashlib
 import json
 import re
 import uuid
 from collections import defaultdict, deque
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from io import StringIO
+from pathlib import PurePosixPath
 from typing import Any, Literal, cast, get_args
 
+import orjson
 import sqlalchemy as sa
 import yaml
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
 from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 from google.protobuf.json_format import MessageToDict
-from mcp.types import Annotations, TextContent
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -33,6 +36,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from redis.asyncio import Redis as AsyncRedis
+from slugify import slugify
 from sqlalchemy import delete, select
 from sqlalchemy.exc import NoResultFound
 from temporalio.client import WorkflowExecutionStatus
@@ -82,6 +87,7 @@ from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.mcp.auth import (
     create_mcp_auth,
+    get_token_identity,
     list_workspaces_for_request,
     resolve_role_for_request,
 )
@@ -108,6 +114,7 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repository import Repository
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.service import SecretsService
+from tracecat.storage import blob
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableCreate, TableRowInsert, TableUpdate
 from tracecat.tables.service import TablesService
@@ -122,7 +129,6 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
     CaseTriggerRead,
     CaseTriggerUpdate,
-    is_case_trigger_configured,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.service import WorkflowExecutionsService
@@ -588,6 +594,261 @@ class MCPWorkflowYamlPayload(BaseModel):
     case_trigger: dict[str, Any] | None = None
 
 
+class WorkflowFileOperation(StrEnum):
+    CREATE = "create"
+    UPDATE = "update"
+
+
+class WorkflowFileArtifact(BaseModel):
+    artifact_id: uuid.UUID
+    organization_id: uuid.UUID
+    workspace_id: uuid.UUID
+    client_id: str
+    session_id: str
+    operation: WorkflowFileOperation
+    relative_path: str
+    folder_path: str | None = Field(default=None)
+    blob_key: str
+    workflow_id: uuid.UUID | None = Field(default=None)
+    update_mode: Literal["replace", "patch"] = Field(default="patch")
+    expires_at: datetime
+    used: bool = Field(default=False)
+    sha256: str | None = Field(default=None)
+
+
+class TemplateFileArtifact(BaseModel):
+    artifact_id: uuid.UUID
+    organization_id: uuid.UUID
+    workspace_id: uuid.UUID
+    client_id: str
+    session_id: str
+    relative_path: str
+    blob_key: str
+    expires_at: datetime
+    used: bool = Field(default=False)
+    sha256: str | None = Field(default=None)
+
+
+_WORKFLOW_FILE_ARTIFACT_KEY_PREFIX = "mcp:workflow-artifacts"
+_TEMPLATE_FILE_ARTIFACT_KEY_PREFIX = "mcp:template-artifacts"
+_WORKFLOW_FILE_ALLOWED_EXTENSIONS = {".yaml", ".yml"}
+_WORKFLOW_FILE_WARNING = (
+    "Workflow file tools use staged blob transfers for remote MCP clients. "
+    "Download URLs and upload artifacts are short-lived and bound to the "
+    "requesting client/session."
+)
+_TEMPLATE_FILE_WARNING = (
+    "Template validation only supports staged uploads for remote MCP clients. "
+    "Local filesystem paths are not supported."
+)
+_CSV_FILE_WARNING = (
+    "CSV exports are delivered through staged blob downloads for remote MCP "
+    "clients. Local filesystem export/import paths are not supported."
+)
+_workflow_artifact_redis: AsyncRedis | None = None
+
+
+def _workflow_file_artifact_ttl_seconds() -> int:
+    """Return the TTL for staged workflow file artifacts."""
+    return config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+
+
+def _get_workflow_artifact_redis() -> AsyncRedis:
+    """Get the Redis client used for workflow file artifact metadata."""
+    global _workflow_artifact_redis
+    if _workflow_artifact_redis is None:
+        _workflow_artifact_redis = AsyncRedis.from_url(config.REDIS_URL)
+    return _workflow_artifact_redis
+
+
+def _workflow_artifact_redis_key(artifact_id: uuid.UUID | str) -> str:
+    """Build the Redis key for a workflow file artifact."""
+    return f"{_WORKFLOW_FILE_ARTIFACT_KEY_PREFIX}:{artifact_id}"
+
+
+def _template_artifact_redis_key(artifact_id: uuid.UUID | str) -> str:
+    """Build the Redis key for a template file artifact."""
+    return f"{_TEMPLATE_FILE_ARTIFACT_KEY_PREFIX}:{artifact_id}"
+
+
+def _current_mcp_client_id() -> str:
+    """Return the current MCP client id when available."""
+    try:
+        return get_token_identity().client_id or "anonymous"
+    except ValueError:
+        return "anonymous"
+
+
+def _get_context_session_id(ctx: Context | None) -> str:
+    """Return the current MCP session id."""
+    if ctx is None:
+        raise ToolError("Workflow file tools require MCP context")
+    return ctx.session_id
+
+
+def _get_context_transport(ctx: Context | None) -> str:
+    """Return the current transport name, defaulting to streamable-http."""
+    if ctx is None or ctx.transport is None:
+        return "streamable-http"
+    return ctx.transport
+
+
+def _require_remote_mcp_context(ctx: Context | None, *, tool_name: str) -> None:
+    """Require the tool to be called over Tracecat's remote MCP transport."""
+    if ctx is None:
+        raise ToolError(f"{tool_name} requires MCP context")
+    if _get_context_transport(ctx) != "streamable-http":
+        raise ToolError(
+            f"{tool_name} is only supported for remote streamable-http MCP clients"
+        )
+
+
+def _workflow_file_bucket() -> str:
+    """Return the bucket used for staged workflow file blobs."""
+    return config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW
+
+
+def _template_file_bucket() -> str:
+    """Return the bucket used for staged template file blobs."""
+    return config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW
+
+
+def _compute_sha256(content: bytes) -> str:
+    """Compute the SHA-256 digest for the given bytes."""
+    return hashlib.sha256(content).hexdigest()
+
+
+def _normalize_workflow_file_relative_path(relative_path: str) -> str:
+    """Validate and normalize a relative workflow file path."""
+    raw = relative_path.replace("\\", "/").strip()
+    if not raw:
+        raise ToolError("relative_path is required")
+    if raw.startswith("/"):
+        raise ToolError("relative_path must be relative")
+
+    path = PurePosixPath(raw)
+    parts = path.parts
+    if not parts:
+        raise ToolError("relative_path must include a file name")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ToolError("relative_path cannot contain empty, '.' or '..' segments")
+    if any(":" in part for part in parts):
+        raise ToolError("relative_path cannot contain ':' segments")
+
+    if path.suffix.lower() not in _WORKFLOW_FILE_ALLOWED_EXTENSIONS:
+        raise ToolError("Workflow file path must end with .yaml or .yml")
+    return path.as_posix()
+
+
+def _infer_folder_path_from_relative_path(relative_path: str) -> str | None:
+    """Infer the Tracecat workflow folder path from a relative file path."""
+    path = PurePosixPath(relative_path)
+    parent_parts = path.parts[:-1]
+    if not parent_parts:
+        return None
+    return f"/{'/'.join(parent_parts)}/"
+
+
+def _folder_path_to_relative_dir(folder_path: str | None) -> str:
+    """Convert a materialized folder path to a relative directory string."""
+    if not folder_path or folder_path == "/":
+        return ""
+    return folder_path.strip("/")
+
+
+def _build_workflow_file_name(title: str, workflow_id: WorkflowUUID) -> str:
+    """Build a stable local file name for a workflow."""
+    title_slug = slugify(title, separator="-") or "workflow"
+    return f"{title_slug}--{workflow_id.short()}.yaml"
+
+
+def _build_workflow_relative_path(
+    title: str,
+    workflow_id: WorkflowUUID,
+    folder_path: str | None,
+) -> str:
+    """Build the relative workflow file path from folder path and workflow metadata."""
+    file_name = _build_workflow_file_name(title, workflow_id)
+    if folder_dir := _folder_path_to_relative_dir(folder_path):
+        return PurePosixPath(folder_dir, file_name).as_posix()
+    return file_name
+
+
+def _workflow_file_blob_key(
+    workspace_id: uuid.UUID,
+    session_id: str,
+    artifact_id: uuid.UUID,
+    file_name: str,
+) -> str:
+    """Build the blob storage key for a staged workflow file."""
+    return f"{workspace_id}/mcp/workflow-files/{session_id}/{artifact_id}/{file_name}"
+
+
+def _workflow_file_artifact_expires_at() -> datetime:
+    """Return the expiry timestamp for a staged workflow artifact."""
+    return datetime.now(UTC) + timedelta(seconds=_workflow_file_artifact_ttl_seconds())
+
+
+def _workflow_file_artifact_remaining_seconds(expires_at: datetime) -> int:
+    """Return the remaining TTL in seconds for an artifact."""
+    remaining = int((expires_at - datetime.now(UTC)).total_seconds())
+    return max(remaining, 1)
+
+
+async def _store_workflow_file_artifact(artifact: WorkflowFileArtifact) -> None:
+    """Persist workflow file artifact metadata in Redis."""
+    redis = _get_workflow_artifact_redis()
+    payload = orjson.dumps(artifact.model_dump(mode="json"))
+    await redis.set(
+        _workflow_artifact_redis_key(artifact.artifact_id),
+        payload,
+        ex=_workflow_file_artifact_remaining_seconds(artifact.expires_at),
+    )
+
+
+async def _load_workflow_file_artifact(
+    artifact_id: str,
+) -> WorkflowFileArtifact | None:
+    """Load workflow file artifact metadata from Redis."""
+    redis = _get_workflow_artifact_redis()
+    raw = await redis.get(_workflow_artifact_redis_key(artifact_id))
+    if raw is None:
+        return None
+    return WorkflowFileArtifact.model_validate(orjson.loads(raw))
+
+
+async def _store_template_file_artifact(artifact: TemplateFileArtifact) -> None:
+    """Persist template file artifact metadata in Redis."""
+    redis = _get_workflow_artifact_redis()
+    payload = orjson.dumps(artifact.model_dump(mode="json"))
+    await redis.set(
+        _template_artifact_redis_key(artifact.artifact_id),
+        payload,
+        ex=_workflow_file_artifact_remaining_seconds(artifact.expires_at),
+    )
+
+
+async def _load_template_file_artifact(
+    artifact_id: str,
+) -> TemplateFileArtifact | None:
+    """Load template file artifact metadata from Redis."""
+    redis = _get_workflow_artifact_redis()
+    raw = await redis.get(_template_artifact_redis_key(artifact_id))
+    if raw is None:
+        return None
+    return TemplateFileArtifact.model_validate(orjson.loads(raw))
+
+
+async def _update_template_file_artifact(artifact: TemplateFileArtifact) -> None:
+    """Update an existing template file artifact in Redis."""
+    await _store_template_file_artifact(artifact)
+
+
+async def _update_workflow_file_artifact(artifact: WorkflowFileArtifact) -> None:
+    """Update an existing workflow file artifact in Redis."""
+    await _store_workflow_file_artifact(artifact)
+
+
 def _normalize_workflow_yaml_payload(raw_payload: Any) -> dict[str, Any]:
     """Normalize YAML payload shape for MCP workflow update APIs."""
     if raw_payload is None:
@@ -609,6 +870,294 @@ def _parse_workflow_yaml_payload(definition_yaml: str) -> MCPWorkflowYamlPayload
         raise ToolError(f"Invalid YAML: {exc}") from exc
     normalized = _normalize_workflow_yaml_payload(raw)
     return MCPWorkflowYamlPayload.model_validate(normalized)
+
+
+async def _get_workflow_folder_path(
+    *,
+    role: Any,
+    session: Any,
+    workflow: Any,
+) -> str | None:
+    """Load the materialized folder path for a workflow."""
+    folder_id = getattr(workflow, "folder_id", None)
+    if folder_id is None:
+        return None
+    folder = await WorkflowFolderService(session, role=role).get_folder(folder_id)
+    return None if folder is None else folder.path
+
+
+async def _build_workflow_yaml_envelope(
+    *,
+    role: Any,
+    service: WorkflowsManagementService,
+    workflow: Any,
+    workflow_id: str,
+    draft: bool,
+) -> dict[str, Any]:
+    """Build the MCP workflow YAML envelope for a workflow."""
+    payload: dict[str, Any] = {
+        "layout": {
+            "trigger": {
+                "x": workflow.trigger_position_x,
+                "y": workflow.trigger_position_y,
+            },
+            "viewport": {
+                "x": workflow.viewport_x,
+                "y": workflow.viewport_y,
+                "zoom": workflow.viewport_zoom,
+            },
+            "actions": [
+                {
+                    "ref": action.ref,
+                    "x": action.position_x,
+                    "y": action.position_y,
+                }
+                for action in sorted(workflow.actions, key=lambda action: action.ref)
+            ],
+        },
+        "schedules": [
+            schedule.model_dump(
+                mode="json",
+                exclude={
+                    "id",
+                    "workspace_id",
+                    "workflow_id",
+                    "created_at",
+                    "updated_at",
+                },
+            )
+            for schedule in ScheduleRead.list_adapter().validate_python(
+                workflow.schedules
+            )
+        ],
+    }
+
+    try:
+        case_trigger = await CaseTriggersService(
+            service.session, role=role
+        ).get_case_trigger(WorkflowUUID.new(workflow.id))
+        payload["case_trigger"] = {
+            "status": case_trigger.status,
+            "event_types": case_trigger.event_types,
+            "tag_filters": case_trigger.tag_filters,
+        }
+    except TracecatNotFoundError:
+        payload["case_trigger"] = None
+    except Exception as e:
+        logger.warning(
+            "Could not load case trigger for workflow",
+            workflow_id=workflow_id,
+            error=str(e),
+        )
+        payload["case_trigger"] = None
+
+    if draft:
+        try:
+            dsl = await service.build_dsl_from_workflow(workflow)
+            payload["definition"] = dsl.model_dump(mode="json", exclude_none=True)
+        except Exception as e:
+            logger.warning(
+                "Could not build DSL for workflow",
+                workflow_id=workflow_id,
+                error=str(e),
+            )
+            payload["definition_error"] = (
+                "Failed to build workflow definition. Check server logs for details."
+            )
+    else:
+        definition_service = WorkflowDefinitionsService(service.session, role=role)
+        if (
+            defn := await definition_service.get_definition_by_workflow_id(
+                WorkflowUUID.new(workflow.id)
+            )
+        ) is None:
+            raise ToolError(
+                f"No published definition found for workflow {workflow_id}. "
+                "Publish the workflow before exporting with draft=False."
+            )
+        payload["version"] = defn.version
+        payload["definition"] = DSLInput.model_validate(defn.content).model_dump(
+            mode="json", exclude_none=True
+        )
+
+    return payload
+
+
+def _serialize_workflow_yaml_envelope(payload: dict[str, Any]) -> str:
+    """Serialize the workflow envelope to YAML."""
+    return yaml.dump(payload, indent=2, sort_keys=False)
+
+
+async def _ensure_workflow_folder(
+    *,
+    role: Any,
+    session: Any,
+    folder_path: str | None,
+) -> Any | None:
+    """Ensure the materialized workflow folder path exists."""
+    if folder_path is None or folder_path == "/":
+        return None
+
+    folder_service = WorkflowFolderService(session, role=role)
+    if existing := await folder_service.get_folder_by_path(folder_path):
+        return existing
+
+    current_path = "/"
+    created_folder = None
+    for segment in folder_path.strip("/").split("/"):
+        next_path = (
+            f"{current_path}{segment}/" if current_path != "/" else f"/{segment}/"
+        )
+        if existing := await folder_service.get_folder_by_path(next_path):
+            created_folder = existing
+            current_path = next_path
+            continue
+        created_folder = await folder_service.create_folder(
+            segment,
+            parent_path=current_path,
+            commit=True,
+        )
+        current_path = created_folder.path
+    return created_folder
+
+
+async def _assign_workflow_to_folder(
+    *,
+    role: Any,
+    session: Any,
+    workflow_id: WorkflowUUID,
+    folder_path: str | None,
+) -> None:
+    """Move a workflow to the inferred folder path."""
+    folder_service = WorkflowFolderService(session, role=role)
+    folder = await _ensure_workflow_folder(
+        role=role, session=session, folder_path=folder_path
+    )
+    await folder_service.move_workflow(workflow_id, folder)
+
+
+def _build_workflow_file_payload(
+    *,
+    workflow: Any,
+    relative_path: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the common response payload for workflow file tools."""
+    payload: dict[str, Any] = {
+        "workflow_id": str(workflow.id),
+        "title": workflow.title,
+        "suggested_relative_path": relative_path,
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def _parse_uploaded_text_file(content: bytes, *, label: str) -> tuple[str, str]:
+    """Validate uploaded text file bytes and decode to UTF-8 text."""
+    if not content:
+        raise ToolError(f"Uploaded {label} is empty")
+    if len(content) > config.TRACECAT__MAX_FILE_SIZE_BYTES:
+        raise ToolError(f"Uploaded {label} exceeds the maximum allowed size")
+    try:
+        return content.decode("utf-8"), _compute_sha256(content)
+    except UnicodeDecodeError as exc:
+        raise ToolError(f"Uploaded {label} must be UTF-8 encoded") from exc
+
+
+def _parse_uploaded_workflow_yaml(content: bytes) -> tuple[str, str]:
+    """Validate uploaded workflow file bytes and decode to text."""
+    return _parse_uploaded_text_file(content, label="workflow file")
+
+
+def _parse_workflow_file_artifact_id(artifact_id: str) -> uuid.UUID:
+    """Validate a workflow file artifact id."""
+    try:
+        return uuid.UUID(artifact_id)
+    except ValueError as exc:
+        raise ToolError("Invalid artifact_id") from exc
+
+
+async def _require_workflow_file_artifact(
+    *,
+    artifact_id: str,
+    role: Any,
+    ctx: Context | None,
+    operation: WorkflowFileOperation,
+    workflow_id: WorkflowUUID | None = None,
+) -> WorkflowFileArtifact:
+    """Load and authorize a workflow file artifact."""
+    _parse_workflow_file_artifact_id(artifact_id)
+    artifact = await _load_workflow_file_artifact(artifact_id)
+    if artifact is None:
+        raise ToolError("Workflow file artifact not found or expired")
+    if artifact.used:
+        raise ToolError("Workflow file artifact has already been consumed")
+    if artifact.expires_at <= datetime.now(UTC):
+        raise ToolError("Workflow file artifact has expired")
+    if artifact.operation != operation:
+        raise ToolError("Workflow file artifact operation does not match this tool")
+    if artifact.workspace_id != role.workspace_id:
+        raise ToolError("Workflow file artifact is not valid for this workspace")
+    if artifact.organization_id != role.organization_id:
+        raise ToolError("Workflow file artifact is not valid for this organization")
+
+    current_client_id = _current_mcp_client_id()
+    if artifact.client_id != current_client_id:
+        raise ToolError("Workflow file artifact is not valid for this MCP client")
+    if artifact.session_id != _get_context_session_id(ctx):
+        raise ToolError("Workflow file artifact is not valid for this MCP session")
+    if workflow_id is not None and artifact.workflow_id != workflow_id:
+        raise ToolError("Workflow file artifact is not valid for this workflow")
+    return artifact
+
+
+async def _consume_workflow_file_artifact(
+    *,
+    artifact: WorkflowFileArtifact,
+    sha256: str,
+) -> None:
+    """Mark a workflow file artifact as used."""
+    artifact.used = True
+    artifact.sha256 = sha256
+    await _update_workflow_file_artifact(artifact)
+
+
+async def _require_template_file_artifact(
+    *,
+    artifact_id: str,
+    role: Any,
+    ctx: Context | None,
+) -> TemplateFileArtifact:
+    """Load and authorize a template file artifact."""
+    _parse_workflow_file_artifact_id(artifact_id)
+    artifact = await _load_template_file_artifact(artifact_id)
+    if artifact is None:
+        raise ToolError("Template file artifact not found or expired")
+    if artifact.used:
+        raise ToolError("Template file artifact has already been consumed")
+    if artifact.expires_at <= datetime.now(UTC):
+        raise ToolError("Template file artifact has expired")
+    if artifact.workspace_id != role.workspace_id:
+        raise ToolError("Template file artifact is not valid for this workspace")
+    if artifact.organization_id != role.organization_id:
+        raise ToolError("Template file artifact is not valid for this organization")
+    if artifact.client_id != _current_mcp_client_id():
+        raise ToolError("Template file artifact is not valid for this MCP client")
+    if artifact.session_id != _get_context_session_id(ctx):
+        raise ToolError("Template file artifact is not valid for this MCP session")
+    return artifact
+
+
+async def _consume_template_file_artifact(
+    *,
+    artifact: TemplateFileArtifact,
+    sha256: str,
+) -> None:
+    """Mark a template file artifact as used."""
+    artifact.used = True
+    artifact.sha256 = sha256
+    await _update_template_file_artifact(artifact)
 
 
 def _auto_generate_layout(
@@ -869,6 +1418,239 @@ async def _apply_case_trigger_payload(
         )
 
 
+def _build_import_data_from_workflow_yaml(
+    *,
+    definition_yaml: str,
+    title: str | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Parse workflow YAML into import data for workflow creation."""
+    try:
+        import_data = yaml.safe_load(definition_yaml)
+    except yaml.YAMLError as exc:
+        raise ToolError(f"Invalid YAML: {exc}") from exc
+    normalized = _normalize_workflow_yaml_payload(import_data)
+
+    definition = normalized.get("definition")
+    if not isinstance(definition, dict):
+        raise ToolError("Workflow definition YAML must include a definition object")
+    if "title" not in definition and title is not None:
+        definition["title"] = title
+    if "description" not in definition and description:
+        definition["description"] = description
+
+    layout = normalized.get("layout")
+    if not layout:
+        actions = definition.get("actions", [])
+        if actions:
+            normalized["layout"] = _auto_generate_layout(actions)
+    return normalized
+
+
+async def _create_workflow_from_import_data(
+    *,
+    role: Any,
+    import_data: dict[str, Any],
+    use_workflow_id: bool = False,
+) -> Workflow:
+    """Create a workflow from normalized import data."""
+    layout_data = import_data.get("layout")
+    trigger_position, viewport, action_positions = _extract_layout_positions(
+        layout_data
+    )
+    async with WorkflowsManagementService.with_session(role=role) as svc:
+        return await svc.create_workflow_from_external_definition(
+            import_data,
+            use_workflow_id=use_workflow_id,
+            trigger_position=trigger_position,
+            viewport=viewport,
+            action_positions=action_positions,
+        )
+
+
+async def _apply_workflow_yaml_update(
+    *,
+    role: Any,
+    service: WorkflowsManagementService,
+    workflow: Workflow,
+    workflow_id: WorkflowUUID,
+    update_params: WorkflowUpdate,
+    yaml_payload: MCPWorkflowYamlPayload | None,
+    definition_yaml: str | None,
+    update_mode: Literal["replace", "patch"],
+) -> None:
+    """Apply workflow YAML sections and metadata updates."""
+    if (
+        yaml_payload is not None
+        and yaml_payload.definition is not None
+        and (yaml_payload.layout is None or not yaml_payload.layout.actions)
+    ):
+        raw = yaml.safe_load(definition_yaml) if definition_yaml else {}
+        defn_raw = raw.get("definition", raw) if isinstance(raw, dict) else {}
+        actions_raw = defn_raw.get("actions", [])
+        if actions_raw:
+            auto_layout = _auto_generate_layout(actions_raw)
+            yaml_payload.layout = MCPWorkflowLayout.model_validate(auto_layout)
+
+    update_action_positions: dict[str, tuple[float, float]] | None = None
+    if yaml_payload is not None and yaml_payload.layout is not None:
+        _, _, update_action_positions = _extract_layout_positions(
+            yaml_payload.layout.model_dump()
+        )
+
+    if yaml_payload is not None and yaml_payload.definition is not None:
+        await _replace_workflow_definition_from_dsl(
+            service=service,
+            workflow_id=workflow_id,
+            dsl=yaml_payload.definition,
+            action_positions=update_action_positions,
+        )
+        await service.session.refresh(workflow, ["actions"])
+
+    if yaml_payload is not None and yaml_payload.layout is not None:
+        await service.session.refresh(workflow, ["actions"])
+        _apply_layout_to_workflow(workflow=workflow, layout=yaml_payload.layout)
+        for action in workflow.actions:
+            service.session.add(action)
+
+    offline_schedule_ids: list[uuid.UUID] = []
+    if yaml_payload is not None and yaml_payload.schedules is not None:
+        schedule_service = WorkflowSchedulesService(service.session, role=role)
+        offline_schedule_ids = await _replace_workflow_schedules(
+            service=schedule_service,
+            workflow_id=workflow_id,
+            schedules=yaml_payload.schedules,
+        )
+
+    if yaml_payload is not None and yaml_payload.case_trigger is not None:
+        case_trigger_service = CaseTriggersService(service.session, role=role)
+        await _apply_case_trigger_payload(
+            service=case_trigger_service,
+            workflow_id=workflow_id,
+            case_trigger_payload=yaml_payload.case_trigger,
+            update_mode=update_mode,
+        )
+
+    update_data = update_params.model_dump(exclude_unset=True)
+    if update_data:
+        for key, value in update_data.items():
+            setattr(workflow, key, value)
+    service.session.add(workflow)
+    await service.session.commit()
+    await service.session.refresh(workflow)
+
+    if offline_schedule_ids:
+        schedule_service = WorkflowSchedulesService(service.session, role=role)
+        for schedule_id in offline_schedule_ids:
+            await schedule_service.update_schedule(
+                schedule_id,
+                ScheduleUpdate(status="offline"),
+            )
+
+
+async def _validate_template_action_text(
+    *,
+    role: Any,
+    template_text: str,
+    check_db: bool,
+) -> str:
+    """Validate a template action payload from YAML text."""
+    action_name: str | None = None
+
+    try:
+        raw_template = yaml.safe_load(template_text)
+    except yaml.YAMLError as exc:
+        return _json(
+            {
+                "valid": False,
+                "action_name": action_name,
+                "errors": [{"type": "yaml_error", "message": str(exc)}],
+            }
+        )
+
+    try:
+        template = TemplateAction.model_validate(raw_template)
+        action_name = template.definition.action
+    except ValidationError as exc:
+        return _json(
+            {
+                "valid": False,
+                "action_name": action_name,
+                "errors": [
+                    {
+                        "type": "schema_validation_error",
+                        "message": "Template action schema validation failed",
+                        "details": [
+                            {
+                                "type": err.get("type"),
+                                "msg": err.get("msg"),
+                                "loc": list(err.get("loc", ())),
+                            }
+                            for err in exc.errors(include_url=False)
+                        ],
+                    }
+                ],
+            }
+        )
+    except TracecatValidationError as exc:
+        return _json(
+            {
+                "valid": False,
+                "action_name": action_name,
+                "errors": [
+                    {
+                        "type": "schema_validation_error",
+                        "message": str(exc),
+                    }
+                ],
+            }
+        )
+
+    repo = Repository(role=role)
+    repo.init(include_base=True, include_templates=True)
+    repo.register_template_action(template, origin="mcp")
+    bound_action = repo.store[template.definition.action]
+
+    async with RegistryActionsService.with_session(role=role) as svc:
+        errs = await validate_template_action_impl(
+            bound_action,
+            repo,
+            check_db=check_db,
+            ra_service=svc,
+        )
+
+    return _json(
+        {
+            "valid": len(errs) == 0,
+            "action_name": action_name,
+            "errors": [err.model_dump(mode="json") for err in errs],
+        }
+    )
+
+
+def _build_table_csv_file_name(table_name: str, table_id: uuid.UUID) -> str:
+    """Build a stable CSV export file name for a table."""
+    slug = slugify(table_name, separator="-") or "table"
+    return f"{slug}--{table_id.hex[:8]}.csv"
+
+
+def _build_csv_export_payload(
+    *,
+    table: Any,
+    relative_path: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build the common response payload for CSV export tools."""
+    payload: dict[str, Any] = {
+        "table_id": str(table.id),
+        "name": table.name,
+        "suggested_relative_path": relative_path,
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
 auth = create_mcp_auth()
 
 _CASE_EVENT_TYPE_VALUES = [event_type.value for event_type in CaseEventType]
@@ -947,12 +1729,24 @@ Within a scatter stream, each child action accesses its item via \
 
 ## Recommended authoring sequence
 1. `get_workflow_authoring_context` — get action schemas, secrets, and variables
-2. `create_workflow` or `update_workflow` with `definition_yaml`
-3. `validate_workflow` — check for structural and expression errors
-4. `publish_workflow` — freeze a versioned snapshot
-5. `run_published_workflow` or `run_draft_workflow` — execute it
-6. `list_workflow_executions` — see run history, find execution IDs
-7. `get_workflow_execution` — inspect execution status, per-action results/errors
+2. Use `create_workflow` to create a blank workflow shell when needed
+3. Use `get_workflow_file` / `prepare_workflow_file_upload` plus the file-based workflow create/update tools for all workflow-definition edits
+4. `validate_workflow` — check for structural and expression errors
+5. `publish_workflow` — freeze a versioned snapshot
+6. `run_published_workflow` or `run_draft_workflow` — execute it
+7. `list_workflow_executions` — see run history, find execution IDs
+8. `get_workflow_execution` — inspect execution status, per-action results/errors
+
+## Workflow file tools
+- {_WORKFLOW_FILE_WARNING}
+- `get_workflow_file` returns a short-lived download URL for remote `/mcp` clients.
+- `prepare_workflow_file_upload` is required for remote `/mcp` workflow file uploads. It returns a short-lived upload URL and an opaque artifact id for the finalize create/update tools.
+
+## Template and CSV file tools
+- {_TEMPLATE_FILE_WARNING}
+- `prepare_template_file_upload` is required for remote `/mcp` template validation uploads.
+- {_CSV_FILE_WARNING}
+- `export_csv` returns a short-lived download URL for remote `/mcp` clients.
 
 ## Agent preset authoring
 1. `get_agent_preset_authoring_context` — inspect models, provider readiness, integrations, variables, and output_type options
@@ -1683,100 +2477,31 @@ async def create_workflow(
     workspace_id: str,
     title: str,
     description: str = "",
-    definition_yaml: str | None = None,
-) -> str | TextContent:
+) -> str:
     """Create a new workflow in a workspace.
-
-    If definition_yaml is provided, creates a fully-defined workflow from YAML.
-    Otherwise creates a blank workflow with just a title and description.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).
         title: Workflow title (3-100 characters).
         description: Optional workflow description (up to 1000 characters).
-        definition_yaml: Optional YAML string defining the full workflow (actions,
-            triggers, entrypoint). When provided, title/description in the YAML
-            take precedence. The YAML must follow the ExternalWorkflowDefinition
-            format with a top-level 'definition' key containing title, description,
-            entrypoint, actions, and optionally triggers.
 
     Returns JSON with the new workflow's id, title, description, and status.
     """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-
-        if definition_yaml:
-            # Parse YAML and create workflow from external definition
-            try:
-                external_defn_data = yaml.safe_load(definition_yaml)
-            except yaml.YAMLError as e:
-                raise ToolError(f"Invalid YAML: {e}") from e
-
-            # If YAML has no top-level 'definition' key, wrap it
-            if "definition" not in external_defn_data:
-                external_defn_data = {"definition": external_defn_data}
-
-            # Apply title/description overrides if not in the YAML
-            defn = external_defn_data.get("definition", {})
-            if "title" not in defn:
-                defn["title"] = title
-            if "description" not in defn and description:
-                defn["description"] = description
-
-            # Auto-generate layout if not provided or empty
-            layout_data = external_defn_data.get("layout")
-            if not layout_data:
-                actions = defn.get("actions", [])
-                if actions:
-                    layout_data = _auto_generate_layout(actions)
-                    external_defn_data["layout"] = layout_data
-
-            # Extract layout into position params for atomic creation
-            trigger_position, viewport, action_positions = _extract_layout_positions(
-                layout_data
+        async with WorkflowsManagementService.with_session(role=role) as svc:
+            workflow = await svc.create_workflow(
+                WorkflowCreate(title=title, description=description or None)
             )
-
-            async with WorkflowsManagementService.with_session(role=role) as svc:
-                workflow = await svc.create_workflow_from_external_definition(
-                    external_defn_data,
-                    trigger_position=trigger_position,
-                    viewport=viewport,
-                    action_positions=action_positions,
-                )
-
-                return TextContent(
-                    type="text",
-                    text=_json(
-                        {
-                            "id": str(workflow.id),
-                            "title": workflow.title,
-                            "description": workflow.description,
-                            "status": workflow.status,
-                        }
-                    ),
-                    annotations=Annotations.model_validate(
-                        {
-                            "audience": ["user", "assistant"],
-                            "priority": 0.7,
-                            "layout_applied": trigger_position is not None
-                            or bool(action_positions),
-                        }
-                    ),
-                )
-        else:
-            async with WorkflowsManagementService.with_session(role=role) as svc:
-                workflow = await svc.create_workflow(
-                    WorkflowCreate(title=title, description=description or None)
-                )
-                return _json(
-                    {
-                        "id": str(workflow.id),
-                        "title": workflow.title,
-                        "description": workflow.description,
-                        "status": workflow.status,
-                    }
-                )
+            return _json(
+                {
+                    "id": str(workflow.id),
+                    "title": workflow.title,
+                    "description": workflow.description,
+                    "status": workflow.status,
+                }
+            )
     except ToolError:
         raise
     except ValueError as e:
@@ -1791,16 +2516,14 @@ async def get_workflow(
     workspace_id: str,
     workflow_id: str,
 ) -> str:
-    """Get details of a specific workflow including its full YAML definition.
+    """Get metadata for a specific workflow.
 
     Args:
         workspace_id: The workspace ID.
         workflow_id: The workflow ID (short or full format).
 
-    Returns JSON with workflow metadata (id, title, description, status, version)
-    and a 'definition_yaml' field containing the full workflow definition in YAML
-    format (definition, layout, schedules, and case_trigger). The YAML can be
-    modified and used with update_workflow's definition_yaml parameter.
+    Returns JSON with workflow metadata. Use get_workflow_file to retrieve the
+    full workflow definition as a file or staged download.
     """
 
     try:
@@ -1811,92 +2534,6 @@ async def get_workflow(
             workflow = await svc.get_workflow(wf_id)
             if not workflow:
                 raise ToolError(f"Workflow {workflow_id} not found")
-
-            payload: dict[str, Any] = {
-                "layout": {
-                    "trigger": {
-                        "x": workflow.trigger_position_x,
-                        "y": workflow.trigger_position_y,
-                    },
-                    "viewport": {
-                        "x": workflow.viewport_x,
-                        "y": workflow.viewport_y,
-                        "zoom": workflow.viewport_zoom,
-                    },
-                    "actions": [
-                        {
-                            "ref": action.ref,
-                            "x": action.position_x,
-                            "y": action.position_y,
-                        }
-                        for action in sorted(
-                            workflow.actions, key=lambda action: action.ref
-                        )
-                    ],
-                },
-                "schedules": [
-                    schedule.model_dump(
-                        mode="json",
-                        exclude={
-                            "id",
-                            "workspace_id",
-                            "workflow_id",
-                            "created_at",
-                            "updated_at",
-                        },
-                    )
-                    for schedule in ScheduleRead.list_adapter().validate_python(
-                        workflow.schedules
-                    )
-                ],
-            }
-
-            try:
-                case_trigger = await CaseTriggersService(
-                    svc.session, role=role
-                ).get_case_trigger(wf_id)
-                payload["case_trigger"] = (
-                    {
-                        "status": case_trigger.status,
-                        "event_types": case_trigger.event_types,
-                        "tag_filters": case_trigger.tag_filters,
-                    }
-                    if is_case_trigger_configured(
-                        status=case_trigger.status,
-                        event_types=case_trigger.event_types,
-                        tag_filters=case_trigger.tag_filters,
-                    )
-                    else None
-                )
-            except TracecatNotFoundError:
-                payload["case_trigger"] = None
-            except Exception as e:
-                logger.warning(
-                    "Could not load case trigger for workflow",
-                    workflow_id=workflow_id,
-                    error=str(e),
-                )
-                payload["case_trigger"] = None
-
-            try:
-                dsl = await svc.build_dsl_from_workflow(workflow)
-                payload["definition"] = dsl.model_dump(mode="json", exclude_none=True)
-            except Exception as e:
-                logger.warning(
-                    "Could not build DSL for workflow",
-                    workflow_id=workflow_id,
-                    error=str(e),
-                )
-                payload["definition_error"] = (
-                    "Failed to build workflow definition. Check server logs for details."
-                )
-
-            definition_yaml = yaml.dump(
-                payload,
-                indent=2,
-                sort_keys=False,
-            )
-
             return _json(
                 {
                     "id": str(workflow.id),
@@ -1906,7 +2543,6 @@ async def get_workflow(
                     "version": workflow.version,
                     "alias": workflow.alias,
                     "entrypoint": workflow.entrypoint,
-                    "definition_yaml": definition_yaml,
                 }
             )
     except ToolError:
@@ -1919,6 +2555,325 @@ async def get_workflow(
 
 
 @mcp.tool()
+async def get_workflow_file(
+    workspace_id: str,
+    workflow_id: str,
+    draft: bool = True,
+    ctx: Context | None = None,
+) -> str:
+    """Export a workflow to a staged download URL."""
+
+    try:
+        _require_remote_mcp_context(ctx, tool_name="get_workflow_file")
+        _, role = await _resolve_workspace_role(workspace_id)
+        wf_id = WorkflowUUID.new(workflow_id)
+
+        async with WorkflowsManagementService.with_session(role=role) as svc:
+            workflow = await svc.get_workflow(wf_id)
+            if workflow is None:
+                raise ToolError(f"Workflow {workflow_id} not found")
+
+            folder_path = await _get_workflow_folder_path(
+                role=role,
+                session=svc.session,
+                workflow=workflow,
+            )
+            relative_path = _build_workflow_relative_path(
+                workflow.title,
+                wf_id,
+                folder_path,
+            )
+            yaml_payload = await _build_workflow_yaml_envelope(
+                role=role,
+                service=svc,
+                workflow=workflow,
+                workflow_id=workflow_id,
+                draft=draft,
+            )
+            content = _serialize_workflow_yaml_envelope(yaml_payload)
+            result_payload = _build_workflow_file_payload(
+                workflow=workflow,
+                relative_path=relative_path,
+                extra={"draft": draft},
+            )
+
+        artifact_id = uuid.uuid4()
+        expires_at = _workflow_file_artifact_expires_at()
+        blob_key = _workflow_file_blob_key(
+            role.workspace_id,
+            _get_context_session_id(ctx),
+            artifact_id,
+            PurePosixPath(relative_path).name,
+        )
+        await blob.upload_file(
+            content.encode("utf-8"),
+            key=blob_key,
+            bucket=_workflow_file_bucket(),
+            content_type="application/yaml",
+        )
+        download_url = await blob.generate_presigned_download_url(
+            key=blob_key,
+            bucket=_workflow_file_bucket(),
+            expiry=_workflow_file_artifact_ttl_seconds(),
+            override_content_type="application/yaml",
+        )
+        result_payload.update(
+            {
+                "download_url": download_url,
+                "expires_at": expires_at.isoformat(),
+                "transport": _get_context_transport(ctx),
+            }
+        )
+        return _json(result_payload)
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to export workflow file", error=str(e))
+        raise ToolError(f"Failed to export workflow file: {e}") from None
+
+
+@mcp.tool()
+async def prepare_workflow_file_upload(
+    workspace_id: str,
+    relative_path: str,
+    operation: str,
+    workflow_id: str | None = None,
+    update_mode: str = "patch",
+    ctx: Context | None = None,
+) -> str:
+    """Prepare a staged workflow file upload for remote `/mcp` clients.
+
+    Clients typically save and upload files locally before handing them to the
+    remote MCP upload URL returned by this tool.
+    """
+
+    try:
+        _require_remote_mcp_context(ctx, tool_name="prepare_workflow_file_upload")
+        _, role = await _resolve_workspace_role(workspace_id)
+        workflow_operation = WorkflowFileOperation(operation)
+        if update_mode not in {"replace", "patch"}:
+            raise ToolError("update_mode must be 'replace' or 'patch'")
+        normalized_relative_path = _normalize_workflow_file_relative_path(relative_path)
+        target_workflow_id = (
+            WorkflowUUID.new(workflow_id) if workflow_id is not None else None
+        )
+        if (
+            workflow_operation is WorkflowFileOperation.UPDATE
+            and target_workflow_id is None
+        ):
+            raise ToolError("workflow_id is required for update uploads")
+
+        artifact_id = uuid.uuid4()
+        expires_at = _workflow_file_artifact_expires_at()
+        artifact = WorkflowFileArtifact(
+            artifact_id=artifact_id,
+            organization_id=role.organization_id,
+            workspace_id=role.workspace_id,
+            client_id=_current_mcp_client_id(),
+            session_id=_get_context_session_id(ctx),
+            operation=workflow_operation,
+            relative_path=normalized_relative_path,
+            folder_path=_infer_folder_path_from_relative_path(normalized_relative_path),
+            blob_key=_workflow_file_blob_key(
+                role.workspace_id,
+                _get_context_session_id(ctx),
+                artifact_id,
+                PurePosixPath(normalized_relative_path).name,
+            ),
+            workflow_id=target_workflow_id,
+            update_mode=cast(Literal["replace", "patch"], update_mode),
+            expires_at=expires_at,
+        )
+        await _store_workflow_file_artifact(artifact)
+        upload_url = await blob.generate_presigned_upload_url(
+            key=artifact.blob_key,
+            bucket=_workflow_file_bucket(),
+            expiry=_workflow_file_artifact_ttl_seconds(),
+            content_type="application/yaml",
+        )
+        return _json(
+            {
+                "artifact_id": str(artifact.artifact_id),
+                "upload_url": upload_url,
+                "expires_at": artifact.expires_at.isoformat(),
+                "relative_path": artifact.relative_path,
+                "folder_path": artifact.folder_path,
+                "operation": artifact.operation.value,
+                "workflow_id": (
+                    str(artifact.workflow_id) if artifact.workflow_id else None
+                ),
+                "update_mode": artifact.update_mode,
+            }
+        )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to prepare workflow file upload", error=str(e))
+        raise ToolError(f"Failed to prepare workflow file upload: {e}") from None
+
+
+@mcp.tool()
+async def create_workflow_from_uploaded_file(
+    workspace_id: str,
+    artifact_id: str,
+    title: str | None = None,
+    description: str = "",
+    use_workflow_id: bool = False,
+    ctx: Context | None = None,
+) -> str:
+    """Create a workflow from a previously staged workflow file upload."""
+
+    try:
+        _require_remote_mcp_context(ctx, tool_name="create_workflow_from_uploaded_file")
+        _, role = await _resolve_workspace_role(workspace_id)
+        artifact = await _require_workflow_file_artifact(
+            artifact_id=artifact_id,
+            role=role,
+            ctx=ctx,
+            operation=WorkflowFileOperation.CREATE,
+        )
+        if not await blob.file_exists(artifact.blob_key, _workflow_file_bucket()):
+            raise ToolError("Uploaded workflow file was not found in staged storage")
+
+        content = await blob.download_file(artifact.blob_key, _workflow_file_bucket())
+        definition_yaml, sha256 = _parse_uploaded_workflow_yaml(content)
+        import_data = _build_import_data_from_workflow_yaml(
+            definition_yaml=definition_yaml,
+            title=title,
+            description=description,
+        )
+        workflow = await _create_workflow_from_import_data(
+            role=role,
+            import_data=import_data,
+            use_workflow_id=use_workflow_id,
+        )
+        async with WorkflowsManagementService.with_session(role=role) as svc:
+            await _assign_workflow_to_folder(
+                role=role,
+                session=svc.session,
+                workflow_id=WorkflowUUID.new(workflow.id),
+                folder_path=artifact.folder_path,
+            )
+
+        await _consume_workflow_file_artifact(artifact=artifact, sha256=sha256)
+        return _json(
+            {
+                "id": str(workflow.id),
+                "title": workflow.title,
+                "description": workflow.description,
+                "status": workflow.status,
+                "folder_path": artifact.folder_path,
+                "artifact_id": str(artifact.artifact_id),
+            }
+        )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create workflow from uploaded file", error=str(e))
+        raise ToolError(f"Failed to create workflow from uploaded file: {e}") from None
+
+
+@mcp.tool()
+async def update_workflow_from_uploaded_file(
+    workspace_id: str,
+    workflow_id: str,
+    artifact_id: str,
+    title: str | None = None,
+    description: str | None = None,
+    status: str | None = None,
+    alias: str | None = None,
+    error_handler: str | None = None,
+    update_mode: str | None = None,
+    ctx: Context | None = None,
+) -> str:
+    """Update a workflow from a previously staged workflow file upload."""
+
+    try:
+        _require_remote_mcp_context(ctx, tool_name="update_workflow_from_uploaded_file")
+        _, role = await _resolve_workspace_role(workspace_id)
+        wf_id = WorkflowUUID.new(workflow_id)
+        artifact = await _require_workflow_file_artifact(
+            artifact_id=artifact_id,
+            role=role,
+            ctx=ctx,
+            operation=WorkflowFileOperation.UPDATE,
+            workflow_id=wf_id,
+        )
+        effective_update_mode = artifact.update_mode
+        if update_mode is not None:
+            if update_mode not in {"replace", "patch"}:
+                raise ToolError("update_mode must be 'replace' or 'patch'")
+            if update_mode != artifact.update_mode:
+                raise ToolError(
+                    "update_mode does not match the prepared upload artifact"
+                )
+            effective_update_mode = cast(Literal["replace", "patch"], update_mode)
+        if not await blob.file_exists(artifact.blob_key, _workflow_file_bucket()):
+            raise ToolError("Uploaded workflow file was not found in staged storage")
+
+        content = await blob.download_file(artifact.blob_key, _workflow_file_bucket())
+        definition_yaml, sha256 = _parse_uploaded_workflow_yaml(content)
+        yaml_payload = _parse_workflow_yaml_payload(definition_yaml)
+
+        update_kwargs: dict[str, Any] = {}
+        if title is not None:
+            update_kwargs["title"] = title
+        if description is not None:
+            update_kwargs["description"] = description
+        if status is not None:
+            update_kwargs["status"] = status
+        if alias is not None:
+            update_kwargs["alias"] = alias
+        if error_handler is not None:
+            update_kwargs["error_handler"] = error_handler
+        update_params = WorkflowUpdate(**update_kwargs)
+
+        async with WorkflowsManagementService.with_session(role=role) as svc:
+            workflow = await svc.get_workflow(wf_id)
+            if workflow is None:
+                raise ToolError(f"Workflow {workflow_id} not found")
+            await _apply_workflow_yaml_update(
+                role=role,
+                service=svc,
+                workflow=workflow,
+                workflow_id=wf_id,
+                update_params=update_params,
+                yaml_payload=yaml_payload,
+                definition_yaml=definition_yaml,
+                update_mode=effective_update_mode,
+            )
+            await _assign_workflow_to_folder(
+                role=role,
+                session=svc.session,
+                workflow_id=wf_id,
+                folder_path=artifact.folder_path,
+            )
+
+        await _consume_workflow_file_artifact(artifact=artifact, sha256=sha256)
+        return _json(
+            {
+                "message": f"Workflow {workflow_id} updated successfully",
+                "mode": effective_update_mode,
+                "folder_path": artifact.folder_path,
+                "artifact_id": str(artifact.artifact_id),
+            }
+        )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update workflow from uploaded file", error=str(e))
+        raise ToolError(f"Failed to update workflow from uploaded file: {e}") from None
+
+
+@mcp.tool()
 async def update_workflow(
     workspace_id: str,
     workflow_id: str,
@@ -1927,10 +2882,8 @@ async def update_workflow(
     status: str | None = None,
     alias: str | None = None,
     error_handler: str | None = None,
-    definition_yaml: str | None = None,
-    update_mode: Literal["replace", "patch"] = "patch",
 ) -> str:
-    """Update a workflow's properties.
+    """Update workflow metadata.
 
     Args:
         workspace_id: The workspace ID.
@@ -1940,14 +2893,6 @@ async def update_workflow(
         status: New status - "online" or "offline" (optional).
         alias: New alias for the workflow (optional).
         error_handler: Error handler workflow alias (optional).
-        definition_yaml: Optional workflow YAML payload. Supports:
-            - definition (DSL)
-            - layout (trigger/action/viewport positions)
-            - schedules
-            - case_trigger
-        update_mode: "patch" to apply provided sections only, or "replace" to
-            replace provided state sections with YAML values.
-
     Returns a confirmation message.
     """
 
@@ -1972,87 +2917,20 @@ async def update_workflow(
             workflow = await svc.get_workflow(wf_id)
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")
-
-            yaml_payload = (
-                _parse_workflow_yaml_payload(definition_yaml)
-                if definition_yaml is not None
-                else None
-            )
-
-            # Auto-generate layout when definition is provided but layout is missing/empty
-            if (
-                yaml_payload is not None
-                and yaml_payload.definition is not None
-                and (yaml_payload.layout is None or not yaml_payload.layout.actions)
-            ):
-                raw = yaml.safe_load(definition_yaml) if definition_yaml else {}
-                defn_raw = raw.get("definition", raw) if isinstance(raw, dict) else {}
-                actions_raw = defn_raw.get("actions", [])
-                if actions_raw:
-                    auto_layout = _auto_generate_layout(actions_raw)
-                    yaml_payload.layout = MCPWorkflowLayout.model_validate(auto_layout)
-
-            # Extract action positions from layout for use during action creation
-            _update_action_positions: dict[str, tuple[float, float]] | None = None
-            if yaml_payload is not None and yaml_payload.layout is not None:
-                _, _, _update_action_positions = _extract_layout_positions(
-                    yaml_payload.layout.model_dump()
-                )
-
-            if yaml_payload is not None and yaml_payload.definition is not None:
-                await _replace_workflow_definition_from_dsl(
-                    service=svc,
-                    workflow_id=wf_id,
-                    dsl=yaml_payload.definition,
-                    action_positions=_update_action_positions,
-                )
-                await svc.session.refresh(workflow, ["actions"])
-
-            if yaml_payload is not None and yaml_payload.layout is not None:
-                await svc.session.refresh(workflow, ["actions"])
-                _apply_layout_to_workflow(workflow=workflow, layout=yaml_payload.layout)
-                for action in workflow.actions:
-                    svc.session.add(action)
-
-            offline_schedule_ids: list[uuid.UUID] = []
-            if yaml_payload is not None and yaml_payload.schedules is not None:
-                schedule_service = WorkflowSchedulesService(svc.session, role=role)
-                offline_schedule_ids = await _replace_workflow_schedules(
-                    service=schedule_service,
-                    workflow_id=wf_id,
-                    schedules=yaml_payload.schedules,
-                )
-
-            if yaml_payload is not None and yaml_payload.case_trigger is not None:
-                case_trigger_service = CaseTriggersService(svc.session, role=role)
-                await _apply_case_trigger_payload(
-                    service=case_trigger_service,
-                    workflow_id=wf_id,
-                    case_trigger_payload=yaml_payload.case_trigger,
-                    update_mode=update_mode,
-                )
-
-            if update_kwargs:
-                for key, value in update_params.model_dump(exclude_unset=True).items():
-                    setattr(workflow, key, value)
+            for key, value in update_params.model_dump(exclude_unset=True).items():
+                setattr(workflow, key, value)
             svc.session.add(workflow)
             await svc.session.commit()
             await svc.session.refresh(workflow)
 
-            if offline_schedule_ids:
-                schedule_service = WorkflowSchedulesService(svc.session, role=role)
-                for schedule_id in offline_schedule_ids:
-                    await schedule_service.update_schedule(
-                        schedule_id,
-                        ScheduleUpdate(status="offline"),
-                    )
-
             return _json(
                 {
                     "message": f"Workflow {workflow_id} updated successfully",
-                    "mode": update_mode,
+                    "mode": "metadata",
                 }
             )
+    except ToolError:
+        raise
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -2686,19 +3564,72 @@ async def validate_workflow(
 
 
 @mcp.tool()
+async def prepare_template_file_upload(
+    workspace_id: str,
+    relative_path: str,
+    ctx: Context | None = None,
+) -> str:
+    """Prepare a staged template YAML upload for remote `/mcp` clients."""
+
+    try:
+        _require_remote_mcp_context(ctx, tool_name="prepare_template_file_upload")
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_relative_path = _normalize_workflow_file_relative_path(relative_path)
+        artifact_id = uuid.uuid4()
+        expires_at = _workflow_file_artifact_expires_at()
+        artifact = TemplateFileArtifact(
+            artifact_id=artifact_id,
+            organization_id=role.organization_id,
+            workspace_id=role.workspace_id,
+            client_id=_current_mcp_client_id(),
+            session_id=_get_context_session_id(ctx),
+            relative_path=normalized_relative_path,
+            blob_key=(
+                f"{role.workspace_id}/mcp/template-files/"
+                f"{_get_context_session_id(ctx)}/{artifact_id}/"
+                f"{PurePosixPath(normalized_relative_path).name}"
+            ),
+            expires_at=expires_at,
+        )
+        await _store_template_file_artifact(artifact)
+        upload_url = await blob.generate_presigned_upload_url(
+            key=artifact.blob_key,
+            bucket=_template_file_bucket(),
+            expiry=_workflow_file_artifact_ttl_seconds(),
+            content_type="application/yaml",
+        )
+        return _json(
+            {
+                "artifact_id": str(artifact.artifact_id),
+                "upload_url": upload_url,
+                "expires_at": artifact.expires_at.isoformat(),
+                "relative_path": artifact.relative_path,
+            }
+        )
+    except ToolError:
+        raise
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+    except Exception as exc:
+        logger.error("Failed to prepare template file upload", error=str(exc))
+        raise ToolError(f"Failed to prepare template file upload: {exc}") from None
+
+
+@mcp.tool()
 async def validate_template_action(
     workspace_id: str,
-    template_yaml: str | None = None,
+    artifact_id: str,
     check_db: bool = False,
+    ctx: Context | None = None,
 ) -> str:
-    """Validate a template action YAML payload.
+    """Validate a template action YAML file.
 
     Validates YAML parsing, template schema correctness, step action references,
     argument schemas, and expression references.
 
     Args:
         workspace_id: The workspace ID.
-        template_yaml: Full template action YAML content.
+        artifact_id: Uploaded template artifact id for remote `/mcp` clients.
         check_db: When True, also resolve missing actions from registry DB.
             Defaults to False for local-only validation.
 
@@ -2706,86 +3637,27 @@ async def validate_template_action(
     """
 
     try:
+        _require_remote_mcp_context(ctx, tool_name="validate_template_action")
         _, role = await _resolve_workspace_role(workspace_id)
-        action_name: str | None = None
-
-        if template_yaml is None:
-            raise ToolError("template_yaml is required")
-
-        try:
-            raw_template = yaml.safe_load(template_yaml)
-        except yaml.YAMLError as exc:
-            return _json(
-                {
-                    "valid": False,
-                    "action_name": action_name,
-                    "errors": [
-                        {
-                            "type": "yaml_error",
-                            "message": str(exc),
-                        }
-                    ],
-                }
-            )
-
-        try:
-            template = TemplateAction.model_validate(raw_template)
-            action_name = template.definition.action
-        except ValidationError as exc:
-            return _json(
-                {
-                    "valid": False,
-                    "action_name": action_name,
-                    "errors": [
-                        {
-                            "type": "schema_validation_error",
-                            "message": "Template action schema validation failed",
-                            "details": [
-                                {
-                                    "type": err.get("type"),
-                                    "msg": err.get("msg"),
-                                    "loc": list(err.get("loc", ())),
-                                }
-                                for err in exc.errors(include_url=False)
-                            ],
-                        }
-                    ],
-                }
-            )
-        except TracecatValidationError as exc:
-            return _json(
-                {
-                    "valid": False,
-                    "action_name": action_name,
-                    "errors": [
-                        {
-                            "type": "schema_validation_error",
-                            "message": str(exc),
-                        }
-                    ],
-                }
-            )
-
-        repo = Repository(role=role)
-        repo.init(include_base=True, include_templates=True)
-        repo.register_template_action(template, origin="mcp")
-        bound_action = repo.store[template.definition.action]
-
-        async with RegistryActionsService.with_session(role=role) as svc:
-            errs = await validate_template_action_impl(
-                bound_action,
-                repo,
-                check_db=check_db,
-                ra_service=svc,
-            )
-
-        return _json(
-            {
-                "valid": len(errs) == 0,
-                "action_name": action_name,
-                "errors": [err.model_dump(mode="json") for err in errs],
-            }
+        artifact = await _require_template_file_artifact(
+            artifact_id=artifact_id,
+            role=role,
+            ctx=ctx,
         )
+        if not await blob.file_exists(artifact.blob_key, _template_file_bucket()):
+            raise ToolError("Uploaded template file was not found in staged storage")
+        content = await blob.download_file(artifact.blob_key, _template_file_bucket())
+        template_text, sha256 = _parse_uploaded_text_file(
+            content,
+            label="template file",
+        )
+        result = await _validate_template_action_text(
+            role=role,
+            template_text=template_text,
+            check_db=check_db,
+        )
+        await _consume_template_file_artifact(artifact=artifact, sha256=sha256)
+        return result
     except ToolError:
         raise
     except ValueError as exc:
@@ -4211,75 +5083,35 @@ async def search_table_rows(
 
 
 @mcp.tool()
-async def import_csv(
-    workspace_id: str,
-    csv_content: str,
-    table_name: str | None = None,
-) -> str:
-    """Create a new table from CSV text with auto-inferred schema.
-
-    Args:
-        workspace_id: The workspace ID.
-        csv_content: Raw CSV text (with header row).
-        table_name: Optional table name (auto-generated if omitted).
-
-    Returns JSON with table id, name, rows_inserted, and column_mapping
-    (original header name -> normalized column name).
-    """
-
-    try:
-        _, role = await _resolve_workspace_role(workspace_id)
-        async with TablesService.with_session(role=role) as svc:
-            table, rows_inserted, inferred_columns = await svc.import_table_from_csv(
-                contents=csv_content.encode(),
-                table_name=table_name,
-            )
-            column_mapping = {col.original_name: col.name for col in inferred_columns}
-            return _json(
-                {
-                    "id": str(table.id),
-                    "name": table.name,
-                    "rows_inserted": rows_inserted,
-                    "column_mapping": column_mapping,
-                }
-            )
-    except ValueError as e:
-        raise ToolError(str(e)) from e
-    except Exception as e:
-        logger.error("Failed to import CSV", error=str(e))
-        raise ToolError(f"Failed to import CSV: {e}") from None
-
-
-@mcp.tool()
 async def export_csv(
     workspace_id: str,
     table_id: str,
     include_header: bool = True,
+    ctx: Context | None = None,
 ) -> str:
-    """Export table data as CSV text.
+    """Export table data as a staged download URL.
 
     Args:
         workspace_id: The workspace ID.
         table_id: The table ID.
         include_header: Whether to include a header row (default True).
 
-    Returns the CSV text as a string. System columns (id, created_at,
-    updated_at) are excluded from the export.
+    Returns file metadata and a staged download URL.
     """
 
     SYSTEM_COLUMNS = {"id", "created_at", "updated_at"}
 
     try:
+        _require_remote_mcp_context(ctx, tool_name="export_csv")
         _, role = await _resolve_workspace_role(workspace_id)
         async with TablesService.with_session(role=role) as svc:
             table = await svc.get_table(uuid.UUID(table_id))
             columns = [c.name for c in table.columns if c.name not in SYSTEM_COLUMNS]
-            if not columns:
-                return ""
+            relative_path = _build_table_csv_file_name(table.name, table.id)
 
             output = StringIO()
             writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
-            if include_header:
+            if include_header and columns:
                 writer.writeheader()
 
             cursor: str | None = None
@@ -4295,7 +5127,40 @@ async def export_csv(
                     break
                 cursor = page.next_cursor
 
-            return output.getvalue()
+            csv_text = output.getvalue()
+            result_payload = _build_csv_export_payload(
+                table=table,
+                relative_path=relative_path,
+            )
+
+        artifact_id = uuid.uuid4()
+        expires_at = _workflow_file_artifact_expires_at()
+        blob_key = (
+            f"{role.workspace_id}/mcp/table-csv/{_get_context_session_id(ctx)}/"
+            f"{artifact_id}/{PurePosixPath(relative_path).name}"
+        )
+        await blob.upload_file(
+            csv_text.encode("utf-8"),
+            key=blob_key,
+            bucket=_workflow_file_bucket(),
+            content_type="text/csv",
+        )
+        download_url = await blob.generate_presigned_download_url(
+            key=blob_key,
+            bucket=_workflow_file_bucket(),
+            expiry=_workflow_file_artifact_ttl_seconds(),
+            override_content_type="text/csv",
+        )
+        result_payload.update(
+            {
+                "download_url": download_url,
+                "expires_at": expires_at.isoformat(),
+                "transport": _get_context_transport(ctx),
+            }
+        )
+        return _json(result_payload)
+    except ToolError:
+        raise
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:

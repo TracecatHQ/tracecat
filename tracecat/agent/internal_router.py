@@ -74,7 +74,7 @@ async def _provider_secrets_context(
             registry_secrets.reset_context(secrets_token)
         return
 
-    credentials = await agent_svc.get_workspace_provider_credentials(model_provider)
+    credentials = await agent_svc.get_runtime_provider_credentials(model_provider)
     if not credentials:
         raise ValueError(
             f"No credentials found for provider '{model_provider}'. "
