@@ -1,0 +1,23 @@
+tracecat/workspaces/service.py
+  f2dd2e8a8af947f5 168,171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "3f3ebe5b13a1fb8d6681ba1d68f04d49d336ac69",
+  "prompts": {
+    "f2dd2e8a8af947f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce530-7bd3-75f2-99b4-25c5a5594e0c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 4,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
