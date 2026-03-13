@@ -701,7 +701,13 @@ export function AgentsTable() {
         ),
       },
     ],
-    [handleCopy, handleDeleteRequest, handleDuplicate, mcpIntegrationMap]
+    [
+      duplicatingPresetId,
+      handleCopy,
+      handleDeleteRequest,
+      handleDuplicate,
+      mcpIntegrationMap,
+    ]
   )
 
   return (
