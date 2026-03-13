@@ -1,5 +1,6 @@
 import type { Node, NodeProps } from "@xyflow/react"
 import {
+  AlertTriangleIcon,
   CalendarCheck,
   CalendarClockIcon,
   Shield,
@@ -17,6 +18,7 @@ import {
   type TriggerPanelTab,
   TriggerPanelTabs,
 } from "@/components/builder/panel/trigger-panel-tabs"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon } from "@/components/icons"
 import {
   Card,
@@ -45,6 +47,7 @@ import { useEntitlements } from "@/hooks/use-entitlements"
 import { useCaseTrigger, useSchedules } from "@/lib/hooks"
 import { durationToHumanReadable } from "@/lib/time"
 import { cn } from "@/lib/utils"
+import { validateTriggerPayload } from "@/lib/workflow-trigger-payload"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 
@@ -66,6 +69,8 @@ export default React.memo(function TriggerNode({
     workspaceId,
     workflowId,
     actionPanelRef,
+    triggerPayload,
+    setTriggerPayload,
     setTriggerPanelTab,
   } = useWorkflowBuilder()
   const { breakpoint, style } = useTriggerNodeZoomBreakpoint()
@@ -179,126 +184,170 @@ export default React.memo(function TriggerNode({
     return null
   }
 
-  return (
-    <Card
-      ref={cardRef}
-      onClickCapture={handleDefaultPanelOpen}
-      className={cn(
-        "w-64",
-        nodeStyles.common,
-        selected ? nodeStyles.selected : nodeStyles.hover
-      )}
-    >
-      <CardHeader className="p-4">
-        <div className="flex w-full items-center space-x-4">
-          {getIcon(type, {
-            className: "size-10 p-2",
-          })}
+  const triggerPayloadError = validateTriggerPayload(triggerPayload)
 
-          <div className="flex w-full flex-1 justify-between space-x-12">
-            <div className="flex flex-col">
-              <CardTitle className="flex w-full items-center justify-between text-xs font-medium leading-none">
-                <div
-                  className={cn(
-                    style.fontSize,
-                    breakpoint !== "large" && "w-full"
-                  )}
-                >
-                  {title}
-                </div>
-              </CardTitle>
-              {style.showContent && (
-                <CardDescription className="mt-2 text-xs text-muted-foreground">
-                  Workflow trigger
-                </CardDescription>
-              )}
-            </div>
-            <div className="flex items-start gap-1">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    {workflow.webhook.api_key?.is_active ? (
-                      <Shield className="size-4 text-emerald-400" />
-                    ) : workflow.webhook.api_key ? (
-                      <Shield className="size-4 text-amber-400" />
-                    ) : (
-                      <ShieldOff className="size-4 text-muted-foreground/70" />
+  return (
+    <div ref={cardRef} className="flex items-start gap-4">
+      <Card
+        onClickCapture={handleDefaultPanelOpen}
+        className={cn(
+          "w-64",
+          nodeStyles.common,
+          selected ? nodeStyles.selected : nodeStyles.hover
+        )}
+      >
+        <CardHeader className="p-4">
+          <div className="flex w-full items-center space-x-4">
+            {getIcon(type, {
+              className: "size-10 p-2",
+            })}
+
+            <div className="flex w-full flex-1 justify-between space-x-12">
+              <div className="flex flex-col">
+                <CardTitle className="flex w-full items-center justify-between text-xs font-medium leading-none">
+                  <div
+                    className={cn(
+                      style.fontSize,
+                      breakpoint !== "large" && "w-full"
                     )}
-                  </TooltipTrigger>
-                  <TooltipContent side="top" sideOffset={4}>
-                    {workflow.webhook.api_key?.is_active
-                      ? "Webhook is protected"
-                      : workflow.webhook.api_key
-                        ? "API key revoked"
-                        : "Webhook is unprotected"}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+                  >
+                    {title}
+                  </div>
+                </CardTitle>
+                {style.showContent && (
+                  <CardDescription className="mt-2 text-xs text-muted-foreground">
+                    Workflow trigger
+                  </CardDescription>
+                )}
+              </div>
+              <div className="flex items-start gap-1">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      {workflow.webhook.api_key?.is_active ? (
+                        <Shield className="size-4 text-emerald-400" />
+                      ) : workflow.webhook.api_key ? (
+                        <Shield className="size-4 text-amber-400" />
+                      ) : (
+                        <ShieldOff className="size-4 text-muted-foreground/70" />
+                      )}
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={4}>
+                      {workflow.webhook.api_key?.is_active
+                        ? "Webhook is protected"
+                        : workflow.webhook.api_key
+                          ? "API key revoked"
+                          : "Webhook is unprotected"}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
             </div>
           </div>
-        </div>
-      </CardHeader>
-      {style.showContent && (
-        <>
-          <Separator />
-          <div className="p-4">
-            <div className="space-y-4">
-              {/* Webhook status */}
-              <div
-                className={cn(
-                  "flex h-8 cursor-pointer items-center justify-center gap-1 rounded-lg border text-xs text-muted-foreground",
-                  workflow?.webhook.status === "offline"
-                    ? "bg-muted-foreground/5 text-muted-foreground/50"
-                    : "bg-background text-emerald-500"
-                )}
-                onClick={() => openTriggerPanel(TriggerPanelTabs.webhook)}
-              >
-                <WebhookIcon className="size-3" />
-                <span>Webhook</span>
-                <span
-                  className={cn(
-                    "ml-2 inline-block size-2 rounded-full ",
-                    workflow.webhook.status === "online"
-                      ? "bg-emerald-500"
-                      : "bg-gray-300"
-                  )}
-                />
-              </div>
-              {caseAddonsEnabled && (
+        </CardHeader>
+        {style.showContent && (
+          <>
+            <Separator />
+            <div className="p-4">
+              <div className="space-y-4">
+                {/* Webhook status */}
                 <div
                   className={cn(
                     "flex h-8 cursor-pointer items-center justify-center gap-1 rounded-lg border text-xs text-muted-foreground",
-                    isCaseTriggerEnabled
-                      ? "bg-background text-emerald-500"
-                      : "bg-muted-foreground/5 text-muted-foreground/50"
+                    workflow?.webhook.status === "offline"
+                      ? "bg-muted-foreground/5 text-muted-foreground/50"
+                      : "bg-background text-emerald-500"
                   )}
-                  onClick={() =>
-                    openTriggerPanel(TriggerPanelTabs.caseTriggers)
-                  }
+                  onClick={() => openTriggerPanel(TriggerPanelTabs.webhook)}
                 >
-                  <SquarePlay className="size-3" />
-                  <span>Case triggers</span>
+                  <WebhookIcon className="size-3" />
+                  <span>Webhook</span>
                   <span
                     className={cn(
-                      "ml-2 inline-block size-2 rounded-full",
-                      isCaseTriggerEnabled ? "bg-emerald-500" : "bg-gray-300"
+                      "ml-2 inline-block size-2 rounded-full ",
+                      workflow.webhook.status === "online"
+                        ? "bg-emerald-500"
+                        : "bg-gray-300"
                     )}
                   />
                 </div>
-              )}
-              {/* Schedule table */}
-              <div
-                className="rounded-lg border cursor-pointer"
-                onClick={() => openTriggerPanel(TriggerPanelTabs.schedules)}
-              >
-                <TriggerNodeSchedulesTable workflowId={workflow.id} />
+                {caseAddonsEnabled && (
+                  <div
+                    className={cn(
+                      "flex h-8 cursor-pointer items-center justify-center gap-1 rounded-lg border text-xs text-muted-foreground",
+                      isCaseTriggerEnabled
+                        ? "bg-background text-emerald-500"
+                        : "bg-muted-foreground/5 text-muted-foreground/50"
+                    )}
+                    onClick={() =>
+                      openTriggerPanel(TriggerPanelTabs.caseTriggers)
+                    }
+                  >
+                    <SquarePlay className="size-3" />
+                    <span>Case triggers</span>
+                    <span
+                      className={cn(
+                        "ml-2 inline-block size-2 rounded-full",
+                        isCaseTriggerEnabled ? "bg-emerald-500" : "bg-gray-300"
+                      )}
+                    />
+                  </div>
+                )}
+                {/* Schedule table */}
+                <div
+                  className="rounded-lg border cursor-pointer"
+                  onClick={() => openTriggerPanel(TriggerPanelTabs.schedules)}
+                >
+                  <TriggerNodeSchedulesTable workflowId={workflow.id} />
+                </div>
               </div>
             </div>
+          </>
+        )}
+        <TriggerSourceHandle />
+      </Card>
+
+      {style.showContent && (
+        <div
+          className="nodrag nopan nowheel w-[360px] rounded-xl border bg-background p-3"
+          onClick={(event) => {
+            event.stopPropagation()
+          }}
+        >
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-foreground">
+                Trigger payload
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Draft runs use this JSON as the `TRIGGER` payload.
+              </p>
+            </div>
           </div>
-        </>
+          <CodeEditor
+            value={triggerPayload}
+            language="json"
+            onChange={setTriggerPayload}
+            className={cn(
+              "[&_.cm-editor]:border-input [&_.cm-editor]:bg-background",
+              "[&_.cm-scroller]:min-h-[220px] [&_.cm-scroller]:max-h-[320px] [&_.cm-scroller]:overflow-auto"
+            )}
+          />
+          <div className="mt-2 flex items-start gap-2 text-[11px]">
+            {triggerPayloadError ? (
+              <>
+                <AlertTriangleIcon className="mt-0.5 size-3 shrink-0 text-rose-500" />
+                <span className="text-rose-500">{triggerPayloadError}</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">
+                Saved in this browser for this workflow.
+              </span>
+            )}
+          </div>
+        </div>
       )}
-      <TriggerSourceHandle />
-    </Card>
+    </div>
   )
 })
 

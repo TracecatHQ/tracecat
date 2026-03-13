@@ -33,7 +33,7 @@ from tracecat.storage.object import (
     CollectionObject,
     ObjectRef,
     StoredObjectValidator,
-    get_object_storage,
+    retrieve_stored_object,
 )
 from tracecat.storage.utils import (
     cached_blob_download,
@@ -346,8 +346,7 @@ async def get_collection_item(collection: CollectionObject, index: int) -> Any:
         return item
 
     stored = StoredObjectValidator.validate_python(item)
-    storage = get_object_storage()
-    return await storage.retrieve(stored)
+    return await retrieve_stored_object(stored)
 
 
 async def materialize_collection_values(
@@ -376,11 +375,10 @@ async def materialize_collection_values(
         return items
 
     # element_kind == "stored_object": retrieve each handle
-    storage = get_object_storage()
     values: list[Any] = []
     for item in items:
         stored = StoredObjectValidator.validate_python(item)
-        value = await storage.retrieve(stored)
+        value = await retrieve_stored_object(stored)
         values.append(value)
 
     return values

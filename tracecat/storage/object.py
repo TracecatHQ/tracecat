@@ -20,8 +20,8 @@ Usage:
             # Data was externalized to blob storage
             pass
 
-    # Or simply retrieve (works for both variants)
-    data = await storage.retrieve(stored)
+    # Or retrieve from the backend encoded in the object reference
+    data = await retrieve_stored_object(stored)
 """
 
 from __future__ import annotations
@@ -293,6 +293,38 @@ class ObjectStorage(ABC):
         raise NotImplementedError
 
 
+def get_object_storage_for(stored: StoredObject) -> ObjectStorage:
+    """Resolve the storage backend encoded in a StoredObject reference."""
+    match stored:
+        case InlineObject():
+            return get_object_storage()
+        case ExternalObject(ref=ref) | CollectionObject(manifest_ref=ref):
+            match ref.backend:
+                case "s3":
+                    from tracecat.storage.backends import S3ObjectStorage
+
+                    return S3ObjectStorage(
+                        bucket=ref.bucket,
+                        threshold_bytes=config.TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES,
+                    )
+                case _:
+                    raise ValueError(
+                        f"Unsupported object storage backend: {ref.backend}"
+                    )
+
+
+async def retrieve_stored_object(stored: StoredObject) -> Any:
+    """Retrieve a StoredObject using the backend encoded in its reference."""
+    match stored:
+        case InlineObject(data=data):
+            return data
+        case ExternalObject() | CollectionObject():
+            storage = get_object_storage_for(stored)
+            return await storage.retrieve(stored)
+        case _:
+            raise TypeError(f"Expected StoredObject, got {type(stored).__name__}")
+
+
 # === Dependency Injection === #
 
 _object_storage: ObjectStorage | None = None
@@ -401,6 +433,8 @@ __all__ = [
     "StoredObjectValidator",
     # DI
     "get_object_storage",
+    "get_object_storage_for",
+    "retrieve_stored_object",
     "reset_object_storage",
     "set_object_storage",
     # Key helpers
