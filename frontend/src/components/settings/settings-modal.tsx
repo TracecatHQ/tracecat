@@ -9,7 +9,6 @@ import {
   UserIcon,
   WorkflowIcon,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
 import { ProfileSettings } from "@/components/settings/profile-settings"
 import {
   type SettingsSection,
@@ -26,26 +25,10 @@ import { Separator } from "@/components/ui/separator"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAuthActions } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useUserScopes, useWorkspaceManager } from "@/lib/hooks"
+import { useUserScopes } from "@/lib/hooks"
 import { hasGrantedScope } from "@/lib/scopes"
 import { cn } from "@/lib/utils"
 import { useOptionalWorkspaceId } from "@/providers/workspace-id"
-
-type WorkspaceCandidate = {
-  id: string
-  name: string
-}
-
-function compareWorkspaceCandidates(
-  left: WorkspaceCandidate,
-  right: WorkspaceCandidate
-) {
-  const nameCompare = left.name.localeCompare(right.name)
-  if (nameCompare !== 0) {
-    return nameCompare
-  }
-  return left.id.localeCompare(right.id)
-}
 
 interface NavItemProps {
   icon: React.ElementType
@@ -89,54 +72,7 @@ function SettingsModalContent() {
   const { logout } = useAuthActions()
   const { hasEntitlement } = useEntitlements()
 
-  const contextWorkspaceId = useOptionalWorkspaceId()
-  const { clearLastWorkspaceId, getLastWorkspaceId, workspaces } =
-    useWorkspaceManager()
-  const lastWorkspaceId = getLastWorkspaceId()
-  const lastViewedWorkspace = workspaces?.find(
-    (workspace) => workspace.id === lastWorkspaceId
-  )
-  const orderedFallbackWorkspaces = useMemo(() => {
-    if (!workspaces) {
-      return []
-    }
-
-    const remainingWorkspaces = workspaces
-      .filter((workspace) => workspace.id !== lastViewedWorkspace?.id)
-      .sort(compareWorkspaceCandidates)
-
-    return lastViewedWorkspace
-      ? [lastViewedWorkspace, ...remainingWorkspaces]
-      : remainingWorkspaces
-  }, [lastViewedWorkspace, workspaces])
-  const [fallbackWorkspaceIndex, setFallbackWorkspaceIndex] = useState(0)
-  const fallbackWorkspace = contextWorkspaceId
-    ? undefined
-    : orderedFallbackWorkspaces[fallbackWorkspaceIndex]
-  const workspaceId = contextWorkspaceId ?? fallbackWorkspace?.id
-
-  useEffect(() => {
-    setFallbackWorkspaceIndex(0)
-  }, [contextWorkspaceId, orderedFallbackWorkspaces])
-
-  useEffect(() => {
-    if (
-      contextWorkspaceId ||
-      !lastWorkspaceId ||
-      !workspaces ||
-      lastViewedWorkspace
-    ) {
-      return
-    }
-
-    clearLastWorkspaceId()
-  }, [
-    clearLastWorkspaceId,
-    contextWorkspaceId,
-    lastViewedWorkspace,
-    lastWorkspaceId,
-    workspaces,
-  ])
+  const workspaceId = useOptionalWorkspaceId()
 
   const { userScopes, isLoading: scopesLoading } = useUserScopes(workspaceId, {
     enabled: !!workspaceId,
@@ -144,29 +80,8 @@ function SettingsModalContent() {
   const canAdministerWorkspace =
     !scopesLoading &&
     hasGrantedScope("workspace:update", userScopes?.scopes ?? [])
-
-  useEffect(() => {
-    if (
-      contextWorkspaceId ||
-      !workspaceId ||
-      scopesLoading ||
-      canAdministerWorkspace ||
-      fallbackWorkspaceIndex >= orderedFallbackWorkspaces.length - 1
-    ) {
-      return
-    }
-
-    setFallbackWorkspaceIndex((currentIndex) => currentIndex + 1)
-  }, [
-    canAdministerWorkspace,
-    contextWorkspaceId,
-    fallbackWorkspaceIndex,
-    orderedFallbackWorkspaces.length,
-    scopesLoading,
-    workspaceId,
-  ])
-
   const showWorkspaceSection = !!workspaceId && canAdministerWorkspace
+  const displayedSection = showWorkspaceSection ? activeSection : "profile"
   const showSyncNav = hasEntitlement("git_sync")
 
   return (
@@ -187,7 +102,7 @@ function SettingsModalContent() {
                 icon={UserIcon}
                 label="Profile"
                 section="profile"
-                activeSection={activeSection}
+                activeSection={displayedSection}
                 onSelect={setActiveSection}
               />
 
@@ -200,28 +115,28 @@ function SettingsModalContent() {
                     icon={Settings2}
                     label="General"
                     section="workspace-general"
-                    activeSection={activeSection}
+                    activeSection={displayedSection}
                     onSelect={setActiveSection}
                   />
                   <NavItem
                     icon={WorkflowIcon}
                     label="Workflows"
                     section="workspace-runtime"
-                    activeSection={activeSection}
+                    activeSection={displayedSection}
                     onSelect={setActiveSection}
                   />
                   <NavItem
                     icon={FileIcon}
                     label="Files"
                     section="workspace-files"
-                    activeSection={activeSection}
+                    activeSection={displayedSection}
                     onSelect={setActiveSection}
                   />
                   <NavItem
                     icon={GitBranchIcon}
                     label="Git sync"
                     section="workspace-sync"
-                    activeSection={activeSection}
+                    activeSection={displayedSection}
                     onSelect={setActiveSection}
                     blocked={!showSyncNav}
                   />
@@ -246,12 +161,12 @@ function SettingsModalContent() {
 
           {/* Right content panel */}
           <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-8">
-            {activeSection === "profile" ? (
+            {displayedSection === "profile" ? (
               <ProfileSettings />
-            ) : showWorkspaceSection ? (
+            ) : workspaceId ? (
               <WorkspaceSettingsContainer
                 workspaceId={workspaceId}
-                activeSection={activeSection}
+                activeSection={displayedSection}
               />
             ) : null}
           </div>

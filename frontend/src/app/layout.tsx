@@ -4,8 +4,8 @@ import type { Metadata } from "next"
 import dynamic from "next/dynamic"
 import { PublicEnvScript } from "next-runtime-env"
 import React, { Suspense } from "react"
-import { SettingsModal } from "@/components/settings/settings-modal"
 import { SettingsModalProvider } from "@/components/settings/settings-modal-context"
+import { SettingsModalHost } from "@/components/settings/settings-modal-host"
 import { Toaster } from "@/components/ui/toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { siteConfig } from "@/config/site"
@@ -65,7 +65,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
                 )}
                 {children}
               </TooltipProvider>
-              <SettingsModal />
+              <SettingsModalHost />
             </SettingsModalProvider>
           </DefaultQueryClientProvider>
           <Toaster />
