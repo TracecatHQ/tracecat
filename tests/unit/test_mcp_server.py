@@ -188,6 +188,8 @@ async def test_prepare_template_file_upload_stores_artifact(monkeypatch):
     async def _resolve(_workspace_id):
         return workspace_id, role
 
+    upload_args: dict[str, Any] = {}
+
     async def _upload_url(
         *,
         key: str,
@@ -195,7 +197,14 @@ async def test_prepare_template_file_upload_stores_artifact(monkeypatch):
         expiry: int | None = None,
         content_type: str | None = None,
     ):
-        _ = bucket, expiry, content_type
+        upload_args.update(
+            {
+                "key": key,
+                "bucket": bucket,
+                "expiry": expiry,
+                "content_type": content_type,
+            }
+        )
         return f"https://example.test/upload/{key}"
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -215,6 +224,10 @@ async def test_prepare_template_file_upload_stores_artifact(monkeypatch):
     assert stored.relative_path == "templates/example.yaml"
     assert stored.session_id == "template-session"
     assert stored.client_id == "client-a"
+    assert (
+        upload_args["expiry"]
+        == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
+    )
 
 
 @pytest.mark.anyio
@@ -500,18 +513,62 @@ async def test_update_workflow_metadata_only_omits_unset_fields(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_update_workflow_does_not_accept_definition_yaml(monkeypatch):
+async def test_update_workflow_definition_yaml_uses_shared_yaml_update(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
-    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    workflow_id = uuid.uuid4()
+    workflow = SimpleNamespace(id=workflow_id)
+    captured: dict[str, Any] = {}
 
-    with pytest.raises(TypeError, match="definition_yaml"):
+    class _FakeSession:
+        def add(self, obj):
+            pass
+
+        async def commit(self):
+            pass
+
+        async def refresh(self, obj, attrs=None):
+            pass
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = _FakeSession()
+
+        async def get_workflow(self, _wf_id):
+            return workflow
+
+    async def _apply_yaml_update(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "_parse_workflow_yaml_payload",
+        lambda definition_yaml: {"definition_yaml": definition_yaml},
+    )
+    monkeypatch.setattr(mcp_server, "_apply_workflow_yaml_update", _apply_yaml_update)
+
+    payload = _payload(
         await _tool(mcp_server.update_workflow)(
             workspace_id=str(uuid.uuid4()),
-            workflow_id=str(uuid.uuid4()),
-            definition_yaml="definition: {}",
+            workflow_id=str(workflow_id),
+            definition_yaml="definition:\n  title: Example\n",
+            update_mode="replace",
         )
+    )
+    assert payload["mode"] == "replace"
+    assert captured["workflow_id"] == mcp_server.WorkflowUUID.new(workflow_id)
+    assert captured["definition_yaml"] == "definition:\n  title: Example\n"
+    assert captured["yaml_payload"] == {
+        "definition_yaml": "definition:\n  title: Example\n"
+    }
+    assert captured["update_mode"] == "replace"
 
 
 @pytest.mark.anyio
@@ -555,18 +612,188 @@ async def test_get_workflow_returns_metadata_only(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_create_workflow_does_not_accept_definition_yaml(monkeypatch):
+async def test_get_workflow_returns_inline_definition_when_requested(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = SimpleNamespace(
+        id=workflow_id,
+        title="Example workflow",
+        description="Example description",
+        status="offline",
+        version=None,
+        alias=None,
+        entrypoint=None,
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id):
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "_get_workflow_folder_path",
+        lambda **_kwargs: asyncio.sleep(0, result=None),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "_build_workflow_yaml_envelope",
+        lambda **_kwargs: asyncio.sleep(
+            0, result={"definition": {"title": "Inline workflow"}}
+        ),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.get_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            include_definition_yaml=True,
+        )
+    )
+    assert payload["definition_transport"] == "inline"
+    assert payload["definition_size_bytes"] <= payload["inline_limit_bytes"]
+    assert "definition_yaml" in payload
+    assert "Inline workflow" in payload["definition_yaml"]
+
+
+@pytest.mark.anyio
+async def test_get_workflow_returns_staged_metadata_when_inline_is_too_large(
+    monkeypatch,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = SimpleNamespace(
+        id=workflow_id,
+        title="Example workflow",
+        description="Example description",
+        status="offline",
+        version=None,
+        alias=None,
+        entrypoint=None,
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id):
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "_get_workflow_folder_path",
+        lambda **_kwargs: asyncio.sleep(0, result="/detections/high/"),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "_build_workflow_yaml_envelope",
+        lambda **_kwargs: asyncio.sleep(
+            0, result={"definition": {"description": "x" * 200_000}}
+        ),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.get_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            include_definition_yaml=True,
+        )
+    )
+    assert payload["definition_transport"] == "staged_required"
+    assert payload["definition_size_bytes"] > payload["inline_limit_bytes"]
+    assert "definition_yaml" not in payload
+    assert payload["suggested_relative_path"].endswith(".yaml")
+    assert payload["suggested_relative_path"].startswith("detections/high/")
+
+
+@pytest.mark.anyio
+async def test_create_workflow_definition_yaml_uses_import_helpers(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+
+    async def _create_from_import_data(*, role, import_data, use_workflow_id=False):
+        captured["import_data"] = import_data
+        captured["use_workflow_id"] = use_workflow_id
+        return SimpleNamespace(
+            id=uuid.uuid4(),
+            title="Imported workflow",
+            description="Imported description",
+            status="offline",
+        )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "_build_import_data_from_workflow_yaml",
+        lambda **kwargs: {"definition_yaml": kwargs["definition_yaml"]},
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "_create_workflow_from_import_data",
+        _create_from_import_data,
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.create_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            title="Example",
+            description="Desc",
+            definition_yaml="definition:\n  title: Example\n",
+        )
+    )
+    assert payload["title"] == "Imported workflow"
+    assert captured["import_data"] == {
+        "definition_yaml": "definition:\n  title: Example\n"
+    }
+
+
+@pytest.mark.anyio
+async def test_create_workflow_rejects_oversized_inline_definition_yaml(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
 
-    with pytest.raises(TypeError, match="definition_yaml"):
+    with pytest.raises(ToolError, match="prepare_workflow_file_upload"):
         await _tool(mcp_server.create_workflow)(
             workspace_id=str(uuid.uuid4()),
             title="Example",
-            description="Desc",
-            definition_yaml="definition: {}",
+            definition_yaml="x" * (mcp_server._inline_workflow_yaml_max_bytes() + 1),
+        )
+
+
+@pytest.mark.anyio
+async def test_update_workflow_rejects_oversized_inline_definition_yaml(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    with pytest.raises(ToolError, match="prepare_workflow_file_upload"):
+        await _tool(mcp_server.update_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(uuid.uuid4()),
+            definition_yaml="x" * (mcp_server._inline_workflow_yaml_max_bytes() + 1),
         )
 
 
@@ -725,6 +952,10 @@ async def test_get_workflow_file_remote_returns_download_metadata(monkeypatch):
     assert payload["transport"] == "streamable-http"
     assert "definition_yaml" not in payload
     assert uploaded["content_type"] == "application/yaml"
+    assert (
+        uploaded["download_args"]["expiry"]
+        == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
+    )
     assert uploaded["key"].startswith(
         f"{workspace_id}/mcp/workflow-files/remote-session/"
     )
@@ -848,6 +1079,10 @@ async def test_get_workflow_file_draft_false_uses_published_definition(
     exported = yaml.safe_load(uploaded["content"].decode("utf-8"))
     assert payload["draft"] is False
     assert payload["download_url"] == "https://example.test/published.yaml"
+    assert (
+        uploaded["download_args"]["expiry"]
+        == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
+    )
     assert exported["version"] == 3
     assert exported["definition"]["title"] == "Published definition"
 
@@ -862,6 +1097,8 @@ async def test_prepare_workflow_file_upload_stores_artifact_metadata(monkeypatch
     async def _resolve(_workspace_id):
         return workspace_id, role
 
+    upload_args: dict[str, Any] = {}
+
     async def _upload_url(
         *,
         key: str,
@@ -869,6 +1106,14 @@ async def test_prepare_workflow_file_upload_stores_artifact_metadata(monkeypatch
         expiry: int | None = None,
         content_type: str | None = None,
     ):
+        upload_args.update(
+            {
+                "key": key,
+                "bucket": bucket,
+                "expiry": expiry,
+                "content_type": content_type,
+            }
+        )
         return f"https://example.test/upload/{key}"
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -892,6 +1137,10 @@ async def test_prepare_workflow_file_upload_stores_artifact_metadata(monkeypatch
     assert stored.client_id == "client-a"
     assert stored.session_id == "session-a"
     assert stored.workspace_id == workspace_id
+    assert (
+        upload_args["expiry"]
+        == mcp_server.TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
+    )
 
 
 @pytest.mark.anyio
@@ -1280,7 +1529,8 @@ def test_mcp_instructions_describe_remote_file_transfers():
         "staged blob transfers for remote MCP clients" in mcp_server._MCP_INSTRUCTIONS
     )
     assert "prepare_workflow_file_upload" in mcp_server._MCP_INSTRUCTIONS
-    assert "definition_yaml" not in mcp_server._MCP_INSTRUCTIONS
+    assert "definition_yaml" in mcp_server._MCP_INSTRUCTIONS
+    assert "include_definition_yaml=true" in mcp_server._MCP_INSTRUCTIONS
     assert "prepare_template_file_upload" in mcp_server._MCP_INSTRUCTIONS
 
 

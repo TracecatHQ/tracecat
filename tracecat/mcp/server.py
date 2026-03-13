@@ -92,6 +92,7 @@ from tracecat.mcp.auth import (
     resolve_role_for_request,
 )
 from tracecat.mcp.config import (
+    TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS,
     TRACECAT_MCP__RATE_LIMIT_BURST,
     TRACECAT_MCP__RATE_LIMIT_RPS,
 )
@@ -645,12 +646,18 @@ _CSV_FILE_WARNING = (
     "CSV exports are delivered through staged blob downloads for remote MCP "
     "clients. Local filesystem export/import paths are not supported."
 )
+_INLINE_WORKFLOW_YAML_MAX_BYTES = 128 * 1024
 _workflow_artifact_redis: AsyncRedis | None = None
 
 
-def _workflow_file_artifact_ttl_seconds() -> int:
-    """Return the TTL for staged workflow file artifacts."""
-    return config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
+def _mcp_file_transfer_ttl_seconds() -> int:
+    """Return the TTL for staged MCP file transfer URLs and artifacts."""
+    return TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
+
+
+def _inline_workflow_yaml_max_bytes() -> int:
+    """Return the maximum inline workflow YAML size."""
+    return _INLINE_WORKFLOW_YAML_MAX_BYTES
 
 
 def _get_workflow_artifact_redis() -> AsyncRedis:
@@ -786,7 +793,7 @@ def _workflow_file_blob_key(
 
 def _workflow_file_artifact_expires_at() -> datetime:
     """Return the expiry timestamp for a staged workflow artifact."""
-    return datetime.now(UTC) + timedelta(seconds=_workflow_file_artifact_ttl_seconds())
+    return datetime.now(UTC) + timedelta(seconds=_mcp_file_transfer_ttl_seconds())
 
 
 def _workflow_file_artifact_remaining_seconds(expires_at: datetime) -> int:
@@ -988,6 +995,51 @@ def _serialize_workflow_yaml_envelope(payload: dict[str, Any]) -> str:
     return yaml.dump(payload, indent=2, sort_keys=False)
 
 
+async def _build_inline_workflow_response(
+    *,
+    role: Any,
+    service: WorkflowsManagementService,
+    workflow: Workflow,
+    workflow_id: str,
+    draft: bool,
+) -> dict[str, Any]:
+    """Build the optional inline workflow YAML response payload."""
+    wf_id = WorkflowUUID.new(workflow.id)
+    folder_path = await _get_workflow_folder_path(
+        role=role,
+        session=service.session,
+        workflow=workflow,
+    )
+    relative_path = _build_workflow_relative_path(
+        workflow.title,
+        wf_id,
+        folder_path,
+    )
+    yaml_payload = await _build_workflow_yaml_envelope(
+        role=role,
+        service=service,
+        workflow=workflow,
+        workflow_id=workflow_id,
+        draft=draft,
+    )
+    definition_yaml = _serialize_workflow_yaml_envelope(yaml_payload)
+    definition_size_bytes = len(definition_yaml.encode("utf-8"))
+    inline_limit_bytes = _inline_workflow_yaml_max_bytes()
+    if definition_size_bytes > inline_limit_bytes:
+        return {
+            "definition_transport": "staged_required",
+            "definition_size_bytes": definition_size_bytes,
+            "inline_limit_bytes": inline_limit_bytes,
+            "suggested_relative_path": relative_path,
+        }
+    return {
+        "definition_transport": "inline",
+        "definition_size_bytes": definition_size_bytes,
+        "inline_limit_bytes": inline_limit_bytes,
+        "definition_yaml": definition_yaml,
+    }
+
+
 async def _ensure_workflow_folder(
     *,
     role: Any,
@@ -1158,6 +1210,19 @@ async def _consume_template_file_artifact(
     artifact.used = True
     artifact.sha256 = sha256
     await _update_template_file_artifact(artifact)
+
+
+def _ensure_inline_workflow_yaml_size(definition_yaml: str) -> None:
+    """Reject inline workflow YAML payloads that exceed the supported size."""
+    size = len(definition_yaml.encode("utf-8"))
+    limit = _inline_workflow_yaml_max_bytes()
+    if size > limit:
+        raise ToolError(
+            "definition_yaml exceeds the inline workflow limit "
+            f"({size} bytes > {limit} bytes); use prepare_workflow_file_upload "
+            "with create_workflow_from_uploaded_file or "
+            "update_workflow_from_uploaded_file instead"
+        )
 
 
 def _auto_generate_layout(
@@ -1730,15 +1795,24 @@ Within a scatter stream, each child action accesses its item via \
 ## Recommended authoring sequence
 1. `get_workflow_authoring_context` — get action schemas, secrets, and variables
 2. Use `create_workflow` to create a blank workflow shell when needed
-3. Use `get_workflow_file` / `prepare_workflow_file_upload` plus the file-based workflow create/update tools for all workflow-definition edits
-4. `validate_workflow` — check for structural and expression errors
-5. `publish_workflow` — freeze a versioned snapshot
-6. `run_published_workflow` or `run_draft_workflow` — execute it
-7. `list_workflow_executions` — see run history, find execution IDs
-8. `get_workflow_execution` — inspect execution status, per-action results/errors
+3. Use inline `definition_yaml` on `create_workflow` / `update_workflow` for
+small workflow edits
+4. Use `get_workflow(include_definition_yaml=true)` when you want inline YAML
+for a small workflow, or `get_workflow_file` / `prepare_workflow_file_upload`
+plus the file-based workflow create/update tools for larger workflows
+5. `validate_workflow` — check for structural and expression errors
+6. `publish_workflow` — freeze a versioned snapshot
+7. `run_published_workflow` or `run_draft_workflow` — execute it
+8. `list_workflow_executions` — see run history, find execution IDs
+9. `get_workflow_execution` — inspect execution status, per-action results/errors
 
 ## Workflow file tools
 - {_WORKFLOW_FILE_WARNING}
+- Inline workflow YAML is supported on `create_workflow` and `update_workflow`
+for small payloads up to 128 KB.
+- `get_workflow(include_definition_yaml=true)` returns inline `definition_yaml`
+when the workflow fits within that limit; otherwise it returns
+`definition_transport: "staged_required"` and a `suggested_relative_path`.
 - `get_workflow_file` returns a short-lived download URL for remote `/mcp` clients.
 - `prepare_workflow_file_upload` is required for remote `/mcp` workflow file uploads. It returns a short-lived upload URL and an opaque artifact id for the finalize create/update tools.
 
@@ -2477,6 +2551,7 @@ async def create_workflow(
     workspace_id: str,
     title: str,
     description: str = "",
+    definition_yaml: str | None = None,
 ) -> str:
     """Create a new workflow in a workspace.
 
@@ -2484,24 +2559,37 @@ async def create_workflow(
         workspace_id: The workspace ID (from list_workspaces).
         title: Workflow title (3-100 characters).
         description: Optional workflow description (up to 1000 characters).
+        definition_yaml: Optional inline workflow YAML for small workflows.
 
     Returns JSON with the new workflow's id, title, description, and status.
     """
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        async with WorkflowsManagementService.with_session(role=role) as svc:
-            workflow = await svc.create_workflow(
-                WorkflowCreate(title=title, description=description or None)
+        if definition_yaml is not None:
+            _ensure_inline_workflow_yaml_size(definition_yaml)
+            import_data = _build_import_data_from_workflow_yaml(
+                definition_yaml=definition_yaml,
+                title=title,
+                description=description,
             )
-            return _json(
-                {
-                    "id": str(workflow.id),
-                    "title": workflow.title,
-                    "description": workflow.description,
-                    "status": workflow.status,
-                }
+            workflow = await _create_workflow_from_import_data(
+                role=role,
+                import_data=import_data,
             )
+        else:
+            async with WorkflowsManagementService.with_session(role=role) as svc:
+                workflow = await svc.create_workflow(
+                    WorkflowCreate(title=title, description=description or None)
+                )
+        return _json(
+            {
+                "id": str(workflow.id),
+                "title": workflow.title,
+                "description": workflow.description,
+                "status": workflow.status,
+            }
+        )
     except ToolError:
         raise
     except ValueError as e:
@@ -2515,12 +2603,14 @@ async def create_workflow(
 async def get_workflow(
     workspace_id: str,
     workflow_id: str,
+    include_definition_yaml: bool = False,
 ) -> str:
     """Get metadata for a specific workflow.
 
     Args:
         workspace_id: The workspace ID.
         workflow_id: The workflow ID (short or full format).
+        include_definition_yaml: When true, include inline YAML if small enough.
 
     Returns JSON with workflow metadata. Use get_workflow_file to retrieve the
     full workflow definition as a file or staged download.
@@ -2534,17 +2624,26 @@ async def get_workflow(
             workflow = await svc.get_workflow(wf_id)
             if not workflow:
                 raise ToolError(f"Workflow {workflow_id} not found")
-            return _json(
-                {
-                    "id": str(workflow.id),
-                    "title": workflow.title,
-                    "description": workflow.description,
-                    "status": workflow.status,
-                    "version": workflow.version,
-                    "alias": workflow.alias,
-                    "entrypoint": workflow.entrypoint,
-                }
-            )
+            payload = {
+                "id": str(workflow.id),
+                "title": workflow.title,
+                "description": workflow.description,
+                "status": workflow.status,
+                "version": workflow.version,
+                "alias": workflow.alias,
+                "entrypoint": workflow.entrypoint,
+            }
+            if include_definition_yaml:
+                payload.update(
+                    await _build_inline_workflow_response(
+                        role=role,
+                        service=svc,
+                        workflow=workflow,
+                        workflow_id=workflow_id,
+                        draft=True,
+                    )
+                )
+            return _json(payload)
     except ToolError:
         raise
     except ValueError as e:
@@ -2614,7 +2713,7 @@ async def get_workflow_file(
         download_url = await blob.generate_presigned_download_url(
             key=blob_key,
             bucket=_workflow_file_bucket(),
-            expiry=_workflow_file_artifact_ttl_seconds(),
+            expiry=_mcp_file_transfer_ttl_seconds(),
             override_content_type="application/yaml",
         )
         result_payload.update(
@@ -2690,7 +2789,7 @@ async def prepare_workflow_file_upload(
         upload_url = await blob.generate_presigned_upload_url(
             key=artifact.blob_key,
             bucket=_workflow_file_bucket(),
-            expiry=_workflow_file_artifact_ttl_seconds(),
+            expiry=_mcp_file_transfer_ttl_seconds(),
             content_type="application/yaml",
         )
         return _json(
@@ -2882,8 +2981,10 @@ async def update_workflow(
     status: str | None = None,
     alias: str | None = None,
     error_handler: str | None = None,
+    definition_yaml: str | None = None,
+    update_mode: Literal["replace", "patch"] = "patch",
 ) -> str:
-    """Update workflow metadata.
+    """Update workflow metadata and optional inline YAML.
 
     Args:
         workspace_id: The workspace ID.
@@ -2893,6 +2994,9 @@ async def update_workflow(
         status: New status - "online" or "offline" (optional).
         alias: New alias for the workflow (optional).
         error_handler: Error handler workflow alias (optional).
+        definition_yaml: Optional inline workflow YAML for small workflows.
+        update_mode: "patch" to update provided YAML sections, or "replace" to
+            replace provided YAML state sections.
     Returns a confirmation message.
     """
 
@@ -2911,22 +3015,41 @@ async def update_workflow(
             update_kwargs["alias"] = alias
         if error_handler is not None:
             update_kwargs["error_handler"] = error_handler
+        if update_mode not in {"replace", "patch"}:
+            raise ToolError("update_mode must be 'replace' or 'patch'")
+        if definition_yaml is not None:
+            _ensure_inline_workflow_yaml_size(definition_yaml)
         update_params = WorkflowUpdate(**update_kwargs)
 
         async with WorkflowsManagementService.with_session(role=role) as svc:
             workflow = await svc.get_workflow(wf_id)
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")
-            for key, value in update_params.model_dump(exclude_unset=True).items():
-                setattr(workflow, key, value)
-            svc.session.add(workflow)
-            await svc.session.commit()
-            await svc.session.refresh(workflow)
+            if definition_yaml is not None:
+                yaml_payload = _parse_workflow_yaml_payload(definition_yaml)
+                await _apply_workflow_yaml_update(
+                    role=role,
+                    service=svc,
+                    workflow=workflow,
+                    workflow_id=wf_id,
+                    update_params=update_params,
+                    yaml_payload=yaml_payload,
+                    definition_yaml=definition_yaml,
+                    update_mode=update_mode,
+                )
+                mode = update_mode
+            else:
+                for key, value in update_params.model_dump(exclude_unset=True).items():
+                    setattr(workflow, key, value)
+                svc.session.add(workflow)
+                await svc.session.commit()
+                await svc.session.refresh(workflow)
+                mode = "metadata"
 
             return _json(
                 {
                     "message": f"Workflow {workflow_id} updated successfully",
-                    "mode": "metadata",
+                    "mode": mode,
                 }
             )
     except ToolError:
@@ -3595,7 +3718,7 @@ async def prepare_template_file_upload(
         upload_url = await blob.generate_presigned_upload_url(
             key=artifact.blob_key,
             bucket=_template_file_bucket(),
-            expiry=_workflow_file_artifact_ttl_seconds(),
+            expiry=_mcp_file_transfer_ttl_seconds(),
             content_type="application/yaml",
         )
         return _json(
@@ -5148,7 +5271,7 @@ async def export_csv(
         download_url = await blob.generate_presigned_download_url(
             key=blob_key,
             bucket=_workflow_file_bucket(),
-            expiry=_workflow_file_artifact_ttl_seconds(),
+            expiry=_mcp_file_transfer_ttl_seconds(),
             override_content_type="text/csv",
         )
         result_payload.update(

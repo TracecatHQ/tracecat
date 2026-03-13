@@ -844,6 +844,8 @@ Merges: common + temporal + postgres + mcp-specific
   value: {{ .Values.tracecat.mcp.toolTimeoutSeconds | quote }}
 - name: TRACECAT_MCP__MAX_INPUT_SIZE_BYTES
   value: {{ .Values.tracecat.mcp.maxInputSizeBytes | quote }}
+- name: TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS
+  value: {{ .Values.tracecat.mcp.fileTransferUrlExpirySeconds | quote }}
 - name: TRACECAT_MCP__STARTUP_MAX_ATTEMPTS
   value: {{ .Values.tracecat.mcp.startupMaxAttempts | quote }}
 - name: TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS
