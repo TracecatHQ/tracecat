@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { SettingsModal } from "@/components/settings/settings-modal"
 
@@ -19,6 +19,7 @@ let mockWorkspaceId: string | undefined = "workspace-123"
 let mockHasGitSync = false
 let mockOpen = true
 let mockWorkspaces = [{ id: "workspace-123", name: "Workspace 123" }]
+let mockScopesByWorkspaceId: Record<string, string[]> = {}
 
 jest.mock("@/components/settings/settings-modal-context", () => ({
   useSettingsModal: () => ({
@@ -91,7 +92,10 @@ jest.mock("@/lib/hooks", () => ({
   useUserScopes: (workspaceId?: string, options?: { enabled?: boolean }) => {
     mockUseUserScopes(workspaceId, options)
     return {
-      userScopes: { scopes: mockScopes },
+      userScopes: {
+        scopes:
+          (workspaceId && mockScopesByWorkspaceId[workspaceId]) ?? mockScopes,
+      },
       isLoading: false,
     }
   },
@@ -117,6 +121,7 @@ describe("SettingsModal workspace navigation", () => {
     mockHasGitSync = false
     mockOpen = true
     mockWorkspaces = [{ id: "workspace-123", name: "Workspace 123" }]
+    mockScopesByWorkspaceId = {}
   })
 
   it("shows workspace settings sections for wildcard scopes", () => {
@@ -173,5 +178,31 @@ describe("SettingsModal workspace navigation", () => {
     })
     expect(mockClearLastWorkspaceId).toHaveBeenCalled()
     expect(screen.getByRole("button", { name: "General" })).toBeInTheDocument()
+  })
+
+  it("probes additional workspaces until it finds one with update access", async () => {
+    mockWorkspaceId = "workspace-viewer"
+    mockWorkspaces = [
+      { id: "workspace-admin", name: "Zulu workspace" },
+      { id: "workspace-viewer", name: "Alpha workspace" },
+    ]
+    mockScopesByWorkspaceId = {
+      "workspace-admin": ["workspace:update"],
+      "workspace-viewer": ["workspace:read"],
+    }
+
+    render(<SettingsModal />)
+
+    await waitFor(() => {
+      expect(mockUseUserScopes).toHaveBeenCalledWith("workspace-viewer", {
+        enabled: true,
+      })
+      expect(mockUseUserScopes).toHaveBeenCalledWith("workspace-admin", {
+        enabled: true,
+      })
+      expect(
+        screen.getByRole("button", { name: "General" })
+      ).toBeInTheDocument()
+    })
   })
 })
