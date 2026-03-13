@@ -368,6 +368,47 @@ function getModelLabel(model: Pick<ModelCatalogEntry, "model_name">): string {
   return model.model_name
 }
 
+function getMetadataNumber(metadata: unknown, key: string): number | null {
+  if (!metadata || typeof metadata !== "object") {
+    return null
+  }
+  const value = (metadata as Record<string, unknown>)[key]
+  return typeof value === "number" && Number.isFinite(value) ? value : null
+}
+
+function getMetadataString(metadata: unknown, key: string): string | null {
+  if (!metadata || typeof metadata !== "object") {
+    return null
+  }
+  const value = (metadata as Record<string, unknown>)[key]
+  return typeof value === "string" && value.trim() ? value : null
+}
+
+function formatTokenCount(value: number | null): string {
+  if (value == null) {
+    return "n/a"
+  }
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 1,
+    notation: "compact",
+  }).format(value)
+}
+
+function getModelContextLabel(model: { metadata?: unknown | null }): string {
+  return formatTokenCount(getMetadataNumber(model.metadata, "max_input_tokens"))
+}
+
+function getModelOutputLabel(model: { metadata?: unknown | null }): string {
+  return formatTokenCount(
+    getMetadataNumber(model.metadata, "max_output_tokens") ??
+      getMetadataNumber(model.metadata, "max_tokens")
+  )
+}
+
+function getModelModeLabel(model: { metadata?: unknown | null }): string {
+  return getMetadataString(model.metadata, "mode") ?? "n/a"
+}
+
 function getModelSourceLabel(
   model: Pick<ModelCatalogEntry, "source_id" | "source_name">
 ): string {
@@ -391,11 +432,6 @@ function ModelRow({
           <Badge variant="outline">{model.model_provider}</Badge>
           {model.base_url ? <Badge variant="outline">Custom URL</Badge> : null}
         </div>
-        <p className="text-xs text-muted-foreground">
-          {model.model_name}
-          {" · "}
-          {getModelSourceLabel(model)}
-        </p>
       </div>
       <Button
         disabled={disabled}
@@ -454,20 +490,28 @@ function ProviderAllowlistModelRow({
   return (
     <div className="border-b border-border/40 py-3 last:border-b-0">
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_88px_88px_72px_auto] sm:items-center sm:gap-4">
           <div className="min-w-0 space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-medium">{getModelLabel(model)}</p>
-              <ProviderMetaPill>{model.model_provider}</ProviderMetaPill>
-              {model.ready === false ? (
-                <ProviderMetaPill>Setup required</ProviderMetaPill>
-              ) : null}
-            </div>
-            <p className="text-xs text-muted-foreground">{model.model_name}</p>
+            <p className="truncate text-sm font-medium">
+              {getModelLabel(model)}
+            </p>
+            <p className="text-xs text-muted-foreground sm:hidden">
+              {getModelContextLabel(model)} ctx {"·"}{" "}
+              {getModelOutputLabel(model)} out {"·"} {getModelModeLabel(model)}
+            </p>
             {statusMessage ? (
               <p className="text-xs text-muted-foreground">{statusMessage}</p>
             ) : null}
           </div>
+          <p className="hidden text-right text-xs text-muted-foreground sm:block">
+            {getModelContextLabel(model)}
+          </p>
+          <p className="hidden text-right text-xs text-muted-foreground sm:block">
+            {getModelOutputLabel(model)}
+          </p>
+          <p className="hidden text-right text-xs capitalize text-muted-foreground sm:block">
+            {getModelModeLabel(model)}
+          </p>
           <Button
             disabled={disabled || !canEnable}
             onClick={() => {
@@ -805,6 +849,13 @@ function ProviderConnectionItem({
               {providerModels.length ? (
                 <ScrollArea className="h-96 rounded-lg border">
                   <div className="px-4">
+                    <div className="hidden grid-cols-[minmax(0,1fr)_88px_88px_72px_auto] gap-4 border-b border-border/40 py-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+                      <span>Model</span>
+                      <span className="text-right">Context</span>
+                      <span className="text-right">Output</span>
+                      <span className="text-right">Mode</span>
+                      <span className="text-right">Access</span>
+                    </div>
                     {providerModels.map((model) => (
                       <ProviderAllowlistModelRow
                         disabled={disabled}

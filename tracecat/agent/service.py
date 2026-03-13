@@ -1045,6 +1045,29 @@ class AgentManagementService(BaseOrgService):
             )
             return None
 
+        configured_builtin_providers = {
+            provider
+            for provider in {
+                row.model_provider
+                for row in rows
+                if row.source_id is None
+                and row.model_provider
+                in {
+                    source_type.value for source_type in _BUILT_IN_PROVIDER_SOURCE_TYPES
+                }
+            }
+            if self._provider_credentials_complete(
+                provider=provider,
+                credentials=await self.get_provider_credentials(provider),
+            )
+        }
+        eligible_rows = [
+            row
+            for row in rows
+            if row.source_id is not None
+            or row.model_provider in configured_builtin_providers
+        ]
+
         await self.session.execute(
             pg_insert(AgentEnabledModel)
             .values(
@@ -1057,7 +1080,7 @@ class AgentManagementService(BaseOrgService):
                         "model_name": row.model_name,
                         "enabled_config": None,
                     }
-                    for row in rows
+                    for row in eligible_rows
                 ]
             )
             .on_conflict_do_nothing(
@@ -1075,8 +1098,46 @@ class AgentManagementService(BaseOrgService):
         self.logger.info(
             "Enabled full model catalog for pre-upgrade organization",
             organization_id=str(self.organization_id),
-            enabled_rows=len(rows),
+            enabled_rows=len(eligible_rows),
         )
+
+    async def prune_unconfigured_builtin_model_selections(
+        self,
+    ) -> set[ModelSelectionKey]:
+        """Disable built-in model selections when the provider credentials are absent."""
+        builtin_rows = [
+            row
+            for row in await self._list_org_enabled_rows()
+            if row.source_id is None
+            and row.model_provider
+            in {source_type.value for source_type in _BUILT_IN_PROVIDER_SOURCE_TYPES}
+        ]
+        if not builtin_rows:
+            return set()
+
+        configured_builtin_providers = {
+            provider
+            for provider in {row.model_provider for row in builtin_rows}
+            if self._provider_credentials_complete(
+                provider=provider,
+                credentials=await self.get_provider_credentials(provider),
+            )
+        }
+        stale_selections = [
+            self._selection_key_from_enabled_row(row)
+            for row in builtin_rows
+            if row.model_provider not in configured_builtin_providers
+        ]
+        if not stale_selections:
+            return set()
+
+        disabled = await self._disable_model_selections(stale_selections)
+        self.logger.info(
+            "Pruned builtin model selections for unconfigured providers",
+            organization_id=str(self.organization_id),
+            disabled_rows=len(disabled),
+        )
+        return disabled
 
     async def _list_provider_rows(self, provider: str) -> list[AgentCatalog]:
         stmt = (
@@ -3228,6 +3289,7 @@ async def _sync_model_catalogs_as_leader(session: AsyncSession) -> None:
                     )
                     await session.rollback()
         await service.prune_stale_builtin_model_selections()
+        await service.prune_unconfigured_builtin_model_selections()
         await service._ensure_default_enabled_models()
         if repair_legacy := getattr(service, "repair_legacy_model_selections", None):
             repair_summary = await repair_legacy()
