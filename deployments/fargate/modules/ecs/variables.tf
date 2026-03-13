@@ -532,6 +532,12 @@ variable "agent_executor_worker_pool_size" {
   default     = null
 }
 
+variable "llm_proxy_read_timeout" {
+  type        = string
+  description = "LLM proxy read timeout in seconds (default: 300)"
+  default     = "300"
+}
+
 variable "temporal_cpu" {
   type    = string
   default = "8192"
