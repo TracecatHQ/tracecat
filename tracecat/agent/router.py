@@ -1,5 +1,3 @@
-from typing import Annotated
-
 from fastapi import APIRouter, HTTPException, status
 
 from tracecat.agent.schemas import (
@@ -9,50 +7,19 @@ from tracecat.agent.schemas import (
     ProviderCredentialConfig,
 )
 from tracecat.agent.service import AgentManagementService
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import OrgActorRole, WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
-OrganizationAdminUserRole = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        allow_api_key=True,
-        require_workspace="no",
-    ),
-]
-
-OrganizationUserRole = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        allow_api_key=True,
-        require_workspace="no",
-    ),
-]
-
-WorkspaceUserRole = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        allow_api_key=True,
-        require_workspace="yes",
-    ),
-]
-
 
 @router.get("/models")
 @require_scope("agent:read")
 async def list_models(
     *,
-    role: OrganizationUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> dict[str, ModelConfig]:
     """List all available AI models."""
@@ -64,7 +31,7 @@ async def list_models(
 @require_scope("agent:read")
 async def list_providers(
     *,
-    role: OrganizationUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> list[str]:
     """List all available AI model providers."""
@@ -76,7 +43,7 @@ async def list_providers(
 @require_scope("agent:read")
 async def get_providers_status(
     *,
-    role: OrganizationUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> dict[str, bool]:
     """Get credential status for all providers."""
@@ -88,7 +55,7 @@ async def get_providers_status(
 @require_scope("agent:read")
 async def list_provider_credential_configs(
     *,
-    role: OrganizationAdminUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> list[ProviderCredentialConfig]:
     """List credential field configurations for all providers."""
@@ -101,7 +68,7 @@ async def list_provider_credential_configs(
 async def get_provider_credential_config(
     *,
     provider: str,
-    role: OrganizationAdminUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> ProviderCredentialConfig:
     """Get credential field configuration for a specific provider."""
@@ -120,7 +87,7 @@ async def get_provider_credential_config(
 async def create_provider_credentials(
     *,
     params: ModelCredentialCreate,
-    role: OrganizationAdminUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> dict[str, str]:
     """Create or update credentials for an AI provider."""
@@ -141,7 +108,7 @@ async def update_provider_credentials(
     *,
     provider: str,
     params: ModelCredentialUpdate,
-    role: OrganizationAdminUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> dict[str, str]:
     """Update existing credentials for an AI provider."""
@@ -166,7 +133,7 @@ async def update_provider_credentials(
 async def delete_provider_credentials(
     *,
     provider: str,
-    role: OrganizationAdminUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> dict[str, str]:
     """Delete credentials for an AI provider."""
@@ -179,7 +146,7 @@ async def delete_provider_credentials(
 @require_scope("agent:read")
 async def get_default_model(
     *,
-    role: OrganizationUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> str | None:
     """Get the organization's default AI model."""
@@ -192,7 +159,7 @@ async def get_default_model(
 async def set_default_model(
     *,
     model_name: str,
-    role: OrganizationAdminUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> dict[str, str]:
     """Set the organization's default AI model."""
@@ -216,7 +183,7 @@ async def set_default_model(
 @require_scope("agent:read")
 async def get_workspace_providers_status(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
 ) -> dict[str, bool]:
     """Get workspace credential status for all providers."""

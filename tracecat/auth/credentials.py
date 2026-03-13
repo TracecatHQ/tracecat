@@ -280,6 +280,12 @@ async def _authenticate_service(
         if (ws_id := request.headers.get("x-tracecat-role-workspace-id")) is not None
         else None
     )
+    bound_workspace_id = (
+        uuid.UUID(bound_ws_id)
+        if (bound_ws_id := request.headers.get("x-tracecat-role-bound-workspace-id"))
+        is not None
+        else None
+    )
     organization_id = (
         uuid.UUID(org_id)
         if (org_id := request.headers.get("x-tracecat-role-organization-id"))
@@ -288,8 +294,11 @@ async def _authenticate_service(
     )
     # Backward compatibility: derive org from workspace when older callers
     # don't propagate x-tracecat-role-organization-id yet.
-    if organization_id is None and workspace_id is not None:
-        organization_id = await _get_workspace_org_id(workspace_id)
+    if (
+        organization_id is None
+        and (context_workspace_id := workspace_id or bound_workspace_id) is not None
+    ):
+        organization_id = await _get_workspace_org_id(context_workspace_id)
     # Parse scopes from header if present (for inter-service calls)
     scopes: frozenset[str] = frozenset()
     if scopes_header := request.headers.get("x-tracecat-role-scopes"):
@@ -312,6 +321,7 @@ async def _authenticate_service(
         service_id=service_id,
         user_id=user_id,
         workspace_id=workspace_id,
+        bound_workspace_id=bound_workspace_id,
         organization_id=organization_id,
         service_account_id=service_account_id,
         scopes=scopes,
@@ -322,7 +332,6 @@ async def _authenticate_api_key(
     *,
     api_key: str,
     workspace_id: uuid.UUID | None,
-    require_workspace: Literal["yes", "no", "optional"],
 ) -> Role | None:
     parsed = parse_managed_api_key(api_key)
     if parsed is None:
@@ -348,8 +357,12 @@ async def _authenticate_api_key(
         if service_account.disabled_at is not None:
             raise CREDENTIALS_EXCEPTION
 
-        resolved_workspace_id: uuid.UUID | None = service_account.workspace_id
-        if service_account.workspace_id is None:
+        # `workspace_id` is the effective request context. `bound_workspace_id`
+        # preserves the actor's intrinsic workspace binding for the few places
+        # that need to distinguish actor scope from resolved request scope.
+        bound_workspace_id = service_account.workspace_id
+        resolved_workspace_id: uuid.UUID | None
+        if bound_workspace_id is None:
             if parsed.prefix != ORG_API_KEY_PREFIX:
                 raise CREDENTIALS_EXCEPTION
             if workspace_id is not None:
@@ -363,18 +376,15 @@ async def _authenticate_api_key(
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
                     )
-                resolved_workspace_id = workspace_id
+            resolved_workspace_id = workspace_id
         else:
             if parsed.prefix != WORKSPACE_API_KEY_PREFIX:
                 raise CREDENTIALS_EXCEPTION
-            if require_workspace == "no" or workspace_id is None:
+            if workspace_id is not None and bound_workspace_id != workspace_id:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
                 )
-            if service_account.workspace_id != workspace_id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
-                )
+            resolved_workspace_id = workspace_id or bound_workspace_id
 
         record.last_used_at = datetime.now(UTC)
         session.add(record)
@@ -384,6 +394,7 @@ async def _authenticate_api_key(
             service_id="tracecat-api",
             organization_id=service_account.organization_id,
             workspace_id=resolved_workspace_id,
+            bound_workspace_id=bound_workspace_id,
             service_account_id=service_account.id,
             scopes=frozenset(scope.name for scope in service_account.scopes),
         )
@@ -824,7 +835,6 @@ async def _role_dependency(
         role = await _authenticate_api_key(
             api_key=tracecat_api_key,
             workspace_id=workspace_id,
-            require_workspace=require_workspace,
         )
     elif service_key and allow_service:
         role = await _authenticate_service(request, service_key)
@@ -883,7 +893,9 @@ def RoleACL(
 
     Args:
         allow_user (bool, optional): Allow authentication via user session/JWT. Defaults to True.
-        allow_service (bool, optional): Allow authentication via service API key. Defaults to False.
+        allow_service (bool, optional): Allow internal service-key authentication. Defaults to False.
+        allow_api_key (bool, optional): Allow managed service-account API-key authentication.
+            Defaults to False.
         require_workspace (Literal["yes", "no", "optional"], optional): Specifies if a workspace ID is required.
             - "yes": Workspace ID is required.
             - "no": Workspace ID is not required.
@@ -892,7 +904,10 @@ def RoleACL(
         workspace_id_in_path (bool, optional): Whether to extract `workspace_id` from the path rather than the query string.
             Defaults to False.
     Returns:
-        Any: A FastAPI dependency that yields a `Role` instance upon successful authentication and authorization.
+        Any: A FastAPI dependency that yields a `Role` instance upon successful
+        authentication and authorization. `Role.workspace_id` is the effective
+        workspace context for the request, while `bound_workspace_id` preserves
+        the actor's intrinsic workspace binding when that distinction matters.
         If validation fails, raises an HTTPException (401 or 403).
 
     Raises:
