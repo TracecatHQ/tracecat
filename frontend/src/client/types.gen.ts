@@ -4935,18 +4935,7 @@ export type RetryPromptPart = {
 }
 
 /**
- * The identity and authorization of a user or service.
- *
- * Params
- * ------
- * type : Literal["user", "service", "service_account"]
- * The type of role.
- * user_id : UUID | None
- * The user's ID, or the service's user_id.
- * This can be None for internal services, or when a user hasn't been set for the role.
- * service_id : str | None = None
- * The service's role name, or None if the role is a user.
- *
+ * The identity, intrinsic bindings, and resolved authorization context.
  *
  * User roles
  * ----------
@@ -4963,6 +4952,7 @@ export type RetryPromptPart = {
 export type Role = {
   type: "user" | "service" | "service_account"
   workspace_id?: string | null
+  bound_workspace_id?: string | null
   organization_id?: string | null
   user_id?: string | null
   service_account_id?: string | null
