@@ -8,6 +8,32 @@ import { userDefaults } from "@/config/user"
 import { useAuth } from "@/hooks/use-auth"
 import { useUserManager } from "@/lib/hooks"
 
+export interface ProfileNameUpdate {
+  first_name: string | null
+  last_name: string | null
+}
+
+export function getProfileNameUpdate(
+  displayName: string,
+  draftName: string | null
+): ProfileNameUpdate | null {
+  const currentName = displayName.trim().replace(/\s+/g, " ")
+  const nextName = (draftName ?? displayName).trim().replace(/\s+/g, " ")
+
+  if (nextName === currentName) {
+    return null
+  }
+  if (!nextName) {
+    return { first_name: null, last_name: null }
+  }
+
+  const parts = nextName.split(/\s+/)
+  return {
+    first_name: parts[0] || null,
+    last_name: parts.slice(1).join(" ") || null,
+  }
+}
+
 export function ProfileSettings() {
   const { user } = useAuth()
   const { updateCurrentUser } = useUserManager()
@@ -18,12 +44,9 @@ export function ProfileSettings() {
   const currentName = name ?? displayName
 
   function handleNameBlur() {
-    const trimmed = (name ?? "").trim()
-    if (trimmed && trimmed !== displayName) {
-      const parts = trimmed.split(/\s+/)
-      const firstName = parts[0] || null
-      const lastName = parts.slice(1).join(" ") || null
-      updateCurrentUser({ first_name: firstName, last_name: lastName })
+    const update = getProfileNameUpdate(displayName, name)
+    if (update) {
+      updateCurrentUser(update)
     }
     setName(null)
   }
