@@ -7,6 +7,7 @@ import {
   useOnSelectionChange,
   useReactFlow,
 } from "@xyflow/react"
+import Cookies from "js-cookie"
 import React, {
   createContext,
   type ReactNode,
@@ -27,9 +28,12 @@ import {
   DEFAULT_TRIGGER_PANEL_TAB,
   type TriggerPanelTab,
 } from "@/components/builder/panel/trigger-panel-tabs"
+import { useAuth } from "@/hooks/use-auth"
+import { DEFAULT_TRIGGER_PAYLOAD } from "@/lib/workflow-trigger-payload"
 import { useWorkflow } from "@/providers/workflow"
 
 const SELECTED_NODE_STORAGE_PREFIX = "tracecat:builder:selected-node"
+const TRIGGER_PAYLOAD_COOKIE_PREFIX = "__tracecat:builder:trigger-payload"
 
 function selectedNodeStorageKey({
   workspaceId,
@@ -91,6 +95,72 @@ function writePersistedSelectedNode({
   }
 }
 
+function triggerPayloadCookieKey({
+  userId,
+  workspaceId,
+  workflowId,
+}: {
+  userId: string | null
+  workspaceId: string
+  workflowId: string | null
+}): string {
+  return `${TRIGGER_PAYLOAD_COOKIE_PREFIX}:${userId ?? "anonymous"}:${workspaceId}:${workflowId}`
+}
+
+function readPersistedTriggerPayload({
+  userId,
+  workspaceId,
+  workflowId,
+}: {
+  userId: string | null
+  workspaceId: string
+  workflowId: string | null
+}): string {
+  if (!workflowId || typeof window === "undefined") {
+    return DEFAULT_TRIGGER_PAYLOAD
+  }
+
+  try {
+    return (
+      Cookies.get(
+        triggerPayloadCookieKey({ userId, workspaceId, workflowId })
+      ) ?? DEFAULT_TRIGGER_PAYLOAD
+    )
+  } catch {
+    return DEFAULT_TRIGGER_PAYLOAD
+  }
+}
+
+function writePersistedTriggerPayload({
+  userId,
+  workspaceId,
+  workflowId,
+  triggerPayload,
+}: {
+  userId: string | null
+  workspaceId: string
+  workflowId: string | null
+  triggerPayload: string
+}): void {
+  if (!workflowId || typeof window === "undefined") {
+    return
+  }
+
+  try {
+    Cookies.set(
+      triggerPayloadCookieKey({ userId, workspaceId, workflowId }),
+      triggerPayload,
+      {
+        expires: 365,
+        path: "/",
+        sameSite: "lax",
+      }
+    )
+  } catch {
+    // Ignore storage failures (e.g. blocked cookies)
+  }
+}
+
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance
   workflowId: string
@@ -114,6 +184,8 @@ interface ReactFlowContextType {
   setSelectedActionEventRef: React.Dispatch<SetStateAction<string | undefined>>
   currentExecutionId: string | null
   setCurrentExecutionId: React.Dispatch<SetStateAction<string | null>>
+  triggerPayload: string
+  setTriggerPayload: React.Dispatch<SetStateAction<string>>
   actionDrafts: Record<string, unknown>
   setActionDraft: (actionId: string, draft: unknown) => void
   clearActionDraft: (actionId: string) => void
@@ -132,6 +204,8 @@ export const WorkflowBuilderProvider: React.FC<
 > = ({ children }) => {
   const reactFlowInstance = useReactFlow()
   const { workspaceId, workflowId, error } = useWorkflow()
+  const { user } = useAuth()
+  const userId = user?.id ?? null
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [selectedActionEventRef, setSelectedActionEventRef] = useState<
@@ -146,6 +220,9 @@ export const WorkflowBuilderProvider: React.FC<
   const [currentExecutionId, setCurrentExecutionId] = useState<string | null>(
     null
   )
+  const [triggerPayload, setTriggerPayload] = useState<string>(
+    DEFAULT_TRIGGER_PAYLOAD
+  )
   // In-memory map of actionId -> last edited form values.
   // This lets the action panel restore unsaved edits when the user
   // switches between nodes without touching the backend.
@@ -156,6 +233,10 @@ export const WorkflowBuilderProvider: React.FC<
   const lastPersistedSelectionRef = useRef<{
     key: string
     value: string | null
+  } | null>(null)
+  const lastPersistedTriggerPayloadRef = useRef<{
+    key: string
+    value: string
   } | null>(null)
 
   useEffect(() => {
@@ -177,8 +258,23 @@ export const WorkflowBuilderProvider: React.FC<
     setSelectedNodeId(restoredSelection)
     setCurrentExecutionId(null)
     setActionDrafts({})
+    const restoredTriggerPayload = readPersistedTriggerPayload({
+      userId,
+      workspaceId,
+      workflowId,
+    })
+    const triggerPayloadKey = triggerPayloadCookieKey({
+      userId,
+      workspaceId,
+      workflowId,
+    })
+    lastPersistedTriggerPayloadRef.current = {
+      key: triggerPayloadKey,
+      value: restoredTriggerPayload,
+    }
+    setTriggerPayload(restoredTriggerPayload)
     setTriggerPanelTab(DEFAULT_TRIGGER_PANEL_TAB)
-  }, [workspaceId, workflowId])
+  }, [userId, workspaceId, workflowId])
 
   useEffect(() => {
     if (!workflowId) {
@@ -199,6 +295,38 @@ export const WorkflowBuilderProvider: React.FC<
       value: selectedNodeId,
     }
   }, [workspaceId, workflowId, selectedNodeId])
+
+  useEffect(() => {
+    if (!workflowId) {
+      return
+    }
+    const key = triggerPayloadCookieKey({ userId, workspaceId, workflowId })
+    const lastPersisted = lastPersistedTriggerPayloadRef.current
+    if (
+      lastPersisted &&
+      lastPersisted.key === key &&
+      lastPersisted.value === triggerPayload
+    ) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      writePersistedTriggerPayload({
+        userId,
+        workspaceId,
+        workflowId,
+        triggerPayload,
+      })
+      lastPersistedTriggerPayloadRef.current = {
+        key,
+        value: triggerPayload,
+      }
+    }, 250)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [userId, workspaceId, workflowId, triggerPayload])
 
   const setReactFlowNodes = useCallback(
     (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
@@ -313,6 +441,8 @@ export const WorkflowBuilderProvider: React.FC<
       toggleActionPanel,
       currentExecutionId,
       setCurrentExecutionId,
+      triggerPayload,
+      setTriggerPayload,
       actionDrafts,
       setActionDraft,
       clearActionDraft,
@@ -339,6 +469,8 @@ export const WorkflowBuilderProvider: React.FC<
       toggleActionPanel,
       currentExecutionId,
       setCurrentExecutionId,
+      triggerPayload,
+      setTriggerPayload,
       actionDrafts,
       setActionDraft,
       clearActionDraft,

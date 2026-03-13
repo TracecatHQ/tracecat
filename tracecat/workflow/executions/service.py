@@ -74,7 +74,11 @@ from tracecat.workflow.executions.common import (
     is_scheduled_event,
     is_start_event,
 )
-from tracecat.workflow.executions.constants import WF_COMPLETED_REF, WF_FAILURE_REF
+from tracecat.workflow.executions.constants import (
+    WF_COMPLETED_REF,
+    WF_FAILURE_REF,
+    WF_TRIGGER_REF,
+)
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -146,6 +150,13 @@ def _extract_while_metadata(
         should_continue = payload.get("continue")
         return None, (should_continue if isinstance(should_continue, bool) else None)
     return None, None
+
+
+async def _resolve_trigger_context(trigger_inputs: StoredObject | None) -> Any | None:
+    """Materialize stored trigger inputs for compact history views."""
+    if trigger_inputs is None:
+        return None
+    return await get_object_storage().retrieve(trigger_inputs)
 
 
 class WorkflowExecutionsService:
@@ -553,6 +564,24 @@ class WorkflowExecutionsService:
                         event.activity_task_scheduled_event_attributes.activity_id
                     )
                     activity2eventid[activity_id] = event.event_id
+            elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
+                attrs = event.workflow_execution_started_event_attributes
+                run_args_data = await extract_first(attrs.input)
+                dsl_run_args = DSLRunArgs(**run_args_data)
+                event_time = event.event_time.ToDatetime(datetime.UTC)
+                id2event[event.event_id] = WorkflowExecutionEventCompact(
+                    source_event_id=event.event_id,
+                    schedule_time=event_time,
+                    start_time=event_time,
+                    close_time=event_time,
+                    curr_event_type=WorkflowEventType.WORKFLOW_EXECUTION_STARTED,
+                    status=WorkflowExecutionEventStatus.COMPLETED,
+                    action_name=WF_TRIGGER_REF,
+                    action_ref=WF_TRIGGER_REF,
+                    action_input=await _resolve_trigger_context(
+                        dsl_run_args.trigger_inputs
+                    ),
+                )
             # ── synthetic compact event for top-level workflow failure ──
             elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
                 failure = EventFailure.from_history_event(event)

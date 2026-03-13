@@ -27,7 +27,6 @@ import type {
   WorkflowDslPublish,
 } from "@/client"
 import { ApiError, workflowsListWorkflowBranches } from "@/client"
-import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
 import {
@@ -68,11 +67,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { Kbd } from "@/components/ui/kbd"
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -98,6 +92,10 @@ import {
   useWorkflowManager,
 } from "@/lib/hooks"
 import { cn, copyToClipboard } from "@/lib/utils"
+import {
+  parseTriggerPayload,
+  validateTriggerPayload,
+} from "@/lib/workflow-trigger-payload"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -349,27 +347,6 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
   )
 }
 
-const workflowControlsFormSchema = z.object({
-  payload: z.string().superRefine((val, ctx) => {
-    try {
-      JSON.parse(val)
-    } catch (error) {
-      if (error instanceof Error) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `Invalid JSON format: ${error.message}`,
-        })
-      } else {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Invalid JSON format: Unknown error occurred",
-        })
-      }
-    }
-  }),
-})
-type TWorkflowControlsForm = z.infer<typeof workflowControlsFormSchema>
-
 const publishFormSchema = z.object({
   message: z.string().optional(),
   branch: z.string().trim().min(1, "Target branch is required"),
@@ -495,37 +472,34 @@ function WorkflowManualTrigger({
   disabled: boolean
   workflowId: string
 }) {
-  const { expandSidebarAndFocusEvents, setCurrentExecutionId } =
+  const { expandSidebarAndFocusEvents, setCurrentExecutionId, triggerPayload } =
     useWorkflowBuilder()
   // Always use draft execution endpoint - runs the current draft workflow graph
   const { createDraftExecution, createDraftExecutionIsPending } =
     useCreateDraftWorkflowExecution(workflowId)
-  const [open, setOpen] = React.useState(false)
-  const [lastTriggerInput, setLastTriggerInput] = React.useState<string | null>(
-    null
-  )
   const [manualTriggerErrors, setManualTriggerErrors] = React.useState<
     ValidationResult[] | null
   >(null)
   const [isTriggering, setIsTriggering] = React.useState(false)
-  const form = useForm<TWorkflowControlsForm>({
-    resolver: zodResolver(workflowControlsFormSchema),
-    defaultValues: {
-      payload:
-        lastTriggerInput ||
-        JSON.stringify({ sampleWebhookParam: "sampleValue" }, null, 2),
-    },
-  })
 
-  const runWorkflow = async ({ payload }: Partial<TWorkflowControlsForm>) => {
+  React.useEffect(() => {
+    setManualTriggerErrors(null)
+  }, [triggerPayload])
+
+  const runWorkflow = async () => {
     if (disabled || createDraftExecutionIsPending) return
+    const payloadError = validateTriggerPayload(triggerPayload)
+    if (payloadError) {
+      setManualTriggerErrors([toDslApiErrorResult(payloadError)])
+      return
+    }
     setIsTriggering(true)
     setTimeout(() => setIsTriggering(false), 1000)
     setManualTriggerErrors(null)
     try {
       const result = await createDraftExecution({
         workflow_id: workflowId,
-        inputs: payload ? JSON.parse(payload) : undefined,
+        inputs: parseTriggerPayload(triggerPayload),
       })
 
       // Store the execution ID directly
@@ -557,118 +531,38 @@ function WorkflowManualTrigger({
     }
   }
 
-  const runWithPayload = async ({ payload }: TWorkflowControlsForm) => {
-    // Make the API call to start the workflow
-    setLastTriggerInput(payload)
-    try {
-      await runWorkflow({ payload })
-    } finally {
-      setOpen(false)
-    }
-  }
-
   const executionPending = createDraftExecutionIsPending || isTriggering
   return (
-    <Form {...form}>
-      <ValidationErrorView
-        side="bottom"
-        validationErrors={manualTriggerErrors || []}
-        noErrorTooltip={
-          <span>
-            {disabled
-              ? "Cannot run workflow."
-              : executionPending
-                ? "Starting workflow execution..."
-                : "Run the current draft workflow with trigger inputs."}
-          </span>
-        }
+    <ValidationErrorView
+      side="bottom"
+      validationErrors={manualTriggerErrors || []}
+      noErrorTooltip={
+        <span>
+          {disabled
+            ? "Cannot run workflow."
+            : executionPending
+              ? "Starting workflow execution..."
+              : "Run the current draft workflow with the trigger payload from the trigger node."}
+        </span>
+      }
+    >
+      <Button
+        type="button"
+        variant={manualTriggerErrors ? "destructive" : "default"}
+        className="h-7 gap-2 px-3 py-0 text-xs"
+        disabled={disabled || executionPending}
+        onClick={runWorkflow}
       >
-        <div
-          className={cn(
-            "flex h-7 divide-x rounded-lg border border-input overflow-hidden",
-            manualTriggerErrors
-              ? "divide-white/30 dark:divide-black/30"
-              : "divide-white/20 dark:divide-black/40"
-          )}
-        >
-          {/* Main Button */}
-          <Button
-            type="button"
-            variant={manualTriggerErrors ? "destructive" : "default"}
-            className="h-full gap-2 rounded-r-none border-none px-3 py-0 text-xs"
-            disabled={disabled || executionPending}
-            onClick={() => runWorkflow({ payload: undefined })}
-          >
-            {executionPending ? (
-              <Spinner className="size-3" segmentColor="currentColor" />
-            ) : manualTriggerErrors ? (
-              <AlertTriangleIcon className="size-3" />
-            ) : (
-              <PlayIcon className="size-3" />
-            )}
-            <span>Run</span>
-          </Button>
-          {/* Dropdown Button */}
-          <Popover
-            open={open && !disabled}
-            onOpenChange={(newOpen) => !disabled && setOpen(newOpen)}
-          >
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant={manualTriggerErrors ? "destructive" : "default"}
-                className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs font-bold"
-                disabled={disabled || executionPending}
-              >
-                <ChevronDownIcon className="size-3" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-fit max-w-xl p-3 sm:max-w-2xl">
-              <form onSubmit={form.handleSubmit(runWithPayload)}>
-                <div className="flex h-fit flex-col">
-                  <span className="mb-2 text-xs text-muted-foreground">
-                    Edit the JSON payload below.
-                  </span>
-                  <FormField
-                    control={form.control}
-                    name="payload"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormControl>
-                          <CodeEditor
-                            value={field.value}
-                            language="json"
-                            onChange={field.onChange}
-                            className="[&_.cm-editor]:!border [&_.cm-editor]:!border-input [&_.cm-editor]:!bg-background [&_.cm-editor]:rounded-md [&_.cm-scroller]:max-h-96 [&_.cm-scroller]:overflow-auto [&_.cm-scroller]:h-auto sm:[&_.cm-scroller]:max-h-[500px]"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <Button
-                    type="submit"
-                    variant="default"
-                    disabled={executionPending}
-                    className="group mt-2 flex h-7 items-center px-3 py-0 text-xs"
-                  >
-                    {executionPending ? (
-                      <Spinner
-                        className="mr-2 size-3.5"
-                        segmentColor="currentColor"
-                      />
-                    ) : (
-                      <PlayIcon className="mr-2 size-3.5" />
-                    )}
-                    <span>{executionPending ? "Starting..." : "Run"}</span>
-                  </Button>
-                </div>
-              </form>
-            </PopoverContent>
-          </Popover>
-        </div>
-      </ValidationErrorView>
-    </Form>
+        {executionPending ? (
+          <Spinner className="size-3" segmentColor="currentColor" />
+        ) : manualTriggerErrors ? (
+          <AlertTriangleIcon className="size-3" />
+        ) : (
+          <PlayIcon className="size-3" />
+        )}
+        <span>Run</span>
+      </Button>
+    </ValidationErrorView>
   )
 }
 

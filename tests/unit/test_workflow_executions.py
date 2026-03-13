@@ -25,6 +25,7 @@ from tracecat.db.models import Workspace
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.schemas import StreamID
 from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowUUID
+from tracecat.storage.object import InlineObject
 from tracecat.workflow.executions.enums import (
     TriggerType,
     WorkflowEventType,
@@ -37,6 +38,7 @@ from tracecat.workflow.executions.schemas import (
 from tracecat.workflow.executions.service import (
     WF_COMPLETED_REF,
     WF_FAILURE_REF,
+    WF_TRIGGER_REF,
     WorkflowExecutionsService,
 )
 from tracecat.workspaces.service import WorkspaceService
@@ -153,6 +155,11 @@ def create_mock_history_event(
         completed_attrs = Mock()
         completed_attrs.scheduled_event_id = attributes.get("scheduled_event_id", 1)
         event.activity_task_completed_event_attributes = completed_attrs
+
+    elif event_type == EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
+        started_attrs = Mock()
+        started_attrs.input = attributes.get("workflow_input", Mock())
+        event.workflow_execution_started_event_attributes = started_attrs
 
     return event
 
@@ -281,6 +288,184 @@ class TestWorkflowExecutionEvents:
             assert event.close_time == expected_time
 
             mock_get_result.assert_awaited_once_with(completed_event)
+
+    async def test_workflow_trigger_synthetic_event_creation(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Test that workflow start creates a synthetic trigger event."""
+        started_event = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield started_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        trigger_payload = {"case_id": "case-123", "severity": "high"}
+        trigger_inputs = InlineObject(data=trigger_payload, typename="dict")
+        mock_storage = Mock()
+        mock_storage.retrieve = AsyncMock(return_value=trigger_payload)
+
+        with (
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.DSLRunArgs",
+                return_value=Mock(trigger_inputs=trigger_inputs),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.get_object_storage",
+                return_value=mock_storage,
+            ),
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+        assert len(events) == 1
+        event = events[0]
+
+        expected_time = datetime.datetime.fromtimestamp(1640995200, tz=datetime.UTC)
+        assert event.action_ref == WF_TRIGGER_REF
+        assert event.action_name == WF_TRIGGER_REF
+        assert event.curr_event_type == WorkflowEventType.WORKFLOW_EXECUTION_STARTED
+        assert event.status == WorkflowExecutionEventStatus.COMPLETED
+        assert event.action_input == trigger_payload
+        assert event.schedule_time == expected_time
+        assert event.start_time == expected_time
+        assert event.close_time == expected_time
+        mock_storage.retrieve.assert_awaited_once_with(trigger_inputs)
+
+    async def test_workflow_trigger_synthetic_event_creation_without_inputs(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Test that workflow trigger event is still emitted when inputs are empty."""
+        started_event = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield started_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        mock_storage = Mock()
+        mock_storage.retrieve = AsyncMock()
+
+        with (
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.DSLRunArgs",
+                return_value=Mock(trigger_inputs=None),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.get_object_storage",
+                return_value=mock_storage,
+            ),
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+        assert len(events) == 1
+        event = events[0]
+        assert event.action_ref == WF_TRIGGER_REF
+        assert event.action_input is None
+        mock_storage.retrieve.assert_not_called()
+
+    async def test_compact_trigger_event_sorts_before_later_actions(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Test trigger sentinel ordering relative to later action events."""
+        started_event = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,  # type: ignore
+        )
+        scheduled_event = create_mock_history_event(
+            event_id=2,
+            event_type=EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED,  # type: ignore
+            activity_id="body-1",
+            activity_name="test_action",
+            event_time_seconds=1640995260,
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield started_event
+            yield scheduled_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        action_event = WorkflowExecutionEventCompact(
+            source_event_id=2,
+            schedule_time=datetime.datetime.fromtimestamp(1640995260, tz=datetime.UTC),
+            start_time=datetime.datetime.fromtimestamp(1640995260, tz=datetime.UTC),
+            close_time=datetime.datetime.fromtimestamp(1640995261, tz=datetime.UTC),
+            curr_event_type=WorkflowEventType.ACTIVITY_TASK_COMPLETED,
+            status=WorkflowExecutionEventStatus.COMPLETED,
+            action_name="core.test",
+            action_ref="body",
+            action_input=None,
+            action_result={"ok": True},
+            stream_id=StreamID("<root>"),
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.DSLRunArgs",
+                return_value=Mock(trigger_inputs=None),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.WorkflowExecutionEventCompact.from_source_event",
+                AsyncMock(return_value=action_event),
+            ),
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+        assert [event.action_ref for event in events] == [WF_TRIGGER_REF, "body"]
 
     async def test_workflow_execution_without_failures_no_synthetic_events(
         self,
