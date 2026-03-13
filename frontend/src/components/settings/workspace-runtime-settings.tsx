@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { useWorkspaceSettings } from "@/lib/hooks"
 
-const runtimeSettingsSchema = z.object({
+export const runtimeSettingsSchema = z.object({
   workflow_unlimited_timeout_enabled: z.boolean().optional(),
   workflow_default_timeout_seconds: z
     .number()
@@ -29,6 +29,15 @@ type RuntimeSettingsForm = z.infer<typeof runtimeSettingsSchema>
 
 interface WorkspaceRuntimeSettingsProps {
   workspace: WorkspaceRead
+}
+
+export function buildRuntimeSettingsUpdate(values: RuntimeSettingsForm) {
+  return {
+    workflow_unlimited_timeout_enabled:
+      values.workflow_unlimited_timeout_enabled,
+    workflow_default_timeout_seconds:
+      values.workflow_default_timeout_seconds ?? null,
+  }
 }
 
 export function WorkspaceRuntimeSettings({
@@ -49,12 +58,7 @@ export function WorkspaceRuntimeSettings({
 
   async function onSubmit(values: RuntimeSettingsForm) {
     await updateWorkspace({
-      settings: {
-        workflow_unlimited_timeout_enabled:
-          values.workflow_unlimited_timeout_enabled,
-        workflow_default_timeout_seconds:
-          values.workflow_default_timeout_seconds,
-      },
+      settings: buildRuntimeSettingsUpdate(values),
     })
   }
 
