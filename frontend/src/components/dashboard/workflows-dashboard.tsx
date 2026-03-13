@@ -786,6 +786,7 @@ function WorkflowsListRow({
   onOpenWorkflow,
   onOpenFolder,
   onDuplicateWorkflow,
+  duplicateDisabled = false,
   setSelectedWorkflow,
   setSelectedFolder,
   setActiveDialog,
@@ -795,6 +796,7 @@ function WorkflowsListRow({
   onOpenWorkflow: (workflowId: string) => void
   onOpenFolder: (path: string) => void
   onDuplicateWorkflow: (item: WorkflowDirectoryItem) => void
+  duplicateDisabled?: boolean
   setSelectedWorkflow: (workflow: WorkflowReadMinimal | null) => void
   setSelectedFolder: (folder: FolderDirectoryItem | null) => void
   setActiveDialog: (activeDialog: ActiveDialog | null) => void
@@ -867,6 +869,7 @@ function WorkflowsListRow({
         <WorkflowActions
           item={item}
           onDuplicateWorkflow={onDuplicateWorkflow}
+          duplicateDisabled={duplicateDisabled}
           availableTags={availableTags}
           showMoveToFolder
           setSelectedWorkflow={setSelectedWorkflow}
@@ -914,7 +917,7 @@ export function WorkflowsDashboard() {
       listEnabled: false,
     }
   )
-  const { folders } = useFolders(workspaceId, {
+  const { folders, foldersIsLoading } = useFolders(workspaceId, {
     enabled: view === "list",
   })
   const { tags } = useWorkflowTags(workspaceId)
@@ -1027,8 +1030,12 @@ export function WorkflowsDashboard() {
           view === "folders"
             ? currentPath
             : item.folder_id
-              ? (folderPathById.get(item.folder_id) ?? "/")
+              ? folderPathById.get(item.folder_id)
               : "/"
+
+        if (targetFolderPath === undefined) {
+          throw new Error("Source workflow folder is not loaded yet")
+        }
 
         await moveWorkflow({
           workflowId: createdWorkflow.id,
@@ -1342,6 +1349,12 @@ export function WorkflowsDashboard() {
                     }}
                     onOpenFolder={handleOpenFolder}
                     onDuplicateWorkflow={handleDuplicateWorkflow}
+                    duplicateDisabled={
+                      item.type === "workflow" &&
+                      view === "list" &&
+                      item.folder_id != null &&
+                      (foldersIsLoading || !folderPathById.has(item.folder_id))
+                    }
                     setSelectedWorkflow={setSelectedWorkflow}
                     setSelectedFolder={setSelectedFolder}
                     setActiveDialog={setActiveDialog}

@@ -28,4 +28,30 @@ describe("AgentPresetDeleteDialog", () => {
     await user.type(input, "Triage agent")
     expect(deleteButton).toBeEnabled()
   })
+
+  it('requires typing "DELETE" when the preset has no name', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <AgentPresetDeleteDialog
+        open={true}
+        onOpenChange={() => {}}
+        presetName=""
+        isDeleting={false}
+        onConfirm={() => {}}
+      />
+    )
+
+    const deleteButton = screen.getByRole("button", { name: "Delete agent" })
+    const input = screen.getByPlaceholderText('Type "DELETE" to confirm')
+
+    expect(deleteButton).toBeDisabled()
+
+    await user.type(input, "delete")
+    expect(deleteButton).toBeDisabled()
+
+    await user.clear(input)
+    await user.type(input, "DELETE")
+    expect(deleteButton).toBeEnabled()
+  })
 })

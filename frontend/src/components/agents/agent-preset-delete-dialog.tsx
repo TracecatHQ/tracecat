@@ -27,6 +27,8 @@ export function AgentPresetDeleteDialog({
   onConfirm: () => Promise<void> | void
 }) {
   const [confirmationValue, setConfirmationValue] = useState("")
+  const normalizedPresetName = presetName.trim()
+  const confirmationTarget = normalizedPresetName || "DELETE"
 
   useEffect(() => {
     if (!open) {
@@ -38,7 +40,7 @@ export function AgentPresetDeleteDialog({
     setConfirmationValue("")
   }, [presetName])
 
-  const isConfirmationValid = confirmationValue === presetName
+  const isConfirmationValid = confirmationValue === confirmationTarget
 
   return (
     <AlertDialog
@@ -58,16 +60,17 @@ export function AgentPresetDeleteDialog({
           <AlertDialogTitle>Delete this agent?</AlertDialogTitle>
           <AlertDialogDescription>
             This action permanently removes{" "}
-            {presetName ? `"${presetName}"` : "the agent"} and cannot be undone.
+            {normalizedPresetName ? `"${normalizedPresetName}"` : "the agent"}{" "}
+            and cannot be undone.
           </AlertDialogDescription>
           <AlertDialogDescription>
-            Type <b>{presetName}</b> to confirm deletion.
+            Type <b>{confirmationTarget}</b> to confirm deletion.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <Input
           value={confirmationValue}
           onChange={(event) => setConfirmationValue(event.target.value)}
-          placeholder={`Type "${presetName}" to confirm`}
+          placeholder={`Type "${confirmationTarget}" to confirm`}
           disabled={isDeleting}
         />
         <AlertDialogFooter>

@@ -38,6 +38,7 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 export function WorkflowActions({
   item,
   onDuplicateWorkflow,
+  duplicateDisabled = false,
   setSelectedWorkflow,
   setActiveDialog,
   showMoveToFolder = true,
@@ -45,6 +46,7 @@ export function WorkflowActions({
 }: {
   item: WorkflowDirectoryItem
   onDuplicateWorkflow: (item: WorkflowDirectoryItem) => void
+  duplicateDisabled?: boolean
   setSelectedWorkflow: (workflow: WorkflowReadMinimal) => void
   setActiveDialog?: (activeDialog: ActiveDialog | null) => void
   showMoveToFolder?: boolean
@@ -231,6 +233,7 @@ export function WorkflowActions({
       </ContextMenuItem>
       <ContextMenuItem
         className="text-xs"
+        disabled={duplicateDisabled || !enabledExport}
         onClick={(event) => {
           event.stopPropagation()
           onDuplicateWorkflow(item)

@@ -6,7 +6,7 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { format } from "date-fns"
 import { Copy, CopyPlus, Trash2 } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import type { AgentPresetRead, AgentPresetReadMinimal } from "@/client"
 import {
   agentPresetsGetAgentPreset,
@@ -248,11 +248,13 @@ function AgentActionsMenu({
   onCopy,
   onDuplicate,
   onDelete,
+  isDuplicating,
 }: {
   preset: AgentPresetTableRow
   onCopy: (preset: AgentPresetTableRow) => void
   onDuplicate: (preset: AgentPresetTableRow) => void
   onDelete: (preset: AgentPresetTableRow) => void
+  isDuplicating: boolean
 }) {
   return (
     <DropdownMenu>
@@ -277,10 +279,11 @@ function AgentActionsMenu({
         </DropdownMenuItem>
         <DropdownMenuItem
           className="text-xs"
+          disabled={isDuplicating}
           onClick={() => onDuplicate(preset)}
         >
           <CopyPlus className="mr-2 size-3.5" />
-          Duplicate agent
+          {isDuplicating ? "Duplicating..." : "Duplicate agent"}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -302,6 +305,10 @@ export function AgentsTable() {
   const [selectedPreset, setSelectedPreset] =
     useState<AgentPresetTableRow | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [duplicatingPresetId, setDuplicatingPresetId] = useState<string | null>(
+    null
+  )
+  const duplicatingPresetIdRef = useRef<string | null>(null)
   const { createAgentPreset } = useCreateAgentPreset(workspaceId)
   const { deleteAgentPreset, deleteAgentPresetIsPending } =
     useDeleteAgentPreset(workspaceId)
@@ -399,6 +406,12 @@ export function AgentsTable() {
 
   const handleDuplicate = useCallback(
     async (preset: AgentPresetTableRow) => {
+      if (duplicatingPresetIdRef.current === preset.id) {
+        return
+      }
+
+      duplicatingPresetIdRef.current = preset.id
+      setDuplicatingPresetId(preset.id)
       try {
         const sourcePreset = toDuplicateSourcePreset(preset)
         const fullPreset =
@@ -417,6 +430,14 @@ export function AgentsTable() {
         router.push(`/workspaces/${workspaceId}/agents/${createdPreset.id}`)
       } catch (error) {
         console.error("Failed to duplicate agent preset:", error)
+        toast({
+          title: "Duplicate failed",
+          description: "Could not duplicate agent. Please try again.",
+          variant: "destructive",
+        })
+      } finally {
+        duplicatingPresetIdRef.current = null
+        setDuplicatingPresetId(null)
       }
     },
     [createAgentPreset, presets, router, workspaceId]
@@ -675,6 +696,7 @@ export function AgentsTable() {
             onCopy={handleCopy}
             onDuplicate={handleDuplicate}
             onDelete={handleDeleteRequest}
+            isDuplicating={duplicatingPresetId === row.original.id}
           />
         ),
       },

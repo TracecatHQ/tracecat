@@ -94,6 +94,7 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { toast } from "@/components/ui/use-toast"
 import {
   useAgentPreset,
   useAgentPresets,
@@ -942,6 +943,8 @@ function AgentPresetForm({
   mcpIntegrationsIsLoading,
 }: AgentPresetFormProps) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [isDuplicating, setIsDuplicating] = useState(false)
+  const isDuplicatingRef = useRef(false)
   const [activeTab, setActiveTab] = useState<AgentPresetSideTab>("live-chat")
   const { isFeatureEnabled: isFeatureEnabledFlag } = useFeatureFlag()
   const channelsEnabled = isFeatureEnabledFlag("agent-channels")
@@ -1046,6 +1049,28 @@ function AgentPresetForm({
     [isDeleting]
   )
 
+  const handleDuplicate = useCallback(async () => {
+    if (!onDuplicate || isDuplicatingRef.current) {
+      return
+    }
+
+    isDuplicatingRef.current = true
+    setIsDuplicating(true)
+    try {
+      await onDuplicate()
+    } catch (error) {
+      console.error("Failed to duplicate agent preset", error)
+      toast({
+        title: "Duplicate failed",
+        description: "Could not duplicate agent. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      isDuplicatingRef.current = false
+      setIsDuplicating(false)
+    }
+  }, [onDuplicate])
+
   const handleAddToolApproval = useCallback(() => {
     appendToolApproval({
       tool: "",
@@ -1075,7 +1100,8 @@ function AgentPresetForm({
               isDeleting={isDeleting}
               canSubmit={canSubmit}
               presetName={preset?.name ?? ""}
-              onDuplicate={onDuplicate}
+              onDuplicate={onDuplicate ? handleDuplicate : undefined}
+              isDuplicating={isDuplicating}
               onDelete={onDelete}
               deleteDialogOpen={deleteDialogOpen}
               onDeleteDialogChange={handleDeleteDialogChange}
@@ -1120,6 +1146,7 @@ function AgentPresetDocumentPanel({
   canSubmit,
   presetName,
   onDuplicate,
+  isDuplicating,
   onDelete,
   deleteDialogOpen,
   onDeleteDialogChange,
@@ -1132,6 +1159,7 @@ function AgentPresetDocumentPanel({
   canSubmit: boolean
   presetName: string
   onDuplicate?: () => Promise<void>
+  isDuplicating: boolean
   onDelete?: () => Promise<void>
   deleteDialogOpen: boolean
   onDeleteDialogChange: (nextOpen: boolean) => void
@@ -1227,12 +1255,13 @@ function AgentPresetDocumentPanel({
                   <DropdownMenuContent align="end">
                     {onDuplicate ? (
                       <DropdownMenuItem
+                        disabled={isDuplicating}
                         onSelect={() => {
                           void onDuplicate()
                         }}
                       >
                         <CopyPlus className="mr-2 size-4" />
-                        Duplicate agent
+                        {isDuplicating ? "Duplicating..." : "Duplicate agent"}
                       </DropdownMenuItem>
                     ) : null}
                     <DropdownMenuSeparator />
