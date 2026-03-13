@@ -5,7 +5,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import TypeAdapter
-from sqlalchemy import select
+from sqlalchemy import bindparam, cast, func, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
@@ -207,6 +208,55 @@ class TestWorkspaceService:
             "git_repo_url": None,
             "workflow_default_timeout_seconds": 300,
         }
+
+    async def test_postgres_jsonb_merge_matches_current_settings_update_semantics(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """A SQL jsonb merge preserves the same top-level settings semantics."""
+        initial_settings: WorkspaceSettings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "workflow_default_timeout_seconds": 300,
+            "allowed_attachment_extensions": [".png"],
+            "validate_attachment_magic_number": True,
+        }
+        svc_workspace.settings = initial_settings.copy()
+        sql_workspace = Workspace(
+            name="sql-merge-workspace",
+            organization_id=svc_workspace.organization_id,
+            settings=initial_settings.copy(),
+        )
+        session.add_all([svc_workspace, sql_workspace])
+        await session.commit()
+        await session.refresh(sql_workspace)
+
+        params = WorkspaceUpdate(
+            settings=WorkspaceSettingsUpdate(
+                git_repo_url=None,
+                workflow_unlimited_timeout_enabled=True,
+                allowed_attachment_extensions=[".pdf"],
+            )
+        )
+        settings_patch = params.model_dump(exclude_unset=True)["settings"]
+
+        updated = await service.update_workspace(svc_workspace, params)
+
+        statement = (
+            update(Workspace)
+            .where(Workspace.id == sql_workspace.id)
+            .values(
+                settings=func.coalesce(Workspace.settings, cast("{}", JSONB)).op("||")(
+                    bindparam("settings_patch", type_=JSONB)
+                )
+            )
+            .returning(Workspace.settings)
+        )
+        result = await session.execute(statement, {"settings_patch": settings_patch})
+        await session.commit()
+
+        assert result.scalar_one() == updated.settings
 
 
 @pytest.mark.parametrize(

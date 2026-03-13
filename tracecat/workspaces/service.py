@@ -4,10 +4,10 @@ import secrets
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import cast
 
 from pydantic import UUID4
-from sqlalchemy import select, update
+from sqlalchemy import bindparam, cast, func, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, noload, selectinload
 
@@ -42,7 +42,6 @@ from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workspaces.schemas import (
     WorkspaceInvitationCreate,
     WorkspaceSearch,
-    WorkspaceSettings,
     WorkspaceUpdate,
 )
 
@@ -164,15 +163,27 @@ class WorkspaceService(BaseOrgService):
         """Update a workspace."""
         set_fields = params.model_dump(exclude_unset=True)
         self.logger.info("Updating workspace", set_fields=set_fields)
-        if (settings_update := set_fields.pop("settings", None)) is not None:
-            current_settings = workspace.settings or {}
-            workspace.settings = cast(
-                WorkspaceSettings,
-                current_settings | settings_update,
+        settings_update = set_fields.pop("settings", None)
+        if settings_update is None and not set_fields:
+            return workspace
+
+        statement = update(Workspace).where(
+            Workspace.organization_id == self.organization_id,
+            Workspace.id == workspace.id,
+        )
+
+        statement_params: dict[str, object] = {}
+        if settings_update is not None:
+            statement = statement.values(
+                settings=func.coalesce(Workspace.settings, cast("{}", JSONB)).op("||")(
+                    bindparam("settings_patch", type_=JSONB)
+                )
             )
-        for field, value in set_fields.items():
-            setattr(workspace, field, value)
-        self.session.add(workspace)
+            statement_params["settings_patch"] = settings_update
+        if set_fields:
+            statement = statement.values(**set_fields)
+
+        await self.session.execute(statement, statement_params)
         await self.session.commit()
         await self.session.refresh(workspace)
         return workspace
