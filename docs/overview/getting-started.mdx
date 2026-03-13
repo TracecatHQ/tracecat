@@ -2,6 +2,8 @@
 title: "Getting started"
 ---
 
+import McpInstallation from "/snippets/mcp-installation.mdx";
+
 Join Tracecat Community Cloud or self-host your own instance.
 
 ## Cloud
@@ -9,40 +11,7 @@ Join Tracecat Community Cloud or self-host your own instance.
 The recommended way to sign up and start using Tracecat is through your agent harness (Claude Code, Cursor, OpenAI Codex).
 You can also create an account manually via [https://platform.tracecat.com](https://platform.tracecat.com).
 
-<Tabs sync={false}>
-  <Tab title="Claude Code" icon="https://cdn.simpleicons.org/anthropic">
-
-    ```bash
-    claude mcp add -t http tracecat https://platform.tracecat.com/mcp
-    claude
-    /mcp
-    ```
-  </Tab>
-
-  <Tab title="OpenAI Codex" icon="https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/openai.svg">
-
-    ```bash
-    codex mcp add tracecat --url https://platform.tracecat.com/mcp
-    codex mcp login tracecat
-    ```
-  </Tab>
-
-  <Tab title="Cursor" icon="https://cdn.simpleicons.org/cursor">
-
-    Click this link [Add Tracecat to Cursor](https://cursor.com/en/install-mcp?name=tracecat&config=eyJ1cmwiOiJodHRwczovL3BsYXRmb3JtLnRyYWNlY2F0LmNvbS9tY3AifQ)
-    Or manually configure in `.cursor/mcp.json`:
-
-    ```json
-    {
-      "mcpServers": {
-        "tracecat": {
-          "url": "https://platform.tracecat.com/mcp"
-        }
-      }
-    }
-    ```
-  </Tab>
-</Tabs>
+<McpInstallation />
 
 ## Self-host
 

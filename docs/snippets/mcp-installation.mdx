@@ -1,0 +1,34 @@
+<Tabs sync={false}>
+  <Tab title="Claude Code" icon="https://cdn.simpleicons.org/anthropic">
+
+    ```bash
+    claude mcp add -t http tracecat https://platform.tracecat.com/mcp
+    claude
+    /mcp
+    ```
+  </Tab>
+
+  <Tab title="OpenAI Codex" icon="https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/openai.svg">
+
+    ```bash
+    codex mcp add tracecat --url https://platform.tracecat.com/mcp
+    codex mcp login tracecat
+    ```
+  </Tab>
+
+  <Tab title="Cursor" icon="https://cdn.simpleicons.org/cursor">
+
+    Click this link [Add Tracecat to Cursor](https://cursor.com/en/install-mcp?name=tracecat&config=eyJ1cmwiOiJodHRwczovL3BsYXRmb3JtLnRyYWNlY2F0LmNvbS9tY3AifQ)
+    Or manually configure in `.cursor/mcp.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "tracecat": {
+          "url": "https://platform.tracecat.com/mcp"
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>

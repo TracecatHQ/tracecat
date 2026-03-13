@@ -29,7 +29,6 @@
             "icon": "workflow",
             "pages": [
               "automations/ai-builder",
-              "automations/mcp",
               "automations/expressions",
               "automations/jsonpath",
               "automations/functions",
