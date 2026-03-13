@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { useAuthActions } from "@/hooks/use-auth"
+import { buildInvitationAcceptUrl } from "@/hooks/use-invitations"
 import { usePendingOrgInvitations } from "@/hooks/use-pending-org-invitations"
 
 export function NoOrganizationAccess() {
@@ -54,7 +55,7 @@ export function NoOrganizationAccess() {
               <div className="space-y-2">
                 {invitations.map((invitation) => (
                   <div
-                    key={invitation.token}
+                    key={invitation.accept_token}
                     className="flex items-center justify-between rounded-md border p-3"
                   >
                     <div className="space-y-1">
@@ -71,7 +72,7 @@ export function NoOrganizationAccess() {
                     </div>
                     <Button asChild size="sm" variant="outline">
                       <Link
-                        href={`/invitations/accept?token=${encodeURIComponent(invitation.token)}`}
+                        href={buildInvitationAcceptUrl(invitation.accept_token)}
                       >
                         Review
                       </Link>

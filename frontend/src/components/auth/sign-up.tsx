@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
+import { sanitizeReturnUrl } from "@/lib/auth-return-url"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -83,15 +84,14 @@ export function SignUp({
   const { user } = useAuth()
   const { appInfo, appInfoIsLoading, appInfoError } = useAppInfo()
   const router = useRouter()
-  const signInPath = buildSignInPath(returnUrl, organizationSlug)
+  const sanitizedReturnUrl = sanitizeReturnUrl(returnUrl)
+  const signInPath = buildSignInPath(sanitizedReturnUrl, organizationSlug)
 
   useEffect(() => {
     if (user) {
-      // Always redirect to /workspaces after login
-      // Invitation acceptance is handled atomically during registration
-      router.push("/workspaces")
+      router.push(sanitizedReturnUrl ?? "/workspaces")
     }
-  }, [user, router])
+  }, [user, router, sanitizedReturnUrl])
 
   if (appInfoIsLoading) {
     return <CenteredSpinner />
@@ -146,7 +146,7 @@ export function SignUp({
         </CardHeader>
         <CardContent>
           <div className="grid gap-4">
-            <BasicRegistrationForm returnUrl={returnUrl} />
+            <BasicRegistrationForm returnUrl={sanitizedReturnUrl} />
           </div>
           <div className="mt-4 text-center text-sm text-muted-foreground">
             Already have an account?{" "}

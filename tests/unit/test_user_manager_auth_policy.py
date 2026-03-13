@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.security import OAuth2PasswordRequestForm
@@ -22,6 +23,7 @@ from tracecat.db.models import (
     OrganizationMembership,
     User,
 )
+from tracecat.exceptions import TracecatValidationError
 from tracecat.organization.domains import normalize_domain
 from tracecat.settings.schemas import SAMLSettingsUpdate
 from tracecat.settings.service import SettingsService
@@ -249,6 +251,35 @@ async def test_authenticate_allows_password_when_basic_enabled_and_not_saml_enfo
 
     assert authenticated_user is not None
     assert authenticated_user.id == user.id
+
+
+@pytest.mark.anyio
+async def test_register_swallows_invitation_validation_error(
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_manager._pending_invitation_token = "bad-token"
+    user = User(
+        id=uuid.uuid4(),
+        email="invitee@gmail.com",
+        hashed_password="",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+    )
+
+    accept_invitation = AsyncMock(
+        side_effect=TracecatValidationError("workspace selection required")
+    )
+    monkeypatch.setattr(
+        "tracecat.organization.service.accept_invitation_for_user",
+        accept_invitation,
+    )
+
+    await user_manager._accept_invitation_atomically(user)
+
+    accept_invitation.assert_awaited_once()
+    assert user_manager._pending_invitation_token is None
 
 
 @pytest.mark.anyio
