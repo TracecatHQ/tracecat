@@ -2257,9 +2257,9 @@ export const graphApplyGraphOperations = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.trigger
- * @param data.userId
  * @param data.limit
  * @param data.workflowId
+ * @param data.userId
  * @returns WorkflowExecutionReadMinimal Successful Response
  * @throws ApiError
  */
@@ -2271,10 +2271,10 @@ export const workflowExecutionsListWorkflowExecutions = (
     url: "/workflow-executions",
     query: {
       trigger: data.trigger,
-      user_id: data.userId,
       limit: data.limit,
       workspace_id: data.workspaceId,
       workflow_id: data.workflowId,
+      user_id: data.userId,
     },
     errors: {
       422: "Validation Error",
@@ -2313,7 +2313,6 @@ export const workflowExecutionsCreateWorkflowExecution = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.trigger
- * @param data.userId
  * @param data.status
  * @param data.statusMode
  * @param data.startTimeFrom
@@ -2328,6 +2327,7 @@ export const workflowExecutionsCreateWorkflowExecution = (
  * @param data.limit
  * @param data.cursor
  * @param data.reverse
+ * @param data.userId
  * @returns CursorPaginatedResponse_WorkflowRunReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -2339,7 +2339,6 @@ export const workflowExecutionsSearchWorkflowExecutions = (
     url: "/workflow-executions/search",
     query: {
       trigger: data.trigger,
-      user_id: data.userId,
       status: data.status,
       status_mode: data.statusMode,
       start_time_from: data.startTimeFrom,
@@ -2355,6 +2354,7 @@ export const workflowExecutionsSearchWorkflowExecutions = (
       limit: data.limit,
       cursor: data.cursor,
       reverse: data.reverse,
+      user_id: data.userId,
     },
     errors: {
       422: "Validation Error",
