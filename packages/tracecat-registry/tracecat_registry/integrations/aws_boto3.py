@@ -204,13 +204,16 @@ def get_sync_session() -> boto3.Session:
     return session
 
 
+_STREAMING_BODY_MAX_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
 async def _read_streaming_values(obj: Any) -> Any:
     """Recursively read StreamingBody and bytes values in a boto3 response.
 
     Content is decoded as UTF-8, falling back to base64 for binary data.
     """
     if isinstance(obj, StreamingBody):
-        content = await obj.read()
+        content = await obj.read(_STREAMING_BODY_MAX_BYTES)
         try:
             return content.decode("utf-8")
         except UnicodeDecodeError:
@@ -292,8 +295,8 @@ async def call_paginated_api(
         paginator = client.get_paginator(paginator_name)
         pages = paginator.paginate(**params)
 
-    results = []
-    async for page in pages:
-        results.append(await _read_streaming_values(page))
+        results = []
+        async for page in pages:
+            results.append(await _read_streaming_values(page))
 
     return results
