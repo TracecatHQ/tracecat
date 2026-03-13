@@ -67,14 +67,21 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import { useWorkflowsPagination } from "@/hooks/pagination/use-workflows-pagination"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   type DirectoryItem,
+  useFolders,
   useGetDirectoryItems,
+  useWorkflowManager,
   useWorkflowTags,
 } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
+import {
+  buildDuplicatedWorkflowDefinition,
+  exportWorkflowDefinition,
+} from "@/lib/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const DEFAULT_LIMIT = 20
@@ -778,6 +785,7 @@ function WorkflowsListRow({
   item,
   onOpenWorkflow,
   onOpenFolder,
+  onDuplicateWorkflow,
   setSelectedWorkflow,
   setSelectedFolder,
   setActiveDialog,
@@ -786,6 +794,7 @@ function WorkflowsListRow({
   item: DirectoryItem
   onOpenWorkflow: (workflowId: string) => void
   onOpenFolder: (path: string) => void
+  onDuplicateWorkflow: (item: WorkflowDirectoryItem) => void
   setSelectedWorkflow: (workflow: WorkflowReadMinimal | null) => void
   setSelectedFolder: (folder: FolderDirectoryItem | null) => void
   setActiveDialog: (activeDialog: ActiveDialog | null) => void
@@ -857,6 +866,7 @@ function WorkflowsListRow({
         {/* Reuse the existing workflow action set, now rendered in right-click menu */}
         <WorkflowActions
           item={item}
+          onDuplicateWorkflow={onDuplicateWorkflow}
           availableTags={availableTags}
           showMoveToFolder
           setSelectedWorkflow={setSelectedWorkflow}
@@ -898,6 +908,15 @@ export function WorkflowsDashboard() {
   const [selectedFolder, setSelectedFolder] =
     useState<FolderDirectoryItem | null>(null)
 
+  const { createWorkflow, moveWorkflow, addWorkflowTag } = useWorkflowManager(
+    undefined,
+    {
+      listEnabled: false,
+    }
+  )
+  const { folders } = useFolders(workspaceId, {
+    enabled: view === "list",
+  })
   const { tags } = useWorkflowTags(workspaceId)
 
   const tagNameByRef = useMemo(() => {
@@ -948,6 +967,10 @@ export function WorkflowsDashboard() {
     useGetDirectoryItems(currentPath, workspaceId, {
       enabled: view === "folders",
     })
+  const folderPathById = useMemo(
+    () => new Map((folders ?? []).map((folder) => [folder.id, folder.path])),
+    [folders]
+  )
 
   const baseRoute = `/workspaces/${workspaceId}/workflows`
 
@@ -978,6 +1001,76 @@ export function WorkflowsDashboard() {
     nextParams.set("path", normalizeFolderPath(path))
     router.push(buildRoute(nextParams))
   }
+
+  const handleDuplicateWorkflow = useCallback(
+    async (item: WorkflowDirectoryItem) => {
+      try {
+        const exportedDefinition = await exportWorkflowDefinition({
+          workspaceId,
+          workflowId: item.id,
+          draft: true,
+        })
+        const duplicatedDefinition = buildDuplicatedWorkflowDefinition(
+          exportedDefinition,
+          item.title
+        )
+        const createdWorkflow = await createWorkflow({
+          workspaceId,
+          formData: {
+            file: new Blob([JSON.stringify(duplicatedDefinition)], {
+              type: "application/json",
+            }),
+            use_workflow_id: false,
+          },
+        })
+        const targetFolderPath =
+          view === "folders"
+            ? currentPath
+            : item.folder_id
+              ? (folderPathById.get(item.folder_id) ?? "/")
+              : "/"
+
+        await moveWorkflow({
+          workflowId: createdWorkflow.id,
+          workspaceId,
+          requestBody: {
+            folder_path: targetFolderPath,
+          },
+        })
+
+        for (const tag of item.tags ?? []) {
+          await addWorkflowTag({
+            workflowId: createdWorkflow.id,
+            workspaceId,
+            requestBody: {
+              tag_id: tag.id,
+            },
+          })
+        }
+
+        router.push(
+          `/workspaces/${workspaceId}/workflows/${createdWorkflow.id}`
+        )
+      } catch (error) {
+        console.error("Failed to duplicate workflow:", error)
+        toast({
+          title: "Duplicate failed",
+          description: "Could not duplicate workflow. Please try again.",
+          variant: "destructive",
+        })
+      }
+    },
+    [
+      addWorkflowTag,
+      createWorkflow,
+      currentPath,
+      folderPathById,
+      moveWorkflow,
+      router,
+      view,
+      workspaceId,
+    ]
+  )
 
   const matchesFilters = useCallback(
     (item: DirectoryItem): boolean => {
@@ -1248,6 +1341,7 @@ export function WorkflowsDashboard() {
                       )
                     }}
                     onOpenFolder={handleOpenFolder}
+                    onDuplicateWorkflow={handleDuplicateWorkflow}
                     setSelectedWorkflow={setSelectedWorkflow}
                     setSelectedFolder={setSelectedFolder}
                     setActiveDialog={setActiveDialog}

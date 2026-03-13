@@ -2,6 +2,7 @@
 
 import {
   Copy,
+  CopyPlus,
   DownloadIcon,
   ExternalLink,
   FolderKanban,
@@ -36,12 +37,14 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowActions({
   item,
+  onDuplicateWorkflow,
   setSelectedWorkflow,
   setActiveDialog,
   showMoveToFolder = true,
   availableTags,
 }: {
   item: WorkflowDirectoryItem
+  onDuplicateWorkflow: (item: WorkflowDirectoryItem) => void
   setSelectedWorkflow: (workflow: WorkflowReadMinimal) => void
   setActiveDialog?: (activeDialog: ActiveDialog | null) => void
   showMoveToFolder?: boolean
@@ -225,6 +228,16 @@ export function WorkflowActions({
       >
         <Copy className="mr-2 size-3.5" />
         Copy workflow ID
+      </ContextMenuItem>
+      <ContextMenuItem
+        className="text-xs"
+        onClick={(event) => {
+          event.stopPropagation()
+          onDuplicateWorkflow(item)
+        }}
+      >
+        <CopyPlus className="mr-2 size-3.5" />
+        Duplicate workflow
       </ContextMenuItem>
       <ContextMenuSeparator />
       <DeleteWorkflowAlertDialogTrigger asChild>

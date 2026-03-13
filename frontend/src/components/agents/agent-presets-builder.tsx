@@ -6,6 +6,7 @@ import {
   Box,
   Braces,
   Brackets,
+  CopyPlus,
   Hash,
   History,
   List,
@@ -26,14 +27,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import {
-  type MouseEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   type FieldErrors,
   type UseFormReturn,
@@ -46,6 +40,7 @@ import type {
   AgentPresetRead,
   AgentPresetUpdate,
 } from "@/client"
+import { AgentPresetDeleteDialog } from "@/components/agents/agent-preset-delete-dialog"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
 import { AgentPresetVersionsPanel } from "@/components/agents/agent-preset-versions-panel"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
@@ -58,22 +53,12 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -127,6 +112,7 @@ import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import {
   type AgentPresetFormMode,
+  buildDuplicateAgentPresetPayload,
   canSubmitAgentPresetForm,
 } from "@/lib/agent-presets"
 import type { ModelInfo } from "@/lib/chat"
@@ -502,6 +488,25 @@ export function AgentPresetsBuilder({
           handleSetSelectedPresetId(updated.id)
           return updated
         }}
+        onDuplicate={
+          selectedPreset
+            ? async () => {
+                const existingSlugs =
+                  presets
+                    ?.map((preset) => preset.slug)
+                    .filter(
+                      (slug): slug is string => typeof slug === "string"
+                    ) ?? []
+                const created = await createAgentPreset(
+                  buildDuplicateAgentPresetPayload(
+                    selectedPreset,
+                    existingSlugs
+                  )
+                )
+                handleSetSelectedPresetId(created.id)
+              }
+            : undefined
+        }
         onDelete={
           selectedPreset
             ? async () => {
@@ -906,6 +911,7 @@ type AgentPresetFormProps = {
     presetId: string,
     payload: AgentPresetUpdate
   ) => Promise<AgentPresetRead>
+  onDuplicate?: () => Promise<void>
   onDelete?: () => Promise<void>
   isSaving: boolean
   isDeleting: boolean
@@ -924,6 +930,7 @@ function AgentPresetForm({
   builderPrompt,
   onCreate,
   onUpdate,
+  onDuplicate,
   onDelete,
   isSaving,
   isDeleting,
@@ -945,8 +952,7 @@ function AgentPresetForm({
     defaultValues: preset ? presetToFormValues(preset) : DEFAULT_FORM_VALUES,
   })
 
-  const handleConfirmDelete = async (event: MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault()
+  const handleConfirmDelete = async () => {
     if (!onDelete) {
       return
     }
@@ -1068,6 +1074,8 @@ function AgentPresetForm({
               isSaving={isSaving}
               isDeleting={isDeleting}
               canSubmit={canSubmit}
+              presetName={preset?.name ?? ""}
+              onDuplicate={onDuplicate}
               onDelete={onDelete}
               deleteDialogOpen={deleteDialogOpen}
               onDeleteDialogChange={handleDeleteDialogChange}
@@ -1110,6 +1118,8 @@ function AgentPresetDocumentPanel({
   isSaving,
   isDeleting,
   canSubmit,
+  presetName,
+  onDuplicate,
   onDelete,
   deleteDialogOpen,
   onDeleteDialogChange,
@@ -1120,10 +1130,12 @@ function AgentPresetDocumentPanel({
   isSaving: boolean
   isDeleting: boolean
   canSubmit: boolean
+  presetName: string
+  onDuplicate?: () => Promise<void>
   onDelete?: () => Promise<void>
   deleteDialogOpen: boolean
   onDeleteDialogChange: (nextOpen: boolean) => void
-  onConfirmDelete: (event: MouseEvent<HTMLButtonElement>) => Promise<void>
+  onConfirmDelete: () => Promise<void>
 }) {
   return (
     <ScrollArea className="h-full">
@@ -1198,10 +1210,7 @@ function AgentPresetDocumentPanel({
               )}
             </Button>
             {mode === "edit" && onDelete ? (
-              <AlertDialog
-                open={deleteDialogOpen}
-                onOpenChange={onDeleteDialogChange}
-              >
+              <>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -1216,51 +1225,37 @@ function AgentPresetDocumentPanel({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <AlertDialogTrigger asChild>
+                    {onDuplicate ? (
                       <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onSelect={(e) => {
-                          e.preventDefault()
-                          onDeleteDialogChange(true)
+                        onSelect={() => {
+                          void onDuplicate()
                         }}
                       >
-                        <Trash2 className="mr-2 size-4" />
-                        Delete agent
+                        <CopyPlus className="mr-2 size-4" />
+                        Duplicate agent
                       </DropdownMenuItem>
-                    </AlertDialogTrigger>
+                    ) : null}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onSelect={(event) => {
+                        event.preventDefault()
+                        onDeleteDialogChange(true)
+                      }}
+                    >
+                      <Trash2 className="mr-2 size-4" />
+                      Delete agent
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>
-                      Delete this agent preset?
-                    </AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This action permanently removes the preset and cannot be
-                      undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={isDeleting}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      variant="destructive"
-                      onClick={onConfirmDelete}
-                      disabled={isDeleting}
-                    >
-                      {isDeleting ? (
-                        <span className="flex items-center">
-                          <Loader2 className="mr-2 size-4 animate-spin" />
-                          Deleting...
-                        </span>
-                      ) : (
-                        "Delete agent"
-                      )}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                <AgentPresetDeleteDialog
+                  open={deleteDialogOpen}
+                  onOpenChange={onDeleteDialogChange}
+                  presetName={presetName}
+                  isDeleting={isDeleting}
+                  onConfirm={onConfirmDelete}
+                />
+              </>
             ) : null}
           </div>
         </div>

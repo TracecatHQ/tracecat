@@ -4,29 +4,21 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useQuery } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { format } from "date-fns"
-import { Copy, Trash2 } from "lucide-react"
+import { Copy, CopyPlus, Trash2 } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { useCallback, useMemo, useState } from "react"
 import type { AgentPresetRead, AgentPresetReadMinimal } from "@/client"
 import {
   agentPresetsGetAgentPreset,
   agentPresetsListAgentPresets,
 } from "@/client"
+import { AgentPresetDeleteDialog } from "@/components/agents/agent-preset-delete-dialog"
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
 import { getIcon, ProviderIcon } from "@/components/icons"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -43,8 +35,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useDeleteAgentPreset } from "@/hooks/use-agent-presets"
+import {
+  useCreateAgentPreset,
+  useDeleteAgentPreset,
+} from "@/hooks/use-agent-presets"
 import { useAuth } from "@/hooks/use-auth"
+import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useListMcpIntegrations } from "@/lib/hooks"
 import {
@@ -190,6 +186,40 @@ const buildMcpBadges = (
 const hasToolsConfig = (preset: AgentPresetTableRow) =>
   preset.actions !== undefined || preset.namespaces !== undefined
 
+function toDuplicateSourcePreset(
+  preset: AgentPresetTableRow
+): AgentPresetRead | null {
+  if (
+    typeof preset.slug !== "string" ||
+    typeof preset.model_name !== "string" ||
+    typeof preset.model_provider !== "string"
+  ) {
+    return null
+  }
+
+  return {
+    id: preset.id,
+    workspace_id: preset.workspace_id,
+    name: preset.name,
+    slug: preset.slug,
+    description: preset.description ?? null,
+    current_version_id: preset.current_version_id ?? null,
+    created_at: preset.created_at,
+    updated_at: preset.updated_at,
+    instructions: preset.instructions ?? null,
+    model_name: preset.model_name,
+    model_provider: preset.model_provider,
+    base_url: preset.base_url ?? null,
+    output_type: preset.output_type ?? null,
+    actions: preset.actions ?? null,
+    namespaces: preset.namespaces ?? null,
+    tool_approvals: preset.tool_approvals ?? null,
+    mcp_integrations: preset.mcp_integrations ?? null,
+    retries: preset.retries,
+    enable_internet_access: preset.enable_internet_access,
+  }
+}
+
 const renderRelativeDate = (value?: string) => {
   if (!value) {
     return <span className="text-xs text-muted-foreground">-</span>
@@ -216,10 +246,12 @@ const renderRelativeDate = (value?: string) => {
 function AgentActionsMenu({
   preset,
   onCopy,
+  onDuplicate,
   onDelete,
 }: {
   preset: AgentPresetTableRow
   onCopy: (preset: AgentPresetTableRow) => void
+  onDuplicate: (preset: AgentPresetTableRow) => void
   onDelete: (preset: AgentPresetTableRow) => void
 }) {
   return (
@@ -243,6 +275,13 @@ function AgentActionsMenu({
           <Copy className="mr-2 size-3.5" />
           Copy agent ID
         </DropdownMenuItem>
+        <DropdownMenuItem
+          className="text-xs"
+          onClick={() => onDuplicate(preset)}
+        >
+          <CopyPlus className="mr-2 size-3.5" />
+          Duplicate agent
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="text-xs text-rose-500 focus:text-rose-600"
@@ -257,11 +296,13 @@ function AgentActionsMenu({
 }
 
 export function AgentsTable() {
+  const router = useRouter()
   const workspaceId = useWorkspaceId()
   const { user } = useAuth()
   const [selectedPreset, setSelectedPreset] =
     useState<AgentPresetTableRow | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const { createAgentPreset } = useCreateAgentPreset(workspaceId)
   const { deleteAgentPreset, deleteAgentPresetIsPending } =
     useDeleteAgentPreset(workspaceId)
   const { mcpIntegrations } = useListMcpIntegrations(workspaceId)
@@ -355,6 +396,31 @@ export function AgentsTable() {
     setSelectedPreset(preset)
     setDeleteDialogOpen(true)
   }, [])
+
+  const handleDuplicate = useCallback(
+    async (preset: AgentPresetTableRow) => {
+      try {
+        const sourcePreset = toDuplicateSourcePreset(preset)
+        const fullPreset =
+          sourcePreset ??
+          (await agentPresetsGetAgentPreset({
+            workspaceId,
+            presetId: preset.id,
+          }))
+        const existingSlugs =
+          presets
+            ?.map((item) => item.slug)
+            .filter((slug): slug is string => typeof slug === "string") ?? []
+        const createdPreset = await createAgentPreset(
+          buildDuplicateAgentPresetPayload(fullPreset, existingSlugs)
+        )
+        router.push(`/workspaces/${workspaceId}/agents/${createdPreset.id}`)
+      } catch (error) {
+        console.error("Failed to duplicate agent preset:", error)
+      }
+    },
+    [createAgentPreset, presets, router, workspaceId]
+  )
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!selectedPreset) {
@@ -607,12 +673,13 @@ export function AgentsTable() {
           <AgentActionsMenu
             preset={row.original}
             onCopy={handleCopy}
+            onDuplicate={handleDuplicate}
             onDelete={handleDeleteRequest}
           />
         ),
       },
     ],
-    [handleCopy, handleDeleteRequest, mcpIntegrationMap]
+    [handleCopy, handleDeleteRequest, handleDuplicate, mcpIntegrationMap]
   )
 
   return (
@@ -632,41 +699,18 @@ export function AgentsTable() {
           }
         />
       </TooltipProvider>
-      <AlertDialog
+      <AgentPresetDeleteDialog
         open={deleteDialogOpen}
         onOpenChange={(nextOpen) => {
-          if (deleteAgentPresetIsPending) {
-            return
-          }
           setDeleteDialogOpen(nextOpen)
           if (!nextOpen) {
             setSelectedPreset(null)
           }
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this agent?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action permanently removes{" "}
-              {selectedPreset?.name ? `"${selectedPreset.name}"` : "the agent"}
-              {" and cannot be undone."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteAgentPresetIsPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={handleDeleteConfirm}
-              disabled={deleteAgentPresetIsPending}
-            >
-              {deleteAgentPresetIsPending ? "Deleting..." : "Delete agent"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        presetName={selectedPreset?.name ?? "the agent"}
+        isDeleting={deleteAgentPresetIsPending}
+        onConfirm={handleDeleteConfirm}
+      />
     </>
   )
 }
