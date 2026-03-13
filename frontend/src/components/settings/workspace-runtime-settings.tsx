@@ -17,13 +17,26 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { useWorkspaceSettings } from "@/lib/hooks"
 
-export const runtimeSettingsSchema = z.object({
-  workflow_unlimited_timeout_enabled: z.boolean().optional(),
-  workflow_default_timeout_seconds: z
-    .number()
-    .min(1, "Timeout must be at least 1 second")
-    .optional(),
-})
+export const runtimeSettingsSchema = z
+  .object({
+    workflow_unlimited_timeout_enabled: z.boolean().optional(),
+    workflow_default_timeout_seconds: z.number().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (
+      values.workflow_unlimited_timeout_enabled ||
+      values.workflow_default_timeout_seconds === undefined ||
+      values.workflow_default_timeout_seconds >= 1
+    ) {
+      return
+    }
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Timeout must be at least 1 second",
+      path: ["workflow_default_timeout_seconds"],
+    })
+  })
 
 type RuntimeSettingsForm = z.infer<typeof runtimeSettingsSchema>
 
