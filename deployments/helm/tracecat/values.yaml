@@ -224,6 +224,7 @@ tracecat:
     rateLimitBurst: 10
     toolTimeoutSeconds: 120
     maxInputSizeBytes: 524288
+    fileTransferUrlExpirySeconds: 300
     startupMaxAttempts: 3
     startupRetryDelaySeconds: 2
 
