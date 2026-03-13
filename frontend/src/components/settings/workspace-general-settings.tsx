@@ -22,8 +22,8 @@ import { Separator } from "@/components/ui/separator"
 import { useWorkspaceSettings } from "@/lib/hooks"
 import { OrgWorkspaceDeleteDialog } from "../organization/org-workspace-delete-dialog"
 
-const generalSettingsSchema = z.object({
-  name: z.string().min(1, "Workspace name is required"),
+export const generalSettingsSchema = z.object({
+  name: z.string().trim().min(1, "Workspace name is required"),
 })
 
 type GeneralSettingsForm = z.infer<typeof generalSettingsSchema>
