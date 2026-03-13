@@ -249,7 +249,7 @@ tracecat:
 
 enterprise:
   # Enterprise-only feature flags (comma-separated).
-  featureFlags: ""
+  featureFlags: "workflow-concurrency-limits"
   # Enable enterprise multi-tenant mode.
   multiTenant: false
 

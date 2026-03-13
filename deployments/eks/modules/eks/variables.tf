@@ -553,7 +553,7 @@ variable "tags" {
 variable "feature_flags" {
   description = "Comma-separated enterprise feature flags (maps to enterprise.featureFlags)"
   type        = string
-  default     = ""
+  default     = "workflow-concurrency-limits"
 }
 
 # Auth Configuration
