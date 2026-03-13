@@ -24,6 +24,7 @@ from pathlib import Path
 
 import httpx
 
+from tracecat.config import TRACECAT__LLM_PROXY_READ_TIMEOUT
 from tracecat.logger import logger
 
 # LiteLLM proxy runs on localhost:4000
@@ -103,8 +104,8 @@ class LLMSocketProxy:
             self.socket_path.unlink()
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(
-                connect=10.0,
-                read=120.0,
+                connect=20.0,
+                read=TRACECAT__LLM_PROXY_READ_TIMEOUT,
                 write=30.0,
                 pool=10.0,
             )

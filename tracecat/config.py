@@ -621,6 +621,11 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
+TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
+    os.environ.get("TRACECAT__LLM_PROXY_READ_TIMEOUT") or 300.0
+)
+"""Read timeout for the LLM socket proxy in seconds (default: 5 minutes)."""
+
 TRACECAT__AGENT_QUEUE = os.environ.get("TRACECAT__AGENT_QUEUE", "shared-agent-queue")
 """Task queue for the AgentWorker (Temporal workflow queue).
 

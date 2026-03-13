@@ -326,6 +326,7 @@ agentExecutor:
       memory: "4096Mi"
   queue: "shared-agent-queue"
   workerPoolSize: ""
+  llmProxyReadTimeout: "300"
   contextCompression:
     enabled: false
     thresholdKb: 16
