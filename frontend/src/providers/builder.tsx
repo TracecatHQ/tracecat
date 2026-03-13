@@ -7,7 +7,6 @@ import {
   useOnSelectionChange,
   useReactFlow,
 } from "@xyflow/react"
-import Cookies from "js-cookie"
 import React, {
   createContext,
   type ReactNode,
@@ -29,11 +28,15 @@ import {
   type TriggerPanelTab,
 } from "@/components/builder/panel/trigger-panel-tabs"
 import { useAuth } from "@/hooks/use-auth"
-import { DEFAULT_TRIGGER_PAYLOAD } from "@/lib/workflow-trigger-payload"
+import {
+  DEFAULT_TRIGGER_PAYLOAD,
+  readPersistedTriggerPayload,
+  triggerPayloadStorageKey,
+  writePersistedTriggerPayload,
+} from "@/lib/workflow-trigger-payload"
 import { useWorkflow } from "@/providers/workflow"
 
 const SELECTED_NODE_STORAGE_PREFIX = "tracecat:builder:selected-node"
-const TRIGGER_PAYLOAD_COOKIE_PREFIX = "__tracecat:builder:trigger-payload"
 
 function selectedNodeStorageKey({
   workspaceId,
@@ -95,72 +98,6 @@ function writePersistedSelectedNode({
   }
 }
 
-function triggerPayloadCookieKey({
-  userId,
-  workspaceId,
-  workflowId,
-}: {
-  userId: string | null
-  workspaceId: string
-  workflowId: string | null
-}): string {
-  return `${TRIGGER_PAYLOAD_COOKIE_PREFIX}:${userId ?? "anonymous"}:${workspaceId}:${workflowId}`
-}
-
-function readPersistedTriggerPayload({
-  userId,
-  workspaceId,
-  workflowId,
-}: {
-  userId: string | null
-  workspaceId: string
-  workflowId: string | null
-}): string {
-  if (!workflowId || typeof window === "undefined") {
-    return DEFAULT_TRIGGER_PAYLOAD
-  }
-
-  try {
-    return (
-      Cookies.get(
-        triggerPayloadCookieKey({ userId, workspaceId, workflowId })
-      ) ?? DEFAULT_TRIGGER_PAYLOAD
-    )
-  } catch {
-    return DEFAULT_TRIGGER_PAYLOAD
-  }
-}
-
-function writePersistedTriggerPayload({
-  userId,
-  workspaceId,
-  workflowId,
-  triggerPayload,
-}: {
-  userId: string | null
-  workspaceId: string
-  workflowId: string | null
-  triggerPayload: string
-}): void {
-  if (!workflowId || typeof window === "undefined") {
-    return
-  }
-
-  try {
-    Cookies.set(
-      triggerPayloadCookieKey({ userId, workspaceId, workflowId }),
-      triggerPayload,
-      {
-        expires: 365,
-        path: "/",
-        sameSite: "lax",
-      }
-    )
-  } catch {
-    // Ignore storage failures (e.g. blocked cookies)
-  }
-}
-
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance
   workflowId: string
@@ -204,7 +141,7 @@ export const WorkflowBuilderProvider: React.FC<
 > = ({ children }) => {
   const reactFlowInstance = useReactFlow()
   const { workspaceId, workflowId, error } = useWorkflow()
-  const { user } = useAuth()
+  const { user, userIsLoading } = useAuth()
   const userId = user?.id ?? null
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
@@ -220,9 +157,10 @@ export const WorkflowBuilderProvider: React.FC<
   const [currentExecutionId, setCurrentExecutionId] = useState<string | null>(
     null
   )
-  const [triggerPayload, setTriggerPayload] = useState<string>(
+  const [triggerPayloadState, setTriggerPayloadState] = useState<string>(
     DEFAULT_TRIGGER_PAYLOAD
   )
+  const triggerPayload = triggerPayloadState
   // In-memory map of actionId -> last edited form values.
   // This lets the action panel restore unsaved edits when the user
   // switches between nodes without touching the backend.
@@ -238,12 +176,37 @@ export const WorkflowBuilderProvider: React.FC<
     key: string
     value: string
   } | null>(null)
+  const triggerPayloadDirtyRef = useRef(false)
+  const suppressNextTriggerPayloadPersistRef = useRef(false)
+
+  const setTriggerPayload = useCallback(
+    (value: SetStateAction<string>) => {
+      setTriggerPayloadState((current) => {
+        const nextValue =
+          typeof value === "function"
+            ? (value as (current: string) => string)(current)
+            : value
+        if (nextValue !== current) {
+          triggerPayloadDirtyRef.current = true
+        }
+        return nextValue
+      })
+    },
+    [setTriggerPayloadState]
+  )
 
   useEffect(() => {
     // Restore the last selection for this workflow in the current browser
     // session, then clear transient per-workflow UI state.
     if (!workflowId) {
       setSelectedNodeId(null)
+      setCurrentExecutionId(null)
+      setActionDrafts({})
+      setTriggerPayloadState(DEFAULT_TRIGGER_PAYLOAD)
+      setTriggerPanelTab(DEFAULT_TRIGGER_PANEL_TAB)
+      lastPersistedTriggerPayloadRef.current = null
+      triggerPayloadDirtyRef.current = false
+      suppressNextTriggerPayloadPersistRef.current = false
       return
     }
     const restoredSelection = readPersistedSelectedNode({
@@ -258,23 +221,52 @@ export const WorkflowBuilderProvider: React.FC<
     setSelectedNodeId(restoredSelection)
     setCurrentExecutionId(null)
     setActionDrafts({})
+    setTriggerPayloadState(DEFAULT_TRIGGER_PAYLOAD)
+    lastPersistedTriggerPayloadRef.current = null
+    triggerPayloadDirtyRef.current = false
+    suppressNextTriggerPayloadPersistRef.current = false
+    setTriggerPanelTab(DEFAULT_TRIGGER_PANEL_TAB)
+  }, [workspaceId, workflowId])
+
+  useEffect(() => {
+    if (!workflowId || userIsLoading) {
+      return
+    }
+
+    const key = triggerPayloadStorageKey({ userId, workspaceId, workflowId })
+    const lastPersisted = lastPersistedTriggerPayloadRef.current
+    if (lastPersisted?.key === key) {
+      return
+    }
+
+    if (triggerPayloadDirtyRef.current) {
+      writePersistedTriggerPayload({
+        userId,
+        workspaceId,
+        workflowId,
+        triggerPayload: triggerPayloadState,
+      })
+      lastPersistedTriggerPayloadRef.current = {
+        key,
+        value: triggerPayloadState,
+      }
+      triggerPayloadDirtyRef.current = false
+      return
+    }
+
     const restoredTriggerPayload = readPersistedTriggerPayload({
       userId,
       workspaceId,
       workflowId,
     })
-    const triggerPayloadKey = triggerPayloadCookieKey({
-      userId,
-      workspaceId,
-      workflowId,
-    })
     lastPersistedTriggerPayloadRef.current = {
-      key: triggerPayloadKey,
+      key,
       value: restoredTriggerPayload,
     }
-    setTriggerPayload(restoredTriggerPayload)
-    setTriggerPanelTab(DEFAULT_TRIGGER_PANEL_TAB)
-  }, [userId, workspaceId, workflowId])
+    triggerPayloadDirtyRef.current = false
+    suppressNextTriggerPayloadPersistRef.current = true
+    setTriggerPayloadState(restoredTriggerPayload)
+  }, [userIsLoading, userId, workspaceId, workflowId, triggerPayloadState])
 
   useEffect(() => {
     if (!workflowId) {
@@ -297,15 +289,19 @@ export const WorkflowBuilderProvider: React.FC<
   }, [workspaceId, workflowId, selectedNodeId])
 
   useEffect(() => {
-    if (!workflowId) {
+    if (!workflowId || userIsLoading) {
       return
     }
-    const key = triggerPayloadCookieKey({ userId, workspaceId, workflowId })
+    if (suppressNextTriggerPayloadPersistRef.current) {
+      suppressNextTriggerPayloadPersistRef.current = false
+      return
+    }
+    const key = triggerPayloadStorageKey({ userId, workspaceId, workflowId })
     const lastPersisted = lastPersistedTriggerPayloadRef.current
     if (
       lastPersisted &&
       lastPersisted.key === key &&
-      lastPersisted.value === triggerPayload
+      lastPersisted.value === triggerPayloadState
     ) {
       return
     }
@@ -315,18 +311,19 @@ export const WorkflowBuilderProvider: React.FC<
         userId,
         workspaceId,
         workflowId,
-        triggerPayload,
+        triggerPayload: triggerPayloadState,
       })
       lastPersistedTriggerPayloadRef.current = {
         key,
-        value: triggerPayload,
+        value: triggerPayloadState,
       }
+      triggerPayloadDirtyRef.current = false
     }, 250)
 
     return () => {
       window.clearTimeout(timeoutId)
     }
-  }, [userId, workspaceId, workflowId, triggerPayload])
+  }, [userIsLoading, userId, workspaceId, workflowId, triggerPayloadState])
 
   const setReactFlowNodes = useCallback(
     (nodes: Node[] | ((nodes: Node[]) => Node[])) => {

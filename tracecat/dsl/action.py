@@ -61,6 +61,7 @@ from tracecat.storage.object import (
     StoredObjectValidator,
     collection_item_key,
     get_object_storage,
+    retrieve_stored_object,
 )
 from tracecat.validation.schemas import ValidationDetail
 
@@ -334,7 +335,7 @@ async def materialize_context(ctx: ExecutionContext) -> MaterializedExecutionCon
     if trigger := ctx.get("TRIGGER"):
         trigger_task_idx = len(action_refs)  # Index after all action tasks
         validated = StoredObjectValidator.validate_python(trigger)
-        coros.append(get_object_storage().retrieve(validated))
+        coros.append(retrieve_stored_object(validated))
 
     # Collect results and map back to their refs
     try:

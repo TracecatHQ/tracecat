@@ -309,7 +309,7 @@ export default React.memo(function TriggerNode({
 
       {style.showContent && (
         <div
-          className="w-[360px] rounded-xl border bg-background p-3"
+          className="nodrag nopan nowheel w-[360px] rounded-xl border bg-background p-3"
           onClick={(event) => {
             event.stopPropagation()
           }}
@@ -341,7 +341,7 @@ export default React.memo(function TriggerNode({
               </>
             ) : (
               <span className="text-muted-foreground">
-                Saved to cookies for this workflow in this browser.
+                Saved in this browser for this workflow.
               </span>
             )}
           </div>

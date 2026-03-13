@@ -12,9 +12,11 @@ Objectives
 """
 
 import datetime
+import hashlib
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
+import orjson
 import pytest
 from temporalio.api.enums.v1 import EventType, PendingActivityState
 from temporalio.client import Client, WorkflowHandle
@@ -25,7 +27,7 @@ from tracecat.db.models import Workspace
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.schemas import StreamID
 from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowUUID
-from tracecat.storage.object import InlineObject
+from tracecat.storage.object import ExternalObject, InlineObject, ObjectRef
 from tracecat.workflow.executions.enums import (
     TriggerType,
     WorkflowEventType,
@@ -315,8 +317,6 @@ class TestWorkflowExecutionEvents:
 
         trigger_payload = {"case_id": "case-123", "severity": "high"}
         trigger_inputs = InlineObject(data=trigger_payload, typename="dict")
-        mock_storage = Mock()
-        mock_storage.retrieve = AsyncMock(return_value=trigger_payload)
 
         with (
             patch(
@@ -326,10 +326,6 @@ class TestWorkflowExecutionEvents:
             patch(
                 "tracecat.workflow.executions.service.DSLRunArgs",
                 return_value=Mock(trigger_inputs=trigger_inputs),
-            ),
-            patch(
-                "tracecat.workflow.executions.service.get_object_storage",
-                return_value=mock_storage,
             ),
         ):
             events = await workflow_executions_service.list_workflow_execution_events_compact(
@@ -348,7 +344,6 @@ class TestWorkflowExecutionEvents:
         assert event.schedule_time == expected_time
         assert event.start_time == expected_time
         assert event.close_time == expected_time
-        mock_storage.retrieve.assert_awaited_once_with(trigger_inputs)
 
     async def test_workflow_trigger_synthetic_event_creation_without_inputs(
         self,
@@ -374,9 +369,6 @@ class TestWorkflowExecutionEvents:
             return_value=mock_handle
         )
 
-        mock_storage = Mock()
-        mock_storage.retrieve = AsyncMock()
-
         with (
             patch(
                 "tracecat.workflow.executions.service.extract_first",
@@ -385,10 +377,6 @@ class TestWorkflowExecutionEvents:
             patch(
                 "tracecat.workflow.executions.service.DSLRunArgs",
                 return_value=Mock(trigger_inputs=None),
-            ),
-            patch(
-                "tracecat.workflow.executions.service.get_object_storage",
-                return_value=mock_storage,
             ),
         ):
             events = await workflow_executions_service.list_workflow_execution_events_compact(
@@ -399,7 +387,64 @@ class TestWorkflowExecutionEvents:
         event = events[0]
         assert event.action_ref == WF_TRIGGER_REF
         assert event.action_input is None
-        mock_storage.retrieve.assert_not_called()
+
+    async def test_workflow_trigger_externalized_payload_uses_ref_backend(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Trigger payload resolution uses the backend encoded in the object ref."""
+        started_event = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield started_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+
+        trigger_payload = {"case_id": "case-123", "severity": "high"}
+        serialized_payload = orjson.dumps(trigger_payload)
+        trigger_inputs = ExternalObject(
+            ref=ObjectRef(
+                bucket="workflow-results",
+                key="workspace-123/run-123/trigger.json",
+                size_bytes=len(serialized_payload),
+                sha256=hashlib.sha256(serialized_payload).hexdigest(),
+            ),
+            typename="dict",
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "tracecat.workflow.executions.service.DSLRunArgs",
+                return_value=Mock(trigger_inputs=trigger_inputs),
+            ),
+            patch(
+                "tracecat.storage.backends.s3.cached_blob_download",
+                AsyncMock(return_value=serialized_payload),
+            ) as mock_cached_blob_download,
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+        assert len(events) == 1
+        assert events[0].action_input == trigger_payload
+        mock_cached_blob_download.assert_awaited_once()
 
     async def test_compact_trigger_event_sorts_before_later_actions(
         self,

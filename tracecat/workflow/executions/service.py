@@ -61,6 +61,7 @@ from tracecat.storage.object import (
     StoredObject,
     StoredObjectValidator,
     get_object_storage,
+    retrieve_stored_object,
 )
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
@@ -156,7 +157,7 @@ async def _resolve_trigger_context(trigger_inputs: StoredObject | None) -> Any |
     """Materialize stored trigger inputs for compact history views."""
     if trigger_inputs is None:
         return None
-    return await get_object_storage().retrieve(trigger_inputs)
+    return await retrieve_stored_object(trigger_inputs)
 
 
 class WorkflowExecutionsService:
