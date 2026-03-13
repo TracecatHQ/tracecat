@@ -176,7 +176,7 @@ class WorkspaceService(BaseOrgService):
         statement_params: dict[str, object] = {}
         if settings_update is not missing:
             if settings_update is None:
-                statement = statement.values(settings=None)
+                statement = statement.values(settings={})
             else:
                 statement = statement.values(
                     settings=func.coalesce(Workspace.settings, cast("{}", JSONB)).op(

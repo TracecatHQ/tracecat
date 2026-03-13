@@ -249,7 +249,7 @@ class TestWorkspaceService:
         service: WorkspaceService,
         svc_workspace: Workspace,
     ) -> None:
-        """Explicit null settings updates should clear the entire settings blob."""
+        """Explicit null settings updates should clear to an empty settings object."""
         svc_workspace.settings = {
             "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
             "workflow_default_timeout_seconds": 300,
@@ -262,7 +262,7 @@ class TestWorkspaceService:
             WorkspaceUpdate(settings=None),
         )
 
-        assert updated.settings is None
+        assert updated.settings == {}
 
 
 @pytest.mark.parametrize(
