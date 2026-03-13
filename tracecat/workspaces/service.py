@@ -261,7 +261,7 @@ class WorkspaceService(BaseOrgService):
         self,
         workspace_id: WorkspaceID,
         params: WorkspaceInvitationCreate,
-    ) -> Invitation:
+    ) -> Invitation | None:
         """Create a new workspace invitation.
 
         Args:
@@ -269,7 +269,8 @@ class WorkspaceService(BaseOrgService):
             params: The invitation parameters (email, role_id).
 
         Returns:
-            The created invitation.
+            The created invitation, or `None` when an existing organization
+            member was added to the workspace directly.
 
         Raises:
             TracecatValidationError: If there is already a pending invitation
@@ -290,10 +291,6 @@ class WorkspaceService(BaseOrgService):
                 workspace_id=workspace_id,
             ),
         )
-        if invitation is None:
-            raise TracecatValidationError(
-                f"{params.email} is already a member of this organization"
-            )
         return invitation
 
     async def list_invitations(

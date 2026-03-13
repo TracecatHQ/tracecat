@@ -408,7 +408,7 @@ def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
 async def get_pending_org_invitation(
     session: AsyncSession, organization_id: OrganizationID, email: str
 ) -> Invitation | None:
-    """Return a pending, unexpired org invitation for the email if one exists."""
+    """Return the latest pending, unexpired org invitation for the email if one exists."""
     normalized_email = email.strip().lower()
     if not normalized_email:
         return None

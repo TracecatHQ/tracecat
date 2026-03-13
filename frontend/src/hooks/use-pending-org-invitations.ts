@@ -1,31 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-
-export type PendingInvitationRead = {
-  accept_token: string
-  organization_id: string
-  organization_name: string
-  workspace_id?: string | null
-  workspace_name?: string | null
-  inviter_name?: string | null
-  inviter_email?: string | null
-  role_name: string
-  role_slug?: string | null
-  expires_at: string
-  workspace_options: Array<{
-    invitation_id: string
-    workspace_id: string
-    workspace_name?: string | null
-    role_id: string
-    role_name: string
-    role_slug?: string | null
-    status: "pending" | "accepted" | "revoked" | "declined"
-    expires_at: string
-    created_at: string
-    accepted_at?: string | null
-  }>
-}
+import type { PendingInvitationRead } from "@/client"
 
 async function listPendingInvitations(): Promise<PendingInvitationRead[]> {
   const response = await fetch("/api/invitations/pending/me", {

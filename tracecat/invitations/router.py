@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.credentials import (
     AuthenticatedUserOnly,
@@ -268,6 +269,12 @@ async def create_invitation(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         ) from e
+    except IntegrityError as e:
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"An invitation already exists for {params.email.lower()}",
+        ) from e
 
     invitation_read: InvitationRead | None = None
     if invitation is not None:
@@ -432,11 +439,11 @@ async def revoke_invitation(
     if invitation.workspace_id is not None:
         await _check_scope(
             scoped_role,
-            "workspace:member:remove",
+            "workspace:member:invite",
             invitation.workspace_id,
         )
     else:
-        await _check_scope(scoped_role, "org:member:remove")
+        await _check_scope(scoped_role, "org:member:invite")
 
     try:
         await service.revoke_invitation(invitation_id)
@@ -474,8 +481,6 @@ async def get_invitation_token(
         organization_id=invitation.organization_id,
         workspace_id=invitation.workspace_id,
     )
-    service = InvitationService(session, role=scoped_role)
-    invitation = await service.get_invitation(invitation_id)
 
     if invitation.workspace_id is not None:
         await _check_scope(

@@ -57,6 +57,21 @@ class WorkspaceMembershipTarget:
     role_id: uuid.UUID
 
 
+async def _resolve_workspace_organization_id(
+    session: AsyncSession,
+    *,
+    workspace_id: WorkspaceID,
+) -> OrganizationID:
+    """Resolve the organization that owns a workspace."""
+    ws_result = await session.execute(
+        select(Workspace.organization_id).where(Workspace.id == workspace_id)
+    )
+    organization_id = ws_result.scalar_one_or_none()
+    if organization_id is None:
+        raise TracecatValidationError("Workspace not found")
+    return organization_id
+
+
 async def _resolve_workspace_membership_target(
     session: AsyncSession,
     *,
@@ -64,12 +79,10 @@ async def _resolve_workspace_membership_target(
     role_id: uuid.UUID | None = None,
 ) -> WorkspaceMembershipTarget:
     """Resolve the org and role used for a workspace membership mutation."""
-    ws_result = await session.execute(
-        select(Workspace.organization_id).where(Workspace.id == workspace_id)
+    organization_id = await _resolve_workspace_organization_id(
+        session,
+        workspace_id=workspace_id,
     )
-    organization_id = ws_result.scalar_one_or_none()
-    if organization_id is None:
-        raise TracecatValidationError("Workspace not found")
 
     if role_id is None:
         default_role_result = await session.execute(
@@ -464,13 +477,13 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
-        target = await _resolve_workspace_membership_target(
+        organization_id = await _resolve_workspace_organization_id(
             self.session,
             workspace_id=workspace_id,
         )
         await _remove_workspace_only_group_memberships(
             self.session,
-            organization_id=target.organization_id,
+            organization_id=organization_id,
             workspace_id=workspace_id,
             user_id=user_id,
         )
@@ -488,7 +501,7 @@ class MembershipService(BaseService):
         )
         await _cleanup_org_membership_if_unassigned(
             self.session,
-            organization_id=target.organization_id,
+            organization_id=organization_id,
             user_id=user_id,
         )
         await self.session.commit()

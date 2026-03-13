@@ -17,6 +17,7 @@ from tracecat.db.models import (
     Organization,
     OrganizationMembership,
     User,
+    UserRoleAssignment,
     Workspace,
 )
 from tracecat.db.models import (
@@ -485,6 +486,7 @@ class TestCreateInvitation:
             role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
+        assert invitation is not None
 
         assert invitation.id is not None
         assert invitation.workspace_id == inv_workspace.id
@@ -495,6 +497,53 @@ class TestCreateInvitation:
         assert len(invitation.token) == 64
         assert invitation.expires_at > datetime.now(UTC)
         assert invitation.accepted_at is None
+
+    async def test_create_invitation_directly_adds_existing_org_member(
+        self,
+        session: AsyncSession,
+        inv_org: Organization,
+        inv_workspace: Workspace,
+        admin_user: User,
+        basic_user: User,
+        rbac_roles: dict[str, str],
+    ):
+        """Existing org members should be added without persisting an invite row."""
+        role = create_workspace_admin_role(inv_org.id, inv_workspace.id, admin_user.id)
+        service = WorkspaceService(session, role=role)
+
+        params = WorkspaceInvitationCreate(
+            email=basic_user.email,
+            role_id=rbac_roles["workspace-editor"],
+        )
+
+        invitation = await service.create_invitation(inv_workspace.id, params)
+
+        assert invitation is None
+        membership = await session.scalar(
+            select(Membership).where(
+                Membership.workspace_id == inv_workspace.id,
+                Membership.user_id == basic_user.id,
+            )
+        )
+        assignment = await session.scalar(
+            select(UserRoleAssignment).where(
+                UserRoleAssignment.organization_id == inv_org.id,
+                UserRoleAssignment.workspace_id == inv_workspace.id,
+                UserRoleAssignment.user_id == basic_user.id,
+            )
+        )
+        invitation_row = await session.scalar(
+            select(Invitation).where(
+                Invitation.organization_id == inv_org.id,
+                Invitation.workspace_id == inv_workspace.id,
+                Invitation.email == basic_user.email,
+            )
+        )
+
+        assert membership is not None
+        assert assignment is not None
+        assert assignment.role_id == uuid.UUID(rbac_roles["workspace-editor"])
+        assert invitation_row is None
 
     async def test_create_invitation_duplicate_pending_fails(
         self,
@@ -544,12 +593,14 @@ class TestCreateInvitation:
 
         # Create first invitation
         invitation = await service.create_invitation(inv_workspace.id, params)
+        assert invitation is not None
 
         # Revoke it so the pending check passes
         await service.revoke_invitation(inv_workspace.id, invitation.id)
 
         # Re-inviting replaces non-pending rows in the consolidated model.
         new_invitation = await service.create_invitation(inv_workspace.id, params)
+        assert new_invitation is not None
         assert new_invitation.id != invitation.id
         assert new_invitation.email == email
 
@@ -573,6 +624,7 @@ class TestCreateInvitation:
 
         # Create first invitation
         invitation = await service.create_invitation(inv_workspace.id, params)
+        assert invitation is not None
         old_id = invitation.id
 
         # Manually expire it (set expires_at to the past)
@@ -582,6 +634,7 @@ class TestCreateInvitation:
         # Create another invitation for the same email
         # This should succeed because the old one is expired
         new_invitation = await service.create_invitation(inv_workspace.id, params)
+        assert new_invitation is not None
 
         assert new_invitation.id != old_id
         assert new_invitation.email == email
@@ -634,6 +687,7 @@ class TestListInvitations:
             role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
+        assert invitation is not None
 
         # Manually revoke it
         invitation.status = InvitationStatus.REVOKED
@@ -682,6 +736,7 @@ class TestGetInvitationByToken:
             role_id=rbac_roles["workspace-editor"],
         )
         created = await service.create_invitation(inv_workspace.id, params)
+        assert created is not None
 
         # Retrieve by token
         retrieved = await service.get_invitation_by_token(created.token)
@@ -761,6 +816,7 @@ class TestAcceptInvitation:
             role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
+        assert invitation is not None
 
         # Accept invitation
         membership = await service.accept_invitation(invitation.token, external_user.id)
@@ -918,6 +974,7 @@ class TestRevokeInvitation:
             role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
+        assert invitation is not None
 
         await service.revoke_invitation(inv_workspace.id, invitation.id)
 
@@ -987,6 +1044,7 @@ class TestRevokeInvitation:
             role_id=rbac_roles["workspace-editor"],
         )
         invitation = await service.create_invitation(inv_workspace.id, params)
+        assert invitation is not None
 
         # Revoke once
         await service.revoke_invitation(inv_workspace.id, invitation.id)
