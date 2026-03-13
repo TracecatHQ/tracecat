@@ -162,6 +162,10 @@ async def test_get_pending_org_invitation_returns_latest_match() -> None:
     )
 
     assert result is invitation
+    execute_args = fake_session.execute.await_args
+    assert execute_args is not None
+    statement = execute_args.args[0]
+    assert "workspace_id IS NULL" in str(statement)
 
 
 @pytest.mark.anyio

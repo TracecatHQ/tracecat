@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from sqlalchemy import cast, func, select
+from sqlalchemy import cast, func, select, update
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import selectinload
 
@@ -59,6 +59,19 @@ class InvitationGroup:
 def _generate_invitation_token() -> str:
     """Generate a unique 64-character token for invitation magic links."""
     return secrets.token_urlsafe(48)[:64]
+
+
+def _is_pending_and_unexpired(
+    invitation: Invitation,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Return True when an invitation can still be acted on."""
+    effective_now = now or datetime.now(UTC)
+    return (
+        invitation.status == InvitationStatus.PENDING
+        and invitation.expires_at > effective_now
+    )
 
 
 async def _compute_workspace_effective_scopes(
@@ -295,6 +308,7 @@ async def _load_pending_workspace_options(
     organization_id: uuid.UUID,
     email: str,
 ) -> list[Invitation]:
+    now = datetime.now(UTC)
     result = await session.execute(
         select(Invitation)
         .where(
@@ -302,6 +316,7 @@ async def _load_pending_workspace_options(
             Invitation.workspace_id.is_not(None),
             func.lower(Invitation.email) == email.lower(),
             Invitation.status == InvitationStatus.PENDING,
+            Invitation.expires_at > now,
         )
         .options(
             selectinload(Invitation.role_obj),
@@ -337,6 +352,7 @@ async def _resolve_group_by_token(
     *,
     token: str,
 ) -> InvitationGroup:
+    now = datetime.now(UTC)
     result = await session.execute(
         select(Invitation)
         .where(Invitation.token == token)
@@ -351,15 +367,13 @@ async def _resolve_group_by_token(
     if invitation is None:
         raise TracecatNotFoundError("Invitation not found")
 
-    if (
-        invitation.workspace_id is None
-        and invitation.status == InvitationStatus.PENDING
+    if invitation.workspace_id is None and _is_pending_and_unexpired(
+        invitation, now=now
     ):
         return await _build_group_from_org_invitation(session, invitation=invitation)
 
-    if (
-        invitation.workspace_id is not None
-        and invitation.status == InvitationStatus.PENDING
+    if invitation.workspace_id is not None and _is_pending_and_unexpired(
+        invitation, now=now
     ):
         org_result = await session.execute(
             select(Invitation)
@@ -368,6 +382,7 @@ async def _resolve_group_by_token(
                 Invitation.workspace_id.is_(None),
                 func.lower(Invitation.email) == invitation.email.lower(),
                 Invitation.status == InvitationStatus.PENDING,
+                Invitation.expires_at > now,
             )
             .options(
                 selectinload(Invitation.organization),
@@ -396,11 +411,11 @@ async def _resolve_group_by_token(
 def _group_invitations(
     invitations: Sequence[Invitation],
 ) -> list[InvitationGroup]:
+    now = datetime.now(UTC)
     pending_orgs_by_key: dict[tuple[uuid.UUID, str], Invitation] = {}
     for invitation in invitations:
-        if (
-            invitation.workspace_id is None
-            and invitation.status == InvitationStatus.PENDING
+        if invitation.workspace_id is None and _is_pending_and_unexpired(
+            invitation, now=now
         ):
             pending_orgs_by_key[
                 (invitation.organization_id, invitation.email.lower())
@@ -408,9 +423,8 @@ def _group_invitations(
 
     workspace_rows_by_key: dict[tuple[uuid.UUID, str], list[Invitation]] = {}
     for invitation in invitations:
-        if (
-            invitation.workspace_id is None
-            or invitation.status != InvitationStatus.PENDING
+        if invitation.workspace_id is None or not _is_pending_and_unexpired(
+            invitation, now=now
         ):
             continue
         key = (invitation.organization_id, invitation.email.lower())
@@ -420,9 +434,8 @@ def _group_invitations(
     handled_pending_workspace_ids: set[InvitationID] = set()
     for invitation in invitations:
         key = (invitation.organization_id, invitation.email.lower())
-        if (
-            invitation.workspace_id is None
-            and invitation.status == InvitationStatus.PENDING
+        if invitation.workspace_id is None and _is_pending_and_unexpired(
+            invitation, now=now
         ):
             workspace_invitations = workspace_rows_by_key.get(key, [])
             handled_pending_workspace_ids.update(
@@ -440,7 +453,7 @@ def _group_invitations(
 
         if (
             invitation.workspace_id is not None
-            and invitation.status == InvitationStatus.PENDING
+            and _is_pending_and_unexpired(invitation, now=now)
             and key in pending_orgs_by_key
             and invitation.id in handled_pending_workspace_ids
         ):
@@ -504,6 +517,53 @@ async def _decline_pending_rows(
             invitation.accepted_at = None
 
 
+async def _ensure_workspace_invitation_target_available(
+    session: AsyncSession,
+    *,
+    invitation: Invitation,
+    user_id: UserID,
+) -> None:
+    assert invitation.workspace_id is not None
+    result = await session.execute(
+        select(Membership.user_id).where(
+            Membership.workspace_id == invitation.workspace_id,
+            Membership.user_id == user_id,
+        )
+    )
+    if result.scalar_one_or_none() is not None:
+        raise TracecatValidationError("User is already a member of this workspace")
+
+
+async def _set_invitation_status_if_pending(
+    session: AsyncSession,
+    *,
+    invitation: Invitation,
+    status: InvitationStatus,
+    accepted_at: datetime | None,
+    require_unexpired: bool = False,
+) -> None:
+    conditions = [
+        Invitation.id == invitation.id,
+        Invitation.status == InvitationStatus.PENDING,
+    ]
+    if require_unexpired:
+        conditions.append(Invitation.expires_at > datetime.now(UTC))
+
+    result = await session.execute(
+        update(Invitation)
+        .where(*conditions)
+        .values(status=status, accepted_at=accepted_at)
+        .returning(Invitation.id)
+    )
+    if result.scalar_one_or_none() is None:
+        raise TracecatAuthorizationError(
+            "Invitation is no longer pending for this action"
+        )
+
+    invitation.status = status
+    invitation.accepted_at = accepted_at
+
+
 async def _accept_workspace_invitation(
     session: AsyncSession,
     *,
@@ -512,6 +572,11 @@ async def _accept_workspace_invitation(
 ) -> Membership:
     organization_id = invitation.organization_id
     assert invitation.workspace_id is not None
+    await _ensure_workspace_invitation_target_available(
+        session,
+        invitation=invitation,
+        user_id=user_id,
+    )
     await _ensure_org_membership(
         session,
         organization_id=organization_id,
@@ -542,7 +607,17 @@ async def _accept_org_group_for_user(
 ) -> OrganizationMembership:
     invitation = group.invitation
     selected_ids = set(selected_workspace_ids or [])
-    if group.workspace_invitations and not selected_ids:
+    valid_workspace_ids = {
+        workspace_invitation.workspace_id
+        for workspace_invitation in group.workspace_invitations
+        if workspace_invitation.workspace_id is not None
+    }
+    invalid_workspace_ids = selected_ids - valid_workspace_ids
+    if invalid_workspace_ids:
+        raise TracecatValidationError(
+            "Selected workspaces are not part of this invitation"
+        )
+    if valid_workspace_ids and not selected_ids:
         raise TracecatValidationError(
             "Select at least one workspace before accepting this invitation"
         )
@@ -552,6 +627,19 @@ async def _accept_org_group_for_user(
         organization_id=invitation.organization_id,
         user_id=user_id,
     )
+
+    selected_workspace_invitations = [
+        workspace_invitation
+        for workspace_invitation in group.workspace_invitations
+        if workspace_invitation.workspace_id in selected_ids
+    ]
+    for workspace_invitation in selected_workspace_invitations:
+        await _ensure_workspace_invitation_target_available(
+            session,
+            invitation=workspace_invitation,
+            user_id=user_id,
+        )
+
     await _upsert_user_role_assignment(
         session,
         organization_id=invitation.organization_id,
@@ -562,21 +650,35 @@ async def _accept_org_group_for_user(
     )
 
     now = datetime.now(UTC)
-    invitation.status = InvitationStatus.ACCEPTED
-    invitation.accepted_at = now
+    await _set_invitation_status_if_pending(
+        session,
+        invitation=invitation,
+        status=InvitationStatus.ACCEPTED,
+        accepted_at=now,
+        require_unexpired=True,
+    )
 
     for workspace_invitation in group.workspace_invitations:
         if workspace_invitation.workspace_id in selected_ids:
-            workspace_invitation.status = InvitationStatus.ACCEPTED
-            workspace_invitation.accepted_at = now
             await _accept_workspace_invitation(
                 session,
                 invitation=workspace_invitation,
                 user_id=user_id,
             )
+            await _set_invitation_status_if_pending(
+                session,
+                invitation=workspace_invitation,
+                status=InvitationStatus.ACCEPTED,
+                accepted_at=now,
+                require_unexpired=True,
+            )
         else:
-            workspace_invitation.status = InvitationStatus.DECLINED
-            workspace_invitation.accepted_at = None
+            await _set_invitation_status_if_pending(
+                session,
+                invitation=workspace_invitation,
+                status=InvitationStatus.DECLINED,
+                accepted_at=None,
+            )
 
     return membership
 
@@ -614,12 +716,13 @@ async def accept_invitation_for_user(
         organization_id=invitation.organization_id,
         service_id="tracecat-api",
     )
+    resource_id = invitation.id
 
     async with AuditService.with_session(audit_role, session=session) as svc:
         await svc.create_event(
             resource_type=resource_type,
             action="accept",
-            resource_id=invitation.id,
+            resource_id=resource_id,
             status=AuditEventStatus.ATTEMPT,
         )
 
@@ -632,23 +735,29 @@ async def accept_invitation_for_user(
                 selected_workspace_ids=selected_workspace_ids,
             )
         else:
-            invitation.status = InvitationStatus.ACCEPTED
-            invitation.accepted_at = datetime.now(UTC)
             membership = await _accept_workspace_invitation(
                 session,
                 invitation=invitation,
                 user_id=user_id,
+            )
+            await _set_invitation_status_if_pending(
+                session,
+                invitation=invitation,
+                status=InvitationStatus.ACCEPTED,
+                accepted_at=datetime.now(UTC),
+                require_unexpired=True,
             )
 
         await session.commit()
         invalidate_authz_caches()
         await session.refresh(membership)
     except Exception:
+        await session.rollback()
         async with AuditService.with_session(audit_role, session=session) as svc:
             await svc.create_event(
                 resource_type=resource_type,
                 action="accept",
-                resource_id=invitation.id,
+                resource_id=resource_id,
                 status=AuditEventStatus.FAILURE,
             )
         raise
@@ -657,7 +766,7 @@ async def accept_invitation_for_user(
         await svc.create_event(
             resource_type=resource_type,
             action="accept",
-            resource_id=invitation.id,
+            resource_id=resource_id,
             status=AuditEventStatus.SUCCESS,
         )
     return membership
@@ -867,12 +976,19 @@ class InvitationService(BaseOrgService):
             )
             return result.scalar_one()
 
-        await _resolve_role_for_scope(
+        role_obj = await _resolve_role_for_scope(
             self.session,
             organization_id=self.organization_id,
             role_id=params.role_id,
             workspace_id=None,
         )
+        if role_obj.slug == "organization-owner" and not (
+            self.role.is_superuser
+            or has_scope(self.role.scopes or frozenset(), "org:owner:assign")
+        ):
+            raise TracecatAuthorizationError(
+                "Only organization owners can create owner invitations"
+            )
         if (
             existing_user := await self._get_existing_org_member_by_email(
                 organization_id=self.organization_id,

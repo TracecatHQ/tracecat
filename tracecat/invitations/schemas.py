@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import AliasChoices, BaseModel, EmailStr, Field
+from pydantic import AliasChoices, BaseModel, EmailStr, Field, model_validator
 
 from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
@@ -23,6 +23,15 @@ class InvitationCreate(BaseModel):
     role_id: UUID
     workspace_id: WorkspaceID | None = Field(default=None)
     workspace_assignments: list[WorkspaceAssignment] | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def validate_workspace_targeting(self) -> InvitationCreate:
+        """Reject incompatible org and workspace invitation inputs."""
+        if self.workspace_id is not None and self.workspace_assignments is not None:
+            raise ValueError(
+                "workspace_assignments cannot be combined with workspace_id"
+            )
+        return self
 
 
 class InvitationWorkspaceOptionRead(BaseModel):

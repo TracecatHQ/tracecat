@@ -28,7 +28,7 @@ from tracecat.dsl.worker import get_activities as get_worker_activities
 from tracecat.executor.registry_resolver import _get_manifest_entry
 from tracecat.executor.service import get_registry_artifacts_for_lock
 from tracecat.integrations.router import connect_provider, oauth_callback
-from tracecat.organization.router import (
+from tracecat.invitations.router import (
     accept_invitation,
     get_invitation_by_token,
     list_my_pending_invitations,
