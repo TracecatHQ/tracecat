@@ -20,7 +20,11 @@ jobs:
   main:
     runs-on: blacksmith-4vcpu-ubuntu-2204
     steps:
-      - name: Draft release
-        uses: release-drafter/release-drafter@v6
-        env:
+          CHART_VERSION=""
+
+          if [ -f deployments/helm/tracecat/Chart.yaml ]; then
+            CHART_VERSION="$(awk -F': ' '$1 == "version" {gsub(/"/, "", $2); print $2}' deployments/helm/tracecat/Chart.yaml)"
+          fi
+            CHART_VERSION="unknown"
+            echo "Unable to determine Helm chart version. Continuing with fallback value: $CHART_VERSION"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
