@@ -64,6 +64,7 @@ class AgentPresetService(BaseWorkspaceService):
         "instructions",
         "model_name",
         "model_provider",
+        "source_id",
         "base_url",
         "output_type",
         "actions",
@@ -108,6 +109,7 @@ class AgentPresetService(BaseWorkspaceService):
             instructions=params.instructions,
             model_name=params.model_name,
             model_provider=params.model_provider,
+            source_id=params.source_id,
             base_url=params.base_url,
             output_type=params.output_type,
             actions=params.actions,
@@ -126,6 +128,7 @@ class AgentPresetService(BaseWorkspaceService):
             instructions=preset.instructions,
             model_name=preset.model_name,
             model_provider=preset.model_provider,
+            source_id=preset.source_id,
             base_url=preset.base_url,
             output_type=preset.output_type,
             actions=preset.actions,
@@ -261,13 +264,18 @@ class AgentPresetService(BaseWorkspaceService):
         preset_version: int | None = None,
     ) -> AgentConfig:
         """Get an agent configuration from a preset by ID or slug with MCP integrations resolved."""
+        preset: AgentPreset | None = None
+        if preset_id is not None:
+            preset = await self.get_preset(preset_id)
+        elif slug is not None:
+            preset = await self.get_preset_by_slug(slug)
         version = await self.resolve_agent_preset_version(
             preset_id=preset_id,
             slug=slug,
             preset_version_id=preset_version_id,
             preset_version=preset_version,
         )
-        return await self._version_to_agent_config(version)
+        return await self._version_to_agent_config(version, preset=preset)
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_version(
@@ -1034,7 +1042,10 @@ class AgentPresetService(BaseWorkspaceService):
         )
 
     async def _version_to_agent_config(
-        self, version: AgentPresetVersion
+        self,
+        version: AgentPresetVersion,
+        *,
+        preset: AgentPreset | None = None,
     ) -> AgentConfig:
         mcp_servers = await self._resolve_mcp_integrations(version.mcp_integrations)
         # Only disable parallel tool calls if tools will be present
@@ -1044,6 +1055,7 @@ class AgentPresetService(BaseWorkspaceService):
         return AgentConfig(
             model_name=version.model_name,
             model_provider=version.model_provider,
+            source_id=version.source_id,
             base_url=version.base_url,
             instructions=version.instructions,
             output_type=cast(OutputType | None, version.output_type),
@@ -1081,6 +1093,7 @@ class AgentPresetService(BaseWorkspaceService):
             instructions=preset.instructions,
             model_name=preset.model_name,
             model_provider=preset.model_provider,
+            source_id=preset.source_id,
             base_url=preset.base_url,
             output_type=preset.output_type,
             actions=preset.actions,
@@ -1103,6 +1116,7 @@ class AgentPresetService(BaseWorkspaceService):
         preset.instructions = version.instructions
         preset.model_name = version.model_name
         preset.model_provider = version.model_provider
+        preset.source_id = version.source_id
         preset.base_url = version.base_url
         preset.output_type = version.output_type
         preset.actions = version.actions

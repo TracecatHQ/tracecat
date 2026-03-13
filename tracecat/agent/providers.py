@@ -16,6 +16,22 @@ from tracecat_registry import secrets
 from tracecat_registry.integrations.aws_boto3 import get_sync_session
 
 
+def _build_openai_compatible_model(
+    *,
+    model_name: str,
+    base_url: str | None,
+    api_key_env: str = "OPENAI_API_KEY",
+    default_api_key: str = "not-needed",
+) -> OpenAIChatModel:
+    return OpenAIChatModel(
+        model_name=model_name,
+        provider=OpenAIProvider(
+            base_url=base_url,
+            api_key=secrets.get_or_default(api_key_env, default_api_key),
+        ),
+    )
+
+
 def get_model(
     model_name: str, model_provider: str, base_url: str | None = None
 ) -> Model:
@@ -33,6 +49,11 @@ def get_model(
         A configured Model instance ready for use with pydantic-ai agents
     """
     match model_provider:
+        case "openai_compatible_gateway" | "manual_custom":
+            model = _build_openai_compatible_model(
+                model_name=model_name,
+                base_url=base_url,
+            )
         case "custom-model-provider":
             # Expect custom models to follow the OpenAI API format
             effective_base_url = base_url or secrets.get(
@@ -42,19 +63,16 @@ def get_model(
                 "CUSTOM_MODEL_PROVIDER_MODEL_NAME", model_name
             )
 
-            model = OpenAIChatModel(
+            model = _build_openai_compatible_model(
                 model_name=effective_model_name,
-                provider=OpenAIProvider(
-                    base_url=effective_base_url,
-                    api_key=secrets.get_or_default("CUSTOM_MODEL_PROVIDER_API_KEY"),
-                ),
+                base_url=effective_base_url,
+                api_key_env="CUSTOM_MODEL_PROVIDER_API_KEY",
             )
         case "openai":
-            model = OpenAIChatModel(
+            model = _build_openai_compatible_model(
                 model_name=model_name,
-                provider=OpenAIProvider(
-                    base_url=base_url, api_key=secrets.get("OPENAI_API_KEY")
-                ),
+                base_url=base_url,
+                default_api_key=secrets.get("OPENAI_API_KEY"),
             )
         case "ollama":
             model = OpenAIChatModel(

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.common.stream_types import HarnessType
@@ -52,10 +52,31 @@ class AgentSessionCreate(BaseModel):
         default=None,
         description="Pinned preset version used for this session (if any)",
     )
+    source_id: uuid.UUID | None = Field(default=None)
+    model_name: str | None = Field(default=None, min_length=1, max_length=500)
+    model_provider: str | None = Field(default=None, min_length=1, max_length=120)
     # Harness fields
     harness_type: HarnessType = Field(
         default=HarnessType.CLAUDE_CODE, description="Agent harness type"
     )
+
+    @model_validator(mode="after")
+    def validate_model_selection(self) -> AgentSessionCreate:
+        if self.agent_preset_id is not None and any(
+            value is not None
+            for value in (self.source_id, self.model_name, self.model_provider)
+        ):
+            raise ValueError(
+                "explicit model selection cannot be set when agent_preset_id is configured"
+            )
+        if any(
+            value is not None
+            for value in (self.source_id, self.model_name, self.model_provider)
+        ) and (self.model_name is None or self.model_provider is None):
+            raise ValueError(
+                "model_name and model_provider must be set together when selecting a model"
+            )
+        return self
 
 
 class AgentSessionUpdate(BaseModel):
@@ -74,6 +95,9 @@ class AgentSessionUpdate(BaseModel):
         default=None,
         description="Pinned preset version to use for this session",
     )
+    source_id: uuid.UUID | None = Field(default=None)
+    model_name: str | None = Field(default=None, min_length=1, max_length=500)
+    model_provider: str | None = Field(default=None, min_length=1, max_length=120)
     harness_type: HarnessType | None = Field(
         default=None, description="Agent harness type"
     )
@@ -109,6 +133,9 @@ class AgentSessionRead(BaseModel):
     tools: list[str] | None
     agent_preset_id: uuid.UUID | None
     agent_preset_version_id: uuid.UUID | None
+    source_id: uuid.UUID | None
+    model_name: str | None
+    model_provider: str | None
     # Harness
     harness_type: str | None
     # Stream tracking

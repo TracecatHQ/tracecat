@@ -12,6 +12,7 @@ from tracecat.db.tenant_rls import (
     SPECIAL_ORG_POLICY_TABLES,
     SPECIAL_WORKSPACE_POLICY_TABLES,
     WORKSPACE_POLICY_TABLES,
+    enable_org_shared_table_rls,
 )
 
 
@@ -80,3 +81,11 @@ def test_tenant_rls_registry_contains_only_mapped_tables() -> None:
         "Tenant RLS registry contains tables that are not mapped in SQLAlchemy: "
         f"{sorted(stale_registry_entries)}"
     )
+
+
+def test_org_shared_rls_allows_global_reads_but_not_global_writes() -> None:
+    sql = enable_org_shared_table_rls("agent_catalog")
+
+    assert "organization_id IS NULL" in sql
+    _, with_check_clause = sql.split("WITH CHECK", maxsplit=1)
+    assert "organization_id IS NULL" not in with_check_clause

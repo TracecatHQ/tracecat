@@ -47,6 +47,7 @@ from tracecat import config
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetRead
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.schemas import ModelSelection
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
@@ -478,38 +479,149 @@ async def _resolve_agent_preset_model(
     *,
     model_name: str | None,
     model_provider: str | None,
-) -> tuple[str, str]:
+) -> ModelSelection:
     """Resolve explicit or default model inputs for preset creation."""
     async with AgentManagementService.with_session(role=role) as svc:
+        list_models = getattr(svc, "list_models", None)
+        provider_status_org: dict[str, bool] | None = None
+        if get_provider_status := getattr(svc, "get_providers_status", None):
+            provider_status_org = await get_provider_status()
+        provider_status_workspace: dict[str, bool] | None = None
+        if get_workspace_provider_status := getattr(
+            svc, "get_workspace_providers_status", None
+        ):
+            provider_status_workspace = await get_workspace_provider_status()
         if model_name is not None or model_provider is not None:
             if not model_name or not model_provider:
                 raise ToolError(
                     "model_name and model_provider must both be provided when setting an explicit model"
                 )
-            try:
+            if callable(list_models):
+                models = await _list_authoring_models(
+                    svc, workspace_id=role.workspace_id
+                )
+                matches = [
+                    item
+                    for item in models
+                    if item["model_name"] == model_name
+                    and item["model_provider"] == model_provider
+                ]
+                if not matches:
+                    raise ToolError(f"Model '{model_name}' not found")
+                if len(matches) > 1:
+                    raise ToolError(
+                        f"Model '{model_provider}/{model_name}' is ambiguous across multiple sources. "
+                        "Set the organization default model to the desired source-backed selection, then create the preset without explicit model fields."
+                    )
+                selection = ModelSelection.model_validate(matches[0])
+            else:
                 model_config = await svc.get_model_config(model_name)
-            except TracecatNotFoundError as exc:
-                raise ToolError(f"Model '{model_name}' not found") from exc
-            if model_config.provider != model_provider:
-                raise ToolError(
-                    f"Model '{model_name}' belongs to provider '{model_config.provider}', not '{model_provider}'"
+                actual_provider = str(model_config.provider)
+                if actual_provider != model_provider:
+                    raise ToolError(
+                        f"Model '{model_name}' belongs to provider '{actual_provider}', not '{model_provider}'"
+                    )
+                selection = ModelSelection(
+                    source_id=None,
+                    model_provider=model_provider,
+                    model_name=model_name,
                 )
         else:
             if not (default_model := await svc.get_default_model()):
                 raise ToolError(
                     "No default model configured for this organization. Set one before creating a preset without explicit model fields."
                 )
-            try:
-                model_config = await svc.get_model_config(default_model)
-            except TracecatNotFoundError as exc:
+            if isinstance(default_model, str):
+                selection = ModelSelection(
+                    source_id=None,
+                    model_provider=str(
+                        (await svc.get_model_config(default_model)).provider
+                    ),
+                    model_name=default_model,
+                )
+            else:
+                selection = ModelSelection(
+                    source_id=default_model.source_id,
+                    model_provider=default_model.model_provider,
+                    model_name=default_model.model_name,
+                )
+        if selection.source_id is not None:
+            return selection
+        if provider_status_workspace is not None:
+            if (
+                selection.model_provider in provider_status_workspace
+                and not provider_status_workspace[selection.model_provider]
+            ):
                 raise ToolError(
-                    f"Default model '{default_model}' is configured but no longer exists"
-                ) from exc
-        if not await svc.check_workspace_provider_credentials(model_config.provider):
+                    f"Workspace credentials for provider '{selection.model_provider}' are not configured"
+                )
+        elif check_workspace_credentials := getattr(
+            svc, "check_workspace_provider_credentials", None
+        ):
+            if not await check_workspace_credentials(selection.model_provider):
+                raise ToolError(
+                    f"Workspace credentials for provider '{selection.model_provider}' are not configured"
+                )
+        elif (
+            provider_status_org is not None
+            and selection.model_provider in provider_status_org
+            and not provider_status_org[selection.model_provider]
+        ):
             raise ToolError(
-                f"Workspace credentials for provider '{model_config.provider}' are not configured"
+                f"Credentials for provider '{selection.model_provider}' are not configured"
             )
-        return model_config.name, model_config.provider
+        return selection
+
+
+async def _list_authoring_models(
+    svc: Any, *, workspace_id: uuid.UUID | None
+) -> list[dict[str, Any]]:
+    list_models = svc.list_models
+    try:
+        raw_models = await list_models(workspace_id=workspace_id)
+    except TypeError:
+        raw_models = await list_models()
+
+    normalized: list[dict[str, Any]] = []
+    if isinstance(raw_models, dict):
+        for fallback_name, model in sorted(raw_models.items()):
+            payload = model.model_dump(mode="json")
+            model_name = str(
+                payload.get("model_name") or payload.get("name") or fallback_name
+            )
+            model_provider = str(
+                payload.get("model_provider") or payload.get("provider") or ""
+            )
+            normalized.append(
+                {
+                    **payload,
+                    "name": payload.get("name") or model_name,
+                    "provider": payload.get("provider") or model_provider,
+                    "model_name": model_name,
+                    "model_provider": model_provider,
+                }
+            )
+        return normalized
+
+    for model in raw_models:
+        payload = model.model_dump(mode="json")
+        model_name = str(payload.get("model_name") or payload.get("name") or "")
+        model_provider = str(
+            payload.get("model_provider") or payload.get("provider") or ""
+        )
+        normalized.append(
+            {
+                **payload,
+                "name": payload.get("name") or model_name,
+                "provider": payload.get("provider") or model_provider,
+                "model_name": model_name,
+                "model_provider": model_provider,
+            }
+        )
+    normalized.sort(
+        key=lambda item: (str(item["model_provider"]), str(item["model_name"]))
+    )
+    return normalized
 
 
 _WORKFLOW_YAML_TOP_LEVEL_KEYS = frozenset(
@@ -5426,19 +5538,45 @@ async def get_secret_metadata(
 async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
     """Build authoring context for MCP preset creation."""
     async with AgentManagementService.with_session(role=role) as svc:
-        models = await svc.list_models()
+        models = await _list_authoring_models(svc, workspace_id=role.workspace_id)
         default_model = await svc.get_default_model()
         provider_status_org = await svc.get_providers_status()
-        provider_status_workspace = await svc.get_workspace_providers_status()
+        provider_status_workspace = (
+            await status_fn()
+            if (status_fn := getattr(svc, "get_workspace_providers_status", None))
+            else provider_status_org
+        )
 
     async with VariablesService.with_session(role=role) as svc:
         variables = await svc.list_variables(environment=DEFAULT_SECRETS_ENVIRONMENT)
 
     workspace_inventory = await _load_secret_inventory(role)
     models_by_provider: dict[str, list[str]] = defaultdict(list)
-    for model_name, model in sorted(models.items(), key=lambda item: item[0]):
-        provider = cast(str, model.model_dump(mode="json")["provider"])
-        models_by_provider[provider].append(model_name)
+    for model in models:
+        models_by_provider[str(model["model_provider"])].append(
+            str(model["model_name"])
+        )
+    default_model_name = (
+        default_model
+        if isinstance(default_model, str)
+        else default_model.model_name
+        if default_model is not None
+        else None
+    )
+    default_model_provider = (
+        next(
+            (
+                str(model["model_provider"])
+                for model in models
+                if str(model["model_name"]) == default_model_name
+            ),
+            None,
+        )
+        if isinstance(default_model, str)
+        else default_model.model_provider
+        if default_model is not None
+        else None
+    )
     agent_credentials = {
         "providers": [
             {
@@ -5453,11 +5591,8 @@ async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
             for provider, model_names in sorted(models_by_provider.items())
         ],
         "default_model_workspace_ready": (
-            provider_status_workspace.get(
-                cast(str, models[default_model].model_dump(mode="json")["provider"]),
-                False,
-            )
-            if default_model in models
+            provider_status_workspace.get(default_model_provider, False)
+            if default_model_provider is not None
             else None
         ),
         "notes": [
@@ -5467,11 +5602,8 @@ async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
     }
 
     return {
-        "default_model": default_model,
-        "models": [
-            model.model_dump(mode="json")
-            for _, model in sorted(models.items(), key=lambda item: item[0])
-        ],
+        "default_model": default_model_name,
+        "models": models,
         "provider_status_org": provider_status_org,
         "provider_status_workspace": provider_status_workspace,
         "agent_credentials": agent_credentials,
@@ -5556,18 +5688,16 @@ async def create_agent_preset(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        (
-            resolved_model_name,
-            resolved_model_provider,
-        ) = await _resolve_agent_preset_model(
+        selection = await _resolve_agent_preset_model(
             role,
             model_name=model_name,
             model_provider=model_provider,
         )
         create_data: dict[str, Any] = {
             "name": name,
-            "model_name": resolved_model_name,
-            "model_provider": resolved_model_provider,
+            "model_name": selection.model_name,
+            "model_provider": selection.model_provider,
+            "source_id": selection.source_id,
         }
         optional_fields = {
             "slug": slug,

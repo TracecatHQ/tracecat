@@ -8,12 +8,10 @@ export default function AgentSettingsPage() {
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              Agent configuration
-            </h2>
-            <p className="text-md text-muted-foreground">
-              Configure AI models and credentials for your organization's agent
-              operations.
+            <h2 className="text-2xl font-semibold tracking-tight">AI models</h2>
+            <p className="text-base text-muted-foreground">
+              Manage org-scoped provider credentials, custom sources, allowed
+              models, and the default model.
             </p>
           </div>
         </div>

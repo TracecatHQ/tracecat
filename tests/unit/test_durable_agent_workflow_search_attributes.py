@@ -225,3 +225,30 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
     assert cfg.model_provider == pinned_config.model_provider
     assert cfg.actions == ["core.http_request"]
     assert cfg.instructions == "base instructions\nappend this"
+
+
+@pytest.mark.anyio
+async def test_build_config_preserves_catalog_identity_in_payload() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    catalog_config = AgentConfig(
+        model_name="gpt-5.2",
+        model_provider="openai",
+        instructions="base instructions",
+        actions=["core.http_request"],
+    )
+    workflow_args.agent_args.preset_slug = "triage-agent"
+
+    with patch(
+        "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+        AsyncMock(return_value=agent_config_to_payload(catalog_config)),
+    ):
+        await workflow_instance._build_config(workflow_args)

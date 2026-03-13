@@ -17,6 +17,7 @@ from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.admin.agent.router import router as admin_agent_router
 from tracecat.admin.registry.router import router as admin_registry_router
 from tracecat.agent.channels.management_router import (
     router as agent_channels_management_router,
@@ -28,6 +29,7 @@ from tracecat.agent.preset.internal_router import (
 )
 from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.router import router as agent_router
+from tracecat.agent.service import sync_model_catalogs_on_startup
 from tracecat.agent.session.router import router as agent_session_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
@@ -148,6 +150,46 @@ from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
 
 
+async def _drain_background_task(
+    task: asyncio.Task[None],
+    *,
+    task_name: str,
+    timeout: float = 10.0,
+) -> None:
+    if not task.done():
+        logger.info("Waiting for background task to complete", task_name=task_name)
+        try:
+            await asyncio.wait_for(task, timeout=timeout)
+            logger.info("Background task completed", task_name=task_name)
+        except TimeoutError:
+            logger.warning(
+                "Background task did not complete in time, cancelling",
+                task_name=task_name,
+            )
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                logger.debug("Background task cancelled", task_name=task_name)
+        except Exception as e:
+            logger.warning(
+                "Background task failed during shutdown",
+                task_name=task_name,
+                error=e,
+            )
+        return
+
+    try:
+        task.result()
+        logger.debug("Background task had already completed", task_name=task_name)
+    except Exception as e:
+        logger.warning(
+            "Background task failed before shutdown",
+            task_name=task_name,
+            error=e,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Temporal
@@ -171,6 +213,9 @@ async def lifespan(app: FastAPI):
 
     async with get_async_session_bypass_rls_context_manager() as session:
         await setup_rbac_defaults(session)
+
+    await sync_model_catalogs_on_startup()
+    logger.debug("Completed startup model catalog sync and legacy repair")
 
     # Spawn platform registry sync as background task (non-blocking)
     # Uses leader election to prevent race conditions across multiple API processes
@@ -196,35 +241,10 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Gracefully handle the registry sync task during shutdown
-    if not registry_sync_task.done():
-        logger.info("Waiting for platform registry sync task to complete...")
-        try:
-            # Give the task a reasonable time to complete
-            await asyncio.wait_for(registry_sync_task, timeout=10.0)
-            logger.info("Platform registry sync task completed")
-        except TimeoutError:
-            logger.warning(
-                "Platform registry sync task did not complete in time, cancelling"
-            )
-            registry_sync_task.cancel()
-            try:
-                await registry_sync_task
-            except asyncio.CancelledError:
-                logger.debug("Platform registry sync task cancelled")
-        except Exception as e:
-            logger.warning(
-                "Platform registry sync task failed during shutdown", error=e
-            )
-    else:
-        # Task already completed - retrieve result to surface any exceptions
-        try:
-            registry_sync_task.result()
-            logger.debug("Platform registry sync task had already completed")
-        except Exception as e:
-            logger.warning(
-                "Platform registry sync task failed before shutdown", error=e
-            )
+    await _drain_background_task(
+        registry_sync_task,
+        task_name="platform_registry_sync",
+    )
 
     if case_trigger_task is not None:
         case_trigger_task.cancel()
@@ -433,6 +453,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(approvals_router)
     app.include_router(watchtower_router)
     app.include_router(admin_router)
+    app.include_router(admin_agent_router, prefix="/admin")
     app.include_router(admin_registry_router, prefix="/admin")
     app.include_router(inbox_router)
     app.include_router(editor_router)
