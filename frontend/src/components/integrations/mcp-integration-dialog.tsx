@@ -810,7 +810,7 @@ export function MCPIntegrationDialog({
                                               ? "@modelcontextprotocol/server-github"
                                               : "Additional argument"
                                           }
-                                          className="font-mono text-sm"
+                                          className="font-mono text-xs"
                                         />
                                       </FormControl>
                                       <FormMessage />
