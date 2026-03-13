@@ -51,6 +51,7 @@ import {
   groupEventsByActionRef,
   parseStreamId,
   refToLabel,
+  WF_TRIGGER_EVENT_REF,
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
@@ -189,7 +190,8 @@ function ActionInteractionEventDetails({
       <JsonViewWithControls
         src={interaction.response_payload}
         defaultExpanded={true}
-        copyPrefix={`ACTIONS.${eventRef}.interaction`}
+        copyPrefix={getEventCopyPrefix(eventRef, "interaction")}
+        copyMode="jsonpath-and-payload"
       />
     </div>
   )
@@ -212,6 +214,9 @@ export function SuccessEvent({
   defaultExpanded?: boolean
   defaultTab?: "nested" | "flat"
 }) {
+  const shouldShowTriggerInput =
+    type === "result" && eventRef === WF_TRIGGER_EVENT_REF
+
   switch (type) {
     case "input":
       return (
@@ -219,9 +224,22 @@ export function SuccessEvent({
           src={event.action_input}
           defaultExpanded={defaultExpanded}
           defaultTab={defaultTab}
+          copyPrefix={getEventCopyPrefix(eventRef, "input")}
+          copyMode="jsonpath-and-payload"
         />
       )
     case "result":
+      if (shouldShowTriggerInput) {
+        return (
+          <JsonViewWithControls
+            src={event.action_input}
+            defaultExpanded={defaultExpanded}
+            defaultTab={defaultTab}
+            copyPrefix={getEventCopyPrefix(eventRef, "input")}
+            copyMode="jsonpath-and-payload"
+          />
+        )
+      }
       return (
         <ActionResultViewer
           result={event.action_result}
@@ -276,6 +294,8 @@ function ActionResultViewer({
         executionId={executionId}
         eventId={eventId}
         collection={result}
+        copyMode="jsonpath-and-payload"
+        copyPrefix={getEventCopyPrefix(eventRef, "result")}
       />
     )
   }
@@ -285,9 +305,28 @@ function ActionResultViewer({
       src={result}
       defaultExpanded={defaultExpanded}
       defaultTab={defaultTab}
-      copyPrefix={`ACTIONS.${eventRef}.result`}
+      copyPrefix={getEventCopyPrefix(eventRef, "result")}
+      copyMode="jsonpath-and-payload"
     />
   )
+}
+
+function getEventCopyPrefix(
+  eventRef: string,
+  kind: "input" | "result" | "interaction"
+): string {
+  if (eventRef === WF_TRIGGER_EVENT_REF) {
+    return "TRIGGER"
+  }
+
+  switch (kind) {
+    case "input":
+      return `ACTIONS.${eventRef}`
+    case "interaction":
+      return `ACTIONS.${eventRef}.interaction`
+    case "result":
+      return `ACTIONS.${eventRef}.result`
+  }
 }
 
 function StreamDetails({

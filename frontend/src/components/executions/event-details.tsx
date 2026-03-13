@@ -7,7 +7,10 @@ import { CollectionObjectResult } from "@/components/executions/collection-objec
 import { ExternalObjectResult } from "@/components/executions/external-object-result"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import type { WorkflowExecutionEventCompact } from "@/lib/event-history"
+import {
+  WF_TRIGGER_EVENT_REF,
+  type WorkflowExecutionEventCompact,
+} from "@/lib/event-history"
 import {
   isCollectionStoredObject,
   isExternalStoredObject,
@@ -106,7 +109,14 @@ export function WorkflowExecutionEventDetailView({
                 value="input"
                 className="m-0 flex-1 overflow-auto data-[state=active]:overflow-auto"
               >
-                <JsonViewContent src={event.action_input} />
+                <JsonViewContent
+                  src={event.action_input}
+                  copyPrefix={getExecutionEventCopyPrefix(
+                    event.action_ref,
+                    "input"
+                  )}
+                  copyMode="jsonpath-and-payload"
+                />
               </TabsContent>
             )}
             {hasResult && (
@@ -125,9 +135,21 @@ export function WorkflowExecutionEventDetailView({
                     executionId={executionId}
                     eventId={event.source_event_id}
                     collection={event.action_result}
+                    copyPrefix={getExecutionEventCopyPrefix(
+                      event.action_ref,
+                      "result"
+                    )}
+                    copyMode="jsonpath-and-payload"
                   />
                 ) : (
-                  <JsonViewContent src={event.action_result} />
+                  <JsonViewContent
+                    src={event.action_result}
+                    copyPrefix={getExecutionEventCopyPrefix(
+                      event.action_ref,
+                      "result"
+                    )}
+                    copyMode="jsonpath-and-payload"
+                  />
                 )}
               </TabsContent>
             )}
@@ -146,10 +168,35 @@ export function WorkflowExecutionEventDetailView({
   )
 }
 
-function JsonViewContent({ src }: { src: unknown }): JSX.Element {
+function JsonViewContent({
+  src,
+  copyPrefix,
+  copyMode = "jsonpath-only",
+}: {
+  src: unknown
+  copyPrefix?: string
+  copyMode?: "jsonpath-only" | "jsonpath-and-payload"
+}): JSX.Element {
   return (
     <div className="p-3">
-      <JsonViewWithControls src={src} defaultExpanded={true} />
+      <JsonViewWithControls
+        src={src}
+        defaultExpanded={true}
+        copyPrefix={copyPrefix}
+        copyMode={copyMode}
+      />
     </div>
   )
+}
+
+function getExecutionEventCopyPrefix(
+  actionRef: string,
+  kind: "input" | "result"
+): string {
+  if (actionRef === WF_TRIGGER_EVENT_REF) {
+    return "TRIGGER"
+  }
+  return kind === "input"
+    ? `ACTIONS.${actionRef}`
+    : `ACTIONS.${actionRef}.result`
 }

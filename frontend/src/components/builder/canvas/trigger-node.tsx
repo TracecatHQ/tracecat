@@ -57,6 +57,13 @@ export type TriggerNodeData = {
 export type TriggerNodeType = Node<TriggerNodeData, "trigger">
 export const TriggerTypename = "trigger" as const
 
+const TRIGGER_NODE_WIDTH = 256
+const TRIGGER_PAYLOAD_PANEL_GAP = 16
+const TRIGGER_PAYLOAD_PANEL_MIN_WIDTH = 320
+const TRIGGER_PAYLOAD_PANEL_MIN_HEIGHT = 240
+const TRIGGER_PAYLOAD_PANEL_DEFAULT_WIDTH = 360
+const TRIGGER_PAYLOAD_PANEL_DEFAULT_HEIGHT = 320
+
 export default React.memo(function TriggerNode({
   id,
   type,
@@ -180,6 +187,7 @@ export default React.memo(function TriggerNode({
     }
     pendingHeightAdjustmentRef.current = false
   }, [pushNodesDown, style.showContent])
+
   if (!workflow) {
     return null
   }
@@ -187,8 +195,9 @@ export default React.memo(function TriggerNode({
   const triggerPayloadError = validateTriggerPayload(triggerPayload)
 
   return (
-    <div ref={cardRef} className="flex items-start gap-4">
+    <div className="relative w-64 overflow-visible">
       <Card
+        ref={cardRef}
         onClickCapture={handleDefaultPanelOpen}
         className={cn(
           "w-64",
@@ -309,40 +318,33 @@ export default React.memo(function TriggerNode({
 
       {style.showContent && (
         <div
-          className="nodrag nopan nowheel w-[360px] rounded-xl border bg-background p-3"
+          className="nodrag nopan nowheel absolute left-0 top-0 z-10 resize overflow-hidden rounded-xl border bg-background p-2"
+          style={{
+            width: TRIGGER_PAYLOAD_PANEL_DEFAULT_WIDTH,
+            height: TRIGGER_PAYLOAD_PANEL_DEFAULT_HEIGHT,
+            minWidth: TRIGGER_PAYLOAD_PANEL_MIN_WIDTH,
+            minHeight: TRIGGER_PAYLOAD_PANEL_MIN_HEIGHT,
+            transform: `translate(${TRIGGER_NODE_WIDTH + TRIGGER_PAYLOAD_PANEL_GAP}px, 0px)`,
+          }}
           onClick={(event) => {
             event.stopPropagation()
           }}
         >
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-foreground">
-                Trigger payload
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                Draft runs use this JSON as the `TRIGGER` payload.
-              </p>
-            </div>
-          </div>
-          <CodeEditor
-            value={triggerPayload}
-            language="json"
-            onChange={setTriggerPayload}
-            className={cn(
-              "[&_.cm-editor]:border-input [&_.cm-editor]:bg-background",
-              "[&_.cm-scroller]:min-h-[220px] [&_.cm-scroller]:max-h-[320px] [&_.cm-scroller]:overflow-auto"
-            )}
-          />
-          <div className="mt-2 flex items-start gap-2 text-[11px]">
-            {triggerPayloadError ? (
-              <>
+          <div className="flex h-full min-h-0 flex-col">
+            <CodeEditor
+              value={triggerPayload}
+              language="json"
+              onChange={setTriggerPayload}
+              className={cn(
+                "flex-1 [&_.cm-editor]:h-full [&_.cm-editor]:border-input [&_.cm-editor]:bg-background",
+                "[&_.cm-scroller]:h-full [&_.cm-scroller]:min-h-0 [&_.cm-scroller]:overflow-auto"
+              )}
+            />
+            {triggerPayloadError && (
+              <div className="mt-2 flex items-start gap-2 px-3 pb-3 text-[11px]">
                 <AlertTriangleIcon className="mt-0.5 size-3 shrink-0 text-rose-500" />
                 <span className="text-rose-500">{triggerPayloadError}</span>
-              </>
-            ) : (
-              <span className="text-muted-foreground">
-                Saved in this browser for this workflow.
-              </span>
+              </div>
             )}
           </div>
         </div>

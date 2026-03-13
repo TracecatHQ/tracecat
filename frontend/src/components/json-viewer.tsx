@@ -1,6 +1,6 @@
 "use client"
 
-import { CheckCheckIcon, CopyIcon } from "lucide-react"
+import { CheckCheckIcon, CopyIcon, LinkIcon } from "lucide-react"
 import React from "react"
 import JsonView from "react18-json-view"
 import type { NodeMeta } from "react18-json-view/dist/types"
@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -89,12 +90,15 @@ function flattenObject(
 }
 
 type JsonViewWithControlsTabs = "flat" | "nested"
+type JsonViewCopyMode = "jsonpath-only" | "jsonpath-and-payload"
+
 interface JsonViewWithControlsProps {
   src: unknown
   defaultExpanded?: boolean
   defaultTab?: JsonViewWithControlsTabs
   showControls?: boolean
   copyPrefix?: string
+  copyMode?: JsonViewCopyMode
   className?: string
 }
 
@@ -104,6 +108,7 @@ export function JsonViewWithControls({
   defaultTab = "flat",
   showControls = true,
   copyPrefix,
+  copyMode = "jsonpath-only",
   className,
 }: JsonViewWithControlsProps): JSX.Element {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
@@ -196,22 +201,33 @@ export function JsonViewWithControls({
               src={source ?? null}
               className="break-all text-xs"
               theme="atom"
+              CustomOperation={
+                copyMode === "jsonpath-and-payload"
+                  ? ({ node }) => <CopyPayloadButton node={node} />
+                  : undefined
+              }
               CopyComponent={({ onClick, className }) => (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <CopyIcon
-                      className={cn(
-                        "m-0 size-3 p-0 text-muted-foreground",
-                        className
-                      )}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onClick(e)
-                      }}
-                    />
-                  </TooltipTrigger>
-                  <TooltipContent>Copy JSONPath</TooltipContent>
-                </Tooltip>
+                <TooltipProvider delayDuration={0} skipDelayDuration={0}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="Copy JSONPath"
+                        className={cn(
+                          "m-0 inline-flex size-3 items-center justify-center p-0 text-muted-foreground hover:text-foreground",
+                          className
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onClick(e)
+                        }}
+                      >
+                        <LinkIcon className="size-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Copy JSONPath</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               )}
               CopiedComponent={({ className, style }) => (
                 <CheckCheckIcon
@@ -224,7 +240,10 @@ export function JsonViewWithControls({
                 nodeMeta: NodeMeta | undefined
               ) => {
                 const { currentPath } = nodeMeta || {}
-                const copyValue = buildJsonPath(currentPath || [], copyPrefix)
+                const copyValue =
+                  value === "flat"
+                    ? buildFlattenedJsonPath(currentPath || [], copyPrefix)
+                    : buildJsonPath(currentPath || [], copyPrefix)
                 return copyValue
               }}
             />
@@ -235,10 +254,50 @@ export function JsonViewWithControls({
   )
 }
 
+function CopyPayloadButton({ node }: { node: unknown }): JSX.Element {
+  const [copied, setCopied] = React.useState(false)
+
+  const handleCopy = React.useCallback(
+    async (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation()
+      await navigator.clipboard.writeText(serializeJsonPayload(node))
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 3000)
+    },
+    [node]
+  )
+
+  return (
+    <TooltipProvider delayDuration={0} skipDelayDuration={0}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label="Copy JSON payload"
+            className="json-view--copy inline-flex size-3 items-center justify-center p-0 pl-1.5 text-muted-foreground hover:text-foreground"
+            onClick={handleCopy}
+          >
+            {copied ? (
+              <CheckCheckIcon className="size-3 text-muted-foreground" />
+            ) : (
+              <CopyIcon className="size-3" />
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Copy JSON payload</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 function isNumeric(str: string): boolean {
   return /^\d+$/.test(str)
 }
-function buildJsonPath(path: string[], prefix?: string): string | undefined {
+
+export function buildJsonPath(
+  path: string[],
+  prefix?: string
+): string | undefined {
   // Combine the arrays
   if (path.length === 0 && !prefix) {
     return undefined
@@ -268,4 +327,33 @@ function buildJsonPath(path: string[], prefix?: string): string | undefined {
     }
     return `${accPath}.${safeSegment}`
   }, seed)
+}
+
+export function buildFlattenedJsonPath(
+  path: string[],
+  prefix?: string
+): string | undefined {
+  const suffix = path.join(".")
+
+  if (!suffix && !prefix) {
+    return undefined
+  }
+  if (!suffix) {
+    return prefix
+  }
+  if (!prefix) {
+    return suffix
+  }
+  if (suffix.startsWith("[")) {
+    return `${prefix}${suffix}`
+  }
+  return `${prefix}.${suffix}`
+}
+
+export function serializeJsonPayload(node: unknown): string {
+  try {
+    return JSON.stringify(node, null, 2) ?? String(node)
+  } catch {
+    return String(node)
+  }
 }
