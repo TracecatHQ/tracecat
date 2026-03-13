@@ -10,7 +10,7 @@ from sqlalchemy import delete
 
 from tracecat import config
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import WorkspaceActorRole, WorkspaceUserRole
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role
@@ -554,7 +554,7 @@ async def delete_integration(
 @require_scope("integration:update")
 async def test_connection(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     provider_info: CCProviderInfoDep,
 ) -> IntegrationTestConnectionResponse:
@@ -632,7 +632,7 @@ async def test_connection(
 @require_scope("integration:update")
 async def update_integration(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     params: IntegrationUpdate,
     provider_info: ProviderInfoDep,
@@ -680,7 +680,7 @@ async def update_integration(
 @providers_router.post("", status_code=status.HTTP_201_CREATED)
 @require_scope("integration:create")
 async def create_custom_provider(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     params: CustomOAuthProviderCreate,
 ) -> ProviderReadMinimal:
@@ -726,7 +726,7 @@ async def create_custom_provider(
 @providers_router.get("")
 @require_scope("integration:read")
 async def list_providers(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
 ) -> list[ProviderReadMinimal]:
     svc = IntegrationService(session, role=role)
@@ -773,7 +773,7 @@ async def list_providers(
 @providers_router.get("/{provider_id}")
 @require_scope("integration:read")
 async def get_provider(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     provider_info: ProviderInfoDep,
 ) -> ProviderRead:
@@ -808,7 +808,7 @@ async def get_provider(
 @mcp_router.post("", status_code=status.HTTP_201_CREATED)
 @require_scope("integration:create")
 async def create_mcp_integration(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     params: Annotated[MCPIntegrationCreate, Body(...)],
 ) -> MCPIntegrationRead:
@@ -850,7 +850,7 @@ async def create_mcp_integration(
 @mcp_router.get("")
 @require_scope("integration:read")
 async def list_mcp_integrations(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
 ) -> list[MCPIntegrationRead]:
     """List all MCP integrations for the workspace."""
@@ -888,7 +888,7 @@ async def list_mcp_integrations(
 @mcp_router.get("/{mcp_integration_id}")
 @require_scope("integration:read")
 async def get_mcp_integration(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     mcp_integration_id: uuid.UUID,
 ) -> MCPIntegrationRead:
@@ -929,7 +929,7 @@ async def get_mcp_integration(
 @mcp_router.put("/{mcp_integration_id}")
 @require_scope("integration:update")
 async def update_mcp_integration(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     mcp_integration_id: uuid.UUID,
     params: MCPIntegrationUpdate,
@@ -979,7 +979,7 @@ async def update_mcp_integration(
 @mcp_router.delete("/{mcp_integration_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("integration:delete")
 async def delete_mcp_integration(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     mcp_integration_id: uuid.UUID,
 ) -> None:
