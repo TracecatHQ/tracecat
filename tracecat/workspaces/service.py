@@ -165,12 +165,10 @@ class WorkspaceService(BaseOrgService):
         set_fields = params.model_dump(exclude_unset=True)
         self.logger.info("Updating workspace", set_fields=set_fields)
         if (settings_update := set_fields.pop("settings", None)) is not None:
+            current_settings = workspace.settings or {}
             workspace.settings = cast(
                 WorkspaceSettings,
-                {
-                    **(workspace.settings or {}),
-                    **settings_update,
-                },
+                current_settings | settings_update,
             )
         for field, value in set_fields.items():
             setattr(workspace, field, value)
