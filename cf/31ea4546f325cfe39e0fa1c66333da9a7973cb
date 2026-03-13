@@ -1,0 +1,23 @@
+frontend/tests/settings-modal.test.tsx
+  3c7c7935c539ac4d 5,8,15,21,28,38-47,114,124,128,131-133,147-149,162,165-166,170-175,177-185,188-189,193-195,197-198,201-202,206-208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "cf31ea4546f325cfe39e0fa1c66333da9a7973cb",
+  "prompts": {
+    "3c7c7935c539ac4d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce81d-ad02-7d52-a98a-234ecca5a6c4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 55,
+      "total_deletions": 53,
+      "accepted_lines": 54,
+      "overriden_lines": 0
+    }
+  }
+}
