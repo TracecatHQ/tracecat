@@ -163,8 +163,9 @@ class WorkspaceService(BaseOrgService):
         """Update a workspace."""
         set_fields = params.model_dump(exclude_unset=True)
         self.logger.info("Updating workspace", set_fields=set_fields)
-        settings_update = set_fields.pop("settings", None)
-        if settings_update is None and not set_fields:
+        missing = object()
+        settings_update = set_fields.pop("settings", missing)
+        if settings_update is missing and not set_fields:
             return workspace
 
         statement = update(Workspace).where(
@@ -173,13 +174,16 @@ class WorkspaceService(BaseOrgService):
         )
 
         statement_params: dict[str, object] = {}
-        if settings_update is not None:
-            statement = statement.values(
-                settings=func.coalesce(Workspace.settings, cast("{}", JSONB)).op("||")(
-                    bindparam("settings_patch", type_=JSONB)
+        if settings_update is not missing:
+            if settings_update is None:
+                statement = statement.values(settings=None)
+            else:
+                statement = statement.values(
+                    settings=func.coalesce(Workspace.settings, cast("{}", JSONB)).op(
+                        "||"
+                    )(bindparam("settings_patch", type_=JSONB))
                 )
-            )
-            statement_params["settings_patch"] = settings_update
+                statement_params["settings_patch"] = settings_update
         if set_fields:
             statement = statement.values(**set_fields)
 

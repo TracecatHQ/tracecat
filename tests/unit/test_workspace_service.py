@@ -243,6 +243,27 @@ class TestWorkspaceService:
             "workflow_unlimited_timeout_enabled": True,
         }
 
+    async def test_update_workspace_allows_explicit_null_to_clear_settings(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Explicit null settings updates should clear the entire settings blob."""
+        svc_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "workflow_default_timeout_seconds": 300,
+        }
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(settings=None),
+        )
+
+        assert updated.settings is None
+
 
 @pytest.mark.parametrize(
     "valid_url",
