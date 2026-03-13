@@ -41,6 +41,24 @@ const filesSettingsSchema = z.object({
 
 type FilesSettingsForm = z.infer<typeof filesSettingsSchema>
 
+export function buildFilesSettingsUpdate(values: FilesSettingsForm) {
+  return {
+    allowed_attachment_extensions:
+      values.allowed_attachment_extensions === undefined
+        ? undefined
+        : values.allowed_attachment_extensions.length > 0
+          ? values.allowed_attachment_extensions.map((ext) => ext.text)
+          : null,
+    allowed_attachment_mime_types:
+      values.allowed_attachment_mime_types === undefined
+        ? undefined
+        : values.allowed_attachment_mime_types.length > 0
+          ? values.allowed_attachment_mime_types.map((mime) => mime.text)
+          : null,
+    validate_attachment_magic_number: values.validate_attachment_magic_number,
+  }
+}
+
 interface WorkspaceFilesSettingsProps {
   workspace: WorkspaceRead
 }
@@ -84,18 +102,7 @@ export function WorkspaceFilesSettings({
 
   async function onSubmit(values: FilesSettingsForm) {
     await updateWorkspace({
-      settings: {
-        allowed_attachment_extensions: values.allowed_attachment_extensions
-          ?.length
-          ? values.allowed_attachment_extensions.map((ext) => ext.text)
-          : undefined,
-        allowed_attachment_mime_types: values.allowed_attachment_mime_types
-          ?.length
-          ? values.allowed_attachment_mime_types.map((mime) => mime.text)
-          : undefined,
-        validate_attachment_magic_number:
-          values.validate_attachment_magic_number,
-      },
+      settings: buildFilesSettingsUpdate(values),
     })
   }
 
