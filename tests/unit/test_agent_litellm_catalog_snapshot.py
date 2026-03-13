@@ -1,35 +1,31 @@
-"""Regression coverage for the vendored LiteLLM catalog snapshot."""
+"""Regression coverage for the installed LiteLLM package catalog snapshot."""
 
-import json
+from importlib.metadata import version
 from pathlib import Path
 
+import litellm
 import yaml
 
-LITELLM_SNAPSHOT_DIR = Path("tracecat/agent/data/litellm/v1.82.1")
 LITELLM_PROXY_CONFIG = Path("tracecat/agent/litellm_config.yaml")
+LITELLM_VERSION = version("litellm")
 
 
-def test_vendored_litellm_snapshot_files_exist() -> None:
-    """The built-in catalog should stay pinned to a repo-vendored LiteLLM snapshot."""
-    assert (LITELLM_SNAPSHOT_DIR / "model_prices_and_context_window.json").exists()
-    assert (LITELLM_SNAPSHOT_DIR / "provider_endpoints_support.json").exists()
+def test_installed_litellm_model_cost_exists() -> None:
+    """The built-in catalog should source models from the installed LiteLLM package."""
+    assert LITELLM_VERSION
+    assert isinstance(litellm.model_cost, dict)
+    assert litellm.model_cost
 
 
-def test_vendored_litellm_snapshot_covers_tracecat_first_class_providers() -> None:
-    """The pinned snapshot should include the provider families Tracecat exposes."""
-    model_prices = json.loads(
-        (LITELLM_SNAPSHOT_DIR / "model_prices_and_context_window.json").read_text()
-    )
-    provider_support = json.loads(
-        (LITELLM_SNAPSHOT_DIR / "provider_endpoints_support.json").read_text()
-    )
+def test_installed_litellm_model_cost_covers_tracecat_first_class_providers() -> None:
+    """The installed LiteLLM model map should include Tracecat's provider families."""
+    model_prices = litellm.model_cost
 
     litellm_providers = {
         info["litellm_provider"]
         for info in model_prices.values()
         if isinstance(info, dict) and isinstance(info.get("litellm_provider"), str)
     }
-    provider_keys = set(provider_support["providers"])
 
     assert "openai" in litellm_providers
     assert "anthropic" in litellm_providers
@@ -37,7 +33,7 @@ def test_vendored_litellm_snapshot_covers_tracecat_first_class_providers() -> No
     assert "bedrock" in litellm_providers
     assert "vertex_ai" in litellm_providers
     assert "azure" in litellm_providers
-    assert "azure_ai" in provider_keys
+    assert "azure_ai" in litellm_providers
 
 
 def test_litellm_proxy_config_has_built_in_provider_wildcards() -> None:
