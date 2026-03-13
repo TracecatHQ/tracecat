@@ -823,11 +823,12 @@ Merges: common + temporal + postgres + redis + agent-executor-specific
 
 {{/*
 MCP service environment variables
-Merges: common + temporal + postgres + mcp-specific
+Merges: common + temporal + blobStorage + postgres + redis + mcp-specific
 */}}
 {{- define "tracecat.env.mcp" -}}
 {{ include "tracecat.env.common" . }}
 {{ include "tracecat.env.temporal" . }}
+{{ include "tracecat.env.blobStorage" . }}
 {{ include "tracecat.env.postgres" . }}
 {{ include "tracecat.env.redis" . }}
 - name: TRACECAT_MCP__HOST
@@ -836,6 +837,11 @@ Merges: common + temporal + postgres + mcp-specific
   value: {{ .Values.mcp.port | quote }}
 - name: TRACECAT_MCP__BASE_URL
   value: {{ include "tracecat.publicMcpUrl" . | quote }}
+{{- $publicS3Url := include "tracecat.publicS3Url" . }}
+{{- if $publicS3Url }}
+- name: TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT
+  value: {{ $publicS3Url | quote }}
+{{- end }}
 - name: TRACECAT_MCP__RATE_LIMIT_RPS
   value: {{ .Values.tracecat.mcp.rateLimitRps | quote }}
 - name: TRACECAT_MCP__RATE_LIMIT_BURST
