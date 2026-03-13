@@ -3,7 +3,6 @@
 import {
   BotIcon,
   ChevronLeftIcon,
-  ChevronRightIcon,
   GitBranchIcon,
   GlobeIcon,
   KeyRoundIcon,
@@ -31,7 +30,6 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useWorkspaceManager } from "@/lib/hooks"
 
 export function OrganizationSidebar({
   ...props
@@ -40,9 +38,6 @@ export function OrganizationSidebar({
   const { hasEntitlement } = useEntitlements()
   const customRegistryEnabled = hasEntitlement("custom_registry")
   const gitSyncEnabled = hasEntitlement("git_sync")
-
-  // Fetch workspaces for the sidebar
-  const { workspaces } = useWorkspaceManager()
 
   // Scope checks for org sidebar items
   const canViewSettings = useScopeCheck("org:settings:read")
@@ -98,7 +93,7 @@ export function OrganizationSidebar({
       locked: false,
     },
     {
-      title: "Workflow sync",
+      title: "Git sync",
       url: "/organization/vcs",
       icon: GitBranchIcon,
       isActive: pathname?.includes("/organization/vcs"),
@@ -140,19 +135,6 @@ export function OrganizationSidebar({
       visible: canViewMembers === true,
     },
   ]
-
-  // Helper function to get workspace initials
-  const getWorkspaceInitials = (name: string) => {
-    const words = name.trim().split(/\s+/)
-    if (words.length === 1) {
-      return words[0].substring(0, 2).toUpperCase()
-    }
-    return words
-      .slice(0, 2)
-      .map((word) => word[0])
-      .join("")
-      .toUpperCase()
-  }
 
   return (
     <Sidebar collapsible="offcanvas" variant="inset" {...props}>
@@ -236,36 +218,6 @@ export function OrganizationSidebar({
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
-
-        {canViewSettings === true && workspaces && workspaces.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Your workspaces</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {workspaces.map((workspace) => (
-                  <SidebarMenuItem key={workspace.id}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname?.includes(
-                        `/organization/settings/workspaces/${workspace.id}`
-                      )}
-                    >
-                      <Link
-                        href={`/organization/settings/workspaces/${workspace.id}`}
-                      >
-                        <div className="flex size-5 items-center justify-center rounded bg-muted text-[10px] font-medium">
-                          {getWorkspaceInitials(workspace.name)}
-                        </div>
-                        <span>{workspace.name}</span>
-                        <ChevronRightIcon className="ml-auto size-4 opacity-50" />
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
