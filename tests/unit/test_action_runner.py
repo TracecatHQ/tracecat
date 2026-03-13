@@ -149,8 +149,9 @@ def _mock_outbound_http_gateway(expected_token: str):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    dispatch_url = f"{base_url}/v1/dev-proxy/dispatch"
     try:
-        yield base_url, state
+        yield dispatch_url, state
     finally:
         server.shutdown()
         thread.join(timeout=5)
@@ -406,7 +407,7 @@ class TestActionRunner:
         )
         monkeypatch.setattr(
             "tracecat.executor.action_runner.config.TRACECAT__OUTBOUND_HTTP_GATEWAY_URL",
-            "https://gateway.example.com",
+            "https://gateway.example.com/v1/dev-proxy/dispatch",
         )
 
         result = await runner._execute_direct(
@@ -420,7 +421,7 @@ class TestActionRunner:
         assert captured_env["TRACECAT__OUTBOUND_HTTP_GATEWAY_ENABLED"] == "1"
         assert (
             captured_env["TRACECAT__OUTBOUND_HTTP_GATEWAY_URL"]
-            == "https://gateway.example.com"
+            == "https://gateway.example.com/v1/dev-proxy/dispatch"
         )
 
     @pytest.mark.anyio
@@ -748,7 +749,7 @@ class TestActionRunner:
         monkeypatch.setattr(
             config,
             "TRACECAT__OUTBOUND_HTTP_GATEWAY_URL",
-            "http://127.0.0.1:9999",
+            "http://127.0.0.1:9999/v1/dev-proxy/dispatch",
         )
 
         with patch(
@@ -767,7 +768,7 @@ class TestActionRunner:
         assert captured_env["TRACECAT__OUTBOUND_HTTP_GATEWAY_ENABLED"] == "1"
         assert (
             captured_env["TRACECAT__OUTBOUND_HTTP_GATEWAY_URL"]
-            == "http://127.0.0.1:9999"
+            == "http://127.0.0.1:9999/v1/dev-proxy/dispatch"
         )
         assert (
             captured_env["TRACECAT__OUTBOUND_HTTP_GATEWAY_AUTH_TOKEN"]
@@ -828,7 +829,7 @@ class TestActionRunner:
         monkeypatch.setattr(
             config,
             "TRACECAT__OUTBOUND_HTTP_GATEWAY_URL",
-            "https://gateway.example.com",
+            "https://gateway.example.com/v1/dev-proxy/dispatch",
         )
         monkeypatch.setattr(
             "tracecat.executor.action_runner.mint_executor_token",
@@ -854,7 +855,7 @@ class TestActionRunner:
         assert sandbox_config.env_vars["TRACECAT__OUTBOUND_HTTP_GATEWAY_ENABLED"] == "1"
         assert (
             sandbox_config.env_vars["TRACECAT__OUTBOUND_HTTP_GATEWAY_URL"]
-            == "https://gateway.example.com"
+            == "https://gateway.example.com/v1/dev-proxy/dispatch"
         )
         assert (
             sandbox_config.env_vars["TRACECAT__OUTBOUND_HTTP_GATEWAY_SOURCE"]

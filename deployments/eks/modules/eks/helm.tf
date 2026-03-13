@@ -297,6 +297,11 @@ resource "helm_release" "tracecat" {
     value = var.executor_backend
   }
 
+  set {
+    name  = "tracecat.outboundHttpGatewayUrl"
+    value = var.outbound_http_gateway_url
+  }
+
   # Agent Executor configuration
   set {
     name  = "agentExecutor.replicas"

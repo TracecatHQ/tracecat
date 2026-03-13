@@ -82,6 +82,7 @@ module "eks" {
   executor_replicas                        = var.executor_replicas
   executor_queue                           = var.executor_queue
   executor_backend                         = var.executor_backend
+  outbound_http_gateway_url                = var.outbound_http_gateway_url
   agent_executor_replicas                  = var.agent_executor_replicas
   agent_executor_queue                     = var.agent_executor_queue
   agent_executor_backend                   = var.agent_executor_backend

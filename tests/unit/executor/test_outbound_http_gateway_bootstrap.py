@@ -104,7 +104,7 @@ def _mock_gateway(
 ) -> Any:
     """Start a local HTTP server that mimics the outbound HTTP gateway.
 
-    Yields a tuple of (base_url, state) where state["requests"] collects
+    Yields a tuple of (dispatch_url, state) where state["requests"] collects
     every incoming POST for later assertion.
     """
     state: dict[str, Any] = {"requests": []}
@@ -145,8 +145,9 @@ def _mock_gateway(
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    dispatch_url = f"{base_url}/v1/dev-proxy/dispatch"
     try:
-        yield base_url, state
+        yield dispatch_url, state
     finally:
         server.shutdown()
         thread.join(timeout=5)
@@ -262,6 +263,12 @@ response = httpx.get(
     'https://example.com/test', params={'q': '1'}, headers={'X-Test': 'yes'}
 )
 print(json.dumps({'status': response.status_code, 'body': response.json()}))
+"""
+
+_HTTPX_REPEATED_HEADERS_SCRIPT = """\
+import json, httpx
+response = httpx.get('https://example.com/login')
+print(json.dumps({'status': response.status_code, 'set_cookie': response.headers.get_list('set-cookie')}))
 """
 
 _HTTPX_SEND_AUTH_SCRIPT = """\
@@ -606,10 +613,11 @@ def test_bootstrap_preserves_aiohttp_session_cookies() -> None:
         if payload["url"] == "https://example.com/login":
             return {
                 "status_code": 200,
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Set-Cookie": "sessionid=abc123; Path=/",
-                },
+                "headers": [
+                    ["Content-Type", "application/json"],
+                    ["Set-Cookie", "sessionid=abc123; Path=/"],
+                    ["Set-Cookie", "csrftoken=xyz; Path=/"],
+                ],
                 "body_base64": base64.b64encode(b'{"ok":true}').decode("ascii"),
                 "url": payload["url"],
                 "reason_phrase": "OK",
@@ -631,7 +639,11 @@ def test_bootstrap_preserves_aiohttp_session_cookies() -> None:
         "body": {"ok": True},
     }
     assert len(state["requests"]) == 2
-    assert state["requests"][1]["payload"]["headers"]["Cookie"] == "sessionid=abc123"
+    cookie_header = state["requests"][1]["payload"]["headers"]["Cookie"]
+    assert {part.strip() for part in cookie_header.split(";")} == {
+        "sessionid=abc123",
+        "csrftoken=xyz",
+    }
 
 
 def test_bootstrap_resolves_aiohttp_base_url_before_dispatch() -> None:
@@ -713,15 +725,16 @@ def test_bootstrap_preserves_requests_session_cookies() -> None:
 
     def gateway_response(
         payload: dict[str, Any],
-        state: dict[str, Any],
+        _state: dict[str, Any],
     ) -> dict[str, Any]:
         if payload["url"] == "https://example.com/login":
             return {
                 "status_code": 200,
-                "headers": {
-                    "Content-Type": "application/json",
-                    "Set-Cookie": "sessionid=abc123; Path=/",
-                },
+                "headers": [
+                    ["Content-Type", "application/json"],
+                    ["Set-Cookie", "sessionid=abc123; Path=/"],
+                    ["Set-Cookie", "csrftoken=xyz; Path=/"],
+                ],
                 "body_base64": base64.b64encode(b'{"ok":true}').decode("ascii"),
                 "url": payload["url"],
                 "reason_phrase": "OK",
@@ -741,7 +754,38 @@ def test_bootstrap_preserves_requests_session_cookies() -> None:
     payload = json.loads(completed.stdout.strip())
     assert payload == {"status": 200, "body": {"ok": True}}
     assert len(state["requests"]) == 2
-    assert state["requests"][1]["payload"]["headers"]["Cookie"] == "sessionid=abc123"
+    cookie_header = state["requests"][1]["payload"]["headers"]["Cookie"]
+    assert {part.strip() for part in cookie_header.split(";")} == {
+        "sessionid=abc123",
+        "csrftoken=xyz",
+    }
+
+
+def test_bootstrap_preserves_httpx_repeated_response_headers() -> None:
+    """httpx intercepted responses should preserve repeated headers."""
+    with _mock_gateway(
+        response={
+            "status_code": 200,
+            "headers": [
+                ["Content-Type", "application/json"],
+                ["Set-Cookie", "sessionid=abc123; Path=/"],
+                ["Set-Cookie", "csrftoken=xyz; Path=/"],
+            ],
+            "body_base64": base64.b64encode(b'{"ok":true}').decode("ascii"),
+            "url": "https://example.com/login",
+            "reason_phrase": "OK",
+        }
+    ) as (gateway_url, _state):
+        completed = _run_script(_HTTPX_REPEATED_HEADERS_SCRIPT, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.strip()) == {
+        "status": 200,
+        "set_cookie": [
+            "sessionid=abc123; Path=/",
+            "csrftoken=xyz; Path=/",
+        ],
+    }
 
 
 def test_bootstrap_bypasses_tracecat_api_host() -> None:

@@ -31,6 +31,9 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urlsplit
 from urllib.response import addinfourl
 
+type _HeaderPair = tuple[str, str]
+type _HeaderPairs = list[_HeaderPair]
+
 if TYPE_CHECKING:
     from typing import NotRequired, TypedDict
 
@@ -44,14 +47,14 @@ if TYPE_CHECKING:
 
     class _GatewayDispatchResponseWire(TypedDict):
         status_code: int
-        headers: NotRequired[dict[str, str]]
+        headers: NotRequired[dict[str, str] | _HeaderPairs]
         body_base64: str
         url: NotRequired[str]
         reason_phrase: NotRequired[str]
 
     class _GatewayDispatchResponse(TypedDict):
         status_code: int
-        headers: dict[str, str]
+        headers: _HeaderPairs
         body: bytes
         url: str
         reason_phrase: str | None
@@ -87,7 +90,6 @@ _METADATA_HEADERS = {
     "TRACECAT__OUTBOUND_HTTP_GATEWAY_ENTITY_TYPE": "X-Tracecat-Entity-Type",
     "TRACECAT__OUTBOUND_HTTP_GATEWAY_ENTITY_ID": "X-Tracecat-Entity-Id",
 }
-_DISPATCH_PATH = "/v1/dev-proxy/dispatch"
 
 
 class TracecatOutboundHTTPGatewayError(RuntimeError):
@@ -251,8 +253,7 @@ def _dispatch_to_gateway(
     follow_redirects: bool,
 ) -> _GatewayDispatchResponse:
     _ensure_not_gateway_target(url)
-    gateway_url = _GATEWAY_URL.rstrip("/")
-    gateway = urlsplit(f"{gateway_url}{_DISPATCH_PATH}")
+    gateway = urlsplit(_GATEWAY_URL)
     if gateway.scheme not in {"http", "https"}:
         raise TracecatOutboundHTTPGatewayError(
             f"Unsupported gateway scheme for {_GATEWAY_URL!r}: {gateway.scheme!r}"
@@ -323,8 +324,7 @@ def _dispatch_to_gateway(
         raise TracecatOutboundHTTPGatewayError(
             "Gateway response body_base64 is invalid"
         ) from exc
-    raw_headers = envelope.get("headers") or {}
-    response_headers = {str(key): str(value) for key, value in raw_headers.items()}
+    response_headers = _coerce_header_pairs(envelope.get("headers"))
     return {
         "status_code": int(envelope["status_code"]),
         "headers": response_headers,
@@ -342,33 +342,69 @@ async def _dispatch_to_gateway_async(**kwargs: object) -> _GatewayDispatchRespon
     return await asyncio.to_thread(_dispatch_to_gateway, **kwargs)
 
 
+def _coerce_header_pairs(raw_headers: object) -> _HeaderPairs:
+    if raw_headers is None:
+        return []
+    if isinstance(raw_headers, Mapping):
+        return [(str(key), str(value)) for key, value in raw_headers.items()]
+    if isinstance(raw_headers, list | tuple):
+        header_pairs: _HeaderPairs = []
+        for item in raw_headers:
+            if not isinstance(item, list | tuple) or len(item) != 2:
+                raise TracecatOutboundHTTPGatewayError(
+                    "Gateway response headers must be a mapping or a list of header pairs"
+                )
+            key, value = item
+            header_pairs.append((str(key), str(value)))
+        return header_pairs
+    raise TracecatOutboundHTTPGatewayError(
+        "Gateway response headers must be a mapping or a list of header pairs"
+    )
+
+
+def _header_pairs_to_mapping(header_pairs: _HeaderPairs) -> dict[str, str]:
+    return dict(header_pairs)
+
+
+def _header_pairs_to_message(header_pairs: _HeaderPairs) -> email.message.Message:
+    message = email.message.Message()
+    for key, value in header_pairs:
+        message[key] = value
+    return message
+
+
+def _header_pairs_get_all(header_pairs: _HeaderPairs, name: str) -> list[str]:
+    lowered_name = name.lower()
+    return [value for key, value in header_pairs if key.lower() == lowered_name]
+
+
+def _envelope_header_pairs(envelope: Mapping[str, object]) -> _HeaderPairs:
+    return _coerce_header_pairs(envelope.get("headers"))
+
+
 def _build_requests_response(
     requests_module: types.ModuleType,
     prepared_request: object,
     envelope: _GatewayDispatchResponse,
 ) -> object:
+    header_pairs = _envelope_header_pairs(envelope)
     response = requests_module.Response()
     response.status_code = int(envelope["status_code"])
     response._content = envelope["body"]
     response.headers = requests_module.structures.CaseInsensitiveDict(
-        envelope.get("headers") or {}
+        _header_pairs_to_mapping(header_pairs)
     )
     response.url = str(envelope.get("url") or prepared_request.url)
     response.reason = envelope.get("reason_phrase")
     response.request = prepared_request
     response.encoding = None
     response.raw = types.SimpleNamespace(
-        _original_response=types.SimpleNamespace(msg=_to_http_message(envelope))
+        _original_response=types.SimpleNamespace(
+            msg=_header_pairs_to_message(header_pairs)
+        )
     )
     response.history = []
     return response
-
-
-def _to_http_message(envelope: _GatewayDispatchResponse) -> email.message.Message:
-    message = email.message.Message()
-    for key, value in (envelope.get("headers") or {}).items():
-        message[key] = value
-    return message
 
 
 def _finalize_requests_response(
@@ -409,7 +445,7 @@ def _build_httpx_response(
 ) -> object:
     response = httpx_module.Response(
         status_code=int(envelope["status_code"]),
-        headers=envelope.get("headers") or {},
+        headers=_envelope_header_pairs(envelope),
         content=envelope["body"],
         request=request,
     )
@@ -550,9 +586,14 @@ def _update_aiohttp_cookie_jar(
 ) -> None:
     if (cookie_jar := getattr(session, "_cookie_jar", None)) is None:
         return
-    if set_cookie := response.headers.get("Set-Cookie"):
+    if set_cookie_headers := _header_pairs_get_all(
+        response._header_pairs, "Set-Cookie"
+    ):
+        cookies = SimpleCookie()
+        for set_cookie_header in set_cookie_headers:
+            cookies.load(set_cookie_header)
         cookie_jar.update_cookies(
-            SimpleCookie(set_cookie),
+            cookies,
             response_url=aiohttp_module.client_reqrep.URL(response.url),
         )
 
@@ -576,9 +617,21 @@ def _build_urllib3_response(
     urllib3_module: types.ModuleType,
     envelope: _GatewayDispatchResponse,
 ) -> object:
+    header_pairs = _envelope_header_pairs(envelope)
+    header_dict_cls = getattr(
+        getattr(urllib3_module, "_collections", None),
+        "HTTPHeaderDict",
+        None,
+    )
+    if header_dict_cls is not None:
+        headers = header_dict_cls()
+        for key, value in header_pairs:
+            headers.add(key, value)
+    else:
+        headers = _header_pairs_to_mapping(header_pairs)
     return urllib3_module.response.HTTPResponse(
         body=io.BytesIO(envelope["body"]),
-        headers=envelope.get("headers") or {},
+        headers=headers,
         status=int(envelope["status_code"]),
         reason=envelope.get("reason_phrase"),
         preload_content=False,
@@ -589,9 +642,7 @@ def _build_urllib_response(
     url: str,
     envelope: _GatewayDispatchResponse,
 ) -> addinfourl:
-    headers = email.message.Message()
-    for key, value in (envelope.get("headers") or {}).items():
-        headers[key] = value
+    headers = _header_pairs_to_message(_envelope_header_pairs(envelope))
     response = addinfourl(
         io.BytesIO(envelope["body"]),
         headers,
@@ -607,14 +658,11 @@ def _raise_urllib_http_error(
     url: str,
     envelope: _GatewayDispatchResponse,
 ) -> None:
-    headers = email.message.Message()
-    for key, value in (envelope.get("headers") or {}).items():
-        headers[key] = value
     raise urllib_request_module.HTTPError(
         str(envelope.get("url") or url),
         int(envelope["status_code"]),
         envelope.get("reason_phrase") or "",
-        headers,
+        _header_pairs_to_message(_envelope_header_pairs(envelope)),
         io.BytesIO(envelope["body"]),
     )
 
@@ -626,9 +674,13 @@ class _AiohttpProxyResponse:
         envelope: _GatewayDispatchResponse,
     ):
         self._aiohttp = aiohttp_module
+        self._header_pairs = _envelope_header_pairs(envelope)
         self.status = int(envelope["status_code"])
         self.reason = envelope.get("reason_phrase")
-        self.headers = dict(envelope.get("headers") or {})
+        cimultidict = aiohttp_module.client_reqrep.CIMultiDict()
+        for key, value in self._header_pairs:
+            cimultidict.add(key, value)
+        self.headers = aiohttp_module.client_reqrep.CIMultiDictProxy(cimultidict)
         self.url = envelope.get("url")
         self.real_url = self.url
         self.ok = 200 <= self.status < 400

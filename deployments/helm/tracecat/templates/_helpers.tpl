@@ -787,6 +787,10 @@ Merges: common + temporal + postgres + redis + executor-specific
   value: {{ .Values.executor.queue | quote }}
 - name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE
   value: {{ .Values.executor.workerPoolSize | quote }}
+{{- if .Values.tracecat.outboundHttpGatewayUrl }}
+- name: TRACECAT__OUTBOUND_HTTP_GATEWAY_URL
+  value: {{ .Values.tracecat.outboundHttpGatewayUrl | quote }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -821,6 +825,10 @@ Merges: common + temporal + postgres + redis + agent-executor-specific
   value: {{ .Values.agentExecutor.workerPoolSize | quote }}
 - name: TRACECAT__LLM_PROXY_READ_TIMEOUT
   value: {{ .Values.agentExecutor.llmProxyReadTimeout | quote }}
+{{- if .Values.tracecat.outboundHttpGatewayUrl }}
+- name: TRACECAT__OUTBOUND_HTTP_GATEWAY_URL
+  value: {{ .Values.tracecat.outboundHttpGatewayUrl | quote }}
+{{- end }}
 {{- end }}
 
 {{/*
