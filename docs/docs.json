@@ -28,7 +28,7 @@
             "group": "Building automations",
             "icon": "workflow",
             "pages": [
-              "automations/overview",
+              "automations/ai-builder",
               "automations/mcp",
               "automations/expressions",
               "automations/jsonpath",

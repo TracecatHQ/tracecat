@@ -1,8 +1,66 @@
 ---
 title: "Getting started"
-description: "Get up and running with Tracecat"
 ---
 
-# Getting started
+Join Tracecat Community Cloud or self-host your own instance.
 
-Follow this guide to set up your environment and ship your first workflow.
+## Cloud
+
+The recommended way to sign up and start using Tracecat is through your agent harness (Claude Code, Cursor, OpenAI Codex).
+You can also create an account manually via [https://platform.tracecat.com](https://platform.tracecat.com).
+
+<Tabs sync={false}>
+  <Tab title="Claude Code" icon="https://cdn.simpleicons.org/anthropic">
+
+    ```bash
+    claude mcp add -t http tracecat https://platform.tracecat.com/mcp
+    claude
+    /mcp
+    ```
+  </Tab>
+
+  <Tab title="OpenAI Codex" icon="https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/openai.svg">
+
+    ```bash
+    codex mcp add tracecat --url https://platform.tracecat.com/mcp
+    codex mcp login tracecat
+    ```
+  </Tab>
+
+  <Tab title="Cursor" icon="https://cdn.simpleicons.org/cursor">
+
+    Click this link [Add Tracecat to Cursor](https://cursor.com/en/install-mcp?name=tracecat&config=eyJ1cmwiOiJodHRwczovL3BsYXRmb3JtLnRyYWNlY2F0LmNvbS9tY3AifQ)
+    Or manually configure in `.cursor/mcp.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "tracecat": {
+          "url": "https://platform.tracecat.com/mcp"
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Self-host
+
+Docker Compose is the easiest way to self-host.
+Check out the full guide [here](/self-hosting/docker-compose) or follow the quickstart below.
+
+```bash
+# Setup environment variables and secrets
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.31/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.31/.env.example
+chmod +x env.sh && ./env.sh
+
+# Download Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.31/Caddyfile
+
+# Download Docker Compose file
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.31/docker-compose.yml
+
+# Start Tracecat
+docker compose up -d
+```
