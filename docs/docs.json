@@ -29,12 +29,16 @@
             "icon": "workflow",
             "pages": [
               "automations/ai-builder",
-              "automations/expressions",
-              "automations/jsonpath",
-              "automations/functions",
-              "automations/secrets",
-              "automations/variables",
-              "automations/tables",
+              "automations/workflows",
+              {
+                "group": "Triggers",
+                "pages": [
+                  "automations/triggers/webhooks",
+                  "automations/triggers/schedules",
+                  "automations/triggers/case-triggers",
+                  "automations/triggers/comment-triggers"
+                ]
+              },
               {
                 "group": "Core actions",
                 "pages": [
@@ -46,28 +50,24 @@
                   "automations/core-actions/scatter-gather-loops",
                   "automations/core-actions/subflows",
                   "automations/core-actions/data-transforms",
-                  "automations/core-actions/cases",
-                  "automations/core-actions/tables",
                   "automations/core-actions/sql"
                 ]
               },
               {
                 "group": "Integrations",
                 "pages": [
+                  "automations/prebuilt-credentials",
                   "automations/oauth-integrations",
-                  "automations/mcp-integrations",
-                  "automations/prebuilt-credentials"
+                  "automations/mcp-integrations"
                 ]
               },
-              {
-                "group": "Triggers",
-                "pages": [
-                  "automations/triggers/webhooks",
-                  "automations/triggers/schedules",
-                  "automations/triggers/case-triggers",
-                  "automations/triggers/comment-triggers"
-                ]
-              }
+              "automations/expressions",
+              "automations/jsonpath",
+              "automations/functions",
+              "automations/secrets",
+              "automations/variables",
+              "automations/tables",
+              "automations/cases"
             ]
           },
           {

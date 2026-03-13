@@ -14,6 +14,7 @@ import json
 import re
 import uuid
 from collections import defaultdict, deque
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from io import StringIO
@@ -1729,8 +1730,21 @@ _CASE_EVENT_TYPE_VALUES_JSON = json.dumps(
 # ---------------------------------------------------------------------------
 
 _MCP_INSTRUCTIONS = f"""\
-Tracecat workflow management server. Use `list_workspaces` to discover available \
-workspaces, then pass `workspace_id` to all other tools.
+Tracecat workflow management server.
+
+## MCP tool namespaces
+All MCP tools are namespaced by resource type and exposed as \
+`<namespace>_<tool_name>`:
+- `workspaces_*` (e.g. `workspaces_list_workspaces`)
+- `workflows_*` (workflow lifecycle, execution, tags, webhook/case-trigger config)
+- `cases_*`, `tables_*`, `variables_*`, `secrets_*`, `integrations_*`, `agents_*`
+
+Use `workspaces_list_workspaces` to discover available workspaces, then pass \
+`workspace_id` to all other tools.
+
+For readability, references below use unprefixed tool names (e.g. \
+`create_workflow`), which correspond to namespaced MCP tools \
+like `workflows_create_workflow`.
 
 ## Action namespaces
 - `core.*` — built-in platform actions (core.http_request, core.transform.reshape, \
@@ -1742,10 +1756,12 @@ core.script.run_python, core.table.*, core.open_case, core.send_email, etc.)
   - `ai.agent` — full AI agent with tool calling via `actions` list
   - `ai.preset_agent` — run a saved agent preset by slug
 
-Use `list_actions` to discover available actions. Use `get_action_context` or \
-`get_workflow_authoring_context` to get parameter schemas for any action \
+Use `workflows_list_actions` to discover available actions. Use \
+`workflows_get_action_context` or `workflows_get_workflow_authoring_context` \
+to get parameter schemas for any action \
 (including platform/interface actions like ai.agent, scatter, gather, etc.). \
-Use `get_agent_preset_authoring_context` before creating agent presets to inspect \
+Use `agents_get_agent_preset_authoring_context` before creating agent presets \
+to inspect \
 available models, integration options, and output_type configuration.
 
 ## Expression syntax (used in action `args:` values)
@@ -2522,9 +2538,115 @@ def _serialize_temporal_exception(error: BaseException) -> dict[str, Any]:
     return payload
 
 
-# ---------------------------------------------------------------------------
-# Discovery tools
-# ---------------------------------------------------------------------------
+workspaces_mcp = FastMCP("tracecat-workspaces")
+workflows_mcp = FastMCP("tracecat-workflows-tools")
+cases_mcp = FastMCP("tracecat-cases")
+tables_mcp = FastMCP("tracecat-tables")
+variables_mcp = FastMCP("tracecat-variables")
+secrets_mcp = FastMCP("tracecat-secrets")
+integrations_mcp = FastMCP("tracecat-integrations")
+agents_mcp = FastMCP("tracecat-agents")
+
+mcp.mount(workspaces_mcp, namespace="workspaces")
+mcp.mount(workflows_mcp, namespace="workflows")
+mcp.mount(cases_mcp, namespace="cases")
+mcp.mount(tables_mcp, namespace="tables")
+mcp.mount(variables_mcp, namespace="variables")
+mcp.mount(secrets_mcp, namespace="secrets")
+mcp.mount(integrations_mcp, namespace="integrations")
+mcp.mount(agents_mcp, namespace="agents")
+
+_TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
+    "list_workspaces": "workspaces",
+    "create_workflow": "workflows",
+    "get_workflow": "workflows",
+    "get_workflow_file": "workflows",
+    "prepare_workflow_file_upload": "workflows",
+    "create_workflow_from_uploaded_file": "workflows",
+    "update_workflow_from_uploaded_file": "workflows",
+    "update_workflow": "workflows",
+    "list_workflows": "workflows",
+    "list_workflow_tree": "workflows",
+    "create_workflow_folder": "workflows",
+    "move_workflows": "workflows",
+    "list_actions": "workflows",
+    "get_action_context": "workflows",
+    "get_workflow_authoring_context": "workflows",
+    "validate_workflow": "workflows",
+    "prepare_template_file_upload": "workflows",
+    "validate_template_action": "workflows",
+    "publish_workflow": "workflows",
+    "run_draft_workflow": "workflows",
+    "run_published_workflow": "workflows",
+    "list_workflow_executions": "workflows",
+    "get_workflow_execution": "workflows",
+    "get_webhook": "workflows",
+    "update_webhook": "workflows",
+    "get_case_trigger": "workflows",
+    "update_case_trigger": "workflows",
+    "list_workflow_tags": "workflows",
+    "create_workflow_tag": "workflows",
+    "update_workflow_tag": "workflows",
+    "delete_workflow_tag": "workflows",
+    "list_tags_for_workflow": "workflows",
+    "add_workflow_tag": "workflows",
+    "remove_workflow_tag": "workflows",
+    "list_case_tags": "cases",
+    "create_case_tag": "cases",
+    "update_case_tag": "cases",
+    "delete_case_tag": "cases",
+    "list_tags_for_case": "cases",
+    "add_case_tag": "cases",
+    "remove_case_tag": "cases",
+    "list_case_fields": "cases",
+    "create_case_field": "cases",
+    "update_case_field": "cases",
+    "delete_case_field": "cases",
+    "list_tables": "tables",
+    "create_table": "tables",
+    "get_table": "tables",
+    "update_table": "tables",
+    "insert_table_row": "tables",
+    "update_table_row": "tables",
+    "search_table_rows": "tables",
+    "export_csv": "tables",
+    "list_variables": "variables",
+    "get_variable": "variables",
+    "list_secrets_metadata": "secrets",
+    "get_secret_metadata": "secrets",
+    "list_integrations": "integrations",
+    "get_agent_preset_authoring_context": "agents",
+    "create_agent_preset": "agents",
+    "list_agent_presets": "agents",
+    "run_agent_preset": "agents",
+}
+
+_TOOL_NAMESPACE_SERVERS: dict[str, FastMCP] = {
+    "workspaces": workspaces_mcp,
+    "workflows": workflows_mcp,
+    "cases": cases_mcp,
+    "tables": tables_mcp,
+    "variables": variables_mcp,
+    "secrets": secrets_mcp,
+    "integrations": integrations_mcp,
+    "agents": agents_mcp,
+}
+
+
+def _namespaced_tool(*args: Any, **kwargs: Any) -> Callable[[Any], Any]:
+    def decorator(func: Any) -> Any:
+        try:
+            namespace = _TOOL_NAMESPACE_BY_NAME[func.__name__]
+        except KeyError as e:
+            raise ValueError(
+                f"Tool namespace mapping missing for function '{func.__name__}'"
+            ) from e
+        return _TOOL_NAMESPACE_SERVERS[namespace].tool(*args, **kwargs)(func)
+
+    return decorator
+
+
+mcp.tool = cast(Any, _namespaced_tool)
 
 
 @mcp.tool()
@@ -2541,11 +2663,6 @@ async def list_workspaces() -> str:
     except Exception as e:
         logger.error("Failed to list workspaces", error=str(e))
         raise ToolError(f"Failed to list workspaces: {e}") from None
-
-
-# ---------------------------------------------------------------------------
-# Workflow CRUD tools
-# ---------------------------------------------------------------------------
 
 
 @mcp.tool()
@@ -3614,11 +3731,6 @@ async def get_workflow_authoring_context(
         raise ToolError(f"Failed to build workflow authoring context: {e}") from None
 
 
-# ---------------------------------------------------------------------------
-# Validation and publishing tools
-# ---------------------------------------------------------------------------
-
-
 @mcp.tool()
 async def validate_workflow(
     workspace_id: str,
@@ -3924,11 +4036,6 @@ async def publish_workflow(
             msg = "; ".join(msgs)
         logger.error("Failed to publish workflow", error=msg)
         raise ToolError(f"Failed to publish workflow: {msg}") from None
-
-
-# ---------------------------------------------------------------------------
-# Execution tools
-# ---------------------------------------------------------------------------
 
 
 @mcp.tool()
@@ -4249,11 +4356,6 @@ async def get_workflow_execution(
         raise ToolError(f"Failed to get workflow execution: {e}") from None
 
 
-# ---------------------------------------------------------------------------
-# Webhook tools
-# ---------------------------------------------------------------------------
-
-
 @mcp.tool()
 async def get_webhook(
     workspace_id: str,
@@ -4360,11 +4462,6 @@ async def update_webhook(
         raise ToolError(f"Failed to update webhook: {e}") from None
 
 
-# ---------------------------------------------------------------------------
-# Case trigger tools
-# ---------------------------------------------------------------------------
-
-
 @mcp.tool()
 async def get_case_trigger(
     workspace_id: str,
@@ -4452,11 +4549,6 @@ async def update_case_trigger(
     except Exception as e:
         logger.error("Failed to update case trigger", error=str(e))
         raise ToolError(f"Failed to update case trigger: {e}") from None
-
-
-# ---------------------------------------------------------------------------
-# Workflow tag tools
-# ---------------------------------------------------------------------------
 
 
 @mcp.tool()
@@ -4661,11 +4753,6 @@ async def remove_workflow_tag(
         raise ToolError(f"Failed to remove workflow tag: {e}") from None
 
 
-# ---------------------------------------------------------------------------
-# Case tag tools
-# ---------------------------------------------------------------------------
-
-
 @mcp.tool()
 async def list_case_tags(workspace_id: str) -> str:
     """List case tag definitions in a workspace.
@@ -4863,11 +4950,6 @@ async def remove_case_tag(
         raise ToolError(f"Failed to remove case tag: {e}") from None
 
 
-# ---------------------------------------------------------------------------
-# Case field tools
-# ---------------------------------------------------------------------------
-
-
 @mcp.tool()
 async def list_case_fields(workspace_id: str) -> str:
     """List case field definitions in a workspace.
@@ -5002,11 +5084,6 @@ async def delete_case_field(workspace_id: str, field_id: str) -> str:
     except Exception as e:
         logger.error("Failed to delete case field", error=str(e))
         raise ToolError(f"Failed to delete case field: {e}") from None
-
-
-# ---------------------------------------------------------------------------
-# Tables, cases, variables, and secrets metadata tools
-# ---------------------------------------------------------------------------
 
 
 @mcp.tool()
