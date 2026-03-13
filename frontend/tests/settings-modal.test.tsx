@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { SettingsModal } from "@/components/settings/settings-modal"
 import type { SettingsSection } from "@/components/settings/settings-modal-context"
@@ -12,13 +12,17 @@ const mockSetActiveSection = jest.fn()
 const mockLogout = jest.fn()
 const mockUseEntitlements = jest.fn()
 const mockUseUserScopes = jest.fn()
+const mockUseWorkspaceManager = jest.fn()
+const mockClearLastWorkspaceId = jest.fn()
 const mockWorkspaceSettingsContainer = jest.fn()
 
 let mockScopes = ["*"]
-let mockWorkspaceId: string | undefined = "workspace-123"
+let mockContextWorkspaceId: string | undefined = "workspace-123"
+let mockLastWorkspaceId: string | undefined
 let mockHasGitSync = false
 let mockOpen = true
 let mockActiveSection: SettingsSection = "profile"
+let mockWorkspaces = [{ id: "workspace-123", name: "Workspace 123" }]
 let mockScopesByWorkspaceId: Record<string, string[]> = {}
 
 jest.mock("@/components/settings/settings-modal-context", () => ({
@@ -108,20 +112,30 @@ jest.mock("@/lib/hooks", () => ({
       isLoading: false,
     }
   },
+  useWorkspaceManager: () => {
+    mockUseWorkspaceManager()
+    return {
+      clearLastWorkspaceId: mockClearLastWorkspaceId,
+      getLastWorkspaceId: () => mockLastWorkspaceId,
+      workspaces: mockWorkspaces,
+    }
+  },
 }))
 
 jest.mock("@/providers/workspace-id", () => ({
-  useOptionalWorkspaceId: () => mockWorkspaceId,
+  useOptionalWorkspaceId: () => mockContextWorkspaceId,
 }))
 
 describe("SettingsModal workspace navigation", () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockScopes = ["*"]
-    mockWorkspaceId = "workspace-123"
+    mockContextWorkspaceId = "workspace-123"
+    mockLastWorkspaceId = undefined
     mockHasGitSync = false
     mockOpen = true
     mockActiveSection = "profile"
+    mockWorkspaces = [{ id: "workspace-123", name: "Workspace 123" }]
     mockScopesByWorkspaceId = {}
   })
 
@@ -163,7 +177,8 @@ describe("SettingsModal workspace navigation", () => {
   })
 
   it("falls back to profile-only navigation outside a workspace context", () => {
-    mockWorkspaceId = undefined
+    mockContextWorkspaceId = undefined
+    mockWorkspaces = []
 
     render(<SettingsModal />)
 
@@ -185,6 +200,54 @@ describe("SettingsModal workspace navigation", () => {
     expect(screen.getByText("Profile content")).toBeInTheDocument()
   })
 
+  it("falls back to the first accessible workspace when the last viewed cookie is stale", async () => {
+    mockContextWorkspaceId = undefined
+    mockLastWorkspaceId = "missing-workspace"
+    mockWorkspaces = [
+      { id: "workspace-456", name: "Workspace 456" },
+      { id: "workspace-789", name: "Workspace 789" },
+    ]
+
+    render(<SettingsModal />)
+
+    await waitFor(() => {
+      expect(mockUseUserScopes).toHaveBeenCalledWith("workspace-456", {
+        enabled: true,
+      })
+      expect(mockClearLastWorkspaceId).toHaveBeenCalled()
+      expect(
+        screen.getByRole("button", { name: "General" })
+      ).toBeInTheDocument()
+    })
+  })
+
+  it("probes additional workspaces until it finds one with update access", async () => {
+    mockContextWorkspaceId = undefined
+    mockLastWorkspaceId = "workspace-viewer"
+    mockWorkspaces = [
+      { id: "workspace-admin", name: "Zulu workspace" },
+      { id: "workspace-viewer", name: "Alpha workspace" },
+    ]
+    mockScopesByWorkspaceId = {
+      "workspace-admin": ["workspace:update"],
+      "workspace-viewer": ["workspace:read"],
+    }
+
+    render(<SettingsModal />)
+
+    await waitFor(() => {
+      expect(mockUseUserScopes).toHaveBeenCalledWith("workspace-viewer", {
+        enabled: true,
+      })
+      expect(mockUseUserScopes).toHaveBeenCalledWith("workspace-admin", {
+        enabled: true,
+      })
+      expect(
+        screen.getByRole("button", { name: "General" })
+      ).toBeInTheDocument()
+    })
+  })
+
   it("renders workspace settings content for an active workspace section", () => {
     mockActiveSection = "workspace-general"
 
@@ -203,6 +266,7 @@ describe("SettingsModal workspace navigation", () => {
 
     render(<SettingsModal />)
 
+    expect(mockUseWorkspaceManager).not.toHaveBeenCalled()
     expect(mockUseUserScopes).not.toHaveBeenCalled()
     expect(mockUseEntitlements).not.toHaveBeenCalled()
     expect(mockWorkspaceSettingsContainer).not.toHaveBeenCalled()

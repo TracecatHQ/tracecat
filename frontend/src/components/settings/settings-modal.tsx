@@ -9,6 +9,7 @@ import {
   UserIcon,
   WorkflowIcon,
 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
 import { ProfileSettings } from "@/components/settings/profile-settings"
 import {
   type SettingsSection,
@@ -25,10 +26,26 @@ import { Separator } from "@/components/ui/separator"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAuthActions } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useUserScopes } from "@/lib/hooks"
+import { useUserScopes, useWorkspaceManager } from "@/lib/hooks"
 import { hasGrantedScope } from "@/lib/scopes"
 import { cn } from "@/lib/utils"
 import { useOptionalWorkspaceId } from "@/providers/workspace-id"
+
+type WorkspaceCandidate = {
+  id: string
+  name: string
+}
+
+function compareWorkspaceCandidates(
+  left: WorkspaceCandidate,
+  right: WorkspaceCandidate
+) {
+  const nameCompare = left.name.localeCompare(right.name)
+  if (nameCompare !== 0) {
+    return nameCompare
+  }
+  return left.id.localeCompare(right.id)
+}
 
 interface NavItemProps {
   icon: React.ElementType
@@ -72,7 +89,54 @@ function SettingsModalContent() {
   const { logout } = useAuthActions()
   const { hasEntitlement } = useEntitlements()
 
-  const workspaceId = useOptionalWorkspaceId()
+  const contextWorkspaceId = useOptionalWorkspaceId()
+  const { clearLastWorkspaceId, getLastWorkspaceId, workspaces } =
+    useWorkspaceManager()
+  const lastWorkspaceId = getLastWorkspaceId()
+  const lastViewedWorkspace = workspaces?.find(
+    (workspace) => workspace.id === lastWorkspaceId
+  )
+  const orderedFallbackWorkspaces = useMemo(() => {
+    if (!workspaces) {
+      return []
+    }
+
+    const remainingWorkspaces = workspaces
+      .filter((workspace) => workspace.id !== lastViewedWorkspace?.id)
+      .sort(compareWorkspaceCandidates)
+
+    return lastViewedWorkspace
+      ? [lastViewedWorkspace, ...remainingWorkspaces]
+      : remainingWorkspaces
+  }, [lastViewedWorkspace, workspaces])
+  const [fallbackWorkspaceIndex, setFallbackWorkspaceIndex] = useState(0)
+  const fallbackWorkspace = contextWorkspaceId
+    ? undefined
+    : orderedFallbackWorkspaces[fallbackWorkspaceIndex]
+  const workspaceId = contextWorkspaceId ?? fallbackWorkspace?.id
+
+  useEffect(() => {
+    setFallbackWorkspaceIndex(0)
+  }, [contextWorkspaceId, orderedFallbackWorkspaces])
+
+  useEffect(() => {
+    if (
+      contextWorkspaceId ||
+      !lastWorkspaceId ||
+      !workspaces ||
+      lastViewedWorkspace
+    ) {
+      return
+    }
+
+    clearLastWorkspaceId()
+  }, [
+    clearLastWorkspaceId,
+    contextWorkspaceId,
+    lastViewedWorkspace,
+    lastWorkspaceId,
+    workspaces,
+  ])
 
   const { userScopes, isLoading: scopesLoading } = useUserScopes(workspaceId, {
     enabled: !!workspaceId,
@@ -80,6 +144,28 @@ function SettingsModalContent() {
   const canAdministerWorkspace =
     !scopesLoading &&
     hasGrantedScope("workspace:update", userScopes?.scopes ?? [])
+
+  useEffect(() => {
+    if (
+      contextWorkspaceId ||
+      !workspaceId ||
+      scopesLoading ||
+      canAdministerWorkspace ||
+      fallbackWorkspaceIndex >= orderedFallbackWorkspaces.length - 1
+    ) {
+      return
+    }
+
+    setFallbackWorkspaceIndex((currentIndex) => currentIndex + 1)
+  }, [
+    canAdministerWorkspace,
+    contextWorkspaceId,
+    fallbackWorkspaceIndex,
+    orderedFallbackWorkspaces.length,
+    scopesLoading,
+    workspaceId,
+  ])
+
   const showWorkspaceSection = !!workspaceId && canAdministerWorkspace
   const displayedSection = showWorkspaceSection ? activeSection : "profile"
   const showSyncNav = hasEntitlement("git_sync")
