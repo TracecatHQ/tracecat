@@ -37,6 +37,7 @@ from tracecat.agent.session.schemas import (
 from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
+from tracecat.agent.workflow_schemas import RunAgentActivityFailureMode
 from tracecat.audit.logger import audit_log
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.prompts import CaseCopilotPrompts
@@ -996,6 +997,7 @@ class AgentSessionService(BaseWorkspaceService):
             workflow_args = AgentWorkflowArgs(
                 role=self.role,
                 agent_args=args,
+                run_agent_failure_mode=RunAgentActivityFailureMode.FAIL_FAST,
                 title=agent_session.title,
                 entity_type=AgentSessionEntity(agent_session.entity_type),
                 entity_id=agent_session.entity_id,

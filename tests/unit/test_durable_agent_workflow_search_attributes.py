@@ -9,18 +9,24 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio.common import TypedSearchAttributes
+from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent.workflows.durable import (
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
 )
 
+from tracecat.agent.executor.activity import AgentExecutorResult
 from tracecat.agent.preset.activities import ResolveAgentPresetConfigActivityInput
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
+from tracecat.agent.session.activities import CreateSessionResult, LoadSessionResult
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
+from tracecat.agent.workflow_schemas import RunAgentActivityFailureMode
 from tracecat.auth.types import Role
+from tracecat.dsl.common import RETRY_POLICIES
+from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -225,3 +231,73 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
     assert cfg.model_provider == pinned_config.model_provider
     assert cfg.actions == ["core.http_request"]
     assert cfg.instructions == "base instructions\nappend this"
+
+
+@pytest.mark.anyio
+async def test_run_with_nsjail_uses_retry_policy_for_retry_mode() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_args.run_agent_failure_mode = RunAgentActivityFailureMode.RETRY
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    cfg = cast(Any, workflow_args.agent_args.config)
+
+    build_result = SimpleNamespace(
+        tool_definitions={},
+        registry_lock=RegistryLock(origins={}, actions={}),
+        user_mcp_claims=None,
+        allowed_internal_tools=None,
+    )
+
+    execute_activity_mock = AsyncMock(
+        side_effect=[
+            CreateSessionResult(
+                session_id=workflow_args.agent_args.session_id,
+                success=True,
+            ),
+            LoadSessionResult(
+                found=False,
+                sdk_session_id=None,
+                sdk_session_data=None,
+            ),
+            AgentExecutorResult(success=False, error="sandbox failed"),
+        ]
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.info",
+            return_value=SimpleNamespace(
+                workflow_id=f"agent/{workflow_args.agent_args.session_id}"
+            ),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+            execute_activity_mock,
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
+            AsyncMock(return_value=build_result),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.mint_mcp_token",
+            return_value="mcp-token",
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.mint_llm_token",
+            return_value="llm-token",
+        ),
+    ):
+        with pytest.raises(ApplicationError, match="Agent execution failed"):
+            await workflow_instance._run_with_nsjail(workflow_args, cfg)
+
+    run_agent_call = execute_activity_mock.await_args_list[2]
+    assert run_agent_call.kwargs["retry_policy"] == RETRY_POLICIES["activity:fail_slow"]
+    executor_input = run_agent_call.args[1]
+    assert executor_input.run_agent_failure_mode is RunAgentActivityFailureMode.RETRY

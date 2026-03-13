@@ -43,6 +43,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.schemas import RunAgentArgs
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
+    from tracecat.agent.workflow_schemas import RunAgentActivityFailureMode
     from tracecat.concurrency import cooperative
     from tracecat.contexts import (
         ctx_interaction,
@@ -955,6 +956,7 @@ class DSLWorkflow:
                             max_tool_calls=action_args.max_tool_calls,
                             use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
+                        run_agent_failure_mode=RunAgentActivityFailureMode.RETRY,
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
@@ -1018,6 +1020,7 @@ class DSLWorkflow:
                             max_tool_calls=0,
                             use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
+                        run_agent_failure_mode=RunAgentActivityFailureMode.RETRY,
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
@@ -1094,6 +1097,7 @@ class DSLWorkflow:
                             max_tool_calls=preset_action_args.max_tool_calls,
                             use_workspace_credentials=preset_action_args.use_workspace_credentials,
                         ),
+                        run_agent_failure_mode=RunAgentActivityFailureMode.RETRY,
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
