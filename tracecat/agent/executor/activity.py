@@ -31,6 +31,7 @@ from typing import Any
 
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
@@ -53,6 +54,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.agent.types import AgentConfig
+from tracecat.agent.workflow_schemas import RunAgentActivityFailureMode
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 from tracecat.executor import registry_resolver
@@ -84,6 +86,10 @@ class AgentExecutorInput(BaseModel):
     # Session resume data (from previous run, includes tool_result for approval flow)
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None
+    run_agent_failure_mode: RunAgentActivityFailureMode = Field(
+        default=RunAgentActivityFailureMode.FAIL_FAST,
+        description="How run_agent_activity should surface execution failures.",
+    )
     # True when resuming after approval decision (continuation prompt should be internal)
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
@@ -571,6 +577,8 @@ async def run_agent_activity(
             )
     else:
         activity.heartbeat(f"Agent execution failed: {result.error}")
+        if input.run_agent_failure_mode is RunAgentActivityFailureMode.RETRY:
+            raise ApplicationError(result.error or "Agent execution failed")
 
     return result
 
