@@ -5,17 +5,19 @@ import re
 import uuid
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
+from importlib.metadata import version
 from typing import Any
 
-import orjson
+import litellm
 
 from tracecat.agent.types import ModelSourceType
 
-LITELLM_PINNED_VERSION = "1.82.1"
-_CATALOG_ROOT = Path(__file__).resolve().parent / "data" / "litellm" / "v1.82.1"
-_MODEL_PRICING_PATH = _CATALOG_ROOT / "model_prices_and_context_window.json"
-_PROVIDER_ENDPOINTS_PATH = _CATALOG_ROOT / "provider_endpoints_support.json"
+
+def _load_litellm_model_payload() -> dict[str, Any]:
+    return dict(litellm.model_cost)
+
+
+LITELLM_PINNED_VERSION = version("litellm")
 
 _UPSTREAM_TO_SOURCE_TYPE: dict[str, ModelSourceType] = {
     "openai": ModelSourceType.OPENAI,
@@ -90,10 +92,6 @@ class BuiltInCatalogModel:
     metadata: dict[str, Any]
 
 
-def _load_json(path: Path) -> dict[str, Any]:
-    return orjson.loads(path.read_bytes())
-
-
 def _strip_provider_prefix(raw_model_id: str, upstream_provider: str) -> str:
     prefix = f"{upstream_provider}/"
     if raw_model_id.startswith(prefix):
@@ -139,11 +137,7 @@ def _is_builtin_catalog_model_blocked(*, raw_model_id: str, model_name: str) -> 
 
 @lru_cache(maxsize=1)
 def get_builtin_catalog_models() -> tuple[BuiltInCatalogModel, ...]:
-    model_payload = _load_json(_MODEL_PRICING_PATH)
-    provider_payload = _load_json(_PROVIDER_ENDPOINTS_PATH)
-    provider_support = provider_payload.get("providers")
-    if not isinstance(provider_support, dict):
-        provider_support = {}
+    model_payload = _load_litellm_model_payload()
 
     rows: list[BuiltInCatalogModel] = []
     for raw_model_id, item in model_payload.items():
@@ -162,7 +156,6 @@ def get_builtin_catalog_models() -> tuple[BuiltInCatalogModel, ...]:
             model_name=model_name,
         ):
             continue
-        provider_meta = provider_support.get(upstream_provider)
         mode = item.get("mode")
         enableable, readiness_message = _is_agent_enableable(item)
         metadata = {
@@ -171,9 +164,6 @@ def get_builtin_catalog_models() -> tuple[BuiltInCatalogModel, ...]:
             "upstream_model_id": raw_model_id,
             "litellm_version": LITELLM_PINNED_VERSION,
         }
-        if isinstance(provider_meta, dict):
-            metadata["provider_endpoints"] = provider_meta.get("endpoints")
-            metadata["provider_docs_url"] = provider_meta.get("url")
 
         rows.append(
             BuiltInCatalogModel(

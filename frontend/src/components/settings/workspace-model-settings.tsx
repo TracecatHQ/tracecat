@@ -1,10 +1,10 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { WorkspaceRead } from "@/client"
+import type { ModelSelection, WorkspaceRead } from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -19,15 +19,48 @@ import {
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
-import { useAgentModels, useWorkspaceSettings } from "@/lib/hooks"
+import {
+  type AgentCatalogEntry,
+  getModelSelectionKey,
+  useAgentModels,
+  useWorkspaceAgentModelSubset,
+} from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
-export const workspaceModelSettingsSchema = z.object({
-  inherit_agent_enabled_models: z.boolean().default(true),
-  agent_enabled_model_refs: z.array(z.string()).default([]),
+const modelSelectionSchema = z.object({
+  source_id: z.string().nullish(),
+  model_provider: z.string().min(1),
+  model_name: z.string().min(1),
 })
 
+export const workspaceModelSettingsSchema = z
+  .object({
+    inherit_all: z.boolean().default(true),
+    models: z.array(modelSelectionSchema).default([]),
+  })
+  .superRefine((values, ctx) => {
+    if (values.inherit_all || values.models.length > 0) {
+      return
+    }
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Select at least one model or inherit the organization catalog.",
+      path: ["models"],
+    })
+  })
+
 type WorkspaceModelSettingsForm = z.infer<typeof workspaceModelSettingsSchema>
+
+function toModelSelection(
+  model: Pick<AgentCatalogEntry, "source_id" | "model_provider" | "model_name">
+): ModelSelection {
+  return {
+    source_id: model.source_id ?? null,
+    model_provider: model.model_provider,
+    model_name: model.model_name,
+  }
+}
 
 function getProviderIconId(provider: string): string {
   switch (provider) {
@@ -51,11 +84,7 @@ function getProviderIconId(provider: string): string {
 export function buildWorkspaceModelSettingsUpdate(
   values: WorkspaceModelSettingsForm
 ) {
-  return {
-    agent_enabled_model_refs: values.inherit_agent_enabled_models
-      ? null
-      : values.agent_enabled_model_refs,
-  }
+  return values.inherit_all ? null : values.models
 }
 
 interface WorkspaceModelSettingsProps {
@@ -66,25 +95,43 @@ export function WorkspaceModelSettings({
   workspace,
 }: WorkspaceModelSettingsProps) {
   const [modelQuery, setModelQuery] = useState("")
-  const workspaceSettings = (workspace.settings ?? null) as
-    | (WorkspaceRead["settings"] & {
-        agent_enabled_model_refs?: string[] | null
-      })
-    | null
-  const workspaceModelRefs = workspaceSettings?.agent_enabled_model_refs ?? null
-  const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)
   const { models, modelsLoading } = useAgentModels()
+  const {
+    modelSubset,
+    modelSubsetLoading,
+    updateModelSubset,
+    isUpdatingModelSubset,
+  } = useWorkspaceAgentModelSubset(workspace.id)
 
   const form = useForm<WorkspaceModelSettingsForm>({
     resolver: zodResolver(workspaceModelSettingsSchema),
     mode: "onChange",
     defaultValues: {
-      inherit_agent_enabled_models: workspaceModelRefs === null,
-      agent_enabled_model_refs: workspaceModelRefs ?? [],
+      inherit_all: true,
+      models: [],
     },
   })
 
-  const inheritOrgModels = form.watch("inherit_agent_enabled_models")
+  useEffect(() => {
+    if (modelSubsetLoading) {
+      return
+    }
+
+    form.reset({
+      inherit_all: modelSubset === null,
+      models: modelSubset ?? [],
+    })
+  }, [form, modelSubset, modelSubsetLoading])
+
+  const inheritAll = form.watch("inherit_all")
+  const selectedModels = form.watch("models")
+  const selectedModelKeys = useMemo(
+    () =>
+      new Set(
+        (selectedModels ?? []).map((model) => getModelSelectionKey(model))
+      ),
+    [selectedModels]
+  )
   const filteredModels = useMemo(() => {
     const query = modelQuery.trim().toLowerCase()
     if (!query) {
@@ -93,19 +140,16 @@ export function WorkspaceModelSettings({
     return (
       models?.filter((model) => {
         return (
-          model.display_name.toLowerCase().includes(query) ||
           model.model_name.toLowerCase().includes(query) ||
-          model.runtime_provider.toLowerCase().includes(query) ||
-          model.source_name.toLowerCase().includes(query)
+          model.model_provider.toLowerCase().includes(query) ||
+          (model.source_name ?? "").toLowerCase().includes(query)
         )
       }) ?? []
     )
   }, [modelQuery, models])
 
   async function onSubmit(values: WorkspaceModelSettingsForm) {
-    await updateWorkspace({
-      settings: buildWorkspaceModelSettingsUpdate(values),
-    })
+    await updateModelSubset(buildWorkspaceModelSettingsUpdate(values))
   }
 
   return (
@@ -121,7 +165,7 @@ export function WorkspaceModelSettings({
 
         <FormField
           control={form.control}
-          name="inherit_agent_enabled_models"
+          name="inherit_all"
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
@@ -143,8 +187,8 @@ export function WorkspaceModelSettings({
 
         <FormField
           control={form.control}
-          name="agent_enabled_model_refs"
-          render={({ field }) => (
+          name="models"
+          render={({ field, fieldState }) => (
             <FormItem className="space-y-3 rounded-lg border p-4">
               <div className="space-y-0.5">
                 <FormLabel>Workspace model subset</FormLabel>
@@ -154,14 +198,14 @@ export function WorkspaceModelSettings({
                 </FormDescription>
               </div>
 
-              {modelsLoading ? (
+              {modelsLoading || modelSubsetLoading ? (
                 <p className="text-sm text-muted-foreground">
                   Loading enabled models...
                 </p>
               ) : models?.length ? (
                 <div className="space-y-3">
                   <Input
-                    disabled={inheritOrgModels}
+                    disabled={inheritAll}
                     onChange={(event) => {
                       setModelQuery(event.target.value)
                     }}
@@ -172,36 +216,38 @@ export function WorkspaceModelSettings({
                     <div className="divide-y">
                       {filteredModels.length ? (
                         filteredModels.map((model) => {
-                          const selected = (field.value ?? []).includes(
-                            model.catalog_ref
-                          )
-                          const checked = inheritOrgModels ? true : selected
+                          const modelSelection = toModelSelection(model)
+                          const modelKey = getModelSelectionKey(modelSelection)
+                          const checked = inheritAll
+                            ? true
+                            : selectedModelKeys.has(modelKey)
+                          const sourceName =
+                            model.source_name ??
+                            (model.source_id ? "Custom" : "Platform")
 
                           return (
                             <label
-                              key={model.catalog_ref}
+                              key={modelKey}
                               className={cn(
                                 "flex items-start gap-3 px-4 py-3 transition-colors",
-                                inheritOrgModels
+                                inheritAll
                                   ? "cursor-not-allowed opacity-60"
                                   : "cursor-pointer hover:bg-muted/30"
                               )}
                             >
                               <Checkbox
                                 checked={checked}
-                                disabled={inheritOrgModels}
+                                disabled={inheritAll}
                                 onCheckedChange={(nextChecked) => {
                                   const current = field.value ?? []
                                   if (nextChecked) {
-                                    field.onChange([
-                                      ...current,
-                                      model.catalog_ref,
-                                    ])
+                                    field.onChange([...current, modelSelection])
                                     return
                                   }
                                   field.onChange(
                                     current.filter(
-                                      (value) => value !== model.catalog_ref
+                                      (value) =>
+                                        getModelSelectionKey(value) !== modelKey
                                     )
                                   )
                                 }}
@@ -211,18 +257,15 @@ export function WorkspaceModelSettings({
                                   <ProviderIcon
                                     className="size-4 rounded-sm"
                                     providerId={getProviderIconId(
-                                      model.runtime_provider
+                                      model.model_provider
                                     )}
                                   />
-                                  <span>{model.display_name}</span>
+                                  <span>{model.model_name}</span>
                                 </div>
                                 <div className="text-xs text-muted-foreground">
-                                  {model.runtime_provider}
+                                  {model.model_provider}
                                   {" · "}
-                                  {model.source_name}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {model.model_name}
+                                  {sourceName}
                                 </div>
                               </div>
                             </label>
@@ -236,8 +279,13 @@ export function WorkspaceModelSettings({
                       )}
                     </div>
                   </ScrollArea>
+                  {fieldState.error ? (
+                    <p className="text-sm text-destructive">
+                      {fieldState.error.message}
+                    </p>
+                  ) : null}
                   <p className="text-xs text-muted-foreground">
-                    {inheritOrgModels
+                    {inheritAll
                       ? "This workspace currently inherits every organization-enabled model."
                       : `${field.value?.length ?? 0} models selected for this workspace.`}
                   </p>
@@ -251,8 +299,8 @@ export function WorkspaceModelSettings({
           )}
         />
 
-        <Button type="submit" disabled={isUpdating} size="sm">
-          {isUpdating ? "Saving..." : "Save"}
+        <Button type="submit" disabled={isUpdatingModelSubset} size="sm">
+          {isUpdatingModelSubset ? "Saving..." : "Save"}
         </Button>
       </form>
     </Form>
