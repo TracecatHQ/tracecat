@@ -30,4 +30,26 @@ describe("workspace files settings", () => {
       validate_attachment_magic_number: false,
     })
   })
+
+  it("sends null when reset to inherited defaults", () => {
+    const result = buildFilesSettingsUpdate(
+      {
+        allowed_attachment_extensions: [{ id: "ext-1", text: ".pdf" }],
+        allowed_attachment_mime_types: [
+          { id: "mime-1", text: "application/pdf" },
+        ],
+        validate_attachment_magic_number: true,
+      },
+      {
+        inheritAttachmentExtensions: true,
+        inheritAttachmentMimeTypes: true,
+      }
+    )
+
+    expect(result).toEqual({
+      allowed_attachment_extensions: null,
+      allowed_attachment_mime_types: null,
+      validate_attachment_magic_number: true,
+    })
+  })
 })

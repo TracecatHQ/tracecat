@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { RefreshCwIcon } from "lucide-react"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { WorkspaceRead } from "@/client"
@@ -41,16 +42,26 @@ const filesSettingsSchema = z.object({
 
 type FilesSettingsForm = z.infer<typeof filesSettingsSchema>
 
-export function buildFilesSettingsUpdate(values: FilesSettingsForm) {
+interface FilesSettingsUpdateOptions {
+  inheritAttachmentExtensions?: boolean
+  inheritAttachmentMimeTypes?: boolean
+}
+
+export function buildFilesSettingsUpdate(
+  values: FilesSettingsForm,
+  options: FilesSettingsUpdateOptions = {}
+) {
   return {
-    allowed_attachment_extensions:
-      values.allowed_attachment_extensions === undefined
+    allowed_attachment_extensions: options.inheritAttachmentExtensions
+      ? null
+      : values.allowed_attachment_extensions === undefined
         ? undefined
         : values.allowed_attachment_extensions.length > 0
           ? values.allowed_attachment_extensions.map((ext) => ext.text)
           : null,
-    allowed_attachment_mime_types:
-      values.allowed_attachment_mime_types === undefined
+    allowed_attachment_mime_types: options.inheritAttachmentMimeTypes
+      ? null
+      : values.allowed_attachment_mime_types === undefined
         ? undefined
         : values.allowed_attachment_mime_types.length > 0
           ? values.allowed_attachment_mime_types.map((mime) => mime.text)
@@ -70,6 +81,10 @@ export function WorkspaceFilesSettings({
     workspace.settings?.effective_allowed_attachment_extensions || []
   const systemDefaultMimeTypes =
     workspace.settings?.effective_allowed_attachment_mime_types || []
+  const [inheritAttachmentExtensions, setInheritAttachmentExtensions] =
+    useState(false)
+  const [inheritAttachmentMimeTypes, setInheritAttachmentMimeTypes] =
+    useState(false)
 
   const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)
 
@@ -102,7 +117,10 @@ export function WorkspaceFilesSettings({
 
   async function onSubmit(values: FilesSettingsForm) {
     await updateWorkspace({
-      settings: buildFilesSettingsUpdate(values),
+      settings: buildFilesSettingsUpdate(values, {
+        inheritAttachmentExtensions,
+        inheritAttachmentMimeTypes,
+      }),
     })
   }
 
@@ -121,6 +139,7 @@ export function WorkspaceFilesSettings({
                   variant="ghost"
                   size="sm"
                   onClick={() => {
+                    setInheritAttachmentExtensions(true)
                     field.onChange(
                       systemDefaultExtensions.map((ext, index) => ({
                         id: `ext-default-${index}`,
@@ -138,7 +157,10 @@ export function WorkspaceFilesSettings({
                   {...field}
                   placeholder="Enter an extension..."
                   tags={field.value || []}
-                  setTags={field.onChange}
+                  setTags={(tags) => {
+                    setInheritAttachmentExtensions(false)
+                    field.onChange(tags)
+                  }}
                 />
               </FormControl>
               <FormDescription>
@@ -162,6 +184,7 @@ export function WorkspaceFilesSettings({
                   variant="ghost"
                   size="sm"
                   onClick={() => {
+                    setInheritAttachmentMimeTypes(true)
                     field.onChange(
                       systemDefaultMimeTypes.map((mime, index) => ({
                         id: `mime-default-${index}`,
@@ -179,7 +202,10 @@ export function WorkspaceFilesSettings({
                   {...field}
                   placeholder="Enter a MIME type..."
                   tags={field.value || []}
-                  setTags={field.onChange}
+                  setTags={(tags) => {
+                    setInheritAttachmentMimeTypes(false)
+                    field.onChange(tags)
+                  }}
                 />
               </FormControl>
               <FormDescription>
