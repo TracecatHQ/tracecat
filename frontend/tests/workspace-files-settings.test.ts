@@ -1,4 +1,7 @@
-import { buildFilesSettingsUpdate } from "@/components/settings/workspace-files-settings"
+import {
+  buildFilesSettingsUpdate,
+  filesSettingsSchema,
+} from "@/components/settings/workspace-files-settings"
 
 describe("workspace files settings", () => {
   it("sends null when attachment override lists are cleared", () => {
@@ -51,5 +54,35 @@ describe("workspace files settings", () => {
       allowed_attachment_mime_types: null,
       validate_attachment_magic_number: true,
     })
+  })
+
+  it("trims attachment override tags during validation", () => {
+    const result = filesSettingsSchema.safeParse({
+      allowed_attachment_extensions: [{ id: "ext-1", text: "  .pdf  " }],
+      allowed_attachment_mime_types: [
+        { id: "mime-1", text: "  application/pdf  " },
+      ],
+      validate_attachment_magic_number: true,
+    })
+
+    expect(result.success).toBe(true)
+    if (!result.success) {
+      throw new Error("Expected trimmed attachment tags to pass validation")
+    }
+    expect(result.data.allowed_attachment_extensions).toEqual([
+      { id: "ext-1", text: ".pdf" },
+    ])
+    expect(result.data.allowed_attachment_mime_types).toEqual([
+      { id: "mime-1", text: "application/pdf" },
+    ])
+  })
+
+  it("rejects attachment override tags that are empty after trimming", () => {
+    const result = filesSettingsSchema.safeParse({
+      allowed_attachment_extensions: [{ id: "ext-1", text: "   " }],
+      validate_attachment_magic_number: true,
+    })
+
+    expect(result.success).toBe(false)
   })
 })

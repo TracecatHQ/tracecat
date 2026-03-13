@@ -20,12 +20,12 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { useWorkspaceSettings } from "@/lib/hooks"
 
-const filesSettingsSchema = z.object({
+export const filesSettingsSchema = z.object({
   allowed_attachment_extensions: z
     .array(
       z.object({
         id: z.string(),
-        text: z.string().min(1, "Cannot be empty"),
+        text: z.string().trim().min(1, "Cannot be empty"),
       })
     )
     .optional(),
@@ -33,7 +33,7 @@ const filesSettingsSchema = z.object({
     .array(
       z.object({
         id: z.string(),
-        text: z.string().min(1, "Cannot be empty"),
+        text: z.string().trim().min(1, "Cannot be empty"),
       })
     )
     .optional(),
