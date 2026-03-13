@@ -4,11 +4,13 @@ Provides a interface to Boto3's Client and Paginator APIs.
 Supports role-based authentication and session management.
 """
 
+import base64
 from typing import TYPE_CHECKING, Annotated, Any
 from typing_extensions import Doc
 
 import boto3
 import aioboto3
+from aiobotocore.response import StreamingBody
 
 if TYPE_CHECKING:
     from types_aiobotocore_sts.type_defs import (
@@ -202,6 +204,32 @@ def get_sync_session() -> boto3.Session:
     return session
 
 
+_STREAMING_BODY_MAX_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
+async def _read_streaming_values(obj: Any) -> Any:
+    """Recursively read StreamingBody and bytes values in a boto3 response.
+
+    Content is decoded as UTF-8, falling back to base64 for binary data.
+    """
+    if isinstance(obj, StreamingBody):
+        content = await obj.read(_STREAMING_BODY_MAX_BYTES)
+        try:
+            return content.decode("utf-8")
+        except UnicodeDecodeError:
+            return base64.b64encode(content).decode("ascii")
+    if isinstance(obj, bytes):
+        try:
+            return obj.decode("utf-8")
+        except UnicodeDecodeError:
+            return base64.b64encode(obj).decode("ascii")
+    if isinstance(obj, dict):
+        return {k: await _read_streaming_values(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [await _read_streaming_values(item) for item in obj]
+    return obj
+
+
 @registry.register(
     default_title="Call method",
     description="Instantiate a Boto3 client and call an AWS Boto3 API method.",
@@ -232,7 +260,7 @@ async def call_api(
     session = await get_session()
     async with session.client(service_name, endpoint_url=endpoint_url) as client:  # type: ignore
         response = await getattr(client, method_name)(**params)
-        return response
+        return await _read_streaming_values(response)
 
 
 @registry.register(
@@ -267,8 +295,8 @@ async def call_paginated_api(
         paginator = client.get_paginator(paginator_name)
         pages = paginator.paginate(**params)
 
-    results = []
-    async for page in pages:
-        results.append(page)
+        results = []
+        async for page in pages:
+            results.append(await _read_streaming_values(page))
 
     return results
