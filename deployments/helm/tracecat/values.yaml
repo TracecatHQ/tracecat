@@ -180,7 +180,7 @@ tracecat:
     assumeRolePrincipalArn: ""
 
   registrySync:
-    builtinUseInstalledSitePackages: true
+    builtinUseInstalledSitePackages: false
 
   blobStorage:
     # Optional override for S3-compatible endpoints (leave empty for AWS S3).
