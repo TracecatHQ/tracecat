@@ -15854,6 +15854,18 @@ export const $Role = {
       ],
       title: "Workspace Id",
     },
+    bound_workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Bound Workspace Id",
+    },
     organization_id: {
       anyOf: [
         {
@@ -15933,18 +15945,7 @@ export const $Role = {
   type: "object",
   required: ["type", "service_id"],
   title: "Role",
-  description: `The identity and authorization of a user or service.
-
-Params
-------
-type : Literal["user", "service", "service_account"]
-    The type of role.
-user_id : UUID | None
-    The user's ID, or the service's user_id.
-    This can be None for internal services, or when a user hasn't been set for the role.
-service_id : str | None = None
-    The service's role name, or None if the role is a user.
-
+  description: `The identity, intrinsic bindings, and resolved authorization context.
 
 User roles
 ----------
