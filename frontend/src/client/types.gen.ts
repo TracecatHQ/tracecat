@@ -29,6 +29,10 @@ export type ActionControlFlow = {
    * Override environment for this action's execution
    */
   environment?: string | null
+  /**
+   * Disable secret masking for this action output. This is unsafe and should only be enabled when absolutely necessary.
+   */
+  disable_secrets_masking?: boolean
 }
 
 export type ActionCreate = {
@@ -177,6 +181,10 @@ export type ActionStatement = {
    * Override environment for this action's execution. Can be a template expression.
    */
   environment?: string | null
+  /**
+   * Disable secret masking for this action output. This is unsafe and should only be enabled when absolutely necessary.
+   */
+  disable_secrets_masking?: boolean
 }
 
 export type ActionStep = {

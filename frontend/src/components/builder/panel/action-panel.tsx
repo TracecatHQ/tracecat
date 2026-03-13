@@ -71,6 +71,7 @@ import {
 } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -189,6 +190,7 @@ const actionFormSchema = z.object({
     .max(1000, "Environment must be less than 1000 characters")
     .transform((val) => normalizeOptionalExpression(val))
     .optional(),
+  disable_secrets_masking: z.boolean().default(false),
   is_interactive: z.boolean().default(false),
   interaction: z
     .discriminatedUnion("type", [
@@ -278,6 +280,7 @@ export interface ActionPanelRef extends ImperativePanelHandle {
   getActiveTab: () => ActionPanelTabs
   setOpen: (open: boolean) => void
   isOpen: () => boolean
+  saveIfDirty: () => Promise<boolean>
 }
 
 function ActionPanelContent({
@@ -327,6 +330,8 @@ function ActionPanelContent({
       join_strategy: actionControlFlow?.join_strategy,
       wait_until: actionControlFlow?.wait_until || undefined,
       environment: actionControlFlow?.environment || undefined,
+      disable_secrets_masking:
+        actionControlFlow?.disable_secrets_masking ?? false,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
     }),
@@ -345,6 +350,7 @@ function ActionPanelContent({
       actionControlFlow?.join_strategy,
       actionControlFlow?.wait_until,
       actionControlFlow?.environment,
+      actionControlFlow?.disable_secrets_masking,
     ]
   )
 
@@ -523,27 +529,6 @@ function ActionPanelContent({
     setInputMode(formModeEnabled ? "form" : "yaml")
   }, [formModeEnabled, actionId])
 
-  // Set up the ref methods
-  useEffect(() => {
-    if (actionPanelRef.current) {
-      actionPanelRef.current.setActiveTab = setActiveTab
-      actionPanelRef.current.getActiveTab = () => activeTab
-      actionPanelRef.current.setOpen = (newOpen: boolean) => {
-        setOpen(newOpen)
-        // If the panel has a collapse method, use it
-        if (
-          actionPanelRef.current?.collapse &&
-          actionPanelRef.current?.expand
-        ) {
-          newOpen
-            ? actionPanelRef.current.expand()
-            : actionPanelRef.current.collapse()
-        }
-      }
-      actionPanelRef.current.isOpen = () => open
-    }
-  }, [actionPanelRef, activeTab, setOpen, open])
-
   const handleSave = useCallback(
     async (values: ActionFormSchema) => {
       if (!registryAction || !action) {
@@ -589,6 +574,7 @@ function ActionPanelContent({
             join_strategy: values.join_strategy,
             wait_until: values.wait_until,
             environment: values.environment,
+            disable_secrets_masking: values.disable_secrets_masking,
           },
           is_interactive: values.is_interactive,
           interaction: values.interaction,
@@ -683,6 +669,49 @@ function ActionPanelContent({
     [handleSave, action]
   )
 
+  const saveIfDirty = useCallback(async () => {
+    if (!methods.formState.isDirty) {
+      return true
+    }
+
+    commitAllEditors()
+    let saveSucceeded = false
+
+    await methods.handleSubmit(
+      async (values) => {
+        await onSubmit(values)
+        saveSucceeded = true
+      },
+      async () => {
+        saveSucceeded = false
+      }
+    )()
+
+    return saveSucceeded
+  }, [methods, onSubmit, commitAllEditors])
+
+  // Set up the ref methods
+  useEffect(() => {
+    if (actionPanelRef.current) {
+      actionPanelRef.current.setActiveTab = setActiveTab
+      actionPanelRef.current.getActiveTab = () => activeTab
+      actionPanelRef.current.setOpen = (newOpen: boolean) => {
+        setOpen(newOpen)
+        // If the panel has a collapse method, use it
+        if (
+          actionPanelRef.current?.collapse &&
+          actionPanelRef.current?.expand
+        ) {
+          newOpen
+            ? actionPanelRef.current.expand()
+            : actionPanelRef.current.collapse()
+        }
+      }
+      actionPanelRef.current.isOpen = () => open
+      actionPanelRef.current.saveIfDirty = saveIfDirty
+    }
+  }, [actionPanelRef, activeTab, setOpen, open, saveIfDirty])
+
   const panelRef = useRef<HTMLDivElement | null>(null)
 
   const onPanelBlur = useCallback(
@@ -703,11 +732,10 @@ function ActionPanelContent({
 
       // Only when focus actually leaves the panel do we auto-save.
       if (methods.formState.isDirty) {
-        commitAllEditors()
-        methods.handleSubmit(onSubmit)()
+        void saveIfDirty()
       }
     },
-    [methods, onSubmit, commitAllEditors]
+    [methods.formState.isDirty, saveIfDirty]
   )
 
   useEffect(() => {
@@ -715,15 +743,13 @@ function ActionPanelContent({
       // Save with Cmd+S (Mac) or Ctrl+S (Windows/Linux)
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault()
-        // Commit all YAML editors before form submission
-        commitAllEditors()
-        methods.handleSubmit(onSubmit)()
+        void saveIfDirty()
       }
     }
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [methods, onSubmit, action, commitAllEditors])
+  }, [saveIfDirty])
 
   // Handle mode switching with YAML preservation
   const handleModeChange = useCallback(
@@ -1460,6 +1486,31 @@ function ActionPanelContent({
                                   placeholder="Type @ to begin an expression..."
                                 />
                               </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      <ControlFlowField
+                        label="Disable secrets masking"
+                        description="Allow this action to return unmasked secrets. Disabled by default and unsafe for production workflows."
+                      >
+                        <FormField
+                          name="disable_secrets_masking"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-center gap-2 space-y-0">
+                              <FormControl>
+                                <Checkbox
+                                  checked={field.value}
+                                  onCheckedChange={(checked) =>
+                                    field.onChange(checked === true)
+                                  }
+                                />
+                              </FormControl>
+                              <FormLabel className="text-xs font-normal text-muted-foreground">
+                                Disable masking for this action
+                              </FormLabel>
                             </FormItem>
                           )}
                         />

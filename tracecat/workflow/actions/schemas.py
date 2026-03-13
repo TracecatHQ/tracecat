@@ -58,6 +58,13 @@ class ActionControlFlow(Schema):
         default=None,
         description="Override environment for this action's execution",
     )
+    disable_secrets_masking: bool = Field(
+        default=False,
+        description=(
+            "Disable secret masking for this action output. "
+            "This is unsafe and should only be enabled when absolutely necessary."
+        ),
+    )
 
     @field_validator("wait_until", mode="before")
     def validate_wait_until(cls, v: str | None) -> str | None:

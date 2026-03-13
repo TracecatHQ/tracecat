@@ -495,7 +495,7 @@ function WorkflowManualTrigger({
   disabled: boolean
   workflowId: string
 }) {
-  const { expandSidebarAndFocusEvents, setCurrentExecutionId } =
+  const { actionPanelRef, expandSidebarAndFocusEvents, setCurrentExecutionId } =
     useWorkflowBuilder()
   // Always use draft execution endpoint - runs the current draft workflow graph
   const { createDraftExecution, createDraftExecutionIsPending } =
@@ -519,6 +519,13 @@ function WorkflowManualTrigger({
 
   const runWorkflow = async ({ payload }: Partial<TWorkflowControlsForm>) => {
     if (disabled || createDraftExecutionIsPending) return
+
+    const didSaveSelectedAction =
+      (await actionPanelRef.current?.saveIfDirty?.()) ?? true
+    if (!didSaveSelectedAction) {
+      return
+    }
+
     setIsTriggering(true)
     setTimeout(() => setIsTriggering(false), 1000)
     setManualTriggerErrors(null)
