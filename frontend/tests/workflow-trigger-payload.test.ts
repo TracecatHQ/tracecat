@@ -1,4 +1,3 @@
-import Cookies from "js-cookie"
 import {
   DEFAULT_TRIGGER_PAYLOAD,
   parseTriggerPayload,
@@ -17,12 +16,6 @@ describe("workflow-trigger-payload", () => {
 
   beforeEach(() => {
     window.localStorage.clear()
-    Cookies.remove(
-      `__tracecat:builder:trigger-payload:${scope.userId}:${scope.workspaceId}:${scope.workflowId}`,
-      {
-        path: "/",
-      }
-    )
   })
 
   describe("DEFAULT_TRIGGER_PAYLOAD", () => {
@@ -46,32 +39,6 @@ describe("workflow-trigger-payload", () => {
         largePayload
       )
       expect(readPersistedTriggerPayload(scope)).toBe(largePayload)
-      expect(
-        Cookies.get(
-          `__tracecat:builder:trigger-payload:${scope.userId}:${scope.workspaceId}:${scope.workflowId}`
-        )
-      ).toBeUndefined()
-    })
-
-    it("migrates legacy cookie values into localStorage", () => {
-      const legacyPayload = '{"legacy":true}'
-      Cookies.set(
-        `__tracecat:builder:trigger-payload:${scope.userId}:${scope.workspaceId}:${scope.workflowId}`,
-        legacyPayload,
-        {
-          path: "/",
-        }
-      )
-
-      expect(readPersistedTriggerPayload(scope)).toBe(legacyPayload)
-      expect(window.localStorage.getItem(triggerPayloadStorageKey(scope))).toBe(
-        legacyPayload
-      )
-      expect(
-        Cookies.get(
-          `__tracecat:builder:trigger-payload:${scope.userId}:${scope.workspaceId}:${scope.workflowId}`
-        )
-      ).toBeUndefined()
     })
   })
 

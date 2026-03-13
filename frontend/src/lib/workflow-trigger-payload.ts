@@ -1,9 +1,5 @@
-import Cookies from "js-cookie"
-
 export const DEFAULT_TRIGGER_PAYLOAD = "{}"
 const TRIGGER_PAYLOAD_STORAGE_PREFIX = "tracecat:builder:trigger-payload"
-const LEGACY_TRIGGER_PAYLOAD_COOKIE_PREFIX =
-  "__tracecat:builder:trigger-payload"
 
 interface TriggerPayloadStorageScope {
   userId: string | null
@@ -17,14 +13,6 @@ export function triggerPayloadStorageKey({
   workflowId,
 }: TriggerPayloadStorageScope): string {
   return `${TRIGGER_PAYLOAD_STORAGE_PREFIX}:${userId ?? "anonymous"}:${workspaceId}:${workflowId}`
-}
-
-function legacyTriggerPayloadCookieKey({
-  userId,
-  workspaceId,
-  workflowId,
-}: TriggerPayloadStorageScope): string {
-  return `${LEGACY_TRIGGER_PAYLOAD_COOKIE_PREFIX}:${userId ?? "anonymous"}:${workspaceId}:${workflowId}`
 }
 
 export function readPersistedTriggerPayload({
@@ -47,29 +35,10 @@ export function readPersistedTriggerPayload({
       return stored
     }
   } catch {
-    // Fall back to the legacy cookie path when localStorage is unavailable.
-  }
-
-  try {
-    const legacyCookieKey = legacyTriggerPayloadCookieKey({
-      userId,
-      workspaceId,
-      workflowId,
-    })
-    const legacyValue = Cookies.get(legacyCookieKey)
-    if (!legacyValue) {
-      return DEFAULT_TRIGGER_PAYLOAD
-    }
-    try {
-      window.localStorage.setItem(storageKey, legacyValue)
-      Cookies.remove(legacyCookieKey, { path: "/" })
-    } catch {
-      // Keep the legacy cookie intact if migration cannot complete.
-    }
-    return legacyValue
-  } catch {
     return DEFAULT_TRIGGER_PAYLOAD
   }
+
+  return DEFAULT_TRIGGER_PAYLOAD
 }
 
 export function writePersistedTriggerPayload({
@@ -88,12 +57,6 @@ export function writePersistedTriggerPayload({
     window.localStorage.setItem(
       triggerPayloadStorageKey({ userId, workspaceId, workflowId }),
       triggerPayload
-    )
-    Cookies.remove(
-      legacyTriggerPayloadCookieKey({ userId, workspaceId, workflowId }),
-      {
-        path: "/",
-      }
     )
   } catch {
     // Ignore storage failures (e.g. blocked storage or quota exceeded)
