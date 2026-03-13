@@ -18,8 +18,18 @@ jest.mock("@/components/code-block", () => ({
 }))
 
 jest.mock("@/components/executions/collection-object-result", () => ({
-  CollectionObjectResult: ({ copyMode }: { copyMode?: string }) => (
-    <div data-testid="collection-result" data-copy-mode={copyMode} />
+  CollectionObjectResult: ({
+    copyMode,
+    copyPrefix,
+  }: {
+    copyMode?: string
+    copyPrefix?: string
+  }) => (
+    <div
+      data-testid="collection-result"
+      data-copy-mode={copyMode}
+      data-copy-prefix={copyPrefix}
+    />
   ),
 }))
 
@@ -151,6 +161,10 @@ describe("WorkflowExecutionEventDetailView", () => {
     expect(screen.getByTestId("collection-result")).toHaveAttribute(
       "data-copy-mode",
       "jsonpath-and-payload"
+    )
+    expect(screen.getByTestId("collection-result")).toHaveAttribute(
+      "data-copy-prefix",
+      "ACTIONS.reshape.result"
     )
   })
 })
