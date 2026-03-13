@@ -271,6 +271,16 @@ response = httpx.get('https://example.com/login')
 print(json.dumps({'status': response.status_code, 'set_cookie': response.headers.get_list('set-cookie')}))
 """
 
+_REQUESTS_REPEATED_HEADERS_SCRIPT = """\
+import json, requests
+response = requests.get('https://example.com/login')
+print(json.dumps({
+    'status': response.status_code,
+    'set_cookie': response.headers.get('Set-Cookie'),
+    'raw_set_cookie': response.raw._original_response.msg.get_all('Set-Cookie'),
+}))
+"""
+
 _HTTPX_SEND_AUTH_SCRIPT = """\
 import json, httpx
 with httpx.Client() as client:
@@ -337,6 +347,13 @@ http = urllib3.PoolManager()
 response = http.request(
     'GET', 'https://example.com/test', fields={'q': '1'}, headers={'X-Test': 'yes'}
 )
+print(json.dumps({'status': response.status, 'body': json.loads(response.data.decode())}))
+"""
+
+_URLLIB3_DIRECT_POOL_SCRIPT = """\
+import json, urllib3
+pool = urllib3.HTTPSConnectionPool('example.com')
+response = pool.urlopen('GET', '/test?q=1', headers={'X-Test': 'yes'})
 print(json.dumps({'status': response.status, 'body': json.loads(response.data.decode())}))
 """
 
@@ -467,6 +484,16 @@ import json, requests
 session = requests.Session()
 session.get('https://example.com/login')
 response = session.get('https://example.com/data')
+print(json.dumps({'status': response.status_code, 'body': response.json()}))
+"""
+
+_REQUESTS_SEND_SCRIPT = """\
+import json, requests
+session = requests.Session()
+prepared = session.prepare_request(
+    requests.Request('GET', 'https://example.com/test', headers={'X-Test': 'yes'})
+)
+response = session.send(prepared)
 print(json.dumps({'status': response.status_code, 'body': response.json()}))
 """
 
@@ -761,6 +788,34 @@ def test_bootstrap_preserves_requests_session_cookies() -> None:
     }
 
 
+def test_bootstrap_preserves_requests_repeated_response_headers() -> None:
+    """requests intercepted responses should expose repeated headers like native requests."""
+    with _mock_gateway(
+        response={
+            "status_code": 200,
+            "headers": [
+                ["Content-Type", "application/json"],
+                ["Set-Cookie", "sessionid=abc123; Path=/"],
+                ["Set-Cookie", "csrftoken=xyz; Path=/"],
+            ],
+            "body_base64": base64.b64encode(b'{"ok":true}').decode("ascii"),
+            "url": "https://example.com/login",
+            "reason_phrase": "OK",
+        }
+    ) as (gateway_url, _state):
+        completed = _run_script(_REQUESTS_REPEATED_HEADERS_SCRIPT, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.strip()) == {
+        "status": 200,
+        "set_cookie": "sessionid=abc123; Path=/, csrftoken=xyz; Path=/",
+        "raw_set_cookie": [
+            "sessionid=abc123; Path=/",
+            "csrftoken=xyz; Path=/",
+        ],
+    }
+
+
 def test_bootstrap_preserves_httpx_repeated_response_headers() -> None:
     """httpx intercepted responses should preserve repeated headers."""
     with _mock_gateway(
@@ -786,6 +841,37 @@ def test_bootstrap_preserves_httpx_repeated_response_headers() -> None:
             "csrftoken=xyz; Path=/",
         ],
     }
+
+
+def test_bootstrap_intercepts_requests_session_send() -> None:
+    """Prepared requests sent via Session.send should still route through the gateway."""
+    with _mock_gateway() as (gateway_url, state):
+        completed = _run_script(_REQUESTS_SEND_SCRIPT, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.strip()) == {
+        "status": 200,
+        "body": {"ok": True},
+    }
+    [request] = state["requests"]
+    assert request["payload"]["method"] == "GET"
+    assert request["payload"]["url"] == "https://example.com/test"
+    assert request["payload"]["headers"]["X-Test"] == "yes"
+
+
+def test_bootstrap_intercepts_direct_urllib3_connection_pools() -> None:
+    """Direct urllib3 connection pools should route through the gateway."""
+    with _mock_gateway() as (gateway_url, state):
+        completed = _run_script(_URLLIB3_DIRECT_POOL_SCRIPT, gateway_url)
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.strip()) == {
+        "status": 200,
+        "body": {"ok": True},
+    }
+    [request] = state["requests"]
+    assert request["payload"]["method"] == "GET"
+    assert request["payload"]["url"] == "https://example.com/test?q=1"
 
 
 def test_bootstrap_bypasses_tracecat_api_host() -> None:
@@ -902,6 +988,7 @@ print(json.dumps({{
     'status': response.status_code,
     'body': response.json(),
     'patched': bool(getattr(requests.sessions.Session.request, '__tracecat_outbound_http_gateway__', False)),
+    'send_patched': bool(getattr(requests.sessions.Session.send, '__tracecat_outbound_http_gateway__', False)),
 }}))
 """
     with _mock_gateway() as (gateway_url, state):
@@ -909,7 +996,12 @@ print(json.dumps({{
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout.strip())
-    assert payload == {"status": 200, "body": {"ok": True}, "patched": True}
+    assert payload == {
+        "status": 200,
+        "body": {"ok": True},
+        "patched": True,
+        "send_patched": True,
+    }
     assert len(state["requests"]) == 1
 
 

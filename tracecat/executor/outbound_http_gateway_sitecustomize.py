@@ -28,7 +28,7 @@ import types
 from collections.abc import Awaitable, Iterable, Mapping
 from http.cookies import SimpleCookie
 from typing import TYPE_CHECKING
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 from urllib.response import addinfourl
 
 type _HeaderPair = tuple[str, str]
@@ -366,6 +366,17 @@ def _header_pairs_to_mapping(header_pairs: _HeaderPairs) -> dict[str, str]:
     return dict(header_pairs)
 
 
+def _header_pairs_to_requests_mapping(header_pairs: _HeaderPairs) -> dict[str, str]:
+    merged: dict[str, tuple[str, list[str]]] = {}
+    for key, value in header_pairs:
+        lowered_key = key.lower()
+        if lowered_key in merged:
+            merged[lowered_key][1].append(value)
+        else:
+            merged[lowered_key] = (key, [value])
+    return {original_key: ", ".join(values) for original_key, values in merged.values()}
+
+
 def _header_pairs_to_message(header_pairs: _HeaderPairs) -> email.message.Message:
     message = email.message.Message()
     for key, value in header_pairs:
@@ -392,7 +403,7 @@ def _build_requests_response(
     response.status_code = int(envelope["status_code"])
     response._content = envelope["body"]
     response.headers = requests_module.structures.CaseInsensitiveDict(
-        _header_pairs_to_mapping(header_pairs)
+        _header_pairs_to_requests_mapping(header_pairs)
     )
     response.url = str(envelope.get("url") or prepared_request.url)
     response.reason = envelope.get("reason_phrase")
@@ -436,6 +447,62 @@ def _finalize_requests_response(
     if not _bool_or_default(stream, False):
         _ = response.content
     return response
+
+
+def _dispatch_requests_prepared_request(
+    requests_module: types.ModuleType,
+    session: object,
+    prepared_request: object,
+    *,
+    stream: bool | None,
+    timeout: object | None,
+    verify: object | None,
+    cert: object | None,
+    proxies: object | None,
+    allow_redirects: bool = True,
+) -> object:
+    if proxies:
+        raise TracecatOutboundHTTPGatewayError(
+            "Explicit proxy overrides are not supported with outbound HTTP interception"
+        )
+    if _bool_or_default(stream, False):
+        raise TracecatOutboundHTTPGatewayError(
+            "Streaming responses are not supported with outbound HTTP interception"
+        )
+    effective_verify = (
+        verify if verify is not None else getattr(session, "verify", True)
+    )
+    effective_cert = cert if cert is not None else getattr(session, "cert", None)
+    if effective_verify is not True or effective_cert is not None:
+        raise TracecatOutboundHTTPGatewayError(
+            "TLS verify/cert overrides are not supported with outbound HTTP interception"
+        )
+    body, content_type = _encode_body(
+        prepared_request.body,
+        content_type=prepared_request.headers.get("Content-Type"),
+    )
+    if content_type and "Content-Type" not in prepared_request.headers:
+        prepared_request.headers["Content-Type"] = content_type
+    envelope = _dispatch_to_gateway(
+        method=prepared_request.method,
+        url=prepared_request.url,
+        headers=prepared_request.headers,
+        body=body,
+        timeout_ms=_resolve_timeout_ms(timeout),
+        follow_redirects=_resolve_follow_redirects(allow_redirects, True),
+    )
+    response = _build_requests_response(requests_module, prepared_request, envelope)
+    return _finalize_requests_response(
+        requests_module,
+        session,
+        prepared_request,
+        response,
+        stream=stream,
+        timeout=timeout,
+        verify=verify,
+        cert=cert,
+        proxies=proxies,
+    )
 
 
 def _build_httpx_response(
@@ -721,9 +788,12 @@ class _AiohttpProxyResponse:
 
 def _patch_requests(requests_module: types.ModuleType) -> None:
     session_cls = requests_module.sessions.Session
-    if getattr(session_cls.request, "__tracecat_outbound_http_gateway__", False):
+    if getattr(
+        session_cls.request, "__tracecat_outbound_http_gateway__", False
+    ) and getattr(session_cls.send, "__tracecat_outbound_http_gateway__", False):
         return
-    original = session_cls.request
+    original_request = session_cls.request
+    original_send = session_cls.send
 
     def patched(
         self: object,
@@ -744,14 +814,6 @@ def _patch_requests(requests_module: types.ModuleType) -> None:
         cert: object | None = None,
         json: object | None = None,
     ) -> object:
-        if proxies:
-            raise TracecatOutboundHTTPGatewayError(
-                "Explicit proxy overrides are not supported with outbound HTTP interception"
-            )
-        if _bool_or_default(stream, False):
-            raise TracecatOutboundHTTPGatewayError(
-                "Streaming responses are not supported with outbound HTTP interception"
-            )
         request = requests_module.Request(
             method=method.upper(),
             url=url,
@@ -766,7 +828,7 @@ def _patch_requests(requests_module: types.ModuleType) -> None:
         )
         prepared = self.prepare_request(request)
         if _should_bypass(prepared.url):
-            return original(
+            return original_request(
                 self,
                 method,
                 url,
@@ -785,43 +847,48 @@ def _patch_requests(requests_module: types.ModuleType) -> None:
                 cert=cert,
                 json=json,
             )
-        effective_verify = (
-            verify if verify is not None else getattr(self, "verify", True)
-        )
-        effective_cert = cert if cert is not None else getattr(self, "cert", None)
-        if effective_verify is not True or effective_cert is not None:
-            raise TracecatOutboundHTTPGatewayError(
-                "TLS verify/cert overrides are not supported with outbound HTTP interception"
-            )
-        body, content_type = _encode_body(
-            prepared.body,
-            content_type=prepared.headers.get("Content-Type"),
-        )
-        if content_type and "Content-Type" not in prepared.headers:
-            prepared.headers["Content-Type"] = content_type
-        envelope = _dispatch_to_gateway(
-            method=prepared.method,
-            url=prepared.url,
-            headers=prepared.headers,
-            body=body,
-            timeout_ms=_resolve_timeout_ms(timeout),
-            follow_redirects=_resolve_follow_redirects(allow_redirects, True),
-        )
-        response = _build_requests_response(requests_module, prepared, envelope)
-        return _finalize_requests_response(
+        return _dispatch_requests_prepared_request(
             requests_module,
             self,
             prepared,
-            response,
             stream=stream,
             timeout=timeout,
             verify=verify,
             cert=cert,
             proxies=proxies,
+            allow_redirects=allow_redirects,
+        )
+
+    def patched_send(self: object, request: object, **kwargs: object) -> object:
+        if isinstance(request, requests_module.Request):
+            raise ValueError("You can only send PreparedRequests.")
+        kwargs.setdefault("stream", self.stream)
+        kwargs.setdefault("verify", self.verify)
+        kwargs.setdefault("cert", self.cert)
+        if "proxies" not in kwargs:
+            kwargs["proxies"] = requests_module.sessions.resolve_proxies(
+                request,
+                self.proxies,
+                self.trust_env,
+            )
+        if _should_bypass(request.url):
+            return original_send(self, request, **kwargs)
+        return _dispatch_requests_prepared_request(
+            requests_module,
+            self,
+            request,
+            stream=kwargs.get("stream"),
+            timeout=kwargs.get("timeout"),
+            verify=kwargs.get("verify"),
+            cert=kwargs.get("cert"),
+            proxies=kwargs.get("proxies"),
+            allow_redirects=_bool_or_default(kwargs.get("allow_redirects"), True),
         )
 
     patched.__tracecat_outbound_http_gateway__ = True
+    patched_send.__tracecat_outbound_http_gateway__ = True
     session_cls.request = patched
+    session_cls.send = patched_send
 
 
 def _patch_httpx(httpx_module: types.ModuleType) -> None:
@@ -921,72 +988,97 @@ def _patch_httpx(httpx_module: types.ModuleType) -> None:
     httpx_module.AsyncClient.send = async_patched
 
 
+def _resolve_urllib3_request_url(pool: object, url: str) -> str:
+    parsed = urlsplit(url)
+    if parsed.scheme and parsed.netloc:
+        return url
+    scheme = getattr(pool, "scheme", None)
+    host = getattr(pool, "host", None)
+    if not isinstance(scheme, str) or not scheme:
+        return url
+    if not isinstance(host, str) or not host:
+        return url
+    port = getattr(pool, "port", None)
+    default_port = 443 if scheme == "https" else 80 if scheme == "http" else None
+    netloc = host
+    if isinstance(port, int) and port != default_port:
+        netloc = f"{host}:{port}"
+    path, _, query = url.partition("?")
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    return urlunsplit((scheme, netloc, normalized_path, query, ""))
+
+
 def _patch_urllib3(urllib3_module: types.ModuleType) -> None:
-    pool_cls = urllib3_module.PoolManager
-    if getattr(pool_cls.urlopen, "__tracecat_outbound_http_gateway__", False):
-        return
-    original = pool_cls.urlopen
+    def patch_urlopen(pool_cls: type[object]) -> None:
+        if getattr(pool_cls.urlopen, "__tracecat_outbound_http_gateway__", False):
+            return
+        original = pool_cls.urlopen
 
-    def patched(
-        self: object,
-        method: str,
-        url: str,
-        body: object | None = None,
-        headers: Mapping[str, str] | None = None,
-        retries: object | None = None,
-        redirect: bool = True,
-        assert_same_host: bool = True,
-        timeout: object | None = None,
-        pool_timeout: object | None = None,
-        release_conn: bool | None = None,
-        chunked: bool = False,
-        body_pos: object | None = None,
-        preload_content: bool = True,
-        decode_content: bool = True,
-        **response_kw: object,
-    ) -> object:
-        if _should_bypass(url):
-            return original(
-                self,
-                method,
-                url,
-                body=body,
-                headers=headers,
-                retries=retries,
-                redirect=redirect,
-                assert_same_host=assert_same_host,
-                timeout=timeout,
-                pool_timeout=pool_timeout,
-                release_conn=release_conn,
-                chunked=chunked,
-                body_pos=body_pos,
-                preload_content=preload_content,
-                decode_content=decode_content,
-                **response_kw,
+        def patched(
+            self: object,
+            method: str,
+            url: str,
+            body: object | None = None,
+            headers: Mapping[str, str] | None = None,
+            retries: object | None = None,
+            redirect: bool = True,
+            assert_same_host: bool = True,
+            timeout: object | None = None,
+            pool_timeout: object | None = None,
+            release_conn: bool | None = None,
+            chunked: bool = False,
+            body_pos: object | None = None,
+            preload_content: bool = True,
+            decode_content: bool = True,
+            **response_kw: object,
+        ) -> object:
+            request_url = _resolve_urllib3_request_url(self, url)
+            if _should_bypass(request_url):
+                return original(
+                    self,
+                    method,
+                    url,
+                    body=body,
+                    headers=headers,
+                    retries=retries,
+                    redirect=redirect,
+                    assert_same_host=assert_same_host,
+                    timeout=timeout,
+                    pool_timeout=pool_timeout,
+                    release_conn=release_conn,
+                    chunked=chunked,
+                    body_pos=body_pos,
+                    preload_content=preload_content,
+                    decode_content=decode_content,
+                    **response_kw,
+                )
+            if chunked or not preload_content:
+                raise TracecatOutboundHTTPGatewayError(
+                    "Streaming HTTP bodies are not supported with outbound HTTP interception"
+                )
+            encoded_body, content_type = _encode_body(
+                body,
+                content_type=(headers or {}).get("Content-Type"),
             )
-        if chunked or not preload_content:
-            raise TracecatOutboundHTTPGatewayError(
-                "Streaming HTTP bodies are not supported with outbound HTTP interception"
+            request_headers = dict(headers or {})
+            if content_type and "Content-Type" not in request_headers:
+                request_headers["Content-Type"] = content_type
+            envelope = _dispatch_to_gateway(
+                method=method.upper(),
+                url=request_url,
+                headers=request_headers,
+                body=encoded_body,
+                timeout_ms=_resolve_timeout_ms(timeout),
+                follow_redirects=_resolve_follow_redirects(redirect, True),
             )
-        encoded_body, content_type = _encode_body(
-            body,
-            content_type=(headers or {}).get("Content-Type"),
-        )
-        request_headers = dict(headers or {})
-        if content_type and "Content-Type" not in request_headers:
-            request_headers["Content-Type"] = content_type
-        envelope = _dispatch_to_gateway(
-            method=method.upper(),
-            url=url,
-            headers=request_headers,
-            body=encoded_body,
-            timeout_ms=_resolve_timeout_ms(timeout),
-            follow_redirects=_resolve_follow_redirects(redirect, True),
-        )
-        return _build_urllib3_response(urllib3_module, envelope)
+            return _build_urllib3_response(urllib3_module, envelope)
 
-    patched.__tracecat_outbound_http_gateway__ = True
-    pool_cls.urlopen = patched
+        patched.__tracecat_outbound_http_gateway__ = True
+        pool_cls.urlopen = patched
+
+    patch_urlopen(urllib3_module.PoolManager)
+    patch_urlopen(urllib3_module.HTTPConnectionPool)
+    patch_urlopen(urllib3_module.HTTPSConnectionPool)
 
 
 def _patch_urllib_request(urllib_request_module: types.ModuleType) -> None:
