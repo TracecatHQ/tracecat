@@ -1,0 +1,24 @@
+# Tasks
+- [x] expand the clickable area on the top-level accordion so its easier to hit
+- [x] reduce the font size of the api key table and use smaller icons
+- [x] reduce top level row action icons size
+- [x] make api key table rows single lined. show the key preview inline with the key name
+- [x] don't show key preview twice??
+- [x] drop "Service account details" with subtitle section. this is redundant we already have issue new api key section in the top level row.
+- [x] expanded 'Permissions' -> 'Scopes'
+- [x] in the 'Issue new API key' modal show the name of the api key that will be replaced
+- [x] use ghost badges for each of the 'Secopes'
+- [x] don't show the api key preview in the top level row
+- [x] don't show empty descriptions in the top level row
+- [x] the the ghost badge has no background? where is the grey background?
+- [x] the api key table font is too small. use standard sizes please
+- [x] the expanded content font shouldn't be larger than the font sizes of the top level row. adjust this
+- [x] in the api key table make active and revoked more obvious, add green dot indicator or some kind of color
+- [x] format this: `The current active key, second, will be revoked and replaced with a new one.` such that the name of the key is styled differently (badge or font-mono)
+- [x] make disable service account dialog more destructive looking (red button?) and style the name of the service account differently (badge/font-mono)
+- [x] for the status of the service account role, use dot indicator instead of icons. green for active, red for revoked, grey for disabled. also standardize this across the api keys table -- use ghost badges with grey background.
+- [x] change the disable service account action icon to be a red X or circle X. then show a diff icon for enable (green circle check?)
+- [x] add icons next to 'Scopes' (shield) and 'API keys' (key) sections
+- [x] top level row change 'N scopes' 'M keys' to use shield and key icons instead of text
+- [x] instead of using strikethrough shield for api keys table use the same circle x
+- [x] standardize the filter row to look like the other filters in the case management and workflows views.

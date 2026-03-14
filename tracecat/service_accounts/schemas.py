@@ -30,6 +30,12 @@ class ServiceAccountApiKeyRead(Schema):
     updated_at: datetime
 
 
+class ServiceAccountApiKeyCounts(Schema):
+    total: int = 0
+    active: int = 0
+    revoked: int = 0
+
+
 class ServiceAccountRead(Schema):
     id: UUID
     organization_id: OrganizationID
@@ -42,7 +48,10 @@ class ServiceAccountRead(Schema):
     created_at: datetime
     updated_at: datetime
     scopes: list[ServiceAccountScopeRead] = Field(default_factory=list)
-    api_key: ServiceAccountApiKeyRead | None = None
+    active_api_key: ServiceAccountApiKeyRead | None = None
+    api_key_counts: ServiceAccountApiKeyCounts = Field(
+        default_factory=ServiceAccountApiKeyCounts
+    )
 
 
 class ServiceAccountCreate(Schema):
@@ -62,8 +71,13 @@ class ServiceAccountApiKeyCreate(Schema):
     name: str = Field(default="Primary", min_length=1, max_length=255)
 
 
-class ServiceAccountCreateResponse(Schema):
-    api_key: str
+class IssuedServiceAccountApiKey(Schema):
+    raw_key: str
+    api_key: ServiceAccountApiKeyRead
+
+
+class ServiceAccountApiKeyIssueResponse(Schema):
+    issued_api_key: IssuedServiceAccountApiKey
     service_account: ServiceAccountRead
 
 

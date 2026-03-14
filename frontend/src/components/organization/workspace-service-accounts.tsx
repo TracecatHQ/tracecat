@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback } from "react"
+import { serviceAccountsListWorkspaceServiceAccountApiKeys } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { AlertNotification } from "@/components/notifications"
 import { ServiceAccountsManager } from "@/components/organization/service-accounts-manager"
@@ -10,6 +11,8 @@ import {
   useWorkspaceServiceAccounts,
 } from "@/hooks/use-service-accounts"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+const CREATE_SERVICE_ACCOUNT_PARAM = "createServiceAccount"
 
 export function WorkspaceServiceAccounts() {
   const workspaceId = useWorkspaceId()
@@ -38,18 +41,18 @@ export function WorkspaceServiceAccounts() {
     disablePending,
     enableServiceAccount,
     enablePending,
-    regenerateKey,
-    regeneratePending,
-    revokeKey,
-    revokePending,
+    issueApiKey,
+    issueApiKeyPending,
+    revokeApiKey,
+    revokeApiKeyPending,
   } = useWorkspaceServiceAccounts(workspaceId)
 
   const handleCreateSignalConsumed = useCallback(() => {
-    if (!pathname || !searchParams?.get("create")) {
+    if (!pathname || !searchParams?.get(CREATE_SERVICE_ACCOUNT_PARAM)) {
       return
     }
     const params = new URLSearchParams(searchParams.toString())
-    params.delete("create")
+    params.delete(CREATE_SERVICE_ACCOUNT_PARAM)
     const next = params.toString()
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false })
   }, [pathname, router, searchParams])
@@ -64,33 +67,38 @@ export function WorkspaceServiceAccounts() {
   }
 
   return (
-    <div className="size-full overflow-hidden">
-      <ServiceAccountsManager
-        kindLabel="Workspace"
-        serviceAccounts={serviceAccounts}
-        nextCursor={nextCursor}
-        isLoading={isLoading || scopesLoading}
-        error={error}
-        availableScopes={scopes}
-        createPending={createPending}
-        updatePending={updatePending}
-        disablePending={disablePending}
-        enablePending={enablePending}
-        regeneratePending={regeneratePending}
-        revokePending={revokePending}
-        showIntroCard={false}
-        canCreate={canCreate === true}
-        canUpdate={canUpdate === true}
-        canDisable={canDisable === true}
-        openCreateSignal={searchParams?.get("create")}
-        onCreateSignalConsumed={handleCreateSignalConsumed}
-        onCreate={createServiceAccount}
-        onUpdate={updateServiceAccount}
-        onDisable={disableServiceAccount}
-        onEnable={enableServiceAccount}
-        onRegenerate={regenerateKey}
-        onRevoke={revokeKey}
-      />
-    </div>
+    <ServiceAccountsManager
+      kindLabel="Workspace"
+      serviceAccounts={serviceAccounts}
+      nextCursor={nextCursor}
+      isLoading={isLoading || scopesLoading}
+      error={error}
+      availableScopes={scopes}
+      createPending={createPending}
+      updatePending={updatePending}
+      disablePending={disablePending}
+      enablePending={enablePending}
+      issueApiKeyPending={issueApiKeyPending}
+      revokeApiKeyPending={revokeApiKeyPending}
+      apiKeysQueryKeyPrefix={["workspace-service-accounts", workspaceId]}
+      canCreate={canCreate === true}
+      canUpdate={canUpdate === true}
+      canDisable={canDisable === true}
+      openCreateSignal={searchParams?.get(CREATE_SERVICE_ACCOUNT_PARAM)}
+      onCreateSignalConsumed={handleCreateSignalConsumed}
+      onCreate={createServiceAccount}
+      onUpdate={updateServiceAccount}
+      onDisable={disableServiceAccount}
+      onEnable={enableServiceAccount}
+      onIssueApiKey={issueApiKey}
+      onRevokeApiKey={revokeApiKey}
+      listApiKeys={async (serviceAccountId) =>
+        await serviceAccountsListWorkspaceServiceAccountApiKeys({
+          workspaceId,
+          serviceAccountId,
+          limit: 100,
+        })
+      }
+    />
   )
 }

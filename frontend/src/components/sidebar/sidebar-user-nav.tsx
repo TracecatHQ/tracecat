@@ -20,7 +20,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { useOrganization } from "@/hooks/use-organization"
 import { useAppInfo } from "@/lib/hooks"
 
-type SidebarUserNavSettingsItem = {
+type SidebarUserNavManageItem = {
   title: string
   href: string
   icon: LucideIcon
@@ -28,9 +28,9 @@ type SidebarUserNavSettingsItem = {
 }
 
 export function SidebarUserNav({
-  settingsItems,
+  manageItems,
 }: {
-  settingsItems?: SidebarUserNavSettingsItem[]
+  manageItems?: SidebarUserNavManageItem[]
 }) {
   const { user } = useAuth()
   const { setOpen } = useSettingsModal()
@@ -42,6 +42,9 @@ export function SidebarUserNav({
   return (
     <SidebarMenu>
       <Separator className="my-1" />
+      <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+        Manage
+      </div>
 
       <SidebarMenuItem>
         <SidebarMenuButton onClick={() => setOpen(true)} tooltip="Settings">
@@ -50,7 +53,7 @@ export function SidebarUserNav({
         </SidebarMenuButton>
       </SidebarMenuItem>
 
-      {settingsItems?.map((item) => (
+      {manageItems?.map((item) => (
         <SidebarMenuItem key={item.href}>
           <SidebarMenuButton asChild isActive={item.isActive}>
             <Link href={item.href}>

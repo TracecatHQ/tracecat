@@ -8,10 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.db.models import ServiceAccount
+from tracecat.db.models import ServiceAccount, ServiceAccountApiKey
 from tracecat.pagination import CursorPaginationParams
 from tracecat.service_accounts.service import (
     OrganizationServiceAccountService,
+    _paginate_service_account_api_keys,
     _paginate_service_accounts,
 )
 
@@ -55,6 +56,25 @@ async def test_paginate_service_accounts_uses_ascending_order_for_reverse() -> N
 
     assert "service_account.created_at ASC" in compiled
     assert "service_account.id ASC" in compiled
+
+
+@pytest.mark.anyio
+async def test_paginate_service_account_api_keys_uses_ascending_order_for_reverse() -> (
+    None
+):
+    session = _RecordingSession()
+
+    await _paginate_service_account_api_keys(
+        cast(AsyncSession, session),
+        stmt=select(ServiceAccountApiKey),
+        params=CursorPaginationParams(limit=20, reverse=True),
+        total_estimate=0,
+    )
+
+    compiled = str(session.last_stmt.compile())
+
+    assert "service_account_api_key.created_at ASC" in compiled
+    assert "service_account_api_key.id ASC" in compiled
 
 
 @pytest.mark.anyio

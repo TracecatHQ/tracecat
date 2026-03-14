@@ -18,10 +18,12 @@ from tracecat.exceptions import (
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.service_accounts.schemas import (
+    IssuedServiceAccountApiKey,
+    ServiceAccountApiKeyCounts,
     ServiceAccountApiKeyCreate,
+    ServiceAccountApiKeyIssueResponse,
     ServiceAccountApiKeyRead,
     ServiceAccountCreate,
-    ServiceAccountCreateResponse,
     ServiceAccountRead,
     ServiceAccountScopeList,
     ServiceAccountScopeRead,
@@ -31,6 +33,7 @@ from tracecat.service_accounts.service import (
     OrganizationServiceAccountService,
     WorkspaceServiceAccountService,
     get_active_service_account_key,
+    get_service_account_api_key_counts,
     get_service_account_last_used_at,
 )
 
@@ -77,6 +80,9 @@ def _serialize_api_key(api_key) -> ServiceAccountApiKeyRead | None:
 
 def _serialize_service_account(service_account) -> ServiceAccountRead:
     active_key = get_active_service_account_key(service_account)
+    total_keys, active_keys, revoked_keys = get_service_account_api_key_counts(
+        service_account
+    )
     return ServiceAccountRead(
         id=service_account.id,
         organization_id=service_account.organization_id,
@@ -91,7 +97,23 @@ def _serialize_service_account(service_account) -> ServiceAccountRead:
         scopes=ServiceAccountScopeRead.list_adapter().validate_python(
             service_account.scopes
         ),
-        api_key=_serialize_api_key(active_key),
+        active_api_key=_serialize_api_key(active_key),
+        api_key_counts=ServiceAccountApiKeyCounts(
+            total=total_keys,
+            active=active_keys,
+            revoked=revoked_keys,
+        ),
+    )
+
+
+def _serialize_issued_api_key(
+    *,
+    raw_key: str,
+    api_key,
+) -> IssuedServiceAccountApiKey:
+    return IssuedServiceAccountApiKey(
+        raw_key=raw_key,
+        api_key=ServiceAccountApiKeyRead.model_validate(api_key),
     )
 
 
@@ -143,7 +165,7 @@ async def list_organization_service_account_scopes(
 
 @org_router.post(
     "",
-    response_model=ServiceAccountCreateResponse,
+    response_model=ServiceAccountApiKeyIssueResponse,
     status_code=status.HTTP_201_CREATED,
 )
 @require_scope("org:service_account:create")
@@ -152,10 +174,10 @@ async def create_organization_service_account(
     role: OrgUserOnlyRole,
     session: AsyncDBSession,
     params: ServiceAccountCreate,
-) -> ServiceAccountCreateResponse:
+) -> ServiceAccountApiKeyIssueResponse:
     service = OrganizationServiceAccountService(session, role=role)
     try:
-        service_account, raw_key = await service.create_service_account(
+        service_account, api_key, raw_key = await service.create_service_account(
             name=params.name,
             description=params.description,
             scope_ids=params.scope_ids,
@@ -163,8 +185,8 @@ async def create_organization_service_account(
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
-    return ServiceAccountCreateResponse(
-        api_key=raw_key,
+    return ServiceAccountApiKeyIssueResponse(
+        issued_api_key=_serialize_issued_api_key(raw_key=raw_key, api_key=api_key),
         service_account=_serialize_service_account(service_account),
     )
 
@@ -209,6 +231,38 @@ async def update_organization_service_account(
     return _serialize_service_account(service_account)
 
 
+@org_router.get(
+    "/{service_account_id}/api-keys",
+    response_model=CursorPaginatedResponse[ServiceAccountApiKeyRead],
+)
+@require_scope("org:service_account:read")
+async def list_organization_service_account_api_keys(
+    *,
+    role: OrgUserOnlyRole,
+    session: AsyncDBSession,
+    service_account_id: UUID,
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginatedResponse[ServiceAccountApiKeyRead]:
+    service = OrganizationServiceAccountService(session, role=role)
+    try:
+        page = await service.list_service_account_api_keys(
+            service_account_id,
+            CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+    return CursorPaginatedResponse(
+        items=[ServiceAccountApiKeyRead.model_validate(item) for item in page.items],
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+        total_estimate=page.total_estimate,
+    )
+
+
 @org_router.post(
     "/{service_account_id}/disable", status_code=status.HTTP_204_NO_CONTENT
 )
@@ -242,44 +296,47 @@ async def enable_organization_service_account(
 
 
 @org_router.post(
-    "/{service_account_id}/regenerate-key",
-    response_model=ServiceAccountCreateResponse,
+    "/{service_account_id}/api-keys",
+    response_model=ServiceAccountApiKeyIssueResponse,
+    status_code=status.HTTP_201_CREATED,
 )
 @require_scope("org:service_account:update")
-async def regenerate_organization_service_account_key(
+async def create_organization_service_account_api_key(
     *,
     role: OrgUserOnlyRole,
     session: AsyncDBSession,
     service_account_id: UUID,
     params: ServiceAccountApiKeyCreate,
-) -> ServiceAccountCreateResponse:
+) -> ServiceAccountApiKeyIssueResponse:
     service = OrganizationServiceAccountService(session, role=role)
     try:
-        service_account, raw_key = await service.regenerate_key(
+        service_account, api_key, raw_key = await service.issue_api_key(
             service_account_id,
             name=params.name,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
-    return ServiceAccountCreateResponse(
-        api_key=raw_key,
+    return ServiceAccountApiKeyIssueResponse(
+        issued_api_key=_serialize_issued_api_key(raw_key=raw_key, api_key=api_key),
         service_account=_serialize_service_account(service_account),
     )
 
 
 @org_router.post(
-    "/{service_account_id}/revoke-key", status_code=status.HTTP_204_NO_CONTENT
+    "/{service_account_id}/api-keys/{api_key_id}/revoke",
+    status_code=status.HTTP_204_NO_CONTENT,
 )
 @require_scope("org:service_account:update")
-async def revoke_organization_service_account_key(
+async def revoke_organization_service_account_api_key(
     *,
     role: OrgUserOnlyRole,
     session: AsyncDBSession,
     service_account_id: UUID,
+    api_key_id: UUID,
 ) -> None:
     service = OrganizationServiceAccountService(session, role=role)
     try:
-        await service.revoke_key(service_account_id)
+        await service.revoke_api_key(service_account_id, api_key_id)
     except Exception as exc:
         raise _translate_error(exc) from exc
 
@@ -332,7 +389,7 @@ async def list_workspace_service_account_scopes(
 
 @workspace_router.post(
     "",
-    response_model=ServiceAccountCreateResponse,
+    response_model=ServiceAccountApiKeyIssueResponse,
     status_code=status.HTTP_201_CREATED,
 )
 @require_scope("workspace:service_account:create")
@@ -341,10 +398,10 @@ async def create_workspace_service_account(
     role: WorkspaceUserOnlyInPath,
     session: AsyncDBSession,
     params: ServiceAccountCreate,
-) -> ServiceAccountCreateResponse:
+) -> ServiceAccountApiKeyIssueResponse:
     service = WorkspaceServiceAccountService(session, role=role)
     try:
-        service_account, raw_key = await service.create_service_account(
+        service_account, api_key, raw_key = await service.create_service_account(
             name=params.name,
             description=params.description,
             scope_ids=params.scope_ids,
@@ -352,8 +409,8 @@ async def create_workspace_service_account(
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
-    return ServiceAccountCreateResponse(
-        api_key=raw_key,
+    return ServiceAccountApiKeyIssueResponse(
+        issued_api_key=_serialize_issued_api_key(raw_key=raw_key, api_key=api_key),
         service_account=_serialize_service_account(service_account),
     )
 
@@ -398,6 +455,38 @@ async def update_workspace_service_account(
     return _serialize_service_account(service_account)
 
 
+@workspace_router.get(
+    "/{service_account_id}/api-keys",
+    response_model=CursorPaginatedResponse[ServiceAccountApiKeyRead],
+)
+@require_scope("workspace:service_account:read")
+async def list_workspace_service_account_api_keys(
+    *,
+    role: WorkspaceUserOnlyInPath,
+    session: AsyncDBSession,
+    service_account_id: UUID,
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginatedResponse[ServiceAccountApiKeyRead]:
+    service = WorkspaceServiceAccountService(session, role=role)
+    try:
+        page = await service.list_service_account_api_keys(
+            service_account_id,
+            CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
+        )
+    except Exception as exc:
+        raise _translate_error(exc) from exc
+    return CursorPaginatedResponse(
+        items=[ServiceAccountApiKeyRead.model_validate(item) for item in page.items],
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+        total_estimate=page.total_estimate,
+    )
+
+
 @workspace_router.post(
     "/{service_account_id}/disable",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -435,44 +524,46 @@ async def enable_workspace_service_account(
 
 
 @workspace_router.post(
-    "/{service_account_id}/regenerate-key",
-    response_model=ServiceAccountCreateResponse,
+    "/{service_account_id}/api-keys",
+    response_model=ServiceAccountApiKeyIssueResponse,
+    status_code=status.HTTP_201_CREATED,
 )
 @require_scope("workspace:service_account:update")
-async def regenerate_workspace_service_account_key(
+async def create_workspace_service_account_api_key(
     *,
     role: WorkspaceUserOnlyInPath,
     session: AsyncDBSession,
     service_account_id: UUID,
     params: ServiceAccountApiKeyCreate,
-) -> ServiceAccountCreateResponse:
+) -> ServiceAccountApiKeyIssueResponse:
     service = WorkspaceServiceAccountService(session, role=role)
     try:
-        service_account, raw_key = await service.regenerate_key(
+        service_account, api_key, raw_key = await service.issue_api_key(
             service_account_id,
             name=params.name,
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
-    return ServiceAccountCreateResponse(
-        api_key=raw_key,
+    return ServiceAccountApiKeyIssueResponse(
+        issued_api_key=_serialize_issued_api_key(raw_key=raw_key, api_key=api_key),
         service_account=_serialize_service_account(service_account),
     )
 
 
 @workspace_router.post(
-    "/{service_account_id}/revoke-key",
+    "/{service_account_id}/api-keys/{api_key_id}/revoke",
     status_code=status.HTTP_204_NO_CONTENT,
 )
 @require_scope("workspace:service_account:update")
-async def revoke_workspace_service_account_key(
+async def revoke_workspace_service_account_api_key(
     *,
     role: WorkspaceUserOnlyInPath,
     session: AsyncDBSession,
     service_account_id: UUID,
+    api_key_id: UUID,
 ) -> None:
     service = WorkspaceServiceAccountService(session, role=role)
     try:
-        await service.revoke_key(service_account_id)
+        await service.revoke_api_key(service_account_id, api_key_id)
     except Exception as exc:
         raise _translate_error(exc) from exc

@@ -3,26 +3,57 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ServiceAccountApiKeyCreate,
+  type ServiceAccountApiKeyIssueResponse,
+  type ServiceAccountApiKeyRead,
   type ServiceAccountCreate,
   type ServiceAccountScopeRead,
   type ServiceAccountUpdate,
   serviceAccountsCreateOrganizationServiceAccount,
+  serviceAccountsCreateOrganizationServiceAccountApiKey,
   serviceAccountsCreateWorkspaceServiceAccount,
+  serviceAccountsCreateWorkspaceServiceAccountApiKey,
   serviceAccountsDisableOrganizationServiceAccount,
   serviceAccountsDisableWorkspaceServiceAccount,
   serviceAccountsEnableOrganizationServiceAccount,
   serviceAccountsEnableWorkspaceServiceAccount,
+  serviceAccountsListOrganizationServiceAccountApiKeys,
   serviceAccountsListOrganizationServiceAccountScopes,
   serviceAccountsListOrganizationServiceAccounts,
+  serviceAccountsListWorkspaceServiceAccountApiKeys,
   serviceAccountsListWorkspaceServiceAccountScopes,
   serviceAccountsListWorkspaceServiceAccounts,
-  serviceAccountsRegenerateOrganizationServiceAccountKey,
-  serviceAccountsRegenerateWorkspaceServiceAccountKey,
-  serviceAccountsRevokeOrganizationServiceAccountKey,
-  serviceAccountsRevokeWorkspaceServiceAccountKey,
+  serviceAccountsRevokeOrganizationServiceAccountApiKey,
+  serviceAccountsRevokeWorkspaceServiceAccountApiKey,
   serviceAccountsUpdateOrganizationServiceAccount,
   serviceAccountsUpdateWorkspaceServiceAccount,
 } from "@/client"
+
+function organizationServiceAccountsQueryKey() {
+  return ["organization-service-accounts"] as const
+}
+
+function organizationServiceAccountApiKeysQueryKey(serviceAccountId: string) {
+  return [
+    "organization-service-accounts",
+    serviceAccountId,
+    "api-keys",
+  ] as const
+}
+
+function workspaceServiceAccountsQueryKey(workspaceId: string) {
+  return ["workspace-service-accounts", workspaceId] as const
+}
+
+function workspaceServiceAccountApiKeysQueryKey(
+  workspaceId: string,
+  serviceAccountId: string
+) {
+  return [
+    ...workspaceServiceAccountsQueryKey(workspaceId),
+    serviceAccountId,
+    "api-keys",
+  ] as const
+}
 
 export function useOrganizationServiceAccounts() {
   const queryClient = useQueryClient()
@@ -32,19 +63,28 @@ export function useOrganizationServiceAccounts() {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["organization-service-accounts"],
+    queryKey: organizationServiceAccountsQueryKey(),
     queryFn: async () =>
       await serviceAccountsListOrganizationServiceAccounts({ limit: 100 }),
   })
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({
-      queryKey: ["organization-service-accounts"],
+  function invalidate() {
+    return queryClient.invalidateQueries({
+      queryKey: organizationServiceAccountsQueryKey(),
     })
+  }
+
+  function invalidateApiKeys(serviceAccountId: string) {
+    return queryClient.invalidateQueries({
+      queryKey: organizationServiceAccountApiKeysQueryKey(serviceAccountId),
+    })
+  }
 
   const { mutateAsync: createServiceAccount, isPending: createPending } =
     useMutation({
-      mutationFn: async (requestBody: ServiceAccountCreate) =>
+      mutationFn: async (
+        requestBody: ServiceAccountCreate
+      ): Promise<ServiceAccountApiKeyIssueResponse> =>
         await serviceAccountsCreateOrganizationServiceAccount({ requestBody }),
       onSuccess: invalidate,
     })
@@ -80,26 +120,37 @@ export function useOrganizationServiceAccounts() {
       onSuccess: invalidate,
     })
 
-  const { mutateAsync: regenerateKey, isPending: regeneratePending } =
+  const { mutateAsync: issueApiKey, isPending: issueApiKeyPending } =
     useMutation({
       mutationFn: async (params: {
         serviceAccountId: string
         requestBody: ServiceAccountApiKeyCreate
       }) =>
-        await serviceAccountsRegenerateOrganizationServiceAccountKey({
+        await serviceAccountsCreateOrganizationServiceAccountApiKey({
           serviceAccountId: params.serviceAccountId,
           requestBody: params.requestBody,
         }),
-      onSuccess: invalidate,
+      onSuccess: async (_result, variables) => {
+        await invalidate()
+        await invalidateApiKeys(variables.serviceAccountId)
+      },
     })
 
-  const { mutateAsync: revokeKey, isPending: revokePending } = useMutation({
-    mutationFn: async (serviceAccountId: string) =>
-      await serviceAccountsRevokeOrganizationServiceAccountKey({
-        serviceAccountId,
-      }),
-    onSuccess: invalidate,
-  })
+  const { mutateAsync: revokeApiKey, isPending: revokeApiKeyPending } =
+    useMutation({
+      mutationFn: async (params: {
+        serviceAccountId: string
+        apiKeyId: string
+      }) =>
+        await serviceAccountsRevokeOrganizationServiceAccountApiKey({
+          serviceAccountId: params.serviceAccountId,
+          apiKeyId: params.apiKeyId,
+        }),
+      onSuccess: async (_result, variables) => {
+        await invalidate()
+        await invalidateApiKeys(variables.serviceAccountId)
+      },
+    })
 
   return {
     serviceAccounts: response?.items ?? [],
@@ -114,10 +165,37 @@ export function useOrganizationServiceAccounts() {
     disablePending,
     enableServiceAccount,
     enablePending,
-    regenerateKey,
-    regeneratePending,
-    revokeKey,
-    revokePending,
+    issueApiKey,
+    issueApiKeyPending,
+    revokeApiKey,
+    revokeApiKeyPending,
+  }
+}
+
+export function useOrganizationServiceAccountApiKeys(
+  serviceAccountId: string | null
+) {
+  const {
+    data: response,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: serviceAccountId
+      ? organizationServiceAccountApiKeysQueryKey(serviceAccountId)
+      : ["organization-service-accounts", "no-service-account", "api-keys"],
+    queryFn: async () =>
+      await serviceAccountsListOrganizationServiceAccountApiKeys({
+        serviceAccountId: serviceAccountId!,
+        limit: 100,
+      }),
+    enabled: Boolean(serviceAccountId),
+  })
+
+  return {
+    apiKeys: (response?.items ?? []) as ServiceAccountApiKeyRead[],
+    nextCursor: response?.next_cursor ?? null,
+    isLoading,
+    error,
   }
 }
 
@@ -147,7 +225,7 @@ export function useWorkspaceServiceAccounts(workspaceId: string) {
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["workspace-service-accounts", workspaceId],
+    queryKey: workspaceServiceAccountsQueryKey(workspaceId),
     queryFn: async () =>
       await serviceAccountsListWorkspaceServiceAccounts({
         workspaceId,
@@ -156,14 +234,26 @@ export function useWorkspaceServiceAccounts(workspaceId: string) {
     enabled: Boolean(workspaceId),
   })
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({
-      queryKey: ["workspace-service-accounts", workspaceId],
+  function invalidate() {
+    return queryClient.invalidateQueries({
+      queryKey: workspaceServiceAccountsQueryKey(workspaceId),
     })
+  }
+
+  function invalidateApiKeys(serviceAccountId: string) {
+    return queryClient.invalidateQueries({
+      queryKey: workspaceServiceAccountApiKeysQueryKey(
+        workspaceId,
+        serviceAccountId
+      ),
+    })
+  }
 
   const { mutateAsync: createServiceAccount, isPending: createPending } =
     useMutation({
-      mutationFn: async (requestBody: ServiceAccountCreate) =>
+      mutationFn: async (
+        requestBody: ServiceAccountCreate
+      ): Promise<ServiceAccountApiKeyIssueResponse> =>
         await serviceAccountsCreateWorkspaceServiceAccount({
           workspaceId,
           requestBody,
@@ -205,28 +295,39 @@ export function useWorkspaceServiceAccounts(workspaceId: string) {
       onSuccess: invalidate,
     })
 
-  const { mutateAsync: regenerateKey, isPending: regeneratePending } =
+  const { mutateAsync: issueApiKey, isPending: issueApiKeyPending } =
     useMutation({
       mutationFn: async (params: {
         serviceAccountId: string
         requestBody: ServiceAccountApiKeyCreate
       }) =>
-        await serviceAccountsRegenerateWorkspaceServiceAccountKey({
+        await serviceAccountsCreateWorkspaceServiceAccountApiKey({
           workspaceId,
           serviceAccountId: params.serviceAccountId,
           requestBody: params.requestBody,
         }),
-      onSuccess: invalidate,
+      onSuccess: async (_result, variables) => {
+        await invalidate()
+        await invalidateApiKeys(variables.serviceAccountId)
+      },
     })
 
-  const { mutateAsync: revokeKey, isPending: revokePending } = useMutation({
-    mutationFn: async (serviceAccountId: string) =>
-      await serviceAccountsRevokeWorkspaceServiceAccountKey({
-        workspaceId,
-        serviceAccountId,
-      }),
-    onSuccess: invalidate,
-  })
+  const { mutateAsync: revokeApiKey, isPending: revokeApiKeyPending } =
+    useMutation({
+      mutationFn: async (params: {
+        serviceAccountId: string
+        apiKeyId: string
+      }) =>
+        await serviceAccountsRevokeWorkspaceServiceAccountApiKey({
+          workspaceId,
+          serviceAccountId: params.serviceAccountId,
+          apiKeyId: params.apiKeyId,
+        }),
+      onSuccess: async (_result, variables) => {
+        await invalidate()
+        await invalidateApiKeys(variables.serviceAccountId)
+      },
+    })
 
   return {
     serviceAccounts: response?.items ?? [],
@@ -241,10 +342,45 @@ export function useWorkspaceServiceAccounts(workspaceId: string) {
     disablePending,
     enableServiceAccount,
     enablePending,
-    regenerateKey,
-    regeneratePending,
-    revokeKey,
-    revokePending,
+    issueApiKey,
+    issueApiKeyPending,
+    revokeApiKey,
+    revokeApiKeyPending,
+  }
+}
+
+export function useWorkspaceServiceAccountApiKeys(
+  workspaceId: string,
+  serviceAccountId: string | null
+) {
+  const {
+    data: response,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey:
+      workspaceId && serviceAccountId
+        ? workspaceServiceAccountApiKeysQueryKey(workspaceId, serviceAccountId)
+        : [
+            "workspace-service-accounts",
+            workspaceId,
+            "no-service-account",
+            "api-keys",
+          ],
+    queryFn: async () =>
+      await serviceAccountsListWorkspaceServiceAccountApiKeys({
+        workspaceId,
+        serviceAccountId: serviceAccountId!,
+        limit: 100,
+      }),
+    enabled: Boolean(workspaceId && serviceAccountId),
+  })
+
+  return {
+    apiKeys: (response?.items ?? []) as ServiceAccountApiKeyRead[],
+    nextCursor: response?.next_cursor ?? null,
+    isLoading,
+    error,
   }
 }
 

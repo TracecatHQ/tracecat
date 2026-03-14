@@ -8260,6 +8260,69 @@ export const $CursorPaginatedResponse_InboxItemRead_ = {
   title: "CursorPaginatedResponse[InboxItemRead]",
 } as const
 
+export const $CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ServiceAccountApiKeyRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[ServiceAccountApiKeyRead]",
+} as const
+
 export const $CursorPaginatedResponse_ServiceAccountRead_ = {
   properties: {
     items: {
@@ -12032,6 +12095,21 @@ export const $InvitationStatus = {
   enum: ["pending", "accepted", "revoked"],
   title: "InvitationStatus",
   description: "Invitation lifecycle status.",
+} as const
+
+export const $IssuedServiceAccountApiKey = {
+  properties: {
+    raw_key: {
+      type: "string",
+      title: "Raw Key",
+    },
+    api_key: {
+      $ref: "#/components/schemas/ServiceAccountApiKeyRead",
+    },
+  },
+  type: "object",
+  required: ["raw_key", "api_key"],
+  title: "IssuedServiceAccountApiKey",
 } as const
 
 export const $JoinStrategy = {
@@ -17361,6 +17439,28 @@ export const $Select = {
   title: "Select",
 } as const
 
+export const $ServiceAccountApiKeyCounts = {
+  properties: {
+    total: {
+      type: "integer",
+      title: "Total",
+      default: 0,
+    },
+    active: {
+      type: "integer",
+      title: "Active",
+      default: 0,
+    },
+    revoked: {
+      type: "integer",
+      title: "Revoked",
+      default: 0,
+    },
+  },
+  type: "object",
+  title: "ServiceAccountApiKeyCounts",
+} as const
+
 export const $ServiceAccountApiKeyCreate = {
   properties: {
     name: {
@@ -17373,6 +17473,20 @@ export const $ServiceAccountApiKeyCreate = {
   },
   type: "object",
   title: "ServiceAccountApiKeyCreate",
+} as const
+
+export const $ServiceAccountApiKeyIssueResponse = {
+  properties: {
+    issued_api_key: {
+      $ref: "#/components/schemas/IssuedServiceAccountApiKey",
+    },
+    service_account: {
+      $ref: "#/components/schemas/ServiceAccountRead",
+    },
+  },
+  type: "object",
+  required: ["issued_api_key", "service_account"],
+  title: "ServiceAccountApiKeyIssueResponse",
 } as const
 
 export const $ServiceAccountApiKeyRead = {
@@ -17499,21 +17613,6 @@ export const $ServiceAccountCreate = {
   title: "ServiceAccountCreate",
 } as const
 
-export const $ServiceAccountCreateResponse = {
-  properties: {
-    api_key: {
-      type: "string",
-      title: "Api Key",
-    },
-    service_account: {
-      $ref: "#/components/schemas/ServiceAccountRead",
-    },
-  },
-  type: "object",
-  required: ["api_key", "service_account"],
-  title: "ServiceAccountCreateResponse",
-} as const
-
 export const $ServiceAccountRead = {
   properties: {
     id: {
@@ -17606,7 +17705,7 @@ export const $ServiceAccountRead = {
       type: "array",
       title: "Scopes",
     },
-    api_key: {
+    active_api_key: {
       anyOf: [
         {
           $ref: "#/components/schemas/ServiceAccountApiKeyRead",
@@ -17615,6 +17714,9 @@ export const $ServiceAccountRead = {
           type: "null",
         },
       ],
+    },
+    api_key_counts: {
+      $ref: "#/components/schemas/ServiceAccountApiKeyCounts",
     },
   },
   type: "object",
