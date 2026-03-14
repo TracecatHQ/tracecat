@@ -391,8 +391,6 @@ async def test_workspace_service_account_key_can_bind_workspace_for_actor_org_ro
     role = await _authenticate_api_key(
         api_key=generated.raw,
         workspace_id=None,
-        require_workspace="no",
-        allow_workspace_bound_role=True,
     )
 
     assert role is not None
