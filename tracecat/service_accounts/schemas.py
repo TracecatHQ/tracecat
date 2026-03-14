@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import Field
 
+from tracecat.auth.schemas import UserReadMinimal
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 
@@ -23,7 +24,9 @@ class ServiceAccountApiKeyRead(Schema):
     key_id: str
     preview: str
     created_by: UserID | None = None
+    created_by_user: UserReadMinimal | None = None
     revoked_by: UserID | None = None
+    revoked_by_user: UserReadMinimal | None = None
     last_used_at: datetime | None = None
     revoked_at: datetime | None = None
     created_at: datetime
@@ -41,6 +44,7 @@ class ServiceAccountRead(Schema):
     organization_id: OrganizationID
     workspace_id: WorkspaceID | None = None
     owner_user_id: UserID | None = None
+    owner_user: UserReadMinimal | None = None
     name: str
     description: str | None = None
     disabled_at: datetime | None = None

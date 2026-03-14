@@ -29,8 +29,10 @@ type SidebarUserNavManageItem = {
 
 export function SidebarUserNav({
   manageItems,
+  showManageLabel = true,
 }: {
   manageItems?: SidebarUserNavManageItem[]
+  showManageLabel?: boolean
 }) {
   const { user } = useAuth()
   const { setOpen } = useSettingsModal()
@@ -42,9 +44,11 @@ export function SidebarUserNav({
   return (
     <SidebarMenu>
       <Separator className="my-1" />
-      <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
-        Manage
-      </div>
+      {showManageLabel ? (
+        <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+          Manage
+        </div>
+      ) : null}
 
       <SidebarMenuItem>
         <SidebarMenuButton onClick={() => setOpen(true)} tooltip="Settings">

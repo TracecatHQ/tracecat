@@ -17520,6 +17520,16 @@ export const $ServiceAccountApiKeyRead = {
       ],
       title: "Created By",
     },
+    created_by_user: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     revoked_by: {
       anyOf: [
         {
@@ -17531,6 +17541,16 @@ export const $ServiceAccountApiKeyRead = {
         },
       ],
       title: "Revoked By",
+    },
+    revoked_by_user: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     last_used_at: {
       anyOf: [
@@ -17648,6 +17668,16 @@ export const $ServiceAccountRead = {
         },
       ],
       title: "Owner User Id",
+    },
+    owner_user: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     name: {
       type: "string",
@@ -21158,6 +21188,49 @@ export const $UserRead = {
   type: "object",
   required: ["id", "email", "role", "settings"],
   title: "UserRead",
+} as const
+
+export const $UserReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/UserRole",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  type: "object",
+  required: ["id", "email", "role"],
+  title: "UserReadMinimal",
 } as const
 
 export const $UserRole = {

@@ -9,6 +9,7 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from tracecat.auth.schemas import UserReadMinimal, UserRole
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import TracecatValidationError
@@ -37,6 +38,8 @@ def _service_account_read(
     workspace_id: uuid.UUID | None,
     key_prefix: str,
     name: str,
+    owner_user_id: uuid.UUID | None = None,
+    api_key_created_by: uuid.UUID | None = None,
 ):
     now = datetime(2024, 1, 1, tzinfo=UTC)
     scope = _scope_read("workflow:read")
@@ -45,7 +48,7 @@ def _service_account_read(
         id=uuid.uuid4(),
         organization_id=organization_id,
         workspace_id=workspace_id,
-        owner_user_id=None,
+        owner_user_id=owner_user_id,
         name=name,
         description="test service account",
         disabled_at=None,
@@ -58,7 +61,7 @@ def _service_account_read(
                 name="Legacy",
                 key_id="key_001",
                 preview=f"{key_prefix}...wxyz",
-                created_by=None,
+                created_by=api_key_created_by,
                 revoked_by=None,
                 last_used_at=now,
                 revoked_at=revoked_at,
@@ -70,7 +73,7 @@ def _service_account_read(
                 name="Primary",
                 key_id="key_123",
                 preview=f"{key_prefix}...abcd",
-                created_by=None,
+                created_by=api_key_created_by,
                 revoked_by=None,
                 last_used_at=revoked_at,
                 revoked_at=None,
@@ -110,11 +113,23 @@ def _api_key_read(name: str, preview: str) -> ServiceAccountApiKeyRead:
         key_id=f"{name.lower()}_id",
         preview=preview,
         created_by=None,
+        created_by_user=None,
         revoked_by=None,
+        revoked_by_user=None,
         last_used_at=None,
         revoked_at=None,
         created_at=now,
         updated_at=now,
+    )
+
+
+def _user_read_minimal(user_id: uuid.UUID, email: str) -> UserReadMinimal:
+    return UserReadMinimal(
+        id=user_id,
+        email=email,
+        role=UserRole.BASIC,
+        first_name="Alice",
+        last_name="Example",
     )
 
 
@@ -265,6 +280,77 @@ async def test_list_organization_service_accounts_success(
 
 
 @pytest.mark.anyio
+async def test_list_organization_service_accounts_includes_creator_users(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    role_with_scope = test_admin_role.model_copy(
+        update={
+            "scopes": frozenset(
+                set(test_admin_role.scopes or frozenset())
+                | {"org:service_account:read"}
+            ),
+        }
+    )
+    organization_id = role_with_scope.organization_id
+    assert organization_id is not None
+    creator_id = uuid.uuid4()
+    service_account = _service_account_read(
+        organization_id,
+        workspace_id=None,
+        key_prefix="tc_org_sk_",
+        name="Org automation",
+        owner_user_id=creator_id,
+        api_key_created_by=creator_id,
+    )
+    page = CursorPaginatedResponse(
+        items=[service_account],
+        next_cursor=None,
+        prev_cursor=None,
+        has_more=False,
+        has_previous=False,
+        total_estimate=1,
+    )
+    creator = _user_read_minimal(creator_id, "alice@example.com")
+
+    with (
+        patch.object(
+            service_accounts_router, "OrganizationServiceAccountService"
+        ) as mock_service_cls,
+        patch.object(
+            service_accounts_router, "_load_users_by_ids", new=AsyncMock()
+        ) as mock_load_users,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.list_service_accounts.return_value = page
+        mock_service_cls.return_value = mock_svc
+        mock_load_users.return_value = {creator_id: creator}
+
+        token = ctx_role.set(role_with_scope)
+        try:
+            response = client.get("/organization/service-accounts")
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload["items"][0]["owner_user"] == {
+        "id": str(creator_id),
+        "email": "alice@example.com",
+        "role": "basic",
+        "first_name": "Alice",
+        "last_name": "Example",
+    }
+    assert payload["items"][0]["active_api_key"]["created_by_user"] == {
+        "id": str(creator_id),
+        "email": "alice@example.com",
+        "role": "basic",
+        "first_name": "Alice",
+        "last_name": "Example",
+    }
+
+
+@pytest.mark.anyio
 async def test_list_organization_service_account_api_keys_success(
     client: TestClient,
     test_admin_role: Role,
@@ -304,6 +390,64 @@ async def test_list_organization_service_account_api_keys_success(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["items"][0]["preview"] == "tc_org_sk_...abcd"
+
+
+@pytest.mark.anyio
+async def test_list_organization_service_account_api_keys_includes_creator_users(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    role_with_scope = test_admin_role.model_copy(
+        update={
+            "scopes": frozenset(
+                set(test_admin_role.scopes or frozenset())
+                | {"org:service_account:read"}
+            ),
+        }
+    )
+    creator_id = uuid.uuid4()
+    api_key = _api_key_read("Primary", "tc_org_sk_...abcd").model_copy(
+        update={"created_by": creator_id}
+    )
+    page = CursorPaginatedResponse(
+        items=[api_key],
+        next_cursor=None,
+        prev_cursor=None,
+        has_more=False,
+        has_previous=False,
+        total_estimate=1,
+    )
+    creator = _user_read_minimal(creator_id, "alice@example.com")
+
+    with (
+        patch.object(
+            service_accounts_router, "OrganizationServiceAccountService"
+        ) as mock_service_cls,
+        patch.object(
+            service_accounts_router, "_load_users_by_ids", new=AsyncMock()
+        ) as mock_load_users,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.list_service_account_api_keys.return_value = page
+        mock_service_cls.return_value = mock_svc
+        mock_load_users.return_value = {creator_id: creator}
+
+        token = ctx_role.set(role_with_scope)
+        try:
+            response = client.get(
+                f"/organization/service-accounts/{uuid.uuid4()}/api-keys"
+            )
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["items"][0]["created_by_user"] == {
+        "id": str(creator_id),
+        "email": "alice@example.com",
+        "role": "basic",
+        "first_name": "Alice",
+        "last_name": "Example",
+    }
 
 
 @pytest.mark.anyio
@@ -494,7 +638,9 @@ async def test_create_organization_service_account_api_key_success(
             "key_id": "primary_id",
             "preview": "tc_org_sk_...abcd",
             "created_by": None,
+            "created_by_user": None,
             "revoked_by": None,
+            "revoked_by_user": None,
             "last_used_at": None,
             "revoked_at": None,
             "created_at": "2024-01-01T00:00:00Z",
@@ -705,7 +851,9 @@ async def test_create_workspace_service_account_api_key_success(
             "key_id": "primary_id",
             "preview": "tc_ws_sk_...abcd",
             "created_by": None,
+            "created_by_user": None,
             "revoked_by": None,
+            "revoked_by_user": None,
             "last_used_at": None,
             "revoked_at": None,
             "created_at": "2024-01-01T00:00:00Z",

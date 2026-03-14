@@ -10,6 +10,7 @@ import type {
   ServiceAccountApiKeyRead,
   ServiceAccountRead,
   ServiceAccountScopeRead,
+  UserReadMinimal,
 } from "@/client"
 import { ServiceAccountsManager } from "@/components/organization/service-accounts-manager"
 
@@ -128,6 +129,8 @@ function createServiceAccount(params: {
   description?: string | null
   disabledAt?: string | null
   activeApiKey?: ServiceAccountApiKeyRead | null
+  ownerUserId?: string | null
+  ownerUser?: UserReadMinimal | null
   totalKeys: number
   scopes?: ServiceAccountScopeRead[]
 }): ServiceAccountRead {
@@ -135,7 +138,8 @@ function createServiceAccount(params: {
     id: params.id,
     organization_id: "org-1",
     workspace_id: "workspace-1",
-    owner_user_id: null,
+    owner_user_id: params.ownerUserId ?? null,
+    owner_user: params.ownerUser ?? null,
     name: params.name,
     description: params.description ?? null,
     disabled_at: params.disabledAt ?? null,
@@ -165,7 +169,9 @@ function createIssuedResponse(
         key_id: "key-id-issued",
         preview: "tc_ws_sk_...1234",
         created_by: null,
+        created_by_user: null,
         revoked_by: null,
+        revoked_by_user: null,
         last_used_at: null,
         revoked_at: null,
         created_at: "2024-01-01T00:00:00Z",
@@ -243,6 +249,14 @@ function renderManager(serviceAccounts: ServiceAccountRead[]) {
 }
 
 describe("ServiceAccountsManager", () => {
+  const creator: UserReadMinimal = {
+    id: "user-1",
+    email: "alice@example.com",
+    role: "basic",
+    first_name: "Alice",
+    last_name: "Example",
+  }
+
   beforeEach(() => {
     jest.clearAllMocks()
     mockListApiKeys.mockResolvedValue({
@@ -252,8 +266,10 @@ describe("ServiceAccountsManager", () => {
           name: "Primary",
           key_id: "key-id-1",
           preview: "tc_ws_sk_...1234",
-          created_by: null,
+          created_by: "user-1",
+          created_by_user: creator,
           revoked_by: null,
+          revoked_by_user: null,
           last_used_at: null,
           revoked_at: null,
           created_at: "2024-01-01T00:00:00Z",
@@ -270,8 +286,10 @@ describe("ServiceAccountsManager", () => {
       name: "Primary",
       key_id: "key-id-active",
       preview: "tc_ws_sk_...5678",
-      created_by: null,
+      created_by: "user-1",
+      created_by_user: creator,
       revoked_by: null,
+      revoked_by_user: null,
       last_used_at: null,
       revoked_at: null,
       created_at: "2024-01-01T00:00:00Z",
@@ -283,6 +301,8 @@ describe("ServiceAccountsManager", () => {
         name: "Alpha bot",
         description: "CI deploy access",
         activeApiKey: activeKey,
+        ownerUserId: "user-1",
+        ownerUser: creator,
         totalKeys: 2,
       }),
       createServiceAccount({
@@ -303,6 +323,8 @@ describe("ServiceAccountsManager", () => {
     renderManager(serviceAccounts)
 
     expect(screen.getByText("Alpha bot")).toBeInTheDocument()
+    expect(screen.getByText("CI deploy access")).toBeInTheDocument()
+    expect(screen.getByText("Created by Alice Example")).toBeInTheDocument()
     expect(screen.getByText("Bravo bot")).toBeInTheDocument()
     expect(screen.getByText("Charlie bot")).toBeInTheDocument()
     expect(screen.getAllByText("Active").length).toBeGreaterThan(1)
@@ -327,5 +349,6 @@ describe("ServiceAccountsManager", () => {
     expect(
       await screen.findByRole("button", { name: "Revoke API key" })
     ).toBeInTheDocument()
+    expect(screen.getAllByText(/Alice Example/).length).toBeGreaterThan(1)
   })
 })

@@ -5420,7 +5420,9 @@ export type ServiceAccountApiKeyRead = {
   key_id: string
   preview: string
   created_by?: string | null
+  created_by_user?: UserReadMinimal | null
   revoked_by?: string | null
+  revoked_by_user?: UserReadMinimal | null
   last_used_at?: string | null
   revoked_at?: string | null
   created_at: string
@@ -5439,6 +5441,7 @@ export type ServiceAccountRead = {
   organization_id: string
   workspace_id?: string | null
   owner_user_id?: string | null
+  owner_user?: UserReadMinimal | null
   name: string
   description?: string | null
   disabled_at?: string | null
@@ -6541,6 +6544,14 @@ export type UserRead = {
   settings: {
     [key: string]: unknown
   }
+}
+
+export type UserReadMinimal = {
+  id: string
+  email: string
+  role: UserRole
+  first_name?: string | null
+  last_name?: string | null
 }
 
 export type UserRole = "basic" | "admin"
