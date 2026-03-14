@@ -8,6 +8,7 @@ alembic upgrade/downgrade commands.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import uuid
@@ -20,7 +21,8 @@ from tests.database import TEST_DB_CONFIG
 from tracecat.identifiers.workflow import WorkspaceUUID
 
 MIGRATION_REVISION = "b5fc4168fe22"
-PREVIOUS_REVISION = "9a6d0e0ec5b1"
+# Immediate down_revision for b5fc4168fe22.
+PREVIOUS_REVISION = "0a1e3100a432"
 TABLES_PREFIX = "tables_"
 CUSTOM_FIELDS_PREFIX = "custom_fields_"
 TABLES_TABLE = "alerts"
@@ -124,6 +126,118 @@ def _dynamic_table_access(
         return [row[0] for row in result.fetchall()]
     finally:
         conn.execute(text("RESET ROLE"))
+
+
+def _get_column_comment(
+    conn, *, schema_name: str, table_name: str, column_name: str
+) -> str | None:
+    """Fetch a column comment from PostgreSQL system catalogs."""
+    return conn.execute(
+        text(
+            """
+            SELECT pg_catalog.col_description(cls.oid, attr.attnum)
+            FROM pg_catalog.pg_class AS cls
+            JOIN pg_catalog.pg_namespace AS ns ON ns.oid = cls.relnamespace
+            JOIN pg_catalog.pg_attribute AS attr ON attr.attrelid = cls.oid
+            WHERE ns.nspname = :schema_name
+              AND cls.relname = :table_name
+              AND attr.attname = :column_name
+              AND attr.attnum > 0
+              AND NOT attr.attisdropped
+            """
+        ),
+        {
+            "schema_name": schema_name,
+            "table_name": table_name,
+            "column_name": column_name,
+        },
+    ).scalar_one_or_none()
+
+
+def _seed_collision_metadata(conn, *, workspace_id: uuid.UUID) -> None:
+    """Create minimal metadata tables used by collision rename helpers."""
+    table_metadata_id = uuid.uuid4()
+    table_column_id = uuid.uuid4()
+    case_field_id = uuid.uuid4()
+
+    conn.execute(
+        text(
+            """
+            CREATE TABLE tables (
+                id UUID PRIMARY KEY,
+                workspace_id UUID NOT NULL,
+                name TEXT NOT NULL
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TABLE table_column (
+                id UUID PRIMARY KEY,
+                table_id UUID NOT NULL,
+                name TEXT NOT NULL
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TABLE case_field (
+                id UUID PRIMARY KEY,
+                workspace_id UUID NOT NULL UNIQUE,
+                schema JSONB NOT NULL
+            )
+            """
+        )
+    )
+
+    conn.execute(
+        text(
+            """
+            INSERT INTO tables (id, workspace_id, name)
+            VALUES (:id, :workspace_id, :table_name)
+            """
+        ),
+        {
+            "id": table_metadata_id,
+            "workspace_id": workspace_id,
+            "table_name": TABLES_TABLE,
+        },
+    )
+    conn.execute(
+        text(
+            """
+            INSERT INTO table_column (id, table_id, name)
+            VALUES (:id, :table_id, :column_name)
+            """
+        ),
+        {
+            "id": table_column_id,
+            "table_id": table_metadata_id,
+            "column_name": INTERNAL_TENANT_COLUMN,
+        },
+    )
+    conn.execute(
+        text(
+            """
+            INSERT INTO case_field (id, workspace_id, schema)
+            VALUES (:id, :workspace_id, CAST(:schema AS JSONB))
+            """
+        ),
+        {
+            "id": case_field_id,
+            "workspace_id": workspace_id,
+            "schema": json.dumps(
+                {
+                    INTERNAL_TENANT_COLUMN: {"type": "text"},
+                    "field_text": {"type": "text"},
+                }
+            ),
+        },
+    )
 
 
 @pytest.fixture(scope="function")
@@ -335,6 +449,161 @@ class TestDynamicWorkspaceRlsMigration:
                     ).one()
                     assert tenant_values[0] == workspace_id
                     assert tenant_values[1] == f"legacy-{table_name}"
+        finally:
+            engine.dispose()
+
+    def test_downgrade_restores_legacy_collision_column_and_metadata(
+        self, test_db
+    ) -> None:
+        legacy_comments = {
+            TABLES_TABLE: "alerts legacy comment",
+            CUSTOM_FIELDS_TABLE: "case fields legacy comment",
+        }
+        workspace_id = test_db["workspace_ids"][0]
+
+        engine = create_engine(test_db["db_url"])
+        try:
+            with engine.begin() as conn:
+                _seed_collision_metadata(conn, workspace_id=workspace_id)
+                for prefix, table_name in (
+                    (TABLES_PREFIX, TABLES_TABLE),
+                    (CUSTOM_FIELDS_PREFIX, CUSTOM_FIELDS_TABLE),
+                ):
+                    schema_name = _workspace_schema(prefix, workspace_id)
+                    conn.execute(
+                        text(
+                            f'''
+                            ALTER TABLE "{schema_name}"."{table_name}"
+                            ADD COLUMN "{INTERNAL_TENANT_COLUMN}" TEXT
+                            '''
+                        )
+                    )
+                    conn.execute(
+                        text(
+                            f'''
+                            UPDATE "{schema_name}"."{table_name}"
+                            SET "{INTERNAL_TENANT_COLUMN}" = :legacy_value
+                            '''
+                        ),
+                        {"legacy_value": f"legacy-{table_name}"},
+                    )
+                    conn.execute(
+                        text(
+                            f"""
+                            COMMENT ON COLUMN "{schema_name}"."{table_name}"."{INTERNAL_TENANT_COLUMN}"
+                            IS '{legacy_comments[table_name]}'
+                            """
+                        )
+                    )
+        finally:
+            engine.dispose()
+
+        _run_alembic_upgrade(test_db["db_url"])
+
+        engine = create_engine(test_db["db_url"])
+        try:
+            with engine.begin() as conn:
+                table_column_names = conn.execute(
+                    text(
+                        """
+                        SELECT tc.name
+                        FROM table_column AS tc
+                        JOIN tables AS t ON tc.table_id = t.id
+                        WHERE t.workspace_id = :workspace_id
+                          AND t.name = :table_name
+                        """
+                    ),
+                    {"workspace_id": workspace_id, "table_name": TABLES_TABLE},
+                ).fetchall()
+                assert [row[0] for row in table_column_names] == [LEGACY_TENANT_COLUMN]
+
+                case_field_schema = conn.execute(
+                    text(
+                        """
+                        SELECT schema
+                        FROM case_field
+                        WHERE workspace_id = :workspace_id
+                        """
+                    ),
+                    {"workspace_id": workspace_id},
+                ).scalar_one()
+                assert LEGACY_TENANT_COLUMN in case_field_schema
+                assert INTERNAL_TENANT_COLUMN not in case_field_schema
+        finally:
+            engine.dispose()
+
+        _run_alembic_downgrade(test_db["db_url"])
+
+        engine = create_engine(test_db["db_url"])
+        try:
+            with engine.begin() as conn:
+                for prefix, table_name in (
+                    (TABLES_PREFIX, TABLES_TABLE),
+                    (CUSTOM_FIELDS_PREFIX, CUSTOM_FIELDS_TABLE),
+                ):
+                    schema_name = _workspace_schema(prefix, workspace_id)
+                    columns = conn.execute(
+                        text(
+                            """
+                            SELECT column_name
+                            FROM information_schema.columns
+                            WHERE table_schema = :schema_name
+                              AND table_name = :table_name
+                            """
+                        ),
+                        {"schema_name": schema_name, "table_name": table_name},
+                    ).fetchall()
+                    column_names = {row[0] for row in columns}
+                    assert INTERNAL_TENANT_COLUMN in column_names
+                    assert LEGACY_TENANT_COLUMN not in column_names
+
+                    restored_value = conn.execute(
+                        text(
+                            f'''
+                            SELECT "{INTERNAL_TENANT_COLUMN}"
+                            FROM "{schema_name}"."{table_name}"
+                            '''
+                        )
+                    ).scalar_one()
+                    assert restored_value == f"legacy-{table_name}"
+                    assert (
+                        _get_column_comment(
+                            conn,
+                            schema_name=schema_name,
+                            table_name=table_name,
+                            column_name=INTERNAL_TENANT_COLUMN,
+                        )
+                        == legacy_comments[table_name]
+                    )
+
+                table_column_names = conn.execute(
+                    text(
+                        """
+                        SELECT tc.name
+                        FROM table_column AS tc
+                        JOIN tables AS t ON tc.table_id = t.id
+                        WHERE t.workspace_id = :workspace_id
+                          AND t.name = :table_name
+                        """
+                    ),
+                    {"workspace_id": workspace_id, "table_name": TABLES_TABLE},
+                ).fetchall()
+                assert [row[0] for row in table_column_names] == [
+                    INTERNAL_TENANT_COLUMN
+                ]
+
+                case_field_schema = conn.execute(
+                    text(
+                        """
+                        SELECT schema
+                        FROM case_field
+                        WHERE workspace_id = :workspace_id
+                        """
+                    ),
+                    {"workspace_id": workspace_id},
+                ).scalar_one()
+                assert INTERNAL_TENANT_COLUMN in case_field_schema
+                assert LEGACY_TENANT_COLUMN not in case_field_schema
         finally:
             engine.dispose()
 

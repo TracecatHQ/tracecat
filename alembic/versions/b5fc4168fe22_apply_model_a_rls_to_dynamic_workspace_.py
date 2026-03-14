@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
+import orjson
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -22,6 +23,7 @@ revision: str = "b5fc4168fe22"
 down_revision: str | None = "0a1e3100a432"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+LEGACY_TENANT_RENAME_COMMENT_PREFIX = f"tracecat:{revision}:legacy-tenant-column:"
 
 INTERNAL_TENANT_COLUMN = "__tc_workspace_id"
 LEGACY_TENANT_COLUMN_PREFIX = "migrated_tc_workspace_id"
@@ -83,6 +85,56 @@ def _next_legacy_tenant_column_name(existing_column_names: set[str]) -> str:
         candidate = f"{LEGACY_TENANT_COLUMN_PREFIX}_{suffix}"
         suffix += 1
     return candidate
+
+
+def _legacy_tenant_rename_comment(original_comment: str | None) -> str:
+    """Encode downgrade metadata for a renamed legacy tenant column."""
+    payload = orjson.dumps({"original_comment": original_comment}).decode()
+    return f"{LEGACY_TENANT_RENAME_COMMENT_PREFIX}{payload}"
+
+
+def _parse_legacy_tenant_rename_comment(
+    comment: str | None,
+) -> tuple[bool, str | None]:
+    """Decode downgrade metadata for a renamed legacy tenant column comment."""
+    if comment is None or not comment.startswith(LEGACY_TENANT_RENAME_COMMENT_PREFIX):
+        return False, None
+
+    try:
+        payload = orjson.loads(
+            comment.removeprefix(LEGACY_TENANT_RENAME_COMMENT_PREFIX)
+        )
+    except orjson.JSONDecodeError:
+        return False, None
+
+    match payload:
+        case {"original_comment": None}:
+            return True, None
+        case {"original_comment": str() as original_comment}:
+            return True, original_comment
+        case _:
+            return False, None
+
+
+def _set_column_comment(
+    *,
+    schema_name: str,
+    table_name: str,
+    column_name: str,
+    comment: str | None,
+    preparer: sa.sql.compiler.IdentifierPreparer,
+) -> None:
+    """Set or clear a column comment on a dynamic workspace table."""
+    bind = op.get_bind()
+    qualified_table = _qualified_table(preparer, schema_name, table_name)
+    qualified_column = f"{qualified_table}.{preparer.quote(column_name)}"
+    comment_sql = str(
+        sa.literal(comment).compile(
+            dialect=bind.dialect,
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+    bind.exec_driver_sql(f"COMMENT ON COLUMN {qualified_column} IS {comment_sql}")
 
 
 def _rename_table_column_metadata(
@@ -167,12 +219,16 @@ def _rename_legacy_tenant_column(
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     columns = inspector.get_columns(table_name, schema=schema_name)
+    legacy_column = next(
+        (column for column in columns if column["name"] == INTERNAL_TENANT_COLUMN), None
+    )
     column_names = {column["name"] for column in columns}
-    if INTERNAL_TENANT_COLUMN not in column_names:
+    if legacy_column is None:
         return
 
     qualified_table = _qualified_table(preparer, schema_name, table_name)
     legacy_column_name = _next_legacy_tenant_column_name(column_names)
+    existing_comment = legacy_column.get("comment")
     op.execute(
         sa.text(
             f"""
@@ -180,6 +236,15 @@ def _rename_legacy_tenant_column(
             RENAME COLUMN "{INTERNAL_TENANT_COLUMN}" TO "{legacy_column_name}"
             """
         )
+    )
+    _set_column_comment(
+        schema_name=schema_name,
+        table_name=table_name,
+        column_name=legacy_column_name,
+        comment=_legacy_tenant_rename_comment(
+            existing_comment if isinstance(existing_comment, str | None) else None
+        ),
+        preparer=preparer,
     )
 
     if schema_name.startswith("tables_"):
@@ -194,6 +259,71 @@ def _rename_legacy_tenant_column(
             workspace_id=workspace_id,
             old_name=INTERNAL_TENANT_COLUMN,
             new_name=legacy_column_name,
+        )
+
+
+def _restore_legacy_tenant_column(
+    *,
+    schema_name: str,
+    table_name: str,
+    workspace_id: UUID,
+    preparer: sa.sql.compiler.IdentifierPreparer,
+) -> None:
+    """Restore any collision-renamed legacy tenant column during downgrade."""
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    matches: list[tuple[str, str | None]] = []
+    for column in inspector.get_columns(table_name, schema=schema_name):
+        column_name = column["name"]
+        if not isinstance(column_name, str) or not column_name.startswith(
+            LEGACY_TENANT_COLUMN_PREFIX
+        ):
+            continue
+        comment = column.get("comment")
+        if not isinstance(comment, str | None):
+            continue
+        found_marker, original_comment = _parse_legacy_tenant_rename_comment(comment)
+        if found_marker:
+            matches.append((column_name, original_comment))
+
+    if not matches:
+        return
+    if len(matches) > 1:
+        raise RuntimeError(
+            "Multiple renamed legacy tenant columns found during downgrade for "
+            f"{schema_name}.{table_name}: {', '.join(column_name for column_name, _ in matches)}"
+        )
+
+    legacy_column_name, original_comment = matches[0]
+    qualified_table = _qualified_table(preparer, schema_name, table_name)
+    op.execute(
+        sa.text(
+            f"""
+            ALTER TABLE {qualified_table}
+            RENAME COLUMN "{legacy_column_name}" TO "{INTERNAL_TENANT_COLUMN}"
+            """
+        )
+    )
+    _set_column_comment(
+        schema_name=schema_name,
+        table_name=table_name,
+        column_name=INTERNAL_TENANT_COLUMN,
+        comment=original_comment,
+        preparer=preparer,
+    )
+
+    if schema_name.startswith("tables_"):
+        _rename_table_column_metadata(
+            workspace_id=workspace_id,
+            table_name=table_name,
+            old_name=legacy_column_name,
+            new_name=INTERNAL_TENANT_COLUMN,
+        )
+    elif schema_name.startswith("custom_fields_") and table_name == "case_fields":
+        _rename_case_field_schema_key(
+            workspace_id=workspace_id,
+            old_name=legacy_column_name,
+            new_name=INTERNAL_TENANT_COLUMN,
         )
 
 
@@ -329,7 +459,7 @@ def downgrade() -> None:
     bind = op.get_bind()
     preparer = sa.sql.compiler.IdentifierPreparer(bind.dialect)
 
-    for schema_name, table_name, _ in _workspace_dynamic_tables():
+    for schema_name, table_name, workspace_id in _workspace_dynamic_tables():
         _disable_table_rls(
             schema_name=schema_name,
             table_name=table_name,
@@ -343,4 +473,10 @@ def downgrade() -> None:
                 DROP COLUMN IF EXISTS "{INTERNAL_TENANT_COLUMN}"
                 """
             )
+        )
+        _restore_legacy_tenant_column(
+            schema_name=schema_name,
+            table_name=table_name,
+            workspace_id=workspace_id,
+            preparer=preparer,
         )
