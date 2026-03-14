@@ -1,0 +1,52 @@
+frontend/src/components/organization/service-accounts-manager.tsx
+  542e616eca585d8b 6,163-166,169-173,176-178,181-183,186-196,584-585,646,835-836,894,930-931,934,936,938,941-945,949-951,957-962,974,978,986,993,995-997,999,1002-1004,1006,1008-1012,1018-1019,1023-1024,1026-1027,1030-1032,1034-1042,1045-1051,1053-1063,1065,1067-1069,1073-1077,1079-1080,1085,1090,1092,1094
+  f51581f14533d6bb 7-8,13,167-168,174-175,179-180,184-185,209-213,245-259,309,316,325,328-330,385,387-393,403-404,412,418-423,433,453-457,461-464,467-468,471,479-482,484-489,493,496,499,516-518,524,842-847,854-857,859-861,868-869,871-872,877-890,892,925-929,932-933,935,937,939-940,946-948,952-956,963-969,971-973,975-977,979-985,987-992,994,998,1000-1001,1005,1007,1013,1016-1017,1020-1021,1025,1029,1033,1044,1052,1064,1066,1071-1072,1082,1292-1302,1348-1369,1377-1379
+tracecat/executor/action_runner.py
+  777aa8cace8dc70e 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "9e051747f2577a6253d8e24de19d9ec8f7a0e27a",
+  "prompts": {
+    "542e616eca585d8b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8f17a4ea-be10-4c9d-8aef-daf817c6cce3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 308,
+      "total_deletions": 177,
+      "accepted_lines": 124,
+      "overriden_lines": 0
+    },
+    "777aa8cace8dc70e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce38c-f7fb-7973-93ad-4134736c57f0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "f51581f14533d6bb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ced54-95af-78b3-bd7d-1d22f43e3f3f",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 542,
+      "total_deletions": 592,
+      "accepted_lines": 222,
+      "overriden_lines": 0
+    }
+  }
+}
