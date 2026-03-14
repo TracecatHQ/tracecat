@@ -176,7 +176,6 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const isTablesPage = Boolean(pathname?.match(/\/tables(\/|$)/))
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
-  const isRegistryPage = pathname?.includes("/registry")
 
   if (canReadWorkspace === undefined) {
     return <CenteredSpinner />
@@ -196,8 +195,8 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     )
   }
 
-  // Settings, organization and registry pages have their own sidebars
-  if (isSettingsPage || isOrganizationPage || isRegistryPage) {
+  // Settings and organization pages have their own sidebars
+  if (isSettingsPage || isOrganizationPage) {
     return <>{children}</>
   }
 

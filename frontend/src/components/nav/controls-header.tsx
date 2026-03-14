@@ -62,6 +62,7 @@ import {
 } from "@/components/members/members-view-toggle"
 import { CreateGroupButton } from "@/components/rbac/create-group-button"
 import { CreateRoleButton } from "@/components/rbac/create-role-button"
+import { RegistryActionsControls } from "@/components/registry/workspace-actions-controls"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
@@ -1250,6 +1251,13 @@ function getPageConfig(
     return {
       title: "Integrations",
       actions: <IntegrationsActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/actions")) {
+    return {
+      title: "Actions",
+      actions: <RegistryActionsControls />,
     }
   }
 

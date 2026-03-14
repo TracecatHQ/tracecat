@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Repositories | Registry",
+  title: "Actions",
 }
 
 export default function ActionsLayout({
