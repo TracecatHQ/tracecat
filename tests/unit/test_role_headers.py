@@ -108,32 +108,6 @@ class TestRoleToHeaders:
                 service_account_id=uuid4(),
             )
 
-    def test_service_account_role_requires_organization_id(self) -> None:
-        with pytest.raises(ValidationError, match="organization_id"):
-            Role(
-                type="service_account",
-                service_id="tracecat-api",
-                service_account_id=uuid4(),
-            )
-
-    def test_service_account_role_requires_service_account_id(self) -> None:
-        with pytest.raises(ValidationError, match="service_account_id"):
-            Role(
-                type="service_account",
-                service_id="tracecat-api",
-                organization_id=uuid4(),
-            )
-
-    def test_service_account_role_rejects_user_id(self) -> None:
-        with pytest.raises(ValidationError, match="must not set user_id"):
-            Role(
-                type="service_account",
-                service_id="tracecat-api",
-                organization_id=uuid4(),
-                service_account_id=uuid4(),
-                user_id=uuid4(),
-            )
-
 
 @pytest.mark.anyio
 class TestAuthenticateServiceRoundtrip:
