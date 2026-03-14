@@ -1,0 +1,25 @@
+tests/unit/api/test_api_service_accounts.py
+  777aa8cace8dc70e 74-79,268-327
+tracecat/service_accounts/router.py
+  777aa8cace8dc70e 149,190,215,230,248,273,338,379,405,423,441,467
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "bf103144c47c0e2c2c217104c9576c9ef5bbbb6d",
+  "prompts": {
+    "777aa8cace8dc70e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce38c-f7fb-7973-93ad-4134736c57f0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 78,
+      "total_deletions": 0,
+      "accepted_lines": 78,
+      "overriden_lines": 0
+    }
+  }
+}
