@@ -1,5 +1,6 @@
 """Minimal fixtures for HTTP-level API route testing."""
 
+import uuid
 from collections.abc import Generator
 from typing import get_args
 from unittest.mock import AsyncMock
@@ -7,24 +8,23 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from tracecat.agent.router import (
-    OrganizationAdminUserRole,
-    OrganizationUserRole,
-)
 from tracecat.api.app import app
 from tracecat.auth.credentials import AuthenticatedUserOnly, SuperuserRole
 from tracecat.auth.dependencies import (
     ExecutorWorkspaceRole,
+    OrgActorRole,
+    OrganizationServiceAccountRole,
+    OrgUserOnlyRole,
     OrgUserRole,
+    WorkspaceActorRole,
+    WorkspaceServiceAccountRole,
     WorkspaceUserRole,
 )
 from tracecat.auth.types import Role
 from tracecat.cases.router import WorkspaceUser
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
-from tracecat.secrets.router import (
-    WorkspaceUser as SecretsWorkspaceUser,
-)
+from tracecat.service_accounts.router import WorkspaceUserOnlyInPath
 from tracecat.tables.router import (
     WorkspaceEditorUser as TablesWorkspaceEditorUser,
 )
@@ -33,6 +33,19 @@ from tracecat.tables.router import (
 )
 from tracecat.workspaces.router import (
     WorkspaceUserInPath,
+)
+
+ADMIN_SCOPES = frozenset(
+    {
+        "org:service_account:create",
+        "org:service_account:read",
+        "org:service_account:update",
+        "org:service_account:disable",
+        "workspace:service_account:create",
+        "workspace:service_account:read",
+        "workspace:service_account:update",
+        "workspace:service_account:disable",
+    }
 )
 
 
@@ -55,17 +68,20 @@ def client() -> Generator[TestClient, None, None]:
     # List of Annotated role dependencies to override
     role_dependencies = [
         WorkspaceUserRole,
+        WorkspaceActorRole,
+        WorkspaceServiceAccountRole,
         ExecutorWorkspaceRole,
         WorkspaceUser,
         SuperuserRole,
         AuthenticatedUserOnly,
-        OrganizationUserRole,
-        OrganizationAdminUserRole,
-        SecretsWorkspaceUser,
+        OrgActorRole,
+        OrganizationServiceAccountRole,
+        OrgUserOnlyRole,
         OrgUserRole,
         TablesWorkspaceUser,
         TablesWorkspaceEditorUser,
         WorkspaceUserInPath,
+        WorkspaceUserOnlyInPath,
     ]
 
     for annotated_type in role_dependencies:
@@ -89,3 +105,17 @@ def client() -> Generator[TestClient, None, None]:
     yield client
     # Clean up overrides
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def test_admin_role() -> Role:
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    return Role(
+        type="user",
+        user_id=uuid.uuid4(),
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        service_id="tracecat-api",
+        scopes=ADMIN_SCOPES,
+    )

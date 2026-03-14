@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import WorkflowTag
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 @require_scope("tag:read")
 async def list_tags(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
 ) -> Sequence[WorkflowTag]:
     """List all tags for the current workspace."""
@@ -31,7 +31,7 @@ async def list_tags(
 @require_scope("tag:read")
 async def get_tag(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     tag_id: TagID,
 ) -> WorkflowTag:
@@ -50,7 +50,7 @@ async def get_tag(
 @require_scope("tag:create")
 async def create_tag(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     tag: TagCreate,
 ) -> WorkflowTag:
@@ -69,7 +69,7 @@ async def create_tag(
 @require_scope("tag:update")
 async def update_tag(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     tag_id: TagID,
     tag_update: TagUpdate,
@@ -90,7 +90,7 @@ async def update_tag(
 @require_scope("tag:delete")
 async def delete_tag(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     tag_id: TagID,
 ) -> None:

@@ -8260,6 +8260,132 @@ export const $CursorPaginatedResponse_InboxItemRead_ = {
   title: "CursorPaginatedResponse[InboxItemRead]",
 } as const
 
+export const $CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ServiceAccountApiKeyRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[ServiceAccountApiKeyRead]",
+} as const
+
+export const $CursorPaginatedResponse_ServiceAccountRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ServiceAccountRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[ServiceAccountRead]",
+} as const
+
 export const $CursorPaginatedResponse_TableRowRead_ = {
   properties: {
     items: {
@@ -11969,6 +12095,21 @@ export const $InvitationStatus = {
   enum: ["pending", "accepted", "revoked"],
   title: "InvitationStatus",
   description: "Invitation lifecycle status.",
+} as const
+
+export const $IssuedServiceAccountApiKey = {
+  properties: {
+    raw_key: {
+      type: "string",
+      title: "Raw Key",
+    },
+    api_key: {
+      $ref: "#/components/schemas/ServiceAccountApiKeyRead",
+    },
+  },
+  type: "object",
+  required: ["raw_key", "api_key"],
+  title: "IssuedServiceAccountApiKey",
 } as const
 
 export const $JoinStrategy = {
@@ -15776,7 +15917,7 @@ export const $Role = {
   properties: {
     type: {
       type: "string",
-      enum: ["user", "service"],
+      enum: ["user", "service", "service_account"],
       title: "Type",
     },
     workspace_id: {
@@ -15790,6 +15931,18 @@ export const $Role = {
         },
       ],
       title: "Workspace Id",
+    },
+    bound_workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Bound Workspace Id",
     },
     organization_id: {
       anyOf: [
@@ -15814,6 +15967,18 @@ export const $Role = {
         },
       ],
       title: "User Id",
+    },
+    service_account_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Service Account Id",
     },
     service_id: {
       type: "string",
@@ -15858,18 +16023,7 @@ export const $Role = {
   type: "object",
   required: ["type", "service_id"],
   title: "Role",
-  description: `The identity and authorization of a user or service.
-
-Params
-------
-type : Literal["user", "service"]
-    The type of role.
-user_id : UUID | None
-    The user's ID, or the service's user_id.
-    This can be None for internal services, or when a user hasn't been set for the role.
-service_id : str | None = None
-    The service's role name, or None if the role is a user.
-
+  description: `The identity, intrinsic bindings, and resolved authorization context.
 
 User roles
 ----------
@@ -17283,6 +17437,418 @@ export const $Select = {
   },
   type: "object",
   title: "Select",
+} as const
+
+export const $ServiceAccountApiKeyCounts = {
+  properties: {
+    total: {
+      type: "integer",
+      title: "Total",
+      default: 0,
+    },
+    active: {
+      type: "integer",
+      title: "Active",
+      default: 0,
+    },
+    revoked: {
+      type: "integer",
+      title: "Revoked",
+      default: 0,
+    },
+  },
+  type: "object",
+  title: "ServiceAccountApiKeyCounts",
+} as const
+
+export const $ServiceAccountApiKeyCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+      default: "Primary",
+    },
+  },
+  type: "object",
+  title: "ServiceAccountApiKeyCreate",
+} as const
+
+export const $ServiceAccountApiKeyIssueResponse = {
+  properties: {
+    issued_api_key: {
+      $ref: "#/components/schemas/IssuedServiceAccountApiKey",
+    },
+    service_account: {
+      $ref: "#/components/schemas/ServiceAccountRead",
+    },
+  },
+  type: "object",
+  required: ["issued_api_key", "service_account"],
+  title: "ServiceAccountApiKeyIssueResponse",
+} as const
+
+export const $ServiceAccountApiKeyRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    key_id: {
+      type: "string",
+      title: "Key Id",
+    },
+    preview: {
+      type: "string",
+      title: "Preview",
+    },
+    created_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created By",
+    },
+    created_by_user: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    revoked_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked By",
+    },
+    revoked_by_user: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+    revoked_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Revoked At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "key_id", "preview", "created_at", "updated_at"],
+  title: "ServiceAccountApiKeyRead",
+} as const
+
+export const $ServiceAccountCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    scope_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Scope Ids",
+    },
+    initial_key_name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Initial Key Name",
+      default: "Primary",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "ServiceAccountCreate",
+} as const
+
+export const $ServiceAccountRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    owner_user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Owner User Id",
+    },
+    owner_user: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    disabled_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Disabled At",
+    },
+    last_used_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Used At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    scopes: {
+      items: {
+        $ref: "#/components/schemas/ServiceAccountScopeRead",
+      },
+      type: "array",
+      title: "Scopes",
+    },
+    active_api_key: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ServiceAccountApiKeyRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    api_key_counts: {
+      $ref: "#/components/schemas/ServiceAccountApiKeyCounts",
+    },
+  },
+  type: "object",
+  required: ["id", "organization_id", "name", "created_at", "updated_at"],
+  title: "ServiceAccountRead",
+} as const
+
+export const $ServiceAccountScopeList = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ServiceAccountScopeRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+  },
+  type: "object",
+  title: "ServiceAccountScopeList",
+} as const
+
+export const $ServiceAccountScopeRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    resource: {
+      type: "string",
+      title: "Resource",
+    },
+    action: {
+      type: "string",
+      title: "Action",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "resource", "action"],
+  title: "ServiceAccountScopeRead",
+} as const
+
+export const $ServiceAccountUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 512,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    scope_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            format: "uuid",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scope Ids",
+    },
+  },
+  type: "object",
+  title: "ServiceAccountUpdate",
 } as const
 
 export const $SessionRead = {
@@ -20622,6 +21188,49 @@ export const $UserRead = {
   type: "object",
   required: ["id", "email", "role", "settings"],
   title: "UserRead",
+} as const
+
+export const $UserReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role: {
+      $ref: "#/components/schemas/UserRole",
+    },
+    first_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "First Name",
+    },
+    last_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Name",
+    },
+  },
+  type: "object",
+  required: ["id", "email", "role"],
+  title: "UserReadMinimal",
 } as const
 
 export const $UserRole = {

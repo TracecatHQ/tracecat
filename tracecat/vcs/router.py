@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
@@ -28,7 +28,7 @@ github_router = APIRouter(prefix="/github", tags=["vcs", "github", "organization
 @require_scope("org:settings:read")
 async def get_github_app_manifest(
     *,
-    _role: OrgUserRole,
+    _role: OrgActorRole,
 ) -> GitHubAppManifestResponse:
     """Generate GitHub App manifest for enterprise installation."""
     try:
@@ -127,7 +127,7 @@ async def github_webhook(*, payload: dict[str, Any]) -> dict[str, str]:
 async def save_github_app_credentials(
     *,
     session: AsyncDBSession,
-    role: OrgUserRole,
+    role: OrgActorRole,
     request: GitHubAppCredentialsRequest,
 ) -> dict[str, str]:
     """Save GitHub App credentials (register new or update existing)."""
@@ -180,7 +180,7 @@ async def save_github_app_credentials(
 async def delete_github_app_credentials(
     *,
     session: AsyncDBSession,
-    role: OrgUserRole,
+    role: OrgActorRole,
 ) -> None:
     """Delete GitHub App credentials."""
     try:
@@ -206,7 +206,7 @@ async def delete_github_app_credentials(
 async def get_github_app_credentials_status(
     *,
     session: AsyncDBSession,
-    role: OrgUserRole,
+    role: OrgActorRole,
 ) -> GitHubAppCredentialsStatus:
     """Get the status of GitHub App credentials."""
     # Organization-level operation, no specific checks needed since this is org VCS

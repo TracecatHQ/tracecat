@@ -21,7 +21,7 @@ import {
   X,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   Fragment,
   type ReactNode,
@@ -30,6 +30,7 @@ import {
   useState,
 } from "react"
 import { type CaseStatus, casesAddTag } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCaseTag } from "@/components/cases/add-case-tag"
@@ -936,6 +937,37 @@ function CredentialsActions() {
   )
 }
 
+function ServiceAccountsActions() {
+  const canCreateServiceAccounts = useScopeCheck(
+    "workspace:service_account:create"
+  )
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  if (canCreateServiceAccounts !== true || !pathname) {
+    return null
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 bg-white"
+      onClick={() => {
+        const params = new URLSearchParams(searchParams?.toString())
+        params.set("createServiceAccount", Date.now().toString())
+        router.replace(`${pathname}?${params.toString()}`, {
+          scroll: false,
+        })
+      }}
+    >
+      <Plus className="mr-1 h-3.5 w-3.5" />
+      Create service account
+    </Button>
+  )
+}
+
 function VariablesActions() {
   return (
     <NewVariableDialog>
@@ -1257,6 +1289,13 @@ function getPageConfig(
     return {
       title: "Credentials",
       actions: <CredentialsActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/service-accounts")) {
+    return {
+      title: "Service accounts",
+      actions: <ServiceAccountsActions />,
     }
   }
 

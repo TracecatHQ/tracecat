@@ -160,8 +160,8 @@ export default function WorkspaceLayout({
         ) : (
           <WorkspaceChildren>{children}</WorkspaceChildren>
         )}
+        <SettingsModal />
       </ScopeProvider>
-      <SettingsModal />
     </WorkspaceIdProvider>
   )
 }

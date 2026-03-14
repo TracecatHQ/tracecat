@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import WorkspaceActorRole
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/case-tags", tags=["case-tags"])
 @router.get("", response_model=list[CaseTagRead])
 async def list_case_tags(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
 ) -> list[CaseTagRead]:
     """List all case tags available in the current workspace."""
@@ -26,7 +26,7 @@ async def list_case_tags(
 @router.get("/{tag_id}", response_model=CaseTagRead)
 async def get_case_tag(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     tag_id: CaseTagID,
 ) -> CaseTagRead:
@@ -45,7 +45,7 @@ async def get_case_tag(
 @router.post("", response_model=CaseTagRead, status_code=status.HTTP_201_CREATED)
 async def create_case_tag(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     params: TagCreate,
 ) -> CaseTagRead:
@@ -69,7 +69,7 @@ async def create_case_tag(
 @router.patch("/{tag_id}", response_model=CaseTagRead)
 async def update_case_tag(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     tag_id: CaseTagID,
     params: TagUpdate,
@@ -101,7 +101,7 @@ async def update_case_tag(
 @router.delete("/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_case_tag(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     tag_id: CaseTagID,
 ) -> None:

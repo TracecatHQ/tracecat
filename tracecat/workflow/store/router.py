@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.common import DSLInput
@@ -35,7 +35,7 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
 )
 @require_scope("workflow:update")
 async def publish_workflow(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
     params: WorkflowDslPublish,
@@ -87,7 +87,7 @@ async def publish_workflow(
 @router.get("/sync/commits", response_model=list[GitCommitInfo])
 @require_scope("workflow:read")
 async def list_workflow_commits(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     branch: str = Query(
         default="main",
@@ -179,7 +179,7 @@ async def list_workflow_commits(
 @router.get("/sync/branches", response_model=list[GitBranchInfo])
 @require_scope("workflow:read")
 async def list_workflow_branches(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     limit: int = Query(
         default=config.TRACECAT__LIMIT_COMMITS_DEFAULT,
@@ -249,7 +249,7 @@ async def list_workflow_branches(
 @router.post("/sync/pull", response_model=PullResult)
 @require_scope("workflow:update")
 async def pull_workflows(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     params: WorkflowSyncPullRequest,
 ) -> PullResult:

@@ -7,7 +7,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep
-from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.auth.users import current_active_user
 from tracecat.authz.controls import require_scope
@@ -69,7 +69,7 @@ def _get_user_display_name_and_email(
 @require_scope("org:read")
 async def get_organization(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> OrgRead:
     """Get the current organization.
@@ -100,7 +100,7 @@ async def get_organization(
 @require_scope("org:read")
 async def list_organization_domains(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> list[OrgDomainRead]:
     """List domains assigned to the current organization."""
@@ -143,7 +143,7 @@ async def list_organization_domains(
 @require_scope("org:delete")
 async def delete_organization(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     confirm: str | None = Query(
         default=None,
@@ -177,7 +177,7 @@ async def delete_organization(
 @router.get("/entitlements", response_model=EffectiveEntitlements)
 async def get_organization_entitlements(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> EffectiveEntitlements:
     """Get the effective entitlements for the current organization."""
