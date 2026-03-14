@@ -3,14 +3,15 @@
 import { useQuery } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import {
+  BotIcon,
   ChevronRightIcon,
   CircleCheckIcon,
   CircleXIcon,
   KeyRoundIcon,
-  PencilIcon,
   RefreshCwIcon,
   SearchIcon,
   ShieldIcon,
+  SquarePenIcon,
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
@@ -23,7 +24,6 @@ import type {
   ServiceAccountScopeRead,
   ServiceAccountUpdate,
 } from "@/client"
-import { CasePanelSection } from "@/components/cases/case-panel-section"
 import { CopyButton } from "@/components/copy-button"
 import { AlertNotification } from "@/components/notifications"
 import {
@@ -73,6 +73,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { getDisplayName } from "@/lib/auth"
 import type { TracecatApiError } from "@/lib/errors"
 import {
   getCategoryScopes,
@@ -208,6 +209,11 @@ const SERVICE_ACCOUNT_STATUS_FILTERS: Array<{
 
 const SERVICE_ACCOUNT_NAME_COLUMN_CLASS =
   "min-w-0 w-[280px] shrink-0 truncate text-xs font-medium"
+const SERVICE_ACCOUNT_STATUS_COLUMN_CLASS = "w-[120px] shrink-0"
+const SERVICE_ACCOUNT_DESCRIPTION_COLUMN_CLASS =
+  "min-w-0 flex-1 truncate text-xs text-muted-foreground"
+const SERVICE_ACCOUNT_CREATOR_COLUMN_CLASS =
+  "w-[180px] shrink-0 truncate text-xs text-muted-foreground"
 const INLINE_NAME_HIGHLIGHT_CLASS =
   "mx-1 inline-flex rounded bg-secondary px-1.5 py-0.5 align-middle font-mono text-xs font-normal text-foreground"
 
@@ -218,6 +224,33 @@ function deriveApiKeyPreview(rawKey: string): string {
     return rawKey
   }
   return `${prefix}...${rawKey.slice(-API_KEY_PREVIEW_LENGTH)}`
+}
+
+function formatUserIdLabel(userId: string): string {
+  if (userId.length <= 12) {
+    return userId
+  }
+  return `${userId.slice(0, 8)}...${userId.slice(-4)}`
+}
+
+function getUserDisplayName(
+  user:
+    | {
+        email: string
+        first_name?: string | null
+        last_name?: string | null
+      }
+    | null
+    | undefined,
+  userId: string | null | undefined
+): string | null {
+  if (user) {
+    return getDisplayName(user)
+  }
+  if (!userId) {
+    return null
+  }
+  return formatUserIdLabel(userId)
 }
 
 function getApiErrorDetail(error: unknown, fallback: string): string {
@@ -364,8 +397,6 @@ function ServiceAccountDetailPanel({
   revokeApiKeyPending: boolean
   onOpenActionDialog: (state: ActionDialogState) => void
 }) {
-  const [permissionsOpen, setPermissionsOpen] = useState(true)
-  const [apiKeysOpen, setApiKeysOpen] = useState(true)
   const {
     data: apiKeysPage,
     isLoading,
@@ -383,17 +414,11 @@ function ServiceAccountDetailPanel({
   return (
     <div className="border-t bg-background px-4 py-4">
       <div className="flex flex-col gap-6">
-        <CasePanelSection
-          title="Scopes"
-          titleNode={
-            <span className="inline-flex items-center gap-2">
-              <ShieldIcon className="size-3.5 text-muted-foreground" />
-              <span>Scopes</span>
-            </span>
-          }
-          isOpen={permissionsOpen}
-          onOpenChange={setPermissionsOpen}
-        >
+        <section className="space-y-3">
+          <div className="inline-flex items-center gap-2 text-sm font-medium">
+            <ShieldIcon className="size-3.5 text-muted-foreground" />
+            <span>Scopes</span>
+          </div>
           {(serviceAccount.scopes?.length ?? 0) > 0 ? (
             <div className="flex flex-wrap gap-2">
               {sortServiceAccountScopes(serviceAccount.scopes ?? []).map(
@@ -411,19 +436,13 @@ function ServiceAccountDetailPanel({
           ) : (
             <p className="text-xs text-muted-foreground">No scopes assigned.</p>
           )}
-        </CasePanelSection>
+        </section>
 
-        <CasePanelSection
-          title="API keys"
-          titleNode={
-            <span className="inline-flex items-center gap-2">
-              <KeyRoundIcon className="size-3.5 text-muted-foreground" />
-              <span>API keys</span>
-            </span>
-          }
-          isOpen={apiKeysOpen}
-          onOpenChange={setApiKeysOpen}
-        >
+        <section className="space-y-3">
+          <div className="inline-flex items-center gap-2 text-sm font-medium">
+            <KeyRoundIcon className="size-3.5 text-muted-foreground" />
+            <span>API keys</span>
+          </div>
           {error ? (
             <AlertNotification
               level="error"
@@ -446,12 +465,14 @@ function ServiceAccountDetailPanel({
               </EmptyHeader>
             </Empty>
           ) : (
-            <div className="rounded-md border bg-background">
+            <div className="bg-background">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">Key</TableHead>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="text-xs">Name</TableHead>
                     <TableHead className="text-xs">Status</TableHead>
+                    <TableHead className="text-xs">Secret key</TableHead>
+                    <TableHead className="text-xs">Created by</TableHead>
                     <TableHead className="text-xs">Created</TableHead>
                     <TableHead className="text-xs">Last used</TableHead>
                     <TableHead className="h-8 w-[40px]" />
@@ -462,16 +483,14 @@ function ServiceAccountDetailPanel({
                     const statusTone = getApiKeyStatusTone(apiKey)
 
                     return (
-                      <TableRow key={apiKey.id}>
+                      <TableRow
+                        key={apiKey.id}
+                        className="hover:bg-transparent"
+                      >
                         <TableCell>
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="truncate text-xs font-medium">
-                              {apiKey.name}
-                            </span>
-                            <span className="truncate font-mono text-xs text-muted-foreground">
-                              {apiKey.preview}
-                            </span>
-                          </div>
+                          <span className="truncate text-xs font-medium">
+                            {apiKey.name}
+                          </span>
                         </TableCell>
                         <TableCell>
                           <Badge
@@ -489,6 +508,15 @@ function ServiceAccountDetailPanel({
                             />
                             {getApiKeyStatusLabel(apiKey)}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {apiKey.preview}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {getUserDisplayName(
+                            apiKey.created_by_user,
+                            apiKey.created_by
+                          ) ?? "Unknown"}
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {formatTimestamp(apiKey.created_at)}
@@ -532,7 +560,7 @@ function ServiceAccountDetailPanel({
               Only the first page of API keys is shown in this view.
             </p>
           ) : null}
-        </CasePanelSection>
+        </section>
       </div>
     </div>
   )
@@ -927,6 +955,10 @@ export function ServiceAccountsManager({
               const isExpanded = expandedServiceAccountId === serviceAccount.id
               const statusGroup = getServiceAccountGroup(serviceAccount)
               const statusConfig = STATUS_GROUPS[statusGroup]
+              const ownerLabel = getUserDisplayName(
+                serviceAccount.owner_user,
+                serviceAccount.owner_user_id
+              )
 
               return (
                 <div key={serviceAccount.id}>
@@ -963,34 +995,40 @@ export function ServiceAccountsManager({
                     </div>
 
                     <div className="flex min-w-0 flex-1 items-center gap-3">
-                      <div className="flex min-w-0 flex-1 items-center gap-2">
-                        <KeyRoundIcon className="size-4 shrink-0 text-muted-foreground" />
+                      <div className="flex min-w-0 shrink-0 items-center gap-2">
+                        <BotIcon className="size-4 shrink-0 text-muted-foreground" />
                         <span className={SERVICE_ACCOUNT_NAME_COLUMN_CLASS}>
                           {serviceAccount.name}
                         </span>
-                        <div className="flex min-w-0 flex-1 items-center justify-start gap-2 overflow-hidden">
-                          <Badge
-                            variant="secondary"
-                            className={cn(
-                              "h-5 shrink-0 gap-1.5 bg-secondary px-1.5 py-0 text-[10px] font-normal",
-                              statusConfig.textClassName
-                            )}
-                          >
-                            <span
-                              className={cn(
-                                "size-1.5 shrink-0 rounded-full",
-                                statusConfig.dotClassName
-                              )}
-                            />
-                            <span>{statusConfig.label}</span>
-                          </Badge>
-                          {serviceAccount.description ? (
-                            <span className="truncate text-xs text-muted-foreground">
-                              {serviceAccount.description}
-                            </span>
-                          ) : null}
-                        </div>
                       </div>
+
+                      <div className={SERVICE_ACCOUNT_STATUS_COLUMN_CLASS}>
+                        <Badge
+                          variant="secondary"
+                          className={cn(
+                            "h-5 shrink-0 gap-1.5 bg-secondary px-1.5 py-0 text-[10px] font-normal",
+                            statusConfig.textClassName
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "size-1.5 shrink-0 rounded-full",
+                              statusConfig.dotClassName
+                            )}
+                          />
+                          <span>{statusConfig.label}</span>
+                        </Badge>
+                      </div>
+
+                      <span
+                        className={SERVICE_ACCOUNT_DESCRIPTION_COLUMN_CLASS}
+                      >
+                        {serviceAccount.description ?? ""}
+                      </span>
+
+                      <span className={SERVICE_ACCOUNT_CREATOR_COLUMN_CLASS}>
+                        {ownerLabel ? `Created by ${ownerLabel}` : ""}
+                      </span>
 
                       <div className="flex shrink-0 items-center gap-2">
                         <Badge
@@ -1026,7 +1064,7 @@ export function ServiceAccountsManager({
                         disabled={!canUpdate}
                         onClick={() => openEditDialog(serviceAccount)}
                       >
-                        <PencilIcon className="size-3.5" />
+                        <SquarePenIcon className="size-3.5" />
                       </RowActionButton>
                       <RowActionButton
                         label="Issue new API key"

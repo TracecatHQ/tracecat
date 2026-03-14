@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-from typing import Annotated
+from collections.abc import Sequence
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import select
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import OrgUserOnlyRole
+from tracecat.auth.schemas import UserReadMinimal
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import User
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -72,13 +76,65 @@ def _translate_error(exc: Exception) -> HTTPException:
     )
 
 
-def _serialize_api_key(api_key) -> ServiceAccountApiKeyRead | None:
-    if api_key is None:
-        return None
-    return ServiceAccountApiKeyRead.model_validate(api_key)
+def _collect_api_key_user_ids(api_keys: Sequence[object]) -> set[UUID]:
+    user_ids: set[UUID] = set()
+    for api_key in api_keys:
+        if (created_by := getattr(api_key, "created_by", None)) is not None:
+            user_ids.add(created_by)
+        if (revoked_by := getattr(api_key, "revoked_by", None)) is not None:
+            user_ids.add(revoked_by)
+    return user_ids
 
 
-def _serialize_service_account(service_account) -> ServiceAccountRead:
+def _collect_service_account_user_ids(service_accounts: Sequence[object]) -> set[UUID]:
+    user_ids: set[UUID] = set()
+    for service_account in service_accounts:
+        if (
+            owner_user_id := getattr(service_account, "owner_user_id", None)
+        ) is not None:
+            user_ids.add(owner_user_id)
+        user_ids.update(
+            _collect_api_key_user_ids(getattr(service_account, "api_keys", []))
+        )
+    return user_ids
+
+
+async def _load_users_by_ids(
+    session: AsyncDBSession, user_ids: set[UUID]
+) -> dict[UUID, UserReadMinimal]:
+    if not user_ids:
+        return {}
+
+    result = await session.execute(select(User).where(cast(Any, User.id).in_(user_ids)))
+    users = result.scalars().all()
+    return {
+        user.id: UserReadMinimal.model_validate(user, from_attributes=True)
+        for user in users
+    }
+
+
+def _serialize_api_key(
+    api_key: Any, users_by_id: dict[UUID, UserReadMinimal]
+) -> ServiceAccountApiKeyRead:
+    return ServiceAccountApiKeyRead(
+        id=api_key.id,
+        name=api_key.name,
+        key_id=api_key.key_id,
+        preview=api_key.preview,
+        created_by=api_key.created_by,
+        created_by_user=users_by_id.get(api_key.created_by),
+        revoked_by=api_key.revoked_by,
+        revoked_by_user=users_by_id.get(api_key.revoked_by),
+        last_used_at=api_key.last_used_at,
+        revoked_at=api_key.revoked_at,
+        created_at=api_key.created_at,
+        updated_at=api_key.updated_at,
+    )
+
+
+def _serialize_service_account(
+    service_account, users_by_id: dict[UUID, UserReadMinimal]
+) -> ServiceAccountRead:
     active_key = get_active_service_account_key(service_account)
     total_keys, active_keys, revoked_keys = get_service_account_api_key_counts(
         service_account
@@ -88,6 +144,7 @@ def _serialize_service_account(service_account) -> ServiceAccountRead:
         organization_id=service_account.organization_id,
         workspace_id=service_account.workspace_id,
         owner_user_id=service_account.owner_user_id,
+        owner_user=users_by_id.get(service_account.owner_user_id),
         name=service_account.name,
         description=service_account.description,
         disabled_at=service_account.disabled_at,
@@ -97,7 +154,11 @@ def _serialize_service_account(service_account) -> ServiceAccountRead:
         scopes=ServiceAccountScopeRead.list_adapter().validate_python(
             service_account.scopes
         ),
-        active_api_key=_serialize_api_key(active_key),
+        active_api_key=(
+            _serialize_api_key(active_key, users_by_id)
+            if active_key is not None
+            else None
+        ),
         api_key_counts=ServiceAccountApiKeyCounts(
             total=total_keys,
             active=active_keys,
@@ -110,10 +171,11 @@ def _serialize_issued_api_key(
     *,
     raw_key: str,
     api_key,
+    users_by_id: dict[UUID, UserReadMinimal],
 ) -> IssuedServiceAccountApiKey:
     return IssuedServiceAccountApiKey(
         raw_key=raw_key,
-        api_key=ServiceAccountApiKeyRead.model_validate(api_key),
+        api_key=_serialize_api_key(api_key, users_by_id),
     )
 
 
@@ -134,8 +196,11 @@ async def list_organization_service_accounts(
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
+    users_by_id = await _load_users_by_ids(
+        session, _collect_service_account_user_ids(page.items)
+    )
     return CursorPaginatedResponse(
-        items=[_serialize_service_account(item) for item in page.items],
+        items=[_serialize_service_account(item, users_by_id) for item in page.items],
         next_cursor=page.next_cursor,
         prev_cursor=page.prev_cursor,
         has_more=page.has_more,
@@ -185,9 +250,17 @@ async def create_organization_service_account(
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
+    users_by_id = await _load_users_by_ids(
+        session,
+        _collect_service_account_user_ids([service_account]).union(
+            _collect_api_key_user_ids([api_key])
+        ),
+    )
     return ServiceAccountApiKeyIssueResponse(
-        issued_api_key=_serialize_issued_api_key(raw_key=raw_key, api_key=api_key),
-        service_account=_serialize_service_account(service_account),
+        issued_api_key=_serialize_issued_api_key(
+            raw_key=raw_key, api_key=api_key, users_by_id=users_by_id
+        ),
+        service_account=_serialize_service_account(service_account, users_by_id),
     )
 
 
@@ -201,11 +274,13 @@ async def get_organization_service_account(
 ) -> ServiceAccountRead:
     service = OrganizationServiceAccountService(session, role=role)
     try:
-        return _serialize_service_account(
-            await service.get_service_account(service_account_id)
-        )
+        service_account = await service.get_service_account(service_account_id)
     except Exception as exc:
         raise _translate_error(exc) from exc
+    users_by_id = await _load_users_by_ids(
+        session, _collect_service_account_user_ids([service_account])
+    )
+    return _serialize_service_account(service_account, users_by_id)
 
 
 @org_router.patch("/{service_account_id}", response_model=ServiceAccountRead)
@@ -228,7 +303,10 @@ async def update_organization_service_account(
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
-    return _serialize_service_account(service_account)
+    users_by_id = await _load_users_by_ids(
+        session, _collect_service_account_user_ids([service_account])
+    )
+    return _serialize_service_account(service_account, users_by_id)
 
 
 @org_router.get(
@@ -253,8 +331,11 @@ async def list_organization_service_account_api_keys(
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
+    users_by_id = await _load_users_by_ids(
+        session, _collect_api_key_user_ids(page.items)
+    )
     return CursorPaginatedResponse(
-        items=[ServiceAccountApiKeyRead.model_validate(item) for item in page.items],
+        items=[_serialize_api_key(item, users_by_id) for item in page.items],
         next_cursor=page.next_cursor,
         prev_cursor=page.prev_cursor,
         has_more=page.has_more,
@@ -316,9 +397,17 @@ async def create_organization_service_account_api_key(
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
+    users_by_id = await _load_users_by_ids(
+        session,
+        _collect_service_account_user_ids([service_account]).union(
+            _collect_api_key_user_ids([api_key])
+        ),
+    )
     return ServiceAccountApiKeyIssueResponse(
-        issued_api_key=_serialize_issued_api_key(raw_key=raw_key, api_key=api_key),
-        service_account=_serialize_service_account(service_account),
+        issued_api_key=_serialize_issued_api_key(
+            raw_key=raw_key, api_key=api_key, users_by_id=users_by_id
+        ),
+        service_account=_serialize_service_account(service_account, users_by_id),
     )
 
 
@@ -358,8 +447,11 @@ async def list_workspace_service_accounts(
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
+    users_by_id = await _load_users_by_ids(
+        session, _collect_service_account_user_ids(page.items)
+    )
     return CursorPaginatedResponse(
-        items=[_serialize_service_account(item) for item in page.items],
+        items=[_serialize_service_account(item, users_by_id) for item in page.items],
         next_cursor=page.next_cursor,
         prev_cursor=page.prev_cursor,
         has_more=page.has_more,
@@ -409,9 +501,17 @@ async def create_workspace_service_account(
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
+    users_by_id = await _load_users_by_ids(
+        session,
+        _collect_service_account_user_ids([service_account]).union(
+            _collect_api_key_user_ids([api_key])
+        ),
+    )
     return ServiceAccountApiKeyIssueResponse(
-        issued_api_key=_serialize_issued_api_key(raw_key=raw_key, api_key=api_key),
-        service_account=_serialize_service_account(service_account),
+        issued_api_key=_serialize_issued_api_key(
+            raw_key=raw_key, api_key=api_key, users_by_id=users_by_id
+        ),
+        service_account=_serialize_service_account(service_account, users_by_id),
     )
 
 
@@ -425,11 +525,13 @@ async def get_workspace_service_account(
 ) -> ServiceAccountRead:
     service = WorkspaceServiceAccountService(session, role=role)
     try:
-        return _serialize_service_account(
-            await service.get_service_account(service_account_id)
-        )
+        service_account = await service.get_service_account(service_account_id)
     except Exception as exc:
         raise _translate_error(exc) from exc
+    users_by_id = await _load_users_by_ids(
+        session, _collect_service_account_user_ids([service_account])
+    )
+    return _serialize_service_account(service_account, users_by_id)
 
 
 @workspace_router.patch("/{service_account_id}", response_model=ServiceAccountRead)
@@ -452,7 +554,10 @@ async def update_workspace_service_account(
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
-    return _serialize_service_account(service_account)
+    users_by_id = await _load_users_by_ids(
+        session, _collect_service_account_user_ids([service_account])
+    )
+    return _serialize_service_account(service_account, users_by_id)
 
 
 @workspace_router.get(
@@ -477,8 +582,11 @@ async def list_workspace_service_account_api_keys(
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
+    users_by_id = await _load_users_by_ids(
+        session, _collect_api_key_user_ids(page.items)
+    )
     return CursorPaginatedResponse(
-        items=[ServiceAccountApiKeyRead.model_validate(item) for item in page.items],
+        items=[_serialize_api_key(item, users_by_id) for item in page.items],
         next_cursor=page.next_cursor,
         prev_cursor=page.prev_cursor,
         has_more=page.has_more,
@@ -544,9 +652,17 @@ async def create_workspace_service_account_api_key(
         )
     except Exception as exc:
         raise _translate_error(exc) from exc
+    users_by_id = await _load_users_by_ids(
+        session,
+        _collect_service_account_user_ids([service_account]).union(
+            _collect_api_key_user_ids([api_key])
+        ),
+    )
     return ServiceAccountApiKeyIssueResponse(
-        issued_api_key=_serialize_issued_api_key(raw_key=raw_key, api_key=api_key),
-        service_account=_serialize_service_account(service_account),
+        issued_api_key=_serialize_issued_api_key(
+            raw_key=raw_key, api_key=api_key, users_by_id=users_by_id
+        ),
+        service_account=_serialize_service_account(service_account, users_by_id),
     )
 
 
