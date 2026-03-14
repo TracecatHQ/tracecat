@@ -772,6 +772,11 @@ class NsjailExecutor:
         # Add user-provided env vars (SDK context, NOT DB credentials)
         for key, value in config.env_vars.items():
             _validate_env_key(key)
+            if key == "PYTHONPATH":
+                if value:
+                    existing = env_map.get("PYTHONPATH")
+                    env_map[key] = f"{value}:{existing}" if existing else value
+                continue
             env_map[key] = value
 
         return env_map

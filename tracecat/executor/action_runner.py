@@ -34,6 +34,12 @@ from pydantic_core import to_json
 
 from tracecat import config
 from tracecat.auth.executor_tokens import mint_executor_token
+from tracecat.executor import (
+    outbound_http_gateway_bootstrap as outbound_http_gateway_bootstrap_module,
+)
+from tracecat.executor import (
+    outbound_http_gateway_sitecustomize as outbound_http_gateway_sitecustomize_module,
+)
 from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ResolvedContext,
@@ -161,6 +167,80 @@ class ActionRunner:
         # Don't lowercase - S3 keys are case-sensitive, lowercasing could cause collisions
         content = tarball_uri.strip()
         return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+    def _copy_outbound_http_gateway_bundle(self, target_dir: Path) -> None:
+        """Copy the outbound HTTP gateway bootstrap files into a bootstrap directory."""
+        target_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(
+            Path(outbound_http_gateway_bootstrap_module.__file__),
+            target_dir / "outbound_http_gateway_bootstrap.py",
+        )
+        shutil.copy2(
+            Path(outbound_http_gateway_sitecustomize_module.__file__),
+            target_dir / "sitecustomize.py",
+        )
+
+    def _build_outbound_http_gateway_env(
+        self,
+        *,
+        input: RunActionInput,
+        role: Role,
+        backend_name: str,
+        auth_token: str,
+    ) -> dict[str, str]:
+        gateway_url = config.TRACECAT__OUTBOUND_HTTP_GATEWAY_URL
+        if not gateway_url:
+            raise ValueError(
+                "Outbound HTTP interception is enabled for this action, but TRACECAT__OUTBOUND_HTTP_GATEWAY_URL is not configured."
+            )
+        source = (
+            "workflow"
+            if input.run_context.execution_type or input.run_context.trigger_type
+            else "agent_tool"
+        )
+        env = {
+            "TRACECAT__OUTBOUND_HTTP_GATEWAY_ENABLED": "1",
+            "TRACECAT__OUTBOUND_HTTP_GATEWAY_URL": gateway_url,
+            "TRACECAT__OUTBOUND_HTTP_GATEWAY_AUTH_TOKEN": auth_token,
+            "TRACECAT__OUTBOUND_HTTP_GATEWAY_WORKSPACE_ID": str(role.workspace_id)
+            if role.workspace_id
+            else "",
+            "TRACECAT__OUTBOUND_HTTP_GATEWAY_ORGANIZATION_ID": str(role.organization_id)
+            if role.organization_id
+            else "",
+            "TRACECAT__OUTBOUND_HTTP_GATEWAY_ENVIRONMENT": input.run_context.environment,
+            "TRACECAT__OUTBOUND_HTTP_GATEWAY_ACTION_NAME": input.task.action,
+            "TRACECAT__OUTBOUND_HTTP_GATEWAY_ACTION_REF": input.task.ref,
+            "TRACECAT__OUTBOUND_HTTP_GATEWAY_BACKEND": backend_name,
+            "TRACECAT__OUTBOUND_HTTP_GATEWAY_SOURCE": source,
+        }
+        env["TRACECAT__ORGANIZATION_ID"] = (
+            str(role.organization_id) if role.organization_id else ""
+        )
+        if input.run_context.execution_type is not None:
+            env["TRACECAT__OUTBOUND_HTTP_GATEWAY_EXECUTION_TYPE"] = str(
+                input.run_context.execution_type
+            )
+        if input.run_context.trigger_type is not None:
+            env["TRACECAT__OUTBOUND_HTTP_GATEWAY_TRIGGER_TYPE"] = str(
+                input.run_context.trigger_type
+            )
+        env["TRACECAT__OUTBOUND_HTTP_GATEWAY_WORKFLOW_ID"] = str(
+            input.run_context.wf_id
+        )
+        env["TRACECAT__OUTBOUND_HTTP_GATEWAY_WF_EXEC_ID"] = str(
+            input.run_context.wf_exec_id
+        )
+        env["TRACECAT__OUTBOUND_HTTP_GATEWAY_RUN_ID"] = str(input.run_context.wf_run_id)
+        if input.session_id is not None:
+            env["TRACECAT__OUTBOUND_HTTP_GATEWAY_AGENT_SESSION_ID"] = str(
+                input.session_id
+            )
+        if input.entity_type is not None:
+            env["TRACECAT__OUTBOUND_HTTP_GATEWAY_ENTITY_TYPE"] = input.entity_type
+        if input.entity_id is not None:
+            env["TRACECAT__OUTBOUND_HTTP_GATEWAY_ENTITY_ID"] = str(input.entity_id)
+        return env
 
     async def ensure_registry_environment(self, tarball_uri: str | None) -> Path | None:
         """Ensure the registry environment is set up and return the PYTHONPATH.
@@ -337,6 +417,21 @@ class ActionRunner:
             registry_paths = [base_dir]
             logger.info("No tarball URIs provided, using base PYTHONPATH")
 
+        if (
+            input.outbound_http_interception_enabled
+            and not config.TRACECAT__OUTBOUND_HTTP_GATEWAY_URL
+        ):
+            return ExecutorActionErrorInfo(
+                type="OutboundHTTPInterceptionConfigurationError",
+                message=(
+                    "Outbound HTTP interception is enabled for this action, but "
+                    "TRACECAT__OUTBOUND_HTTP_GATEWAY_URL is not configured."
+                ),
+                action_name=input.task.action,
+                filename="<executor>",
+                function="execute_action",
+            )
+
         # Check if sandbox execution is enabled and available
         # force_sandbox=True overrides config (used by ephemeral backend)
         use_sandbox = force_sandbox or (
@@ -347,7 +442,6 @@ class ActionRunner:
             use_sandbox=use_sandbox,
             force_sandbox=force_sandbox,
         )
-
         if use_sandbox:
             return await self._execute_sandboxed(
                 input=input,
@@ -419,6 +513,9 @@ class ActionRunner:
             sandbox_env: dict[str, str] = {}
             if env_vars:
                 sandbox_env.update(env_vars)
+            if input.outbound_http_interception_enabled:
+                self._copy_outbound_http_gateway_bundle(job_dir)
+                sandbox_env["PYTHONPATH"] = "/work"
 
             # SDK context for any registry SDK operations
             sandbox_env["TRACECAT__API_URL"] = config.TRACECAT__API_URL
@@ -441,6 +538,15 @@ class ActionRunner:
                 wf_exec_id=str(input.run_context.wf_run_id),
             )
             sandbox_env["TRACECAT__EXECUTOR_TOKEN"] = executor_token
+            if input.outbound_http_interception_enabled:
+                sandbox_env.update(
+                    self._build_outbound_http_gateway_env(
+                        input=input,
+                        role=role,
+                        backend_name="ephemeral",
+                        auth_token=executor_token,
+                    )
+                )
 
             logger.debug(
                 "Using untrusted mode - no DB credentials passed to sandbox",
@@ -541,114 +647,145 @@ class ActionRunner:
             env["TRACECAT__WF_EXEC_ID"] = str(input.run_context.wf_exec_id)
             env["TRACECAT__ENVIRONMENT"] = input.run_context.environment
             env["TRACECAT__EXECUTOR_TOKEN"] = resolved_context.executor_token
-
-        # Build PYTHONPATH with multiple registry paths (deterministic order)
-        pythonpath_parts = [str(p) for p in registry_paths if p.exists()]
-        existing_pythonpath = env.get("PYTHONPATH", "")
-        if existing_pythonpath:
-            pythonpath_parts.append(existing_pythonpath)
-        env["PYTHONPATH"] = ":".join(pythonpath_parts) if pythonpath_parts else ""
+            if role.organization_id is not None:
+                env["TRACECAT__ORGANIZATION_ID"] = str(role.organization_id)
 
         # Get path to minimal_runner.py for subprocess execution
         from tracecat.executor import minimal_runner as minimal_runner_module
 
         minimal_runner_path = Path(minimal_runner_module.__file__)
-
-        logger.debug(
-            "Executing action in subprocess",
-            action=input.task.action,
-            timeout=timeout,
+        bootstrap_dir_context = tempfile.TemporaryDirectory(
+            prefix="tracecat_outbound_http_gateway_"
         )
-
-        start_time = time.monotonic()
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable,
-            str(minimal_runner_path),
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=input_json),
+            pythonpath_parts: list[str] = []
+            if input.outbound_http_interception_enabled:
+                if resolved_context is None:
+                    return ExecutorActionErrorInfo(
+                        type="OutboundHTTPInterceptionConfigurationError",
+                        message=(
+                            "Dev mode requires resolved execution context for direct subprocess execution."
+                        ),
+                        action_name=input.task.action,
+                        filename="<direct>",
+                        function="execute_action",
+                    )
+                bootstrap_dir = Path(bootstrap_dir_context.name)
+                self._copy_outbound_http_gateway_bundle(bootstrap_dir)
+                pythonpath_parts.append(str(bootstrap_dir))
+                env.update(
+                    self._build_outbound_http_gateway_env(
+                        input=input,
+                        role=role,
+                        backend_name="direct",
+                        auth_token=resolved_context.executor_token,
+                    )
+                )
+
+            # Build PYTHONPATH with multiple registry paths (deterministic order)
+            pythonpath_parts.extend(str(p) for p in registry_paths if p.exists())
+            existing_pythonpath = env.get("PYTHONPATH", "")
+            if existing_pythonpath:
+                pythonpath_parts.append(existing_pythonpath)
+            env["PYTHONPATH"] = ":".join(pythonpath_parts) if pythonpath_parts else ""
+
+            logger.debug(
+                "Executing action in subprocess",
+                action=input.task.action,
                 timeout=timeout,
             )
-            elapsed_ms = (time.monotonic() - start_time) * 1000
-            logger.info(
-                "Subprocess execution completed",
-                action=input.task.action,
-                elapsed_ms=f"{elapsed_ms:.1f}",
-                returncode=proc.returncode,
+
+            start_time = time.monotonic()
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                str(minimal_runner_path),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
-        except TimeoutError:
-            logger.error(
-                "Action execution timed out, killing subprocess",
-                action=input.task.action,
-                timeout=timeout,
-            )
-            proc.kill()
-            await proc.wait()
+
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(input=input_json),
+                    timeout=timeout,
+                )
+                elapsed_ms = (time.monotonic() - start_time) * 1000
+                logger.info(
+                    "Subprocess execution completed",
+                    action=input.task.action,
+                    elapsed_ms=f"{elapsed_ms:.1f}",
+                    returncode=proc.returncode,
+                )
+            except TimeoutError:
+                logger.error(
+                    "Action execution timed out, killing subprocess",
+                    action=input.task.action,
+                    timeout=timeout,
+                )
+                proc.kill()
+                await proc.wait()
+                return ExecutorActionErrorInfo(
+                    type="TimeoutError",
+                    message=f"Action execution timed out after {timeout}s",
+                    action_name=input.task.action,
+                    filename="<subprocess>",
+                    function="execute_action",
+                )
+
+            # Check for subprocess crash
+            if proc.returncode != 0:
+                stderr_text = stderr.decode()
+                logger.error(
+                    "Subprocess failed",
+                    action=input.task.action,
+                    returncode=proc.returncode,
+                    stderr=stderr_text,
+                )
+                return ExecutorActionErrorInfo(
+                    type="SubprocessError",
+                    message=f"Subprocess exited with code {proc.returncode}: {stderr_text[:500]}",
+                    action_name=input.task.action,
+                    filename="<subprocess>",
+                    function="execute_action",
+                )
+
+            # Parse result from stdout
+            try:
+                result_data = orjson.loads(stdout)
+            except orjson.JSONDecodeError as e:
+                logger.error(
+                    "Failed to parse subprocess output",
+                    action=input.task.action,
+                    stdout=stdout.decode()[:500],
+                    error=str(e),
+                )
+                return ExecutorActionErrorInfo(
+                    type="ProtocolError",
+                    message=f"Failed to parse subprocess output: {e}",
+                    action_name=input.task.action,
+                    filename="<subprocess>",
+                    function="execute_action",
+                )
+
+            # Handle success or error
+            if result_data.get("success"):
+                return result_data["result"]
+
+            # Reconstruct error info
+            error_data = result_data.get("error")
+            if error_data:
+                return ExecutorActionErrorInfo.model_validate(error_data)
+
             return ExecutorActionErrorInfo(
-                type="TimeoutError",
-                message=f"Action execution timed out after {timeout}s",
+                type="UnknownError",
+                message="Subprocess returned neither success nor error",
                 action_name=input.task.action,
                 filename="<subprocess>",
                 function="execute_action",
             )
-
-        # Check for subprocess crash
-        if proc.returncode != 0:
-            stderr_text = stderr.decode()
-            logger.error(
-                "Subprocess failed",
-                action=input.task.action,
-                returncode=proc.returncode,
-                stderr=stderr_text,
-            )
-            return ExecutorActionErrorInfo(
-                type="SubprocessError",
-                message=f"Subprocess exited with code {proc.returncode}: {stderr_text[:500]}",
-                action_name=input.task.action,
-                filename="<subprocess>",
-                function="execute_action",
-            )
-
-        # Parse result from stdout
-        try:
-            result_data = orjson.loads(stdout)
-        except orjson.JSONDecodeError as e:
-            logger.error(
-                "Failed to parse subprocess output",
-                action=input.task.action,
-                stdout=stdout.decode()[:500],
-                error=str(e),
-            )
-            return ExecutorActionErrorInfo(
-                type="ProtocolError",
-                message=f"Failed to parse subprocess output: {e}",
-                action_name=input.task.action,
-                filename="<subprocess>",
-                function="execute_action",
-            )
-
-        # Handle success or error
-        if result_data.get("success"):
-            return result_data["result"]
-
-        # Reconstruct error info
-        error_data = result_data.get("error")
-        if error_data:
-            return ExecutorActionErrorInfo.model_validate(error_data)
-
-        return ExecutorActionErrorInfo(
-            type="UnknownError",
-            message="Subprocess returned neither success nor error",
-            action_name=input.task.action,
-            filename="<subprocess>",
-            function="execute_action",
-        )
+        finally:
+            bootstrap_dir_context.cleanup()
 
 
 # Lazy singleton - no lifespan required

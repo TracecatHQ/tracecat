@@ -24,6 +24,7 @@ from tracecat.interactions.schemas import ActionInteraction, InteractionContext
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.storage.object import InlineObject, StoredObject
+from tracecat.workflow.executions.enums import ExecutionType, TriggerType
 
 SLUG_PATTERN = r"^[a-z0-9_]+$"
 ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
@@ -434,6 +435,14 @@ class RunContext(BaseModel):
     environment: str
     logical_time: datetime
     """The logical start time for the workflow run."""
+    trigger_type: TriggerType | None = Field(
+        default=None,
+        description="Trigger type for this run when known.",
+    )
+    execution_type: ExecutionType | None = Field(
+        default=None,
+        description="Execution type for this run when known.",
+    )
 
     @field_validator("wf_id", mode="before")
     @classmethod
@@ -542,11 +551,23 @@ class RunActionInput(BaseModel):
     task: ActionStatement
     exec_context: ExecutionContext
     run_context: RunContext
+    outbound_http_interception_enabled: bool = Field(
+        default=False,
+        description="Whether outbound HTTP interception is enabled for this action.",
+    )
     # This gets passed in from the worker
     interaction_context: InteractionContext | None = None
     stream_id: StreamID = ROOT_STREAM
     session_id: uuid.UUID | None = None
     """ID for a streamable session, if any."""
+    entity_type: str | None = Field(
+        default=None,
+        description="Entity type associated with the action, if any.",
+    )
+    entity_id: uuid.UUID | None = Field(
+        default=None,
+        description="Entity ID associated with the action, if any.",
+    )
     registry_lock: RegistryLock
     """Registry version lock from workflow definition. Required and must be non-empty."""
 

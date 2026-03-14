@@ -614,6 +614,9 @@ class ExecuteApprovedToolsInput(BaseModel):
     # Tools to execute
     approved_tools: list[ApprovedToolCall]
     denied_tools: list[DeniedToolCall]
+    outbound_http_interception_enabled: bool = False
+    entity_type: str | None = None
+    entity_id: uuid.UUID | None = None
     # Context needed for JWT minting
     allowed_actions: list[str]
     # Registry lock for action resolution
@@ -727,6 +730,9 @@ async def execute_approved_tools_activity(
         organization_id=input.role.organization_id,
         allowed_actions=input.allowed_actions,
         session_id=input.session_id,
+        outbound_http_interception_enabled=input.outbound_http_interception_enabled,
+        entity_type=input.entity_type,
+        entity_id=input.entity_id,
     )
 
     logger.info(

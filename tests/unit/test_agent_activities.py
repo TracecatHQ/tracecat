@@ -116,6 +116,33 @@ class TestCreateSessionActivity:
         assert result.success is True
         assert result.session_id == mock_session_id
         assert result.error is None
+        create_request = mock_service.get_or_create_session.await_args.args[0]
+        assert create_request.outbound_http_interception_enabled is False
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_passes_outbound_http_interception_to_session_creation(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ) -> None:
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+            outbound_http_interception_enabled=True,
+        )
+
+        mock_service = AsyncMock()
+        mock_service.get_or_create_session.return_value = (MagicMock(), True)
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_session_activity(input)
+
+        assert result.success is True
+        create_request = mock_service.get_or_create_session.await_args.args[0]
+        assert create_request.outbound_http_interception_enabled is True
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")

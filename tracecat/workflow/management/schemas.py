@@ -45,12 +45,18 @@ class WorkflowRead(Schema):
     expects_schema: dict[str, Any] | None = None
     returns: Any
     config: DSLConfig | None
+    outbound_http_interception_enabled: bool = False
     alias: str | None = None
     git_sync_branch: str | None = None
     error_handler: str | None = None
     trigger_position_x: float = 0.0
     trigger_position_y: float = 0.0
     graph_version: int = 1
+
+    @field_validator("outbound_http_interception_enabled", mode="before")
+    @classmethod
+    def coerce_outbound_http_interception_enabled(cls, value: Any) -> bool:
+        return False if value is None else value
 
 
 class WorkflowDefinitionReadMinimal(Schema):
@@ -92,10 +98,16 @@ class WorkflowReadMinimal(Schema):
     version: int | None
     tags: list[TagRead] | None = None
     alias: str | None = None
+    outbound_http_interception_enabled: bool = False
     error_handler: str | None = None
     latest_definition: WorkflowDefinitionReadMinimal | None = None
     folder_id: uuid.UUID | None = None
     trigger_summary: WorkflowTriggerSummary | None = None
+
+    @field_validator("outbound_http_interception_enabled", mode="before")
+    @classmethod
+    def coerce_outbound_http_interception_enabled(cls, value: Any) -> bool:
+        return False if value is None else value
 
 
 class WorkflowUpdate(BaseModel):
@@ -117,6 +129,7 @@ class WorkflowUpdate(BaseModel):
     expects: dict[str, ExpectedField] | None = None
     returns: Any | None = None
     config: DSLConfig | None = None
+    outbound_http_interception_enabled: bool | None = None
     alias: str | None = None
     error_handler: str | None = None
 

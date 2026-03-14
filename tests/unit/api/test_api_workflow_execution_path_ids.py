@@ -553,3 +553,124 @@ async def test_draft_execution_returns_400_when_dsl_validation_fails(
     assert payload["detail"]["detail"][0]["type"] == "dsl"
     mock_validate_dsl.assert_awaited_once()
     mock_exec_service.create_draft_workflow_execution_nowait.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_draft_execution_uses_workflow_outbound_http_interception_when_request_omits_override(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workflow_id = "wf_4itKqkgCZrLhgYiq5L211X"
+
+    mock_workflow = Mock(outbound_http_interception_enabled=True)
+    mock_mgmt_service = AsyncMock()
+    mock_mgmt_service.get_workflow.return_value = mock_workflow
+    mock_mgmt_service.build_dsl_from_workflow.return_value = DSLInput(
+        **{
+            "title": "Draft workflow",
+            "description": "Draft workflow for outbound HTTP interception test",
+            "entrypoint": {"expects": {}, "ref": "start"},
+            "actions": [{"ref": "start", "action": "core.noop"}],
+            "config": {"enable_runtime_tests": False},
+        }
+    )
+    mock_mgmt_ctx = AsyncMock()
+    mock_mgmt_ctx.__aenter__.return_value = mock_mgmt_service
+    mock_mgmt_ctx.__aexit__.return_value = None
+
+    mock_exec_service = AsyncMock()
+    mock_exec_service.create_draft_workflow_execution_nowait = Mock(
+        return_value={
+            "message": "Draft workflow execution started",
+            "wf_id": workflow_id,
+            "wf_exec_id": f"{workflow_id}/exec_test",
+        }
+    )
+
+    with (
+        patch.object(
+            executions_router.WorkflowExecutionsService,
+            "connect",
+            AsyncMock(return_value=mock_exec_service),
+        ),
+        patch.object(
+            executions_router.WorkflowsManagementService,
+            "with_session",
+            return_value=mock_mgmt_ctx,
+        ),
+        patch.object(
+            executions_router,
+            "validate_dsl",
+            AsyncMock(return_value=[]),
+        ),
+    ):
+        response = client.post(
+            "/workflow-executions/draft",
+            json={"workflow_id": workflow_id},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    kwargs = mock_exec_service.create_draft_workflow_execution_nowait.call_args.kwargs
+    assert kwargs["outbound_http_interception_enabled"] is True
+
+
+@pytest.mark.anyio
+async def test_draft_execution_request_override_wins_for_outbound_http_interception(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workflow_id = "wf_4itKqkgCZrLhgYiq5L211X"
+
+    mock_workflow = Mock(outbound_http_interception_enabled=False)
+    mock_mgmt_service = AsyncMock()
+    mock_mgmt_service.get_workflow.return_value = mock_workflow
+    mock_mgmt_service.build_dsl_from_workflow.return_value = DSLInput(
+        **{
+            "title": "Draft workflow",
+            "description": "Draft workflow for outbound HTTP interception override test",
+            "entrypoint": {"expects": {}, "ref": "start"},
+            "actions": [{"ref": "start", "action": "core.noop"}],
+            "config": {"enable_runtime_tests": False},
+        }
+    )
+    mock_mgmt_ctx = AsyncMock()
+    mock_mgmt_ctx.__aenter__.return_value = mock_mgmt_service
+    mock_mgmt_ctx.__aexit__.return_value = None
+
+    mock_exec_service = AsyncMock()
+    mock_exec_service.create_draft_workflow_execution_nowait = Mock(
+        return_value={
+            "message": "Draft workflow execution started",
+            "wf_id": workflow_id,
+            "wf_exec_id": f"{workflow_id}/exec_test",
+        }
+    )
+
+    with (
+        patch.object(
+            executions_router.WorkflowExecutionsService,
+            "connect",
+            AsyncMock(return_value=mock_exec_service),
+        ),
+        patch.object(
+            executions_router.WorkflowsManagementService,
+            "with_session",
+            return_value=mock_mgmt_ctx,
+        ),
+        patch.object(
+            executions_router,
+            "validate_dsl",
+            AsyncMock(return_value=[]),
+        ),
+    ):
+        response = client.post(
+            "/workflow-executions/draft",
+            json={
+                "workflow_id": workflow_id,
+                "outbound_http_interception_enabled": True,
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    kwargs = mock_exec_service.create_draft_workflow_execution_nowait.call_args.kwargs
+    assert kwargs["outbound_http_interception_enabled"] is True

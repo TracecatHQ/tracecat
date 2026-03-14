@@ -170,6 +170,7 @@ tracecat:
   appEnv: production
   logLevel: "INFO"
   allowOrigins: ""
+  outboundHttpGatewayUrl: ""
   sentryDsn: ""
 
   sandbox:

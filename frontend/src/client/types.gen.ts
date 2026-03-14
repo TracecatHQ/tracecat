@@ -496,6 +496,10 @@ export type AgentSessionCreate = {
    */
   tools?: Array<string> | null
   /**
+   * Whether tool executions in this session should enable outbound HTTP interception
+   */
+  outbound_http_interception_enabled?: boolean
+  /**
    * Agent preset used for this session (if any)
    */
   agent_preset_id?: string | null
@@ -554,6 +558,7 @@ export type AgentSessionRead = {
     [key: string]: unknown
   } | null
   tools: Array<string> | null
+  outbound_http_interception_enabled?: boolean
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   harness_type: string | null
@@ -577,6 +582,7 @@ export type AgentSessionReadVercel = {
     [key: string]: unknown
   } | null
   tools: Array<string> | null
+  outbound_http_interception_enabled?: boolean
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   harness_type: string | null
@@ -604,6 +610,7 @@ export type AgentSessionReadWithMessages = {
     [key: string]: unknown
   } | null
   tools: Array<string> | null
+  outbound_http_interception_enabled?: boolean
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   harness_type: string | null
@@ -629,6 +636,10 @@ export type AgentSessionUpdate = {
    * Tools available to the agent
    */
   tools?: Array<string> | null
+  /**
+   * Whether tool executions in this session should enable outbound HTTP interception
+   */
+  outbound_http_interception_enabled?: boolean | null
   /**
    * Agent preset to use for this session
    */
@@ -2612,6 +2623,10 @@ export type DSLRunArgs = {
   trigger_inputs?: InlineObject | ExternalObject | CollectionObject | null
   parent_run_context?: RunContext | null
   /**
+   * Whether outbound HTTP interception is enabled for this run.
+   */
+  outbound_http_interception_enabled?: boolean
+  /**
    * Runtime configuration that can be set on workflow entry. Note that this can override the default config in DSLInput.
    */
   runtime_config?: DSLConfig_Output
@@ -2685,6 +2700,19 @@ export type DocumentUrl = {
    * distinguish multiple files.
    */
   readonly identifier: string
+}
+
+export type DraftWorkflowExecutionCreate = {
+  workflow_id: string
+  inputs?: unknown | null
+  /**
+   * Override the workflow's time anchor for FN.now() and related functions. If not provided, computed from TemporalScheduledStartTime (for schedules) or workflow start_time (for other triggers).
+   */
+  time_anchor?: string | null
+  /**
+   * Optional per-run override for the workflow draft's outbound HTTP interception flag.
+   */
+  outbound_http_interception_enabled?: boolean | null
 }
 
 /**
@@ -5045,9 +5073,21 @@ export type RunActionInput = {
   task: ActionStatement
   exec_context: ExecutionContext
   run_context: RunContext
+  /**
+   * Whether outbound HTTP interception is enabled for this action.
+   */
+  outbound_http_interception_enabled?: boolean
   interaction_context?: InteractionContext | null
   stream_id?: string
   session_id?: string | null
+  /**
+   * Entity type associated with the action, if any.
+   */
+  entity_type?: string | null
+  /**
+   * Entity ID associated with the action, if any.
+   */
+  entity_id?: string | null
   registry_lock: RegistryLock
 }
 
@@ -5060,6 +5100,14 @@ export type RunContext = {
   wf_run_id: string
   environment: string
   logical_time: string
+  /**
+   * Trigger type for this run when known.
+   */
+  trigger_type?: TriggerType | null
+  /**
+   * Execution type for this run when known.
+   */
+  execution_type?: ExecutionType | null
 }
 
 /**
@@ -6909,6 +6957,7 @@ export type WorkflowDirectoryItem = {
   version: number | null
   tags?: Array<TagRead> | null
   alias?: string | null
+  outbound_http_interception_enabled?: boolean
   error_handler?: string | null
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
@@ -7455,6 +7504,7 @@ export type WorkflowRead = {
   } | null
   returns: unknown
   config: DSLConfig_Output | null
+  outbound_http_interception_enabled?: boolean
   alias?: string | null
   git_sync_branch?: string | null
   error_handler?: string | null
@@ -7477,6 +7527,7 @@ export type WorkflowReadMinimal = {
   version: number | null
   tags?: Array<TagRead> | null
   alias?: string | null
+  outbound_http_interception_enabled?: boolean
   error_handler?: string | null
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
@@ -7600,6 +7651,7 @@ export type WorkflowUpdate = {
   } | null
   returns?: unknown | null
   config?: DSLConfig_Input | null
+  outbound_http_interception_enabled?: boolean | null
   alias?: string | null
   error_handler?: string | null
 }
@@ -8315,7 +8367,7 @@ export type WorkflowExecutionsGetWorkflowExecutionCollectionPageResponse =
   WorkflowExecutionCollectionPageResponse
 
 export type WorkflowExecutionsCreateDraftWorkflowExecutionData = {
-  requestBody: WorkflowExecutionCreate
+  requestBody: DraftWorkflowExecutionCreate
   workspaceId: string
 }
 

@@ -458,6 +458,12 @@ variable "executor_worker_pool_size" {
   default     = null
 }
 
+variable "outbound_http_gateway_url" {
+  type        = string
+  description = "Full dispatch URL for outbound HTTP interception from executor workloads"
+  default     = ""
+}
+
 variable "agent_executor_cpu" {
   type    = string
   default = "4096"

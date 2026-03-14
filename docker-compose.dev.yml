@@ -205,6 +205,7 @@ services:
       # Pool size auto-scales based on available CPUs if not set
       TRACECAT__EXECUTOR_WORKER_POOL_SIZE: ${TRACECAT__EXECUTOR_WORKER_POOL_SIZE:-}
       TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-direct}
+      TRACECAT__OUTBOUND_HTTP_GATEWAY_URL: ${TRACECAT__OUTBOUND_HTTP_GATEWAY_URL:-}
       # Redis
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3/MinIO wheel access)
@@ -281,6 +282,7 @@ services:
       TRACECAT__LLM_PROXY_READ_TIMEOUT: ${TRACECAT__LLM_PROXY_READ_TIMEOUT:-300}
       # Pool size auto-scales based on available CPUs if not set
       TRACECAT__EXECUTOR_WORKER_POOL_SIZE: ${TRACECAT__EXECUTOR_WORKER_POOL_SIZE:-}
+      TRACECAT__OUTBOUND_HTTP_GATEWAY_URL: ${TRACECAT__OUTBOUND_HTTP_GATEWAY_URL:-}
       # Redis
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3/MinIO tarball access)

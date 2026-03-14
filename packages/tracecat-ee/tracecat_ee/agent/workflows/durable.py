@@ -67,6 +67,10 @@ class AgentWorkflowArgs(BaseModel):
 
     role: Role
     agent_args: RunAgentArgs
+    outbound_http_interception_enabled: bool = Field(
+        default=False,
+        description="Whether outbound HTTP interception is enabled for tool execution.",
+    )
     # Session metadata
     title: str = Field(default="New Chat", description="Session title")
     entity_type: AgentSessionEntity = Field(
@@ -316,6 +320,7 @@ class DurableAgentWorkflow:
                 entity_type=args.entity_type,
                 entity_id=args.entity_id,
                 tools=args.tools,
+                outbound_http_interception_enabled=args.outbound_http_interception_enabled,
                 agent_preset_id=args.agent_preset_id,
                 agent_preset_version_id=args.agent_preset_version_id,
                 harness_type=HarnessType(self.harness_type),
@@ -395,6 +400,9 @@ class DurableAgentWorkflow:
             user_id=self.role.user_id,
             allowed_actions=list(allowed_actions.keys()),
             session_id=self.session_id,
+            outbound_http_interception_enabled=args.outbound_http_interception_enabled,
+            entity_type=args.entity_type.value,
+            entity_id=args.entity_id,
             user_mcp_servers=user_mcp_claims,
             allowed_internal_tools=allowed_internal_tools,
             internal_tool_context=internal_tool_context,
@@ -486,6 +494,9 @@ class DurableAgentWorkflow:
                             role=self.role,
                             approved_tools=approved_tools,
                             denied_tools=denied_tools,
+                            outbound_http_interception_enabled=args.outbound_http_interception_enabled,
+                            entity_type=args.entity_type.value,
+                            entity_id=args.entity_id,
                             allowed_actions=list(allowed_actions.keys()),
                             registry_lock=self._registry_lock,
                         ),
