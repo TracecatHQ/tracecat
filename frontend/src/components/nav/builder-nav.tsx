@@ -549,16 +549,16 @@ function WorkflowManualTrigger({
       <Button
         type="button"
         variant={manualTriggerErrors ? "destructive" : "default"}
-        className="h-7 gap-2 px-3 py-0 text-xs"
+        className="h-7 justify-center gap-2 rounded-lg px-5 py-0 text-xs font-medium"
         disabled={disabled || executionPending}
         onClick={runWorkflow}
       >
         {executionPending ? (
-          <Spinner className="size-3" segmentColor="currentColor" />
+          <Spinner className="size-3.5" segmentColor="currentColor" />
         ) : manualTriggerErrors ? (
-          <AlertTriangleIcon className="size-3" />
+          <AlertTriangleIcon className="size-3.5" />
         ) : (
-          <PlayIcon className="size-3" />
+          <PlayIcon className="size-3.5" />
         )}
         <span>Run</span>
       </Button>
