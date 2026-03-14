@@ -146,6 +146,7 @@ async def list_organization_service_account_scopes(
     response_model=ServiceAccountCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
+@require_scope("org:service_account:create")
 async def create_organization_service_account(
     *,
     role: OrgUserOnlyRole,
@@ -186,6 +187,7 @@ async def get_organization_service_account(
 
 
 @org_router.patch("/{service_account_id}", response_model=ServiceAccountRead)
+@require_scope("org:service_account:update")
 async def update_organization_service_account(
     *,
     role: OrgUserOnlyRole,
@@ -210,6 +212,7 @@ async def update_organization_service_account(
 @org_router.post(
     "/{service_account_id}/disable", status_code=status.HTTP_204_NO_CONTENT
 )
+@require_scope("org:service_account:disable")
 async def disable_organization_service_account(
     *,
     role: OrgUserOnlyRole,
@@ -224,6 +227,7 @@ async def disable_organization_service_account(
 
 
 @org_router.post("/{service_account_id}/enable", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:service_account:disable")
 async def enable_organization_service_account(
     *,
     role: OrgUserOnlyRole,
@@ -241,6 +245,7 @@ async def enable_organization_service_account(
     "/{service_account_id}/regenerate-key",
     response_model=ServiceAccountCreateResponse,
 )
+@require_scope("org:service_account:update")
 async def regenerate_organization_service_account_key(
     *,
     role: OrgUserOnlyRole,
@@ -265,6 +270,7 @@ async def regenerate_organization_service_account_key(
 @org_router.post(
     "/{service_account_id}/revoke-key", status_code=status.HTTP_204_NO_CONTENT
 )
+@require_scope("org:service_account:update")
 async def revoke_organization_service_account_key(
     *,
     role: OrgUserOnlyRole,
@@ -329,6 +335,7 @@ async def list_workspace_service_account_scopes(
     response_model=ServiceAccountCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
+@require_scope("workspace:service_account:create")
 async def create_workspace_service_account(
     *,
     role: WorkspaceUserOnlyInPath,
@@ -369,6 +376,7 @@ async def get_workspace_service_account(
 
 
 @workspace_router.patch("/{service_account_id}", response_model=ServiceAccountRead)
+@require_scope("workspace:service_account:update")
 async def update_workspace_service_account(
     *,
     role: WorkspaceUserOnlyInPath,
@@ -394,6 +402,7 @@ async def update_workspace_service_account(
     "/{service_account_id}/disable",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workspace:service_account:disable")
 async def disable_workspace_service_account(
     *,
     role: WorkspaceUserOnlyInPath,
@@ -411,6 +420,7 @@ async def disable_workspace_service_account(
     "/{service_account_id}/enable",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workspace:service_account:disable")
 async def enable_workspace_service_account(
     *,
     role: WorkspaceUserOnlyInPath,
@@ -428,6 +438,7 @@ async def enable_workspace_service_account(
     "/{service_account_id}/regenerate-key",
     response_model=ServiceAccountCreateResponse,
 )
+@require_scope("workspace:service_account:update")
 async def regenerate_workspace_service_account_key(
     *,
     role: WorkspaceUserOnlyInPath,
@@ -453,6 +464,7 @@ async def regenerate_workspace_service_account_key(
     "/{service_account_id}/revoke-key",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("workspace:service_account:update")
 async def revoke_workspace_service_account_key(
     *,
     role: WorkspaceUserOnlyInPath,
