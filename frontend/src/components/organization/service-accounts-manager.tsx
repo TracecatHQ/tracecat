@@ -1,25 +1,29 @@
 "use client"
 
+import { useQuery } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import {
+  ChevronRightIcon,
+  CircleCheckIcon,
+  CircleXIcon,
   KeyRoundIcon,
   PencilIcon,
-  PlusIcon,
   RefreshCwIcon,
-  ShieldOffIcon,
-  ToggleLeftIcon,
-  ToggleRightIcon,
+  SearchIcon,
+  ShieldIcon,
 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
   ScopeRead,
   ServiceAccountApiKeyCreate,
+  ServiceAccountApiKeyIssueResponse,
+  ServiceAccountApiKeyRead,
   ServiceAccountCreate,
-  ServiceAccountCreateResponse,
   ServiceAccountRead,
   ServiceAccountScopeRead,
   ServiceAccountUpdate,
 } from "@/client"
+import { CasePanelSection } from "@/components/cases/case-panel-section"
 import { CopyButton } from "@/components/copy-button"
 import { AlertNotification } from "@/components/notifications"
 import {
@@ -46,8 +50,28 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import type { TracecatApiError } from "@/lib/errors"
 import {
@@ -55,6 +79,12 @@ import {
   type PermissionLevel,
   RESOURCE_CATEGORIES,
 } from "@/lib/rbac"
+import { cn } from "@/lib/utils"
+
+interface ServiceAccountApiKeysPage {
+  items?: ServiceAccountApiKeyRead[]
+  next_cursor?: string | null
+}
 
 interface ServiceAccountsManagerProps {
   kindLabel: string
@@ -67,9 +97,9 @@ interface ServiceAccountsManagerProps {
   updatePending: boolean
   disablePending: boolean
   enablePending: boolean
-  regeneratePending: boolean
-  revokePending: boolean
-  showIntroCard?: boolean
+  issueApiKeyPending: boolean
+  revokeApiKeyPending: boolean
+  apiKeysQueryKeyPrefix: readonly unknown[]
   canCreate?: boolean
   canUpdate?: boolean
   canDisable?: boolean
@@ -77,18 +107,22 @@ interface ServiceAccountsManagerProps {
   onCreateSignalConsumed?: () => void
   onCreate: (
     requestBody: ServiceAccountCreate
-  ) => Promise<ServiceAccountCreateResponse>
+  ) => Promise<ServiceAccountApiKeyIssueResponse>
   onUpdate: (params: {
     serviceAccountId: string
     requestBody: ServiceAccountUpdate
   }) => Promise<ServiceAccountRead>
   onDisable: (serviceAccountId: string) => Promise<void>
   onEnable: (serviceAccountId: string) => Promise<void>
-  onRegenerate: (params: {
+  onIssueApiKey: (params: {
     serviceAccountId: string
     requestBody: ServiceAccountApiKeyCreate
-  }) => Promise<ServiceAccountCreateResponse>
-  onRevoke: (serviceAccountId: string) => Promise<void>
+  }) => Promise<ServiceAccountApiKeyIssueResponse>
+  onRevokeApiKey: (params: {
+    serviceAccountId: string
+    apiKeyId: string
+  }) => Promise<void>
+  listApiKeys: (serviceAccountId: string) => Promise<ServiceAccountApiKeysPage>
 }
 
 interface ServiceAccountDraft {
@@ -98,13 +132,92 @@ interface ServiceAccountDraft {
   initialKeyName: string
 }
 
-type ActionTargetType = "disable" | "enable" | "revoke"
+type ServiceAccountStatusFilter =
+  | "all"
+  | "active"
+  | "disabled"
+  | "no-active-key"
+
+type ActionDialogState =
+  | {
+      type: "disable"
+      serviceAccount: ServiceAccountRead
+    }
+  | {
+      type: "enable"
+      serviceAccount: ServiceAccountRead
+    }
+  | {
+      type: "revoke-api-key"
+      serviceAccount: ServiceAccountRead
+      apiKey: ServiceAccountApiKeyRead
+    }
 
 const EMPTY_DRAFT: ServiceAccountDraft = {
   name: "",
   description: "",
   scopeIds: [],
   initialKeyName: "Primary",
+}
+
+type ServiceAccountStatusGroup = "active" | "disabled" | "no_active_key"
+
+interface StatusGroupConfig {
+  label: string
+  dotClassName: string
+  textClassName: string
+}
+
+const STATUS_GROUPS: Record<ServiceAccountStatusGroup, StatusGroupConfig> = {
+  active: {
+    label: "Active",
+    dotClassName: "bg-green-500",
+    textClassName: "text-green-700 dark:text-green-400",
+  },
+  disabled: {
+    label: "Disabled",
+    dotClassName: "bg-muted-foreground",
+    textClassName: "text-muted-foreground",
+  },
+  no_active_key: {
+    label: "No active key",
+    dotClassName: "bg-rose-500",
+    textClassName: "text-rose-700 dark:text-rose-400",
+  },
+}
+
+function getServiceAccountGroup(
+  serviceAccount: ServiceAccountRead
+): ServiceAccountStatusGroup {
+  if (serviceAccount.disabled_at) return "disabled"
+  if (!serviceAccount.active_api_key) return "no_active_key"
+  return "active"
+}
+
+const API_KEY_PREVIEW_LENGTH = 4
+
+const SERVICE_ACCOUNT_STATUS_FILTERS: Array<{
+  value: ServiceAccountStatusFilter
+  label: string
+}> = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "disabled", label: "Disabled" },
+  { value: "no-active-key", label: "No active key" },
+]
+
+const SERVICE_ACCOUNT_NAME_COLUMN_CLASS =
+  "min-w-0 w-[280px] shrink-0 truncate text-xs font-medium"
+const INLINE_NAME_HIGHLIGHT_CLASS =
+  "mx-1 inline-flex rounded bg-secondary px-1.5 py-0.5 align-middle font-mono text-xs font-normal text-foreground"
+
+function deriveApiKeyPreview(rawKey: string): string {
+  const prefixMatch = rawKey.match(/^(tc_(?:org_|ws_)?sk_)/)
+  const prefix = prefixMatch?.[1]
+  if (!prefix || rawKey.length < prefix.length + API_KEY_PREVIEW_LENGTH) {
+    return rawKey
+  }
+  return `${prefix}...${rawKey.slice(-API_KEY_PREVIEW_LENGTH)}`
 }
 
 function getApiErrorDetail(error: unknown, fallback: string): string {
@@ -125,14 +238,304 @@ function formatTimestamp(value?: string | null): string {
   return formatDistanceToNow(new Date(value), { addSuffix: true })
 }
 
-function getStatusLabel(serviceAccount: ServiceAccountRead): string {
-  if (serviceAccount.disabled_at) {
-    return "Disabled"
+function getApiKeyStatusLabel(apiKey: ServiceAccountApiKeyRead): string {
+  return apiKey.revoked_at ? "Revoked" : "Active"
+}
+
+function getApiKeyStatusTone(apiKey: ServiceAccountApiKeyRead): {
+  dotClassName: string
+  textClassName: string
+} {
+  return apiKey.revoked_at
+    ? {
+        dotClassName: "bg-rose-500",
+        textClassName: "text-rose-700 dark:text-rose-400",
+      }
+    : {
+        dotClassName: "bg-green-500",
+        textClassName: "text-green-700 dark:text-green-400",
+      }
+}
+
+function matchesServiceAccountStatusFilter(
+  serviceAccount: ServiceAccountRead,
+  statusFilter: ServiceAccountStatusFilter
+): boolean {
+  switch (statusFilter) {
+    case "all":
+      return true
+    case "active":
+      return (
+        serviceAccount.disabled_at === null &&
+        serviceAccount.active_api_key !== null &&
+        serviceAccount.active_api_key !== undefined
+      )
+    case "disabled":
+      return serviceAccount.disabled_at !== null
+    case "no-active-key":
+      return (
+        serviceAccount.disabled_at === null && !serviceAccount.active_api_key
+      )
   }
-  if (serviceAccount.api_key?.revoked_at || !serviceAccount.api_key) {
-    return "No active key"
+}
+
+function matchesServiceAccountSearchQuery(
+  serviceAccount: ServiceAccountRead,
+  searchQuery: string
+): boolean {
+  const normalizedQuery = searchQuery.trim().toLowerCase()
+  if (!normalizedQuery) {
+    return true
   }
-  return "Active"
+
+  const searchableParts = [
+    serviceAccount.name,
+    serviceAccount.description,
+    serviceAccount.active_api_key?.name,
+    serviceAccount.active_api_key?.preview,
+    ...(serviceAccount.scopes?.map((scope) => scope.name) ?? []),
+  ]
+
+  return searchableParts.some((part) =>
+    part?.toLowerCase().includes(normalizedQuery)
+  )
+}
+
+function RowActionButton({
+  label,
+  disabled = false,
+  onClick,
+  danger = false,
+  className,
+  children,
+}: {
+  label: string
+  disabled?: boolean
+  onClick: () => void
+  danger?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            danger
+              ? "size-8 text-rose-600 hover:text-rose-700"
+              : "size-8 text-muted-foreground hover:text-foreground",
+            className
+          )}
+          disabled={disabled}
+          onClick={onClick}
+          aria-label={label}
+        >
+          {children}
+          <span className="sr-only">{label}</span>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function sortServiceAccountScopes(
+  scopes: ServiceAccountScopeRead[]
+): ServiceAccountScopeRead[] {
+  return [...scopes].sort((left, right) => left.name.localeCompare(right.name))
+}
+
+function ServiceAccountDetailPanel({
+  serviceAccount,
+  expanded,
+  listApiKeys,
+  apiKeysQueryKeyPrefix,
+  canUpdate,
+  revokeApiKeyPending,
+  onOpenActionDialog,
+}: {
+  serviceAccount: ServiceAccountRead
+  expanded: boolean
+  listApiKeys: (serviceAccountId: string) => Promise<ServiceAccountApiKeysPage>
+  apiKeysQueryKeyPrefix: readonly unknown[]
+  canUpdate: boolean
+  revokeApiKeyPending: boolean
+  onOpenActionDialog: (state: ActionDialogState) => void
+}) {
+  const [permissionsOpen, setPermissionsOpen] = useState(true)
+  const [apiKeysOpen, setApiKeysOpen] = useState(true)
+  const {
+    data: apiKeysPage,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: [...apiKeysQueryKeyPrefix, serviceAccount.id, "api-keys"],
+    queryFn: async () => await listApiKeys(serviceAccount.id),
+    enabled: expanded,
+  })
+
+  if (!expanded) {
+    return null
+  }
+
+  return (
+    <div className="border-t bg-background px-4 py-4">
+      <div className="flex flex-col gap-6">
+        <CasePanelSection
+          title="Scopes"
+          titleNode={
+            <span className="inline-flex items-center gap-2">
+              <ShieldIcon className="size-3.5 text-muted-foreground" />
+              <span>Scopes</span>
+            </span>
+          }
+          isOpen={permissionsOpen}
+          onOpenChange={setPermissionsOpen}
+        >
+          {(serviceAccount.scopes?.length ?? 0) > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {sortServiceAccountScopes(serviceAccount.scopes ?? []).map(
+                (scope) => (
+                  <Badge
+                    key={scope.id}
+                    variant="secondary"
+                    className="px-2 py-0.5 font-mono text-[10px] font-normal text-muted-foreground"
+                  >
+                    {scope.name}
+                  </Badge>
+                )
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No scopes assigned.</p>
+          )}
+        </CasePanelSection>
+
+        <CasePanelSection
+          title="API keys"
+          titleNode={
+            <span className="inline-flex items-center gap-2">
+              <KeyRoundIcon className="size-3.5 text-muted-foreground" />
+              <span>API keys</span>
+            </span>
+          }
+          isOpen={apiKeysOpen}
+          onOpenChange={setApiKeysOpen}
+        >
+          {error ? (
+            <AlertNotification
+              level="error"
+              message={`Error loading API keys: ${error.message}`}
+            />
+          ) : isLoading ? (
+            <div className="text-xs text-muted-foreground">
+              Loading API keys...
+            </div>
+          ) : (apiKeysPage?.items?.length ?? 0) === 0 ? (
+            <Empty className="border-0 px-0">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <KeyRoundIcon />
+                </EmptyMedia>
+                <EmptyTitle>No API keys</EmptyTitle>
+                <EmptyDescription>
+                  This service account does not have any issued keys yet.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            <div className="rounded-md border bg-background">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">Key</TableHead>
+                    <TableHead className="text-xs">Status</TableHead>
+                    <TableHead className="text-xs">Created</TableHead>
+                    <TableHead className="text-xs">Last used</TableHead>
+                    <TableHead className="h-8 w-[40px]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {apiKeysPage?.items?.map((apiKey) => {
+                    const statusTone = getApiKeyStatusTone(apiKey)
+
+                    return (
+                      <TableRow key={apiKey.id}>
+                        <TableCell>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="truncate text-xs font-medium">
+                              {apiKey.name}
+                            </span>
+                            <span className="truncate font-mono text-xs text-muted-foreground">
+                              {apiKey.preview}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="secondary"
+                            className={cn(
+                              "h-5 gap-1.5 bg-secondary px-2 text-[10px] font-normal",
+                              statusTone.textClassName
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "size-1.5 rounded-full",
+                                statusTone.dotClassName
+                              )}
+                            />
+                            {getApiKeyStatusLabel(apiKey)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {formatTimestamp(apiKey.created_at)}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {formatTimestamp(apiKey.last_used_at)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <RowActionButton
+                              label="Revoke API key"
+                              danger={true}
+                              className="size-7"
+                              disabled={
+                                revokeApiKeyPending ||
+                                Boolean(apiKey.revoked_at) ||
+                                !canUpdate
+                              }
+                              onClick={() =>
+                                onOpenActionDialog({
+                                  type: "revoke-api-key",
+                                  serviceAccount,
+                                  apiKey,
+                                })
+                              }
+                            >
+                              <CircleXIcon className="size-3.5 text-destructive" />
+                            </RowActionButton>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          {apiKeysPage?.next_cursor ? (
+            <p className="mt-4 text-xs text-muted-foreground">
+              Only the first page of API keys is shown in this view.
+            </p>
+          ) : null}
+        </CasePanelSection>
+      </div>
+    </div>
+  )
 }
 
 export function ServiceAccountsManager({
@@ -146,9 +549,9 @@ export function ServiceAccountsManager({
   updatePending,
   disablePending,
   enablePending,
-  regeneratePending,
-  revokePending,
-  showIntroCard = true,
+  issueApiKeyPending,
+  revokeApiKeyPending,
+  apiKeysQueryKeyPrefix,
   canCreate = true,
   canUpdate = true,
   canDisable = true,
@@ -158,24 +561,28 @@ export function ServiceAccountsManager({
   onUpdate,
   onDisable,
   onEnable,
-  onRegenerate,
-  onRevoke,
+  onIssueApiKey,
+  onRevokeApiKey,
+  listApiKeys,
 }: ServiceAccountsManagerProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingServiceAccount, setEditingServiceAccount] =
     useState<ServiceAccountRead | null>(null)
-  const [actionTarget, setActionTarget] = useState<ServiceAccountRead | null>(
+  const [actionDialogState, setActionDialogState] =
+    useState<ActionDialogState | null>(null)
+  const [issueTarget, setIssueTarget] = useState<ServiceAccountRead | null>(
     null
   )
-  const [actionType, setActionType] = useState<ActionTargetType | null>(null)
-  const [actionDialogOpen, setActionDialogOpen] = useState(false)
-  const [rotateTarget, setRotateTarget] = useState<ServiceAccountRead | null>(
-    null
-  )
-  const [rotateKeyName, setRotateKeyName] = useState("Primary")
+  const [issueKeyName, setIssueKeyName] = useState("Primary")
   const [draft, setDraft] = useState<ServiceAccountDraft>(EMPTY_DRAFT)
-  const [createdCredential, setCreatedCredential] =
-    useState<ServiceAccountCreateResponse | null>(null)
+  const [issuedCredential, setIssuedCredential] =
+    useState<ServiceAccountApiKeyIssueResponse | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [statusFilter, setStatusFilter] =
+    useState<ServiceAccountStatusFilter>("all")
+  const [expandedServiceAccountId, setExpandedServiceAccountId] = useState<
+    string | null
+  >(null)
 
   useEffect(() => {
     if (!dialogOpen) {
@@ -183,13 +590,6 @@ export function ServiceAccountsManager({
       setDraft(EMPTY_DRAFT)
     }
   }, [dialogOpen])
-
-  useEffect(() => {
-    if (!actionDialogOpen) {
-      setActionTarget(null)
-      setActionType(null)
-    }
-  }, [actionDialogOpen])
 
   useEffect(() => {
     if (!openCreateSignal || !canCreate) {
@@ -233,7 +633,19 @@ export function ServiceAccountsManager({
 
   const isSaving = createPending || updatePending
   const isActionPending =
-    disablePending || enablePending || regeneratePending || revokePending
+    disablePending || enablePending || revokeApiKeyPending || issueApiKeyPending
+  const filteredServiceAccounts = useMemo(
+    () =>
+      serviceAccounts.filter(
+        (serviceAccount) =>
+          matchesServiceAccountStatusFilter(serviceAccount, statusFilter) &&
+          matchesServiceAccountSearchQuery(serviceAccount, searchQuery)
+      ),
+    [searchQuery, serviceAccounts, statusFilter]
+  )
+
+  const hasActiveFilters =
+    searchQuery.trim().length > 0 || statusFilter !== "all"
 
   const openCreateDialog = () => {
     setEditingServiceAccount(null)
@@ -247,18 +659,9 @@ export function ServiceAccountsManager({
       name: serviceAccount.name,
       description: serviceAccount.description ?? "",
       scopeIds: serviceAccount.scopes?.map((scope) => scope.id) ?? [],
-      initialKeyName: serviceAccount.api_key?.name ?? "Primary",
+      initialKeyName: serviceAccount.active_api_key?.name ?? "Primary",
     })
     setDialogOpen(true)
-  }
-
-  const openActionDialog = (
-    serviceAccount: ServiceAccountRead,
-    nextActionType: ActionTargetType
-  ) => {
-    setActionTarget(serviceAccount)
-    setActionType(nextActionType)
-    setActionDialogOpen(true)
   }
 
   const toggleScope = useCallback((scopeId: string, checked: boolean) => {
@@ -303,7 +706,7 @@ export function ServiceAccountsManager({
     [permissionScopes]
   )
 
-  const handleSave = async () => {
+  async function handleSave() {
     const trimmedName = draft.name.trim()
     if (!trimmedName) {
       toast({
@@ -335,7 +738,7 @@ export function ServiceAccountsManager({
           scope_ids: draft.scopeIds,
           initial_key_name: draft.initialKeyName.trim() || "Primary",
         })
-        setCreatedCredential(response)
+        setIssuedCredential(response)
         toast({
           title: `${kindLabel} service account created`,
           description:
@@ -352,32 +755,35 @@ export function ServiceAccountsManager({
     }
   }
 
-  const handleConfirmAction = async () => {
-    if (!actionTarget || !actionType) {
+  async function handleConfirmAction() {
+    if (!actionDialogState) {
       return
     }
 
     try {
-      if (actionType === "disable") {
-        await onDisable(actionTarget.id)
+      if (actionDialogState.type === "disable") {
+        await onDisable(actionDialogState.serviceAccount.id)
         toast({
           title: "Service account disabled",
-          description: `${actionTarget.name} can no longer authenticate.`,
+          description: `${actionDialogState.serviceAccount.name} can no longer authenticate.`,
         })
-      } else if (actionType === "enable") {
-        await onEnable(actionTarget.id)
+      } else if (actionDialogState.type === "enable") {
+        await onEnable(actionDialogState.serviceAccount.id)
         toast({
           title: "Service account enabled",
-          description: `${actionTarget.name} can authenticate again.`,
+          description: `${actionDialogState.serviceAccount.name} can authenticate again.`,
         })
       } else {
-        await onRevoke(actionTarget.id)
+        await onRevokeApiKey({
+          serviceAccountId: actionDialogState.serviceAccount.id,
+          apiKeyId: actionDialogState.apiKey.id,
+        })
         toast({
           title: "API key revoked",
-          description: `${actionTarget.name} no longer has an active key.`,
+          description: `${actionDialogState.apiKey.name} was revoked.`,
         })
       }
-      setActionDialogOpen(false)
+      setActionDialogState(null)
     } catch (actionError) {
       toast({
         title: "Action failed",
@@ -387,30 +793,30 @@ export function ServiceAccountsManager({
     }
   }
 
-  const handleRotate = async () => {
-    if (!rotateTarget) {
+  async function handleIssueApiKey() {
+    if (!issueTarget) {
       return
     }
 
     try {
-      const response = await onRegenerate({
-        serviceAccountId: rotateTarget.id,
+      const response = await onIssueApiKey({
+        serviceAccountId: issueTarget.id,
         requestBody: {
-          name: rotateKeyName.trim() || "Primary",
+          name: issueKeyName.trim() || "Primary",
         },
       })
-      setCreatedCredential(response)
-      setRotateTarget(null)
-      setRotateKeyName("Primary")
+      setIssuedCredential(response)
+      setIssueTarget(null)
+      setIssueKeyName("Primary")
       toast({
-        title: "API key rotated",
+        title: "API key issued",
         description:
           "Copy the replacement API key now. It will not be shown again.",
       })
-    } catch (rotateError) {
+    } catch (issueError) {
       toast({
-        title: "Failed to rotate API key",
-        description: getApiErrorDetail(rotateError, "Please try again."),
+        title: "Failed to issue API key",
+        description: getApiErrorDetail(issueError, "Please try again."),
         variant: "destructive",
       })
     }
@@ -426,183 +832,275 @@ export function ServiceAccountsManager({
   }
 
   return (
-    <div className="space-y-6">
-      {showIntroCard ? (
-        <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1">
-            <p className="text-sm font-medium">{kindLabel} service accounts</p>
-            <p className="text-sm text-muted-foreground">
-              Create machine identities and manage their current API keys.
-            </p>
+    <div className="flex size-full flex-col">
+      <div className="shrink-0">
+        <header className="flex h-10 items-center gap-3 border-b pl-3 pr-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-7 shrink-0 items-center justify-center">
+              <SearchIcon className="size-4 text-muted-foreground" />
+            </div>
+            <Input
+              type="text"
+              placeholder={`Search ${kindLabel.toLowerCase()} service accounts...`}
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className={cn(
+                "h-7 w-64 border-none bg-transparent p-0 text-sm shadow-none outline-none",
+                "placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
+              )}
+            />
           </div>
-          <Button onClick={openCreateDialog} disabled={!canCreate}>
-            <PlusIcon className="mr-2 size-4" />
-            Create service account
-          </Button>
-        </div>
-      ) : null}
 
-      <div className="rounded-lg border">
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">
+              {filteredServiceAccounts.length} service accounts
+            </span>
+          </div>
+        </header>
+
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2">
+          {SERVICE_ACCOUNT_STATUS_FILTERS.map((filterOption) => (
+            <button
+              key={filterOption.value}
+              type="button"
+              onClick={() => setStatusFilter(filterOption.value)}
+              className={cn(
+                "flex h-6 items-center rounded-md border border-input bg-transparent px-2 text-xs font-medium transition-colors",
+                "hover:bg-muted/50",
+                statusFilter === filterOption.value
+                  ? "border-primary/50 bg-primary/5 text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {filterOption.label}
+            </button>
+          ))}
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery("")
+                setStatusFilter("all")
+              }}
+              className="flex h-6 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto">
         {isLoading ? (
           <div className="px-4 py-3 text-sm text-muted-foreground">
             Loading service accounts...
           </div>
         ) : serviceAccounts.length === 0 ? (
-          <div className="px-4 py-3 text-sm text-muted-foreground">
-            No service accounts created yet.
-          </div>
+          <Empty className="rounded-none border-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <KeyRoundIcon />
+              </EmptyMedia>
+              <EmptyTitle>No service accounts</EmptyTitle>
+              <EmptyDescription>
+                Create a service account to manage machine access for this{" "}
+                {kindLabel.toLowerCase()}.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : filteredServiceAccounts.length === 0 ? (
+          <Empty className="rounded-none border-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <SearchIcon />
+              </EmptyMedia>
+              <EmptyTitle>No matching service accounts</EmptyTitle>
+              <EmptyDescription>
+                Adjust the search query or filters to find a service account.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
-          <div className="divide-y">
-            {serviceAccounts.map((serviceAccount) => (
-              <div
-                key={serviceAccount.id}
-                className="group/item flex items-center gap-2 px-4 py-2 transition-colors hover:bg-muted/50"
-              >
-                <KeyRoundIcon className="size-4 shrink-0 text-primary" />
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <div className="min-w-0 w-[320px] shrink-0 space-y-0.5">
-                    <p className="truncate text-xs font-medium">
-                      {serviceAccount.name}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {serviceAccount.description ||
-                        serviceAccount.api_key?.preview ||
-                        "No description"}
-                    </p>
-                  </div>
-                  <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-                    {serviceAccount.api_key ? (
-                      <Badge
-                        variant="secondary"
-                        className="h-5 max-w-[220px] px-2 text-[10px] font-normal"
-                      >
-                        <span className="truncate font-mono">
-                          {serviceAccount.api_key.preview}
-                        </span>
-                      </Badge>
-                    ) : null}
-                    {serviceAccount.api_key ? (
-                      <Badge
-                        variant="secondary"
-                        className="h-5 max-w-[160px] px-2 text-[10px] font-normal"
-                      >
-                        <span className="truncate">
-                          {serviceAccount.api_key.name}
-                        </span>
-                      </Badge>
-                    ) : null}
-                    <Badge
-                      variant={
-                        serviceAccount.disabled_at
-                          ? "outline"
-                          : serviceAccount.api_key
-                            ? "secondary"
-                            : "outline"
-                      }
-                      className="h-5 px-2 text-[10px] font-normal"
-                    >
-                      {getStatusLabel(serviceAccount)}
-                    </Badge>
-                    <Badge
-                      variant="secondary"
-                      className="h-5 px-2 text-[10px] font-normal"
-                    >
-                      Last used {formatTimestamp(serviceAccount.last_used_at)}
-                    </Badge>
-                    {(serviceAccount.scopes ?? []).slice(0, 2).map((scope) => (
-                      <Badge
-                        key={scope.id}
-                        variant="secondary"
-                        className="h-5 max-w-[180px] px-2 text-[10px] font-normal"
-                      >
-                        <span className="truncate">{scope.name}</span>
-                      </Badge>
-                    ))}
-                    {(serviceAccount.scopes?.length ?? 0) > 2 ? (
-                      <Badge
-                        variant="outline"
-                        className="h-5 px-2 text-[10px] font-normal"
-                      >
-                        +{(serviceAccount.scopes?.length ?? 0) - 2} more
-                      </Badge>
-                    ) : null}
-                  </div>
-                  <div className="ml-auto flex shrink-0 items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!canUpdate}
-                      onClick={() => openEditDialog(serviceAccount)}
-                    >
-                      <PencilIcon className="mr-2 size-4" />
-                      Edit
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={
-                        Boolean(serviceAccount.disabled_at) || !canUpdate
-                      }
-                      onClick={() => {
-                        setRotateTarget(serviceAccount)
-                        setRotateKeyName(
-                          serviceAccount.api_key?.name ?? "Primary"
-                        )
-                      }}
-                    >
-                      <RefreshCwIcon className="mr-2 size-4" />
-                      Rotate key
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-rose-600 hover:text-rose-700"
-                      disabled={!serviceAccount.api_key || !canUpdate}
-                      onClick={() => openActionDialog(serviceAccount, "revoke")}
-                    >
-                      <ShieldOffIcon className="mr-2 size-4" />
-                      Revoke key
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!canDisable}
-                      onClick={() =>
-                        openActionDialog(
-                          serviceAccount,
-                          serviceAccount.disabled_at ? "enable" : "disable"
+          <div className="divide-y divide-border/50">
+            {filteredServiceAccounts.map((serviceAccount) => {
+              const isExpanded = expandedServiceAccountId === serviceAccount.id
+              const statusGroup = getServiceAccountGroup(serviceAccount)
+              const statusConfig = STATUS_GROUPS[statusGroup]
+
+              return (
+                <div key={serviceAccount.id}>
+                  <div
+                    className={cn(
+                      "group/item flex cursor-pointer items-center gap-3 px-3 py-2 text-left transition-colors",
+                      "hover:bg-muted/50",
+                      isExpanded && "bg-muted/30"
+                    )}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() =>
+                      setExpandedServiceAccountId(
+                        isExpanded ? null : serviceAccount.id
+                      )
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        setExpandedServiceAccountId(
+                          isExpanded ? null : serviceAccount.id
                         )
                       }
+                    }}
+                    aria-expanded={isExpanded}
+                  >
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center">
+                      <ChevronRightIcon
+                        className={cn(
+                          "size-4 text-muted-foreground transition-transform duration-200",
+                          isExpanded && "rotate-90"
+                        )}
+                      />
+                    </div>
+
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <KeyRoundIcon className="size-4 shrink-0 text-muted-foreground" />
+                        <span className={SERVICE_ACCOUNT_NAME_COLUMN_CLASS}>
+                          {serviceAccount.name}
+                        </span>
+                        <div className="flex min-w-0 flex-1 items-center justify-start gap-2 overflow-hidden">
+                          <Badge
+                            variant="secondary"
+                            className={cn(
+                              "h-5 shrink-0 gap-1.5 bg-secondary px-1.5 py-0 text-[10px] font-normal",
+                              statusConfig.textClassName
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "size-1.5 shrink-0 rounded-full",
+                                statusConfig.dotClassName
+                              )}
+                            />
+                            <span>{statusConfig.label}</span>
+                          </Badge>
+                          {serviceAccount.description ? (
+                            <span className="truncate text-xs text-muted-foreground">
+                              {serviceAccount.description}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Badge
+                          variant="secondary"
+                          className="h-5 shrink-0 gap-1 px-1.5 py-0 text-[10px] font-normal"
+                        >
+                          <ShieldIcon className="size-3 shrink-0 text-muted-foreground" />
+                          {(serviceAccount.scopes?.length ?? 0).toString()}
+                        </Badge>
+                        <Badge
+                          variant="secondary"
+                          className="h-5 shrink-0 gap-1 px-1.5 py-0 text-[10px] font-normal"
+                        >
+                          <KeyRoundIcon className="size-3 shrink-0 text-muted-foreground" />
+                          {(
+                            serviceAccount.api_key_counts?.total ?? 0
+                          ).toString()}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {formatTimestamp(serviceAccount.last_used_at)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div
+                      className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/item:opacity-100"
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => event.stopPropagation()}
                     >
-                      {serviceAccount.disabled_at ? (
-                        <ToggleRightIcon className="mr-2 size-4" />
-                      ) : (
-                        <ToggleLeftIcon className="mr-2 size-4" />
-                      )}
-                      {serviceAccount.disabled_at ? "Enable" : "Disable"}
-                    </Button>
+                      <RowActionButton
+                        label="Edit service account"
+                        className="size-7"
+                        disabled={!canUpdate}
+                        onClick={() => openEditDialog(serviceAccount)}
+                      >
+                        <PencilIcon className="size-3.5" />
+                      </RowActionButton>
+                      <RowActionButton
+                        label="Issue new API key"
+                        className="size-7"
+                        disabled={
+                          Boolean(serviceAccount.disabled_at) || !canUpdate
+                        }
+                        onClick={() => {
+                          setIssueTarget(serviceAccount)
+                          setIssueKeyName(
+                            serviceAccount.active_api_key?.name ?? "Primary"
+                          )
+                        }}
+                      >
+                        <RefreshCwIcon className="size-3.5" />
+                      </RowActionButton>
+                      <RowActionButton
+                        label={
+                          serviceAccount.disabled_at
+                            ? "Enable service account"
+                            : "Disable service account"
+                        }
+                        className="size-7"
+                        disabled={!canDisable}
+                        onClick={() =>
+                          setActionDialogState({
+                            type: serviceAccount.disabled_at
+                              ? "enable"
+                              : "disable",
+                            serviceAccount,
+                          })
+                        }
+                      >
+                        {serviceAccount.disabled_at ? (
+                          <CircleCheckIcon className="size-3.5 text-green-600" />
+                        ) : (
+                          <CircleXIcon className="size-3.5 text-destructive" />
+                        )}
+                      </RowActionButton>
+                    </div>
                   </div>
+
+                  {isExpanded && (
+                    <ServiceAccountDetailPanel
+                      serviceAccount={serviceAccount}
+                      expanded={isExpanded}
+                      listApiKeys={listApiKeys}
+                      apiKeysQueryKeyPrefix={apiKeysQueryKeyPrefix}
+                      canUpdate={canUpdate}
+                      revokeApiKeyPending={revokeApiKeyPending}
+                      onOpenActionDialog={setActionDialogState}
+                    />
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
+
+        {nextCursor ? (
+          <div className="flex h-10 items-center justify-center text-xs text-muted-foreground">
+            Only the first page of service accounts is shown.
+          </div>
+        ) : null}
       </div>
 
-      {nextCursor ? (
-        <p className="text-xs text-muted-foreground">
-          Only the first page of service accounts is shown in this view.
-        </p>
-      ) : null}
-
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[85vh] max-w-3xl flex flex-col">
+        <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col">
           <form
             onSubmit={async (event) => {
               event.preventDefault()
               await handleSave()
             }}
-            className="flex flex-1 min-h-0 flex-col"
+            className="flex min-h-0 flex-1 flex-col"
           >
             <DialogHeader>
               <DialogTitle>
@@ -617,7 +1115,7 @@ export function ServiceAccountsManager({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="flex-1 min-h-0 space-y-4 overflow-hidden py-4">
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden py-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="service-account-name">
@@ -676,11 +1174,11 @@ export function ServiceAccountsManager({
                 </div>
               ) : null}
 
-              <div className="flex-1 min-h-0 space-y-2">
+              <div className="flex min-h-0 flex-1 flex-col gap-2">
                 <div className="flex items-center justify-between">
                   <Label>Permissions ({scopeCounts} scopes selected)</Label>
                 </div>
-                <div className="mb-2 text-xs text-muted-foreground">
+                <div className="text-xs text-muted-foreground">
                   Set permission levels by category, or expand to select
                   individual scopes.
                 </div>
@@ -733,10 +1231,10 @@ export function ServiceAccountsManager({
       </Dialog>
 
       <Dialog
-        open={Boolean(createdCredential)}
+        open={Boolean(issuedCredential)}
         onOpenChange={(open) => {
           if (!open) {
-            setCreatedCredential(null)
+            setIssuedCredential(null)
           }
         }}
       >
@@ -748,7 +1246,7 @@ export function ServiceAccountsManager({
               dialog.
             </DialogDescription>
           </DialogHeader>
-          {createdCredential ? (
+          {issuedCredential ? (
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="service-account-key-preview">Key preview</Label>
@@ -757,15 +1255,17 @@ export function ServiceAccountsManager({
                     id="service-account-key-preview"
                     name="service-account-key-preview"
                     value={
-                      createdCredential.service_account.api_key?.preview ??
-                      "Unavailable"
+                      issuedCredential.issued_api_key.api_key.preview ??
+                      deriveApiKeyPreview(
+                        issuedCredential.issued_api_key.raw_key
+                      )
                     }
-                    readOnly
-                    disabled
+                    readOnly={true}
+                    disabled={true}
                     className="select-none font-mono text-xs"
                   />
                   <CopyButton
-                    value={createdCredential.api_key}
+                    value={issuedCredential.issued_api_key.raw_key}
                     toastMessage="API key copied"
                     tooltipMessage="Copy raw key"
                   />
@@ -774,10 +1274,7 @@ export function ServiceAccountsManager({
             </div>
           ) : null}
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setCreatedCredential(null)}
-            >
+            <Button variant="outline" onClick={() => setIssuedCredential(null)}>
               Close
             </Button>
           </DialogFooter>
@@ -785,62 +1282,91 @@ export function ServiceAccountsManager({
       </Dialog>
 
       <Dialog
-        open={Boolean(rotateTarget)}
-        onOpenChange={(open) => !open && setRotateTarget(null)}
+        open={Boolean(issueTarget)}
+        onOpenChange={(open) => !open && setIssueTarget(null)}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rotate API key</DialogTitle>
+            <DialogTitle>Issue new API key</DialogTitle>
             <DialogDescription>
-              The current key will be revoked and replaced with a new one.
+              {issueTarget?.active_api_key?.name ? (
+                <>
+                  The current active key{" "}
+                  <span className={INLINE_NAME_HIGHLIGHT_CLASS}>
+                    {issueTarget.active_api_key.name}
+                  </span>
+                  will be revoked and replaced with a new one.
+                </>
+              ) : (
+                "The current active key will be revoked and replaced with a new one."
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="rotated-key-name">New key label</Label>
+            <Label htmlFor="issued-key-name">New key label</Label>
             <Input
-              id="rotated-key-name"
-              name="rotated-key-name"
-              value={rotateKeyName}
-              onChange={(event) => setRotateKeyName(event.target.value)}
+              id="issued-key-name"
+              name="issued-key-name"
+              value={issueKeyName}
+              onChange={(event) => setIssueKeyName(event.target.value)}
               placeholder="Primary"
             />
           </div>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setRotateTarget(null)}
-              disabled={regeneratePending}
+              onClick={() => setIssueTarget(null)}
+              disabled={issueApiKeyPending}
             >
               Cancel
             </Button>
-            <Button onClick={handleRotate} disabled={regeneratePending}>
-              {regeneratePending ? "Rotating..." : "Rotate key"}
+            <Button onClick={handleIssueApiKey} disabled={issueApiKeyPending}>
+              {issueApiKeyPending ? "Issuing..." : "Issue key"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <AlertDialog
-        open={actionDialogOpen}
+        open={Boolean(actionDialogState)}
         onOpenChange={(open) => {
-          setActionDialogOpen(open)
+          if (!open) {
+            setActionDialogState(null)
+          }
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {actionType === "disable"
+              {actionDialogState?.type === "disable"
                 ? "Disable service account"
-                : actionType === "enable"
+                : actionDialogState?.type === "enable"
                   ? "Enable service account"
                   : "Revoke API key"}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {actionType === "disable"
-                ? `${actionTarget?.name} will stop authenticating immediately.`
-                : actionType === "enable"
-                  ? `${actionTarget?.name} will be able to authenticate again.`
-                  : `${actionTarget?.name} will lose its current active API key.`}
+              {actionDialogState?.type === "disable" ? (
+                <>
+                  <span className={INLINE_NAME_HIGHLIGHT_CLASS}>
+                    {actionDialogState.serviceAccount.name}
+                  </span>
+                  will stop authenticating immediately.
+                </>
+              ) : actionDialogState?.type === "enable" ? (
+                <>
+                  <span className={INLINE_NAME_HIGHLIGHT_CLASS}>
+                    {actionDialogState.serviceAccount.name}
+                  </span>
+                  will be able to authenticate again.
+                </>
+              ) : (
+                <>
+                  <span className={INLINE_NAME_HIGHLIGHT_CLASS}>
+                    {actionDialogState?.apiKey.name}
+                  </span>
+                  will no longer authenticate.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -848,6 +1374,9 @@ export function ServiceAccountsManager({
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
+              variant={
+                actionDialogState?.type === "enable" ? "default" : "destructive"
+              }
               disabled={isActionPending}
               onClick={async (event) => {
                 event.preventDefault()

@@ -1,5 +1,6 @@
 "use client"
 
+import { serviceAccountsListOrganizationServiceAccountApiKeys } from "@/client"
 import { AlertNotification } from "@/components/notifications"
 import { ServiceAccountsManager } from "@/components/organization/service-accounts-manager"
 import {
@@ -26,10 +27,10 @@ export function OrgSettingsServiceAccounts() {
     disablePending,
     enableServiceAccount,
     enablePending,
-    regenerateKey,
-    regeneratePending,
-    revokeKey,
-    revokePending,
+    issueApiKey,
+    issueApiKeyPending,
+    revokeApiKey,
+    revokeApiKeyPending,
   } = useOrganizationServiceAccounts()
 
   if (scopesError) {
@@ -53,14 +54,21 @@ export function OrgSettingsServiceAccounts() {
       updatePending={updatePending}
       disablePending={disablePending}
       enablePending={enablePending}
-      regeneratePending={regeneratePending}
-      revokePending={revokePending}
+      issueApiKeyPending={issueApiKeyPending}
+      revokeApiKeyPending={revokeApiKeyPending}
+      apiKeysQueryKeyPrefix={["organization-service-accounts"]}
       onCreate={createServiceAccount}
       onUpdate={updateServiceAccount}
       onDisable={disableServiceAccount}
       onEnable={enableServiceAccount}
-      onRegenerate={regenerateKey}
-      onRevoke={revokeKey}
+      onIssueApiKey={issueApiKey}
+      onRevokeApiKey={revokeApiKey}
+      listApiKeys={async (serviceAccountId) =>
+        await serviceAccountsListOrganizationServiceAccountApiKeys({
+          serviceAccountId,
+          limit: 100,
+        })
+      }
     />
   )
 }

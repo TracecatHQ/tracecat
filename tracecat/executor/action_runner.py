@@ -11,7 +11,7 @@ Key features:
 - Caching: Reuses extracted tarballs by cache key for fast subsequent runs
 - Subprocess execution: Runs actions via minimal_runner.py
 - nsjail sandboxing: Optional OS-level isolation with resource limits
-- Timeout handling: Kills subprocess on timeout
+- Timeout handling: Kills subprocess on timeouts
 """
 
 from __future__ import annotations

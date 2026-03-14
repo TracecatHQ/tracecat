@@ -133,6 +133,102 @@ async def _paginate_service_accounts(
     )
 
 
+def _apply_api_key_created_cursor(
+    stmt: sa.Select[Any],
+    *,
+    params: CursorPaginationParams,
+) -> sa.Select[Any]:
+    if not params.cursor:
+        return stmt
+
+    try:
+        cursor_data = BaseCursorPaginator.decode_cursor(params.cursor)
+        cursor_id = uuid.UUID(cursor_data.id)
+    except ValueError as exc:
+        raise TracecatValidationError(
+            "Invalid cursor for service account API keys"
+        ) from exc
+    cursor_sort_value = cursor_data.sort_value
+    if not isinstance(cursor_sort_value, datetime):
+        raise TracecatValidationError("Invalid cursor for service account API keys")
+
+    created_at = cast(InstrumentedAttribute[datetime], ServiceAccountApiKey.created_at)
+    id_col = cast(InstrumentedAttribute[uuid.UUID], ServiceAccountApiKey.id)
+    if params.reverse:
+        return stmt.where(
+            sa.or_(
+                created_at > cursor_sort_value,
+                sa.and_(created_at == cursor_sort_value, id_col > cursor_id),
+            )
+        )
+
+    return stmt.where(
+        sa.or_(
+            created_at < cursor_sort_value,
+            sa.and_(created_at == cursor_sort_value, id_col < cursor_id),
+        )
+    )
+
+
+async def _paginate_service_account_api_keys(
+    session: AsyncSession,
+    *,
+    stmt: sa.Select[Any],
+    params: CursorPaginationParams,
+    total_estimate: int,
+) -> CursorPaginatedResponse[ServiceAccountApiKey]:
+    if params.reverse:
+        ordered_stmt = stmt.order_by(
+            ServiceAccountApiKey.created_at.asc(), ServiceAccountApiKey.id.asc()
+        )
+    else:
+        ordered_stmt = stmt.order_by(
+            ServiceAccountApiKey.created_at.desc(), ServiceAccountApiKey.id.desc()
+        )
+    paged_stmt = _apply_api_key_created_cursor(ordered_stmt, params=params).limit(
+        params.limit + 1
+    )
+    result = await session.execute(paged_stmt)
+    items = list(result.scalars().all())
+    has_more = len(items) > params.limit
+    if has_more:
+        items = items[: params.limit]
+
+    next_cursor = None
+    prev_cursor = None
+    if items:
+        last = items[-1]
+        next_cursor = (
+            BaseCursorPaginator.encode_cursor(
+                last.id,
+                sort_column="created_at",
+                sort_value=last.created_at,
+            )
+            if has_more
+            else None
+        )
+        if params.cursor is not None:
+            first = items[0]
+            prev_cursor = BaseCursorPaginator.encode_cursor(
+                first.id,
+                sort_column="created_at",
+                sort_value=first.created_at,
+            )
+
+    if params.reverse:
+        items.reverse()
+        next_cursor, prev_cursor = prev_cursor, next_cursor
+
+    return CursorPaginatedResponse(
+        items=items,
+        next_cursor=next_cursor,
+        prev_cursor=prev_cursor,
+        has_more=has_more,
+        has_previous=params.cursor is not None,
+        total_estimate=total_estimate,
+    )
+
+
 def get_active_service_account_key(
     service_account: ServiceAccount,
 ) -> ServiceAccountApiKey | None:
@@ -153,6 +249,15 @@ def get_service_account_last_used_at(
     if not last_used_candidates:
         return None
     return max(last_used_candidates)
+
+
+def get_service_account_api_key_counts(
+    service_account: ServiceAccount,
+) -> tuple[int, int, int]:
+    total = len(service_account.api_keys)
+    active = sum(key.revoked_at is None for key in service_account.api_keys)
+    revoked = total - active
+    return total, active, revoked
 
 
 async def _ensure_role_can_assign_scopes(role: Role, scopes: list[Scope]) -> None:
@@ -209,6 +314,11 @@ class BaseServiceAccountService:
     required_scope_prefix: str
     scope_validator: ServiceAccountScopeValidator
 
+    async def get_service_account(
+        self, service_account_id: uuid.UUID
+    ) -> ServiceAccount:
+        raise NotImplementedError
+
     async def _list_assignable_scopes(self) -> list[Scope]:
         stmt = (
             select(Scope)
@@ -255,6 +365,78 @@ class BaseServiceAccountService:
             scope_ids=scope_ids,
             validator=self.scope_validator,
         )
+
+    async def _list_service_account_api_keys(
+        self,
+        service_account_id: uuid.UUID,
+        params: CursorPaginationParams,
+    ) -> CursorPaginatedResponse[ServiceAccountApiKey]:
+        await self.get_service_account(service_account_id)
+        stmt = select(ServiceAccountApiKey).where(
+            ServiceAccountApiKey.service_account_id == service_account_id
+        )
+        count_stmt = (
+            select(func.count())
+            .select_from(ServiceAccountApiKey)
+            .where(ServiceAccountApiKey.service_account_id == service_account_id)
+        )
+        return await _paginate_service_account_api_keys(
+            self.session,
+            stmt=stmt,
+            params=params,
+            total_estimate=int(await self.session.scalar(count_stmt) or 0),
+        )
+
+    async def _get_service_account_api_key(
+        self,
+        service_account_id: uuid.UUID,
+        api_key_id: uuid.UUID,
+    ) -> ServiceAccountApiKey:
+        service_account = await self.get_service_account(service_account_id)
+        for api_key in service_account.api_keys:
+            if api_key.id == api_key_id:
+                return api_key
+        raise TracecatNotFoundError("Service account API key not found")
+
+    async def _issue_api_key(
+        self,
+        service_account_id: uuid.UUID,
+        *,
+        name: str,
+    ) -> tuple[ServiceAccount, ServiceAccountApiKey, str]:
+        service_account = await self.get_service_account(service_account_id)
+        if service_account.disabled_at is not None:
+            raise TracecatAuthorizationError(
+                "Disabled service accounts cannot generate new API keys"
+            )
+        if active_key := get_active_service_account_key(service_account):
+            active_key.revoked_at = datetime.now(UTC)
+            active_key.revoked_by = self.role.user_id
+        created_api_key, raw_key = await self._create_api_key(
+            service_account=service_account, name=name
+        )
+        await self.session.commit()
+        refreshed_service_account = await self.get_service_account(service_account.id)
+        issued_api_key = next(
+            key
+            for key in refreshed_service_account.api_keys
+            if key.id == created_api_key.id
+        )
+        return refreshed_service_account, issued_api_key, raw_key
+
+    async def _revoke_api_key(
+        self,
+        service_account_id: uuid.UUID,
+        api_key_id: uuid.UUID,
+    ) -> None:
+        api_key = await self._get_service_account_api_key(
+            service_account_id, api_key_id
+        )
+        if api_key.revoked_at is not None:
+            return
+        api_key.revoked_at = datetime.now(UTC)
+        api_key.revoked_by = self.role.user_id
+        await self.session.commit()
 
 
 class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountService):
@@ -320,6 +502,14 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         )
         return stmt
 
+    @require_scope("org:service_account:read")
+    async def list_service_account_api_keys(
+        self,
+        service_account_id: uuid.UUID,
+        params: CursorPaginationParams,
+    ) -> CursorPaginatedResponse[ServiceAccountApiKey]:
+        return await self._list_service_account_api_keys(service_account_id, params)
+
     @require_scope("org:service_account:create")
     @audit_log(resource_type="service_account", action="create")
     async def create_service_account(
@@ -329,7 +519,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         description: str | None,
         scope_ids: list[uuid.UUID],
         initial_key_name: str,
-    ) -> tuple[ServiceAccount, str]:
+    ) -> tuple[ServiceAccount, ServiceAccountApiKey, str]:
         scopes = await self._resolve_scopes(scope_ids)
         await _ensure_role_can_assign_scopes(self.role, scopes)
         service_account = ServiceAccount(
@@ -341,12 +531,18 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         )
         self.session.add(service_account)
         await self.session.flush()
-        _, raw_key = await self._create_api_key(
+        created_api_key, raw_key = await self._create_api_key(
             service_account=service_account,
             name=initial_key_name,
         )
         await self.session.commit()
-        return await self.get_service_account(service_account.id), raw_key
+        refreshed_service_account = await self.get_service_account(service_account.id)
+        issued_api_key = next(
+            key
+            for key in refreshed_service_account.api_keys
+            if key.id == created_api_key.id
+        )
+        return refreshed_service_account, issued_api_key, raw_key
 
     @require_scope("org:service_account:update")
     @audit_log(
@@ -405,38 +601,26 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         action="create",
         resource_id_attr="service_account_id",
     )
-    async def regenerate_key(
+    async def issue_api_key(
         self,
         service_account_id: uuid.UUID,
         *,
         name: str,
-    ) -> tuple[ServiceAccount, str]:
-        service_account = await self.get_service_account(service_account_id)
-        if service_account.disabled_at is not None:
-            raise TracecatAuthorizationError(
-                "Disabled service accounts cannot generate new API keys"
-            )
-        if active_key := get_active_service_account_key(service_account):
-            active_key.revoked_at = datetime.now(UTC)
-            active_key.revoked_by = self.role.user_id
-        _, raw_key = await self._create_api_key(
-            service_account=service_account, name=name
-        )
-        await self.session.commit()
-        return await self.get_service_account(service_account.id), raw_key
+    ) -> tuple[ServiceAccount, ServiceAccountApiKey, str]:
+        return await self._issue_api_key(service_account_id, name=name)
 
     @require_scope("org:service_account:update")
     @audit_log(
         resource_type="service_account_api_key",
         action="revoke",
-        resource_id_attr="service_account_id",
+        resource_id_attr="api_key_id",
     )
-    async def revoke_key(self, service_account_id: uuid.UUID) -> None:
-        service_account = await self.get_service_account(service_account_id)
-        if active_key := get_active_service_account_key(service_account):
-            active_key.revoked_at = datetime.now(UTC)
-            active_key.revoked_by = self.role.user_id
-            await self.session.commit()
+    async def revoke_api_key(
+        self,
+        service_account_id: uuid.UUID,
+        api_key_id: uuid.UUID,
+    ) -> None:
+        await self._revoke_api_key(service_account_id, api_key_id)
 
 
 class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountService):
@@ -495,6 +679,14 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         )
         return stmt
 
+    @require_scope("workspace:service_account:read")
+    async def list_service_account_api_keys(
+        self,
+        service_account_id: uuid.UUID,
+        params: CursorPaginationParams,
+    ) -> CursorPaginatedResponse[ServiceAccountApiKey]:
+        return await self._list_service_account_api_keys(service_account_id, params)
+
     @require_scope("workspace:service_account:create")
     @audit_log(resource_type="service_account", action="create")
     async def create_service_account(
@@ -504,7 +696,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         description: str | None,
         scope_ids: list[uuid.UUID],
         initial_key_name: str,
-    ) -> tuple[ServiceAccount, str]:
+    ) -> tuple[ServiceAccount, ServiceAccountApiKey, str]:
         scopes = await self._resolve_scopes(scope_ids)
         await _ensure_role_can_assign_scopes(self.role, scopes)
         service_account = ServiceAccount(
@@ -517,12 +709,18 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         )
         self.session.add(service_account)
         await self.session.flush()
-        _, raw_key = await self._create_api_key(
+        created_api_key, raw_key = await self._create_api_key(
             service_account=service_account,
             name=initial_key_name,
         )
         await self.session.commit()
-        return await self.get_service_account(service_account.id), raw_key
+        refreshed_service_account = await self.get_service_account(service_account.id)
+        issued_api_key = next(
+            key
+            for key in refreshed_service_account.api_keys
+            if key.id == created_api_key.id
+        )
+        return refreshed_service_account, issued_api_key, raw_key
 
     @require_scope("workspace:service_account:update")
     @audit_log(
@@ -581,35 +779,23 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         action="create",
         resource_id_attr="service_account_id",
     )
-    async def regenerate_key(
+    async def issue_api_key(
         self,
         service_account_id: uuid.UUID,
         *,
         name: str,
-    ) -> tuple[ServiceAccount, str]:
-        service_account = await self.get_service_account(service_account_id)
-        if service_account.disabled_at is not None:
-            raise TracecatAuthorizationError(
-                "Disabled service accounts cannot generate new API keys"
-            )
-        if active_key := get_active_service_account_key(service_account):
-            active_key.revoked_at = datetime.now(UTC)
-            active_key.revoked_by = self.role.user_id
-        _, raw_key = await self._create_api_key(
-            service_account=service_account, name=name
-        )
-        await self.session.commit()
-        return await self.get_service_account(service_account.id), raw_key
+    ) -> tuple[ServiceAccount, ServiceAccountApiKey, str]:
+        return await self._issue_api_key(service_account_id, name=name)
 
     @require_scope("workspace:service_account:update")
     @audit_log(
         resource_type="service_account_api_key",
         action="revoke",
-        resource_id_attr="service_account_id",
+        resource_id_attr="api_key_id",
     )
-    async def revoke_key(self, service_account_id: uuid.UUID) -> None:
-        service_account = await self.get_service_account(service_account_id)
-        if active_key := get_active_service_account_key(service_account):
-            active_key.revoked_at = datetime.now(UTC)
-            active_key.revoked_by = self.role.user_id
-            await self.session.commit()
+    async def revoke_api_key(
+        self,
+        service_account_id: uuid.UUID,
+        api_key_id: uuid.UUID,
+    ) -> None:
+        await self._revoke_api_key(service_account_id, api_key_id)
