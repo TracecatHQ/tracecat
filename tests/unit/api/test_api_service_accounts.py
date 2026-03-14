@@ -71,6 +71,12 @@ def _strip_org_service_account_read_access(
     )
 
 
+def _without_scope(scopes: frozenset[str] | None, denied_scope: str) -> frozenset[str]:
+    return frozenset(
+        scope for scope in (scopes or frozenset()) if scope != denied_scope
+    )
+
+
 @pytest.mark.anyio
 async def test_list_organization_service_accounts_requires_read_scope(
     client: TestClient,
@@ -259,3 +265,63 @@ async def test_list_organization_service_accounts_returns_bad_request_for_valida
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json() == {"detail": "Invalid cursor for service accounts"}
+
+
+@pytest.mark.anyio
+async def test_create_organization_service_account_requires_create_scope(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    role_without_create = test_admin_role.model_copy(
+        update={
+            "scopes": _without_scope(
+                test_admin_role.scopes, "org:service_account:create"
+            )
+        }
+    )
+
+    with patch.object(
+        service_accounts_router, "OrganizationServiceAccountService"
+    ) as mock_service_cls:
+        token = ctx_role.set(role_without_create)
+        try:
+            response = client.post(
+                "/organization/service-accounts",
+                json={"name": "Org automation"},
+            )
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    mock_service_cls.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_create_workspace_service_account_requires_create_scope(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
+    role_without_create = test_admin_role.model_copy(
+        update={
+            "scopes": _without_scope(
+                test_admin_role.scopes, "workspace:service_account:create"
+            )
+        }
+    )
+
+    with patch.object(
+        service_accounts_router, "WorkspaceServiceAccountService"
+    ) as mock_service_cls:
+        token = ctx_role.set(role_without_create)
+        try:
+            response = client.post(
+                f"/workspaces/{workspace_id}/service-accounts",
+                json={"name": "Workspace automation"},
+            )
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    mock_service_cls.assert_not_called()
