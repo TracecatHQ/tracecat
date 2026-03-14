@@ -1,0 +1,238 @@
+tracecat/audit/logger.py
+  507c8312207b9fff 59
+tracecat/auth/api_keys.py
+  507c8312207b9fff 11-12,16,32-54,116-133,138,140-157
+tests/unit/test_auth_api_keys.py
+  507c8312207b9fff 9-10,12-13,40-56
+frontend/src/components/nav/controls-header.tsx
+  1c4334265371b141 940-942,948,966,1295,1297-1298
+tests/unit/test_organization_service.py
+  1c4334265371b141 21-22,424,431-438,440-442,467-468,471
+frontend/src/components/organization/org-settings-service-accounts.tsx
+  1c4334265371b141 1-66
+tracecat/audit/enums.py
+  1c4334265371b141 8
+frontend/src/app/workspaces/[workspaceId]/page.tsx
+  1c4334265371b141 43,60,91-92,112
+frontend/src/hooks/use-service-accounts.ts
+  1c4334265371b141 1-268
+tracecat/audit/service.py
+  1c4334265371b141 17,189-196,198-205,234-235
+  507c8312207b9fff 187,206,229-230,233,236-237,241-242,261,263
+frontend/src/components/sidebar/organization-sidebar.tsx
+  1c4334265371b141 44,73-74,76-77
+frontend/src/components/organization/service-accounts-manager.tsx
+  1c4334265371b141 1-864
+tests/unit/test_service_accounts_update.py
+  1c4334265371b141 11,16,31,34,38,41,47,50-52,54-55,66,69,76,81,95,97,103,107,111,116,119,123,126,133,136-138,141,155,157,163,167-168
+tests/unit/test_service_accounts_pagination.py
+  1c4334265371b141 11,13-16,20,44,47,49,56-57,61,63-64,70-71,75,79-80
+tracecat/authz/scopes.py
+  1c4334265371b141 92-96,130-134,158-161,230-234,258-261
+tests/unit/test_service_accounts_validation.py
+  1c4334265371b141 6,9,13-15,17
+alembic/versions/548aa7691799_add_api_key_tables.py
+  1c4334265371b141 1,16,18,22,39,41,44-45,60-62,67,71,73,76-80,82,85,88-89,93-96,101,103,129,135,139-141,144-145,147,150-151,156-159,162-164,167-172,176-177,182,186-188,192,194,198-200,204-215,218-219,222,224,226-227,230-231,233-234
+  507c8312207b9fff 2-3,5-14,19-21,24-38,40,42-43,46-59,63-66,69-70,72,74-75,83-84,86-87,90-92,99-100,102,104-128,130-134,136-138,142-143,148-149,152-155,160-161,165-166,174-175,178-181,183-185,189-191,193,195-197,201-203,217,220-221,223,225,228-229,232,235-236
+tracecat/authz/seeding.py
+  1c4334265371b141 93-94,96,99-100,102,105-106,108,111-114,210-211,213,216-217,219,222-223,225,228-231
+  507c8312207b9fff 92,95,97-98,101,103-104,107,109-110,115,209,212,214-215,218,220-221,224,226-227
+tracecat/audit/types.py
+  1c4334265371b141 34-35
+frontend/src/components/sidebar/app-sidebar.tsx
+  1c4334265371b141 110,174-175,177-178
+tracecat/db/tenant_rls.py
+  1c4334265371b141 79,84-88,120,264-304
+tracecat/db/models.py
+  507c8312207b9fff 277-278,977-984,997-998,1048-1070,1074-1076,4083,4085,4087,4089-4094
+  1c4334265371b141 967-968,970-976,985,991-994,999-1043,1047,1071-1073,4081-4082,4084,4086,4088
+tracecat/api/app.py
+  1c4334265371b141 124-129,423,436
+frontend/src/components/organization/workspace-service-accounts.tsx
+  1c4334265371b141 1-96
+tracecat/editor/router.py
+  777aa8cace8dc70e 10,144,191,223
+tests/unit/test_role_headers.py
+  777aa8cace8dc70e 50,56,61-62,72,100-110,204-230
+  507c8312207b9fff 57,59-60,64-68,70,73
+  1c4334265371b141 1,18,39,54-55,58,63,69,116,153,177
+tracecat/auth/credentials.py
+  1c4334265371b141 28,30-32,54-55,67,132,308-317,326,342-343,345-346,349,354-357,366-367,375,380-381,393,395-396,398-399,405
+  507c8312207b9fff 8,25,29,33,70,72-75,133-134,331-340,348,359,368-374,376-378,388-392,394,400,429-433,792-793,796,807,834-840,881,919,921,937-938,941,951-1023,1025-1027,1038-1039,1042,1047,1055-1129,1131,1142-1143,1146,1151,1156-1224,1226,1235-1236,1239,1244
+  777aa8cace8dc70e 283-288,297,299-301,324,360-363,365,383,387,397,896-897,908-910
+frontend/src/client/schemas.gen.ts
+  1c4334265371b141 8263,8267,8323,13627,13652,13654-13655,13657,13659,13661,13664,13666-13667,13673,15842,15893,15903,17233-17234,17240-17242,17246,17253,17257-17259,17267-17270,17275-17277,17281-17307,17313-17314,17323,17327-17331,17335-17340,17361-17364,17371,17375-17378,17455-17461,17489,17493-17494,17499-17502,17508-17509,17513-17517,17529,17539-17541,17551,17568,17572,17578,17580,17583-17584,17590,17592,17602-17604,17609,17612,17621-17622,17625,17627-17632,17636,17639,17641,17643-17644,17646,17648,17650,17652,17654,17661,17667,17669,17672-17677,17681-17682,17688,17690-17695,17697-17700,17702,17707,17715,17719
+tracecat/auth/types.py
+  777aa8cace8dc70e 10,31,48-50,52,54,56-60,100-101
+  1c4334265371b141 27,37,86-88,106-107
+  507c8312207b9fff 1,83-85,89,130-132
+  fd0744485ce6863b 28,30,32,34,36,38,40
+frontend/src/client/types.gen.ts
+  1c4334265371b141 2408-2409,4953,4958,4977,5373-5399,5402-5434,8081,8088-8089,8091-8092,8096-8097,8099,8103-8104,8106-8107,8111-8112,8114-8116,8120-8121,8123-8124,8128,8130-8131,8135,8137-8139,8143-8144,8146-8147,8151,8891,8897-8898,8900-8901,8904-8905,8907-8908,8910-8911,8914-8915,8917-8919,8922-8923,8925-8926,8929,8931-8932,8935,8937-8939,8942-8943,8945-8946,8949,11300,11302,11307,11315,11320,11328,11330,11335,11343,11345,11350,11358,11363,11371,11373-11403,11408,11416,11418,12739,12741,12746,12754,12759,12767,12773,12777,12779,12784,12792-12837,12842,12850,12852
+tracecat/agent/router.py
+  ea92e9bfa7e171cb 186
+tracecat/auth/dependencies.py
+  777aa8cace8dc70e 4,9-11,31-52,102-103,106-107,110-118,120-122
+  507c8312207b9fff 23,104-105,109
+tracecat/cases/dropdowns/router.py
+  777aa8cace8dc70e 9-10,34,37,54,57,74,77,93,96,120,123,146,149,177,180,213,216,242,245,267,270,283,286
+tests/unit/test_workspace_service.py
+  777aa8cace8dc70e 24-25,27-28,32,163-315,317-320,322-425
+tracecat/settings/router.py
+  548bbc2fac5894ec 6,71,112,127,140,164,179,193,205,223,235,249
+tracecat/organization/router.py
+  548bbc2fac5894ec 10,72,103,146,181
+  777aa8cace8dc70e 178
+tests/unit/test_auth_credentials_api_keys.py
+  507c8312207b9fff 1-15,18-27,29-43,51,55-81,84-85,87-89,150,152-169,171,180,184-200,205
+  1c4334265371b141 16-17,28,44-50,52-54,82-83,172-179,181-183
+  777aa8cace8dc70e 86,151,170,201,206-337
+tests/unit/api/conftest.py
+  1c4334265371b141 26
+  777aa8cace8dc70e 15,18-19,57-58,64
+tracecat/workflow/executions/router.py
+  777aa8cace8dc70e 17-18,50-53,297,321,367,371,407,414,529,551,581,597,637,706,786,852,944,996,1074,1102
+tracecat/workflow/graph/router.py
+  777aa8cace8dc70e 10-11,27,29,49,51
+tracecat/workflow/management/folders/router.py
+  777aa8cace8dc70e 6,26,42,65,86,103,134,160
+tracecat/workspaces/router.py
+  777aa8cace8dc70e 14,58,74-76,78-79,117
+  507c8312207b9fff 49
+  548bbc2fac5894ec 12,61,87,120
+tracecat/workflow/schedules/router.py
+  777aa8cace8dc70e 4,27,39,71,91,117,134
+frontend/src/client/services.gen.ts
+  1c4334265371b141 508-542,1357,1363,1366-1368,1371,1387,1391,1394-1396,1399,1412,1415,1418-1420,1423,1434,1436,1438,1441-1443,1446,1448,1458,1460,1463,1466-1468,1471,1473,1485,1487,1492-1494,1497,1499,1509-1574,4082,4087,4090-4092,4095,4108,4111,4114-4116,4119,4129-4130,4133-4134,4137,4142,4144-4145,4148-4150,4153,4155,4164,4166,4168,4171-4173,4176-4245,4247,4258,4260,4264-4266,4269,4271
+tracecat/workflow/actions/router.py
+  777aa8cace8dc70e 6,33,54,78,110,180,201
+tracecat/integrations/dependencies.py
+  777aa8cace8dc70e 8,24,39,68,101
+tracecat/integrations/router.py
+  777aa8cace8dc70e 13,557,635,683,729,776,811,853,891,932,982
+tests/unit/api/test_api_actor_roles.py
+  777aa8cace8dc70e 1-38,45-130,133,136-164,167,170-200,202-203,205-241,243-396,398,400-501
+tracecat/cases/durations/router.py
+  777aa8cace8dc70e 9-10,38,41,50,53,78,81,113,116,163,166,187,190,215,218,243,246,280,283,321,324
+tracecat/cases/tag_definitions/router.py
+  777aa8cace8dc70e 4-5,16,19,29,32,52,74,77,110
+  548bbc2fac5894ec 49,107
+tracecat/secrets/router.py
+  548bbc2fac5894ec 8,257,276,297,324,359
+  f6fffe411dae6b91 72,105,124,136,163,183,207,237
+tracecat/tags/router.py
+  777aa8cace8dc70e 6,22,34,53,72,93
+tracecat/vcs/router.py
+  548bbc2fac5894ec 7,31,130,183,209
+tracecat/workflow/store/router.py
+  777aa8cace8dc70e 4,38,90,182,252
+tracecat/workflow/management/router.py
+  777aa8cace8dc70e 26,93,147,214,309,366,403,421,538,659,672,692,710,739,767,808,833,853,877,931,967,996
+tracecat/workflow/tags/router.py
+  777aa8cace8dc70e 5,20,33,46
+tracecat/workspaces/service.py
+  777aa8cace8dc70e 16,33,101-121,192-194,196-205,207-213,256,262-275
+tests/unit/api/test_api_service_accounts.py
+  1c4334265371b141 1-73,80-267
+  777aa8cace8dc70e 74-79,268-327
+tracecat/service_accounts/router.py
+  777aa8cace8dc70e 149,190,215,230,248,273,338,379,405,423,441,467
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "e0d03b37b36b154384902497afd80ced1ecdcafc",
+  "prompts": {
+    "1c4334265371b141": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cdf2e-45e5-7f80-9e60-98171c812a46",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 3656,
+      "total_deletions": 5113,
+      "accepted_lines": 2675,
+      "overriden_lines": 0
+    },
+    "507c8312207b9fff": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cde2d-d564-7ff1-864b-902e369a8aba",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 735,
+      "overriden_lines": 0
+    },
+    "548bbc2fac5894ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce827-afa3-7a51-96f9-507ff1cf4015",
+        "model": "unknown"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 34,
+      "total_deletions": 34,
+      "accepted_lines": 34,
+      "overriden_lines": 0
+    },
+    "777aa8cace8dc70e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce38c-f7fb-7973-93ad-4134736c57f0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 78,
+      "total_deletions": 0,
+      "accepted_lines": 1323,
+      "overriden_lines": 0
+    },
+    "ea92e9bfa7e171cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce519-7eea-7b20-8289-1a86594faef9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 23,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "f6fffe411dae6b91": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ce827-5791-72e0-a560-f2736741880c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 10,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    },
+    "fd0744485ce6863b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9a661935-8600-4fc9-9e3a-33a3afbfb57d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 17,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    }
+  }
+}
