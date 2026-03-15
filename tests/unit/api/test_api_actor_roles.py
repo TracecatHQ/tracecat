@@ -17,6 +17,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.models import Webhook, Workflow, Workspace
 from tracecat.integrations import router as integrations_router
 from tracecat.integrations.enums import OAuthGrantType
+from tracecat.organization import router as organization_router
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management import router as workflow_management_router
@@ -499,3 +500,11 @@ def test_cases_route_role_boundary_remains_user_only() -> None:
     ]
 
     assert list_cases_role == cases_router.WorkspaceUser
+
+
+def test_delete_organization_route_remains_user_only() -> None:
+    delete_organization_role = get_type_hints(
+        organization_router.delete_organization, include_extras=True
+    )["role"]
+
+    assert delete_organization_role == organization_router.OrgUserRole

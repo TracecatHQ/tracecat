@@ -143,7 +143,7 @@ async def list_organization_domains(
 @require_scope("org:delete")
 async def delete_organization(
     *,
-    role: OrgActorRole,
+    role: OrgUserRole,
     session: AsyncDBSession,
     confirm: str | None = Query(
         default=None,
