@@ -15,6 +15,7 @@ from tracecat.authz.scopes import ORG_MEMBER_SCOPES, WORKSPACE_OPERATIONAL_SCOPE
 from tracecat.authz.service import MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Workspace
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
 from tracecat.workspaces import router as workspaces_router
 
@@ -185,6 +186,25 @@ async def test_search_workspaces_success(
         data = response.json()
         assert len(data) == 1
         assert data[0]["name"] == "Test Workspace"
+
+
+@pytest.mark.anyio
+async def test_search_workspaces_authorization_error_returns_403(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(workspaces_router, "WorkspaceService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.search_workspaces.side_effect = TracecatAuthorizationError("Denied")
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/workspaces/search",
+            params={"name": "Test"},
+        )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert response.json() == {"detail": "Forbidden"}
 
 
 @pytest.mark.anyio

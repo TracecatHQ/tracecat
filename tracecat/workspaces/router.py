@@ -123,7 +123,12 @@ async def search_workspaces(
 ) -> list[WorkspaceReadMinimal]:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
     service = WorkspaceService(session, role=role)
-    workspaces = await service.search_workspaces(params)
+    try:
+        workspaces = await service.search_workspaces(params)
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+        ) from e
     return [WorkspaceReadMinimal(id=ws.id, name=ws.name) for ws in workspaces]
 
 
