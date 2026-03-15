@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -27,6 +29,22 @@ class _ExecuteResult:
         return _ScalarResult()
 
 
+class _ItemsScalarResult:
+    def __init__(self, items: list[Any]) -> None:
+        self._items = items
+
+    def all(self) -> list[Any]:
+        return self._items
+
+
+class _ItemsExecuteResult:
+    def __init__(self, items: list[Any]) -> None:
+        self._items = items
+
+    def scalars(self) -> _ItemsScalarResult:
+        return _ItemsScalarResult(self._items)
+
+
 class _RecordingSession:
     def __init__(self) -> None:
         self.last_stmt: Any = None
@@ -39,6 +57,14 @@ class _RecordingSession:
     async def scalar(self, stmt: Any) -> int:
         self.last_scalar_stmt = stmt
         return 7
+
+
+class _ItemsSession:
+    def __init__(self, items: list[Any]) -> None:
+        self._items = items
+
+    async def execute(self, stmt: Any) -> _ItemsExecuteResult:
+        return _ItemsExecuteResult(self._items)
 
 
 @pytest.mark.anyio
@@ -99,3 +125,45 @@ async def test_organization_list_uses_filtered_total_count() -> None:
     assert "WHERE service_account.organization_id =" in compiled_count
     assert "service_account.workspace_id IS NULL" in compiled_count
     assert page.total_estimate == 7
+
+
+@pytest.mark.anyio
+async def test_paginate_service_accounts_swaps_flags_for_reverse() -> None:
+    items = [
+        SimpleNamespace(id=uuid.uuid4(), created_at=datetime(2024, 1, 3, tzinfo=UTC)),
+        SimpleNamespace(id=uuid.uuid4(), created_at=datetime(2024, 1, 2, tzinfo=UTC)),
+        SimpleNamespace(id=uuid.uuid4(), created_at=datetime(2024, 1, 1, tzinfo=UTC)),
+    ]
+    session = _ItemsSession(items)
+
+    page = await _paginate_service_accounts(
+        cast(AsyncSession, session),
+        stmt=select(ServiceAccount),
+        params=CursorPaginationParams(limit=2, reverse=True, cursor="cursor"),
+        total_estimate=3,
+    )
+
+    assert len(page.items) == 2
+    assert page.has_more is True
+    assert page.has_previous is True
+
+
+@pytest.mark.anyio
+async def test_paginate_service_account_api_keys_swaps_flags_for_reverse() -> None:
+    items = [
+        SimpleNamespace(id=uuid.uuid4(), created_at=datetime(2024, 1, 3, tzinfo=UTC)),
+        SimpleNamespace(id=uuid.uuid4(), created_at=datetime(2024, 1, 2, tzinfo=UTC)),
+        SimpleNamespace(id=uuid.uuid4(), created_at=datetime(2024, 1, 1, tzinfo=UTC)),
+    ]
+    session = _ItemsSession(items)
+
+    page = await _paginate_service_account_api_keys(
+        cast(AsyncSession, session),
+        stmt=select(ServiceAccountApiKey),
+        params=CursorPaginationParams(limit=2, reverse=True, cursor="cursor"),
+        total_estimate=3,
+    )
+
+    assert len(page.items) == 2
+    assert page.has_more is True
+    assert page.has_previous is True

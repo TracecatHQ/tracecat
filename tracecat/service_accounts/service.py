@@ -132,13 +132,16 @@ async def _paginate_service_accounts(
     if params.reverse:
         items.reverse()
         next_cursor, prev_cursor = prev_cursor, next_cursor
+        has_more, has_previous = params.cursor is not None, has_more
+    else:
+        has_previous = params.cursor is not None
 
     return CursorPaginatedResponse(
         items=items,
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
         has_more=has_more,
-        has_previous=params.cursor is not None,
+        has_previous=has_previous,
         total_estimate=total_estimate,
     )
 
@@ -228,13 +231,16 @@ async def _paginate_service_account_api_keys(
     if params.reverse:
         items.reverse()
         next_cursor, prev_cursor = prev_cursor, next_cursor
+        has_more, has_previous = params.cursor is not None, has_more
+    else:
+        has_previous = params.cursor is not None
 
     return CursorPaginatedResponse(
         items=items,
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
         has_more=has_more,
-        has_previous=params.cursor is not None,
+        has_previous=has_previous,
         total_estimate=total_estimate,
     )
 
