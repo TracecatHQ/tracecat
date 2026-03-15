@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import sqlalchemy as sa
 from sqlalchemy import func, select
@@ -37,6 +37,16 @@ from tracecat.service_accounts.constants import (
 )
 
 ServiceAccountScopeValidator = Callable[..., bool]
+
+
+class IssuedServiceAccountApiKeyResult(NamedTuple):
+    service_account: ServiceAccount
+    api_key: ServiceAccountApiKey
+    raw_key: str
+
+    @property
+    def api_key_id(self) -> uuid.UUID:
+        return self.api_key.id
 
 
 def _apply_created_cursor(
@@ -403,7 +413,7 @@ class BaseServiceAccountService:
         service_account_id: uuid.UUID,
         *,
         name: str,
-    ) -> tuple[ServiceAccount, ServiceAccountApiKey, str]:
+    ) -> IssuedServiceAccountApiKeyResult:
         service_account = await self.get_service_account(service_account_id)
         if service_account.disabled_at is not None:
             raise TracecatAuthorizationError(
@@ -422,7 +432,11 @@ class BaseServiceAccountService:
             for key in refreshed_service_account.api_keys
             if key.id == created_api_key.id
         )
-        return refreshed_service_account, issued_api_key, raw_key
+        return IssuedServiceAccountApiKeyResult(
+            service_account=refreshed_service_account,
+            api_key=issued_api_key,
+            raw_key=raw_key,
+        )
 
     async def _revoke_api_key(
         self,
@@ -599,14 +613,14 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
     @audit_log(
         resource_type="service_account_api_key",
         action="create",
-        resource_id_attr="service_account_id",
+        resource_id_attr="api_key_id",
     )
     async def issue_api_key(
         self,
         service_account_id: uuid.UUID,
         *,
         name: str,
-    ) -> tuple[ServiceAccount, ServiceAccountApiKey, str]:
+    ) -> IssuedServiceAccountApiKeyResult:
         return await self._issue_api_key(service_account_id, name=name)
 
     @require_scope("org:service_account:update")
@@ -777,14 +791,14 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
     @audit_log(
         resource_type="service_account_api_key",
         action="create",
-        resource_id_attr="service_account_id",
+        resource_id_attr="api_key_id",
     )
     async def issue_api_key(
         self,
         service_account_id: uuid.UUID,
         *,
         name: str,
-    ) -> tuple[ServiceAccount, ServiceAccountApiKey, str]:
+    ) -> IssuedServiceAccountApiKeyResult:
         return await self._issue_api_key(service_account_id, name=name)
 
     @require_scope("workspace:service_account:update")
