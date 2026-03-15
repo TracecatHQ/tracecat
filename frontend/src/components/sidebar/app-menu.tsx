@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  BookOpenIcon,
   BuildingIcon,
   ChevronsUpDown,
   CircleCheck,
@@ -239,17 +238,6 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                 </Link>
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem asChild>
-              <Link
-                href="/registry/actions"
-                className="flex items-center gap-2 py-1 px-2 cursor-default"
-              >
-                <div className="flex size-6 items-center justify-center">
-                  <BookOpenIcon className="size-4" />
-                </div>
-                <span>Registry</span>
-              </Link>
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>

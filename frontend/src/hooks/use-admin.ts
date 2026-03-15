@@ -524,7 +524,7 @@ export function useAdminOrgRepositoryVersions(
 
 /* ── PLATFORM REGISTRY ─────────────────────────────────────────────────────── */
 
-export function useAdminRegistryStatus() {
+export function useAdminRegistryStatus(options?: { enabled?: boolean }) {
   const {
     data: status,
     isLoading,
@@ -533,6 +533,7 @@ export function useAdminRegistryStatus() {
   } = useQuery<AdminRegistryGetRegistryStatusResponse>({
     queryKey: ["admin", "registry", "status"],
     queryFn: adminRegistryGetRegistryStatus,
+    enabled: options?.enabled ?? true,
   })
 
   return {

@@ -2,6 +2,7 @@
 
 import {
   BlocksIcon,
+  BoxIcon,
   ChevronDown,
   InboxIcon,
   KeyRound,
@@ -106,6 +107,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewVariables = useScopeCheck("variable:read")
   const canViewSecrets = useScopeCheck("secret:read")
   const canViewIntegrations = useScopeCheck("integration:read")
+  const canViewActions = useScopeCheck("org:registry:read")
   const canViewInbox = useScopeCheck("inbox:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewCases = useScopeCheck("case:read")
@@ -167,6 +169,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: BlocksIcon,
       isActive: pathname?.startsWith(`${basePath}/integrations`),
       visible: canViewIntegrations === true,
+    },
+    {
+      title: "Actions",
+      url: `${basePath}/actions`,
+      icon: BoxIcon,
+      isActive: pathname?.startsWith(`${basePath}/actions`),
+      visible: canViewActions === true,
     },
   ]
 
