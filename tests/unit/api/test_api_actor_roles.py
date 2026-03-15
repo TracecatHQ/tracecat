@@ -21,6 +21,7 @@ from tracecat.integrations.enums import OAuthGrantType
 from tracecat.organization import router as organization_router
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.settings import router as settings_router
+from tracecat.vcs import router as vcs_router
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management import router as workflow_management_router
 from tracecat.workflow.management.types import WorkflowDefinitionMinimal
@@ -553,3 +554,15 @@ def test_org_agent_routes_remain_user_only() -> None:
         agent_router.get_workspace_providers_status, include_extras=True
     )["role"]
     assert workspace_status_role == WorkspaceActorRole
+
+
+def test_github_manifest_flow_routes_remain_user_only() -> None:
+    manifest_role = get_type_hints(
+        vcs_router.get_github_app_manifest, include_extras=True
+    )["_role"]
+    install_role = get_type_hints(
+        vcs_router.github_app_install_callback, include_extras=True
+    )["role"]
+
+    assert manifest_role == vcs_router.OrgUserRole
+    assert install_role == vcs_router.OrgUserRole

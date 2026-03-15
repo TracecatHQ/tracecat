@@ -28,7 +28,7 @@ github_router = APIRouter(prefix="/github", tags=["vcs", "github", "organization
 @require_scope("org:settings:read")
 async def get_github_app_manifest(
     *,
-    _role: OrgActorRole,
+    _role: OrgUserRole,
 ) -> GitHubAppManifestResponse:
     """Generate GitHub App manifest for enterprise installation."""
     try:
