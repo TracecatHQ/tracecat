@@ -10,6 +10,7 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from tracecat.agent import router as agent_router
 from tracecat.auth.dependencies import WorkspaceActorRole, WorkspaceUserRole
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
@@ -528,3 +529,27 @@ def test_org_settings_routes_remain_user_only() -> None:
     for endpoint in endpoints:
         role = get_type_hints(endpoint, include_extras=True)["role"]
         assert role == settings_router.OrgUserRole
+
+
+def test_org_agent_routes_remain_user_only() -> None:
+    org_endpoints = [
+        agent_router.list_models,
+        agent_router.list_providers,
+        agent_router.get_providers_status,
+        agent_router.list_provider_credential_configs,
+        agent_router.get_provider_credential_config,
+        agent_router.create_provider_credentials,
+        agent_router.update_provider_credentials,
+        agent_router.delete_provider_credentials,
+        agent_router.get_default_model,
+        agent_router.set_default_model,
+    ]
+
+    for endpoint in org_endpoints:
+        role = get_type_hints(endpoint, include_extras=True)["role"]
+        assert role == agent_router.OrgUserRole
+
+    workspace_status_role = get_type_hints(
+        agent_router.get_workspace_providers_status, include_extras=True
+    )["role"]
+    assert workspace_status_role == WorkspaceActorRole
