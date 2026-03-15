@@ -19,6 +19,7 @@ from tracecat.integrations import router as integrations_router
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.organization import router as organization_router
 from tracecat.pagination import CursorPaginatedResponse
+from tracecat.settings import router as settings_router
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management import router as workflow_management_router
 from tracecat.workflow.management.types import WorkflowDefinitionMinimal
@@ -508,3 +509,22 @@ def test_delete_organization_route_remains_user_only() -> None:
     )["role"]
 
     assert delete_organization_role == organization_router.OrgUserRole
+
+
+def test_org_settings_routes_remain_user_only() -> None:
+    endpoints = [
+        settings_router.get_git_settings,
+        settings_router.update_git_settings,
+        settings_router.get_saml_settings,
+        settings_router.update_saml_settings,
+        settings_router.get_app_settings,
+        settings_router.update_app_settings,
+        settings_router.get_audit_settings,
+        settings_router.update_audit_settings,
+        settings_router.get_agent_settings,
+        settings_router.update_agent_settings,
+    ]
+
+    for endpoint in endpoints:
+        role = get_type_hints(endpoint, include_extras=True)["role"]
+        assert role == settings_router.OrgUserRole
