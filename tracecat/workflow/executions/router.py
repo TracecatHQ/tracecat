@@ -14,7 +14,7 @@ import tracecat.agent.adapter.vercel
 from tracecat import config
 from tracecat.agent.schemas import AgentOutput
 from tracecat.agent.types import ClaudeSDKMessageTA
-from tracecat.auth.dependencies import WorkspaceActorRole
+from tracecat.auth.dependencies import WorkspaceActorRole, WorkspaceUserRole
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -993,7 +993,7 @@ async def create_workflow_execution(
 @router.post("/draft")
 @require_scope("workflow:execute")
 async def create_draft_workflow_execution(
-    role: WorkspaceActorRole,
+    role: WorkspaceUserRole,
     params: WorkflowExecutionCreate,
     session: AsyncDBSession,
 ) -> WorkflowExecutionCreateResponse:

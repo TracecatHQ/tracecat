@@ -22,6 +22,7 @@ from tracecat.organization import router as organization_router
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.settings import router as settings_router
 from tracecat.vcs import router as vcs_router
+from tracecat.workflow.executions import router as workflow_executions_router
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management import router as workflow_management_router
 from tracecat.workflow.management.types import WorkflowDefinitionMinimal
@@ -566,3 +567,16 @@ def test_github_manifest_flow_routes_remain_user_only() -> None:
 
     assert manifest_role == vcs_router.OrgUserRole
     assert install_role == vcs_router.OrgUserRole
+
+
+def test_draft_workflow_execution_route_remains_user_only() -> None:
+    draft_role = get_type_hints(
+        workflow_management_router.create_workflow, include_extras=True
+    )["role"]
+    draft_execution_role = get_type_hints(
+        workflow_executions_router.create_draft_workflow_execution,
+        include_extras=True,
+    )["role"]
+
+    assert draft_role == WorkspaceActorRole
+    assert draft_execution_role == WorkspaceUserRole
