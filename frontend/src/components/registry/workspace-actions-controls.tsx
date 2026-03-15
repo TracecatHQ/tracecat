@@ -33,6 +33,11 @@ function RegistryActionsControlsMenu() {
   const canUpdateRegistry = useScopeCheck("org:registry:update") === true
   const { repos, syncRepo, syncRepoIsPending } = useRegistryRepositories()
   const customRepo = getCustomRegistryRepository(repos)
+  const showAddRegistry = canUpdateRegistry
+  const showRegistryActions = canUpdateRegistry && !!customRepo
+  const showCopyOrigin = !!customRepo
+  const hasVisibleActions =
+    showAddRegistry || showRegistryActions || showCopyOrigin
   const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null)
   const [selectedRepo, setSelectedRepo] =
     useState<RegistryRepositoryReadMinimal | null>(customRepo)
@@ -86,6 +91,10 @@ function RegistryActionsControlsMenu() {
     }
   }
 
+  if (!hasVisibleActions) {
+    return null
+  }
+
   return (
     <>
       <DropdownMenu>
@@ -103,42 +112,48 @@ function RegistryActionsControlsMenu() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem asChild>
-            <Link href="/organization/settings/custom-registry">
-              <GitBranchIcon className="mr-2 size-4" />
-              <span>Add registry</span>
-            </Link>
-          </DropdownMenuItem>
+          {showAddRegistry ? (
+            <DropdownMenuItem asChild>
+              <Link href="/organization/settings/custom-registry">
+                <GitBranchIcon className="mr-2 size-4" />
+                <span>Add registry</span>
+              </Link>
+            </DropdownMenuItem>
+          ) : null}
 
           {customRepo ? (
             <>
-              <DropdownMenuSeparator />
+              {showAddRegistry && showRegistryActions ? (
+                <DropdownMenuSeparator />
+              ) : null}
 
-              {canUpdateRegistry ? (
+              {showRegistryActions ? (
                 <DropdownMenuItem onSelect={() => handleOpenDialog("sync")}>
                   <RefreshCcw className="mr-2 size-4" />
                   <span>Sync from remote</span>
                 </DropdownMenuItem>
               ) : null}
 
-              {canUpdateRegistry ? (
+              {showRegistryActions ? (
                 <DropdownMenuItem onSelect={() => handleOpenDialog("commit")}>
                   <GitBranchIcon className="mr-2 size-4" />
                   <span>Change commit</span>
                 </DropdownMenuItem>
               ) : null}
 
-              {canUpdateRegistry ? (
+              {showRegistryActions ? (
                 <DropdownMenuItem onSelect={() => handleOpenDialog("versions")}>
                   <HistoryIcon className="mr-2 size-4" />
                   <span>Manage versions</span>
                 </DropdownMenuItem>
               ) : null}
 
-              <DropdownMenuItem onSelect={handleCopyOrigin}>
-                <CopyIcon className="mr-2 size-4" />
-                <span>Copy repo origin</span>
-              </DropdownMenuItem>
+              {showCopyOrigin ? (
+                <DropdownMenuItem onSelect={handleCopyOrigin}>
+                  <CopyIcon className="mr-2 size-4" />
+                  <span>Copy repo origin</span>
+                </DropdownMenuItem>
+              ) : null}
             </>
           ) : null}
         </DropdownMenuContent>

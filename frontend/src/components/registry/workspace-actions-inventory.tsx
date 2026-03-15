@@ -68,6 +68,14 @@ import { copyToClipboard } from "@/lib/utils"
 type ActionTypeFilter = RegistryActionReadMinimal["type"] | "all"
 type ActionSortField = "name" | "action" | "namespace"
 type ActionSortDirection = "asc" | "desc"
+type TracecatVersionState =
+  | { status: "ready"; version: string }
+  | { status: "loading" }
+  | { status: "truncated" }
+  | { status: "unavailable" }
+  | { status: "error" }
+
+const PLATFORM_VERSION_FETCH_LIMIT = 200
 
 type RegistryActionGroup = {
   origin: string
@@ -75,7 +83,7 @@ type RegistryActionGroup = {
   kind: "tracecat" | "custom" | "other"
   actions: RegistryActionReadMinimal[]
   metadata: RegistryRepositoryReadMinimal | RepositoryStatus | null
-  currentVersion?: string | null
+  currentVersionState?: TracecatVersionState | null
 }
 
 function buildSearchText(action: RegistryActionReadMinimal): string {
@@ -187,7 +195,7 @@ function getLastSyncedBadge(lastSyncedAt: string | null | undefined) {
 
 function RegistryGroupMetadata({ group }: { group: RegistryActionGroup }) {
   const metadataBadges = [
-    getLastSyncedBadge(group.metadata?.last_synced_at),
+    group.metadata ? getLastSyncedBadge(group.metadata.last_synced_at) : null,
     group.kind === "tracecat" ? (
       <Badge
         key="version"
@@ -195,7 +203,20 @@ function RegistryGroupMetadata({ group }: { group: RegistryActionGroup }) {
         className="h-5 px-2 text-[10px] font-normal"
       >
         <HistoryIcon className="mr-1 size-3" />
-        Version {group.currentVersion ?? "Unavailable"}
+        {(() => {
+          switch (group.currentVersionState?.status) {
+            case "ready":
+              return `Version ${group.currentVersionState.version}`
+            case "loading":
+              return "Version Loading..."
+            case "truncated":
+              return "Version outside recent history"
+            case "error":
+            case "unavailable":
+            default:
+              return "Version Unavailable"
+          }
+        })()}
       </Badge>
     ) : null,
     group.kind === "custom" && group.metadata?.commit_sha ? (
@@ -226,11 +247,8 @@ export function WorkspaceActionsInventory() {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions()
   const { repos, reposIsLoading, reposError } = useRegistryRepositories()
-  const {
-    status: platformStatus,
-    isLoading: platformStatusIsLoading,
-    error: platformStatusError,
-  } = useAdminRegistryStatus({ enabled: canReadPlatformRegistryMetadata })
+  const { status: platformStatus, isLoading: platformStatusIsLoading } =
+    useAdminRegistryStatus({ enabled: canReadPlatformRegistryMetadata })
   const [searchQuery, setSearchQuery] = useState("")
   const [namespaceFilter, setNamespaceFilter] = useState("all")
   const [typeFilter, setTypeFilter] = useState<ActionTypeFilter>("all")
@@ -254,23 +272,52 @@ export function WorkspaceActionsInventory() {
       queryFn: async () =>
         await adminRegistryListRegistryVersions({
           repositoryId: repo.id,
-          limit: 100,
+          limit: PLATFORM_VERSION_FETCH_LIMIT,
         }),
       enabled: canReadPlatformRegistryMetadata,
     })),
   })
 
-  const platformCurrentVersionByOrigin = useMemo(() => {
-    const versionsByOrigin = new Map<string, string | null>()
+  const platformCurrentVersionStateByOrigin = useMemo(() => {
+    const versionsByOrigin = new Map<string, TracecatVersionState>()
 
     for (const [index, repo] of platformRepos.entries()) {
+      if (!repo.current_version_id) {
+        versionsByOrigin.set(repo.origin, { status: "unavailable" })
+        continue
+      }
+
+      const result = platformVersionsResults[index]
+      if (result?.isLoading) {
+        versionsByOrigin.set(repo.origin, { status: "loading" })
+        continue
+      }
+      if (result?.error) {
+        versionsByOrigin.set(repo.origin, { status: "error" })
+        continue
+      }
+
       const versions = platformVersionsResults[index]?.data as
         | tracecat__admin__registry__schemas__RegistryVersionRead[]
         | undefined
       const currentVersion =
         versions?.find((version) => version.id === repo.current_version_id) ??
         null
-      versionsByOrigin.set(repo.origin, currentVersion?.version ?? null)
+
+      if (currentVersion) {
+        versionsByOrigin.set(repo.origin, {
+          status: "ready",
+          version: currentVersion.version,
+        })
+        continue
+      }
+
+      if ((versions?.length ?? 0) >= PLATFORM_VERSION_FETCH_LIMIT) {
+        versionsByOrigin.set(repo.origin, { status: "truncated" })
+        continue
+      }
+
+      versionsByOrigin.set(repo.origin, { status: "unavailable" })
     }
 
     return versionsByOrigin
@@ -367,7 +414,13 @@ export function WorkspaceActionsInventory() {
             compareActions(left, right, sortField, sortDirection)
           ),
           metadata: repoMetadataByOrigin.get(origin) ?? null,
-          currentVersion: platformCurrentVersionByOrigin.get(origin) ?? null,
+          currentVersionState:
+            kind === "tracecat"
+              ? (platformCurrentVersionStateByOrigin.get(origin) ??
+                (canReadPlatformRegistryMetadata && platformStatusIsLoading
+                  ? { status: "loading" }
+                  : { status: "unavailable" }))
+              : null,
         }
       }
     )
@@ -394,8 +447,10 @@ export function WorkspaceActionsInventory() {
   }, [
     customRepo?.origin,
     filteredActions,
-    platformCurrentVersionByOrigin,
+    canReadPlatformRegistryMetadata,
+    platformCurrentVersionStateByOrigin,
     platformOriginSet,
+    platformStatusIsLoading,
     repoMetadataByOrigin,
     sortDirection,
     sortField,
@@ -484,19 +539,12 @@ export function WorkspaceActionsInventory() {
     userIsLoading ||
     canAdministerOrg === undefined ||
     registryActionsIsLoading ||
-    reposIsLoading ||
-    platformStatusIsLoading ||
-    platformVersionsResults.some((result) => result.isLoading)
+    reposIsLoading
   ) {
     return <CenteredSpinner />
   }
 
-  const primaryError =
-    userError ??
-    registryActionsError ??
-    reposError ??
-    platformStatusError ??
-    platformVersionsResults.find((result) => result.error)?.error
+  const primaryError = userError ?? registryActionsError ?? reposError
 
   if (primaryError) {
     return (
