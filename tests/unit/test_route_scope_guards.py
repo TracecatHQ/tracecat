@@ -16,6 +16,7 @@ from tracecat.registry.repositories import router as registry_repos_router
 from tracecat.tables import router as tables_router
 from tracecat.vcs import router as vcs_router
 from tracecat.workflow.executions import router as workflow_executions_router
+from tracecat.workflow.graph import router as workflow_graph_router
 from tracecat.workflow.store import router as workflow_store_router
 
 type AsyncEndpoint = Callable[..., Awaitable[object]]
@@ -162,6 +163,20 @@ async def test_workflow_store_scope_guards(
     ],
 )
 async def test_workflow_execution_stop_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (workflow_graph_router.get_graph, "workflow:read"),
+        (workflow_graph_router.apply_graph_operations, "workflow:update"),
+    ],
+)
+async def test_workflow_graph_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
