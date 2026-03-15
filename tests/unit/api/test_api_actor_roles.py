@@ -580,3 +580,11 @@ def test_draft_workflow_execution_route_remains_user_only() -> None:
 
     assert draft_role == WorkspaceActorRole
     assert draft_execution_role == WorkspaceUserRole
+
+
+def test_webhook_api_key_revocation_route_remains_user_only() -> None:
+    revoke_role = get_type_hints(
+        workflow_management_router.revoke_webhook_api_key, include_extras=True
+    )["role"]
+
+    assert revoke_role == WorkspaceUserRole

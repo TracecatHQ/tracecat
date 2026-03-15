@@ -23,7 +23,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat import config
 from tracecat.auth.api_keys import generate_api_key
-from tracecat.auth.dependencies import WorkspaceActorRole
+from tracecat.auth.dependencies import WorkspaceActorRole, WorkspaceUserRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
@@ -928,7 +928,7 @@ async def generate_webhook_api_key(
 )
 @require_scope("workflow:update")
 async def revoke_webhook_api_key(
-    role: WorkspaceActorRole,
+    role: WorkspaceUserRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> None:
