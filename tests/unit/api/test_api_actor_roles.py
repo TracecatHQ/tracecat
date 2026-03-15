@@ -498,12 +498,12 @@ def test_integration_route_role_boundaries_are_explicit() -> None:
     assert test_connection_role == WorkspaceActorRole
 
 
-def test_cases_route_role_boundary_remains_user_only() -> None:
+def test_cases_route_role_boundary_accepts_workspace_actors() -> None:
     list_cases_role = get_type_hints(cases_router.list_cases, include_extras=True)[
         "role"
     ]
 
-    assert list_cases_role == cases_router.WorkspaceUser
+    assert list_cases_role == cases_router.WorkspaceActor
 
 
 def test_delete_organization_route_remains_user_only() -> None:

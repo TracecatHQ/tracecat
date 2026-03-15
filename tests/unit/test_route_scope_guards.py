@@ -6,6 +6,9 @@ import pytest
 
 from tracecat.agent.preset import router as agent_preset_router
 from tracecat.auth.types import Role
+from tracecat.cases.dropdowns import router as case_dropdowns_router
+from tracecat.cases.durations import router as case_durations_router
+from tracecat.cases.tag_definitions import router as case_tag_definitions_router
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.inbox import router as inbox_router
@@ -179,6 +182,42 @@ async def test_workflow_execution_stop_scope_guards(
 async def test_workflow_graph_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (case_dropdowns_router.list_dropdown_definitions, "case:read"),
+        (case_dropdowns_router.create_dropdown_definition, "case:create"),
+        (case_dropdowns_router.get_dropdown_definition, "case:read"),
+        (case_dropdowns_router.update_dropdown_definition, "case:update"),
+        (case_dropdowns_router.delete_dropdown_definition, "case:delete"),
+        (case_dropdowns_router.add_dropdown_option, "case:create"),
+        (case_dropdowns_router.update_dropdown_option, "case:update"),
+        (case_dropdowns_router.delete_dropdown_option, "case:delete"),
+        (case_dropdowns_router.reorder_dropdown_options, "case:update"),
+        (case_dropdowns_router.list_case_dropdown_values, "case:read"),
+        (case_dropdowns_router.set_case_dropdown_value, "case:update"),
+        (case_durations_router.list_case_duration_definitions, "case:read"),
+        (case_durations_router.get_case_duration_definition, "case:read"),
+        (case_durations_router.create_case_duration_definition, "case:create"),
+        (case_durations_router.update_case_duration_definition, "case:update"),
+        (case_durations_router.delete_case_duration_definition, "case:delete"),
+        (case_durations_router.list_case_durations, "case:read"),
+        (case_durations_router.get_case_duration, "case:read"),
+        (case_durations_router.create_case_duration, "case:create"),
+        (case_durations_router.update_case_duration, "case:update"),
+        (case_durations_router.delete_case_duration, "case:delete"),
+        (case_tag_definitions_router.list_case_tags, "case:read"),
+        (case_tag_definitions_router.get_case_tag, "case:read"),
+        (case_tag_definitions_router.create_case_tag, "case:create"),
+        (case_tag_definitions_router.update_case_tag, "case:update"),
+        (case_tag_definitions_router.delete_case_tag, "case:delete"),
+    ],
+)
+async def test_case_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
 
 

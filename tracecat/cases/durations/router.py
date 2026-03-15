@@ -7,6 +7,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, status
 
 from tracecat.auth.dependencies import WorkspaceActorRole
+from tracecat.authz.controls import require_scope
 from tracecat.cases.durations.schemas import (
     CaseDurationCreate,
     CaseDurationDefinitionCreate,
@@ -34,6 +35,7 @@ durations_router = APIRouter(
 
 
 @definitions_router.get("", response_model=list[CaseDurationDefinitionRead])
+@require_scope("case:read")
 async def list_case_duration_definitions(
     *,
     role: WorkspaceActorRole,
@@ -45,6 +47,7 @@ async def list_case_duration_definitions(
 
 
 @definitions_router.get("/{duration_id}", response_model=CaseDurationDefinitionRead)
+@require_scope("case:read")
 async def get_case_duration_definition(
     *,
     role: WorkspaceActorRole,
@@ -72,6 +75,7 @@ async def get_case_duration_definition(
     response_model=CaseDurationDefinitionRead,
     status_code=status.HTTP_201_CREATED,
 )
+@require_scope("case:create")
 async def create_case_duration_definition(
     *,
     role: WorkspaceActorRole,
@@ -106,6 +110,7 @@ async def create_case_duration_definition(
 
 
 @definitions_router.patch("/{duration_id}", response_model=CaseDurationDefinitionRead)
+@require_scope("case:update")
 async def update_case_duration_definition(
     *,
     role: WorkspaceActorRole,
@@ -155,6 +160,7 @@ async def update_case_duration_definition(
 @definitions_router.delete(
     "/{duration_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
 )
+@require_scope("case:delete")
 async def delete_case_duration_definition(
     *,
     role: WorkspaceActorRole,
@@ -178,6 +184,7 @@ async def delete_case_duration_definition(
 
 
 @durations_router.get("", response_model=list[CaseDurationRead])
+@require_scope("case:read")
 async def list_case_durations(
     *,
     role: WorkspaceActorRole,
@@ -205,6 +212,7 @@ async def list_case_durations(
 
 
 @durations_router.get("/{duration_id}", response_model=CaseDurationRead)
+@require_scope("case:read")
 async def get_case_duration(
     *,
     role: WorkspaceActorRole,
@@ -232,6 +240,7 @@ async def get_case_duration(
 @durations_router.post(
     "", response_model=CaseDurationRead, status_code=status.HTTP_201_CREATED
 )
+@require_scope("case:create")
 async def create_case_duration(
     *,
     role: WorkspaceActorRole,
@@ -268,6 +277,7 @@ async def create_case_duration(
 
 
 @durations_router.patch("/{duration_id}", response_model=CaseDurationRead)
+@require_scope("case:update")
 async def update_case_duration(
     *,
     role: WorkspaceActorRole,
@@ -308,6 +318,7 @@ async def update_case_duration(
 @durations_router.delete(
     "/{duration_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
 )
+@require_scope("case:delete")
 async def delete_case_duration(
     *,
     role: WorkspaceActorRole,

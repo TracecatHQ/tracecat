@@ -74,14 +74,16 @@ cases_router = APIRouter(prefix="/cases", tags=["cases"])
 case_fields_router = APIRouter(prefix="/case-fields", tags=["cases"])
 
 
-WorkspaceUser = Annotated[
+WorkspaceActor = Annotated[
     Role,
     RoleACL(
         allow_user=True,
         allow_service=False,
+        allow_api_key=True,
         require_workspace="yes",
     ),
 ]
+WorkspaceUser = WorkspaceActor
 
 
 class ParsedCaseSearchFilters(TypedDict):
@@ -119,7 +121,7 @@ def _parse_dropdown_filter(
 async def _resolve_tag_ids(
     *,
     tags: list[str] | None,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
 ) -> list[uuid.UUID] | None:
     if not tags:
@@ -138,7 +140,7 @@ async def _resolve_tag_ids(
 
 async def _parse_case_search_filters(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     assignee_id: list[str] | None,
     tags: list[str] | None,
@@ -161,7 +163,7 @@ async def _parse_case_search_filters(
 @require_scope("case:read")
 async def list_cases(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
@@ -232,7 +234,7 @@ async def list_cases(
 @require_scope("case:read")
 async def search_cases(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
@@ -364,7 +366,7 @@ async def search_cases(
 @require_scope("case:read")
 async def search_case_aggregates(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     search_term: str | None = Query(
         None,
@@ -445,7 +447,7 @@ async def search_case_aggregates(
 @require_scope("case:read")
 async def get_case(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     include_rows: bool = Query(False, description="Include linked table rows"),
@@ -520,7 +522,7 @@ async def get_case(
 @require_scope("case:create")
 async def create_case(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     params: CaseCreate,
 ) -> None:
@@ -539,7 +541,7 @@ async def create_case(
 @require_scope("case:update")
 async def update_case(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     params: CaseUpdate,
     case_id: uuid.UUID,
@@ -572,7 +574,7 @@ async def update_case(
 @require_scope("case:delete")
 async def delete_case(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     case_id: uuid.UUID,
 ) -> None:
@@ -594,7 +596,7 @@ async def delete_case(
 @require_scope("case:read")
 async def list_comments(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     case_id: uuid.UUID,
 ) -> list[CaseCommentRead]:
@@ -616,7 +618,7 @@ async def list_comments(
 @require_scope("case:read")
 async def list_comment_threads(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     case_id: uuid.UUID,
 ) -> list[CaseCommentThreadRead]:
@@ -636,7 +638,7 @@ async def list_comment_threads(
 @require_scope("case:update")
 async def create_comment(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     params: CaseCommentCreate,
@@ -663,7 +665,7 @@ async def create_comment(
 @require_scope("case:update")
 async def update_comment(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     comment_id: uuid.UUID,
@@ -696,7 +698,7 @@ async def update_comment(
 @require_scope("case:delete")
 async def delete_comment(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     comment_id: uuid.UUID,
@@ -729,7 +731,7 @@ async def delete_comment(
 @require_scope("case:read")
 async def list_fields(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
 ) -> list[CaseFieldReadMinimal]:
     """List all case fields."""
@@ -746,7 +748,7 @@ async def list_fields(
 @require_scope("case:create")
 async def create_field(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     params: CaseFieldCreate,
 ) -> None:
@@ -770,7 +772,7 @@ async def create_field(
 @require_scope("case:update")
 async def update_field(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     field_id: str,
     params: CaseFieldUpdate,
@@ -784,7 +786,7 @@ async def update_field(
 @require_scope("case:delete")
 async def delete_field(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     field_id: str,
 ) -> None:
@@ -804,7 +806,7 @@ async def delete_field(
 @require_scope("case:read")
 async def list_events_with_users(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     case_id: uuid.UUID,
 ) -> CaseEventsWithUsers:
@@ -868,7 +870,7 @@ async def list_events_with_users(
 @require_scope("case:read")
 async def list_tasks(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     case_id: uuid.UUID,
 ) -> list[CaseTaskRead]:
@@ -904,7 +906,7 @@ async def list_tasks(
 @require_scope("case:create")
 async def create_task(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     params: CaseTaskCreate,
@@ -950,7 +952,7 @@ async def create_task(
 @require_scope("case:update")
 async def update_task(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     task_id: uuid.UUID,
@@ -1000,7 +1002,7 @@ async def update_task(
 @require_scope("case:delete")
 async def delete_task(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActor,
     session: AsyncDBSession,
     case_id: uuid.UUID,
     task_id: uuid.UUID,
