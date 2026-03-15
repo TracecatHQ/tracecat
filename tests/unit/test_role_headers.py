@@ -214,11 +214,13 @@ class TestAuthenticateServiceRoundtrip:
         )
 
         workspace_id = uuid4()
+        organization_id = uuid4()
         request = MagicMock()
         request.headers = MockHeaders(
             {
                 "x-tracecat-role-service-id": "tracecat-runner",
                 "x-tracecat-role-workspace-id": str(workspace_id),
+                "x-tracecat-role-organization-id": str(organization_id),
                 "x-tracecat-role-bound-workspace-id": str(workspace_id),
             }
         )
@@ -227,4 +229,5 @@ class TestAuthenticateServiceRoundtrip:
 
         assert role is not None
         assert role.workspace_id == workspace_id
+        assert role.organization_id == organization_id
         assert role.bound_workspace_id == workspace_id
