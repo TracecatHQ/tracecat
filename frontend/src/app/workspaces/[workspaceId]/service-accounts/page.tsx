@@ -10,6 +10,9 @@ export default function WorkspaceServiceAccountsPage() {
   if (canReadServiceAccounts === false) {
     notFound()
   }
+  if (canReadServiceAccounts === undefined) {
+    return null
+  }
 
   return <WorkspaceServiceAccounts />
 }
