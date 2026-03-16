@@ -1,0 +1,59 @@
+deployments/eks/modules/eks/variables.tf
+  ccd8d4ba8d4dbdf0 337-348,376,385-390,422-429
+deployments/fargate/modules/ecs/variables.tf
+  ccd8d4ba8d4dbdf0 474-495,545,547-554
+deployments/eks/variables.tf
+  ccd8d4ba8d4dbdf0 341-352,380,389-394,426-433
+deployments/fargate/modules/ecs/locals.tf
+  ccd8d4ba8d4dbdf0 106-125,159-160
+deployments/fargate/modules/ecs/ecs-agent-executor.tf
+  ccd8d4ba8d4dbdf0 20
+docker-compose.yml
+  ccd8d4ba8d4dbdf0 241-301,352,354-355,371
+deployments/helm/tracecat/templates/agent-worker-metrics-service.yaml
+  ccd8d4ba8d4dbdf0 1-25
+docker-compose.dev.yml
+  ccd8d4ba8d4dbdf0 230-290,340,342-343,358
+deployments/fargate/modules/ecs/ecs-agent-worker.tf
+  ccd8d4ba8d4dbdf0 1-81
+deployments/helm/tracecat/templates/_helpers.tpl
+  ccd8d4ba8d4dbdf0 761-796,856-857,859-860
+deployments/eks/modules/eks/helm.tf
+  ccd8d4ba8d4dbdf0 286-294,321-323,365-384
+deployments/fargate/variables.tf
+  ccd8d4ba8d4dbdf0 428-449,499,501-508
+deployments/eks/modules/eks/main.tf
+  ccd8d4ba8d4dbdf0 78,86,95,104
+docker-compose.local.yml
+  ccd8d4ba8d4dbdf0 248-308,362,364-365,378
+deployments/fargate/main.tf
+  ccd8d4ba8d4dbdf0 135-138,148-149
+deployments/helm/tracecat/templates/agent-worker-deployment.yaml
+  ccd8d4ba8d4dbdf0 1-105
+deployments/eks/main.tf
+  ccd8d4ba8d4dbdf0 82-83,90,96-97
+deployments/helm/tracecat/templates/agent-executor-deployment.yaml
+  ccd8d4ba8d4dbdf0 44
+deployments/helm/tracecat/values.yaml
+  ccd8d4ba8d4dbdf0 289-302,342-343
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "0629dba6ef7f2ffe43baf027290c4c5a954666f9",
+  "prompts": {
+    "ccd8d4ba8d4dbdf0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cf764-b2c7-7ed1-93dc-ee6f0c8153c9",
+        "model": "unknown"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 649,
+      "overriden_lines": 0
+    }
+  }
+}
