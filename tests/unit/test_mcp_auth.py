@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastmcp import FastMCP
+from fastmcp.server.auth import AccessToken
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
@@ -23,6 +25,7 @@ def _mock_oidc_discovery_config(
     config.authorization_endpoint = "https://issuer.example.com/oauth2/authorize"
     config.token_endpoint = "https://issuer.example.com/oauth2/token"
     config.jwks_uri = "https://issuer.example.com/.well-known/jwks.json"
+    config.userinfo_endpoint = "https://issuer.example.com/oauth2/userinfo"
     config.scopes_supported = scopes_supported
     config.service_documentation = None
     config.revocation_endpoint = None
@@ -402,6 +405,199 @@ async def test_create_mcp_auth_authorize_keeps_offline_access_when_metadata_omit
     assert isinstance(forwarded, AuthorizationParams)
     assert forwarded.scopes is not None
     assert forwarded.scopes == ["custom:scope", "openid", "profile", "offline_access"]
+
+
+@pytest.mark.anyio
+async def test_extract_upstream_claims_falls_back_to_userinfo_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, str]:
+            return {"sub": "user-123", "email": " user@example.com "}
+
+    class _AsyncClient:
+        async def __aenter__(self) -> _AsyncClient:
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(self, url: str, headers: dict[str, str]) -> _Response:
+            assert url == "https://issuer.example.com/oauth2/userinfo"
+            assert headers == {"Authorization": "Bearer upstream-access-token"}
+            return _Response()
+
+    async def _resolve_user_by_email(email: str) -> SimpleNamespace:
+        assert email == "user@example.com"
+        return SimpleNamespace(id=uuid.uuid4(), is_superuser=False)
+
+    monkeypatch.setattr(mcp_auth.httpx, "AsyncClient", _AsyncClient)
+    monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
+
+    claims = await auth._extract_upstream_claims(
+        {
+            "id_token": "header.eyJzdWIiOiAidXNlci0xMjMifQ.signature",
+            "access_token": "upstream-access-token",
+        }
+    )
+
+    assert claims == {"email": "user@example.com"}
+
+
+@pytest.mark.anyio
+async def test_extract_upstream_claims_rejects_mismatched_userinfo_subject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, str]:
+            return {"sub": "different-user", "email": " user@example.com "}
+
+    class _AsyncClient:
+        async def __aenter__(self) -> _AsyncClient:
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(self, url: str, headers: dict[str, str]) -> _Response:
+            assert url == "https://issuer.example.com/oauth2/userinfo"
+            assert headers == {"Authorization": "Bearer upstream-access-token"}
+            return _Response()
+
+    monkeypatch.setattr(mcp_auth.httpx, "AsyncClient", _AsyncClient)
+
+    with pytest.raises(mcp_auth.TokenError) as exc_info:
+        await auth._extract_upstream_claims(
+            {
+                "id_token": "header.eyJzdWIiOiAidXNlci0xMjMifQ.signature",
+                "access_token": "upstream-access-token",
+            }
+        )
+
+    assert exc_info.value.error == "invalid_client"
+    assert exc_info.value.error_description is not None
+    assert "No email claim in id_token or userinfo" in exc_info.value.error_description
+
+
+@pytest.mark.anyio
+async def test_extract_upstream_claims_maps_userinfo_failure_to_invalid_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+
+    class _AsyncClient:
+        async def __aenter__(self) -> _AsyncClient:
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(self, url: str, headers: dict[str, str]) -> None:
+            assert url == "https://issuer.example.com/oauth2/userinfo"
+            assert headers == {"Authorization": "Bearer upstream-access-token"}
+            raise RuntimeError("userinfo timeout")
+
+    monkeypatch.setattr(mcp_auth.httpx, "AsyncClient", _AsyncClient)
+
+    with pytest.raises(mcp_auth.TokenError) as exc_info:
+        await auth._extract_upstream_claims(
+            {
+                "id_token": "header.eyJzdWIiOiAidXNlci0xMjMifQ.signature",
+                "access_token": "upstream-access-token",
+            }
+        )
+
+    assert exc_info.value.error == "invalid_grant"
+    assert exc_info.value.error_description == "Failed to fetch OIDC userinfo"
+
+
+@pytest.mark.anyio
+async def test_extract_upstream_claims_allows_missing_id_token_with_userinfo_email(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, str]:
+            return {"email": " refresh@example.com "}
+
+    class _AsyncClient:
+        async def __aenter__(self) -> _AsyncClient:
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(self, url: str, headers: dict[str, str]) -> _Response:
+            assert url == "https://issuer.example.com/oauth2/userinfo"
+            assert headers == {"Authorization": "Bearer refreshed-access-token"}
+            return _Response()
+
+    async def _resolve_user_by_email(email: str) -> SimpleNamespace:
+        assert email == "refresh@example.com"
+        return SimpleNamespace(id=uuid.uuid4(), is_superuser=False)
+
+    monkeypatch.setattr(mcp_auth.httpx, "AsyncClient", _AsyncClient)
+    monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
+
+    claims = await auth._extract_upstream_claims(
+        {
+            "access_token": "refreshed-access-token",
+        }
+    )
+
+    assert claims == {"email": "refresh@example.com"}
+
+
+@pytest.mark.anyio
+async def test_load_access_token_preserves_fastmcp_upstream_claims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    org_id = uuid.uuid4()
+    ws_id = uuid.uuid4()
+    validated = AccessToken(
+        token="upstream-access-token",
+        client_id="",
+        scopes=["openid", "profile", "email"],
+        claims={"sub": "upstream-subject"},
+    )
+
+    async def _load_access_token(self, token: str) -> AccessToken:
+        assert token == "fastmcp-jwt"
+        return validated
+
+    monkeypatch.setattr(mcp_auth.OIDCProxy, "load_access_token", _load_access_token)
+    monkeypatch.setattr(
+        auth,
+        "_jwt_issuer",
+        SimpleNamespace(
+            verify_token=lambda token: {
+                "client_id": "tracecat-client",
+                "scope": f"organization:{org_id} workspace:{ws_id}",
+                "upstream_claims": {"email": " user@example.com "},
+            }
+        ),
+    )
+
+    merged = cast(AccessToken, await auth.load_access_token("fastmcp-jwt"))
+    assert merged.client_id == "tracecat-client"
+    assert merged.scopes == [f"organization:{org_id}", f"workspace:{ws_id}"]
+    assert merged.claims["email"] == "user@example.com"
+    assert merged.claims["upstream_claims"] == {"email": " user@example.com "}
 
 
 def test_get_token_identity_extracts_ids_from_claims_and_scopes(
