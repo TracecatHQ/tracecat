@@ -5,7 +5,9 @@ description: "Build and manage workflows"
 
 ## Creating workflows
 
-View and create workflows in
+View and create workflows in the Tracecat UI under the `/workflows` page.
+
+![Create new workflow](/img/automations/workflows/create-new-workflow.png)
 
 ## Run workflow manually
 
@@ -14,6 +16,20 @@ View and create workflows in
 ## Error workflows
 
 ## Environments
+
+## Export / import workflows
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> users should use Tracecat's Git sync feature to push and pull their workflow definitions directly from a remote Git repository.
+
+<Badge icon="github" color="gray" size="lg" shape="pill">Open Source</Badge> users can export and import workflows directly from the Tracecat UI.
+Exported workflows are called workflow definitions and are saved as YAML files.
+
+Right click on a workflow in the `/workflows` page to export the draft or published workflow definition:
+
+![Workflow export / import](/img/automations/workflows/workflow-export.png)
+
+Create workflow from the workflow definition:
+![Workflow import](/img/automations/workflows/workflow-import.png)
 
 ## View workflow runs
 
@@ -24,11 +40,11 @@ There are three views for workflow runs:
 
 ## Cancel / terminate / reset runs
 
-<Badge icon="github" color="gray" size="lg" shape="pill">Open Source</Badge> Open up the Temporal UI to view and control all workflow runs.
-
-<Warning>
+<Danger>
 The Temporal UI exposes all your workflow runs. Do not expose it to the public internet unless you have OIDC SSO enabled.
-</Warning>
+</Danger>
+
+<Badge icon="github" color="gray" size="lg" shape="pill">Open Source</Badge> Open up the Temporal UI to view and control all workflow runs.
 
 <AccordionGroup>
   <Accordion title="Docker compose" icon="docker">
