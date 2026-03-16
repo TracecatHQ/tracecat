@@ -58,6 +58,7 @@ async def generate_session_title(
     user_prompt: str,
     model_name: str,
     model_provider: str,
+    base_url: str | None = None,
     timeout_seconds: float = TITLE_GEN_TIMEOUT_SECONDS,
 ) -> str | None:
     """Best-effort title generation via direct PydanticAI call."""
@@ -65,7 +66,7 @@ async def generate_session_title(
     if not prompt:
         return None
 
-    model = get_model(model_name, model_provider)
+    model = get_model(model_name, model_provider, base_url=base_url)
     agent = Agent(
         model=model,
         instructions=_TITLE_INSTRUCTIONS,

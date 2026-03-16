@@ -24,7 +24,7 @@ from tracecat.agent.schemas import (
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
-from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
@@ -58,6 +58,15 @@ OrganizationUserRole = Annotated[
     ),
 ]
 
+OrganizationUserOptionalWorkspaceRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="optional",
+    ),
+]
+
 WorkspaceUserInPath = Annotated[
     Role,
     RoleACL(
@@ -67,13 +76,6 @@ WorkspaceUserInPath = Annotated[
         workspace_id_in_path=True,
     ),
 ]
-
-
-def _require_org_workspace_access(role: Role) -> None:
-    scopes = role.scopes if role.scopes is not None else frozenset[str]()
-    if has_scope(scopes, "org:workspace:read"):
-        return
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
 
 @router.get("/models")
@@ -88,8 +90,11 @@ async def list_models(
     ),
 ) -> list[ModelCatalogEntry]:
     """List all available AI models."""
-    if workspace_id is not None:
-        _require_org_workspace_access(role)
+    if workspace_id is not None and role.workspace_id != workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden",
+        )
     service = AgentManagementService(session, role=role)
     return await service.list_models(workspace_id=workspace_id)
 
@@ -98,11 +103,10 @@ async def list_models(
 @require_scope("workspace:read")
 async def get_workspace_model_subset(
     *,
-    role: OrganizationUserRole,
+    role: WorkspaceUserInPath,
     workspace_id: uuid.UUID,
     session: AsyncDBSession,
 ) -> WorkspaceModelSubsetRead:
-    _require_org_workspace_access(role)
     service = AgentManagementService(session, role=role)
     return await service.get_workspace_model_subset(workspace_id)
 
@@ -111,12 +115,11 @@ async def get_workspace_model_subset(
 @require_scope("workspace:update")
 async def replace_workspace_model_subset(
     *,
-    role: OrganizationUserRole,
+    role: WorkspaceUserInPath,
     workspace_id: uuid.UUID,
     params: WorkspaceModelSubsetUpdate,
     session: AsyncDBSession,
 ) -> WorkspaceModelSubsetRead:
-    _require_org_workspace_access(role)
     service = AgentManagementService(session, role=role)
     try:
         return await service.replace_workspace_model_subset(workspace_id, params)
@@ -135,11 +138,10 @@ async def replace_workspace_model_subset(
 @require_scope("workspace:update")
 async def clear_workspace_model_subset(
     *,
-    role: OrganizationUserRole,
+    role: WorkspaceUserInPath,
     workspace_id: uuid.UUID,
     session: AsyncDBSession,
 ) -> None:
-    _require_org_workspace_access(role)
     service = AgentManagementService(session, role=role)
     try:
         await service.clear_workspace_model_subset(workspace_id)

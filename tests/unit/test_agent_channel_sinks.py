@@ -565,9 +565,20 @@ async def test_slack_stream_sink_emits_approval_cards(
 
 @pytest.mark.anyio
 async def test_slack_stream_sink_ignores_pending_approval_interrupt_errors(
+    monkeypatch: pytest.MonkeyPatch,
     patched_slack_client: _FakeSlackClient,
 ):
     fake_client = patched_slack_client
+    fake_redis = _FakeRedisClient()
+
+    async def _get_redis() -> _FakeRedisClient:
+        return fake_redis
+
+    monkeypatch.setattr(
+        "tracecat.agent.channels.sinks.slack.get_redis_client",
+        _get_redis,
+    )
+    monkeypatch.setattr(config, "TRACECAT__SIGNING_SECRET", "test-signing-secret")
 
     sink = SlackStreamSink(
         slack_bot_token="xoxb-test",

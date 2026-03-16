@@ -44,7 +44,11 @@ class _DummyAgentManagementService:
     @asynccontextmanager
     async def with_model_config(self, *, catalog_ref: str | None = None):
         assert catalog_ref is None
-        yield SimpleNamespace(model_name="gpt-4o-mini", model_provider="openai")
+        yield SimpleNamespace(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            base_url="https://gateway.example/v1",
+        )
 
 
 @pytest.mark.anyio
@@ -63,6 +67,7 @@ async def test_auto_title_updates_session_on_first_prompt(role: Role) -> None:
     agent_session.id = uuid.uuid4()
 
     service._is_first_prompt_for_session = AsyncMock(return_value=True)
+    title_generator = AsyncMock(return_value="Investigate login failures")
 
     with (
         patch(
@@ -71,7 +76,7 @@ async def test_auto_title_updates_session_on_first_prompt(role: Role) -> None:
         ),
         patch(
             "tracecat.agent.session.service.generate_session_title",
-            AsyncMock(return_value="Investigate login failures"),
+            title_generator,
         ),
     ):
         await service.auto_title_session_on_first_prompt(
@@ -80,6 +85,12 @@ async def test_auto_title_updates_session_on_first_prompt(role: Role) -> None:
         )
 
     assert agent_session.title == "Investigate login failures"
+    title_generator.assert_awaited_once_with(
+        user_prompt="Users cannot sign in",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        base_url="https://gateway.example/v1",
+    )
     session.execute.assert_awaited_once()
     session.commit.assert_awaited_once()
 
@@ -111,7 +122,11 @@ async def test_auto_title_uses_service_role_for_model_config(user_role: Role) ->
         @asynccontextmanager
         async def with_model_config(self, *, catalog_ref: str | None = None):
             assert catalog_ref is None
-            yield SimpleNamespace(model_name="gpt-4o-mini", model_provider="openai")
+            yield SimpleNamespace(
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                base_url=None,
+            )
 
     with (
         patch(

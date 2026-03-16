@@ -16,6 +16,9 @@ from tracecat.auth.types import PlatformRole
 from tracecat.db.models import (
     AgentCatalog,
     AgentEnabledModel,
+    AgentPreset,
+    AgentPresetVersion,
+    AgentSession,
     Organization,
     OrganizationSetting,
     Workspace,
@@ -100,9 +103,52 @@ async def test_upsert_platform_catalog_rows_prunes_stale_org_state(
                 value_type="json",
                 is_encrypted=False,
             ),
+            AgentPreset(
+                workspace_id=workspace_id,
+                name="Stale preset",
+                slug="stale-preset",
+                instructions="Use the stale built-in model",
+                model_name="gpt-stale",
+                model_provider="openai",
+                source_id=None,
+                base_url="https://stale.example/v1",
+                retries=3,
+                enable_internet_access=False,
+            ),
         ]
     )
     await session.flush()
+    preset = (
+        await session.execute(
+            select(AgentPreset).where(AgentPreset.workspace_id == workspace_id)
+        )
+    ).scalar_one()
+    version = AgentPresetVersion(
+        workspace_id=workspace_id,
+        preset_id=preset.id,
+        version=1,
+        instructions=preset.instructions,
+        model_name=preset.model_name,
+        model_provider=preset.model_provider,
+        source_id=None,
+        base_url=preset.base_url,
+        retries=preset.retries,
+        enable_internet_access=preset.enable_internet_access,
+    )
+    agent_session = AgentSession(
+        workspace_id=workspace_id,
+        title="Stale session",
+        created_by=None,
+        entity_type="case",
+        entity_id=uuid.uuid4(),
+        source_id=None,
+        model_provider="openai",
+        model_name="gpt-stale",
+    )
+    session.add_all([version, agent_session])
+    await session.flush()
+    preset.current_version_id = version.id
+    session.add(preset)
     await session.execute(
         insert(AgentEnabledModel).values(
             organization_id=org_id,
@@ -176,3 +222,13 @@ async def test_upsert_platform_catalog_rows_prunes_stale_org_state(
         "agent_default_model": None,
         "agent_default_model_ref": None,
     }
+
+    await session.refresh(preset)
+    await session.refresh(version)
+    await session.refresh(agent_session)
+    assert preset.model_name == "gpt-stale [unavailable]"
+    assert preset.base_url is None
+    assert version.model_name == "gpt-stale [unavailable]"
+    assert version.base_url is None
+    assert agent_session.model_provider is None
+    assert agent_session.model_name is None
