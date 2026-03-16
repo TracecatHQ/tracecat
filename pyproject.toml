@@ -27,7 +27,7 @@ dependencies = [
     "alembic==1.13.2",
     "async-lru==2.0.4",
     "asyncpg==0.29.0",
-    "authlib==1.6.7",
+    "authlib==1.6.9",
     "claude-agent-sdk==0.1.18",
     "cloudpickle==3.1.1",
     "cramjam==2.11.0",
