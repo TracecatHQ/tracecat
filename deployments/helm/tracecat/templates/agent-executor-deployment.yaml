@@ -41,7 +41,7 @@ spec:
         - name: agent-executor
           image: "{{ .Values.image.repository }}:{{ include "tracecat.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["python", "-m", "tracecat.agent.worker"]
+          command: ["python", "-m", "tracecat.agent.executor_worker"]
           {{- if not .Values.tracecat.sandbox.disableNsjail }}
           securityContext:
             privileged: true  # Required for nsjail sandbox mount operations

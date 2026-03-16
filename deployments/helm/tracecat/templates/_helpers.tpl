@@ -758,6 +758,43 @@ Merges: common + temporal + postgres + redis + worker-specific
 {{- end }}
 
 {{/*
+Agent worker service environment variables
+Merges: common + temporal + postgres + redis + agent-worker-specific
+*/}}
+{{- define "tracecat.env.agentWorker" -}}
+{{ include "tracecat.env.common" . }}
+{{ include "tracecat.env.temporal" . }}
+{{ include "tracecat.env.blobStorage" . }}
+{{ include "tracecat.env.postgres" . }}
+{{ include "tracecat.env.redis" . }}
+{{- if .Values.tracecat.temporal.metrics.enabled }}
+- name: TEMPORAL__METRICS_PORT
+  value: {{ .Values.tracecat.temporal.metrics.port | quote }}
+{{- end }}
+- name: TRACECAT__API_ROOT_PATH
+  value: "/api"
+- name: TRACECAT__API_URL
+  value: {{ include "tracecat.internalApiUrl" . | quote }}
+- name: TRACECAT__PUBLIC_API_URL
+  value: {{ include "tracecat.publicApiUrl" . | quote }}
+{{- /* Context compression */}}
+- name: TRACECAT__CONTEXT_COMPRESSION_ENABLED
+  value: {{ .Values.agentWorker.contextCompression.enabled | quote }}
+- name: TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB
+  value: {{ .Values.agentWorker.contextCompression.thresholdKb | quote }}
+{{- /* Agent worker settings */}}
+- name: TRACECAT__AGENT_QUEUE
+  value: {{ .Values.agentWorker.queue | quote }}
+- name: TRACECAT__AGENT_EXECUTOR_QUEUE
+  value: {{ .Values.agentExecutor.queue | quote }}
+{{- /* Sentry */}}
+{{- if .Values.tracecat.sentryDsn }}
+- name: SENTRY_DSN
+  value: {{ .Values.tracecat.sentryDsn | quote }}
+{{- end }}
+{{- end }}
+
+{{/*
 Executor service environment variables
 Merges: common + temporal + postgres + redis + executor-specific
 */}}
@@ -816,7 +853,11 @@ Merges: common + temporal + postgres + redis + agent-executor-specific
 - name: TRACECAT__EXECUTOR_BACKEND
   value: {{ .Values.agentExecutor.backend | quote }}
 - name: TRACECAT__AGENT_QUEUE
+  value: {{ .Values.agentWorker.queue | quote }}
+- name: TRACECAT__AGENT_EXECUTOR_QUEUE
   value: {{ .Values.agentExecutor.queue | quote }}
+- name: TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES
+  value: {{ .Values.agentExecutor.maxConcurrentActivities | quote }}
 - name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE
   value: {{ .Values.agentExecutor.workerPoolSize | quote }}
 - name: TRACECAT__LLM_PROXY_READ_TIMEOUT

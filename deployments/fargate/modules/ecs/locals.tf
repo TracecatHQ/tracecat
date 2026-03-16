@@ -103,6 +103,26 @@ locals {
     { name = k, value = tostring(v) } if v != null
   ]
 
+  agent_worker_env = [
+    for k, v in merge(
+      local.tracecat_common_env,
+      local.tracecat_blob_storage_env,
+      local.tracecat_db_configs,
+      {
+        TRACECAT__API_ROOT_PATH           = "/api"
+        TRACECAT__API_URL                 = local.internal_api_url
+        TRACECAT__PUBLIC_API_URL          = local.public_api_url
+        TRACECAT__DB_ENDPOINT             = local.core_db_hostname
+        TRACECAT__EXECUTOR_CLIENT_TIMEOUT = var.executor_client_timeout
+        TRACECAT__AGENT_QUEUE             = var.agent_queue
+        TRACECAT__AGENT_EXECUTOR_QUEUE    = var.agent_executor_queue
+        TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
+        SENTRY_DSN                        = var.sentry_dsn
+      }
+    ) :
+    { name = k, value = tostring(v) } if v != null
+  ]
+
   executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
@@ -132,17 +152,19 @@ locals {
       local.tracecat_db_configs,
       local.tracecat_db_configs_executor,
       {
-        TRACECAT__API_URL                   = local.internal_api_url
-        TRACECAT__DB_ENDPOINT               = local.core_db_hostname
-        TRACECAT__EXECUTOR_BACKEND          = "direct"
-        TRACECAT__AGENT_QUEUE               = var.agent_queue
-        TRACECAT__EXECUTOR_WORKER_POOL_SIZE = var.agent_executor_worker_pool_size
-        TRACECAT__LLM_PROXY_READ_TIMEOUT    = var.llm_proxy_read_timeout
-        TRACECAT__UNSAFE_DISABLE_SM_MASKING = "false"
-        TRACECAT__DISABLE_NSJAIL            = "true"
-        TRACECAT__SANDBOX_NSJAIL_PATH       = "/usr/local/bin/nsjail"
-        TRACECAT__SANDBOX_ROOTFS_PATH       = "/var/lib/tracecat/sandbox-rootfs"
-        TRACECAT__SANDBOX_CACHE_DIR         = "/var/lib/tracecat/sandbox-cache"
+        TRACECAT__API_URL                                  = local.internal_api_url
+        TRACECAT__DB_ENDPOINT                              = local.core_db_hostname
+        TRACECAT__EXECUTOR_BACKEND                         = "direct"
+        TRACECAT__AGENT_QUEUE                              = var.agent_queue
+        TRACECAT__AGENT_EXECUTOR_QUEUE                     = var.agent_executor_queue
+        TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES = var.agent_executor_max_concurrent_activities
+        TRACECAT__EXECUTOR_WORKER_POOL_SIZE                = var.agent_executor_worker_pool_size
+        TRACECAT__LLM_PROXY_READ_TIMEOUT                   = var.llm_proxy_read_timeout
+        TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"
+        TRACECAT__DISABLE_NSJAIL                           = "true"
+        TRACECAT__SANDBOX_NSJAIL_PATH                      = "/usr/local/bin/nsjail"
+        TRACECAT__SANDBOX_ROOTFS_PATH                      = "/var/lib/tracecat/sandbox-rootfs"
+        TRACECAT__SANDBOX_CACHE_DIR                        = "/var/lib/tracecat/sandbox-cache"
       }
     ) :
     { name = k, value = tostring(v) } if v != null

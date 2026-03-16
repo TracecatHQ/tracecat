@@ -334,6 +334,18 @@ variable "worker_replicas" {
   default     = 4
 }
 
+variable "agent_worker_replicas" {
+  description = "Number of agent-worker replicas"
+  type        = number
+  default     = 2
+}
+
+variable "agent_queue" {
+  description = "Queue name for agent-worker workers"
+  type        = string
+  default     = "shared-agent-queue"
+}
+
 variable "executor_replicas" {
   description = "Number of executor replicas"
   type        = number
@@ -361,13 +373,19 @@ variable "agent_executor_replicas" {
 variable "agent_executor_queue" {
   description = "Queue name for agent-executor workers"
   type        = string
-  default     = "shared-agent-queue"
+  default     = "shared-agent-executor-queue"
 }
 
 variable "agent_executor_backend" {
   description = "Agent executor backend: 'pool', 'ephemeral', 'direct', or 'auto'"
   type        = string
   default     = "ephemeral"
+}
+
+variable "agent_executor_max_concurrent_activities" {
+  description = "Maximum concurrent activities per agent-executor pod"
+  type        = number
+  default     = 1
 }
 
 variable "ui_replicas" {
@@ -397,6 +415,18 @@ variable "worker_cpu_request_millicores" {
 
 variable "worker_memory_request_mib" {
   description = "Worker memory request in MiB"
+  type        = number
+  default     = 2048
+}
+
+variable "agent_worker_cpu_request_millicores" {
+  description = "Agent worker CPU request in millicores"
+  type        = number
+  default     = 2000
+}
+
+variable "agent_worker_memory_request_mib" {
+  description = "Agent worker memory request in MiB"
   type        = number
   default     = 2048
 }

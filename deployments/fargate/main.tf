@@ -132,6 +132,10 @@ module "ecs" {
   worker_cpu                               = var.worker_cpu
   worker_memory                            = var.worker_memory
   worker_desired_count                     = var.worker_desired_count
+  agent_worker_cpu                         = var.agent_worker_cpu
+  agent_worker_memory                      = var.agent_worker_memory
+  agent_worker_desired_count               = var.agent_worker_desired_count
+  agent_queue                              = var.agent_queue
   executor_cpu                             = var.executor_cpu
   executor_memory                          = var.executor_memory
   executor_desired_count                   = var.executor_desired_count
@@ -141,7 +145,8 @@ module "ecs" {
   agent_executor_cpu                       = var.agent_executor_cpu
   agent_executor_memory                    = var.agent_executor_memory
   agent_executor_desired_count             = var.agent_executor_desired_count
-  agent_queue                              = var.agent_queue
+  agent_executor_queue                     = var.agent_executor_queue
+  agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
   agent_executor_worker_pool_size          = var.agent_executor_worker_pool_size
   llm_proxy_read_timeout                   = var.llm_proxy_read_timeout
   ui_cpu                                   = var.ui_cpu
