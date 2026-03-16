@@ -1,0 +1,25 @@
+tests/unit/test_service_accounts_pagination.py
+  08fdd0516ebb2a38 14,138-142,147,164-168,173
+tests/unit/api/conftest.py
+  08fdd0516ebb2a38 24,28,101-103,106-107,109,111-115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "560a899e662b8299ff3747671a732a8a0795f4e4",
+  "prompts": {
+    "08fdd0516ebb2a38": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cf265-9b1b-7522-8dea-6adbfe64cadb",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 27,
+      "total_deletions": 23,
+      "accepted_lines": 26,
+      "overriden_lines": 0
+    }
+  }
+}
