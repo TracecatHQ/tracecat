@@ -43,7 +43,7 @@ async def test_list_workspaces_admin_success(
     """Test GET /workspaces returns all workspaces for admin."""
     with patch.object(workspaces_router, "WorkspaceService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.admin_list_workspaces.return_value = [mock_workspace_data]
+        mock_svc.list_accessible_workspaces.return_value = [mock_workspace_data]
         MockService.return_value = mock_svc
 
         # Make request
@@ -71,7 +71,7 @@ async def test_list_workspaces_user_success(
     try:
         with patch.object(workspaces_router, "WorkspaceService") as MockService:
             mock_svc = AsyncMock()
-            mock_svc.list_workspaces.return_value = [test_workspace]
+            mock_svc.list_accessible_workspaces.return_value = [test_workspace]
             MockService.return_value = mock_svc
 
             # Make request - test_role fixture is used for non-admin user

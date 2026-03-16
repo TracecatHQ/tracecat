@@ -322,10 +322,18 @@ async def test_service_account_can_list_workflow_executions_without_user_filter(
     mock_service = AsyncMock()
     mock_service.list_executions.return_value = []
 
-    with patch.object(
-        WorkflowExecutionsService, "connect", new_callable=AsyncMock
-    ) as mock_connect:
+    with (
+        patch.object(
+            WorkflowExecutionsService, "connect", new_callable=AsyncMock
+        ) as mock_connect,
+        patch.object(
+            workflow_executions_router,
+            "get_setting",
+            new_callable=AsyncMock,
+        ) as mock_get_setting,
+    ):
         mock_connect.return_value = mock_service
+        mock_get_setting.return_value = None
 
         token = ctx_role.set(workspace_targeted_service_account_role)
         try:
