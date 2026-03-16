@@ -5,8 +5,10 @@ Tests the runtime execution with mocked Claude SDK.
 
 from __future__ import annotations
 
+import tempfile
 import uuid
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -261,13 +263,13 @@ class TestClaudeAgentRuntimeRun:
         mock_socket_writer.send_done.assert_awaited_once()
 
     @pytest.mark.anyio
-    async def test_adds_registry_mcp_alias_on_resume(
+    async def test_canonicalizes_registry_mcp_alias_on_resume(
         self,
         mock_socket_writer: MagicMock,
         mock_claude_sdk_client: MagicMock,
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        """Test that resumed sessions include the registry MCP alias."""
+        """Test that resumed sessions only mount the canonical registry MCP name."""
         captured_options: list[Any] = []
 
         def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
@@ -297,7 +299,35 @@ class TestClaudeAgentRuntimeRun:
         mcp_servers = captured_options[0].mcp_servers
         assert isinstance(mcp_servers, dict)
         assert "tracecat-registry" in mcp_servers
-        assert "tracecat_registry" in mcp_servers
+        assert "tracecat_registry" not in mcp_servers
+
+    @pytest.mark.anyio
+    async def test_write_session_file_canonicalizes_registry_mcp_aliases(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Test that resume JSONL is rewritten to the canonical registry MCP name."""
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._cwd = (
+            Path(tempfile.gettempdir())
+            / "tracecat-agent-test-canonicalize-registry-mcp-alias"
+        )
+        sdk_session_data = (
+            '{"type":"assistant","message":{"content":[{"type":"tool_use",'
+            '"name":"mcp__tracecat_registry__execute_tool","input":{"tool_name":'
+            '"mcp__tracecat_registry__core__http_request"}}]}}\n'
+        )
+
+        session_file = await runtime._write_session_file(
+            sdk_session_id,
+            sdk_session_data,
+        )
+
+        session_text = session_file.read_text()
+        assert "mcp__tracecat-registry__execute_tool" in session_text
+        assert "mcp__tracecat-registry__core__http_request" in session_text
+        assert "mcp__tracecat_registry__" not in session_text
 
 
 class TestClaudeAgentRuntimePreToolUseHook:
