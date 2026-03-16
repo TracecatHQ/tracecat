@@ -48,9 +48,9 @@ from tracecat.tables.common import (
     coerce_to_date,
     coerce_to_utc_datetime,
     convert_value,
-    handle_default_value,
     is_valid_sql_type,
     normalize_column_options,
+    prepare_default_value,
     to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
@@ -426,15 +426,18 @@ class BaseTablesService(BaseWorkspaceService):
 
         # Handle default value based on type
         default_value = params.default
+        rendered_default = None
         if default_value is not None:
-            default_value = handle_default_value(sql_type, default_value)
+            default_value, rendered_default = prepare_default_value(
+                sql_type, default_value
+            )
         # Create the column metadata first
         column = TableColumn(
             table_id=table.id,
             name=column_name,
             type=sql_type.value,
             nullable=params.nullable,
-            default=default_value,  # Store original default in metadata
+            default=default_value,
             options=normalized_options,
         )
         self.session.add(column)
@@ -453,8 +456,8 @@ class BaseTablesService(BaseWorkspaceService):
         column_def = [f"{column_name} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
-        if default_value is not None:
-            column_def.append(f"DEFAULT {default_value}")
+        if rendered_default is not None:
+            column_def.append(f"DEFAULT {rendered_default}")
 
         column_def_str = " ".join(column_def)
 
@@ -521,12 +524,12 @@ class BaseTablesService(BaseWorkspaceService):
             elif target_type not in (SqlType.SELECT, SqlType.MULTI_SELECT):
                 set_fields["options"] = None
 
+        old_name = self._sanitize_identifier(column.name)
+        new_name = self._sanitize_identifier(set_fields.get("name", column.name))
+        new_type = set_fields.get("type", column.type)
+
         # Handle physical column changes if name or type is being updated
         if "name" in set_fields or "type" in set_fields:
-            old_name = self._sanitize_identifier(column.name)
-            new_name = self._sanitize_identifier(set_fields.get("name", column.name))
-            new_type = set_fields.get("type", column.type)
-
             if not is_valid_sql_type(new_type):
                 raise ValueError(f"Invalid type: {new_type}")
 
@@ -554,46 +557,38 @@ class BaseTablesService(BaseWorkspaceService):
                         (full_table_name, new_name, physical_type),
                     )
                 )
-            if "nullable" in set_fields:
-                constraint = (
-                    "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
+        if "nullable" in set_fields:
+            constraint = "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
+            await conn.execute(
+                sa.DDL(
+                    # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
+                    # No user input is interpolated here - only predefined SQL keywords
+                    f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                    (full_table_name, new_name),
                 )
+            )
+        if "default" in set_fields:
+            updated_default = set_fields["default"]
+            if updated_default is None:
                 await conn.execute(
                     sa.DDL(
-                        # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
-                        # No user input is interpolated here - only predefined SQL keywords
-                        f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                        "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
                         (full_table_name, new_name),
                     )
                 )
-            if "default" in set_fields:
-                updated_default = set_fields["default"]
-                if updated_default is None:
-                    await conn.execute(
-                        sa.DDL(
-                            "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
-                            (full_table_name, new_name),
-                        )
+            else:
+                normalized_default, formatted_default = prepare_default_value(
+                    SqlType(new_type if "type" in set_fields else column.type),
+                    updated_default,
+                )
+                set_fields["default"] = normalized_default
+                await conn.execute(
+                    sa.DDL(
+                        # SAFE f-string: formatted_default is compiler-rendered from a typed value.
+                        f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
+                        (full_table_name, new_name),
                     )
-                else:
-                    # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
-                    # We must use string interpolation here, but it's SAFE because:
-                    # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
-                    # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
-                    # 3. The function validates the SQL type and rejects invalid inputs
-                    # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
-                    formatted_default = handle_default_value(
-                        SqlType(new_type if "type" in set_fields else column.type),
-                        updated_default,
-                    )
-                    await conn.execute(
-                        sa.DDL(
-                            # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
-                            # Other parameters (table/column names) still use secure parameter binding
-                            f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
-                            (full_table_name, new_name),
-                        )
-                    )
+                )
 
         # Update the column metadata
         for key, value in set_fields.items():
@@ -1802,8 +1797,11 @@ class TableEditorService(BaseWorkspaceService):
 
         # Handle default value based on type
         default_value = params.default
+        rendered_default = None
         if default_value is not None:
-            default_value = handle_default_value(params.type, default_value)
+            default_value, rendered_default = prepare_default_value(
+                params.type, default_value
+            )
 
         # Build the column definition string
         # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
@@ -1816,8 +1814,8 @@ class TableEditorService(BaseWorkspaceService):
         column_def = [f"{params.name} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
-        if default_value is not None:
-            column_def.append(f"DEFAULT {default_value}")
+        if rendered_default is not None:
+            column_def.append(f"DEFAULT {rendered_default}")
 
         column_def_str = " ".join(column_def)
 
@@ -1897,19 +1895,13 @@ class TableEditorService(BaseWorkspaceService):
                     )
                 )
             else:
-                # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
-                # We must use string interpolation here, but it's SAFE because:
-                # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
-                # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
-                # 3. The function validates the SQL type and rejects invalid inputs
-                # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
-                formatted_default = handle_default_value(
+                normalized_default, formatted_default = prepare_default_value(
                     SqlType(set_fields.get("type", "TEXT")), updated_default
                 )
+                set_fields["default"] = normalized_default
                 await conn.execute(
                     sa.DDL(
-                        # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
-                        # Other parameters (table/column names) still use secure parameter binding
+                        # SAFE f-string: formatted_default is compiler-rendered from a typed value.
                         f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
                         (full_table_name, new_name),
                     )

@@ -422,6 +422,7 @@ class TestParsePostgresDefault:
         [
             (None, None),
             ("'attack'::text", "attack"),
+            ("'O''Brien'::text", "O'Brien"),
             ("0::integer", "0"),
             ("true::boolean", "true"),
             ("'2024-01-01'::timestamp", "2024-01-01"),
@@ -482,6 +483,12 @@ class TestHandleDefaultValue:
                 "'00000000-0000-0000-0000-000000000000'::uuid",
                 id="uuid-literal",
             ),
+            pytest.param(
+                SqlType.JSONB,
+                {"author": "O'Brien"},
+                "'{\"author\":\"O''Brien\"}'::jsonb",
+                id="jsonb-literal",
+            ),
         ],
     )
     def test_formats_literal_safe_defaults(
@@ -499,10 +506,22 @@ class TestHandleDefaultValue:
                 id="integer-expression",
             ),
             pytest.param(
+                SqlType.INTEGER,
+                "Infinity",
+                "Invalid integer default value",
+                id="integer-infinity",
+            ),
+            pytest.param(
                 SqlType.NUMERIC,
                 "1 / 0.5",
                 "Invalid numeric default value",
                 id="numeric-expression",
+            ),
+            pytest.param(
+                SqlType.NUMERIC,
+                "Infinity",
+                "Invalid numeric default value",
+                id="numeric-infinity",
             ),
             pytest.param(
                 SqlType.UUID,
@@ -515,8 +534,22 @@ class TestHandleDefaultValue:
     def test_rejects_non_literal_defaults(
         self, sql_type: SqlType, default: Any, error_message: str
     ) -> None:
-        with pytest.raises(TypeError, match=error_message):
+        with pytest.raises(ValueError, match=error_message):
             handle_default_value(sql_type, default)
+
+    def test_text_sql_injection_payload_is_rendered_as_literal(self) -> None:
+        payload = "'; SELECT pg_sleep(1); --"
+        assert (
+            handle_default_value(SqlType.TEXT, payload)
+            == "'''; SELECT pg_sleep(1); --'"
+        )
+
+    def test_jsonb_sql_injection_payload_is_rendered_as_literal(self) -> None:
+        payload = {"query": "'; SELECT pg_sleep(1); --"}
+        rendered = handle_default_value(SqlType.JSONB, payload)
+        assert rendered.startswith("'")
+        assert rendered.endswith("'::jsonb")
+        assert "SELECT pg_sleep(1)" in rendered
 
 
 @pytest.mark.anyio
@@ -597,7 +630,7 @@ class TestTableColumns:
             TableCreate(name="quoted_default_create")
         )
 
-        await tables_service.create_column(
+        column = await tables_service.create_column(
             table,
             TableColumnCreate(
                 name="nickname",
@@ -606,6 +639,7 @@ class TestTableColumns:
                 default="O'Brien",
             ),
         )
+        assert column.default == "O'Brien"
 
         inserted = await tables_service.insert_row(table, TableRowInsert(data={}))
         assert inserted["nickname"] == "O'Brien"
@@ -626,6 +660,8 @@ class TestTableColumns:
             column,
             TableColumnUpdate(name="display_name", default="O'Brien"),
         )
+        updated_column = await tables_service.get_column(table.id, column.id)
+        assert updated_column.default == "O'Brien"
 
         inserted = await tables_service.insert_row(table, TableRowInsert(data={}))
         assert inserted["display_name"] == "O'Brien"
@@ -652,6 +688,48 @@ class TestTableColumns:
 
         inserted = await editor.insert_row(TableRowInsert(data={}))
         assert inserted["nickname"] == "O'Brien"
+
+    async def test_create_column_sql_injection_payload_is_stored_as_text_literal(
+        self, tables_service: TablesService
+    ) -> None:
+        """Text defaults that look like SQL must round-trip as plain text."""
+        payload = "'; SELECT pg_sleep(1); --"
+        table = await tables_service.create_table(
+            TableCreate(name="default_sql_injection_create")
+        )
+
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(
+                name="notes",
+                type=SqlType.TEXT,
+                nullable=True,
+                default=payload,
+            ),
+        )
+
+        assert column.default == payload
+        inserted = await tables_service.insert_row(table, TableRowInsert(data={}))
+        assert inserted["notes"] == payload
+
+    async def test_update_column_rejects_sql_injection_payload_for_integer_default(
+        self, tables_service: TablesService
+    ) -> None:
+        """Typed defaults should reject SQL-expression payloads instead of rendering them."""
+        payload = "1; SELECT pg_sleep(1); --"
+        table = await tables_service.create_table(
+            TableCreate(name="default_sql_injection_update")
+        )
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(name="attempts", type=SqlType.INTEGER, nullable=True),
+        )
+
+        with pytest.raises(ValueError, match="Invalid integer default value"):
+            await tables_service.update_column(
+                column,
+                TableColumnUpdate(default=payload),
+            )
 
     async def test_create_single_column_unique_index(
         self, tables_service: TablesService, table: Table
