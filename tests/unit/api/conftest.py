@@ -21,9 +21,11 @@ from tracecat.auth.dependencies import (
     WorkspaceUserRole,
 )
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import ADMIN_SCOPES, ORG_ADMIN_SCOPES
 from tracecat.cases.router import WorkspaceUser
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
+from tracecat.db.models import Workspace
 from tracecat.service_accounts.router import WorkspaceUserOnlyInPath
 from tracecat.tables.router import (
     WorkspaceEditorUser as TablesWorkspaceEditorUser,
@@ -33,19 +35,6 @@ from tracecat.tables.router import (
 )
 from tracecat.workspaces.router import (
     WorkspaceUserInPath,
-)
-
-ADMIN_SCOPES = frozenset(
-    {
-        "org:service_account:create",
-        "org:service_account:read",
-        "org:service_account:update",
-        "org:service_account:disable",
-        "workspace:service_account:create",
-        "workspace:service_account:read",
-        "workspace:service_account:update",
-        "workspace:service_account:disable",
-    }
 )
 
 
@@ -108,14 +97,19 @@ def client() -> Generator[TestClient, None, None]:
 
 
 @pytest.fixture
-def test_admin_role() -> Role:
-    organization_id = uuid.uuid4()
-    workspace_id = uuid.uuid4()
-    return Role(
+def test_admin_role(
+    test_workspace: Workspace, mock_org_id: uuid.UUID
+) -> Generator[Role, None, None]:
+    role = Role(
         type="user",
         user_id=uuid.uuid4(),
-        organization_id=organization_id,
-        workspace_id=workspace_id,
+        organization_id=mock_org_id,
+        workspace_id=test_workspace.id,
         service_id="tracecat-api",
-        scopes=ADMIN_SCOPES,
+        scopes=ADMIN_SCOPES | ORG_ADMIN_SCOPES,
     )
+    token = ctx_role.set(role)
+    try:
+        yield role
+    finally:
+        ctx_role.reset(token)

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import ServiceAccount, ServiceAccountApiKey
-from tracecat.pagination import CursorPaginationParams
+from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service_accounts.service import (
     OrganizationServiceAccountService,
     _paginate_service_account_api_keys,
@@ -135,11 +135,16 @@ async def test_paginate_service_accounts_swaps_flags_for_reverse() -> None:
         SimpleNamespace(id=uuid.uuid4(), created_at=datetime(2024, 1, 1, tzinfo=UTC)),
     ]
     session = _ItemsSession(items)
+    cursor = BaseCursorPaginator.encode_cursor(
+        items[0].id,
+        sort_column="created_at",
+        sort_value=items[0].created_at,
+    )
 
     page = await _paginate_service_accounts(
         cast(AsyncSession, session),
         stmt=select(ServiceAccount),
-        params=CursorPaginationParams(limit=2, reverse=True, cursor="cursor"),
+        params=CursorPaginationParams(limit=2, reverse=True, cursor=cursor),
         total_estimate=3,
     )
 
@@ -156,11 +161,16 @@ async def test_paginate_service_account_api_keys_swaps_flags_for_reverse() -> No
         SimpleNamespace(id=uuid.uuid4(), created_at=datetime(2024, 1, 1, tzinfo=UTC)),
     ]
     session = _ItemsSession(items)
+    cursor = BaseCursorPaginator.encode_cursor(
+        items[0].id,
+        sort_column="created_at",
+        sort_value=items[0].created_at,
+    )
 
     page = await _paginate_service_account_api_keys(
         cast(AsyncSession, session),
         stmt=select(ServiceAccountApiKey),
-        params=CursorPaginationParams(limit=2, reverse=True, cursor="cursor"),
+        params=CursorPaginationParams(limit=2, reverse=True, cursor=cursor),
         total_estimate=3,
     )
 
