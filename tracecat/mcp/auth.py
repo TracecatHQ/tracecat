@@ -9,11 +9,12 @@ import time
 import uuid
 from base64 import urlsafe_b64decode
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 from cryptography.fernet import Fernet
-from fastmcp.server.auth import AuthProvider
+from fastmcp.server.auth import AccessToken, AuthProvider
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.redis import RedisStore
@@ -75,6 +76,10 @@ _MCP_REFRESH_SCOPE = "offline_access"
 _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 24 * 60 * 60
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
 _MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
+
+
+class _UserinfoFetchError(RuntimeError):
+    """Raised when the upstream userinfo endpoint cannot be queried."""
 
 
 def append_scope_if_missing(scopes: list[str], scope: str) -> list[str]:
@@ -235,6 +240,79 @@ def _decode_unverified_id_token_claims(id_token: str) -> dict[str, object]:
     if not isinstance(claims, dict):
         raise ValueError("id_token payload is not an object")
     return claims
+
+
+def _normalize_email_claim(value: object) -> str | None:
+    if isinstance(value, str) and (email := value.strip()):
+        return email
+    return None
+
+
+def _normalize_subject_claim(value: object) -> str | None:
+    if isinstance(value, str) and (subject := value.strip()):
+        return subject
+    return None
+
+
+def _merge_fastmcp_token_claims(
+    *,
+    validated_claims: Mapping[str, object],
+    fastmcp_claims: Mapping[str, object],
+) -> dict[str, object]:
+    """Merge proxy JWT claims back into the validated upstream token claims.
+
+    FastMCP's OAuth proxy validates tool requests by swapping its own JWT for the
+    upstream provider access token. That means downstream callers often see the
+    upstream token claims, which may omit identity data that Tracecat embedded in
+    the proxy JWT under ``upstream_claims``. Preserve those proxy claims here so
+    request-scoped identity helpers can read a consistent claim set.
+    """
+
+    merged = dict(validated_claims)
+
+    proxy_upstream_claims_obj = fastmcp_claims.get("upstream_claims")
+    if isinstance(proxy_upstream_claims_obj, Mapping):
+        proxy_upstream_claims = dict(
+            cast(Mapping[str, object], proxy_upstream_claims_obj)
+        )
+        merged["upstream_claims"] = proxy_upstream_claims
+        if _normalize_email_claim(merged.get("email")) is None and (
+            email := _normalize_email_claim(proxy_upstream_claims.get("email"))
+        ):
+            merged["email"] = email
+
+    if isinstance(fastmcp_claims.get("client_id"), str):
+        merged["client_id"] = fastmcp_claims["client_id"]
+
+    return merged
+
+
+def _extract_fastmcp_scopes(fastmcp_claims: Mapping[str, object]) -> list[str] | None:
+    raw_scope = fastmcp_claims.get("scope")
+    if isinstance(raw_scope, str):
+        return [scope for scope in raw_scope.split() if scope]
+    if isinstance(raw_scope, list) and all(
+        isinstance(scope, str) for scope in raw_scope
+    ):
+        return [scope for scope in raw_scope if scope]
+    return None
+
+
+async def _fetch_userinfo_claims(
+    *,
+    access_token: str,
+    userinfo_endpoint: str,
+) -> dict[str, object]:
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            userinfo_endpoint,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError("userinfo payload is not an object")
+    return payload
 
 
 def get_token_identity() -> MCPTokenIdentity:
@@ -591,34 +669,23 @@ def create_mcp_auth() -> AuthProvider:
             self, idp_tokens: dict[str, Any]
         ) -> dict[str, Any] | None:
             """Validate the authenticated user exists in Tracecat before issuing a session token."""
-            id_token = idp_tokens.get("id_token")
-            if not id_token:
+            try:
+                email = await self._resolve_idp_email(idp_tokens)
+            except _UserinfoFetchError as exc:
                 raise TokenError(
                     "invalid_grant",
-                    "OIDC provider did not return an id_token",
-                )
-
-            # Decode the JWT payload without verification (already
-            # validated by the upstream exchange).
-            try:
-                claims = _decode_unverified_id_token_claims(id_token)
+                    "Failed to fetch OIDC userinfo",
+                ) from exc
             except Exception as exc:
                 raise TokenError(
                     "invalid_grant",
-                    "Failed to decode id_token claims",
+                    "Failed to resolve OIDC email claims",
                 ) from exc
 
-            raw_email = claims.get("email")
-            if not isinstance(raw_email, str):
+            if email is None:
                 raise TokenError(
                     "invalid_client",
-                    "No email claim in id_token — cannot resolve Tracecat user",
-                )
-            email = raw_email.strip()
-            if not email:
-                raise TokenError(
-                    "invalid_client",
-                    "No email claim in id_token — cannot resolve Tracecat user",
+                    "No email claim in id_token or userinfo — cannot resolve Tracecat user",
                 )
 
             # Check the user exists in the platform DB
@@ -636,6 +703,42 @@ def create_mcp_auth() -> AuthProvider:
                 ) from None
 
             return {"email": email}
+
+        async def load_access_token(self, token: str) -> AccessToken | None:
+            """Preserve FastMCP JWT identity claims after upstream token validation."""
+            access_token = cast(
+                AccessToken | None, await super().load_access_token(token)
+            )
+            if access_token is None:
+                return None
+
+            try:
+                fastmcp_claims = self.jwt_issuer.verify_token(token)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to decode FastMCP token claims during MCP auth",
+                    error=str(exc),
+                )
+                return access_token
+
+            merged_claims = _merge_fastmcp_token_claims(
+                validated_claims=access_token.claims,
+                fastmcp_claims=fastmcp_claims,
+            )
+            scopes = access_token.scopes
+            if (fastmcp_scopes := _extract_fastmcp_scopes(fastmcp_claims)) is not None:
+                scopes = fastmcp_scopes
+            client_id = access_token.client_id
+            if not client_id and isinstance(fastmcp_claims.get("client_id"), str):
+                client_id = fastmcp_claims["client_id"].strip()
+
+            return access_token.model_copy(
+                update={
+                    "claims": merged_claims,
+                    "client_id": client_id,
+                    "scopes": scopes,
+                }
+            )
 
         async def _handle_idp_callback(
             self, request: Request
@@ -671,7 +774,11 @@ def create_mcp_auth() -> AuthProvider:
                     return response
 
                 payload = code_model.model_dump()
-                email = self._extract_callback_email(payload)
+                idp_tokens = payload.get("idp_tokens")
+                if not isinstance(idp_tokens, dict):
+                    return response
+
+                email = await self._resolve_idp_email(idp_tokens)
                 if email is None:
                     return response
 
@@ -700,20 +807,44 @@ def create_mcp_auth() -> AuthProvider:
 
             return response
 
-        @staticmethod
-        def _extract_callback_email(payload: dict[str, Any]) -> str | None:
-            idp_tokens = payload.get("idp_tokens")
-            if not isinstance(idp_tokens, dict):
-                return None
+        async def _resolve_idp_email(
+            self, idp_tokens: Mapping[str, object]
+        ) -> str | None:
+            id_token_subject: str | None = None
             id_token = idp_tokens.get("id_token")
-            if not isinstance(id_token, str) or not id_token:
-                return None
-            claims = _decode_unverified_id_token_claims(id_token)
-            email = claims.get("email")
-            if not isinstance(email, str):
-                return None
-            normalized = email.strip()
-            return normalized or None
+            if isinstance(id_token, str) and id_token:
+                claims = _decode_unverified_id_token_claims(id_token)
+                id_token_subject = _normalize_subject_claim(claims.get("sub"))
+                if email := _normalize_email_claim(claims.get("email")):
+                    return email
+
+            access_token = idp_tokens.get("access_token")
+            userinfo_endpoint = self.oidc_config.userinfo_endpoint
+            if isinstance(access_token, str) and userinfo_endpoint:
+                try:
+                    userinfo = await _fetch_userinfo_claims(
+                        access_token=access_token,
+                        userinfo_endpoint=str(userinfo_endpoint),
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to fetch upstream userinfo for MCP auth",
+                        error=str(exc),
+                    )
+                    raise _UserinfoFetchError from exc
+                else:
+                    if id_token_subject is not None:
+                        userinfo_subject = _normalize_subject_claim(userinfo.get("sub"))
+                        if userinfo_subject != id_token_subject:
+                            logger.warning(
+                                "Rejected upstream userinfo subject mismatch for MCP auth",
+                                id_token_subject=id_token_subject,
+                                userinfo_subject=userinfo_subject,
+                            )
+                            return None
+                    return _normalize_email_claim(userinfo.get("email"))
+
+            return None
 
         async def _show_consent_page(
             self, request: Request
