@@ -560,11 +560,10 @@ async def update_case(
             detail=str(e),
         ) from e
     except DBAPIError as e:
-        while (cause := e.__cause__) is not None:
-            e = cause
+        logger.exception("Database error occurred during case operation")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Database operation failed",
         ) from e
 
 
