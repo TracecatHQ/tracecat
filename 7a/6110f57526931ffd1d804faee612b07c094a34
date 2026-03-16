@@ -1,0 +1,29 @@
+tracecat/workflow/management/router.py
+  08fdd0516ebb2a38 967
+tests/unit/api/test_api_actor_roles.py
+  08fdd0516ebb2a38 589-591,594
+tests/unit/test_route_scope_guards.py
+  08fdd0516ebb2a38 136
+tracecat/organization/router.py
+  08fdd0516ebb2a38 178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "7a6110f57526931ffd1d804faee612b07c094a34",
+  "prompts": {
+    "08fdd0516ebb2a38": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cf265-9b1b-7522-8dea-6adbfe64cadb",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 1,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    }
+  }
+}
