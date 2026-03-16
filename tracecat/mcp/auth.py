@@ -9,6 +9,7 @@ import time
 import uuid
 from base64 import urlsafe_b64decode
 from collections.abc import Mapping, Sequence
+from enum import StrEnum
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
@@ -20,6 +21,8 @@ from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
+from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import (
     AuthorizationParams,
     TokenError,
@@ -28,8 +31,11 @@ from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
+from starlette.authentication import AuthCredentials, AuthenticationBackend
 from starlette.datastructures import MutableHeaders
-from starlette.requests import Request
+from starlette.middleware import Middleware
+from starlette.middleware.authentication import AuthenticationMiddleware
+from starlette.requests import HTTPConnection, Request
 from starlette.responses import HTMLResponse, RedirectResponse
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -51,18 +57,23 @@ from tracecat.db.models import (
 )
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.logger import logger
-from tracecat.mcp.config import (
-    TRACECAT_MCP__BASE_URL,
-)
+from tracecat.mcp import config as mcp_config
+
+
+class MCPAuthSource(StrEnum):
+    OIDC = "oidc"
+    NONE = "none"
 
 
 class MCPTokenIdentity(BaseModel):
     """Identity extracted from the active MCP access token."""
 
     client_id: str
+    auth_source: MCPAuthSource = MCPAuthSource.OIDC
     email: str | None = None
     organization_ids: frozenset[uuid.UUID] = Field(default_factory=frozenset)
     workspace_ids: frozenset[uuid.UUID] = Field(default_factory=frozenset)
+    is_superuser_bypass: bool = False
 
 
 _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
@@ -76,6 +87,129 @@ _MCP_REFRESH_SCOPE = "offline_access"
 _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 24 * 60 * 60
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
 _MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
+_MCP_AUTH_SOURCE_CLAIM = "tracecat_mcp_auth_source"
+_MCP_BYPASS_CLAIM = "tracecat_mcp_superuser_bypass"
+_MCP_NONE_CLIENT_ID = "tracecat-mcp-none"
+
+
+def _normalize_auth_source(value: object) -> MCPAuthSource:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized:
+            try:
+                return MCPAuthSource(normalized)
+            except ValueError:
+                pass
+    return MCPAuthSource.OIDC
+
+
+def _is_trusted_bypass_identity(
+    auth_source: MCPAuthSource,
+    client_id: str,
+) -> bool:
+    return auth_source is MCPAuthSource.NONE and client_id == _MCP_NONE_CLIENT_ID
+
+
+def _build_none_access_token() -> AccessToken:
+    claims: dict[str, Any] = {
+        "client_id": _MCP_NONE_CLIENT_ID,
+        _MCP_AUTH_SOURCE_CLAIM: MCPAuthSource.NONE.value,
+        _MCP_BYPASS_CLAIM: True,
+    }
+    return AccessToken(
+        token=_MCP_NONE_CLIENT_ID,
+        client_id=_MCP_NONE_CLIENT_ID,
+        scopes=["*"],
+        claims=claims,
+    )
+
+
+class _TracecatMCPAuthBackend(AuthenticationBackend):
+    def __init__(self, provider: TracecatMCPAuthProvider) -> None:
+        self.provider = provider
+
+    async def authenticate(self, conn: HTTPConnection):
+        auth_header = next(
+            (
+                conn.headers.get(key)
+                for key in conn.headers
+                if key.lower() == "authorization"
+            ),
+            None,
+        )
+        auth_was_attempted = auth_header is not None
+        auth_info: AccessToken | None = None
+        if auth_header:
+            scheme, _, credential = auth_header.partition(" ")
+            if scheme.lower() == "bearer" and credential:
+                auth_info = await self.provider.verify_token(credential)
+
+        if auth_info is None and self.provider.supports_none and not auth_was_attempted:
+            logger.warning(
+                "Accepted unauthenticated MCP request because auth method 'none' is enabled; this is highly unsafe and should only be used for development",
+                auth_source=MCPAuthSource.NONE.value,
+            )
+            auth_info = _build_none_access_token()
+
+        if auth_info is None:
+            return None
+        if auth_info.expires_at and auth_info.expires_at < int(time.time()):
+            return None
+
+        return AuthCredentials(auth_info.scopes), AuthenticatedUser(auth_info)
+
+
+class TracecatMCPAuthProvider(AuthProvider):
+    """MCP auth provider that wraps OIDC and optional unsafe authless access."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        auth_methods: frozenset[str],
+        oidc_provider: OIDCProxy | None,
+    ) -> None:
+        super().__init__(
+            base_url=base_url,
+            required_scopes=(
+                list(oidc_provider.required_scopes) if oidc_provider else []
+            ),
+        )
+        self.auth_methods = auth_methods
+        self.server = oidc_provider
+
+    @property
+    def supports_none(self) -> bool:
+        return MCPAuthSource.NONE.value in self.auth_methods
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if self.server is None:
+            return None
+        return await self.server.verify_token(token)
+
+    def set_mcp_path(self, mcp_path: str | None) -> None:
+        super().set_mcp_path(mcp_path)
+        if self.server is not None:
+            self.server.set_mcp_path(mcp_path)
+
+    def get_routes(self, mcp_path: str | None = None) -> list[Route]:
+        self.set_mcp_path(mcp_path)
+        if self.server is None:
+            return []
+        return self.server.get_routes(mcp_path)
+
+    def get_middleware(self) -> list[Middleware]:
+        if self.supports_none:
+            return [
+                Middleware(
+                    AuthenticationMiddleware,  # type: ignore[arg-type]
+                    backend=_TracecatMCPAuthBackend(self),
+                ),
+                Middleware(AuthContextMiddleware),  # type: ignore[arg-type]
+            ]
+        if self.server is None:
+            return []
+        return self.server.get_middleware()
 
 
 class _UserinfoFetchError(RuntimeError):
@@ -341,12 +475,18 @@ def get_token_identity() -> MCPTokenIdentity:
     workspace_ids = _extract_claimed_uuids(claims, ("workspace_id", "workspace_ids"))
     organization_ids.update(_extract_scope_uuids(access_token.scopes, "organization"))
     workspace_ids.update(_extract_scope_uuids(access_token.scopes, "workspace"))
+    auth_source = _normalize_auth_source(claims.get(_MCP_AUTH_SOURCE_CLAIM))
+    is_superuser_bypass = claims.get(_MCP_BYPASS_CLAIM) is True and (
+        _is_trusted_bypass_identity(auth_source, client_id)
+    )
 
     return MCPTokenIdentity(
         client_id=client_id,
+        auth_source=auth_source,
         email=email,
         organization_ids=frozenset(organization_ids),
         workspace_ids=frozenset(workspace_ids),
+        is_superuser_bypass=is_superuser_bypass,
     )
 
 
@@ -584,9 +724,9 @@ def _build_oidc_consent_html(
 </html>"""
 
 
-def create_mcp_auth() -> AuthProvider:
-    """Build auth provider for external MCP."""
-    base_url = TRACECAT_MCP__BASE_URL.strip().rstrip("/")
+def _create_oidc_auth() -> OIDCProxy:
+    """Build the OIDC auth provider for external MCP."""
+    base_url = mcp_config.TRACECAT_MCP__BASE_URL.strip().rstrip("/")
     if not base_url:
         raise ValueError(
             "TRACECAT_MCP__BASE_URL must be configured for the MCP server. "
@@ -935,6 +1075,48 @@ def create_mcp_auth() -> AuthProvider:
     return auth
 
 
+def create_mcp_auth() -> AuthProvider:
+    """Build the configured auth provider for external MCP."""
+    base_url = mcp_config.TRACECAT_MCP__BASE_URL.strip().rstrip("/")
+    if not base_url:
+        raise ValueError(
+            "TRACECAT_MCP__BASE_URL must be configured for the MCP server. "
+            "Set it to the public URL where the MCP server is accessible."
+        )
+
+    auth_methods = mcp_config.TRACECAT_MCP__AUTH_METHODS
+    oidc_provider: OIDCProxy | None = None
+    if MCPAuthSource.OIDC.value in auth_methods:
+        try:
+            oidc_provider = _create_oidc_auth()
+        except Exception:
+            if auth_methods == frozenset({MCPAuthSource.OIDC.value}):
+                raise
+            logger.warning(
+                "MCP oidc auth is enabled but not configured; skipping OIDC and continuing with remaining auth methods",
+                auth_methods=sorted(auth_methods),
+                exc_info=True,
+            )
+
+    if (
+        auth_methods == frozenset({MCPAuthSource.OIDC.value})
+        and oidc_provider is not None
+    ):
+        return oidc_provider
+
+    if MCPAuthSource.NONE.value in auth_methods:
+        logger.warning(
+            "MCP none auth is enabled; unauthenticated requests will run with a superuser-equivalent bypass. This is highly unsafe and should only be used for development",
+            auth_methods=sorted(auth_methods),
+        )
+
+    return TracecatMCPAuthProvider(
+        base_url=base_url,
+        auth_methods=auth_methods,
+        oidc_provider=oidc_provider,
+    )
+
+
 async def resolve_user_by_email(email: str) -> User:
     """Look up a user by email, raising if not found."""
     async with get_async_session_context_manager() as session:
@@ -993,6 +1175,38 @@ async def resolve_workspace_org(workspace_id: WorkspaceID) -> OrganizationID:
         if org_id is None:
             raise ValueError(f"Workspace {workspace_id} not found")
         return org_id
+
+
+async def resolve_bypass_role_for_workspace(workspace_id: WorkspaceID) -> Role:
+    """Construct a superuser-equivalent MCP role for unsafe authless access."""
+    org_id = await resolve_workspace_org(workspace_id)
+    role = Role(
+        type="service",
+        user_id=None,
+        workspace_id=workspace_id,
+        organization_id=org_id,
+        service_id="tracecat-mcp",
+        is_platform_superuser=True,
+        scopes=frozenset({"*"}),
+    )
+    ctx_role.set(role)
+    return role
+
+
+async def list_all_workspaces(
+    organization_ids: frozenset[OrganizationID] | None = None,
+) -> list[dict[str, str]]:
+    """List all workspaces, optionally narrowed to specific organizations."""
+    async with get_async_session_context_manager() as session:
+        stmt = select(Workspace.id, Workspace.name)
+        if organization_ids:
+            stmt = stmt.where(Workspace.organization_id.in_(organization_ids))
+        stmt = stmt.order_by(Workspace.name.asc(), Workspace.id.asc())
+        result = await session.execute(stmt)
+        return [
+            {"id": str(workspace_id), "name": workspace_name}
+            for workspace_id, workspace_name in result.tuples().all()
+        ]
 
 
 async def resolve_workspace_membership(
@@ -1085,14 +1299,8 @@ async def list_user_workspaces(
                 key=lambda item: (item[1], str(item[0])),
             )
 
-        # Platform superusers can see all workspaces without org memberships.
         if user.is_superuser:
-            stmt = select(Workspace.id, Workspace.name)
-            if organization_ids:
-                stmt = stmt.where(Workspace.organization_id.in_(organization_ids))
-            stmt = stmt.order_by(Workspace.name.asc(), Workspace.id.asc())
-            result = await session.execute(stmt)
-            return [{"id": str(row.id), "name": row.name} for row in result.all()]
+            return await list_all_workspaces(organization_ids)
 
         # Resolve the user's organization(s)
         org_stmt = select(OrganizationMembership.organization_id).where(
@@ -1166,6 +1374,9 @@ async def list_user_workspaces(
 
 async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
     """Resolve caller role for a workspace."""
+    identity = get_token_identity()
+    if identity.is_superuser_bypass:
+        return await resolve_bypass_role_for_workspace(workspace_id)
     email = get_email_from_token()
     return await resolve_role(email, workspace_id)
 
@@ -1173,6 +1384,8 @@ async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
 async def list_workspaces_for_request() -> list[dict[str, str]]:
     """List workspaces accessible to the current MCP caller."""
     identity = get_token_identity()
+    if identity.is_superuser_bypass:
+        return await list_all_workspaces(identity.organization_ids or None)
     if identity.email is None:
         raise ValueError("Token does not contain an email claim")
     scoped_org_ids = identity.organization_ids or None

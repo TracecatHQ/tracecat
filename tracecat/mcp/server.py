@@ -1,7 +1,8 @@
 """Standalone MCP server for Tracecat workflow management.
 
 Exposes workflow operations to external MCP clients (Claude Desktop, Cursor, etc.).
-Users authenticate via their existing Tracecat OIDC login.
+Users authenticate via the configured MCP auth methods. Enabling `none` is
+highly unsafe and should only be used for local development.
 """
 
 from __future__ import annotations

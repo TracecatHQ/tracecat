@@ -12,6 +12,7 @@ from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
 from starlette.applications import Starlette
+from starlette.requests import HTTPConnection
 from starlette.testclient import TestClient
 
 from tracecat.mcp import auth as mcp_auth
@@ -33,7 +34,12 @@ def _mock_oidc_discovery_config(
 
 
 def _build_test_auth(monkeypatch: pytest.MonkeyPatch) -> mcp_auth.OIDCProxy:
-    monkeypatch.setattr(mcp_auth, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com")
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__AUTH_METHODS", frozenset({"oidc"})
+    )
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
+    )
     with (
         patch(
             "tracecat.mcp.auth.get_platform_oidc_config",
@@ -206,7 +212,7 @@ def test_create_mcp_auth_registration_accepts_platform_oidc_scopes(
 def test_create_mcp_auth_raises_when_base_url_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mcp_auth, "TRACECAT_MCP__BASE_URL", "")
+    monkeypatch.setattr(mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "")
     with pytest.raises(
         ValueError,
         match="TRACECAT_MCP__BASE_URL must be configured for the MCP server",
@@ -217,7 +223,12 @@ def test_create_mcp_auth_raises_when_base_url_missing(
 def test_create_mcp_auth_raises_when_oidc_issuer_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mcp_auth, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com")
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__AUTH_METHODS", frozenset({"oidc"})
+    )
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
+    )
     with patch(
         "tracecat.mcp.auth.get_platform_oidc_config",
         return_value=type(
@@ -235,6 +246,90 @@ def test_create_mcp_auth_raises_when_oidc_issuer_missing(
             match="OIDC_ISSUER must be configured for the MCP server",
         ):
             mcp_auth.create_mcp_auth()
+
+
+def test_create_mcp_auth_returns_composite_provider_for_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__AUTH_METHODS", frozenset({"none"})
+    )
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
+    )
+
+    with patch.object(mcp_auth.logger, "warning") as mock_warning:
+        auth = mcp_auth.create_mcp_auth()
+
+    assert isinstance(auth, mcp_auth.TracecatMCPAuthProvider)
+    assert auth.supports_none is True
+    assert auth.server is None
+    assert any("highly unsafe" in call.args[0] for call in mock_warning.call_args_list)
+
+
+def test_create_mcp_auth_skips_unconfigured_oidc_in_mixed_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        mcp_auth.mcp_config,
+        "TRACECAT_MCP__AUTH_METHODS",
+        frozenset({"oidc", "none"}),
+    )
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
+    )
+
+    with (
+        patch(
+            "tracecat.mcp.auth.get_platform_oidc_config",
+            return_value=type(
+                "OIDCConfig",
+                (),
+                {
+                    "issuer": "",
+                    "client_id": "client-id",
+                    "client_secret": "client-secret",
+                },
+            )(),
+        ),
+        patch.object(mcp_auth.logger, "warning") as mock_warning,
+    ):
+        auth = mcp_auth.create_mcp_auth()
+
+    assert isinstance(auth, mcp_auth.TracecatMCPAuthProvider)
+    assert auth.supports_none is True
+    assert auth.server is None
+    assert any(
+        "skipping OIDC and continuing with remaining auth methods" in call.args[0]
+        for call in mock_warning.call_args_list
+    )
+
+
+def test_create_mcp_auth_skips_oidc_runtime_failures_in_mixed_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        mcp_auth.mcp_config,
+        "TRACECAT_MCP__AUTH_METHODS",
+        frozenset({"oidc", "none"}),
+    )
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
+    )
+
+    with (
+        patch("tracecat.mcp.auth._create_oidc_auth", side_effect=RuntimeError("boom")),
+        patch.object(mcp_auth.logger, "warning") as mock_warning,
+    ):
+        auth = mcp_auth.create_mcp_auth()
+
+    assert isinstance(auth, mcp_auth.TracecatMCPAuthProvider)
+    assert auth.supports_none is True
+    assert auth.server is None
+    assert any(
+        "skipping OIDC and continuing with remaining auth methods" in call.args[0]
+        for call in mock_warning.call_args_list
+    )
 
 
 def test_append_scope_if_missing_adds_unique_scope() -> None:
@@ -285,7 +380,12 @@ def test_supports_refresh_scope_when_scope_not_supported() -> None:
 async def test_create_mcp_auth_authorize_includes_platform_oidc_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mcp_auth, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com")
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__AUTH_METHODS", frozenset({"oidc"})
+    )
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
+    )
     captured: dict[str, object] = {}
 
     async def _capture_authorize(self, client, params):
@@ -351,7 +451,12 @@ async def test_create_mcp_auth_authorize_includes_platform_oidc_scopes(
 async def test_create_mcp_auth_authorize_keeps_offline_access_when_metadata_omits_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mcp_auth, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com")
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__AUTH_METHODS", frozenset({"oidc"})
+    )
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
+    )
     captured: dict[str, object] = {}
 
     async def _capture_authorize(self, client, params):
@@ -717,6 +822,98 @@ def test_get_token_identity_handles_null_token_client_id(
     assert identity.client_id == "user-subject-id"
 
 
+def test_get_token_identity_extracts_none_auth_source_and_bypass_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = type(
+        "T",
+        (),
+        {
+            "client_id": "tracecat-mcp-none",
+            "scopes": ["*"],
+            "claims": {
+                "client_id": "tracecat-mcp-none",
+                "tracecat_mcp_auth_source": "none",
+                "tracecat_mcp_superuser_bypass": True,
+            },
+        },
+    )()
+    monkeypatch.setattr(mcp_auth, "get_access_token", lambda: token)
+
+    identity = mcp_auth.get_token_identity()
+
+    assert identity.auth_source == mcp_auth.MCPAuthSource.NONE
+    assert identity.is_superuser_bypass is True
+
+
+def test_get_token_identity_does_not_trust_unexpected_bypass_claims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token = type(
+        "T",
+        (),
+        {
+            "client_id": "oidc-client-id",
+            "scopes": [],
+            "claims": {
+                "client_id": "oidc-client-id",
+                "tracecat_mcp_auth_source": "oidc",
+                "tracecat_mcp_superuser_bypass": True,
+            },
+        },
+    )()
+    monkeypatch.setattr(mcp_auth, "get_access_token", lambda: token)
+
+    identity = mcp_auth.get_token_identity()
+
+    assert identity.auth_source == mcp_auth.MCPAuthSource.OIDC
+    assert identity.is_superuser_bypass is False
+
+
+@pytest.mark.anyio
+async def test_tracecat_mcp_auth_backend_accepts_none_without_auth_header() -> None:
+    provider = mcp_auth.TracecatMCPAuthProvider(
+        base_url="https://mcp.example.com",
+        auth_methods=frozenset({"none"}),
+        oidc_provider=None,
+    )
+    backend = mcp_auth._TracecatMCPAuthBackend(provider)
+    conn = HTTPConnection({"type": "http", "headers": []})
+
+    with patch.object(mcp_auth.logger, "warning") as mock_warning:
+        result = await backend.authenticate(conn)
+
+    assert result is not None
+    _, user = result
+    claims = cast(mcp_auth.AccessToken, user.access_token).claims
+    assert claims["client_id"] == "tracecat-mcp-none"
+    assert claims["tracecat_mcp_auth_source"] == "none"
+    assert claims["tracecat_mcp_superuser_bypass"] is True
+    assert any("highly unsafe" in call.args[0] for call in mock_warning.call_args_list)
+
+
+@pytest.mark.anyio
+async def test_tracecat_mcp_auth_backend_rejects_invalid_bearer_in_mixed_mode() -> None:
+    provider = mcp_auth.TracecatMCPAuthProvider(
+        base_url="https://mcp.example.com",
+        auth_methods=frozenset({"oidc", "none"}),
+        oidc_provider=None,
+    )
+    backend = mcp_auth._TracecatMCPAuthBackend(provider)
+    conn = HTTPConnection(
+        {
+            "type": "http",
+            "headers": [(b"authorization", b"Bearer not-a-real-token")],
+        }
+    )
+
+    with patch.object(mcp_auth.logger, "warning") as mock_warning:
+        result = await backend.authenticate(conn)
+
+    assert result is None
+    assert mock_warning.call_count == 0
+
+
 @pytest.mark.anyio
 async def test_list_workspaces_for_request_passes_claimed_org_ids(
     monkeypatch: pytest.MonkeyPatch,
@@ -808,6 +1005,66 @@ async def test_list_workspaces_for_request_reads_email_from_upstream_claims(
 
     assert captured["email"] == "user@example.com"
     assert captured["organization_ids"] is None
+
+
+@pytest.mark.anyio
+async def test_list_workspaces_for_request_uses_bypass_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identity = mcp_auth.MCPTokenIdentity(
+        client_id="tracecat-mcp-none",
+        auth_source=mcp_auth.MCPAuthSource.NONE,
+        is_superuser_bypass=True,
+    )
+
+    async def _list_all_workspaces(
+        organization_ids: frozenset[uuid.UUID] | None = None,
+    ) -> list[dict[str, str]]:
+        assert organization_ids is None
+        return [{"id": str(uuid.uuid4()), "name": "All Workspaces"}]
+
+    monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(mcp_auth, "list_all_workspaces", _list_all_workspaces)
+
+    workspaces = await mcp_auth.list_workspaces_for_request()
+
+    assert workspaces[0]["name"] == "All Workspaces"
+
+
+@pytest.mark.anyio
+async def test_resolve_role_for_request_uses_bypass_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    identity = mcp_auth.MCPTokenIdentity(
+        client_id="tracecat-mcp-none",
+        auth_source=mcp_auth.MCPAuthSource.NONE,
+        is_superuser_bypass=True,
+    )
+    expected_role = mcp_auth.Role(
+        type="service",
+        user_id=None,
+        workspace_id=workspace_id,
+        organization_id=uuid.uuid4(),
+        service_id="tracecat-mcp",
+        is_platform_superuser=True,
+        scopes=frozenset({"*"}),
+    )
+
+    async def _resolve_bypass_role_for_workspace(_workspace_id: uuid.UUID):
+        assert _workspace_id == workspace_id
+        return expected_role
+
+    monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(
+        mcp_auth,
+        "resolve_bypass_role_for_workspace",
+        _resolve_bypass_role_for_workspace,
+    )
+
+    role = await mcp_auth.resolve_role_for_request(workspace_id)
+
+    assert role == expected_role
 
 
 @pytest.mark.anyio
