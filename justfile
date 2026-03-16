@@ -87,7 +87,7 @@ gen-client-ci:
 	just lint-fix
 
 gen-mcp-docs:
-	uv run python scripts/gen_mcp_docs.py
+	uv run python scripts/generate_mcp_docs.py
 
 # Update version number. If no version is provided, increments patch version.
 update-version *after='':
