@@ -1,0 +1,29 @@
+tracecat/tables/schemas.py
+  1e9a763364492a1e 17,19-26,63,119-125,245,260,262-264
+tracecat/tables/service.py
+  1e9a763364492a1e 367,595-596,1797,1854,1860,1920,2117-2127,2134-2135
+tests/unit/test_tables_service.py
+  1e9a763364492a1e 30,562-573,575,715-734
+tracecat/custom_fields/service.py
+  1e9a763364492a1e 16,18-20,129,146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "f97fa220181a02b1ee5f5a91a0d0441f6712e994",
+  "prompts": {
+    "1e9a763364492a1e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cf821-2682-7473-9548-400732de8722",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 86,
+      "total_deletions": 29,
+      "accepted_lines": 84,
+      "overriden_lines": 0
+    }
+  }
+}
