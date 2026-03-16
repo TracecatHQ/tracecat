@@ -23,7 +23,11 @@ from tracecat.tables.schemas import (
     TableRowInsert,
     TableUpdate,
 )
-from tracecat.tables.service import TableEditorService, TablesService
+from tracecat.tables.service import (
+    TableEditorService,
+    TablesService,
+    sanitize_identifier,
+)
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -550,6 +554,13 @@ class TestHandleDefaultValue:
         assert rendered.startswith("'")
         assert rendered.endswith("'::jsonb")
         assert "SELECT pg_sleep(1)" in rendered
+
+
+class TestSanitizeIdentifier:
+    @pytest.mark.parametrize("identifier", ["", '";drop', "123field", "__field"])
+    def test_rejects_invalid_identifiers(self, identifier: str) -> None:
+        with pytest.raises(ValueError):
+            sanitize_identifier(identifier)
 
 
 @pytest.mark.anyio

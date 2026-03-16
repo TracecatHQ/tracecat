@@ -1791,6 +1791,8 @@ class TableEditorService(BaseWorkspaceService):
             ValueError: If the column type is invalid
         """
 
+        column_name = sanitize_identifier(params.name)
+
         # Validate SQL type first
         if not is_valid_sql_type(params.type):
             raise ValueError(f"Invalid type: {params.type}")
@@ -1811,7 +1813,7 @@ class TableEditorService(BaseWorkspaceService):
             column_type_sql = SqlType.JSONB.value
         else:
             column_type_sql = params.type.value
-        column_def = [f"{params.name} {column_type_sql}"]
+        column_def = [f"{column_name} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
         if rendered_default is not None:
@@ -1846,7 +1848,8 @@ class TableEditorService(BaseWorkspaceService):
         set_fields = params.model_dump(exclude_unset=True)
         conn = await self.session.connection()
 
-        new_name = column_name
+        sanitized_column_name = sanitize_identifier(column_name)
+        new_name = sanitized_column_name
         full_table_name = self._full_table_name()
 
         # Execute ALTER statements using safe DDL construction
@@ -1855,7 +1858,7 @@ class TableEditorService(BaseWorkspaceService):
             await conn.execute(
                 sa.DDL(
                     "ALTER TABLE %s RENAME COLUMN %s TO %s",
-                    (full_table_name, column_name, new_name),
+                    (full_table_name, sanitized_column_name, new_name),
                 )
             )
         if "type" in set_fields:
@@ -2109,8 +2112,12 @@ class TableEditorService(BaseWorkspaceService):
 
 def sanitize_identifier(identifier: str) -> str:
     """Sanitize table/column names to prevent SQL injection."""
-    # Remove any non-alphanumeric characters except underscores
-    sanitized = "".join(c for c in identifier if c.isalnum() or c == "_")
-    if not sanitized[0].isalpha():
+    if not identifier:
+        raise ValueError("Identifier must contain at least one letter")
+    if not all(c.isalnum() or c == "_" for c in identifier):
+        raise ValueError(
+            "Identifier must contain only letters, numbers, and underscores"
+        )
+    if not identifier[0].isalpha():
         raise ValueError("Identifier must start with a letter")
-    return sanitized.lower()
+    return identifier.lower()
