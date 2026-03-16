@@ -777,7 +777,13 @@ async def update_field(
 ) -> None:
     """Update a case field."""
     service = CaseFieldsService(session, role)
-    await service.update_field(field_id, params)
+    try:
+        await service.update_field(field_id, params)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 @case_fields_router.delete("/{field_id}", status_code=HTTP_204_NO_CONTENT)
@@ -790,7 +796,13 @@ async def delete_field(
 ) -> None:
     """Delete a case field."""
     service = CaseFieldsService(session, role)
-    await service.delete_field(field_id)
+    try:
+        await service.delete_field(field_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 # Case Events
