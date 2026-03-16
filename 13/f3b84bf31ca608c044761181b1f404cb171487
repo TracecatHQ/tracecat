@@ -1,0 +1,51 @@
+tracecat/agent/worker.py
+  ccd8d4ba8d4dbdf0 1,27,112,116-119,122-123
+packages/tracecat-ee/tracecat_ee/agent/workflows/durable.py
+  ccd8d4ba8d4dbdf0 10,16,24-28,38-39,42,55,72-76,451,453,491,493,620-626,632-692
+tests/temporal/test_durable_agent_workflow.py
+  ccd8d4ba8d4dbdf0 38,53-54,61,63,175-176,179,181-186,189-200,203-204,206-208,210,212,214,219,227,238-239,370-372,376
+tracecat/agent/executor/activity.py
+  ccd8d4ba8d4dbdf0 1,22,38,45,88-92,96-100,102-104,109
+tracecat/agent/session/activities.py
+  ccd8d4ba8d4dbdf0 11,16-17,21,25,74-98,202-255,263
+tracecat/dsl/worker.py
+  ccd8d4ba8d4dbdf0 148
+packages/tracecat-ee/tracecat_ee/agent/workflows/registry_tool.py
+  ccd8d4ba8d4dbdf0 1-49
+tracecat/config.py
+  ccd8d4ba8d4dbdf0 635-642
+tracecat/agent/executor/schemas.py
+  ccd8d4ba8d4dbdf0 1-42
+tracecat/agent/executor_worker.py
+  ccd8d4ba8d4dbdf0 1-90
+tests/integration/test_agent_worker.py
+  ccd8d4ba8d4dbdf0 34,119,135,170-171,216,223
+tests/integration/test_dsl_agent_wiring.py
+  ccd8d4ba8d4dbdf0 152-153,183-185
+tracecat/agent/runtime_services.py
+  ccd8d4ba8d4dbdf0 1-142
+tests/unit/test_worker_activity_registration.py
+  ccd8d4ba8d4dbdf0 7-10,46-50
+tracecat/agent/mcp/executor.py
+  ccd8d4ba8d4dbdf0 1,5,7,9-10,12,14-17,21,29,32-35,47-49,56,65,91,94,96-98,100,103,107-112,127,130-133,142-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "13f3b84bf31ca608c044761181b1f404cb171487",
+  "prompts": {
+    "ccd8d4ba8d4dbdf0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cf764-b2c7-7ed1-93dc-ee6f0c8153c9",
+        "model": "unknown"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1397,
+      "total_deletions": 766,
+      "accepted_lines": 1333,
+      "overriden_lines": 0
+    }
+  }
+}
