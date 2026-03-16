@@ -16,8 +16,6 @@ from tracecat import config
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
-    ExecuteApprovedToolsInput,
-    ExecuteApprovedToolsResult,
 )
 from tracecat.agent.session.activities import (
     CreateSessionInput,
@@ -141,17 +139,6 @@ def create_mock_run_agent_activity(*, output: str) -> Callable[..., Any]:
     return mock_run_agent_activity
 
 
-def create_mock_execute_approved_tools_activity() -> Callable[..., Any]:
-    @activity.defn(name="execute_approved_tools_activity")
-    async def mock_execute_approved_tools_activity(
-        input: ExecuteApprovedToolsInput,
-    ) -> ExecuteApprovedToolsResult:
-        del input
-        return ExecuteApprovedToolsResult(results=[], success=True)
-
-    return mock_execute_approved_tools_activity
-
-
 @pytest.fixture
 def agent_worker_factory(
     threadpool: Any,
@@ -162,6 +149,8 @@ def agent_worker_factory(
         task_queue: str,
         activities: Sequence[Callable[..., Any]],
     ) -> Worker:
+        config.TRACECAT__AGENT_EXECUTOR_QUEUE = task_queue
+        config.TRACECAT__EXECUTOR_QUEUE = task_queue
         return Worker(
             client=client,
             task_queue=task_queue,
@@ -189,10 +178,11 @@ class TestDSLAgentWiring:
             create_mock_create_session_activity(),
             create_mock_load_session_activity(),
             create_mock_build_tool_definitions_activity(),
-            create_mock_run_agent_activity(output="dsl-agent-wired"),
-            create_mock_execute_approved_tools_activity(),
         ):
             agent_activities = _replace_activity(agent_activities, replacement)
+        agent_activities.append(
+            create_mock_run_agent_activity(output="dsl-agent-wired")
+        )
 
         dsl = DSLInput(
             title="DSL agent wiring",

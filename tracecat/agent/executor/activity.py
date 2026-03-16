@@ -1,23 +1,4 @@
-"""Temporal activities for agent execution.
-
-This module provides:
-- AgentExecutorInput/Result: Data structures for the main executor activity
-- run_agent_activity: Temporal activity that spawns NSJail and runs agent
-- ExecuteApprovedToolsInput/Result: Data structures for approved tool execution
-- execute_approved_tools_activity: Temporal activity that executes approved tools
-
-The main executor activity:
-1. Creates job directory with sockets
-2. Starts Unix socket server
-3. Spawns NSJail runtime process
-4. Uses LoopbackHandler to forward events to session stream sinks
-5. Cleans up resources on completion
-
-The approved tools activity:
-1. Mints a fresh JWT token (handles delayed approvals)
-2. Executes each approved tool via the MCP executor
-3. Returns results and denial messages for continuation
-"""
+"""Temporal activities for agent runtime execution."""
 
 from __future__ import annotations
 
@@ -38,33 +19,30 @@ from tracecat.agent.common.config import (
     TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
-from tracecat.agent.common.stream_types import ToolCallContent, UnifiedStreamEvent
+from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
     LoopbackResult,
 )
-from tracecat.agent.mcp.executor import ActionExecutionError, execute_action
-from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.stream.connector import AgentStream
-from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
-from tracecat.executor import registry_resolver
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+
+from .schemas import ApprovedToolCall, DeniedToolCall, ToolExecutionResult
 
 
 class AgentExecutorInput(BaseModel):
     """Input for the agent executor activity.
 
     On resume after approval, the sdk_session_data contains the proper tool_result
-    entry (inserted by execute_approved_tools_activity before reload), so the
+    entry (inserted by the approval reconciliation activity before reload), so the
     runtime just resumes normally.
     """
 
@@ -105,6 +83,28 @@ class AgentExecutorResult(BaseModel):
     )
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+
+
+class ExecuteApprovedToolsInput(BaseModel):
+    """Deprecated compatibility input for approval-path tool execution."""
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    session_id: uuid.UUID
+    workspace_id: uuid.UUID
+    role: Role
+    approved_tools: list[ApprovedToolCall]
+    denied_tools: list[DeniedToolCall]
+    allowed_actions: list[str]
+    registry_lock: RegistryLock
+
+
+class ExecuteApprovedToolsResult(BaseModel):
+    """Deprecated compatibility result for approval-path tool execution."""
+
+    results: list[ToolExecutionResult]
+    success: bool = True
+    error: str | None = None
 
 
 @dataclass
@@ -573,308 +573,3 @@ async def run_agent_activity(
         activity.heartbeat(f"Agent execution failed: {result.error}")
 
     return result
-
-
-# --- Approved Tools Execution Activity ---
-
-
-class ApprovedToolCall(BaseModel):
-    """A single approved tool call to execute."""
-
-    tool_call_id: str
-    tool_name: str
-    args: dict[str, Any]
-
-
-class DeniedToolCall(BaseModel):
-    """A single denied tool call."""
-
-    tool_call_id: str
-    tool_name: str
-    reason: str
-
-
-class ToolExecutionResult(BaseModel):
-    """Result from executing a single tool."""
-
-    tool_call_id: str
-    tool_name: str
-    result: Any
-    is_error: bool = False
-
-
-class ExecuteApprovedToolsInput(BaseModel):
-    """Input for the execute_approved_tools_activity."""
-
-    model_config = {"arbitrary_types_allowed": True}
-
-    session_id: uuid.UUID
-    workspace_id: uuid.UUID
-    role: Role
-    # Tools to execute
-    approved_tools: list[ApprovedToolCall]
-    denied_tools: list[DeniedToolCall]
-    # Context needed for JWT minting
-    allowed_actions: list[str]
-    # Registry lock for action resolution
-    registry_lock: RegistryLock
-
-
-class ExecuteApprovedToolsResult(BaseModel):
-    """Result from execute_approved_tools_activity."""
-
-    results: list[ToolExecutionResult]
-    success: bool = True
-    error: str | None = None
-
-
-HEARTBEAT_INTERVAL = 30  # seconds - must be less than heartbeat_timeout (60s)
-
-
-async def _execute_action_with_heartbeat(
-    action_name: str,
-    args: dict[str, Any],
-    claims: MCPTokenClaims,
-    registry_lock: RegistryLock,
-    tool_name: str,
-) -> Any:
-    """Execute an action with periodic heartbeats to Temporal.
-
-    Wraps execute_action in a polling loop that sends heartbeats every
-    HEARTBEAT_INTERVAL seconds to prevent Temporal from timing out the
-    activity during long-running tool executions.
-
-    Args:
-        action_name: The normalized action name to execute.
-        args: Arguments to pass to the action.
-        claims: MCP token claims for authorization.
-        registry_lock: Registry lock for action resolution.
-        tool_name: Original tool name for heartbeat messages.
-
-    Returns:
-        The result from execute_action.
-
-    Raises:
-        ActionExecutionError: If the action execution fails.
-        Exception: Any other error from the action.
-    """
-    # Create a task for the action execution
-    action_task = asyncio.create_task(
-        execute_action(
-            action_name=action_name,
-            args=args,
-            claims=claims,
-            registry_lock=registry_lock,
-        )
-    )
-
-    elapsed = 0
-    try:
-        while True:
-            try:
-                # Wait for completion with heartbeat interval timeout
-                result = await asyncio.wait_for(
-                    asyncio.shield(action_task),
-                    timeout=HEARTBEAT_INTERVAL,
-                )
-                return result
-            except TimeoutError:
-                # Action still running - send heartbeat and continue waiting
-                elapsed += HEARTBEAT_INTERVAL
-                activity.heartbeat(f"Executing tool {tool_name}: {elapsed}s elapsed")
-                logger.debug(
-                    "Heartbeat sent while executing tool",
-                    tool_name=tool_name,
-                    elapsed=elapsed,
-                )
-    finally:
-        if not action_task.done():
-            action_task.cancel()
-
-
-@activity.defn
-async def execute_approved_tools_activity(
-    input: ExecuteApprovedToolsInput,
-) -> ExecuteApprovedToolsResult:
-    """Execute approved tools via MCP executor after approval.
-
-    This activity:
-    1. Mints a fresh JWT token (original may have expired during approval wait)
-    2. Executes each approved tool via the MCP executor
-    3. Returns results for approved tools and denial messages for denied tools
-
-    The results are used by the workflow to construct a continuation message
-    that includes tool results, allowing the agent to continue its response.
-
-    Args:
-        input: Contains approved/denied tools and context for execution.
-
-    Returns:
-        ExecuteApprovedToolsResult with tool execution results.
-    """
-    activity.heartbeat(f"Executing approved tools for session: {input.session_id}")
-
-    results: list[ToolExecutionResult] = []
-
-    # Ensure organization_id is set (agent sessions are always org-scoped)
-    if input.role.organization_id is None:
-        raise ValueError("organization_id is required for agent tool execution")
-
-    # Build claims for execute_action calls
-    claims = MCPTokenClaims(
-        workspace_id=input.workspace_id,
-        user_id=input.role.user_id,
-        organization_id=input.role.organization_id,
-        allowed_actions=input.allowed_actions,
-        session_id=input.session_id,
-    )
-
-    logger.info(
-        "Executing approved tools",
-        session_id=str(input.session_id),
-        approved_count=len(input.approved_tools),
-        denied_count=len(input.denied_tools),
-    )
-
-    # Prefetch registry manifests into agent worker's cache for O(1) action resolution
-    await registry_resolver.prefetch_lock(
-        input.registry_lock, input.role.organization_id
-    )
-
-    # Initialize stream for emitting tool results to frontend
-    stream = await AgentStream.new(
-        session_id=input.session_id,
-        workspace_id=input.workspace_id,
-    )
-
-    # Execute approved tools
-    for tool_call in input.approved_tools:
-        activity.heartbeat(f"Executing tool: {tool_call.tool_name}")
-
-        try:
-            # Normalize tool name (MCP format -> action name)
-            action_name = normalize_mcp_tool_name(tool_call.tool_name)
-
-            logger.info(
-                "Executing approved tool",
-                tool_call_id=tool_call.tool_call_id,
-                tool_name=tool_call.tool_name,
-                action_name=action_name,
-            )
-
-            # Execute the action via MCP executor with heartbeating
-            result = await _execute_action_with_heartbeat(
-                action_name=action_name,
-                args=tool_call.args,
-                claims=claims,
-                registry_lock=input.registry_lock,
-                tool_name=tool_call.tool_name,
-            )
-
-            tool_result = ToolExecutionResult(
-                tool_call_id=tool_call.tool_call_id,
-                tool_name=tool_call.tool_name,
-                result=result,
-                is_error=False,
-            )
-            results.append(tool_result)
-
-            # Emit tool result to stream for frontend UI update
-            await stream.append(
-                UnifiedStreamEvent.tool_result_event(
-                    tool_call_id=tool_result.tool_call_id,
-                    tool_name=tool_result.tool_name,
-                    output=tool_result.result,
-                    is_error=tool_result.is_error,
-                )
-            )
-
-            logger.info(
-                "Tool executed successfully",
-                tool_call_id=tool_call.tool_call_id,
-                tool_name=tool_call.tool_name,
-            )
-
-        except ActionExecutionError as e:
-            logger.error(
-                "Tool execution failed",
-                tool_call_id=tool_call.tool_call_id,
-                tool_name=tool_call.tool_name,
-                error=str(e),
-            )
-            tool_result = ToolExecutionResult(
-                tool_call_id=tool_call.tool_call_id,
-                tool_name=tool_call.tool_name,
-                result=f"Tool execution failed: {e}",
-                is_error=True,
-            )
-            results.append(tool_result)
-
-            # Emit error result to stream
-            await stream.append(
-                UnifiedStreamEvent.tool_result_event(
-                    tool_call_id=tool_result.tool_call_id,
-                    tool_name=tool_result.tool_name,
-                    output=tool_result.result,
-                    is_error=tool_result.is_error,
-                )
-            )
-
-        except Exception as e:
-            logger.exception(
-                "Unexpected error executing tool",
-                tool_call_id=tool_call.tool_call_id,
-                tool_name=tool_call.tool_name,
-                error=str(e),
-            )
-            tool_result = ToolExecutionResult(
-                tool_call_id=tool_call.tool_call_id,
-                tool_name=tool_call.tool_name,
-                result=f"Unexpected error: {e}",
-                is_error=True,
-            )
-            results.append(tool_result)
-
-            # Emit error result to stream
-            await stream.append(
-                UnifiedStreamEvent.tool_result_event(
-                    tool_call_id=tool_result.tool_call_id,
-                    tool_name=tool_result.tool_name,
-                    output=tool_result.result,
-                    is_error=tool_result.is_error,
-                )
-            )
-
-    # Add denial results for rejected tools
-    for denied_tool in input.denied_tools:
-        tool_result = ToolExecutionResult(
-            tool_call_id=denied_tool.tool_call_id,
-            tool_name=denied_tool.tool_name,
-            result=f"Tool denied by user: {denied_tool.reason}",
-            is_error=True,
-        )
-        results.append(tool_result)
-
-        # Emit denial result to stream
-        await stream.append(
-            UnifiedStreamEvent.tool_result_event(
-                tool_call_id=tool_result.tool_call_id,
-                tool_name=tool_result.tool_name,
-                output=tool_result.result,
-                is_error=tool_result.is_error,
-            )
-        )
-
-    activity.heartbeat(f"Completed tool execution: {len(results)} results")
-
-    # Replace interrupt entries with proper tool_result (atomic with tool execution)
-    if results:
-        async with AgentSessionService.with_session(role=input.role) as session_service:
-            await session_service.replace_interrupt_with_tool_results(
-                input.session_id,
-                results,
-            )
-
-        activity.heartbeat("Replaced interrupt entries with tool results")
-
-    return ExecuteApprovedToolsResult(results=results)

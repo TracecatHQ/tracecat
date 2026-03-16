@@ -16,7 +16,6 @@ from tracecat import __version__ as APP_VERSION
 
 with workflow.unsafe.imports_passed_through():
     import sentry_sdk
-    from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
     from tracecat import config
     from tracecat.agent.preset.activities import (
@@ -146,7 +145,7 @@ async def main() -> None:
     )
 
     with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-        workflows: list[type] = [DSLWorkflow, DurableAgentWorkflow]
+        workflows: list[type] = [DSLWorkflow]
 
         async with Worker(
             client,

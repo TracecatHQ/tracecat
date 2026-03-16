@@ -35,14 +35,13 @@ from tracecat_ee.agent.workflows.durable import (
     WorkflowApprovalSubmission,
 )
 
+from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
-    ExecuteApprovedToolsInput,
-    ExecuteApprovedToolsResult,
     ToolExecutionResult,
 )
 from tracecat.agent.schemas import RunAgentArgs
@@ -51,13 +50,17 @@ from tracecat.agent.session.activities import (
     CreateSessionResult,
     LoadSessionInput,
     LoadSessionResult,
+    ReconcileToolResultsInput,
+    ReconcileToolResultsResult,
 )
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import User
 from tracecat.dsl.common import RETRY_POLICIES
+from tracecat.dsl.schemas import RunActionInput
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage.object import InlineObject
 from tracecat.tiers import defaults as tier_defaults
 
 
@@ -169,48 +172,51 @@ def create_mock_run_agent_activity(
     return mock_run_agent_activity
 
 
-def create_mock_execute_approved_tools_activity(
-    response_callback: Callable[[ExecuteApprovedToolsInput], ExecuteApprovedToolsResult]
+def create_mock_execute_action_activity(
+    response_callback: Callable[[RunActionInput], InlineObject[dict[str, str]]]
     | None = None,
 ) -> Callable[..., Any]:
-    """Create a mock execute_approved_tools_activity."""
+    """Create a mock executor activity for approved registry UDFs."""
 
-    @activity.defn(name="execute_approved_tools_activity")
-    async def mock_execute_approved_tools_activity(
-        input: ExecuteApprovedToolsInput,
-    ) -> ExecuteApprovedToolsResult:
+    @activity.defn(name="execute_action_activity")
+    async def mock_execute_action_activity(
+        input: RunActionInput,
+        role: Role,
+    ) -> InlineObject[dict[str, str]]:
+        del role
         if response_callback:
             return response_callback(input)
-        # Default: return success for all approved tools
+        return InlineObject(data={"status": "success"})
+
+    return mock_execute_action_activity
+
+
+def create_mock_reconcile_tool_results_activity() -> Callable[..., Any]:
+    """Create a mock reconciliation activity for approval continuation."""
+
+    @activity.defn(name="reconcile_tool_results_activity")
+    async def mock_reconcile_tool_results_activity(
+        input: ReconcileToolResultsInput,
+    ) -> ReconcileToolResultsResult:
         results = [
             ToolExecutionResult(
-                tool_call_id=tool.tool_call_id,
-                tool_name=tool.tool_name,
-                result={"status": "success"},
-                is_error=False,
+                tool_call_id=pending.tool_call_id,
+                tool_name=pending.tool_name,
+                result={"status": "success"}
+                if pending.stored_result is not None
+                else pending.raw_result,
+                is_error=pending.is_error,
             )
-            for tool in input.approved_tools
+            for pending in input.pending_results
         ]
-        # Add denial results for rejected tools
-        for denied in input.denied_tools:
-            results.append(
-                ToolExecutionResult(
-                    tool_call_id=denied.tool_call_id,
-                    tool_name=denied.tool_name,
-                    result=f"Tool denied: {denied.reason}",
-                    is_error=True,
-                )
-            )
-        return ExecuteApprovedToolsResult(results=results, success=True)
+        return ReconcileToolResultsResult(results=results)
 
-    return mock_execute_approved_tools_activity
+    return mock_reconcile_tool_results_activity
 
 
 def create_activities_with_mock_executor(
     response_callback: Callable[[int, AgentExecutorInput], AgentExecutorResult],
-    tool_exec_callback: Callable[
-        [ExecuteApprovedToolsInput], ExecuteApprovedToolsResult
-    ]
+    tool_exec_callback: Callable[[RunActionInput], InlineObject[dict[str, str]]]
     | None = None,
     tool_definitions: dict[str, MCPToolDefinition] | None = None,
 ) -> Sequence[Callable[..., Any]]:
@@ -218,7 +224,7 @@ def create_activities_with_mock_executor(
 
     Args:
         response_callback: Function for mock run_agent_activity.
-        tool_exec_callback: Optional function for mock execute_approved_tools_activity.
+        tool_exec_callback: Optional function for mock execute_action_activity.
         tool_definitions: Optional tool definitions for build_tool_definitions.
 
     Returns:
@@ -229,7 +235,8 @@ def create_activities_with_mock_executor(
         create_mock_load_session_activity(),
         create_mock_build_tool_definitions_activity(tool_definitions),
         create_mock_run_agent_activity(response_callback),
-        create_mock_execute_approved_tools_activity(tool_exec_callback),
+        create_mock_execute_action_activity(tool_exec_callback),
+        create_mock_reconcile_tool_results_activity(),
         *ApprovalManager.get_activities(),
     ]
     return activities
@@ -360,9 +367,13 @@ async def agent_worker_factory(threadpool):
 
             custom_activities = create_activities_with_mock_executor(simple_response)
 
+        queue_name = task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"]
+        config.TRACECAT__AGENT_EXECUTOR_QUEUE = queue_name
+        config.TRACECAT__EXECUTOR_QUEUE = queue_name
+
         return Worker(
             client=client,
-            task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            task_queue=queue_name,
             activities=custom_activities,
             workflows=[DurableAgentWorkflow],
             workflow_runner=UnsandboxedWorkflowRunner(),
