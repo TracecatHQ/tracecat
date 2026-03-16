@@ -1,0 +1,31 @@
+tracecat/tables/router.py
+  bbf2b0e212063c90 135,274,318
+tests/unit/test_tables_service.py
+  bbf2b0e212063c90 425,486-488,490-491,508-512,520-524,537,540-541,543-544,547-553,633,642,663-664,692-732
+tracecat/tables/service.py
+  bbf2b0e212063c90 53,429,431,459-460,530,561-564,567,569,575,580,584,587,589,591,1800,1802,1817-1818,1898,1901,1904
+tracecat/tables/internal_router.py
+  bbf2b0e212063c90 129
+tracecat/tables/common.py
+  bbf2b0e212063c90 10,89-90,93-99,102-103,106,108,110,112,114,116-125,131,134-137,139,142,145,147,150-154,157,159,163-215,217,220-233,318
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "0fb7f4c3728320876a6fb372fadb4c47a08e4c7a",
+  "prompts": {
+    "bbf2b0e212063c90": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cf782-d003-73a0-afa7-980def3075b2",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 254,
+      "total_deletions": 104,
+      "accepted_lines": 219,
+      "overriden_lines": 2
+    }
+  }
+}
