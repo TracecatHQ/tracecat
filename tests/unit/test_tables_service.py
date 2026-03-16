@@ -27,6 +27,7 @@ from tracecat.tables.service import (
     TableEditorService,
     TablesService,
     sanitize_identifier,
+    validate_identifier,
 )
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -557,10 +558,21 @@ class TestHandleDefaultValue:
 
 
 class TestSanitizeIdentifier:
-    @pytest.mark.parametrize("identifier", ["", '";drop', "123field", "__field"])
-    def test_rejects_invalid_identifiers(self, identifier: str) -> None:
+    @pytest.mark.parametrize(
+        ("identifier", "expected"),
+        [
+            ("display_name", "display_name"),
+            ("bad-name", "badname"),
+            ('";drop', "drop"),
+        ],
+    )
+    def test_normalizes_identifiers(self, identifier: str, expected: str) -> None:
+        assert sanitize_identifier(identifier) == expected
+
+    @pytest.mark.parametrize("identifier", ["", '";drop', "123field"])
+    def test_rejects_identifiers_without_valid_sql_shape(self, identifier: str) -> None:
         with pytest.raises(ValueError):
-            sanitize_identifier(identifier)
+            validate_identifier(identifier)
 
 
 @pytest.mark.anyio
@@ -699,6 +711,27 @@ class TestTableColumns:
 
         inserted = await editor.insert_row(TableRowInsert(data={}))
         assert inserted["nickname"] == "O'Brien"
+
+    async def test_update_column_handles_legacy_metadata_name(
+        self, tables_service: TablesService
+    ) -> None:
+        """Legacy metadata names should still resolve to the physical column."""
+        table = await tables_service.create_table(
+            TableCreate(name="legacy_column_name")
+        )
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(name="badname", type=SqlType.TEXT, nullable=True),
+        )
+        column.name = "bad-name"
+        await tables_service.session.flush()
+
+        updated_column = await tables_service.update_column(
+            column,
+            TableColumnUpdate(name="display_name"),
+        )
+
+        assert updated_column.name == "display_name"
 
     async def test_create_column_sql_injection_payload_is_stored_as_text_literal(
         self, tables_service: TablesService

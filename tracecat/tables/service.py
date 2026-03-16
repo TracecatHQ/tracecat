@@ -364,6 +364,7 @@ class BaseTablesService(BaseWorkspaceService):
                     new_name=params.name,
                 )
                 raise
+            set_fields["name"] = sanitized_new_name
         # Update DB Table
         for key, value in set_fields.items():
             setattr(table, key, value)
@@ -591,6 +592,8 @@ class BaseTablesService(BaseWorkspaceService):
                 )
 
         # Update the column metadata
+        if "name" in set_fields:
+            set_fields["name"] = new_name
         for key, value in set_fields.items():
             setattr(column, key, value)
 
@@ -1791,7 +1794,7 @@ class TableEditorService(BaseWorkspaceService):
             ValueError: If the column type is invalid
         """
 
-        column_name = sanitize_identifier(params.name)
+        column_name = validate_identifier(params.name)
 
         # Validate SQL type first
         if not is_valid_sql_type(params.type):
@@ -1848,13 +1851,13 @@ class TableEditorService(BaseWorkspaceService):
         set_fields = params.model_dump(exclude_unset=True)
         conn = await self.session.connection()
 
-        sanitized_column_name = sanitize_identifier(column_name)
+        sanitized_column_name = validate_identifier(column_name)
         new_name = sanitized_column_name
         full_table_name = self._full_table_name()
 
         # Execute ALTER statements using safe DDL construction
         if "name" in set_fields:
-            new_name = sanitize_identifier(set_fields["name"])
+            new_name = validate_identifier(set_fields["name"])
             await conn.execute(
                 sa.DDL(
                     "ALTER TABLE %s RENAME COLUMN %s TO %s",
@@ -1914,7 +1917,7 @@ class TableEditorService(BaseWorkspaceService):
 
     async def delete_column(self, column_name: str) -> None:
         """Remove a column from an existing table."""
-        sanitized_column = sanitize_identifier(column_name)
+        sanitized_column = validate_identifier(column_name)
 
         # Drop the column from the physical table using DDL
         conn = await self.session.connection()
@@ -2111,13 +2114,23 @@ class TableEditorService(BaseWorkspaceService):
 
 
 def sanitize_identifier(identifier: str) -> str:
-    """Sanitize table/column names to prevent SQL injection."""
+    """Normalize a stored identifier to its physical SQL name."""
+    sanitized = "".join(c for c in identifier if c.isalnum() or c == "_")
+    if not sanitized:
+        raise ValueError("Identifier must contain at least one letter")
+    if not (sanitized[0].isalpha() or sanitized[0] == "_"):
+        raise ValueError("Identifier must start with a letter or underscore")
+    return sanitized.lower()
+
+
+def validate_identifier(identifier: str) -> str:
+    """Validate an external identifier before using it in DDL operations."""
     if not identifier:
         raise ValueError("Identifier must contain at least one letter")
     if not all(c.isalnum() or c == "_" for c in identifier):
         raise ValueError(
             "Identifier must contain only letters, numbers, and underscores"
         )
-    if not identifier[0].isalpha():
-        raise ValueError("Identifier must start with a letter")
+    if not (identifier[0].isalpha() or identifier[0] == "_"):
+        raise ValueError("Identifier must start with a letter or underscore")
     return identifier.lower()
