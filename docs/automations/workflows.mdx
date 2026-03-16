@@ -18,9 +18,9 @@ View and create workflows in
 ## View workflow runs
 
 There are three views for workflow runs:
-- Most recent run in the workflow builder
-- All runs for a specific workflow
-- <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> All runs across all workflows
+- Events panel: most recent run in the workflow builder
+- Runs view: all runs for a specific workflow
+- <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> History view: all runs across all workflows
 
 ## Cancel / terminate / reset runs
 
@@ -51,5 +51,15 @@ The Temporal UI exposes all your workflow runs. Do not expose it to the public i
 
 ![Reset terminate cancel runs](/img/automations/workflows/reset-terminate-cancel-runs.png)
 
-
 ## Copy actions to clipboard
+
+Hover over any action in the events panel or runs view.
+You'll see two icons: <Badge icon="link" size="lg" shape="pill">Link</Badge> and <Badge icon="copy" size="lg" shape="pill">Copy</Badge> next to the action key-value.
+
+The link icon copies the JSONPath reference to the action result. For example, `ACTIONS.first_action.result`.
+
+![Copy action reference](/img/automations/workflows/copy-action-reference.png)
+
+The copy icon copies the value of the action result itself.
+
+![Copy action result](/img/automations/workflows/copy-action-result.png)
