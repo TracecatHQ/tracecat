@@ -6,6 +6,7 @@ Tests the runtime execution with mocked Claude SDK.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -260,18 +261,24 @@ class TestClaudeAgentRuntimeRun:
         mock_socket_writer.send_done.assert_awaited_once()
 
     @pytest.mark.anyio
-    async def test_adds_registry_mcp_alias(
+    async def test_adds_registry_mcp_alias_on_resume(
         self,
         mock_socket_writer: MagicMock,
         mock_claude_sdk_client: MagicMock,
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        """Test that fresh sessions include both registry MCP aliases."""
+        """Test that resumed sessions include the registry MCP alias."""
         captured_options: list[Any] = []
 
         def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
             captured_options.append(kwargs["options"])
             return mock_claude_sdk_client
+
+        resumed_payload = replace(
+            sample_init_payload,
+            sdk_session_id="eed8297f-26fb-4e00-905f-a10f0cf20704",
+            sdk_session_data='{"type":"user","message":{"content":"test"}}\n',
+        )
 
         with (
             patch(
@@ -284,7 +291,7 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(mock_socket_writer)
-            await runtime.run(sample_init_payload)
+            await runtime.run(resumed_payload)
 
         assert captured_options
         mcp_servers = captured_options[0].mcp_servers
