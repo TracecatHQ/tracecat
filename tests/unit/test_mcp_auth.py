@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken
+from key_value.aio.stores.memory import MemoryStore
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
@@ -54,7 +55,7 @@ def _build_test_auth(monkeypatch: pytest.MonkeyPatch) -> mcp_auth.OIDCProxy:
             return_value=_mock_oidc_discovery_config(),
         ),
     ):
-        auth = mcp_auth.create_mcp_auth()
+        auth = mcp_auth.create_mcp_auth(client_storage=MemoryStore())
     assert isinstance(auth, mcp_auth.OIDCProxy)
     return auth
 

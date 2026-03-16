@@ -18,6 +18,7 @@ from tracecat.settings.router import (
     check_saml_domain_prerequisites,
 )
 from tracecat.settings.schemas import (
+    AgentDefaultModelSelection,
     AgentSettingsRead,
     AuditSettingsUpdate,
     GitSettingsUpdate,
@@ -270,7 +271,38 @@ def test_normalize_agent_settings_read_values_preserves_legacy_contract() -> Non
         }
     )
 
+    assert isinstance(normalized.agent_default_model, AgentDefaultModelSelection)
+    assert normalized.agent_default_model.model_name == "gpt-5.2"
+    assert normalized.agent_default_model.model_provider == "openai"
+    assert normalized.agent_default_model.source_id is None
+
+
+def test_normalize_agent_settings_read_values_preserves_legacy_string() -> None:
+    normalized = _normalize_agent_settings_read_values(
+        {"agent_default_model": "gpt-5.2"}
+    )
+
     assert normalized.agent_default_model == "gpt-5.2"
+
+
+def test_normalize_agent_settings_read_values_propagates_unexpected_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(_value: object) -> None:
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(AgentDefaultModelSelection, "model_validate", boom)
+
+    with pytest.raises(RuntimeError, match="unexpected"):
+        _normalize_agent_settings_read_values(
+            {
+                "agent_default_model": {
+                    "source_id": None,
+                    "model_provider": "openai",
+                    "model_name": "gpt-5.2",
+                }
+            }
+        )
 
 
 @pytest.mark.anyio

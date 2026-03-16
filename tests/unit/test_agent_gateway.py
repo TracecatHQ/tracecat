@@ -1,10 +1,17 @@
+import uuid
+from contextlib import asynccontextmanager
 from typing import cast
 
 import pytest
 from litellm.caching.dual_cache import DualCache
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
 
-from tracecat.agent.gateway import TracecatCallbackHandler, _inject_provider_credentials
+from tracecat.agent.gateway import (
+    TracecatCallbackHandler,
+    _inject_provider_credentials,
+    get_runtime_credentials,
+)
+from tracecat.agent.types import AgentConfig
 
 
 def test_custom_source_injects_dummy_api_key_and_openai_prefix():
@@ -240,6 +247,45 @@ def test_bedrock_rejects_session_token_without_static_keys():
 
     with pytest.raises(ProxyException):
         _inject_provider_credentials(data, "bedrock", creds, source_id=None)
+
+
+@pytest.mark.anyio
+async def test_get_runtime_credentials_uses_config_path_for_legacy_presets(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        async def get_runtime_credentials_for_config(
+            self, config: AgentConfig
+        ) -> dict[str, str]:
+            captured["config"] = config
+            return {"OPENAI_API_KEY": "workspace-key"}
+
+    @asynccontextmanager
+    async def fake_with_session(*, role=None, session=None):
+        del role, session
+        yield FakeService()
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.AgentManagementService.with_session",
+        fake_with_session,
+    )
+
+    credentials = await get_runtime_credentials(
+        workspace_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+        organization_id=uuid.UUID("00000000-0000-0000-0000-000000000002"),
+        model_name="gpt-4o-mini",
+        provider="openai",
+        source_id=None,
+    )
+
+    assert credentials == {"OPENAI_API_KEY": "workspace-key"}
+    assert captured["config"] == AgentConfig(
+        source_id=None,
+        model_provider="openai",
+        model_name="gpt-4o-mini",
+    )
 
 
 @pytest.mark.anyio

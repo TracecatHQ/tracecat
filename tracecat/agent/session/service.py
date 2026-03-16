@@ -853,6 +853,7 @@ class AgentSessionService(BaseWorkspaceService):
                     user_prompt=prompt,
                     model_name=model_config.model_name,
                     model_provider=model_config.model_provider,
+                    base_url=model_config.base_url,
                 )
         except (
             AgentRunError,

@@ -234,13 +234,17 @@ class TestCaseCommentsService:
         existing_audit_count = len(audit_event_calls)
         workflow_ref = WorkflowUUID.new(workflow.id)
 
-        created_comment = await case_comments_service.create_comment(
-            test_case,
-            CaseCommentCreate(
-                content="Run this workflow",
-                workflow_id=workflow_ref,
-            ),
-        )
+        with patch(
+            "tracecat.cases.service.publish_case_event_payload",
+            new=AsyncMock(),
+        ):
+            created_comment = await case_comments_service.create_comment(
+                test_case,
+                CaseCommentCreate(
+                    content="Run this workflow",
+                    workflow_id=workflow_ref,
+                ),
+            )
 
         assert created_comment.workflow_id == workflow.id
         assert created_comment.workflow_title == workflow.title

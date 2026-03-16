@@ -24,6 +24,7 @@ from tracecat.agent.service import (
     AgentManagementService,
 )
 from tracecat.agent.tokens import verify_llm_token
+from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.identifiers import OrganizationID, WorkspaceID
@@ -44,7 +45,7 @@ async def get_runtime_credentials(
     model_name: str,
     provider: str,
     source_id: str | None,
-) -> dict[str, str]:
+) -> dict[str, str] | None:
     """Fetch credentials for either direct providers or catalog-backed sources."""
     role = Role(
         type="service",
@@ -55,13 +56,11 @@ async def get_runtime_credentials(
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-llm-gateway"],
     )
     async with AgentManagementService.with_session(role=role) as service:
-        return await service.get_runtime_credentials_for_selection(
-            selection=service._model_selection_from_key(
-                service._selection_key(
-                    source_id=uuid.UUID(source_id) if source_id else None,
-                    model_provider=provider,
-                    model_name=model_name,
-                )
+        return await service.get_runtime_credentials_for_config(
+            AgentConfig(
+                source_id=uuid.UUID(source_id) if source_id else None,
+                model_provider=provider,
+                model_name=model_name,
             )
         )
 
@@ -165,7 +164,12 @@ class TracecatCallbackHandler(CustomLogger):
             )
 
         # Inject credentials based on provider type
-        _inject_provider_credentials(data, provider, creds, source_id=source_id)
+        _inject_provider_credentials(
+            data,
+            provider,
+            creds or {},
+            source_id=source_id,
+        )
         if model_base_url := user_api_key_dict.metadata.get("base_url"):
             # Preset/config base_url should override provider credential base URL
             data["api_base"] = model_base_url

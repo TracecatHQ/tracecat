@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import OrganizationDomain
 from tracecat.identifiers import OrganizationID
 from tracecat.settings.schemas import (
+    AgentDefaultModelSelection,
     AgentSettingsRead,
     AgentSettingsUpdate,
     AppSettingsRead,
@@ -40,14 +42,20 @@ def _normalize_agent_settings_read_values(
 ) -> AgentSettingsRead:
     normalized = dict(settings_dict)
     match normalized.get("agent_default_model"):
-        case {"model_name": str(model_name)}:
-            normalized["agent_default_model"] = model_name
-        case dict():
-            normalized["agent_default_model"] = None
+        case dict() as selection:
+            try:
+                normalized["agent_default_model"] = (
+                    AgentDefaultModelSelection.model_validate(selection)
+                )
+            except ValidationError:
+                normalized["agent_default_model"] = None
     return AgentSettingsRead(
         agent_default_model=(
             value
-            if isinstance((value := normalized.get("agent_default_model")), str)
+            if isinstance(
+                (value := normalized.get("agent_default_model")),
+                (str, AgentDefaultModelSelection),
+            )
             else None
         ),
         agent_default_model_ref=(

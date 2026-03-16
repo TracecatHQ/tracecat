@@ -7,16 +7,20 @@ from datetime import UTC, datetime
 from typing import ClassVar
 
 import orjson
-from sqlalchemy import delete, func, or_, select, tuple_
+from sqlalchemy import case, delete, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tracecat import config
 from tracecat.admin.agent.schemas import PlatformCatalogEntry, PlatformCatalogRead
 from tracecat.agent.builtin_catalog import get_builtin_catalog_models
+from tracecat.agent.service import PRUNED_MODEL_NAME_SUFFIX
 from tracecat.agent.types import ModelDiscoveryStatus
 from tracecat.db.models import (
     AgentCatalog,
     AgentEnabledModel,
+    AgentPreset,
+    AgentPresetVersion,
+    AgentSession,
     OrganizationSetting,
     PlatformSetting,
 )
@@ -34,6 +38,12 @@ class AdminAgentService(BasePlatformService):
     """Platform-level agent catalog management."""
 
     service_name: ClassVar[str] = "admin_agent"
+
+    def _invalidated_model_name(self, model_name: str) -> str:
+        if model_name.endswith(PRUNED_MODEL_NAME_SUFFIX):
+            return model_name
+        max_name_length = 500 - len(PRUNED_MODEL_NAME_SUFFIX)
+        return f"{model_name[:max_name_length]}{PRUNED_MODEL_NAME_SUFFIX}"
 
     async def _get_platform_setting_value(self, key: str) -> object | None:
         stmt = select(PlatformSetting).where(PlatformSetting.key == key)
@@ -162,6 +172,7 @@ class AdminAgentService(BasePlatformService):
             for model_provider, model_name in stale_keys
         ]
         await self.session.execute(delete(AgentEnabledModel).where(or_(*conditions)))
+        await self._invalidate_stale_platform_selection_dependents(stale_keys)
 
         default_settings = (
             (
@@ -211,6 +222,84 @@ class AdminAgentService(BasePlatformService):
         for setting in affected_settings:
             setting.value = cleared_value
             setting.is_encrypted = False
+
+    async def _invalidate_stale_platform_selection_dependents(
+        self,
+        stale_keys: set[tuple[str, str]],
+    ) -> None:
+        if not stale_keys:
+            return
+        ordered_stale_keys = list(stale_keys)
+
+        preset_conditions = [
+            (AgentPreset.source_id.is_(None))
+            & (AgentPreset.model_provider == model_provider)
+            & (AgentPreset.model_name == model_name)
+            for model_provider, model_name in ordered_stale_keys
+        ]
+        await self.session.execute(
+            update(AgentPreset)
+            .where(or_(*preset_conditions))
+            .values(
+                model_name=case(
+                    *[
+                        (
+                            condition,
+                            self._invalidated_model_name(model_name),
+                        )
+                        for (_model_provider, model_name), condition in zip(
+                            ordered_stale_keys, preset_conditions, strict=True
+                        )
+                    ],
+                    else_=AgentPreset.model_name,
+                ),
+                base_url=None,
+                updated_at=func.now(),
+            )
+        )
+
+        version_conditions = [
+            (AgentPresetVersion.source_id.is_(None))
+            & (AgentPresetVersion.model_provider == model_provider)
+            & (AgentPresetVersion.model_name == model_name)
+            for model_provider, model_name in ordered_stale_keys
+        ]
+        await self.session.execute(
+            update(AgentPresetVersion)
+            .where(or_(*version_conditions))
+            .values(
+                model_name=case(
+                    *[
+                        (
+                            condition,
+                            self._invalidated_model_name(model_name),
+                        )
+                        for (_model_provider, model_name), condition in zip(
+                            ordered_stale_keys, version_conditions, strict=True
+                        )
+                    ],
+                    else_=AgentPresetVersion.model_name,
+                ),
+                base_url=None,
+                updated_at=func.now(),
+            )
+        )
+
+        session_conditions = [
+            (AgentSession.source_id.is_(None))
+            & (AgentSession.model_provider == model_provider)
+            & (AgentSession.model_name == model_name)
+            for model_provider, model_name in ordered_stale_keys
+        ]
+        await self.session.execute(
+            update(AgentSession)
+            .where(or_(*session_conditions))
+            .values(
+                model_provider=None,
+                model_name=None,
+                updated_at=func.now(),
+            )
+        )
 
     async def list_platform_catalog(
         self,

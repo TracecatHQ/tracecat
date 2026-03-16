@@ -5,9 +5,11 @@ import Link from "next/link"
 import { useEffect, useState } from "react"
 import type {
   AgentPresetRead,
+  AgentPresetVersionReadMinimal,
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
 } from "@/client"
+import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
@@ -119,6 +121,23 @@ type ChatModelSelector = {
   showSpinner?: boolean
 }
 
+type ChatPresetSelector = {
+  presets: Pick<AgentPresetRead, "id" | "name">[]
+  presetsIsLoading: boolean
+  presetsError: unknown
+  selectedPresetId: string | null
+  onSelect: (presetId: string | null) => void | Promise<void>
+  disabled: boolean
+  showSpinner: boolean
+  versions?: AgentPresetVersionReadMinimal[]
+  versionsIsLoading: boolean
+  versionsError: unknown
+  selectedVersionId: string | null
+  currentVersionId: string | null
+  onVersionSelect: (versionId: string | null) => void | Promise<void>
+  versionDisabled: boolean
+}
+
 function getCompositeModelKey(
   model: Pick<AgentCatalogEntry, "source_id" | "model_provider" | "model_name">
 ): string {
@@ -222,10 +241,22 @@ export function ChatInterface({
     agentAddonsEnabled && (entityType === "case" || entityType === "copilot")
 
   const {
+    presets,
+    presetsIsLoading,
+    presetsError,
     selectedPreset,
     selectedPresetConfig,
     selectedPresetId: effectivePresetId,
     selectedPresetVersionId,
+    versions,
+    versionsIsLoading,
+    versionsError,
+    currentPresetVersionId,
+    handlePresetChange,
+    handlePresetVersionChange,
+    presetMenuDisabled,
+    showPresetSpinner,
+    versionMenuDisabled,
     enabledModels,
     enabledModelsError,
     enabledModelsLoading,
@@ -479,6 +510,26 @@ export function ChatInterface({
           chatLoading={chatLoading}
           chatError={chatError}
           selectedPreset={activePreset}
+          presetSelector={
+            presetsEnabled
+              ? {
+                  presets,
+                  presetsIsLoading,
+                  presetsError,
+                  selectedPresetId: effectivePresetId,
+                  onSelect: handlePresetChange,
+                  disabled: presetMenuDisabled,
+                  showSpinner: showPresetSpinner,
+                  versions,
+                  versionsIsLoading,
+                  versionsError,
+                  selectedVersionId: selectedPresetVersionId,
+                  currentVersionId: currentPresetVersionId,
+                  onVersionSelect: handlePresetVersionChange,
+                  versionDisabled: versionMenuDisabled,
+                }
+              : undefined
+          }
           toolsEnabled={!activePreset}
           fallbackTools={fallbackTools}
           draftMode={
@@ -538,6 +589,7 @@ interface ChatBodyProps {
   chatLoading: boolean
   chatError: unknown
   selectedPreset?: PresetConfigLike
+  presetSelector?: ChatPresetSelector
   toolsEnabled: boolean
   fallbackTools: string[]
   draftMode: boolean
@@ -560,6 +612,7 @@ function ChatBody({
   chatLoading,
   chatError,
   selectedPreset,
+  presetSelector,
   toolsEnabled,
   fallbackTools,
   draftMode,
@@ -620,6 +673,9 @@ function ChatBody({
     // Render configuration required state
     return (
       <>
+        {presetSelector && !isReadonly ? (
+          <ChatPresetSelectorBar selector={presetSelector} />
+        ) : null}
         {modelSelector && !isReadonly ? (
           <ChatModelSelectorBar selector={modelSelector} />
         ) : null}
@@ -662,20 +718,28 @@ function ChatBody({
     }
 
     return (
-      <ChatSessionPane
-        workspaceId={workspaceId}
-        entityType={entityType}
-        entityId={entityId}
-        placeholder={`Ask about this ${entityType}...`}
-        className="flex-1 min-h-0"
-        modelInfo={modelInfo}
-        toolsEnabled={toolsEnabled}
-        fallbackTools={fallbackTools}
-        modelSelector={modelSelector}
-        onBeforeSend={onCreateSessionBeforeSend}
-        inputDisabled={draftInputDisabled}
-        inputDisabledPlaceholder="Creating chat..."
-      />
+      <>
+        {presetSelector && !isReadonly ? (
+          <ChatPresetSelectorBar selector={presetSelector} />
+        ) : null}
+        {modelSelector && !isReadonly ? (
+          <ChatModelSelectorBar selector={modelSelector} />
+        ) : null}
+        <ChatSessionPane
+          workspaceId={workspaceId}
+          entityType={entityType}
+          entityId={entityId}
+          placeholder={`Ask about this ${entityType}...`}
+          className="flex-1 min-h-0"
+          modelInfo={modelInfo}
+          toolsEnabled={toolsEnabled}
+          fallbackTools={fallbackTools}
+          modelSelector={modelSelector}
+          onBeforeSend={onCreateSessionBeforeSend}
+          inputDisabled={draftInputDisabled}
+          inputDisabledPlaceholder="Creating chat..."
+        />
+      </>
     )
   }
 
@@ -688,20 +752,99 @@ function ChatBody({
   }
 
   return (
-    <ChatSessionPane
-      chat={chat}
-      workspaceId={workspaceId}
-      entityType={entityType}
-      entityId={entityId}
-      placeholder={`Ask about this ${entityType}...`}
-      className="flex-1 min-h-0"
-      modelInfo={modelInfo}
-      toolsEnabled={toolsEnabled}
-      fallbackTools={fallbackTools}
-      modelSelector={modelSelector}
-      pendingMessage={pendingMessage ?? undefined}
-      onPendingMessageSent={onPendingMessageSent}
-    />
+    <>
+      {presetSelector && !isReadonly ? (
+        <ChatPresetSelectorBar selector={presetSelector} />
+      ) : null}
+      {modelSelector && !isReadonly ? (
+        <ChatModelSelectorBar selector={modelSelector} />
+      ) : null}
+      <ChatSessionPane
+        chat={chat}
+        workspaceId={workspaceId}
+        entityType={entityType}
+        entityId={entityId}
+        placeholder={`Ask about this ${entityType}...`}
+        className="flex-1 min-h-0"
+        modelInfo={modelInfo}
+        toolsEnabled={toolsEnabled}
+        fallbackTools={fallbackTools}
+        modelSelector={modelSelector}
+        pendingMessage={pendingMessage ?? undefined}
+        onPendingMessageSent={onPendingMessageSent}
+      />
+    </>
+  )
+}
+
+function ChatPresetSelectorBar({ selector }: { selector: ChatPresetSelector }) {
+  const noPresetValue = "__none__"
+  const selectedValue = selector.selectedPresetId ?? noPresetValue
+
+  return (
+    <div className="border-b px-4 py-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-1">
+          <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Chat preset
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            Choose an agent preset for this chat or clear it to pick a model
+            directly.
+          </p>
+        </div>
+        <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:items-center">
+          <Select
+            value={selectedValue}
+            onValueChange={(value) =>
+              void selector.onSelect(value === noPresetValue ? null : value)
+            }
+            disabled={selector.disabled || selector.presetsIsLoading}
+          >
+            <SelectTrigger className="w-full md:w-[280px]">
+              <SelectValue placeholder="Choose a preset">
+                {selector.showSpinner ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="size-3 animate-spin" />
+                    Loading presets...
+                  </span>
+                ) : undefined}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={noPresetValue}>No preset</SelectItem>
+              {selector.presetsIsLoading ? (
+                <SelectItem value="__loading" disabled>
+                  Loading presets...
+                </SelectItem>
+              ) : null}
+              {selector.presetsError ? (
+                <SelectItem value="__error" disabled>
+                  Failed to load presets
+                </SelectItem>
+              ) : null}
+              {selector.presets.map((preset) => (
+                <SelectItem key={preset.id} value={preset.id}>
+                  {preset.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selector.selectedPresetId ? (
+            <AgentPresetVersionSelect
+              versions={selector.versions}
+              versionsIsLoading={selector.versionsIsLoading}
+              versionsError={selector.versionsError}
+              selectedVersionId={selector.selectedVersionId}
+              currentVersionId={selector.currentVersionId}
+              onSelect={selector.onVersionSelect}
+              disabled={selector.versionDisabled}
+              triggerClassName="min-w-40 border"
+            />
+          ) : null}
+        </div>
+      </div>
+    </div>
   )
 }
 

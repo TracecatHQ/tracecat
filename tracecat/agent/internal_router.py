@@ -120,10 +120,13 @@ async def _provider_secrets_context(
             f"No credentials found for provider '{config.model_provider}'. "
             "Please configure credentials for this provider first."
         )
-    if config.base_url is None and (
-        source_base_url := credentials.get(SOURCE_RUNTIME_BASE_URL)
-    ):
-        config.base_url = source_base_url
+    if config.base_url is None:
+        if source_base_url := credentials.get(SOURCE_RUNTIME_BASE_URL):
+            config.base_url = source_base_url
+        elif (
+            base_url_key := agent_svc._provider_base_url_key(config.model_provider)
+        ) and (provider_base_url := credentials.get(base_url_key)):
+            config.base_url = provider_base_url
 
     secrets_token = registry_secrets.set_context(credentials)
     try:
