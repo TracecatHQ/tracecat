@@ -333,7 +333,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarContent>
       <SidebarFooter>
         <SidebarUserNav
-          settingsItems={[
+          showManageLabel={false}
+          manageItems={[
             canViewMembers === true
               ? {
                   title: "Members",
