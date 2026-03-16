@@ -157,6 +157,26 @@ class TestTablesService:
         retrieved_by_id = await tables_service.get_table(created_table.id)
         assert retrieved_by_id.id == created_table.id
 
+    async def test_get_table_by_name_rejects_invalid_alias(
+        self, tables_service: TablesService
+    ) -> None:
+        """Invalid external names should not alias to a different stored table name."""
+        await tables_service.create_table(TableCreate(name="badname"))
+
+        with pytest.raises(ValueError, match="Identifier must"):
+            await tables_service.get_table_by_name("bad-name")
+
+    async def test_get_table_by_name_allows_exact_legacy_metadata_name(
+        self, tables_service: TablesService
+    ) -> None:
+        """Legacy metadata names should still resolve when matched exactly."""
+        table = await tables_service.create_table(TableCreate(name="legacyname"))
+        table.name = "legacy-name"
+        await tables_service.session.flush()
+
+        resolved = await tables_service.get_table_by_name("legacy-name")
+        assert resolved.id == table.id
+
     async def test_editor_can_create_table(
         self, tables_service_editor: TablesService
     ) -> None:
@@ -980,6 +1000,17 @@ class TestTableRows:
         result = results[0]
         assert result["name"] == "Bob"
         assert result["age"] == 40
+
+    async def test_lookup_row_rejects_invalid_column_alias(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Invalid external column names should not alias to a different column."""
+        with pytest.raises(ValueError, match="Identifier must"):
+            await tables_service.lookup_rows(
+                table_name=table.name,
+                columns=["na-me"],
+                values=["Bob"],
+            )
 
     async def test_list_rows(self, tables_service: TablesService, table: Table) -> None:
         """Test listing rows with cursor-based pagination."""

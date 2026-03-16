@@ -83,8 +83,22 @@ class BaseTablesService(BaseWorkspaceService):
         self.ws_uuid = WorkspaceUUID.new(self.workspace_id)
 
     def _sanitize_identifier(self, identifier: str) -> str:
-        """Sanitize table/column names to prevent SQL injection."""
+        """Normalize a stored identifier to its physical SQL name."""
         return sanitize_identifier(identifier)
+
+    def _resolve_external_column_name(self, table: Table, column_name: str) -> str:
+        """Resolve an external column name against metadata without aliasing invalid names."""
+        column_names = {column.name for column in table.columns}
+        if column_name in column_names:
+            return column_name
+
+        normalized_name = validate_identifier(column_name)
+        if normalized_name in column_names:
+            return normalized_name
+
+        raise ValueError(
+            f"Column '{column_name}' does not exist in table '{table.name}'"
+        )
 
     def _get_schema_name(self, workspace_id: WorkspaceUUID | None = None) -> str:
         """Generate the schema name for a workspace."""
@@ -262,12 +276,25 @@ class BaseTablesService(BaseWorkspaceService):
             The requested Table
 
         Raises:
+            ValueError: If the provided table name is not a valid external identifier
             TracecatNotFoundError: If the table does not exist
         """
-        sanitized_name = self._sanitize_identifier(table_name)
         statement = select(Table).where(
             Table.workspace_id == self.ws_uuid,
-            Table.name == sanitized_name,
+            Table.name == table_name,
+        )
+        result = await self.session.execute(statement)
+        table = result.scalars().first()
+        if table is not None:
+            return table
+
+        normalized_name = validate_identifier(table_name)
+        if normalized_name == table_name:
+            raise TracecatNotFoundError(f"Table '{table_name}' not found")
+
+        statement = select(Table).where(
+            Table.workspace_id == self.ws_uuid,
+            Table.name == normalized_name,
         )
         result = await self.session.execute(statement)
         table = result.scalars().first()
@@ -290,7 +317,7 @@ class BaseTablesService(BaseWorkspaceService):
             ValueError: If table name is invalid
         """
         schema_name = self._get_schema_name(self.ws_uuid)
-        table_name = self._sanitize_identifier(params.name)
+        table_name = validate_identifier(params.name)
 
         # Create schema if it doesn't exist
         conn = await self.session.connection()
@@ -349,7 +376,7 @@ class BaseTablesService(BaseWorkspaceService):
             try:
                 conn = await self.session.connection()
                 old_full_table_name = self._full_table_name(table.name)
-                sanitized_new_name = self._sanitize_identifier(new_name)
+                sanitized_new_name = validate_identifier(new_name)
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s RENAME TO %s",
@@ -416,7 +443,7 @@ class BaseTablesService(BaseWorkspaceService):
         Raises:
             ValueError: If the column type is invalid
         """
-        column_name = self._sanitize_identifier(params.name)
+        column_name = validate_identifier(params.name)
         full_table_name = self._full_table_name(table.name)
 
         # Validate SQL type first
@@ -612,7 +639,8 @@ class BaseTablesService(BaseWorkspaceService):
         full_table_name = self._full_table_name(table.name)
 
         # Sanitize column names to prevent SQL injection
-        sanitized_column = self._sanitize_identifier(column_name)
+        resolved_column_name = self._resolve_external_column_name(table, column_name)
+        sanitized_column = self._sanitize_identifier(resolved_column_name)
 
         # Create a descriptive name for the index
         # Format: uq_[table_name]_[col1]_[col2]_etc
@@ -940,9 +968,17 @@ class BaseTablesService(BaseWorkspaceService):
             raise ValueError("Values and column names must have the same length")
 
         schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table_name)
+        table = await self.get_table_by_name(table_name)
+        sanitized_table_name = self._sanitize_identifier(table.name)
 
-        cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
+        resolved_columns = [
+            self._resolve_external_column_name(table, column_name)
+            for column_name in columns
+        ]
+        cols = [
+            sa.column(self._sanitize_identifier(column_name))
+            for column_name in resolved_columns
+        ]
         stmt = (
             sa.select(sa.text("*"))
             .select_from(sa.table(sanitized_table_name, schema=schema_name))
@@ -1019,10 +1055,18 @@ class BaseTablesService(BaseWorkspaceService):
             raise ValueError("Values and column names must have the same length")
 
         schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table_name)
+        table = await self.get_table_by_name(table_name)
+        sanitized_table_name = self._sanitize_identifier(table.name)
 
         table_clause = sa.table(sanitized_table_name, schema=schema_name)
-        cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
+        resolved_columns = [
+            self._resolve_external_column_name(table, column_name)
+            for column_name in columns
+        ]
+        cols = [
+            sa.column(self._sanitize_identifier(column_name))
+            for column_name in resolved_columns
+        ]
         condition = sa.and_(
             *[col == value for col, value in zip(cols, values, strict=True)]
         )
