@@ -14,7 +14,7 @@ from tracecat.db.models import Table
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
-from tracecat.tables.common import parse_postgres_default
+from tracecat.tables.common import handle_default_value, parse_postgres_default
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
     TableColumnCreate,
@@ -448,6 +448,77 @@ class TestParsePostgresDefault:
         assert parse_default(raw) == expected
 
 
+class TestHandleDefaultValue:
+    @pytest.mark.parametrize(
+        ("sql_type", "default", "expected"),
+        [
+            pytest.param(
+                SqlType.TEXT,
+                "O'Brien",
+                "'O''Brien'",
+                id="text-escapes-single-quote",
+            ),
+            pytest.param(
+                SqlType.SELECT,
+                "O'Brien",
+                "'O''Brien'",
+                id="select-escapes-single-quote",
+            ),
+            pytest.param(
+                SqlType.INTEGER,
+                "42",
+                "42",
+                id="integer-literal",
+            ),
+            pytest.param(
+                SqlType.NUMERIC,
+                "3.14159",
+                "3.14159",
+                id="numeric-literal",
+            ),
+            pytest.param(
+                SqlType.UUID,
+                "00000000-0000-0000-0000-000000000000",
+                "'00000000-0000-0000-0000-000000000000'::uuid",
+                id="uuid-literal",
+            ),
+        ],
+    )
+    def test_formats_literal_safe_defaults(
+        self, sql_type: SqlType, default: Any, expected: str
+    ) -> None:
+        assert handle_default_value(sql_type, default) == expected
+
+    @pytest.mark.parametrize(
+        ("sql_type", "default", "error_message"),
+        [
+            pytest.param(
+                SqlType.INTEGER,
+                "1 + 2",
+                "Invalid integer default value",
+                id="integer-expression",
+            ),
+            pytest.param(
+                SqlType.NUMERIC,
+                "1 / 0.5",
+                "Invalid numeric default value",
+                id="numeric-expression",
+            ),
+            pytest.param(
+                SqlType.UUID,
+                "00000000-0000-0000-0000-000000000000' || current_user || '",
+                "Invalid UUID default value",
+                id="uuid-expression",
+            ),
+        ],
+    )
+    def test_rejects_non_literal_defaults(
+        self, sql_type: SqlType, default: Any, error_message: str
+    ) -> None:
+        with pytest.raises(TypeError, match=error_message):
+            handle_default_value(sql_type, default)
+
+
 @pytest.mark.anyio
 class TestTableColumns:
     async def test_create_and_get_column(self, tables_service: TablesService) -> None:
@@ -517,6 +588,70 @@ class TestTableColumns:
         assert retrieved_column.nullable is False
         assert retrieved_column.default == "default_value"
         assert retrieved_column.type == SqlType.TEXT
+
+    async def test_create_column_default_with_single_quote(
+        self, tables_service: TablesService
+    ) -> None:
+        """Quoted text defaults should be stored as string literals, not SQL."""
+        table = await tables_service.create_table(
+            TableCreate(name="quoted_default_create")
+        )
+
+        await tables_service.create_column(
+            table,
+            TableColumnCreate(
+                name="nickname",
+                type=SqlType.TEXT,
+                nullable=True,
+                default="O'Brien",
+            ),
+        )
+
+        inserted = await tables_service.insert_row(table, TableRowInsert(data={}))
+        assert inserted["nickname"] == "O'Brien"
+
+    async def test_update_column_default_with_single_quote(
+        self, tables_service: TablesService
+    ) -> None:
+        """TablesService updates should safely apply quoted defaults."""
+        table = await tables_service.create_table(
+            TableCreate(name="quoted_default_update")
+        )
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(name="nickname", type=SqlType.TEXT, nullable=True),
+        )
+
+        await tables_service.update_column(
+            column,
+            TableColumnUpdate(name="display_name", default="O'Brien"),
+        )
+
+        inserted = await tables_service.insert_row(table, TableRowInsert(data={}))
+        assert inserted["display_name"] == "O'Brien"
+
+    async def test_table_editor_update_column_default_with_single_quote(
+        self, tables_service: TablesService
+    ) -> None:
+        """TableEditorService should also escape quoted defaults."""
+        table = await tables_service.create_table(
+            TableCreate(name="quoted_default_editor_update")
+        )
+        await tables_service.create_column(
+            table,
+            TableColumnCreate(name="nickname", type=SqlType.TEXT, nullable=True),
+        )
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        await editor.update_column("nickname", TableColumnUpdate(default="O'Brien"))
+
+        inserted = await editor.insert_row(TableRowInsert(data={}))
+        assert inserted["nickname"] == "O'Brien"
 
     async def test_create_single_column_unique_index(
         self, tables_service: TablesService, table: Table

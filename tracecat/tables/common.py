@@ -1,6 +1,7 @@
 import re
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
@@ -110,7 +111,8 @@ def handle_default_value(type: SqlType, default: Any) -> str:
             default_value = f"'{json_literal.replace("'", "''")}'::jsonb"
         case SqlType.TEXT | SqlType.SELECT:
             # For string types, ensure proper quoting
-            default_value = f"'{default}'"
+            escaped_default = str(default).replace("'", "''")
+            default_value = f"'{escaped_default}'"
         case SqlType.DATE:
             d = coerce_to_date(default)
             default_value = f"'{d.isoformat()}'::date"
@@ -121,12 +123,28 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case SqlType.BOOLEAN:
             # For boolean, convert to lowercase string representation
             default_value = str(bool(default)).lower()
-        case SqlType.INTEGER | SqlType.NUMERIC:
-            # For numeric types, use the value directly
-            default_value = str(default)
+        case SqlType.INTEGER:
+            # Only allow numeric literals for integer defaults.
+            try:
+                decimal_value = Decimal(str(default))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise TypeError(f"Invalid integer default value: {default!r}") from exc
+            if decimal_value != decimal_value.to_integral_value():
+                raise TypeError(f"Invalid integer default value: {default!r}")
+            default_value = str(int(decimal_value))
+        case SqlType.NUMERIC:
+            # Only allow numeric literals for numeric defaults.
+            try:
+                default_value = str(Decimal(str(default)))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise TypeError(f"Invalid numeric default value: {default!r}") from exc
         case SqlType.UUID:
             # For UUID, ensure proper quoting
-            default_value = f"'{default}'::uuid"
+            try:
+                uuid_value = UUID(str(default))
+            except (TypeError, ValueError) as exc:
+                raise TypeError(f"Invalid UUID default value: {default!r}") from exc
+            default_value = f"'{uuid_value}'::uuid"
         case _:
             raise TypeError(f"Unsupported SQL type for default value: {type}")
     return default_value

@@ -132,6 +132,11 @@ async def create_table(
     service = TablesService(session, role=role)
     try:
         await service.create_table(params)
+    except (TypeError, ValueError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except ProgrammingError as e:
         # Drill down to the root cause
         while (cause := e.__cause__) is not None:
@@ -266,6 +271,11 @@ async def create_column(
         ) from e
     try:
         await service.create_column(table, params)
+    except (TypeError, ValueError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except ProgrammingError as e:
         # Drill down to the root cause
         while (cause := e.__cause__) is not None:
@@ -305,7 +315,7 @@ async def update_column(
         ) from e
     try:
         await service.update_column(column, params)
-    except ValueError as e:
+    except (TypeError, ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
