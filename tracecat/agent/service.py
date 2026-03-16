@@ -13,7 +13,7 @@ import orjson
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import service_account
 from pydantic import SecretStr
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry._internal import secrets as registry_secrets
@@ -71,6 +71,7 @@ from tracecat.db.engine import (
 )
 from tracecat.db.locks import (
     derive_lock_key_from_parts,
+    pg_advisory_lock,
     pg_advisory_unlock,
     try_pg_advisory_lock,
 )
@@ -80,10 +81,10 @@ from tracecat.db.models import (
     AgentModelSource,
     AgentPreset,
     AgentPresetVersion,
+    AgentSession,
     Organization,
     OrganizationSecret,
     PlatformSetting,
-    Secret,
     Workspace,
 )
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
@@ -163,6 +164,7 @@ _CUSTOM_SOURCE_TYPES = {
 LEGACY_CUSTOM_PROVIDER = "custom-model-provider"
 LEGACY_CUSTOM_SOURCE_NAME = "Imported legacy custom model"
 ENABLE_ALL_MODELS_ON_UPGRADE_SETTING = "agent_enable_all_models_on_upgrade"
+PRUNED_MODEL_NAME_SUFFIX = " [unavailable]"
 SOURCE_RUNTIME_API_KEY = "TRACECAT_SOURCE_API_KEY"
 SOURCE_RUNTIME_API_KEY_HEADER = "TRACECAT_SOURCE_API_KEY_HEADER"
 SOURCE_RUNTIME_API_VERSION = "TRACECAT_SOURCE_API_VERSION"
@@ -396,8 +398,14 @@ class AgentManagementService(BaseOrgService):
         model_id: str,
         provider_hint: str | None,
     ) -> str:
-        if provider_hint:
-            return provider_hint
+        if provider_hint and (
+            normalized_provider_hint := provider_hint.strip().lower()
+        ) in {
+            *(source_type.value for source_type in ModelSourceType),
+            LEGACY_CUSTOM_PROVIDER,
+            "direct_endpoint",
+        }:
+            return normalized_provider_hint
         if source_type in _BUILT_IN_PROVIDER_SOURCE_TYPES:
             return source_type.value
         if source_type == ModelSourceType.OPENAI_COMPATIBLE_GATEWAY:
@@ -501,6 +509,31 @@ class AgentManagementService(BaseOrgService):
             model_provider=selection.model_provider,
             model_name=selection.model_name,
         )
+
+    def _condition_for_selection_on_model(
+        self,
+        model: type[AgentEnabledModel]
+        | type[AgentPreset]
+        | type[AgentPresetVersion]
+        | type[AgentSession],
+        *,
+        selection: ModelSelectionKey,
+    ) -> Any:
+        return (
+            (
+                model.source_id.is_(None)
+                if selection.source_id is None
+                else model.source_id == selection.source_id
+            )
+            & (model.model_provider == selection.model_provider)
+            & (model.model_name == selection.model_name)
+        )
+
+    def _invalidated_model_name(self, model_name: str) -> str:
+        if model_name.endswith(PRUNED_MODEL_NAME_SUFFIX):
+            return model_name
+        max_name_length = 500 - len(PRUNED_MODEL_NAME_SUFFIX)
+        return f"{model_name[:max_name_length]}{PRUNED_MODEL_NAME_SUFFIX}"
 
     def _catalog_entry_from_row(
         self,
@@ -1061,12 +1094,26 @@ class AgentManagementService(BaseOrgService):
                 credentials=await self.get_provider_credentials(provider),
             )
         }
+        enableable_builtin_keys = {
+            (row.model_provider, row.model_id)
+            for row in get_builtin_catalog_models()
+            if row.enableable
+        }
         eligible_rows = [
             row
             for row in rows
             if row.source_id is not None
-            or row.model_provider in configured_builtin_providers
+            or (
+                row.model_provider in configured_builtin_providers
+                and (row.model_provider, row.model_name) in enableable_builtin_keys
+            )
         ]
+        if not eligible_rows:
+            self.logger.info(
+                "Deferring pre-upgrade enable-all because no eligible model rows are available yet",
+                organization_id=str(self.organization_id),
+            )
+            return None
 
         await self.session.execute(
             pg_insert(AgentEnabledModel)
@@ -1733,6 +1780,7 @@ class AgentManagementService(BaseOrgService):
         source.encrypted_config = self._serialize_sensitive_config(source_config)
         self.session.add(source)
         await self.session.commit()
+        await self._ensure_default_enabled_models()
         await self.session.refresh(source)
         refreshed = await self.get_model_source(source.id)
         return self._to_model_source_read(refreshed)
@@ -1980,6 +2028,7 @@ class AgentManagementService(BaseOrgService):
             source.last_refreshed_at = datetime.now(UTC)
             self.session.add(source)
             await self.session.commit()
+            await self._ensure_default_enabled_models()
             enabled_keys = {
                 self._selection_key_from_enabled_row(row)
                 for row in await self._list_org_enabled_rows()
@@ -2196,8 +2245,101 @@ class AgentManagementService(BaseOrgService):
             )
             for source_id, model_provider, model_name in result.tuples().all()
         }
-        await self._revalidate_default_model_setting(set(unique_selections))
+        disabled_selections = list(disabled)
+        await self._invalidate_stale_selection_dependents(disabled_selections)
+        await self._revalidate_default_model_setting(disabled)
         return disabled
+
+    async def _invalidate_stale_selection_dependents(
+        self, selections: list[ModelSelectionKey]
+    ) -> None:
+        if not selections:
+            return
+
+        workspace_ids = select(Workspace.id).where(
+            Workspace.organization_id == self.organization_id
+        )
+
+        preset_conditions = [
+            self._condition_for_selection_on_model(AgentPreset, selection=selection)
+            for selection in selections
+        ]
+        if preset_conditions:
+            await self.session.execute(
+                update(AgentPreset)
+                .where(
+                    AgentPreset.workspace_id.in_(workspace_ids),
+                    or_(*preset_conditions),
+                )
+                .values(
+                    source_id=None,
+                    model_name=case(
+                        *[
+                            (
+                                condition,
+                                self._invalidated_model_name(selection.model_name),
+                            )
+                            for selection, condition in zip(
+                                selections, preset_conditions, strict=True
+                            )
+                        ],
+                        else_=AgentPreset.model_name,
+                    ),
+                    base_url=None,
+                    updated_at=func.now(),
+                )
+            )
+
+        version_conditions = [
+            self._condition_for_selection_on_model(
+                AgentPresetVersion, selection=selection
+            )
+            for selection in selections
+        ]
+        if version_conditions:
+            await self.session.execute(
+                update(AgentPresetVersion)
+                .where(
+                    AgentPresetVersion.workspace_id.in_(workspace_ids),
+                    or_(*version_conditions),
+                )
+                .values(
+                    source_id=None,
+                    model_name=case(
+                        *[
+                            (
+                                condition,
+                                self._invalidated_model_name(selection.model_name),
+                            )
+                            for selection, condition in zip(
+                                selections, version_conditions, strict=True
+                            )
+                        ],
+                        else_=AgentPresetVersion.model_name,
+                    ),
+                    base_url=None,
+                    updated_at=func.now(),
+                )
+            )
+
+        session_conditions = [
+            self._condition_for_selection_on_model(AgentSession, selection=selection)
+            for selection in selections
+        ]
+        if session_conditions:
+            await self.session.execute(
+                update(AgentSession)
+                .where(
+                    AgentSession.workspace_id.in_(workspace_ids),
+                    or_(*session_conditions),
+                )
+                .values(
+                    source_id=None,
+                    model_provider=None,
+                    model_name=None,
+                    updated_at=func.now(),
+                )
+            )
 
     async def _revalidate_default_model_setting(
         self,
@@ -2495,6 +2637,7 @@ class AgentManagementService(BaseOrgService):
             ]
             update_params = SecretUpdate(keys=keys)
             await self.secrets_service.update_org_secret(existing, update_params)
+            await self._ensure_default_enabled_models()
             return existing
         except TracecatNotFoundError:
             # Create new credentials
@@ -2510,7 +2653,9 @@ class AgentManagementService(BaseOrgService):
                 tags={"provider": params.provider, "type": "agent-credentials"},
             )
             await self.secrets_service.create_org_secret(create_params)
-            return await self.secrets_service.get_org_secret_by_name(secret_name)
+            created = await self.secrets_service.get_org_secret_by_name(secret_name)
+            await self._ensure_default_enabled_models()
+            return created
 
     @require_scope("agent:update")
     async def update_provider_credentials(
@@ -2527,6 +2672,7 @@ class AgentManagementService(BaseOrgService):
         ]
         update_params = SecretUpdate(keys=keys)
         await self.secrets_service.update_org_secret(secret, update_params)
+        await self._ensure_default_enabled_models()
         return secret
 
     @require_scope("agent:read")
@@ -2615,7 +2761,6 @@ class AgentManagementService(BaseOrgService):
         if credentials := await self.get_provider_credentials(provider):
             return credentials
         return await self._get_workspace_provider_credentials_compat(provider)
-
     @require_scope("agent:update")
     async def delete_provider_credentials(self, provider: str) -> None:
         """Delete credentials for an AI provider."""
@@ -2656,17 +2801,6 @@ class AgentManagementService(BaseOrgService):
             status[provider] = self._provider_credentials_complete(
                 provider=provider,
                 credentials=await self.get_provider_credentials(provider),
-            )
-        return status
-
-    async def get_workspace_providers_status(self) -> dict[str, bool]:
-        """Get provider status using workspace fallback credentials during cutover."""
-        providers = [provider.value for provider in _BUILT_IN_PROVIDER_ORDER]
-        status = {}
-        for provider in providers:
-            status[provider] = self._provider_credentials_complete(
-                provider=provider,
-                credentials=await self.get_provider_credentials_compat(provider),
             )
         return status
 
@@ -2745,8 +2879,7 @@ class AgentManagementService(BaseOrgService):
                     pass
             return credentials
         credentials = (
-            await self.get_provider_credentials_compat(catalog_entry.model_provider)
-            or {}
+            await self.get_provider_credentials(catalog_entry.model_provider) or {}
         )
         if selection is None:
             return credentials
@@ -2781,22 +2914,36 @@ class AgentManagementService(BaseOrgService):
         self,
         config: AgentConfig,
     ) -> dict[str, str] | None:
-        """Resolve runtime credentials for a config, preferring enabled selections."""
+        """Resolve runtime credentials, preferring enabled selections when available."""
         if config.model_name and config.model_provider:
             selection = ModelSelection(
                 source_id=config.source_id,
                 model_provider=config.model_provider,
                 model_name=config.model_name,
             )
+            selection_key = self._selection_key_from_model_selection(selection)
             if await self.is_model_enabled(
-                self._selection_key_from_model_selection(selection),
+                selection_key,
                 workspace_id=self.role.workspace_id,
             ):
                 return await self.get_runtime_credentials_for_selection(
                     selection=selection
                 )
+
+            if config.source_id is not None:
+                try:
+                    row = await self._get_catalog_row(selection_key)
+                except TracecatNotFoundError:
+                    pass
+                else:
+                    return await self._get_runtime_credentials(
+                        catalog_entry=row,
+                        selection=selection_key,
+                    )
+
+            return await self.get_provider_credentials(config.model_provider)
         if config.model_provider:
-            return await self.get_provider_credentials_compat(config.model_provider)
+            return await self.get_provider_credentials(config.model_provider)
         return None
 
     async def _resolve_catalog_agent_config(
@@ -3212,9 +3359,7 @@ class AgentManagementService(BaseOrgService):
             return
 
         # Legacy fallback for presets that have not been migrated into the catalog yet.
-        credentials = await self.get_provider_credentials_compat(
-            preset_config.model_provider
-        )
+        credentials = await self.get_provider_credentials(preset_config.model_provider)
         if not credentials:
             raise TracecatNotFoundError(
                 f"No credentials found for provider '{preset_config.model_provider}'. "
@@ -3318,8 +3463,15 @@ async def sync_model_catalogs_on_startup() -> None:
             )
             if not acquired:
                 logger.info(
-                    "Another process is handling model catalog gateway-startup sync, exiting"
+                    "Another process is handling model catalog gateway-startup sync, waiting to continue"
                 )
+                async with pg_advisory_lock(
+                    session,
+                    MODEL_CATALOG_STARTUP_SYNC_LOCK_KEY,
+                ):
+                    logger.info(
+                        "Model catalog gateway-startup sync completed by another process"
+                    )
                 return
 
             try:

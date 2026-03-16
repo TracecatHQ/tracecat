@@ -90,6 +90,57 @@ async def test_provider_secrets_context_uses_workspace_credentials_fallback() ->
 
 
 @pytest.mark.anyio
+async def test_provider_secrets_context_uses_provider_base_url_override() -> None:
+    config = AgentConfig(
+        model_name="gpt-5",
+        model_provider="openai",
+        base_url=None,
+    )
+    captured: dict[str, str] = {}
+
+    def _set_context(credentials: dict[str, str]) -> str:
+        captured.update(credentials)
+        return "token"
+
+    get_runtime_credentials_for_config = AsyncMock(
+        return_value={
+            "OPENAI_API_KEY": "workspace-key",
+            "OPENAI_BASE_URL": "https://gateway.example/v1",
+        }
+    )
+    agent_svc = cast(
+        AgentManagementService,
+        SimpleNamespace(
+            get_runtime_credentials_for_config=get_runtime_credentials_for_config,
+            _provider_base_url_key=lambda provider: (
+                "OPENAI_BASE_URL" if provider == "openai" else None
+            ),
+        ),
+    )
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.registry_secrets.set_context",
+        _set_context,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.registry_secrets.reset_context",
+        lambda _token: None,
+    )
+    try:
+        async with _provider_secrets_context(agent_svc, config):
+            assert config.base_url == "https://gateway.example/v1"
+            assert captured == {
+                "OPENAI_API_KEY": "workspace-key",
+                "OPENAI_BASE_URL": "https://gateway.example/v1",
+            }
+    finally:
+        monkeypatch.undo()
+
+    get_runtime_credentials_for_config.assert_awaited_once_with(config)
+
+
+@pytest.mark.anyio
 async def test_provider_secrets_context_prefers_runtime_credentials_for_enabled_builtin_selection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

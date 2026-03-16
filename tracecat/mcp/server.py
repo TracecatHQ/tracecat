@@ -497,11 +497,6 @@ async def _resolve_agent_preset_model(
         provider_status_org: dict[str, bool] | None = None
         if get_provider_status := getattr(svc, "get_providers_status", None):
             provider_status_org = await get_provider_status()
-        provider_status_workspace: dict[str, bool] | None = None
-        if get_workspace_provider_status := getattr(
-            svc, "get_workspace_providers_status", None
-        ):
-            provider_status_workspace = await get_workspace_provider_status()
         if model_name is not None or model_provider is not None:
             if not model_name or not model_provider:
                 raise ToolError(
@@ -556,24 +551,31 @@ async def _resolve_agent_preset_model(
                     model_provider=default_model.model_provider,
                     model_name=default_model.model_name,
                 )
+            if callable(list_models) and role.workspace_id is not None:
+                models = await _list_authoring_models(
+                    svc, workspace_id=role.workspace_id
+                )
+                matches = [
+                    item
+                    for item in models
+                    if item["model_name"] == selection.model_name
+                    and item["model_provider"] == selection.model_provider
+                    and item.get("source_id") == selection.source_id
+                ]
+                if not matches:
+                    raise ToolError(
+                        f"Model {selection.model_provider}/{selection.model_name} is not enabled"
+                    )
+            elif require_enabled := getattr(
+                svc, "require_enabled_model_selection", None
+            ):
+                try:
+                    await require_enabled(selection, workspace_id=role.workspace_id)
+                except TracecatNotFoundError as exc:
+                    raise ToolError(str(exc)) from exc
         if selection.source_id is not None:
             return selection
-        if provider_status_workspace is not None:
-            if (
-                selection.model_provider in provider_status_workspace
-                and not provider_status_workspace[selection.model_provider]
-            ):
-                raise ToolError(
-                    f"Workspace credentials for provider '{selection.model_provider}' are not configured"
-                )
-        elif check_workspace_credentials := getattr(
-            svc, "check_workspace_provider_credentials", None
-        ):
-            if not await check_workspace_credentials(selection.model_provider):
-                raise ToolError(
-                    f"Workspace credentials for provider '{selection.model_provider}' are not configured"
-                )
-        elif (
+        if (
             provider_status_org is not None
             and selection.model_provider in provider_status_org
             and not provider_status_org[selection.model_provider]
@@ -5935,11 +5937,7 @@ async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
         models = await _list_authoring_models(svc, workspace_id=role.workspace_id)
         default_model = await svc.get_default_model()
         provider_status_org = await svc.get_providers_status()
-        provider_status_workspace = (
-            await status_fn()
-            if (status_fn := getattr(svc, "get_workspace_providers_status", None))
-            else provider_status_org
-        )
+        provider_status_workspace = provider_status_org
 
     async with VariablesService.with_session(role=role) as svc:
         variables = await svc.list_variables(environment=DEFAULT_SECRETS_ENVIRONMENT)
@@ -5976,22 +5974,20 @@ async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
             {
                 "provider": provider,
                 "configured_org": provider_status_org.get(provider, False),
-                "configured_workspace": provider_status_workspace.get(provider, False),
-                "ready_for_agent_presets": provider_status_workspace.get(
-                    provider, False
-                ),
+                "configured_workspace": provider_status_org.get(provider, False),
+                "ready_for_agent_presets": provider_status_org.get(provider, False),
                 "models": model_names,
             }
             for provider, model_names in sorted(models_by_provider.items())
         ],
         "default_model_workspace_ready": (
-            provider_status_workspace.get(default_model_provider, False)
+            provider_status_org.get(default_model_provider, False)
             if default_model_provider is not None
             else None
         ),
         "notes": [
-            "Agent preset sessions require workspace-scoped credentials for the selected provider.",
-            "configured_org may still be useful for other agent flows, but it is not sufficient for run_agent_preset.",
+            "Agent preset sessions require organization credentials for the selected provider.",
+            "ready_for_agent_presets matches organization credential status.",
         ],
     }
 
@@ -6042,7 +6038,7 @@ async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
         "output_type_context": _build_output_type_context(),
         "notes": [
             "provider_status_org describes organization-scoped model credentials.",
-            "provider_status_workspace describes workspace-scoped model credentials used by some agent flows.",
+            "provider_status_workspace mirrors organization credential status after the credential cutover.",
         ],
         "truncation": truncation.model_dump(mode="json"),
     }

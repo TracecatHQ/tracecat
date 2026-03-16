@@ -269,10 +269,12 @@ async def test_clear_workspace_model_subset_not_found(
 
 
 @pytest.mark.anyio
-async def test_list_models_rejects_workspace_filter_without_org_workspace_scope(
+async def test_list_models_allows_workspace_filter_with_workspace_access(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
     restricted_role = test_admin_role.model_copy(
         update={
             "scopes": frozenset(
@@ -285,9 +287,63 @@ async def test_list_models_rejects_workspace_filter_without_org_workspace_scope(
     token = ctx_role.set(restricted_role)
     try:
         with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
-            response = client.get(f"/agent/models?workspace_id={uuid.uuid4()}")
+            mock_svc = AsyncMock()
+            mock_svc.list_models.return_value = []
+            mock_service_cls.return_value = mock_svc
+
+            response = client.get(f"/agent/models?workspace_id={workspace_id}")
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    mock_service_cls.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_list_models_rejects_workspace_filter_outside_role_workspace(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = uuid.uuid4()
+    token = ctx_role.set(test_admin_role)
+    try:
+        with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+            response = client.get(f"/agent/models?workspace_id={workspace_id}")
     finally:
         ctx_role.reset(token)
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
     mock_service_cls.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_get_workspace_model_subset_allows_workspace_member_without_org_workspace_scope(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
+    restricted_role = test_admin_role.model_copy(
+        update={
+            "scopes": frozenset(
+                scope
+                for scope in (test_admin_role.scopes or frozenset())
+                if scope != "org:workspace:read"
+            )
+        }
+    )
+    token = ctx_role.set(restricted_role)
+    try:
+        with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+            mock_svc = AsyncMock()
+            mock_svc.get_workspace_model_subset.return_value = WorkspaceModelSubsetRead(
+                inherit_all=True,
+                models=[],
+            )
+            mock_service_cls.return_value = mock_svc
+
+            response = client.get(f"/agent/workspaces/{workspace_id}/model-subset")
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK

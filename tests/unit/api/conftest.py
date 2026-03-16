@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from tracecat.agent.router import (
     OrganizationAdminUserRole,
+    OrganizationUserOptionalWorkspaceRole,
     OrganizationUserRole,
 )
 from tracecat.agent.router import WorkspaceUserInPath as AgentWorkspaceUserInPath
@@ -61,6 +62,7 @@ def client() -> Generator[TestClient, None, None]:
         SuperuserRole,
         AuthenticatedUserOnly,
         OrganizationUserRole,
+        OrganizationUserOptionalWorkspaceRole,
         OrganizationAdminUserRole,
         SecretsWorkspaceUser,
         OrgUserRole,
