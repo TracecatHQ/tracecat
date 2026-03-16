@@ -102,11 +102,14 @@ INTERNET_TOOLS = [
     "WebFetch",
 ]
 
-# Registry MCP server name aliases for backward compatibility.
-# Different execution/resume paths may reference either hyphen or underscore
-# forms, so we keep both aliases valid.
+# Registry MCP server naming.
+# We canonicalize persisted session history to the hyphen form at the
+# resume boundary so runtime configuration only exposes one logical server.
 REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
-REGISTRY_MCP_SERVER_NAME_ALIAS = "tracecat_registry"
+REGISTRY_MCP_TOOL_PREFIX = f"mcp__{REGISTRY_MCP_SERVER_NAME}__"
+REGISTRY_MCP_DOT_PREFIX = f"mcp.{REGISTRY_MCP_SERVER_NAME}."
+LEGACY_REGISTRY_MCP_TOOL_PREFIX = "mcp__tracecat_registry__"
+LEGACY_REGISTRY_MCP_DOT_PREFIX = "mcp.tracecat_registry."
 
 
 class ClaudeAgentRuntime:
@@ -172,6 +175,7 @@ class ClaudeAgentRuntime:
     ) -> Path:
         """Write session data to local filesystem for SDK resume."""
         session_file_path = self._get_session_file_path(sdk_session_id)
+        sdk_session_data = self._canonicalize_sdk_session_data(sdk_session_data)
 
         # Ensure the file ends with a newline so JSONL readers don't treat the last
         # record as truncated (some implementations are strict about this).
@@ -185,6 +189,12 @@ class ClaudeAgentRuntime:
         await asyncio.to_thread(_write)
         logger.debug("Wrote session file", path=str(session_file_path))
         return session_file_path
+
+    def _canonicalize_sdk_session_data(self, sdk_session_data: str) -> str:
+        """Canonicalize legacy registry MCP aliases in JSONL session history."""
+        return sdk_session_data.replace(
+            LEGACY_REGISTRY_MCP_TOOL_PREFIX, REGISTRY_MCP_TOOL_PREFIX
+        ).replace(LEGACY_REGISTRY_MCP_DOT_PREFIX, REGISTRY_MCP_DOT_PREFIX)
 
     def _is_internal_session_line(self, line_data: dict[str, Any]) -> bool:
         """Determine if a session line is internal (not shown in UI timeline).
@@ -474,9 +484,6 @@ class ClaudeAgentRuntime:
                     auth_token=payload.mcp_auth_token,
                 )
                 mcp_servers[REGISTRY_MCP_SERVER_NAME] = proxy_config
-                # Guard against alias drift in resumed session history/tool calls.
-                if payload.sdk_session_id:
-                    mcp_servers[REGISTRY_MCP_SERVER_NAME_ALIAS] = proxy_config
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
             if payload.config.mcp_servers:

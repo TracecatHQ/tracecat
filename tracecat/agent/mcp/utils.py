@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from tracecat.agent.common.types import MCPToolDefinition
 
+REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
+LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
+
 
 def action_name_to_mcp_tool_name(action_name: str) -> str:
     """Convert action name (dots) to MCP tool name format (underscores).
@@ -34,11 +37,15 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
 
     Handles Tracecat registry tools:
     - mcp__tracecat-registry__tools__slack__post_message -> tools.slack.post_message
+    - mcp__tracecat_registry__tools__slack__post_message -> tools.slack.post_message
     - mcp.tracecat-registry.core.cases.create_case -> core.cases.create_case
+    - mcp.tracecat_registry.core.cases.create_case -> core.cases.create_case
 
     Handles user MCP servers routed through the proxy:
     - mcp__tracecat-registry__mcp__Linear__list_issues -> mcp.Linear.list_issues
+    - mcp__tracecat_registry__mcp__Linear__list_issues -> mcp.Linear.list_issues
     - mcp.tracecat-registry.mcp.Linear.list_issues -> mcp.Linear.list_issues
+    - mcp.tracecat_registry.mcp.Linear.list_issues -> mcp.Linear.list_issues
 
     Other MCP tool names are returned as-is.
 
@@ -50,24 +57,40 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
     """
     # Handle user MCP tools routed through proxy (dot-separated, persisted)
     # Pattern: mcp.tracecat-registry.mcp.{server}.{tool}
-    if mcp_tool_name.startswith("mcp.tracecat-registry.mcp."):
+    if mcp_tool_name.startswith(
+        f"mcp.{REGISTRY_MCP_SERVER_NAME}.mcp."
+    ) or mcp_tool_name.startswith(f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}.mcp."):
         # Extract mcp.{server}.{tool} part
-        return mcp_tool_name.replace("mcp.tracecat-registry.", "", 1)
+        return mcp_tool_name.replace(f"mcp.{REGISTRY_MCP_SERVER_NAME}.", "", 1).replace(
+            f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}.", "", 1
+        )
 
     # Handle user MCP tools routed through proxy (underscore-separated, runtime)
     # Pattern: mcp__tracecat-registry__mcp__{server}__{tool}
-    if mcp_tool_name.startswith("mcp__tracecat-registry__mcp__"):
+    if mcp_tool_name.startswith(
+        f"mcp__{REGISTRY_MCP_SERVER_NAME}__mcp__"
+    ) or mcp_tool_name.startswith(f"mcp__{LEGACY_REGISTRY_MCP_SERVER_NAME}__mcp__"):
         # Extract mcp__{server}__{tool} part and convert to mcp.{server}.{tool}
-        tool_part = mcp_tool_name.replace("mcp__tracecat-registry__", "")
+        tool_part = mcp_tool_name.replace(
+            f"mcp__{REGISTRY_MCP_SERVER_NAME}__", ""
+        ).replace(f"mcp__{LEGACY_REGISTRY_MCP_SERVER_NAME}__", "")
         return mcp_tool_name_to_action_name(tool_part)
 
     # Handle dot-separated format (persisted messages) for registry tools
-    if mcp_tool_name.startswith("mcp.tracecat-registry."):
-        return mcp_tool_name.replace("mcp.tracecat-registry.", "", 1)
+    if mcp_tool_name.startswith(
+        f"mcp.{REGISTRY_MCP_SERVER_NAME}."
+    ) or mcp_tool_name.startswith(f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}."):
+        return mcp_tool_name.replace(f"mcp.{REGISTRY_MCP_SERVER_NAME}.", "", 1).replace(
+            f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}.", "", 1
+        )
 
     # Handle underscore-separated format (runtime MCP tool names) for registry tools
-    if mcp_tool_name.startswith("mcp__tracecat-registry__"):
-        tool_part = mcp_tool_name.replace("mcp__tracecat-registry__", "")
+    if mcp_tool_name.startswith(
+        f"mcp__{REGISTRY_MCP_SERVER_NAME}__"
+    ) or mcp_tool_name.startswith(f"mcp__{LEGACY_REGISTRY_MCP_SERVER_NAME}__"):
+        tool_part = mcp_tool_name.replace(
+            f"mcp__{REGISTRY_MCP_SERVER_NAME}__", ""
+        ).replace(f"mcp__{LEGACY_REGISTRY_MCP_SERVER_NAME}__", "")
         return mcp_tool_name_to_action_name(tool_part)
 
     # Generic MCP prefix stripping for any other servers
