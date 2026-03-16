@@ -4,7 +4,6 @@ import uuid
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.schemas import UserRole
@@ -19,6 +18,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
+from tracecat.exceptions import TracecatValidationError
 from tracecat.workspaces.schemas import WorkspaceMembershipCreate
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
@@ -213,6 +213,62 @@ async def test_delete_membership_removes_orphan_assignment(
     assert assignment is None
 
 
+async def test_delete_membership_does_not_require_default_workspace_role(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+) -> None:
+    """Delete should still work when the default workspace role is missing."""
+    custom_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Admin",
+        slug="workspace-admin",
+        description="Custom workspace role",
+        organization_id=organization.id,
+    )
+    session.add(
+        Membership(
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+        )
+    )
+    session.add(custom_role)
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=custom_role.id,
+            assigned_by=actor_user.id,
+        )
+    )
+    await session.commit()
+
+    await membership_service.delete_membership(
+        workspace_id=workspace.id,
+        user_id=member_user.id,
+    )
+
+    membership = await session.scalar(
+        select(Membership).where(
+            Membership.workspace_id == workspace.id,
+            Membership.user_id == member_user.id,
+        )
+    )
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.workspace_id == workspace.id,
+            UserRoleAssignment.user_id == member_user.id,
+        )
+    )
+
+    assert membership is None
+    assert assignment is None
+
+
 async def test_create_membership_heals_stale_workspace_assignment(
     session: AsyncSession,
     membership_service: MembershipService,
@@ -262,14 +318,14 @@ async def test_create_membership_heals_stale_workspace_assignment(
     assert assignment_list[0].assigned_by == actor_user.id
 
 
-async def test_create_membership_duplicate_raises_integrity_error(
+async def test_create_membership_duplicate_raises_validation_error(
     session: AsyncSession,
     membership_service: MembershipService,
     workspace: Workspace,
     member_user: User,
     workspace_editor_role: DBRole,
 ) -> None:
-    """Creating an existing membership should raise an integrity conflict."""
+    """Creating an existing membership should fail before insert."""
     assert workspace_editor_role.slug == "workspace-editor"
     session.add(
         Membership(
@@ -279,7 +335,10 @@ async def test_create_membership_duplicate_raises_integrity_error(
     )
     await session.commit()
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(
+        TracecatValidationError,
+        match="User is already a member of workspace.",
+    ):
         await membership_service.create_membership(
             workspace_id=workspace.id,
             params=WorkspaceMembershipCreate(user_id=member_user.id),

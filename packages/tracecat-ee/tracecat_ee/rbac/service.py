@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import cast, delete, exists, func, select
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -13,10 +14,12 @@ from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope, validate_scope_string
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
+from tracecat.authz.service import invalidate_authz_caches
 from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    Membership,
     OrganizationMembership,
     RoleScope,
     Scope,
@@ -328,6 +331,198 @@ class RBACService(BaseOrgService):
         if result.scalar_one_or_none() is None:
             raise TracecatNotFoundError("Role not found")
 
+    async def _assert_user_exists(self, user_id: UUID) -> None:
+        """Assert a user exists."""
+        stmt = select(User).where(cast(User.id, PGUUID) == user_id)
+        result = await self.session.execute(stmt)
+        if result.scalar_one_or_none() is None:
+            raise TracecatNotFoundError("User not found")
+
+    async def _assert_workspace_exists(self, workspace_id: WorkspaceID) -> None:
+        """Assert a workspace exists and belongs to the organization."""
+        stmt = select(Workspace.id).where(
+            Workspace.id == workspace_id,
+            Workspace.organization_id == self.organization_id,
+        )
+        result = await self.session.execute(stmt)
+        if result.scalar_one_or_none() is None:
+            raise TracecatNotFoundError("Workspace not found")
+
+    async def _validate_role_target(
+        self,
+        *,
+        role_id: UUID,
+        workspace_id: WorkspaceID | None,
+    ) -> None:
+        """Validate role scope matches the target scope."""
+        stmt = select(DBRole.id, DBRole.slug).where(
+            DBRole.id == role_id,
+            DBRole.organization_id == self.organization_id,
+        )
+        result = await self.session.execute(stmt)
+        row = result.first()
+        if row is None:
+            raise TracecatNotFoundError("Role not found")
+        _, slug = row
+        if slug is None:
+            return
+        if workspace_id is None and slug.startswith("workspace-"):
+            raise TracecatValidationError(
+                "Organization assignment requires an org-scoped role"
+            )
+        if workspace_id is not None and slug.startswith("organization-"):
+            raise TracecatValidationError(
+                "Workspace assignment requires a workspace-scoped role"
+            )
+
+    async def _ensure_org_membership(self, user_id: UUID) -> None:
+        """Ensure the user belongs to the organization."""
+        stmt = select(
+            exists().where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.organization_id == self.organization_id,
+            )
+        )
+        if (await self.session.execute(stmt)).scalar():
+            return
+        self.session.add(
+            OrganizationMembership(
+                user_id=user_id,
+                organization_id=self.organization_id,
+            )
+        )
+
+    async def _ensure_workspace_membership(
+        self,
+        *,
+        user_id: UUID,
+        workspace_id: WorkspaceID,
+    ) -> None:
+        """Ensure the user has a workspace membership row."""
+        stmt = select(
+            exists().where(
+                Membership.user_id == user_id,
+                Membership.workspace_id == workspace_id,
+            )
+        )
+        if (await self.session.execute(stmt)).scalar():
+            return
+        self.session.add(Membership(user_id=user_id, workspace_id=workspace_id))
+
+    async def _has_workspace_access(
+        self,
+        *,
+        user_id: UUID,
+        workspace_id: WorkspaceID,
+    ) -> bool:
+        """Check whether the user still has a direct or group workspace assignment."""
+        direct_stmt = select(
+            exists().where(
+                UserRoleAssignment.organization_id == self.organization_id,
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.workspace_id == workspace_id,
+            )
+        )
+        if (await self.session.execute(direct_stmt)).scalar():
+            return True
+
+        group_stmt = select(
+            exists()
+            .where(GroupMember.user_id == user_id)
+            .where(GroupRoleAssignment.group_id == GroupMember.group_id)
+            .where(GroupRoleAssignment.organization_id == self.organization_id)
+            .where(GroupRoleAssignment.workspace_id == workspace_id)
+        )
+        return bool((await self.session.execute(group_stmt)).scalar())
+
+    async def _cleanup_workspace_membership_if_unassigned(
+        self,
+        *,
+        user_id: UUID,
+        workspace_id: WorkspaceID,
+    ) -> None:
+        """Remove a workspace membership when no assignment-backed access remains."""
+        if await self._has_workspace_access(user_id=user_id, workspace_id=workspace_id):
+            return
+        await self.session.execute(
+            delete(Membership).where(
+                Membership.user_id == user_id,
+                Membership.workspace_id == workspace_id,
+            )
+        )
+
+    async def _has_any_direct_access_in_org(self, user_id: UUID) -> bool:
+        """Check whether the user still has direct assignments in the org."""
+        stmt = select(
+            exists().where(
+                UserRoleAssignment.organization_id == self.organization_id,
+                UserRoleAssignment.user_id == user_id,
+            )
+        )
+        return bool((await self.session.execute(stmt)).scalar())
+
+    async def _has_any_group_access_in_org(self, user_id: UUID) -> bool:
+        """Check whether the user still has group-derived assignments in the org."""
+        stmt = select(
+            exists()
+            .where(GroupMember.user_id == user_id)
+            .where(GroupRoleAssignment.group_id == GroupMember.group_id)
+            .where(GroupRoleAssignment.organization_id == self.organization_id)
+        )
+        return bool((await self.session.execute(stmt)).scalar())
+
+    async def _cleanup_org_membership_if_unassigned(self, user_id: UUID) -> None:
+        """Remove org and workspace memberships when no assignment-backed access remains."""
+        if await self._has_any_direct_access_in_org(user_id):
+            return
+        if await self._has_any_group_access_in_org(user_id):
+            return
+
+        workspace_ids_subquery = select(Workspace.id).where(
+            Workspace.organization_id == self.organization_id
+        )
+        await self.session.execute(
+            delete(Membership).where(
+                Membership.user_id == user_id,
+                Membership.workspace_id.in_(workspace_ids_subquery),
+            )
+        )
+        await self.session.execute(
+            delete(OrganizationMembership).where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.organization_id == self.organization_id,
+            )
+        )
+
+    async def _ensure_group_workspace_memberships(self, group_id: UUID) -> None:
+        """Backfill workspace memberships for all current members of a group."""
+        member_ids_result = await self.session.execute(
+            select(GroupMember.user_id).where(GroupMember.group_id == group_id)
+        )
+        user_ids = member_ids_result.scalars().all()
+        if not user_ids:
+            return
+
+        workspace_ids_result = await self.session.execute(
+            select(GroupRoleAssignment.workspace_id).where(
+                GroupRoleAssignment.group_id == group_id,
+                GroupRoleAssignment.organization_id == self.organization_id,
+                GroupRoleAssignment.workspace_id.is_not(None),
+            )
+        )
+        workspace_ids = workspace_ids_result.scalars().all()
+        if not workspace_ids:
+            return
+
+        for user_id in user_ids:
+            for workspace_id in workspace_ids:
+                if workspace_id is None:
+                    continue
+                await self._ensure_workspace_membership(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                )
+
     # =========================================================================
     # Group Management
     # =========================================================================
@@ -437,7 +632,9 @@ class RBACService(BaseOrgService):
 
         member = GroupMember(group_id=group_id, user_id=user_id)
         self.session.add(member)
+        await self._ensure_group_workspace_memberships(group_id)
         await self.session.commit()
+        invalidate_authz_caches()
 
     @require_scope("org:rbac:update")
     @audit_log(
@@ -445,6 +642,18 @@ class RBACService(BaseOrgService):
     )
     async def remove_group_member(self, group_id: UUID, user_id: UUID) -> None:
         """Remove a user from a group."""
+        workspace_ids_result = await self.session.execute(
+            select(GroupRoleAssignment.workspace_id).where(
+                GroupRoleAssignment.group_id == group_id,
+                GroupRoleAssignment.organization_id == self.organization_id,
+                GroupRoleAssignment.workspace_id.is_not(None),
+            )
+        )
+        workspace_ids = {
+            workspace_id
+            for workspace_id in workspace_ids_result.scalars().all()
+            if workspace_id is not None
+        }
         stmt = select(GroupMember).where(
             GroupMember.group_id == group_id,
             GroupMember.user_id == user_id,
@@ -455,7 +664,15 @@ class RBACService(BaseOrgService):
             raise TracecatNotFoundError("Group member not found")
 
         await self.session.delete(member)
+        await self.session.flush()
+        for workspace_id in workspace_ids:
+            await self._cleanup_workspace_membership_if_unassigned(
+                user_id=user_id,
+                workspace_id=workspace_id,
+            )
+        await self._cleanup_org_membership_if_unassigned(user_id)
         await self.session.commit()
+        invalidate_authz_caches()
 
     async def list_group_members(
         self, group_id: UUID
@@ -542,17 +759,11 @@ class RBACService(BaseOrgService):
         """
         # Verify role and group exist
         await self._assert_group_exists(group_id)
-        await self._assert_role_exists(role_id)
+        await self._validate_role_target(role_id=role_id, workspace_id=workspace_id)
 
         # Verify workspace exists if provided
         if workspace_id is not None:
-            stmt = select(Workspace).where(
-                Workspace.id == workspace_id,
-                Workspace.organization_id == self.organization_id,
-            )
-            result = await self.session.execute(stmt)
-            if result.scalar_one_or_none() is None:
-                raise TracecatNotFoundError("Workspace not found")
+            await self._assert_workspace_exists(workspace_id)
 
         assignment = GroupRoleAssignment(
             organization_id=self.organization_id,
@@ -562,8 +773,11 @@ class RBACService(BaseOrgService):
             assigned_by=self.role.user_id,
         )
         self.session.add(assignment)
+        if workspace_id is not None:
+            await self._ensure_group_workspace_memberships(group_id)
         await self.session.commit()
         await self.session.refresh(assignment, ["group", "role", "workspace"])
+        invalidate_authz_caches()
         return assignment
 
     @require_scope("org:rbac:update")
@@ -581,12 +795,17 @@ class RBACService(BaseOrgService):
         """Update a group assignment (change role)."""
         assignment = await self.get_group_role_assignment(assignment_id)
 
-        # Verify new role exists
-        await self._assert_role_exists(role_id)
+        await self._validate_role_target(
+            role_id=role_id,
+            workspace_id=assignment.workspace_id,
+        )
 
         assignment.role_id = role_id
+        if assignment.workspace_id is not None:
+            await self._ensure_group_workspace_memberships(assignment.group_id)
         await self.session.commit()
         await self.session.refresh(assignment, ["group", "role", "workspace"])
+        invalidate_authz_caches()
         return assignment
 
     @require_scope("org:rbac:delete")
@@ -598,8 +817,24 @@ class RBACService(BaseOrgService):
     async def delete_group_role_assignment(self, assignment_id: UUID) -> None:
         """Delete a group assignment."""
         assignment = await self.get_group_role_assignment(assignment_id)
+        group_id = assignment.group_id
+        workspace_id = assignment.workspace_id
+        member_ids_result = await self.session.execute(
+            select(GroupMember.user_id).where(GroupMember.group_id == group_id)
+        )
+        user_ids = member_ids_result.scalars().all()
         await self.session.delete(assignment)
+        await self.session.flush()
+        if workspace_id is not None:
+            for user_id in user_ids:
+                await self._cleanup_workspace_membership_if_unassigned(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                )
+        for user_id in user_ids:
+            await self._cleanup_org_membership_if_unassigned(user_id)
         await self.session.commit()
+        invalidate_authz_caches()
 
     # =========================================================================
     # User Role Assignment Management
@@ -669,27 +904,19 @@ class RBACService(BaseOrgService):
         Returns:
             Created UserRoleAssignment
         """
-        # Verify user belongs to this organization
-        stmt = select(OrganizationMembership).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == self.organization_id,
-        )
-        result = await self.session.execute(stmt)
-        if result.scalar_one_or_none() is None:
-            raise TracecatNotFoundError("User not found in organization")
-
-        # Verify role exists
-        await self._assert_role_exists(role_id)
+        await self._assert_user_exists(user_id)
+        await self._validate_role_target(role_id=role_id, workspace_id=workspace_id)
 
         # Verify workspace exists if provided
         if workspace_id is not None:
-            stmt = select(Workspace).where(
-                Workspace.id == workspace_id,
-                Workspace.organization_id == self.organization_id,
+            await self._assert_workspace_exists(workspace_id)
+
+        await self._ensure_org_membership(user_id)
+        if workspace_id is not None:
+            await self._ensure_workspace_membership(
+                user_id=user_id,
+                workspace_id=workspace_id,
             )
-            result = await self.session.execute(stmt)
-            if result.scalar_one_or_none() is None:
-                raise TracecatNotFoundError("Workspace not found")
 
         assignment = UserRoleAssignment(
             organization_id=self.organization_id,
@@ -707,6 +934,7 @@ class RBACService(BaseOrgService):
                 "User already has an assignment for this workspace"
             ) from e
         await self.session.refresh(assignment, ["user", "role", "workspace"])
+        invalidate_authz_caches()
         return assignment
 
     @require_scope("org:rbac:update")
@@ -724,12 +952,21 @@ class RBACService(BaseOrgService):
         """Update a user role assignment (change role)."""
         assignment = await self.get_user_assignment(assignment_id)
 
-        # Verify new role exists
-        await self._assert_role_exists(role_id)
+        await self._validate_role_target(
+            role_id=role_id,
+            workspace_id=assignment.workspace_id,
+        )
+        await self._ensure_org_membership(assignment.user_id)
+        if assignment.workspace_id is not None:
+            await self._ensure_workspace_membership(
+                user_id=assignment.user_id,
+                workspace_id=assignment.workspace_id,
+            )
 
         assignment.role_id = role_id
         await self.session.commit()
         await self.session.refresh(assignment, ["user", "role", "workspace"])
+        invalidate_authz_caches()
         return assignment
 
     @require_scope("org:rbac:delete")
@@ -741,8 +978,18 @@ class RBACService(BaseOrgService):
     async def delete_user_assignment(self, assignment_id: UUID) -> None:
         """Delete a user role assignment."""
         assignment = await self.get_user_assignment(assignment_id)
+        user_id = assignment.user_id
+        workspace_id = assignment.workspace_id
         await self.session.delete(assignment)
+        await self.session.flush()
+        if workspace_id is not None:
+            await self._cleanup_workspace_membership_if_unassigned(
+                user_id=user_id,
+                workspace_id=workspace_id,
+            )
+        await self._cleanup_org_membership_if_unassigned(user_id)
         await self.session.commit()
+        invalidate_authz_caches()
 
     async def get_user_role_scopes(
         self,

@@ -162,6 +162,10 @@ async def test_get_pending_org_invitation_returns_latest_match() -> None:
     )
 
     assert result is invitation
+    execute_args = fake_session.execute.await_args
+    assert execute_args is not None
+    statement = execute_args.args[0]
+    assert "workspace_id IS NULL" in str(statement)
 
 
 @pytest.mark.anyio
@@ -386,7 +390,7 @@ def test_should_allow_saml_user_auto_provisioning_for_first_superadmin() -> None
 
 
 def test_should_allow_saml_user_auto_provisioning_for_pending_invitation() -> None:
-    invitation = cast(saml.OrganizationInvitation, SimpleNamespace(token="inv-123"))
+    invitation = cast(saml.Invitation, SimpleNamespace(token="inv-123"))
     assert (
         saml.should_allow_saml_user_auto_provisioning(
             pending_invitation=invitation,
@@ -512,7 +516,7 @@ def test_should_allow_saml_org_access_matrix(
     expected: bool,
 ) -> None:
     pending_invitation = (
-        cast(saml.OrganizationInvitation, SimpleNamespace(token="inv-123"))
+        cast(saml.Invitation, SimpleNamespace(token="inv-123"))
         if has_pending_invitation
         else None
     )

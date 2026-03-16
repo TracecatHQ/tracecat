@@ -14,8 +14,8 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER_SCOPES
 from tracecat.db.models import (
     AccessToken,
+    Invitation,
     Organization,
-    OrganizationInvitation,
     OrganizationMembership,
     User,
 )
@@ -910,7 +910,7 @@ class TestOrganizationServiceInvitations:
         )
         session.add(org2_role)
         await session.flush()
-        org2_invitation = OrganizationInvitation(
+        org2_invitation = Invitation(
             organization_id=org2.id,
             email="org2user@example.com",
             role_id=org2_role.id,
@@ -1066,6 +1066,7 @@ class TestOrganizationServiceInvitations:
         revoked = await service.revoke_invitation(invitation.id)
 
         assert revoked.status == InvitationStatus.REVOKED
+        assert revoked.accepted_at is None
 
     @pytest.mark.anyio
     async def test_revoke_invitation_already_revoked_raises(
@@ -1108,7 +1109,7 @@ class TestOrganizationServiceInvitations:
         )
         session.add(org2_role)
         await session.flush()
-        org2_invitation = OrganizationInvitation(
+        org2_invitation = Invitation(
             organization_id=org2.id,
             email="org2user@example.com",
             role_id=org2_role.id,

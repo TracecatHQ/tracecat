@@ -55,7 +55,11 @@ from tracecat.db.models import (
     OrganizationMembership,
     User,
 )
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
@@ -417,6 +421,13 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         except TracecatAuthorizationError as e:
             self.logger.warning(
                 "Invitation acceptance failed during registration",
+                user_id=str(user.id),
+                email=user.email,
+                error=str(e),
+            )
+        except TracecatValidationError as e:
+            self.logger.warning(
+                "Invitation validation failed during registration",
                 user_id=str(user.id),
                 email=user.email,
                 error=str(e),

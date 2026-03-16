@@ -85,8 +85,8 @@ from tracecat.config import (
 )
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
+    Invitation,
     OrganizationDomain,
-    OrganizationInvitation,
     OrganizationMembership,
     SAMLRequestData,
     User,
@@ -407,20 +407,21 @@ def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
 
 async def get_pending_org_invitation(
     session: AsyncSession, organization_id: OrganizationID, email: str
-) -> OrganizationInvitation | None:
-    """Return a pending, unexpired org invitation for the email if one exists."""
+) -> Invitation | None:
+    """Return the latest pending, unexpired org invitation for the email if one exists."""
     normalized_email = email.strip().lower()
     if not normalized_email:
         return None
     statement = (
-        select(OrganizationInvitation)
+        select(Invitation)
         .where(
-            OrganizationInvitation.organization_id == organization_id,
-            func.lower(OrganizationInvitation.email) == normalized_email,
-            OrganizationInvitation.status == InvitationStatus.PENDING,
-            OrganizationInvitation.expires_at > datetime.now(UTC),
+            Invitation.organization_id == organization_id,
+            Invitation.workspace_id.is_(None),
+            func.lower(Invitation.email) == normalized_email,
+            Invitation.status == InvitationStatus.PENDING,
+            Invitation.expires_at > datetime.now(UTC),
         )
-        .order_by(OrganizationInvitation.created_at.desc())
+        .order_by(Invitation.created_at.desc())
     )
     result = await session.execute(statement)
     return result.scalars().first()
@@ -428,7 +429,7 @@ async def get_pending_org_invitation(
 
 async def _select_authorized_email(
     session: AsyncSession, organization_id: OrganizationID, candidates: list[str]
-) -> tuple[str | None, OrganizationInvitation | None]:
+) -> tuple[str | None, Invitation | None]:
     """Pick the best SAML email candidate allowed by org policy.
 
     Selection order:
@@ -501,7 +502,7 @@ async def is_superadmin_saml_bootstrap_allowed_for_org(
 
 def should_allow_saml_user_auto_provisioning(
     *,
-    pending_invitation: OrganizationInvitation | None,
+    pending_invitation: Invitation | None,
     is_first_superadmin_bootstrap: bool,
 ) -> bool:
     """Allow SAML user creation only for invitees and first superadmin bootstrap."""
@@ -511,7 +512,7 @@ def should_allow_saml_user_auto_provisioning(
 def should_allow_saml_org_access(
     *,
     has_existing_membership: bool,
-    pending_invitation: OrganizationInvitation | None,
+    pending_invitation: Invitation | None,
     is_first_superadmin_bootstrap: bool,
     is_platform_superuser: bool,
 ) -> bool:
