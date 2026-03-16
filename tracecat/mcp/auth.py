@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import secrets
 import time
 import uuid
 from base64 import urlsafe_b64decode
@@ -15,16 +16,23 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 from cryptography.fernet import Fernet
 from fastmcp.server.auth import AccessToken, AuthProvider
+from fastmcp.server.auth.oauth_proxy.models import (
+    JTIMapping,
+    RefreshTokenMetadata,
+    _hash_token,
+)
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
 from mcp.server.auth.provider import (
+    AuthorizationCode,
     AuthorizationParams,
+    RefreshToken,
     TokenError,
 )
-from mcp.shared.auth import OAuthClientInformationFull
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
@@ -74,6 +82,7 @@ _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
 
 _MCP_REFRESH_SCOPE = "offline_access"
 _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 24 * 60 * 60
+_MCP_REFRESH_TOKEN_FALLBACK_EXPIRY_SECONDS = 30 * 24 * 60 * 60  # 30 days
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
 _MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
 
@@ -617,6 +626,276 @@ def create_mcp_auth() -> AuthProvider:
             scopes = append_scope_if_missing(scopes, _MCP_REFRESH_SCOPE)
             params_with_refresh = params.model_copy(update={"scopes": scopes})
             return await super().authorize(client, params_with_refresh)
+
+        async def exchange_authorization_code(
+            self,
+            client: OAuthClientInformationFull,
+            authorization_code: AuthorizationCode,
+        ) -> OAuthToken:
+            """Override token exchange to guarantee refresh tokens and long-lived sessions.
+
+            Some OIDC providers (e.g. PropelAuth) silently ignore ``offline_access``
+            and return short-lived access tokens without refresh tokens. When the
+            upstream does not provide a refresh token, we force-issue a FastMCP
+            refresh token ourselves so that MCP clients can maintain long-lived
+            sessions without repeated full OAuth re-authorization.
+
+            We also override the access token TTL to use our configured fallback
+            (24h) instead of the upstream's potentially short value.
+            """
+            result = await super().exchange_authorization_code(
+                client, authorization_code
+            )
+            if result.refresh_token is not None:
+                # Upstream returned a refresh token — just override the access TTL
+                logger.info(
+                    "MCP token exchange: upstream returned refresh token, "
+                    "overriding access TTL to %d seconds",
+                    _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                )
+                return OAuthToken(
+                    access_token=self.jwt_issuer.issue_access_token(
+                        client_id=client.client_id or "",
+                        scopes=authorization_code.scopes,
+                        jti=secrets.token_urlsafe(32),
+                        expires_in=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                        upstream_claims=None,
+                    ),
+                    token_type="Bearer",
+                    expires_in=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                    refresh_token=result.refresh_token,
+                    scope=result.scope,
+                )
+
+            # Upstream did NOT return a refresh token — force-issue one.
+            logger.warning(
+                "MCP token exchange: upstream did not return refresh token; "
+                "force-issuing FastMCP refresh token "
+                "(access TTL=%d s, refresh TTL=%d s)",
+                _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                _MCP_REFRESH_TOKEN_FALLBACK_EXPIRY_SECONDS,
+            )
+
+            access_jti = secrets.token_urlsafe(32)
+            refresh_jti = secrets.token_urlsafe(32)
+
+            # Recover the upstream_token_id from the access token we just got
+            # so we can link the refresh JTI to the same upstream token set.
+            try:
+                access_payload = self.jwt_issuer.verify_token(result.access_token)
+                original_access_jti = access_payload["jti"]
+            except Exception:
+                original_access_jti = None
+
+            upstream_token_id: str | None = None
+            if original_access_jti is not None:
+                if jti_mapping := await self._jti_mapping_store.get(
+                    key=original_access_jti
+                ):
+                    upstream_token_id = jti_mapping.upstream_token_id
+
+            # Re-extract upstream claims from stored token set for new JWTs
+            upstream_claims: dict[str, Any] | None = None
+            if upstream_token_id is not None:
+                if upstream_set := await self._upstream_token_store.get(
+                    key=upstream_token_id
+                ):
+                    upstream_claims = await self._extract_upstream_claims(
+                        upstream_set.raw_token_data
+                    )
+
+            client_id = client.client_id or ""
+            fastmcp_access = self.jwt_issuer.issue_access_token(
+                client_id=client_id,
+                scopes=authorization_code.scopes,
+                jti=access_jti,
+                expires_in=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                upstream_claims=upstream_claims,
+            )
+            fastmcp_refresh = self.jwt_issuer.issue_refresh_token(
+                client_id=client_id,
+                scopes=authorization_code.scopes,
+                jti=refresh_jti,
+                expires_in=_MCP_REFRESH_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                upstream_claims=upstream_claims,
+            )
+
+            # Store JTI mappings for the new tokens
+            if upstream_token_id is not None:
+                await self._jti_mapping_store.put(
+                    key=access_jti,
+                    value=JTIMapping(
+                        jti=access_jti,
+                        upstream_token_id=upstream_token_id,
+                        created_at=time.time(),
+                    ),
+                    ttl=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                )
+                await self._jti_mapping_store.put(
+                    key=refresh_jti,
+                    value=JTIMapping(
+                        jti=refresh_jti,
+                        upstream_token_id=upstream_token_id,
+                        created_at=time.time(),
+                    ),
+                    ttl=_MCP_REFRESH_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                )
+
+                # Update the upstream token set TTL to match
+                if upstream_set := await self._upstream_token_store.get(
+                    key=upstream_token_id
+                ):
+                    await self._upstream_token_store.put(
+                        key=upstream_token_id,
+                        value=upstream_set,
+                        ttl=_MCP_REFRESH_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                    )
+
+            # Store refresh token metadata
+            await self._refresh_token_store.put(
+                key=_hash_token(fastmcp_refresh),
+                value=RefreshTokenMetadata(
+                    client_id=client_id,
+                    scopes=authorization_code.scopes,
+                    expires_at=int(time.time())
+                    + _MCP_REFRESH_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                    created_at=time.time(),
+                ),
+                ttl=_MCP_REFRESH_TOKEN_FALLBACK_EXPIRY_SECONDS,
+            )
+
+            return OAuthToken(
+                access_token=fastmcp_access,
+                token_type="Bearer",
+                expires_in=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                refresh_token=fastmcp_refresh,
+                scope=result.scope,
+            )
+
+        async def exchange_refresh_token(
+            self,
+            client: OAuthClientInformationFull,
+            refresh_token: RefreshToken,
+            scopes: list[str],
+        ) -> OAuthToken:
+            """Override refresh to handle the no-upstream-refresh-token case.
+
+            When the upstream provider did not issue a refresh token (e.g.
+            PropelAuth ignoring ``offline_access``), the parent implementation
+            would fail with "Refresh not supported for this token". Instead, we
+            re-issue new FastMCP access and refresh JWTs using the stored
+            upstream claims, keeping the session alive without needing to call
+            the upstream provider.
+            """
+            # Verify the incoming FastMCP refresh JWT
+            try:
+                refresh_payload = self.jwt_issuer.verify_token(refresh_token.token)
+                refresh_jti = refresh_payload["jti"]
+            except Exception as e:
+                logger.debug("FastMCP refresh token validation failed: %s", e)
+                raise TokenError("invalid_grant", "Invalid refresh token") from e
+
+            # Look up JTI mapping to find the upstream token set
+            jti_mapping = await self._jti_mapping_store.get(key=refresh_jti)
+            if not jti_mapping:
+                raise TokenError("invalid_grant", "Refresh token mapping not found")
+
+            upstream_set = await self._upstream_token_store.get(
+                key=jti_mapping.upstream_token_id
+            )
+            if not upstream_set:
+                raise TokenError("invalid_grant", "Upstream token not found")
+
+            # If there IS an upstream refresh token, delegate to the parent
+            if upstream_set.refresh_token:
+                return await super().exchange_refresh_token(
+                    client, refresh_token, scopes
+                )
+
+            # No upstream refresh token — re-issue FastMCP tokens directly
+            logger.info(
+                "MCP refresh: no upstream refresh token available; "
+                "re-issuing FastMCP tokens from stored claims"
+            )
+
+            upstream_claims = await self._extract_upstream_claims(
+                upstream_set.raw_token_data
+            )
+
+            client_id = client.client_id or ""
+            new_access_jti = secrets.token_urlsafe(32)
+            new_refresh_jti = secrets.token_urlsafe(32)
+
+            new_access = self.jwt_issuer.issue_access_token(
+                client_id=client_id,
+                scopes=scopes,
+                jti=new_access_jti,
+                expires_in=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                upstream_claims=upstream_claims,
+            )
+            new_refresh = self.jwt_issuer.issue_refresh_token(
+                client_id=client_id,
+                scopes=scopes,
+                jti=new_refresh_jti,
+                expires_in=_MCP_REFRESH_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                upstream_claims=upstream_claims,
+            )
+
+            upstream_token_id = jti_mapping.upstream_token_id
+
+            # Store new JTI mappings
+            await self._jti_mapping_store.put(
+                key=new_access_jti,
+                value=JTIMapping(
+                    jti=new_access_jti,
+                    upstream_token_id=upstream_token_id,
+                    created_at=time.time(),
+                ),
+                ttl=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+            )
+            await self._jti_mapping_store.put(
+                key=new_refresh_jti,
+                value=JTIMapping(
+                    jti=new_refresh_jti,
+                    upstream_token_id=upstream_token_id,
+                    created_at=time.time(),
+                ),
+                ttl=_MCP_REFRESH_TOKEN_FALLBACK_EXPIRY_SECONDS,
+            )
+
+            # Invalidate old refresh token JTI (one-time use)
+            await self._jti_mapping_store.delete(key=refresh_jti)
+
+            # Store new refresh token metadata
+            await self._refresh_token_store.put(
+                key=_hash_token(new_refresh),
+                value=RefreshTokenMetadata(
+                    client_id=client_id,
+                    scopes=scopes,
+                    expires_at=int(time.time())
+                    + _MCP_REFRESH_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                    created_at=time.time(),
+                ),
+                ttl=_MCP_REFRESH_TOKEN_FALLBACK_EXPIRY_SECONDS,
+            )
+
+            # Delete old refresh token metadata
+            await self._refresh_token_store.delete(key=_hash_token(refresh_token.token))
+
+            # Extend upstream token set TTL
+            await self._upstream_token_store.put(
+                key=upstream_token_id,
+                value=upstream_set,
+                ttl=_MCP_REFRESH_TOKEN_FALLBACK_EXPIRY_SECONDS,
+            )
+
+            return OAuthToken(
+                access_token=new_access,
+                token_type="Bearer",
+                expires_in=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+                refresh_token=new_refresh,
+                scope=" ".join(scopes),
+            )
 
         async def _retry_without_refresh_scope(
             self,
