@@ -13,12 +13,16 @@ from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
 from litellm.types.utils import CallTypesLiteral
 
+from tracecat.agent.litellm_compat import apply_patch
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
+
+# Apply monkeypatches for LiteLLM adapter compatibility fixes
+apply_patch()
 
 # -----------------------------------------------------------------------------
 # Credential Fetching via AgentManagementService
