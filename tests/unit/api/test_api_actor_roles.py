@@ -586,5 +586,9 @@ def test_webhook_api_key_revocation_route_remains_user_only() -> None:
     revoke_role = get_type_hints(
         workflow_management_router.revoke_webhook_api_key, include_extras=True
     )["role"]
+    delete_role = get_type_hints(
+        workflow_management_router.delete_webhook_api_key, include_extras=True
+    )["role"]
 
     assert revoke_role == WorkspaceUserRole
+    assert delete_role == WorkspaceUserRole

@@ -964,7 +964,7 @@ async def revoke_webhook_api_key(
 )
 @require_scope("workflow:delete")
 async def delete_webhook_api_key(
-    role: WorkspaceActorRole,
+    role: WorkspaceUserRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> None:
