@@ -42,7 +42,7 @@ variable "alb_ssl_policy" {
 variable "node_instance_types" {
   description = "Instance types for the EKS node group"
   type        = list(string)
-  default     = ["m7g.2xlarge"]
+  default     = ["m8g.4xlarge", "m7g.4xlarge", "m6g.4xlarge"]
 }
 
 variable "node_architecture" {
@@ -81,19 +81,19 @@ variable "node_ami_type" {
 variable "node_desired_size" {
   description = "Desired number of nodes in the node group"
   type        = number
-  default     = 10
+  default     = 4
 }
 
 variable "node_min_size" {
   description = "Minimum number of nodes in the node group"
   type        = number
-  default     = 10
+  default     = 4
 }
 
 variable "node_max_size" {
   description = "Maximum number of nodes in the node group"
   type        = number
-  default     = 16
+  default     = 6
 }
 
 variable "node_disk_size" {
@@ -111,25 +111,25 @@ variable "spot_node_group_enabled" {
 variable "spot_node_instance_types" {
   description = "Instance types for the spot managed node group."
   type        = list(string)
-  default     = ["m7g.2xlarge"]
+  default     = ["m8g.4xlarge", "m7g.4xlarge", "m6g.4xlarge"]
 }
 
 variable "spot_node_desired_size" {
   description = "Desired number of nodes in the spot managed node group."
   type        = number
-  default     = 3
+  default     = 1
 }
 
 variable "spot_node_min_size" {
   description = "Minimum number of nodes in the spot managed node group."
   type        = number
-  default     = 3
+  default     = 1
 }
 
 variable "spot_node_max_size" {
   description = "Maximum number of nodes in the spot managed node group."
   type        = number
-  default     = 6
+  default     = 2
 }
 
 # Tracecat Configuration
@@ -416,13 +416,13 @@ variable "executor_memory_request_mib" {
 variable "agent_executor_cpu_request_millicores" {
   description = "Agent executor CPU request in millicores"
   type        = number
-  default     = 2000
+  default     = 4000
 }
 
 variable "agent_executor_memory_request_mib" {
   description = "Agent executor memory request in MiB"
   type        = number
-  default     = 8192
+  default     = 16384
 }
 
 variable "ui_cpu_request_millicores" {
@@ -441,13 +441,13 @@ variable "ui_memory_request_mib" {
 variable "node_schedulable_cpu_millicores_per_node" {
   description = "Schedulable CPU per worker node in millicores used for rollout capacity guardrails"
   type        = number
-  default     = 8000
+  default     = 15000
 }
 
 variable "node_schedulable_memory_mib_per_node" {
   description = "Schedulable memory per worker node in MiB used for rollout capacity guardrails"
   type        = number
-  default     = 32768
+  default     = 61440
 }
 
 variable "pod_eni_capacity_per_node" {

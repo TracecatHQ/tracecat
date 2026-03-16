@@ -275,13 +275,20 @@ urls:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `api.replicas` | `1` | API service replicas |
-| `worker.replicas` | `1` | Temporal worker replicas |
-| `executor.replicas` | `1` | Action executor replicas |
-| `agentExecutor.replicas` | `1` | Agent executor replicas |
+| `api.replicas` | `2` | API service replicas |
+| `worker.replicas` | `4` | Temporal worker replicas |
+| `executor.replicas` | `4` | Action executor replicas |
+| `agentExecutor.replicas` | `2` | Agent executor replicas |
 | `ui.replicas` | `1` | UI service replicas |
 
 Each service also supports `resources.requests.cpu`, `resources.requests.memory`, `resources.limits.cpu`, and `resources.limits.memory`. See `values.yaml` for defaults.
+
+Notable defaults in `values.yaml`:
+- `api`: `2000m / 4096Mi`
+- `worker`: `2000m / 2048Mi`
+- `executor`: `4000m / 8192Mi`
+- `agentExecutor`: `4000m / 16384Mi`
+- `ui`: `500m / 512Mi`
 
 ### Sandbox (nsjail)
 

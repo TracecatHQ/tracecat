@@ -38,6 +38,8 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 - `worker_desired_count=2`
 - `executor_desired_count=2`
 - `agent_executor_desired_count=1`
+- `agent_executor_cpu=4096`
+- `agent_executor_memory=16384`
 - `tracecat_db_instance_class=db.t4g.medium`
 - `tracecat_db_allocated_storage=20`
 - `temporal_db_instance_class=db.t4g.2xlarge`

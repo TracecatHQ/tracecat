@@ -511,7 +511,7 @@ variable "agent_executor_cpu" {
 
 variable "agent_executor_memory" {
   type    = string
-  default = "8192"
+  default = "16384"
 }
 
 variable "agent_executor_desired_count" {
