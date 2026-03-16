@@ -1012,6 +1012,39 @@ class TestTableRows:
                 values=["Bob"],
             )
 
+    async def test_lookup_row_allows_system_id_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """System columns should remain available to lookup_rows."""
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 40})
+        )
+
+        results = await tables_service.lookup_rows(
+            table_name=table.name,
+            columns=["id"],
+            values=[inserted["id"]],
+        )
+
+        assert len(results) == 1
+        assert results[0]["id"] == inserted["id"]
+
+    async def test_exists_rows_allows_system_id_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """System columns should remain available to exists_rows."""
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 40})
+        )
+
+        exists = await tables_service.exists_rows(
+            table_name=table.name,
+            columns=["id"],
+            values=[inserted["id"]],
+        )
+
+        assert exists is True
+
     async def test_list_rows(self, tables_service: TablesService, table: Table) -> None:
         """Test listing rows with cursor-based pagination."""
         # Insert multiple test rows

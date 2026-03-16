@@ -71,6 +71,7 @@ _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
     InFailedSQLTransactionError,
 )
+_TABLE_SYSTEM_COLUMNS = frozenset({"id", "created_at", "updated_at"})
 
 
 class BaseTablesService(BaseWorkspaceService):
@@ -88,7 +89,7 @@ class BaseTablesService(BaseWorkspaceService):
 
     def _resolve_external_column_name(self, table: Table, column_name: str) -> str:
         """Resolve an external column name against metadata without aliasing invalid names."""
-        column_names = {column.name for column in table.columns}
+        column_names = {column.name for column in table.columns} | _TABLE_SYSTEM_COLUMNS
         if column_name in column_names:
             return column_name
 
