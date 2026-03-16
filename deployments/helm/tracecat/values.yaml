@@ -320,11 +320,11 @@ agentExecutor:
     annotations: {}
   resources:
     requests:
-      cpu: "2000m"
-      memory: "4096Mi"
+      cpu: "4000m"
+      memory: "16384Mi"
     limits:
-      cpu: "2000m"
-      memory: "4096Mi"
+      cpu: "4000m"
+      memory: "16384Mi"
   queue: "shared-agent-queue"
   workerPoolSize: ""
   llmProxyReadTimeout: "300"

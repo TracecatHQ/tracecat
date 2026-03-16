@@ -103,6 +103,22 @@ locals {
     local.ui_rollout_replicas
   )
 
+  max_tracecat_pod_cpu_millicores = max(
+    var.api_cpu_request_millicores,
+    var.worker_cpu_request_millicores,
+    var.executor_cpu_request_millicores,
+    var.agent_executor_cpu_request_millicores,
+    var.ui_cpu_request_millicores
+  )
+
+  max_tracecat_pod_memory_mib = max(
+    var.api_memory_request_mib,
+    var.worker_memory_request_mib,
+    var.executor_memory_request_mib,
+    var.agent_executor_memory_request_mib,
+    var.ui_memory_request_mib
+  )
+
   desired_node_count = var.node_desired_size + (var.spot_node_group_enabled ? var.spot_node_desired_size : 0)
 
   desired_cpu_capacity_millicores = local.desired_node_count * var.node_schedulable_cpu_millicores_per_node
@@ -155,6 +171,28 @@ check "tracecat_rollout_pod_eni_capacity" {
       local.desired_pod_eni_capacity,
       local.desired_node_count,
       var.pod_eni_capacity_per_node
+    )
+  }
+}
+
+check "tracecat_single_pod_cpu_fits_node" {
+  assert {
+    condition = local.max_tracecat_pod_cpu_millicores <= var.node_schedulable_cpu_millicores_per_node
+    error_message = format(
+      "Largest Tracecat pod CPU request is %dm, but only %dm schedulable CPU is modeled per node. Increase node size or lower per-pod CPU requests.",
+      local.max_tracecat_pod_cpu_millicores,
+      var.node_schedulable_cpu_millicores_per_node
+    )
+  }
+}
+
+check "tracecat_single_pod_memory_fits_node" {
+  assert {
+    condition = local.max_tracecat_pod_memory_mib <= var.node_schedulable_memory_mib_per_node
+    error_message = format(
+      "Largest Tracecat pod memory request is %dMi, but only %dMi schedulable memory is modeled per node. Increase node size or lower per-pod memory requests.",
+      local.max_tracecat_pod_memory_mib,
+      var.node_schedulable_memory_mib_per_node
     )
   }
 }

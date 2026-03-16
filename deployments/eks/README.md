@@ -27,17 +27,18 @@ Network hardening:
 
 ## Default deployment profile (~100 concurrent users)
 
-- Nodes: `13 x m7g.2xlarge` (`10` on-demand + `3` spot by default)
-- Guardrail requirement (rollout peak + reserved headroom): `46.5 vCPU`, `95.5 GiB RAM`
-- Scheduled capacity (on-demand only): `80 vCPU`, `320 GiB RAM`
-- Scheduled capacity (on-demand + spot): `104 vCPU`, `416 GiB RAM`
-- Percent headroom (on-demand only): `~42% CPU`, `~70% RAM` (`33.5 vCPU`, `224.5 GiB RAM`)
-- Estimated cost: `$4500/month`
+- Nodes: `5 x 4xlarge Graviton nodes` (`4` on-demand + `1` spot by default, defaulting to `m8g`/`m7g`/`m6g`)
+- Guardrail requirement (rollout peak + reserved headroom): `52.5 vCPU`, `119.5 GiB RAM`
+- Scheduled capacity (on-demand only): `60 vCPU`, `240 GiB RAM`
+- Scheduled capacity (on-demand + spot): `75 vCPU`, `300 GiB RAM`
+- Percent headroom (on-demand only): `~13% CPU`, `~50% RAM` (`7.5 vCPU`, `120.5 GiB RAM`)
+- Cost posture: materially lower node overhead than the previous `13 x m7g.2xlarge` profile while still keeping rollout headroom on on-demand capacity alone
 
 Definitions used above:
 - `guardrail model`: The plan-time capacity checks in `deployments/eks/modules/eks/main.tf` that compare required capacity vs configured node capacity.
 - `rollout peak`: Replica requests with rollout surge applied (`rollout_surge_percent`, default `25`), across API/worker/executor/agentExecutor/UI.
 - `reserved headroom`: Extra fixed capacity reserved for system/auxiliary workloads (`capacity_reserved_cpu_millicores`, `capacity_reserved_memory_mib`, `capacity_reserved_pod_eni`).
+- `schedulable per node`: `15 vCPU / 60 GiB`, which leaves explicit kube-system and DaemonSet margin on each default 4xlarge Graviton node.
 
 ```bash
 # Replica counts
@@ -54,27 +55,27 @@ worker_cpu_request_millicores=2000
 worker_memory_request_mib=2048
 executor_cpu_request_millicores=4000
 executor_memory_request_mib=8192
-agent_executor_cpu_request_millicores=2000
-agent_executor_memory_request_mib=8192
+agent_executor_cpu_request_millicores=4000
+agent_executor_memory_request_mib=16384
 ui_cpu_request_millicores=500
 ui_memory_request_mib=512
 
-# Node groups: 10 on-demand + 3 spot, all m7g.2xlarge
-node_instance_types='["m7g.2xlarge"]'
+# Node groups: 4 on-demand + 1 spot, same-shape Graviton 4xlarge pool
+node_instance_types='["m8g.4xlarge","m7g.4xlarge","m6g.4xlarge"]'
 node_architecture="arm64"
 node_ami_type="AL2023_ARM_64_STANDARD"
-node_min_size=10
-node_desired_size=10
-node_max_size=16
+node_min_size=4
+node_desired_size=4
+node_max_size=6
 spot_node_group_enabled=true
-spot_node_instance_types='["m7g.2xlarge"]'
-spot_node_min_size=3
-spot_node_desired_size=3
-spot_node_max_size=6
+spot_node_instance_types='["m8g.4xlarge","m7g.4xlarge","m6g.4xlarge"]'
+spot_node_min_size=1
+spot_node_desired_size=1
+spot_node_max_size=2
 
 # Capacity guardrail inputs
-node_schedulable_cpu_millicores_per_node=8000
-node_schedulable_memory_mib_per_node=32768
+node_schedulable_cpu_millicores_per_node=15000
+node_schedulable_memory_mib_per_node=61440
 pod_eni_capacity_per_node=16
 rollout_surge_percent=25
 capacity_reserved_cpu_millicores=3000
@@ -89,6 +90,13 @@ elasticache_node_type="cache.t4g.medium"
 rds_database_insights_mode="advanced"
 ```
 
+This profile is tuned for larger nodes with simpler packing:
+
+- A single `agent-executor` pod requests `4 vCPU / 16 GiB`, so it fits comfortably on any of the default 4xlarge Graviton node types alongside an `executor`, `worker`, or `api` pod.
+- All default node types stay at the same `16 vCPU / 64 GiB` shape so Cluster Autoscaler scheduling remains predictable.
+- The `4` on-demand nodes are sufficient for rollout peak plus reserve on their own; the extra spot node is opportunistic buffer rather than a hard dependency.
+- Compared with the old `m7g.2xlarge` mix, this keeps the same workload shape while reducing node count and per-node fragmentation.
+
 ## Capacity strategy (on-demand vs spot)
 
 The EKS module uses managed node groups with capacity labels to steer scheduling:
@@ -101,9 +109,15 @@ When the spot node group is enabled, Terraform injects scheduling defaults into 
 - **Preferred node affinity** for `tracecat.com/capacity=spot` (soft preference).
 - **Topology spread** across `tracecat.com/capacity` with `whenUnsatisfiable=ScheduleAnyway` to balance across on-demand and spot when both are available.
 
-You can disable spot by setting `spot_node_group_enabled=false` or change the mix by adjusting the on-demand and spot sizes.
+You can disable spot by setting `spot_node_group_enabled=false` or change the mix by adjusting the on-demand and spot sizes. The default mix assumes the on-demand group should be able to absorb rollout peak even if spot capacity disappears.
 
 Terraform includes plan-time capacity guardrails that verify the desired node count can support the configured replicas and resource requests at rollout peak (with a 25% surge). If capacity is insufficient, `terraform plan` will emit a warning. See `modules/eks/main.tf` for the check blocks.
+
+Instance type selection notes:
+
+- The on-demand managed node group uses the list order as priority, so the default order prefers `m8g.4xlarge`, then `m7g.4xlarge`, then `m6g.4xlarge`.
+- The Spot managed node group uses Amazon EKS Spot allocation strategy defaults (`price-capacity-optimized` on newer clusters), so list order is not a strong priority signal there; the value of multiple types is broader capacity-pool coverage.
+- If a target region does not support one of these instance families, remove it from both lists for that environment.
 
 ### Architecture requirement
 
