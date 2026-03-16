@@ -474,9 +474,8 @@ class ClaudeAgentRuntime:
                     auth_token=payload.mcp_auth_token,
                 )
                 mcp_servers[REGISTRY_MCP_SERVER_NAME] = proxy_config
-                # Guard against alias drift in resumed session history/tool calls.
-                if payload.sdk_session_id:
-                    mcp_servers[REGISTRY_MCP_SERVER_NAME_ALIAS] = proxy_config
+                # Guard against alias drift across fresh and resumed sessions.
+                mcp_servers[REGISTRY_MCP_SERVER_NAME_ALIAS] = proxy_config
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
             if payload.config.mcp_servers:
