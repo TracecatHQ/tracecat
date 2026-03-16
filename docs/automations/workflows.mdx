@@ -5,13 +5,51 @@ description: "Build and manage workflows"
 
 ## Creating workflows
 
+View and create workflows in
+
+## Run workflow manually
+
+## Draft vs published workflows
+
+## Error workflows
+
+## Environments
+
 ## View workflow runs
 
 There are three views for workflow runs:
 - Most recent run in the workflow builder
 - All runs for a specific workflow
-- All runs across all workflows
+- <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> All runs across all workflows
+
+## Cancel / terminate / reset runs
+
+<Badge icon="github" color="gray" size="lg" shape="pill">Open Source</Badge> Open up the Temporal UI to view and control all workflow runs.
+
+<Warning>
+The Temporal UI exposes all your workflow runs. Do not expose it to the public internet unless you have OIDC SSO enabled.
+</Warning>
+
+<AccordionGroup>
+  <Accordion title="Docker compose" icon="docker">
+    Expose port `8081` in the `temporal_ui` service in the `docker-compose.yml` file and run `docker compose up`.
+    Then access the Temporal UI at `http://localhost:8081`.
+  </Accordion>
+
+  <Accordion title="AWS Fargate" icon="aws">
+    Set the following Terraform variables:
+    - `disable_temporal_ui` to `false`
+    - `temporal_auth_provider_url` to your identity provider's URL
+    - `temporal_auth_client_id` to the OIDC client ID
+    - `temporal_auth_client_secret` to the OIDC client secret
+
+    Then run `terraform apply`. Access the Temporal UI at `http://<your domain>/temporal-admin`.
+  </Accordion>
+</AccordionGroup>
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> You can view, cancel, terminate, and reset all workflow runs directly from the Tracecat UI under the `/runs` page.
+
+![Reset terminate cancel runs](/img/automations/workflows/reset-terminate-cancel-runs.png)
+
 
 ## Copy actions to clipboard
-
-## Export / import
