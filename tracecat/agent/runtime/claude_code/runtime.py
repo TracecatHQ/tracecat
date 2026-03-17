@@ -29,6 +29,7 @@ from claude_agent_sdk.types import (
     AssistantMessage,
     HookContext,
     HookInput,
+    PreToolUseHookSpecificOutput,
     ResultMessage,
     StreamEvent,
     SyncHookJSONOutput,
@@ -47,11 +48,12 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.common.types import (
-    MCPStdioServerConfig,
-    MCPToolDefinition,
+from tracecat.agent.common.types import MCPStdioServerConfig, MCPToolDefinition
+from tracecat.agent.mcp.proxy_server import (
+    PROXY_TOOL_CALL_ID_KEY,
+    PROXY_TOOL_METADATA_KEY,
+    create_proxy_mcp_server,
 )
-from tracecat.agent.mcp.proxy_server import create_proxy_mcp_server
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
@@ -145,6 +147,25 @@ class ClaudeAgentRuntime:
         # Working directory for session file path resolution
         # Must match the cwd passed to ClaudeAgentOptions for session resume
         self._cwd: Path = Path.cwd()
+
+    def _should_inject_tool_metadata(self, action_name: str) -> bool:
+        """Return True when a tool executes through the registry proxy path."""
+        return not (
+            action_name.startswith("mcp.") or action_name.startswith("internal.")
+        )
+
+    def _with_tool_call_metadata(
+        self,
+        tool_input: dict[str, Any],
+        tool_use_id: str,
+    ) -> dict[str, Any]:
+        """Attach Tracecat-internal tool metadata to proxy tool input."""
+        return {
+            **tool_input,
+            PROXY_TOOL_METADATA_KEY: {
+                PROXY_TOOL_CALL_ID_KEY: tool_use_id,
+            },
+        }
 
     def _get_session_file_path(self, sdk_session_id: str) -> Path:
         """Derive the session file path from SDK session ID.
@@ -413,11 +434,24 @@ class ClaudeAgentRuntime:
                 }
             }
 
+        hook_output: PreToolUseHookSpecificOutput = {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
+        if self._should_inject_tool_metadata(action_name):
+            if tool_use_id:
+                hook_output["updatedInput"] = self._with_tool_call_metadata(
+                    tool_input,
+                    tool_use_id,
+                )
+            else:
+                logger.warning(
+                    "Missing tool use ID for registry tool execution",
+                    action_name=action_name,
+                )
+
         return {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "allow",
-            }
+            "hookSpecificOutput": hook_output,
         }
 
     def _build_system_prompt(

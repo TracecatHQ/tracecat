@@ -24,6 +24,10 @@ from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers import UserID, WorkflowID
 from tracecat.workflow.executions.common import build_query
+from tracecat.workflow.executions.correlation import (
+    build_agent_session_correlation_id,
+    build_tracecat_correlation_id,
+)
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -564,6 +568,12 @@ class TestSearchAttributeEnumMethods:
         assert user_pair.key.name == TemporalSearchAttr.TRIGGERED_BY_USER_ID.value
         assert user_pair.value == "user-456"
 
+        correlation_pair = TemporalSearchAttr.CORRELATION_ID.create_pair(
+            "agent-session:123"
+        )
+        assert correlation_pair.key.name == TemporalSearchAttr.CORRELATION_ID.value
+        assert correlation_pair.value == "agent-session:123"
+
     async def test_temporal_search_attr_key_property(self) -> None:
         """Test that TemporalSearchAttr.key property returns SearchAttributeKey."""
         from temporalio.common import SearchAttributeKey
@@ -580,3 +590,19 @@ class TestSearchAttributeEnumMethods:
         user_key = TemporalSearchAttr.TRIGGERED_BY_USER_ID.key
         assert isinstance(user_key, SearchAttributeKey)
         assert user_key.name == TemporalSearchAttr.TRIGGERED_BY_USER_ID.value
+
+        correlation_key = TemporalSearchAttr.CORRELATION_ID.key
+        assert isinstance(correlation_key, SearchAttributeKey)
+        assert correlation_key.name == TemporalSearchAttr.CORRELATION_ID.value
+
+    async def test_tracecat_correlation_id_helpers(self) -> None:
+        session_id = uuid.UUID("00000000-0000-0000-0000-000000000123")
+
+        assert (
+            build_tracecat_correlation_id("agent-session", session_id)
+            == "agent-session:00000000-0000-0000-0000-000000000123"
+        )
+        assert (
+            build_agent_session_correlation_id(session_id)
+            == "agent-session:00000000-0000-0000-0000-000000000123"
+        )

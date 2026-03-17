@@ -21,6 +21,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
+from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -82,6 +83,9 @@ async def test_upsert_tracecat_search_attributes_fills_missing_keys() -> None:
     assert (
         values[TemporalSearchAttr.EXECUTION_TYPE.value] == ExecutionType.PUBLISHED.value
     )
+    assert values[
+        TemporalSearchAttr.CORRELATION_ID.value
+    ] == build_agent_session_correlation_id(workflow_args.agent_args.session_id)
     assert values[TemporalSearchAttr.WORKSPACE_ID.value] == str(role.workspace_id)
     assert values[TemporalSearchAttr.TRIGGERED_BY_USER_ID.value] == str(role.user_id)
 
@@ -105,6 +109,7 @@ async def test_upsert_tracecat_search_attributes_preserves_existing_values() -> 
             TemporalSearchAttr.EXECUTION_TYPE.create_pair(ExecutionType.DRAFT.value),
             TemporalSearchAttr.WORKSPACE_ID.create_pair(existing_workspace),
             TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(existing_user),
+            TemporalSearchAttr.CORRELATION_ID.create_pair("agent-session:existing"),
         ]
     )
 

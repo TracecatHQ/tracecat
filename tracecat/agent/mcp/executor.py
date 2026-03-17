@@ -7,7 +7,8 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from temporalio.client import WorkflowFailureError
-from temporalio.exceptions import ApplicationError
+from temporalio.common import SearchAttributePair, TypedSearchAttributes
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
 
 from tracecat import config
@@ -15,6 +16,10 @@ from tracecat.agent.tokens import MCPTokenClaims
 from tracecat.agent.workflows.tool_execution import (
     AGENT_TOOL_PRIORITY,
     ExecuteRegistryToolWorkflowInput,
+    ExecuteRegistryToolWorkflowMemo,
+    build_agent_tool_workflow_id,
+    build_fallback_agent_tool_workflow_id,
+    is_valid_agent_tool_call_id,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -35,6 +40,8 @@ from tracecat.storage.object import (
     StoredObjectValidator,
     retrieve_stored_object,
 )
+from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
+from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 
 class ActionNotAllowedError(Exception):
@@ -62,6 +69,7 @@ async def execute_action(
     args: dict[str, Any],
     claims: MCPTokenClaims,
     registry_lock: RegistryLock,
+    tool_call_id: str | None = None,
 ) -> Any:
     """Execute a registry UDF through the shared executor queue.
 
@@ -96,7 +104,22 @@ async def execute_action(
 
     run_input = build_run_input(action_name, args, registry_lock)
     stored = await _execute_action_workflow(
-        ExecuteRegistryToolWorkflowInput(role=role, run_input=run_input)
+        ExecuteRegistryToolWorkflowInput(role=role, run_input=run_input),
+        workflow_id=_build_tool_workflow_id(claims.session_id, tool_call_id),
+        memo=ExecuteRegistryToolWorkflowMemo(
+            parent_agent_workflow_id=claims.parent_agent_workflow_id,
+            parent_agent_run_id=claims.parent_agent_run_id,
+            parent_agent_session_id=claims.session_id,
+            tool_call_id=tool_call_id,
+            action_name=action_name,
+        ),
+        search_attributes=TypedSearchAttributes(
+            search_attributes=[
+                build_tool_workflow_correlation_attr(claims.session_id),
+                build_tool_workflow_workspace_attr(claims),
+                *build_tool_workflow_user_attrs(claims),
+            ]
+        ),
     )
     return await retrieve_stored_object(stored)
 
@@ -144,6 +167,10 @@ def build_run_input(
 
 async def _execute_action_workflow(
     input: ExecuteRegistryToolWorkflowInput,
+    *,
+    workflow_id: str,
+    memo: ExecuteRegistryToolWorkflowMemo,
+    search_attributes: TypedSearchAttributes,
 ) -> StoredObject:
     """Execute a single registry UDF via a short workflow on agent-worker."""
     client = await get_temporal_client()
@@ -151,16 +178,58 @@ async def _execute_action_workflow(
         stored = await client.execute_workflow(
             ExecuteRegistryToolWorkflow.run,
             input,
-            id=f"agent-tool-{uuid4()}",
+            id=workflow_id,
             task_queue=config.TRACECAT__AGENT_QUEUE,
             run_timeout=timedelta(
                 seconds=int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT) + 30
             ),
             priority=AGENT_TOOL_PRIORITY,
+            memo=memo.model_dump(mode="json", exclude_none=True),
+            search_attributes=search_attributes,
         )
+    except WorkflowAlreadyStartedError:
+        stored = await client.get_workflow_handle(workflow_id).result()
     except WorkflowFailureError as e:
         cause = e.cause
         if isinstance(cause, ApplicationError):
             raise ActionExecutionError(str(cause)) from e
         raise ActionExecutionError(str(e)) from e
     return StoredObjectValidator.validate_python(stored)
+
+
+def _build_tool_workflow_id(
+    session_id: UUID,
+    tool_call_id: str | None,
+) -> str:
+    """Build a deterministic workflow ID for a registry tool execution."""
+    if tool_call_id is not None and is_valid_agent_tool_call_id(tool_call_id):
+        return build_agent_tool_workflow_id(session_id, tool_call_id)
+
+    if tool_call_id is not None:
+        logger.warning("Unsafe tool call ID for workflow ID", tool_call_id=tool_call_id)
+    else:
+        logger.warning("Missing tool call ID for workflow ID")
+    return build_fallback_agent_tool_workflow_id(session_id)
+
+
+def build_tool_workflow_correlation_attr(session_id: UUID) -> SearchAttributePair[str]:
+    """Build the grouped correlation search attribute for registry tool workflows."""
+    return TemporalSearchAttr.CORRELATION_ID.create_pair(
+        build_agent_session_correlation_id(session_id)
+    )
+
+
+def build_tool_workflow_workspace_attr(
+    claims: MCPTokenClaims,
+) -> SearchAttributePair[str]:
+    """Build the workspace search attribute for registry tool workflows."""
+    return TemporalSearchAttr.WORKSPACE_ID.create_pair(str(claims.workspace_id))
+
+
+def build_tool_workflow_user_attrs(
+    claims: MCPTokenClaims,
+) -> list[SearchAttributePair[str]]:
+    """Build optional user search attributes for registry tool workflows."""
+    if claims.user_id is None:
+        return []
+    return [TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(str(claims.user_id))]

@@ -55,6 +55,9 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.executor.activities import ExecutorActivities
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
+    from tracecat.workflow.executions.correlation import (
+        build_agent_session_correlation_id,
+    )
     from tracecat.workflow.executions.enums import (
         ExecutionType,
         TemporalSearchAttr,
@@ -190,6 +193,12 @@ class DurableAgentWorkflow:
             updates.append(
                 TemporalSearchAttr.WORKSPACE_ID.key.value_set(
                     str(self.role.workspace_id)
+                )
+            )
+        if search_attributes.get(TemporalSearchAttr.CORRELATION_ID.key) is None:
+            updates.append(
+                TemporalSearchAttr.CORRELATION_ID.key.value_set(
+                    build_agent_session_correlation_id(self.session_id)
                 )
             )
 
@@ -403,12 +412,15 @@ class DurableAgentWorkflow:
 
         # Mint tokens for MCP server and LiteLLM gateway auth
         # These tokens are opaque to the jailed runtime - it cannot decode them
+        info = workflow.info()
         mcp_auth_token = mint_mcp_token(
             workspace_id=self.workspace_id,
             organization_id=self.organization_id,
             user_id=self.role.user_id,
             allowed_actions=list(allowed_actions.keys()),
             session_id=self.session_id,
+            parent_agent_workflow_id=info.workflow_id,
+            parent_agent_run_id=info.run_id,
             user_mcp_servers=user_mcp_claims,
             allowed_internal_tools=allowed_internal_tools,
             internal_tool_context=internal_tool_context,
