@@ -22,7 +22,7 @@ import type { ActionType, RegistryActionReadMinimal } from "@/client/types.gen"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
 import { ExpressionInput } from "@/components/editor/expression-input"
-import { getIcon } from "@/components/icons"
+import { getIcon, ProviderIcon } from "@/components/icons"
 import {
   LockedFeatureChip,
   LockedFeatureModal,
@@ -69,7 +69,12 @@ import {
   useAgentPresetVersions,
 } from "@/hooks/use-agent-presets"
 import { isExpression } from "@/lib/expressions"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import {
+  getModelSelectionKey,
+  parseModelSelectionKey,
+  useAgentModels,
+  useBuilderRegistryActions,
+} from "@/lib/hooks"
 import { getType } from "@/lib/jsonschema"
 import {
   type ExpressionComponent,
@@ -494,6 +499,8 @@ function ComponentContent({
       )
     case "agent-preset":
       return <AgentPresetSelect field={field} />
+    case "agent-model":
+      return <AgentModelSelect field={field} />
     case "tag-input":
       return (
         <CustomTagInput
@@ -846,6 +853,7 @@ const COMPONENT_LABELS: Record<TracecatComponentId, string> = {
   "action-type": "Action Type",
   "workflow-alias": "Workflow Alias",
   "agent-preset": "Agent Preset",
+  "agent-model": "Agent Model",
 }
 
 const COMPONENT_ICONS: Record<TracecatComponentId, LucideIcon> = {
@@ -862,6 +870,7 @@ const COMPONENT_ICONS: Record<TracecatComponentId, LucideIcon> = {
   "action-type": TypeIcon,
   "workflow-alias": WorkflowIcon,
   "agent-preset": WorkflowIcon,
+  "agent-model": WorkflowIcon,
 }
 
 function AgentPresetSelect({
@@ -931,6 +940,202 @@ function AgentPresetSelect({
       </SelectContent>
     </Select>
   )
+}
+
+function AgentModelSelect({
+  field,
+}: {
+  field: ControllerRenderProps<FieldValues>
+}) {
+  const workspaceId = useWorkspaceId()
+  const { models, modelsLoading, modelsError } = useAgentModels(workspaceId)
+  const currentValue = typeof field.value === "string" ? field.value : undefined
+  const selectedModel = useMemo(
+    () =>
+      (models ?? []).find(
+        (model) =>
+          getModelSelectionKey({
+            source_id: model.source_id,
+            model_provider: model.model_provider,
+            model_name: model.model_name,
+          }) === currentValue
+      ) ?? null,
+    [currentValue, models]
+  )
+  const currentValueExists = useMemo(
+    () => currentValue != null && selectedModel !== null,
+    [currentValue, selectedModel]
+  )
+  const unavailableSelection = useMemo(() => {
+    if (currentValue == null || currentValueExists) {
+      return null
+    }
+    try {
+      return parseModelSelectionKey(currentValue)
+    } catch {
+      return null
+    }
+  }, [currentValue, currentValueExists])
+
+  const placeholder = !workspaceId
+    ? "Select a workspace to load models"
+    : modelsLoading
+      ? "Loading models..."
+      : modelsError
+        ? "Failed to load models"
+        : "Select a model"
+
+  return (
+    <Select
+      value={currentValue}
+      onValueChange={field.onChange}
+      disabled={!workspaceId}
+    >
+      <SelectTrigger className="h-12 px-3 [&>svg]:shrink-0">
+        {selectedModel ? (
+          <div className="flex min-w-0 items-center gap-3 text-left">
+            <ProviderIcon
+              className="size-5 rounded-sm p-0.5"
+              providerId={getModelProviderIconId(
+                selectedModel.model_provider,
+                selectedModel.source_id
+              )}
+            />
+            <div className="min-w-0 space-y-0.5">
+              <span className="block truncate text-sm font-medium text-foreground">
+                {selectedModel.model_name}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {selectedModel.source_name ??
+                  (selectedModel.source_id
+                    ? "Custom"
+                    : selectedModel.model_provider)}
+              </span>
+            </div>
+          </div>
+        ) : unavailableSelection ? (
+          <div className="flex min-w-0 items-center gap-3 text-left">
+            <ProviderIcon
+              className="size-5 rounded-sm p-0.5"
+              providerId={getModelProviderIconId(
+                unavailableSelection.model_provider,
+                unavailableSelection.source_id
+              )}
+            />
+            <div className="min-w-0 space-y-0.5">
+              <span className="block truncate text-sm font-medium text-foreground">
+                {unavailableSelection.model_name}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                Unavailable in this workspace
+              </span>
+            </div>
+          </div>
+        ) : (
+          <SelectValue placeholder={placeholder} />
+        )}
+      </SelectTrigger>
+      <SelectContent>
+        {modelsLoading && (
+          <SelectItem value="__loading" disabled>
+            Loading models...
+          </SelectItem>
+        )}
+        {modelsError && (
+          <SelectItem value="__error" disabled>
+            Failed to load models
+          </SelectItem>
+        )}
+        {unavailableSelection && currentValue && (
+          <SelectItem value={currentValue}>
+            <div className="flex min-w-0 items-start gap-3 py-1">
+              <ProviderIcon
+                className="mt-0.5 size-5 rounded-sm p-0.5"
+                providerId={getModelProviderIconId(
+                  unavailableSelection.model_provider,
+                  unavailableSelection.source_id
+                )}
+              />
+              <div className="min-w-0 space-y-1">
+                <span className="block truncate text-sm font-medium">
+                  {unavailableSelection.model_name}
+                </span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {`Unavailable in this workspace · ${unavailableSelection.model_provider}`}
+                </span>
+              </div>
+            </div>
+          </SelectItem>
+        )}
+        {!modelsLoading &&
+          !modelsError &&
+          workspaceId &&
+          (models?.length ?? 0) === 0 && (
+            <SelectItem value="__empty" disabled>
+              No models found
+            </SelectItem>
+          )}
+        {models?.map((model) => {
+          const optionValue = getModelSelectionKey({
+            source_id: model.source_id,
+            model_provider: model.model_provider,
+            model_name: model.model_name,
+          })
+          const title = model.model_name
+          const sourceLabel =
+            model.source_name ?? (model.source_id ? "Custom" : "Platform")
+          const metaLabel =
+            sourceLabel === model.model_provider
+              ? sourceLabel
+              : `${sourceLabel} · ${model.model_provider}`
+
+          return (
+            <SelectItem key={optionValue} value={optionValue}>
+              <div className="flex min-w-0 items-start gap-3 py-1">
+                <ProviderIcon
+                  className="mt-0.5 size-5 rounded-sm p-0.5"
+                  providerId={getModelProviderIconId(
+                    model.model_provider,
+                    model.source_id
+                  )}
+                />
+                <div className="min-w-0 space-y-1">
+                  <span className="block truncate text-sm font-medium">
+                    {title}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {metaLabel}
+                  </span>
+                </div>
+              </div>
+            </SelectItem>
+          )
+        })}
+      </SelectContent>
+    </Select>
+  )
+}
+
+function getModelProviderIconId(
+  modelProvider: string,
+  sourceId?: string | null
+): string {
+  switch (modelProvider) {
+    case "anthropic":
+      return "anthropic"
+    case "azure_ai":
+    case "azure_openai":
+      return "microsoft"
+    case "bedrock":
+      return "amazon-bedrock"
+    case "gemini":
+    case "vertex_ai":
+      return "google"
+    case "openai":
+      return "openai"
+    default:
+      return sourceId ? "custom-model-provider" : "custom-model-provider"
+  }
 }
 
 function isAgentPresetVersionFieldName(fieldName: string): boolean {

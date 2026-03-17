@@ -4,6 +4,7 @@ from itertools import chain
 from typing import Any
 
 import lark
+import orjson
 from pydantic import (
     ConfigDict,
     ValidationError,
@@ -55,6 +56,44 @@ PERMITTED_INTERACTION_ACTIONS = [
     "tools.slack.post_message",
     "tools.slack.update_message",
 ]
+
+_AI_ACTIONS_WITH_COMPOSITE_MODEL = frozenset(
+    {
+        PlatformAction.AI_AGENT,
+        PlatformAction.AI_ACTION,
+        "ai.rank_documents",
+        "ai.select_field",
+        "ai.select_fields",
+    }
+)
+
+
+def _normalize_registry_action_args(
+    action_name: str,
+    args: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    if action_name not in _AI_ACTIONS_WITH_COMPOSITE_MODEL:
+        return args
+    if isinstance(args.get("model"), str):
+        return args
+    if not (
+        isinstance(model_name := args.get("model_name"), str)
+        and isinstance(model_provider := args.get("model_provider"), str)
+    ):
+        return args
+
+    normalized = dict(args)
+    normalized["model"] = orjson.dumps(
+        [
+            args.get("source_id") if isinstance(args.get("source_id"), str) else None,
+            model_provider,
+            model_name,
+        ]
+    ).decode()
+    normalized.pop("source_id", None)
+    normalized.pop("model_name", None)
+    normalized.pop("model_provider", None)
+    return normalized
 
 
 def get_effective_environment(stmt: ActionStatement, default_environment: str) -> str:
@@ -309,10 +348,11 @@ async def validate_registry_action_args(
                 model = json_schema_to_pydantic(
                     interface["expects"], root_config=ConfigDict(extra="forbid")
                 )
+                normalized_args = _normalize_registry_action_args(action_name, args)
                 # Note that we're allowing type coercion for the input arguments
                 # Use cases would be transforming a UTC string to a datetime object
                 # We return the validated input arguments as a dictionary
-                validated = model.model_validate(args)
+                validated = model.model_validate(normalized_args)
             validated_args = validated.model_dump()
         except ValidationError as e:
             logger.info("Validation error for action", action_name=action_name)

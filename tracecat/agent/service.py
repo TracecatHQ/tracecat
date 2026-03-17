@@ -25,6 +25,7 @@ from tracecat import config
 from tracecat.agent.builtin_catalog import (
     LITELLM_PINNED_VERSION,
     BuiltInCatalogModel,
+    _is_agent_enableable,
     get_builtin_catalog_by_provider,
     get_builtin_catalog_models,
 )
@@ -99,9 +100,10 @@ from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
-from tracecat.service import BaseOrgService
+from tracecat.service import BaseOrgService, requires_entitlement
 from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
+from tracecat.tiers.enums import Entitlement
 
 _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 _VERTEX_BEARER_TOKEN_KEY = "VERTEX_AI_BEARER_TOKEN"
@@ -982,10 +984,14 @@ class AgentManagementService(BaseOrgService):
         return list((await self.session.execute(stmt)).scalars().all())
 
     async def _list_builtin_catalog_rows(self) -> list[AgentCatalog]:
+        builtin_providers = [
+            source_type.value for source_type in _BUILT_IN_PROVIDER_ORDER
+        ]
         stmt = (
             select(AgentCatalog)
             .where(
                 AgentCatalog.organization_id.is_(None),
+                AgentCatalog.model_provider.in_(builtin_providers),
             )
             .order_by(AgentCatalog.model_provider.asc(), AgentCatalog.model_name.asc())
         )
@@ -1362,7 +1368,7 @@ class AgentManagementService(BaseOrgService):
     def _build_builtin_catalog_entry(
         self,
         *,
-        row: BuiltInCatalogModel,
+        row: AgentCatalog,
         enabled_rows_by_key: dict[ModelSelectionKey, AgentEnabledModel],
         provider_status: ModelDiscoveryStatus,
         credentials: dict[str, str] | None,
@@ -1373,31 +1379,27 @@ class AgentManagementService(BaseOrgService):
             provider=provider,
             credentials=credentials,
         )
-        ready = row.enableable and credentials_configured
-        if row.readiness_message is not None:
-            readiness_message = row.readiness_message
+        metadata = row.model_metadata or {}
+        enableable, enableable_readiness_message = _is_agent_enableable(metadata)
+        ready = enableable and credentials_configured
+        if enableable_readiness_message is not None:
+            readiness_message = enableable_readiness_message
         elif not credentials_configured:
             readiness_message = (
                 f"Configure {credential_config.label} credentials to enable this model."
             )
         else:
             readiness_message = None
-        enabled_row = enabled_rows_by_key.get(
-            self._selection_key(
-                source_id=None,
-                model_provider=row.model_provider,
-                model_name=row.model_id,
-            )
-        )
+        enabled_row = enabled_rows_by_key.get(self._selection_key_from_catalog_row(row))
         return BuiltInCatalogEntry(
             model_provider=row.model_provider,
-            model_name=row.model_id,
-            source_type=row.source_type.value,
+            model_name=row.model_name,
+            source_type=ModelSourceType(row.model_provider).value,
             source_name=self._provider_label(row.model_provider),
             source_id=None,
             enabled=enabled_row is not None,
-            last_refreshed_at=None,
-            metadata=row.metadata,
+            last_refreshed_at=row.last_refreshed_at,
+            metadata=row.model_metadata,
             enabled_config=(
                 EnabledModelRuntimeConfig.model_validate(enabled_row.enabled_config)
                 if enabled_row and enabled_row.enabled_config
@@ -1511,7 +1513,7 @@ class AgentManagementService(BaseOrgService):
                 provider_status=provider_statuses[row.model_provider],
                 credentials=credentials_by_provider[row.model_provider],
             )
-            for row in get_builtin_catalog_models()
+            for row in await self._list_builtin_catalog_rows()
         ]
         normalized_query = query.strip().lower() if query else None
         if normalized_query:
@@ -2312,6 +2314,7 @@ class AgentManagementService(BaseOrgService):
         return rows
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def enable_model(self, params: EnabledModelOperation) -> ModelCatalogEntry:
         selection = self._selection_key_from_model_selection(params)
         await self._enable_catalog_rows([selection])
@@ -2323,6 +2326,7 @@ class AgentManagementService(BaseOrgService):
         return (await self._build_enabled_model_entries([enabled_row]))[0]
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def enable_models(
         self, params: EnabledModelsBatchOperation
     ) -> list[ModelCatalogEntry]:
@@ -2545,18 +2549,21 @@ class AgentManagementService(BaseOrgService):
                 return None
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def disable_model(self, selection: ModelSelection) -> None:
         await self._disable_model_selections(
             [self._selection_key_from_model_selection(selection)]
         )
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def disable_models(self, params: EnabledModelsBatchOperation) -> None:
         await self._disable_model_selections(
             [self._selection_key_from_model_selection(item) for item in params.models]
         )
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def update_enabled_model_config(
         self, params: EnabledModelRuntimeConfigUpdate
     ) -> ModelCatalogEntry:
@@ -2747,6 +2754,7 @@ class AgentManagementService(BaseOrgService):
         )
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def set_default_model_selection(
         self, selection: ModelSelection
     ) -> DefaultModelSelection:

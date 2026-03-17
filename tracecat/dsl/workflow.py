@@ -941,6 +941,7 @@ class DSLWorkflow:
                             user_prompt=action_args.user_prompt,
                             session_id=session_id,
                             config=AgentConfig(
+                                source_id=action_args.source_id,
                                 model_name=action_args.model_name,
                                 model_provider=action_args.model_provider,
                                 instructions=action_args.instructions,
@@ -1001,6 +1002,7 @@ class DSLWorkflow:
                             user_prompt=action_args.user_prompt,
                             session_id=session_id,
                             config=AgentConfig(
+                                source_id=action_args.source_id,
                                 model_name=action_args.model_name,
                                 model_provider=action_args.model_provider,
                                 instructions=action_args.instructions,

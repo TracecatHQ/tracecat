@@ -256,8 +256,10 @@ async def rank_items_endpoint(
     try:
         agent_svc = AgentManagementService(session, role=role)
         config = AgentConfig(
+            source_id=params.source_id,
             model_name=params.model_name,
             model_provider=params.model_provider,
+            model_settings=params.model_settings,
             base_url=params.base_url,
         )
         async with _provider_secrets_context(agent_svc, config):
@@ -266,7 +268,7 @@ async def rank_items_endpoint(
                 criteria_prompt=params.criteria_prompt,
                 model_name=config.model_name,
                 model_provider=config.model_provider,
-                model_settings=params.model_settings,
+                model_settings=config.model_settings,
                 max_requests=params.max_requests,
                 retries=params.retries,
                 base_url=config.base_url,
@@ -294,8 +296,10 @@ async def rank_items_pairwise_endpoint(
     try:
         agent_svc = AgentManagementService(session, role=role)
         config = AgentConfig(
+            source_id=params.source_id,
             model_name=params.model_name,
             model_provider=params.model_provider,
+            model_settings=params.model_settings,
             base_url=params.base_url,
         )
         async with _provider_secrets_context(agent_svc, config):
@@ -308,7 +312,7 @@ async def rank_items_pairwise_endpoint(
                 batch_size=params.batch_size,
                 num_passes=params.num_passes,
                 refinement_ratio=params.refinement_ratio,
-                model_settings=params.model_settings,
+                model_settings=config.model_settings,
                 max_requests=params.max_requests,
                 retries=params.retries,
                 base_url=config.base_url,

@@ -114,6 +114,7 @@ import { ValidationErrorView } from "@/components/validation-errors"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
 import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
+import { normalizeRegistryActionInputs } from "@/lib/registry-action-inputs"
 import { isTracecatJsonSchema, type TracecatJsonSchema } from "@/lib/schema"
 import { cn, slugifyActionRef } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
@@ -306,10 +307,14 @@ function ActionPanelContent({
   const isReshapeAction = action?.type === "core.transform.reshape"
 
   const actionInputsObj = useMemo(
-    () => parseYaml(action?.inputs) ?? {},
+    () =>
+      normalizeRegistryActionInputs(
+        action?.type,
+        (parseYaml(action?.inputs) ?? {}) as Record<string, unknown>
+      ),
     // Include actionId so switching to a different action with identical
     // inputs still recalculates and triggers downstream resets.
-    [action?.inputs, actionId]
+    [action?.inputs, action?.type, actionId]
   )
   // Compute initial form values based purely on the latest server state
   // (ActionRead + control_flow). Drafts are layered on top of this later.
@@ -376,6 +381,16 @@ function ActionPanelContent({
 
   useEffect(() => {
     const existingDraft = actionDrafts[actionId] as ActionFormSchema | undefined
+    const normalizedDraft =
+      existingDraft == null
+        ? undefined
+        : {
+            ...existingDraft,
+            inputs: normalizeRegistryActionInputs(
+              action?.type,
+              existingDraft.inputs
+            ),
+          }
 
     // Never overwrite user edits: once the form is dirty, the user is in
     // control and we should not reset from either drafts or server.
@@ -385,8 +400,8 @@ function ActionPanelContent({
 
     // On first load for this action, prefer any stored draft so that
     // switching between nodes restores unsaved edits.
-    if (existingDraft && !hasHydratedRef.current) {
-      methods.reset(existingDraft)
+    if (normalizedDraft && !hasHydratedRef.current) {
+      methods.reset(normalizedDraft)
       hasHydratedRef.current = true
       return
     }
@@ -396,7 +411,7 @@ function ActionPanelContent({
     // - Hydrate once on initial load when there is no draft, and
     // - Re-hydrate again if the underlying action data changes while the
     //   form is still pristine (e.g. server-normalized values).
-    if (!existingDraft && action) {
+    if (!normalizedDraft && action) {
       const prevBaseValues = lastBaseValuesRef.current
       const hasBaseChanged =
         !prevBaseValues ||
@@ -408,7 +423,7 @@ function ActionPanelContent({
         lastBaseValuesRef.current = baseFormValues
       }
     }
-  }, [actionDrafts, actionId, action, baseFormValues, methods])
+  }, [action?.type, actionDrafts, actionId, action, baseFormValues, methods])
 
   useEffect(() => {
     // Persist drafts only after the user has made changes. This avoids

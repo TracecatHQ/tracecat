@@ -682,6 +682,7 @@ function ProviderAllowlistModelRow({
 }
 
 function ProviderConnectionItem({
+  canManageModels,
   disabled,
   enabledCount,
   onDisableAllModels,
@@ -694,6 +695,7 @@ function ProviderConnectionItem({
   onToggleModel,
   provider,
 }: {
+  canManageModels: boolean
   disabled: boolean
   enabledCount: number
   onDisableAllModels: (provider: string, label: string) => Promise<void>
@@ -711,6 +713,7 @@ function ProviderConnectionItem({
   onToggleModel: (model: ModelCatalogEntry) => Promise<void>
   provider: BuiltInProviderRead
 }) {
+  const canExpand = canManageModels
   const [catalogQueryInput, setCatalogQueryInput] = useState("")
   const [allowAllOverride, setAllowAllOverride] = useState<boolean | null>(null)
   const [enabledCountOverride, setEnabledCountOverride] = useState<
@@ -720,7 +723,7 @@ function ProviderConnectionItem({
   const [catalogQuery] = useDebounce(catalogQueryInput.trim(), 250)
   const { data: allProviderModels, isLoading: providerAccessLoading } =
     useQuery<BuiltInCatalogEntry[], Error>({
-      enabled: isExpanded,
+      enabled: canExpand && isExpanded,
       queryKey: ["agent-models", "builtins", "all", provider.provider],
       queryFn: async () =>
         await listAllBuiltInAgentCatalog({
@@ -735,7 +738,7 @@ function ProviderConnectionItem({
     isFetchingNextPage,
     isLoading,
   } = useBuiltInAgentCatalog({
-    enabled: isExpanded,
+    enabled: canExpand && isExpanded,
     limit: 50,
     provider: provider.provider,
     query: catalogQuery,
@@ -819,220 +822,227 @@ function ProviderConnectionItem({
       }
       isExpanded={isExpanded}
       onExpandedChange={onExpandedChange}
+      reserveExpandSpace={canExpand}
       subtitle={subtitle}
       title={provider.label}
     >
-      <div className="space-y-4">
-        {provider.credentials_configured ? (
-          <div className="flex flex-wrap gap-2">
+      {canExpand ? (
+        <div className="space-y-4">
+          {provider.credentials_configured ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => {
+                  void onDeleteCredentials(provider.provider, provider.label)
+                }}
+                size="sm"
+                variant="outline"
+              >
+                Disconnect
+              </Button>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed px-4 py-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">
+                    Connect {provider.label}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Use the Connect action above to add organization credentials
+                    before these models can be enabled for organization use.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {provider.last_error ? (
+            <div className="rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive">
+              {provider.last_error}
+            </div>
+          ) : null}
+
+          <div className="rounded-lg border px-4 py-3">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Model access</p>
+                <p className="text-xs text-muted-foreground">
+                  {allowAllChecked
+                    ? `All selectable ${provider.label} models are allowed. Turn this off to manage a whitelist.`
+                    : `Use a whitelist to choose which ${provider.label} models can appear in default-model and preset selection.`}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span
+                  className={cn(
+                    "text-xs font-medium",
+                    allowAllChecked
+                      ? "text-foreground"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  Allow all
+                </span>
+                <Switch
+                  checked={allowAllChecked}
+                  disabled={
+                    disabled ||
+                    isLoading ||
+                    providerAccessLoading ||
+                    !provider.credentials_configured ||
+                    !selectableProviderModelCount
+                  }
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      setIsWhitelistMode(false)
+                      setAllowAllOverride(true)
+                      setEnabledCountOverride(selectableProviderModelCount)
+                      void onEnableAllModels(
+                        provider.provider,
+                        provider.label
+                      ).catch(() => {
+                        setAllowAllOverride(null)
+                        setEnabledCountOverride(null)
+                      })
+                      return
+                    }
+                    setIsWhitelistMode(true)
+                    setAllowAllOverride(false)
+                    setEnabledCountOverride(0)
+                    void onDisableAllModels(
+                      provider.provider,
+                      provider.label
+                    ).catch(() => {
+                      setIsWhitelistMode(false)
+                      setAllowAllOverride(null)
+                      setEnabledCountOverride(null)
+                    })
+                  }}
+                  size="md"
+                />
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <ProviderMetaPill active={enabledSelectableProviderCount > 0}>
+                {providerAccessLoading
+                  ? "Loading model access…"
+                  : selectableProviderModelCount
+                    ? `${enabledSelectableProviderCount} of ${selectableProviderModelCount} models enabled`
+                    : discoveredProviderModelCount
+                      ? `${enabledSelectableProviderCount} enabled`
+                      : provider.credentials_configured
+                        ? "No selectable models available"
+                        : "Connect to manage platform models"}
+              </ProviderMetaPill>
+            </div>
+          </div>
+
+          {error ? (
+            <AlertNotification level="error" message={error.message} />
+          ) : null}
+
+          {isLoading && !inventory ? (
+            <CenteredSpinner />
+          ) : showModelList ? (
+            provider.credentials_configured ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Input
+                    className="focus-visible:ring-0 focus-visible:ring-offset-0"
+                    onChange={(event) => {
+                      setCatalogQueryInput(event.target.value)
+                    }}
+                    placeholder={`Search ${provider.label} models`}
+                    value={catalogQueryInput}
+                  />
+                  {catalogQueryInput.trim() ? (
+                    <Button
+                      onClick={() => {
+                        setCatalogQueryInput("")
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      Clear
+                    </Button>
+                  ) : null}
+                </div>
+                {providerModels.length ? (
+                  <ScrollArea className="h-96 rounded-lg border">
+                    <div className="px-4">
+                      <div className="hidden grid-cols-[minmax(0,1fr)_88px_88px_72px_auto] gap-4 border-b border-border/40 py-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+                        <span>Model</span>
+                        <span className="text-right">Context</span>
+                        <span className="text-right">Output</span>
+                        <span className="text-right">Mode</span>
+                        <span className="text-right">Access</span>
+                      </div>
+                      {providerModels.map((model) => (
+                        <ProviderAllowlistModelRow
+                          disabled={disabled}
+                          key={getModelSelectionKey(toModelSelection(model))}
+                          model={model}
+                          onUpdateConfig={onUpdateModelConfig}
+                          onToggle={async (nextModel) => {
+                            const nextCountDelta = nextModel.enabled ? -1 : 1
+                            setAllowAllOverride(null)
+                            setEnabledCountOverride((current) =>
+                              Math.min(
+                                selectableProviderModelCount ||
+                                  Number.POSITIVE_INFINITY,
+                                Math.max(
+                                  0,
+                                  (current ?? resolvedEnabledCount) +
+                                    nextCountDelta
+                                )
+                              )
+                            )
+                            try {
+                              await onToggleModel(nextModel)
+                            } catch {
+                              setEnabledCountOverride(null)
+                            }
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </ScrollArea>
+                ) : (
+                  <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
+                    {catalogQueryInput.trim()
+                      ? `No ${provider.label} models matched this search.`
+                      : "No selectable models are currently available for this provider."}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
+                Connect this provider, then allow the platform models your
+                organization should be able to choose.
+              </div>
+            )
+          ) : (
+            <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
+              Every selectable {provider.label} model is allowed. Turn off Allow
+              all to trim this down to a whitelist.
+            </div>
+          )}
+
+          {showLoadMore ? (
             <Button
+              disabled={Boolean(isFetchingNextPage)}
               onClick={() => {
-                void onDeleteCredentials(provider.provider, provider.label)
+                void fetchNextPage()
               }}
               size="sm"
               variant="outline"
             >
-              Disconnect
+              {isFetchingNextPage ? "Loading..." : "Load more"}
             </Button>
-          </div>
-        ) : (
-          <div className="rounded-lg border border-dashed px-4 py-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">Connect {provider.label}</p>
-                <p className="text-xs text-muted-foreground">
-                  Use the Connect action above to add organization credentials
-                  before these models can be enabled for organization use.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {provider.last_error ? (
-          <div className="rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive">
-            {provider.last_error}
-          </div>
-        ) : null}
-
-        <div className="rounded-lg border px-4 py-3">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Model access</p>
-              <p className="text-xs text-muted-foreground">
-                {allowAllChecked
-                  ? `All selectable ${provider.label} models are allowed. Turn this off to manage a whitelist.`
-                  : `Use a whitelist to choose which ${provider.label} models can appear in default-model and preset selection.`}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span
-                className={cn(
-                  "text-xs font-medium",
-                  allowAllChecked ? "text-foreground" : "text-muted-foreground"
-                )}
-              >
-                Allow all
-              </span>
-              <Switch
-                checked={allowAllChecked}
-                disabled={
-                  disabled ||
-                  isLoading ||
-                  providerAccessLoading ||
-                  !provider.credentials_configured ||
-                  !selectableProviderModelCount
-                }
-                onCheckedChange={(checked) => {
-                  if (checked) {
-                    setIsWhitelistMode(false)
-                    setAllowAllOverride(true)
-                    setEnabledCountOverride(selectableProviderModelCount)
-                    void onEnableAllModels(
-                      provider.provider,
-                      provider.label
-                    ).catch(() => {
-                      setAllowAllOverride(null)
-                      setEnabledCountOverride(null)
-                    })
-                    return
-                  }
-                  setIsWhitelistMode(true)
-                  setAllowAllOverride(false)
-                  setEnabledCountOverride(0)
-                  void onDisableAllModels(
-                    provider.provider,
-                    provider.label
-                  ).catch(() => {
-                    setIsWhitelistMode(false)
-                    setAllowAllOverride(null)
-                    setEnabledCountOverride(null)
-                  })
-                }}
-                size="md"
-              />
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <ProviderMetaPill active={enabledSelectableProviderCount > 0}>
-              {providerAccessLoading
-                ? "Loading model access…"
-                : selectableProviderModelCount
-                  ? `${enabledSelectableProviderCount} of ${selectableProviderModelCount} models enabled`
-                  : discoveredProviderModelCount
-                    ? `${enabledSelectableProviderCount} enabled`
-                    : provider.credentials_configured
-                      ? "No selectable models available"
-                      : "Connect to manage platform models"}
-            </ProviderMetaPill>
-          </div>
+          ) : null}
         </div>
-
-        {error ? (
-          <AlertNotification level="error" message={error.message} />
-        ) : null}
-
-        {isLoading && !inventory ? (
-          <CenteredSpinner />
-        ) : showModelList ? (
-          provider.credentials_configured ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Input
-                  className="focus-visible:ring-0 focus-visible:ring-offset-0"
-                  onChange={(event) => {
-                    setCatalogQueryInput(event.target.value)
-                  }}
-                  placeholder={`Search ${provider.label} models`}
-                  value={catalogQueryInput}
-                />
-                {catalogQueryInput.trim() ? (
-                  <Button
-                    onClick={() => {
-                      setCatalogQueryInput("")
-                    }}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                  >
-                    Clear
-                  </Button>
-                ) : null}
-              </div>
-              {providerModels.length ? (
-                <ScrollArea className="h-96 rounded-lg border">
-                  <div className="px-4">
-                    <div className="hidden grid-cols-[minmax(0,1fr)_88px_88px_72px_auto] gap-4 border-b border-border/40 py-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:grid">
-                      <span>Model</span>
-                      <span className="text-right">Context</span>
-                      <span className="text-right">Output</span>
-                      <span className="text-right">Mode</span>
-                      <span className="text-right">Access</span>
-                    </div>
-                    {providerModels.map((model) => (
-                      <ProviderAllowlistModelRow
-                        disabled={disabled}
-                        key={getModelSelectionKey(toModelSelection(model))}
-                        model={model}
-                        onUpdateConfig={onUpdateModelConfig}
-                        onToggle={async (nextModel) => {
-                          const nextCountDelta = nextModel.enabled ? -1 : 1
-                          setAllowAllOverride(null)
-                          setEnabledCountOverride((current) =>
-                            Math.min(
-                              selectableProviderModelCount ||
-                                Number.POSITIVE_INFINITY,
-                              Math.max(
-                                0,
-                                (current ?? resolvedEnabledCount) +
-                                  nextCountDelta
-                              )
-                            )
-                          )
-                          try {
-                            await onToggleModel(nextModel)
-                          } catch {
-                            setEnabledCountOverride(null)
-                          }
-                        }}
-                      />
-                    ))}
-                  </div>
-                </ScrollArea>
-              ) : (
-                <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-                  {catalogQueryInput.trim()
-                    ? `No ${provider.label} models matched this search.`
-                    : "No selectable models are currently available for this provider."}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-              Connect this provider, then allow the platform models your
-              organization should be able to choose.
-            </div>
-          )
-        ) : (
-          <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
-            Every selectable {provider.label} model is allowed. Turn off Allow
-            all to trim this down to a whitelist.
-          </div>
-        )}
-
-        {showLoadMore ? (
-          <Button
-            disabled={Boolean(isFetchingNextPage)}
-            onClick={() => {
-              void fetchNextPage()
-            }}
-            size="sm"
-            variant="outline"
-          >
-            {isFetchingNextPage ? "Loading..." : "Load more"}
-          </Button>
-        ) : null}
-      </div>
+      ) : null}
     </RbacListItem>
   )
 }
@@ -1844,7 +1854,7 @@ export function OrgSettingsAgentForm() {
           <p className="text-xs text-muted-foreground">
             {agentAddonsEnabled
               ? "The platform catalog stays shared, while each workspace can still restrict itself to a smaller subset of the organization-enabled catalog."
-              : "Configure provider credentials and enable the organization-level models you want available."}
+              : "Connect providers here. Upgrade to manage which organization-level models are enabled."}
           </p>
         </div>
         <div className="space-y-4">
@@ -1859,16 +1869,24 @@ export function OrgSettingsAgentForm() {
                   ).length ?? 0
                 return (
                   <ProviderConnectionItem
+                    canManageModels={agentAddonsEnabled}
                     disabled={isUpdating}
                     enabledCount={enabledCount}
-                    isExpanded={expandedProvider === provider.provider}
+                    isExpanded={
+                      agentAddonsEnabled &&
+                      expandedProvider === provider.provider
+                    }
                     key={provider.provider}
                     onDisableAllModels={handleDisableAllProviderModels}
                     onEnableAllModels={handleEnableAllProviderModels}
                     onConfigureProvider={setCredentialsProvider}
                     onDeleteCredentials={handleDeleteCredentials}
                     onExpandedChange={(expanded) => {
-                      setExpandedProvider(expanded ? provider.provider : null)
+                      setExpandedProvider(
+                        agentAddonsEnabled && expanded
+                          ? provider.provider
+                          : null
+                      )
                     }}
                     onToggleModel={handleModelToggle}
                     onUpdateModelConfig={handleUpdateEnabledModelConfig}
@@ -2002,7 +2020,8 @@ export function OrgSettingsAgentForm() {
                       </div>
                     ) : null}
 
-                    {source.type === "manual_custom" &&
+                    {agentAddonsEnabled &&
+                    source.type === "manual_custom" &&
                     !source.declared_models?.length ? (
                       <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                         Add declared models to this manual source, then save and
@@ -2016,7 +2035,7 @@ export function OrgSettingsAgentForm() {
                       </div>
                     ) : null}
 
-                    {sourceModels.length ? (
+                    {agentAddonsEnabled && sourceModels.length ? (
                       sourceModels.map((model) => (
                         <CustomSourceModelRow
                           disabled={isUpdating || isSelectionUpdating}
@@ -2025,6 +2044,11 @@ export function OrgSettingsAgentForm() {
                           onToggle={handleModelToggle}
                         />
                       ))
+                    ) : !agentAddonsEnabled ? (
+                      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                        Upgrade to enable or disable specific source-backed
+                        models for presets and defaults.
+                      </div>
                     ) : (
                       <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                         Refresh this source, then enable the entries you want
