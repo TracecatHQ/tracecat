@@ -1,15 +1,13 @@
 "use client"
 
-import { ChevronDown, Loader2, Plus } from "lucide-react"
+import { ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import type {
   AgentPresetRead,
-  AgentPresetVersionReadMinimal,
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
 } from "@/client"
-import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
@@ -26,14 +24,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Tooltip,
   TooltipContent,
@@ -52,7 +42,6 @@ import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   type AgentCatalogEntry,
-  getModelSelectionKey,
   matchesModelSelection,
   useChatReadiness,
 } from "@/lib/hooks"
@@ -122,6 +111,7 @@ type ChatModelSelector = {
 }
 
 type ChatPresetSelector = {
+  label: string
   presets: Pick<AgentPresetRead, "id" | "name">[]
   presetsIsLoading: boolean
   presetsError: unknown
@@ -129,19 +119,6 @@ type ChatPresetSelector = {
   onSelect: (presetId: string | null) => void | Promise<void>
   disabled: boolean
   showSpinner: boolean
-  versions?: AgentPresetVersionReadMinimal[]
-  versionsIsLoading: boolean
-  versionsError: unknown
-  selectedVersionId: string | null
-  currentVersionId: string | null
-  onVersionSelect: (versionId: string | null) => void | Promise<void>
-  versionDisabled: boolean
-}
-
-function getCompositeModelKey(
-  model: Pick<AgentCatalogEntry, "source_id" | "model_provider" | "model_name">
-): string {
-  return getModelSelectionKey(model)
 }
 
 function findSelectedModel(
@@ -178,21 +155,6 @@ function getSessionModelFields(model: AgentCatalogEntry | null): {
     model_provider: model.model_provider,
     model_name: model.model_name,
   }
-}
-
-function getModelSelectorErrorMessage(error: unknown): string {
-  if (typeof error === "string") {
-    return error
-  }
-  if (
-    error &&
-    typeof error === "object" &&
-    "message" in error &&
-    typeof (error as { message?: unknown }).message === "string"
-  ) {
-    return (error as { message: string }).message
-  }
-  return "Unable to load enabled models."
 }
 
 export function ChatInterface({
@@ -247,16 +209,10 @@ export function ChatInterface({
     selectedPreset,
     selectedPresetConfig,
     selectedPresetId: effectivePresetId,
-    selectedPresetVersionId,
-    versions,
-    versionsIsLoading,
-    versionsError,
-    currentPresetVersionId,
     handlePresetChange,
-    handlePresetVersionChange,
+    presetMenuLabel,
     presetMenuDisabled,
     showPresetSpinner,
-    versionMenuDisabled,
     enabledModels,
     enabledModelsError,
     enabledModelsLoading,
@@ -391,9 +347,6 @@ export function ChatInterface({
         entity_id: entityId,
         tools: selectedTools,
         ...(effectivePresetId ? { agent_preset_id: effectivePresetId } : {}),
-        ...(effectivePresetId
-          ? { agent_preset_version_id: selectedPresetVersionId }
-          : {}),
         ...(effectivePresetId === null
           ? getSessionModelFields(effectiveSelectedModel)
           : {}),
@@ -513,6 +466,7 @@ export function ChatInterface({
           presetSelector={
             presetsEnabled
               ? {
+                  label: presetMenuLabel,
                   presets,
                   presetsIsLoading,
                   presetsError,
@@ -520,13 +474,6 @@ export function ChatInterface({
                   onSelect: handlePresetChange,
                   disabled: presetMenuDisabled,
                   showSpinner: showPresetSpinner,
-                  versions,
-                  versionsIsLoading,
-                  versionsError,
-                  selectedVersionId: selectedPresetVersionId,
-                  currentVersionId: currentPresetVersionId,
-                  onVersionSelect: handlePresetVersionChange,
-                  versionDisabled: versionMenuDisabled,
                 }
               : undefined
           }
@@ -622,7 +569,6 @@ function ChatBody({
   pendingMessage,
   onPendingMessageSent,
 }: ChatBodyProps) {
-  const isReadonly = Boolean(chat && "is_readonly" in chat && chat.is_readonly)
   const {
     ready: chatReady,
     loading: chatReadyLoading,
@@ -673,12 +619,6 @@ function ChatBody({
     // Render configuration required state
     return (
       <>
-        {presetSelector && !isReadonly ? (
-          <ChatPresetSelectorBar selector={presetSelector} />
-        ) : null}
-        {modelSelector && !isReadonly ? (
-          <ChatModelSelectorBar selector={modelSelector} />
-        ) : null}
         <NoMessages />
         <Link
           href="/organization/settings/agent"
@@ -719,12 +659,6 @@ function ChatBody({
 
     return (
       <>
-        {presetSelector && !isReadonly ? (
-          <ChatPresetSelectorBar selector={presetSelector} />
-        ) : null}
-        {modelSelector && !isReadonly ? (
-          <ChatModelSelectorBar selector={modelSelector} />
-        ) : null}
         <ChatSessionPane
           workspaceId={workspaceId}
           entityType={entityType}
@@ -734,6 +668,7 @@ function ChatBody({
           modelInfo={modelInfo}
           toolsEnabled={toolsEnabled}
           fallbackTools={fallbackTools}
+          presetSelector={presetSelector}
           modelSelector={modelSelector}
           onBeforeSend={onCreateSessionBeforeSend}
           inputDisabled={draftInputDisabled}
@@ -753,12 +688,6 @@ function ChatBody({
 
   return (
     <>
-      {presetSelector && !isReadonly ? (
-        <ChatPresetSelectorBar selector={presetSelector} />
-      ) : null}
-      {modelSelector && !isReadonly ? (
-        <ChatModelSelectorBar selector={modelSelector} />
-      ) : null}
       <ChatSessionPane
         chat={chat}
         workspaceId={workspaceId}
@@ -769,151 +698,11 @@ function ChatBody({
         modelInfo={modelInfo}
         toolsEnabled={toolsEnabled}
         fallbackTools={fallbackTools}
+        presetSelector={presetSelector}
         modelSelector={modelSelector}
         pendingMessage={pendingMessage ?? undefined}
         onPendingMessageSent={onPendingMessageSent}
       />
     </>
-  )
-}
-
-function ChatPresetSelectorBar({ selector }: { selector: ChatPresetSelector }) {
-  const noPresetValue = "__none__"
-  const selectedValue = selector.selectedPresetId ?? noPresetValue
-
-  return (
-    <div className="border-b px-4 py-3">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-1">
-          <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Chat preset
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            Choose an agent preset for this chat or clear it to pick a model
-            directly.
-          </p>
-        </div>
-        <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:items-center">
-          <Select
-            value={selectedValue}
-            onValueChange={(value) =>
-              void selector.onSelect(value === noPresetValue ? null : value)
-            }
-            disabled={selector.disabled || selector.presetsIsLoading}
-          >
-            <SelectTrigger className="w-full md:w-[280px]">
-              <SelectValue placeholder="Choose a preset">
-                {selector.showSpinner ? (
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="size-3 animate-spin" />
-                    Loading presets...
-                  </span>
-                ) : undefined}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={noPresetValue}>No preset</SelectItem>
-              {selector.presetsIsLoading ? (
-                <SelectItem value="__loading" disabled>
-                  Loading presets...
-                </SelectItem>
-              ) : null}
-              {selector.presetsError ? (
-                <SelectItem value="__error" disabled>
-                  Failed to load presets
-                </SelectItem>
-              ) : null}
-              {selector.presets.map((preset) => (
-                <SelectItem key={preset.id} value={preset.id}>
-                  {preset.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {selector.selectedPresetId ? (
-            <AgentPresetVersionSelect
-              versions={selector.versions}
-              versionsIsLoading={selector.versionsIsLoading}
-              versionsError={selector.versionsError}
-              selectedVersionId={selector.selectedVersionId}
-              currentVersionId={selector.currentVersionId}
-              onSelect={selector.onVersionSelect}
-              disabled={selector.versionDisabled}
-              triggerClassName="min-w-40 border"
-            />
-          ) : null}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ChatModelSelectorBar({ selector }: { selector: ChatModelSelector }) {
-  const defaultValue = "__default__"
-  const selectedValue = selector.selectedModel
-    ? getCompositeModelKey(selector.selectedModel)
-    : defaultValue
-
-  return (
-    <div className="border-b px-4 py-3">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-1">
-          <Label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Chat model
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            Choose an enabled model for this chat or keep using the organization
-            default.
-          </p>
-        </div>
-        <div className="flex w-full flex-col gap-2 md:w-[320px]">
-          <Select
-            value={selectedValue}
-            onValueChange={(value) => {
-              if (value === defaultValue) {
-                void selector.onSelect(null)
-                return
-              }
-              const nextModel =
-                selector.models?.find(
-                  (model) => getCompositeModelKey(model) === value
-                ) ?? null
-              void selector.onSelect(nextModel)
-            }}
-            disabled={selector.disabled || selector.modelsIsLoading}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Choose a model" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={defaultValue}>
-                Organization default · {selector.defaultLabel}
-              </SelectItem>
-              {selector.models?.map((model) => (
-                <SelectItem
-                  key={getCompositeModelKey(model)}
-                  value={getCompositeModelKey(model)}
-                >
-                  {model.model_name} ·{" "}
-                  {model.source_name ??
-                    (model.source_id ? "Custom" : "Platform")}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {selector.showSpinner ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" />
-              Updating available models…
-            </div>
-          ) : null}
-          {selector.modelsError ? (
-            <p className="text-xs text-destructive">
-              {getModelSelectorErrorMessage(selector.modelsError)}
-            </p>
-          ) : null}
-        </div>
-      </div>
-    </div>
   )
 }

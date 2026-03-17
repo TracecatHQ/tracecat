@@ -79,7 +79,7 @@ def _merge_runtime_overrides(
         base.retries = overrides.retries
     if "enable_internet_access" in override_fields:
         base.enable_internet_access = overrides.enable_internet_access
-    if "base_url" in override_fields and overrides.base_url is not None:
+    if "base_url" in override_fields:
         base.base_url = overrides.base_url
     return base
 

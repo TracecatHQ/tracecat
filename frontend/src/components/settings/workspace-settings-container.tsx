@@ -54,7 +54,31 @@ export function WorkspaceSettingsContainer({
     case "workspace-runtime":
       return <WorkspaceRuntimeSettings workspace={workspace} />
     case "workspace-models":
-      return <WorkspaceModelSettings workspace={workspace} />
+      return hasEntitlement("agent_addons") ? (
+        <WorkspaceModelSettings workspace={workspace} />
+      ) : (
+        <div className="flex flex-1 items-center justify-center py-12">
+          <EntitlementRequiredEmptyState
+            title="Upgrade required"
+            description="Workspace AI model controls are unavailable on your current plan."
+          >
+            <Button
+              variant="link"
+              asChild
+              className="text-muted-foreground"
+              size="sm"
+            >
+              <a
+                href="https://tracecat.com"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Learn more <ArrowUpRight className="size-4" />
+              </a>
+            </Button>
+          </EntitlementRequiredEmptyState>
+        </div>
+      )
     case "workspace-files":
       return <WorkspaceFilesSettings workspace={workspace} />
     case "workspace-sync":

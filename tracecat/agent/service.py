@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, cast
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import orjson
@@ -158,6 +160,26 @@ _BUILT_IN_PROVIDER_SOURCE_TYPES = {
     ModelSourceType.AZURE_OPENAI,
     ModelSourceType.AZURE_AI,
 }
+
+
+def _sanitize_url_for_log(url: str) -> str:
+    """Strip userinfo, query strings, and fragments before logging URLs."""
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return "<invalid-url>"
+
+    host = parsed.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+
+    netloc = host
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+
+
 _CUSTOM_SOURCE_TYPES = {
     ModelSourceType.OPENAI_COMPATIBLE_GATEWAY,
     ModelSourceType.MANUAL_CUSTOM,
@@ -198,6 +220,18 @@ class ResolvedCatalogRecord:
     base_url: str | None
     last_refreshed_at: datetime | None
     metadata: dict[str, Any] | None
+
+
+@dataclass(frozen=True, slots=True)
+class OpenAICompatibleDiscoveryResult:
+    items: list[dict[str, object]]
+    runtime_base_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class SourceDiscoveryResult:
+    models: list[dict[str, object]]
+    runtime_base_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,8 +284,15 @@ class AgentManagementService(BaseOrgService):
                 key=config.TRACECAT__DB_ENCRYPTION_KEY or "",
             )
         except (InvalidToken, ValueError):
-            # Tolerate legacy/plain JSON rows and lightweight test fixtures.
-            return orjson.loads(payload)
+            try:
+                # Tolerate legacy/plain JSON rows and lightweight test fixtures.
+                return orjson.loads(payload)
+            except orjson.JSONDecodeError:
+                self.logger.warning(
+                    "Failed to decode source config payload; treating as empty",
+                    organization_id=str(self.organization_id),
+                )
+                return {}
         return orjson.loads(decrypted)
 
     def _provider_from_source_type(self, source_type: ModelSourceType) -> str:
@@ -294,6 +335,34 @@ class AgentManagementService(BaseOrgService):
         if not (flavor := source_config.get("flavor")):
             return None
         return CustomModelSourceFlavor(flavor)
+
+    def _openai_compatible_runtime_base_url(self, url: str) -> str:
+        base = url.strip().rstrip("/")
+        if base.endswith("/v1/models"):
+            return f"{base.removesuffix('/v1/models')}/v1"
+        if base.endswith("/models"):
+            return base.removesuffix("/models").rstrip("/")
+        return base
+
+    def _source_runtime_base_url(
+        self,
+        source: AgentModelSource,
+        *,
+        source_config: dict[str, str] | None = None,
+    ) -> str | None:
+        if not source.base_url:
+            return None
+        if (
+            self._source_type_from_row(source)
+            != CustomModelSourceType.OPENAI_COMPATIBLE_GATEWAY
+        ):
+            return source.base_url
+        config_values = source_config or self._deserialize_sensitive_config(
+            source.encrypted_config
+        )
+        if runtime_base_url := config_values.get("runtime_base_url"):
+            return runtime_base_url
+        return self._openai_compatible_runtime_base_url(source.base_url)
 
     async def _get_legacy_custom_provider_secret_config(self) -> dict[str, str] | None:
         secret_name = self._get_credential_secret_name(LEGACY_CUSTOM_PROVIDER)
@@ -548,13 +617,22 @@ class AgentManagementService(BaseOrgService):
         source: AgentModelSource | None = None,
         enabled_config: dict[str, Any] | None = None,
     ) -> ModelCatalogEntry:
+        source_config = (
+            self._deserialize_sensitive_config(source.encrypted_config)
+            if source is not None
+            else None
+        )
         return ModelCatalogEntry(
             model_provider=row.model_provider,
             model_name=row.model_name,
             source_type=self._source_type_from_catalog(row=row, source=source).value,
             source_name=self._source_name_from_catalog(row=row, source=source),
             source_id=row.source_id,
-            base_url=source.base_url if source is not None else None,
+            base_url=(
+                self._source_runtime_base_url(source, source_config=source_config)
+                if source is not None
+                else None
+            ),
             enabled=enabled,
             last_refreshed_at=row.last_refreshed_at,
             metadata=row.model_metadata,
@@ -573,10 +651,14 @@ class AgentManagementService(BaseOrgService):
         source: AgentModelSource | None = None,
     ) -> ModelCatalogEntry:
         metadata: dict[str, Any] | None = None
+        runtime_base_url = None
         if source is not None:
             source_config = self._deserialize_sensitive_config(source.encrypted_config)
             if flavor := self._source_flavor(source_config):
                 metadata = {"source_flavor": flavor.value}
+            runtime_base_url = self._source_runtime_base_url(
+                source, source_config=source_config
+            )
         return ModelCatalogEntry(
             model_provider=catalog_row.model_provider,
             model_name=catalog_row.model_name,
@@ -586,7 +668,7 @@ class AgentManagementService(BaseOrgService):
             ).value,
             source_name=self._source_name_from_catalog(row=catalog_row, source=source),
             source_id=catalog_row.source_id,
-            base_url=source.base_url if source is not None else None,
+            base_url=runtime_base_url,
             enabled=True,
             last_refreshed_at=row.updated_at,
             metadata=metadata or catalog_row.model_metadata,
@@ -621,7 +703,9 @@ class AgentManagementService(BaseOrgService):
             model_name=row.model_name,
             source_type=self._source_type_from_catalog(row=row, source=source),
             source_name=self._source_name_from_catalog(row=row, source=source),
-            base_url=source.base_url if source is not None else None,
+            base_url=(
+                self._source_runtime_base_url(source) if source is not None else None
+            ),
             last_refreshed_at=row.last_refreshed_at,
             metadata=row.model_metadata,
         )
@@ -1650,7 +1734,9 @@ class AgentManagementService(BaseOrgService):
             api_key_configured=bool(source_config.get("api_key")),
             api_key_header=row.api_key_header,
             api_version=row.api_version,
-            discovery_status=ModelDiscoveryStatus(row.discovery_status),
+            discovery_status=ModelDiscoveryStatus(
+                row.discovery_status or ModelDiscoveryStatus.NEVER.value
+            ),
             last_refreshed_at=row.last_refreshed_at,
             last_error=row.last_error,
             declared_models=(
@@ -1762,6 +1848,7 @@ class AgentManagementService(BaseOrgService):
             source.display_name = params.display_name or source.display_name
         if "base_url" in params.model_fields_set:
             source.base_url = params.base_url
+            source_config.pop("runtime_base_url", None)
         if "api_key" in params.model_fields_set:
             if params.api_key:
                 source_config["api_key"] = params.api_key
@@ -1887,7 +1974,7 @@ class AgentManagementService(BaseOrgService):
         api_key: str | None,
         api_key_header: str | None,
         extra_headers: dict[str, str] | None = None,
-    ) -> list[dict[str, object]]:
+    ) -> OpenAICompatibleDiscoveryResult:
         headers = {
             **self._build_auth_headers(
                 api_key=api_key,
@@ -1896,32 +1983,60 @@ class AgentManagementService(BaseOrgService):
             **(extra_headers or {}),
         }
         async with httpx.AsyncClient(timeout=20.0) as client:
-            response: httpx.Response | None = None
             errors: list[str] = []
             for url in self._openai_compatible_discovery_urls(base_url):
+                sanitized_url = _sanitize_url_for_log(url)
                 try:
                     response = await client.get(url, headers=headers)
                     response.raise_for_status()
-                    break
                 except httpx.HTTPStatusError as exc:
-                    errors.append(f"{url} -> {exc.response.status_code}")
-                    response = None
+                    errors.append(f"{sanitized_url} -> {exc.response.status_code}")
+                    continue
                 except httpx.RequestError as exc:
-                    errors.append(f"{url} -> {exc.__class__.__name__}")
-                    response = None
-            if response is None:
-                detail = (
-                    ", ".join(errors[:4]) if errors else "no discovery endpoints tried"
+                    errors.append(f"{sanitized_url} -> {exc.__class__.__name__}")
+                    continue
+
+                try:
+                    payload = response.json()
+                except json.JSONDecodeError:
+                    errors.append(f"{sanitized_url} -> invalid JSON")
+                    continue
+
+                if isinstance(payload, dict):
+                    items = payload.get("data") or payload.get("models") or []
+                else:
+                    items = payload
+
+                if not isinstance(items, list):
+                    errors.append(f"{sanitized_url} -> unexpected payload")
+                    continue
+
+                return OpenAICompatibleDiscoveryResult(
+                    items=[item for item in items if isinstance(item, dict)],
+                    runtime_base_url=self._openai_compatible_runtime_base_url(url),
                 )
-                raise TracecatNotFoundError(
-                    f"Failed to discover models from gateway ({detail})"
-                )
-        payload = response.json()
-        if isinstance(payload, dict):
-            items = payload.get("data") or payload.get("models") or []
-        else:
-            items = payload
-        return [item for item in items if isinstance(item, dict)]
+
+        detail = ", ".join(errors[:4]) if errors else "no discovery endpoints tried"
+        self.logger.warning(
+            "OpenAI-compatible model discovery failed",
+            organization_id=str(self.organization_id),
+            base_url=_sanitize_url_for_log(base_url),
+            detail=detail,
+        )
+        raise TracecatNotFoundError("Failed to discover models from gateway")
+
+    def _format_model_source_refresh_error(self, exc: Exception) -> str:
+        match exc:
+            case TracecatNotFoundError():
+                return str(exc)
+            case httpx.TimeoutException():
+                return "Timed out while contacting the custom source."
+            case httpx.RequestError():
+                return "Failed to connect to the custom source."
+            case ValueError() | json.JSONDecodeError():
+                return "The custom source returned an invalid discovery response."
+            case _:
+                return "Failed to refresh the custom source."
 
     def _normalize_openai_compatible_entries(
         self,
@@ -1960,7 +2075,7 @@ class AgentManagementService(BaseOrgService):
 
     async def _discover_source_models(
         self, source: AgentModelSource
-    ) -> list[dict[str, object]]:
+    ) -> SourceDiscoveryResult:
         source_type = (
             ModelSourceType.OPENAI_COMPATIBLE_GATEWAY
             if self._source_type_from_row(source)
@@ -1972,34 +2087,45 @@ class AgentManagementService(BaseOrgService):
             case ModelSourceType.OPENAI_COMPATIBLE_GATEWAY:
                 if not source.base_url:
                     raise TracecatNotFoundError("Gateway source requires a base URL")
-                items = await self._fetch_openai_compatible_models(
+                discovery = await self._fetch_openai_compatible_models(
                     base_url=source.base_url,
                     api_key=source_config.get("api_key"),
                     api_key_header=source.api_key_header,
                 )
-                return self._normalize_openai_compatible_entries(
-                    source_type=source_type,
-                    source_name=source.display_name,
-                    items=items,
-                    source_id=source.id,
-                    base_url=source.base_url,
+                return SourceDiscoveryResult(
+                    models=self._normalize_openai_compatible_entries(
+                        source_type=source_type,
+                        source_name=source.display_name,
+                        items=discovery.items,
+                        source_id=source.id,
+                        base_url=discovery.runtime_base_url,
+                    ),
+                    runtime_base_url=discovery.runtime_base_url,
                 )
             case ModelSourceType.MANUAL_CUSTOM:
                 declared = source.declared_models or []
-                return [
-                    {
-                        "model_provider": item.get("model_provider")
-                        or self._display_provider_for_model(
-                            source_type=source_type,
-                            model_id=item["model_name"],
-                            provider_hint=None,
-                        ),
-                        "model_id": item["model_name"],
-                        "display_name": item.get("display_name") or item["model_name"],
-                        "metadata": {"declared": True},
-                    }
-                    for item in declared
-                ]
+                return SourceDiscoveryResult(
+                    models=[
+                        {
+                            "model_provider": item.get("model_provider")
+                            or self._display_provider_for_model(
+                                source_type=source_type,
+                                model_id=item["model_name"],
+                                provider_hint=None,
+                            ),
+                            "model_id": item["model_name"],
+                            "display_name": item.get("display_name")
+                            or item["model_name"],
+                            "metadata": {
+                                "declared": True,
+                                "display_name": item.get("display_name")
+                                or item["model_name"],
+                            },
+                        }
+                        for item in declared
+                    ],
+                    runtime_base_url=source.base_url,
+                )
             case _:
                 raise TracecatNotFoundError(
                     f"{source_type.value} is a built-in provider inventory, not a custom source."
@@ -2015,7 +2141,13 @@ class AgentManagementService(BaseOrgService):
             exclude_id=source.id,
         )
         try:
-            discovered = await self._discover_source_models(source)
+            discovery = await self._discover_source_models(source)
+            source_config = self._deserialize_sensitive_config(source.encrypted_config)
+            if discovery.runtime_base_url:
+                source_config["runtime_base_url"] = discovery.runtime_base_url
+            else:
+                source_config.pop("runtime_base_url", None)
+            source.encrypted_config = self._serialize_sensitive_config(source_config)
             persisted = await self._upsert_catalog_rows(
                 source_type=(
                     ModelSourceType.OPENAI_COMPATIBLE_GATEWAY
@@ -2025,7 +2157,7 @@ class AgentManagementService(BaseOrgService):
                 ),
                 source_name=source.display_name,
                 source_id=source.id,
-                models=discovered,
+                models=discovery.models,
                 organization_scoped=True,
             )
             source.discovery_status = ModelDiscoveryStatus.READY.value
@@ -2049,7 +2181,7 @@ class AgentManagementService(BaseOrgService):
         except Exception as exc:
             await self.session.rollback()
             source.discovery_status = ModelDiscoveryStatus.FAILED.value
-            source.last_error = str(exc)
+            source.last_error = self._format_model_source_refresh_error(exc)
             source.last_refreshed_at = datetime.now(UTC)
             self.session.add(source)
             await self.session.commit()
@@ -2635,20 +2767,18 @@ class AgentManagementService(BaseOrgService):
         # Check if credentials already exist
         try:
             existing = await self.secrets_service.get_org_secret_by_name(secret_name)
-            # Update existing credentials
             keys = [
-                SecretKeyValue(key=k, value=SecretStr(v))
-                for k, v in params.credentials.items()
+                SecretKeyValue(key=key, value=SecretStr(value))
+                for key, value in params.credentials.items()
             ]
             update_params = SecretUpdate(keys=keys)
             await self.secrets_service.update_org_secret(existing, update_params)
             await self._ensure_default_enabled_models()
             return existing
         except TracecatNotFoundError:
-            # Create new credentials
             keys = [
-                SecretKeyValue(key=k, value=SecretStr(v))
-                for k, v in params.credentials.items()
+                SecretKeyValue(key=key, value=SecretStr(value))
+                for key, value in params.credentials.items()
             ]
             create_params = SecretCreate(
                 name=secret_name,
@@ -2672,25 +2802,33 @@ class AgentManagementService(BaseOrgService):
         secret = await self.secrets_service.get_org_secret_by_name(secret_name)
 
         keys = [
-            SecretKeyValue(key=k, value=SecretStr(v))
-            for k, v in params.credentials.items()
+            SecretKeyValue(key=key, value=SecretStr(value))
+            for key, value in params.credentials.items()
         ]
         update_params = SecretUpdate(keys=keys)
         await self.secrets_service.update_org_secret(secret, update_params)
         await self._ensure_default_enabled_models()
         return secret
 
+    async def _load_provider_credentials(self, provider: str) -> dict[str, str] | None:
+        """Load decrypted credentials for an AI provider without scope checks."""
+        self._ensure_builtin_provider(provider)
+        secret_name = self._get_credential_secret_name(provider)
+        stmt = select(OrganizationSecret).where(
+            OrganizationSecret.organization_id == self.organization_id,
+            OrganizationSecret.name == secret_name,
+            OrganizationSecret.environment == DEFAULT_SECRETS_ENVIRONMENT,
+        )
+        secret = (await self.session.execute(stmt)).scalar_one_or_none()
+        if secret is None:
+            return None
+        decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
+        return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
+
     @require_scope("agent:read")
     async def get_provider_credentials(self, provider: str) -> dict[str, str] | None:
         """Get decrypted credentials for an AI provider at organization level."""
-        self._ensure_builtin_provider(provider)
-        secret_name = self._get_credential_secret_name(provider)
-        try:
-            secret = await self.secrets_service.get_org_secret_by_name(secret_name)
-            decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
-            return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
-        except TracecatNotFoundError:
-            return None
+        return await self._load_provider_credentials(provider)
 
     @require_scope("agent:read")
     async def get_workspace_provider_credentials(
@@ -2805,7 +2943,7 @@ class AgentManagementService(BaseOrgService):
         for provider in providers:
             status[provider] = self._provider_credentials_complete(
                 provider=provider,
-                credentials=await self.get_provider_credentials(provider),
+                credentials=await self._load_provider_credentials(provider),
             )
         return status
 
@@ -2834,6 +2972,9 @@ class AgentManagementService(BaseOrgService):
                 return {}
             source = await self.get_model_source(catalog_entry.source_id)
             source_config = self._deserialize_sensitive_config(source.encrypted_config)
+            runtime_base_url = self._source_runtime_base_url(
+                source, source_config=source_config
+            )
             credentials = {}
             api_key = source_config.get("api_key")
             if api_key:
@@ -2842,8 +2983,8 @@ class AgentManagementService(BaseOrgService):
                 credentials[SOURCE_RUNTIME_API_KEY_HEADER] = source.api_key_header
             if source.api_version:
                 credentials[SOURCE_RUNTIME_API_VERSION] = source.api_version
-            if source.base_url:
-                credentials[SOURCE_RUNTIME_BASE_URL] = source.base_url
+            if runtime_base_url:
+                credentials[SOURCE_RUNTIME_BASE_URL] = runtime_base_url
             match catalog_entry.model_provider:
                 case (
                     "openai"
@@ -2853,33 +2994,33 @@ class AgentManagementService(BaseOrgService):
                 ):
                     if api_key:
                         credentials["OPENAI_API_KEY"] = api_key
-                    if source.base_url:
-                        credentials["OPENAI_BASE_URL"] = source.base_url
+                    if runtime_base_url:
+                        credentials["OPENAI_BASE_URL"] = runtime_base_url
                 case "anthropic":
                     if api_key:
                         credentials["ANTHROPIC_API_KEY"] = api_key
-                    if source.base_url:
-                        credentials["ANTHROPIC_BASE_URL"] = source.base_url
+                    if runtime_base_url:
+                        credentials["ANTHROPIC_BASE_URL"] = runtime_base_url
                 case "gemini":
                     if api_key:
                         credentials["GEMINI_API_KEY"] = api_key
                 case "azure_openai":
                     if api_key:
                         credentials["AZURE_API_KEY"] = api_key
-                    if source.base_url:
-                        credentials["AZURE_API_BASE"] = source.base_url
+                    if runtime_base_url:
+                        credentials["AZURE_API_BASE"] = runtime_base_url
                     if source.api_version:
                         credentials["AZURE_API_VERSION"] = source.api_version
                 case "azure_ai":
                     if api_key:
                         credentials["AZURE_API_KEY"] = api_key
-                    if source.base_url:
-                        credentials["AZURE_API_BASE"] = source.base_url
+                    if runtime_base_url:
+                        credentials["AZURE_API_BASE"] = runtime_base_url
                 case "custom-model-provider":
                     if api_key:
                         credentials["CUSTOM_MODEL_PROVIDER_API_KEY"] = api_key
-                    if source.base_url:
-                        credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] = source.base_url
+                    if runtime_base_url:
+                        credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] = runtime_base_url
                 case _:
                     pass
             return credentials

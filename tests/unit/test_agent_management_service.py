@@ -1,9 +1,11 @@
 """Focused tests for the composite-key agent management service."""
 
+import json
 import uuid
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
 from sqlalchemy import insert, null, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,9 +25,11 @@ from tracecat.agent.schemas import (
 )
 from tracecat.agent.service import (
     ENABLE_ALL_MODELS_ON_UPGRADE_SETTING,
+    SOURCE_RUNTIME_BASE_URL,
     AgentManagementService,
     LegacyModelRepairSummary,
     ResolvedCatalogRecord,
+    SourceDiscoveryResult,
     sync_model_catalogs_on_startup,
 )
 from tracecat.agent.types import AgentConfig, CustomModelSourceType, ModelSourceType
@@ -502,6 +506,17 @@ async def test_update_provider_credentials_retries_deferred_upgrade_enable_all(
 
 
 @pytest.mark.anyio
+async def test_deserialize_sensitive_config_treats_invalid_payload_as_empty_dict(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+
+    config = service._deserialize_sensitive_config(b"not-json-and-not-fernet")
+
+    assert config == {}
+
+
+@pytest.mark.anyio
 async def test_refresh_model_source_retries_deferred_upgrade_enable_all(
     role: Role,
 ) -> None:
@@ -525,14 +540,16 @@ async def test_refresh_model_source_retries_deferred_upgrade_enable_all(
     service.get_model_source = AsyncMock(return_value=source)
     service._validate_source_uniqueness = AsyncMock()
     service._discover_source_models = AsyncMock(
-        return_value=[
-            {
-                "model_provider": persisted_row.model_provider,
-                "model_id": persisted_row.model_name,
-                "display_name": persisted_row.model_name,
-                "metadata": {"declared": True},
-            }
-        ]
+        return_value=SourceDiscoveryResult(
+            models=[
+                {
+                    "model_provider": persisted_row.model_provider,
+                    "model_id": persisted_row.model_name,
+                    "display_name": persisted_row.model_name,
+                    "metadata": {"declared": True},
+                }
+            ]
+        )
     )
     service._upsert_catalog_rows = AsyncMock(return_value=[persisted_row])
     service._ensure_default_enabled_models = AsyncMock()
@@ -662,6 +679,147 @@ async def test_openai_compatible_discovery_ignores_unsupported_provider_hints(
         "anthropic",
         "openai_compatible_gateway",
     ]
+
+
+@pytest.mark.anyio
+async def test_fetch_openai_compatible_models_retries_after_invalid_json(
+    role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+
+    class _FakeResponse:
+        def __init__(self, payload: object, *, should_raise_json: bool = False):
+            self._payload = payload
+            self._should_raise_json = should_raise_json
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> object:
+            if self._should_raise_json:
+                raise json.JSONDecodeError("Expecting value", "", 0)
+            return self._payload
+
+    class _FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.calls = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(
+            self, url: str, headers: dict[str, str] | None = None
+        ) -> _FakeResponse:
+            del headers
+            self.calls += 1
+            if self.calls == 1:
+                assert url == "https://gateway.example"
+                return _FakeResponse({}, should_raise_json=True)
+            assert url == "https://gateway.example/"
+            return _FakeResponse(
+                {
+                    "data": [
+                        {"id": "qwen2.5:0.5b"},
+                        {"id": "qwen2.5:1.5b"},
+                    ]
+                }
+            )
+
+    monkeypatch.setattr("tracecat.agent.service.httpx.AsyncClient", _FakeClient)
+
+    discovery = await service._fetch_openai_compatible_models(
+        base_url="https://gateway.example",
+        api_key=None,
+        api_key_header=None,
+    )
+
+    assert [item["id"] for item in discovery.items] == [
+        "qwen2.5:0.5b",
+        "qwen2.5:1.5b",
+    ]
+    assert discovery.runtime_base_url == "https://gateway.example"
+
+
+@pytest.mark.anyio
+async def test_fetch_openai_compatible_models_sanitizes_logged_urls(
+    role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    warning_mock = Mock()
+    monkeypatch.setattr(service.logger, "warning", warning_mock)
+
+    class _FailingClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(self, url: str, headers: dict[str, str] | None = None) -> object:
+            del headers
+            raise httpx.RequestError(
+                "connect failed", request=httpx.Request("GET", url)
+            )
+
+    monkeypatch.setattr("tracecat.agent.service.httpx.AsyncClient", _FailingClient)
+
+    with pytest.raises(TracecatNotFoundError, match="Failed to discover models"):
+        await service._fetch_openai_compatible_models(
+            base_url="https://user:pass@gateway.example/v1?token=secret",
+            api_key=None,
+            api_key_header=None,
+        )
+
+    warning_mock.assert_called_once()
+    logged = warning_mock.call_args.kwargs
+    assert logged["base_url"] == "https://gateway.example/v1"
+    assert "user:pass@" not in logged["detail"]
+    assert "token=secret" not in logged["detail"]
+
+
+@pytest.mark.anyio
+async def test_get_runtime_credentials_uses_discovered_runtime_base_url_for_gateway(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    source_id = uuid.uuid4()
+    source = AgentModelSource(
+        organization_id=role.organization_id,
+        display_name="Ollama",
+        model_provider="openai_compatible_gateway",
+        base_url="http://host.docker.internal:11434",
+        encrypted_config=service._serialize_sensitive_config(
+            {
+                "api_key": "not-needed",
+                "runtime_base_url": "http://host.docker.internal:11434/v1",
+            }
+        ),
+    )
+    service.get_model_source = AsyncMock(return_value=source)
+
+    credentials = await service._get_runtime_credentials(
+        catalog_entry=ResolvedCatalogRecord(
+            source_id=source_id,
+            model_provider="openai_compatible_gateway",
+            model_name="qwen2.5:0.5b",
+            source_type=ModelSourceType.OPENAI_COMPATIBLE_GATEWAY,
+            source_name="Ollama",
+            base_url=None,
+            last_refreshed_at=None,
+            metadata=None,
+        )
+    )
+
+    assert (
+        credentials[SOURCE_RUNTIME_BASE_URL] == "http://host.docker.internal:11434/v1"
+    )
+    assert credentials["OPENAI_BASE_URL"] == "http://host.docker.internal:11434/v1"
 
 
 @pytest.mark.anyio
@@ -826,6 +984,8 @@ async def test_get_runtime_credentials_for_selection_preserves_source_protocol_d
                 "base_url": "https://anthropic.gateway.example",
                 "api_key_header": "X-Api-Key",
                 "api_version": "2024-06-01",
+                "declared_models": [],
+                "model_provider": CustomModelSourceType.MANUAL_CUSTOM.value,
             },
         )()
     )
@@ -875,6 +1035,27 @@ async def test_get_runtime_credentials_for_selection_uses_org_secret_only(
     )
 
     assert credentials == {}
+
+
+@pytest.mark.anyio
+async def test_get_providers_status_uses_internal_credential_lookup(role: Role) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.get_provider_credentials = AsyncMock(
+        side_effect=AssertionError("public credential getter should not be used")
+    )
+    service._load_provider_credentials = AsyncMock(
+        side_effect=lambda provider: (
+            {"OPENAI_API_KEY": "org-key"} if provider == "openai" else None
+        )
+    )
+
+    status = await service.get_providers_status()
+
+    assert status["openai"] is True
+    assert status["anthropic"] is False
+    service.get_provider_credentials.assert_not_awaited()
+    service._load_provider_credentials.assert_any_await("openai")
+    service._load_provider_credentials.assert_any_await("anthropic")
 
 
 @pytest.mark.anyio

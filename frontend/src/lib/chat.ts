@@ -245,6 +245,7 @@ export type ModelInfo = {
   name: string
   provider: string
   baseUrl?: string | null
+  iconId?: string | null
 }
 
 /**
