@@ -226,8 +226,7 @@ async def reconcile_tool_results_activity(
                 tool_name=pending.tool_name,
                 error=str(e),
             )
-            output = f"Tool execution failed: {e}"
-            is_error = True
+            raise
 
         result = ToolExecutionResult(
             tool_call_id=pending.tool_call_id,
