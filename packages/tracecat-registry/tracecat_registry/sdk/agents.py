@@ -85,6 +85,14 @@ def parse_model_selection(value: str) -> ModelSelection:
             }
         raise ValueError("Invalid model selection payload")
 
+    model_provider, separator, model_name = value.partition("::")
+    if separator and model_provider and model_name and "::" not in model_name:
+        return {
+            "source_id": None,
+            "model_provider": model_provider,
+            "model_name": model_name,
+        }
+
     source_id, separator, remainder = value.partition("::")
     if separator and "::" in remainder:
         model_provider, _, model_name = remainder.partition("::")
@@ -135,7 +143,6 @@ async def run_agent(
     user_prompt: str,
     model_name: str,
     model_provider: str,
-    source_id: str | None = None,
     actions: list[str] | None = None,
     namespaces: list[str] | None = None,
     tool_approvals: dict[str, bool] | None = None,
@@ -150,6 +157,7 @@ async def run_agent(
     retries: int = config.TRACECAT__AGENT_MAX_RETRIES,
     base_url: str | None = None,
     deferred_tool_results: object | None = None,
+    source_id: str | None = None,
 ) -> AgentOutput:
     """Run an AI agent with specified configuration and actions.
 
@@ -228,14 +236,13 @@ async def rank_items(
     criteria_prompt: str,
     model_name: str,
     model_provider: str,
-    source_id: str | None = None,
     model_settings: dict[str, object] | None = None,
     max_requests: int = 5,
     retries: int = 3,
     base_url: str | None = None,
-    *,
     min_items: int | None = None,
     max_items: int | None = None,
+    source_id: str | None = None,
 ) -> list[str | int]:
     """Rank items using an LLM based on natural language criteria.
 
@@ -279,7 +286,6 @@ async def rank_items_pairwise(
     criteria_prompt: str,
     model_name: str,
     model_provider: str,
-    source_id: str | None = None,
     id_field: str = "id",
     batch_size: int = 10,
     num_passes: int = 10,
@@ -288,9 +294,9 @@ async def rank_items_pairwise(
     max_requests: int = 5,
     retries: int = 3,
     base_url: str | None = None,
-    *,
     min_items: int | None = None,
     max_items: int | None = None,
+    source_id: str | None = None,
 ) -> list[str | int]:
     """Rank items using multi-pass pairwise ranking with progressive refinement.
 

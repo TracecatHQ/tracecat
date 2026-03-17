@@ -804,6 +804,17 @@ function ProviderConnectionItem({
           <ProviderMetaPill active={enabledSelectableProviderCount > 0}>
             {enabledSelectableProviderCount} enabled
           </ProviderMetaPill>
+          {provider.credentials_configured && !canManageModels ? (
+            <Button
+              onClick={() => {
+                void onDeleteCredentials(provider.provider, provider.label)
+              }}
+              size="sm"
+              variant="outline"
+            >
+              Disconnect
+            </Button>
+          ) : null}
           <Button
             onClick={() => onConfigureProvider(provider.provider)}
             size="sm"

@@ -1903,24 +1903,51 @@ async def test_list_builtin_catalog_does_not_surface_snapshot_only_rows(
     )
     monkeypatch.setattr(
         "tracecat.agent.service.get_builtin_catalog_models",
-        lambda: (
-            BuiltInCatalogModel(
-                agent_catalog_id=uuid.uuid4(),
-                source_type=ModelSourceType.OPENAI,
-                model_provider="openai",
-                model_id="gpt-snapshot-only",
-                display_name="GPT Snapshot Only",
-                mode="chat",
-                enableable=True,
-                readiness_message=None,
-                metadata={"mode": "chat"},
-            ),
+        lambda: (_ for _ in ()).throw(
+            AssertionError("snapshot builtin catalog should not be consulted")
         ),
     )
 
     result = await service.list_builtin_catalog()
 
     assert result.models == []
+
+
+@pytest.mark.anyio
+async def test_get_default_model_uses_internal_persist_path_for_legacy_selection(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    selection = ModelSelection(
+        source_id=None,
+        model_provider="openai",
+        model_name="gpt-5",
+    )
+    service.settings_service = Mock(
+        get_org_setting=AsyncMock(return_value=object()),
+        get_value=Mock(return_value="gpt-5"),
+    )
+    service._get_default_model_ref_selection = AsyncMock(return_value=selection)
+    service.is_model_enabled = AsyncMock(return_value=True)
+    service._persist_default_model_selection = AsyncMock()
+    service.set_default_model_selection = AsyncMock(
+        side_effect=AssertionError("public setter should not be called from read path")
+    )
+    service._get_catalog_row = AsyncMock(
+        return_value=Mock(
+            source_id=None,
+            model_provider="openai",
+            model_name="gpt-5",
+            source_type=ModelSourceType.OPENAI,
+            source_name="OpenAI",
+        )
+    )
+
+    result = await service.get_default_model()
+
+    assert result is not None
+    assert result.model_provider == "openai"
+    service._persist_default_model_selection.assert_awaited_once_with(selection)
 
 
 @pytest.mark.anyio

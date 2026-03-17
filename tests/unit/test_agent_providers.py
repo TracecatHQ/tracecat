@@ -31,6 +31,52 @@ def test_get_model_passes_base_url_to_anthropic_provider() -> None:
     assert model.base_url == "https://anthropic.gateway.example"
 
 
+def test_get_model_blanks_anthropic_api_key_when_only_source_query_overrides_exist() -> (
+    None
+):
+    token = secrets.set_context(
+        {
+            "ANTHROPIC_API_KEY": "test-key",
+            "TRACECAT_SOURCE_API_VERSION": "2024-06-01",
+        }
+    )
+    try:
+        model = get_model(
+            model_name="claude-3-7-sonnet",
+            model_provider="anthropic",
+            base_url="https://anthropic.gateway.example",
+        )
+    finally:
+        secrets.reset_context(token)
+
+    assert isinstance(model, AnthropicModel)
+    assert model.client.default_headers["X-Api-Key"] == ""
+    assert model.client.default_query == {"api-version": "2024-06-01"}
+
+
+def test_get_model_blanks_openai_authorization_when_only_source_query_overrides_exist() -> (
+    None
+):
+    token = secrets.set_context(
+        {
+            "OPENAI_API_KEY": "test-key",
+            "TRACECAT_SOURCE_API_VERSION": "2024-06-01",
+        }
+    )
+    try:
+        model = get_model(
+            model_name="gpt-5",
+            model_provider="openai",
+            base_url="https://gateway.example/v1",
+        )
+    finally:
+        secrets.reset_context(token)
+
+    assert isinstance(model, OpenAIChatModel)
+    assert model.client.default_headers["Authorization"] == ""
+    assert model.client.default_query == {"api-version": "2024-06-01"}
+
+
 def test_get_model_passes_base_url_to_gemini_provider() -> None:
     token = secrets.set_context({"GEMINI_API_KEY": "test-key"})
     try:

@@ -2670,7 +2670,7 @@ class AgentManagementService(BaseOrgService):
         if ref_selection := await self._get_default_model_ref_selection():
             selection_key = self._selection_key_from_model_selection(ref_selection)
             if await self.is_model_enabled(selection_key, workspace_id=None):
-                await self.set_default_model_selection(ref_selection)
+                await self._persist_default_model_selection(ref_selection)
                 return ref_selection
         match await resolve_enabled_catalog_match_for_model_name(
             self.session,
@@ -2680,28 +2680,11 @@ class AgentManagementService(BaseOrgService):
             case match_result:
                 selection = self._selection_from_legacy_match(match_result)
                 if selection is not None:
-                    await self.set_default_model_selection(selection)
+                    await self._persist_default_model_selection(selection)
                     return selection
                 return None
 
-    async def get_default_model(self) -> DefaultModelSelection | None:
-        selection = await self._get_default_model_selection()
-        if selection is None:
-            return None
-        row = await self._get_catalog_row(
-            self._selection_key_from_model_selection(selection)
-        )
-        return DefaultModelSelection(
-            source_id=row.source_id,
-            model_provider=row.model_provider,
-            model_name=row.model_name,
-            source_type=row.source_type,
-            source_name=row.source_name,
-        )
-
-    @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def set_default_model_selection(
+    async def _persist_default_model_selection(
         self, selection: ModelSelection
     ) -> DefaultModelSelection:
         selection_key = self._selection_key_from_model_selection(selection)
@@ -2753,6 +2736,28 @@ class AgentManagementService(BaseOrgService):
             source_type=row.source_type,
             source_name=row.source_name,
         )
+
+    async def get_default_model(self) -> DefaultModelSelection | None:
+        selection = await self._get_default_model_selection()
+        if selection is None:
+            return None
+        row = await self._get_catalog_row(
+            self._selection_key_from_model_selection(selection)
+        )
+        return DefaultModelSelection(
+            source_id=row.source_id,
+            model_provider=row.model_provider,
+            model_name=row.model_name,
+            source_type=row.source_type,
+            source_name=row.source_name,
+        )
+
+    @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def set_default_model_selection(
+        self, selection: ModelSelection
+    ) -> DefaultModelSelection:
+        return await self._persist_default_model_selection(selection)
 
     async def _clear_default_model_selection(self) -> None:
         for key in ("agent_default_model", "agent_default_model_ref"):

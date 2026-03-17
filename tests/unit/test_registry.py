@@ -4,12 +4,14 @@ import os
 import sys
 import tempfile
 import textwrap
+import uuid
 from datetime import datetime
 from importlib.machinery import ModuleSpec
 from types import ModuleType
 from uuid import UUID
 
 import pytest
+from tracecat_registry.sdk.agents import encode_model_selection
 
 from tracecat.exceptions import RegistryValidationError
 from tracecat.git.utils import GitUrl, parse_git_url
@@ -213,6 +215,46 @@ def test_udf_validate_args(mock_package):
     udf.validate_args(args={"num": 1})
     with pytest.raises(RegistryValidationError):
         udf.validate_args(args={"num": "not a number"})
+
+
+def test_ai_select_field_validate_args_accepts_legacy_split_model_fields() -> None:
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+
+    udf = repo.get("ai.select_field")
+    validated = udf.validate_args(
+        args={
+            "json": {"name": "tracecat"},
+            "criteria_prompt": "Pick the name field.",
+            "model_name": "gpt-5",
+            "model_provider": "openai",
+        }
+    )
+
+    assert validated["model"] == '[null,"openai","gpt-5"]'
+
+
+def test_ai_select_field_validate_args_accepts_matching_uuid_source_id() -> None:
+    repo = Repository()
+    repo.init(include_base=True, include_templates=False)
+
+    source_id = uuid.uuid4()
+    encoded_model = encode_model_selection(
+        source_id=str(source_id),
+        model_provider="openai",
+        model_name="gpt-5",
+    )
+    udf = repo.get("ai.select_field")
+    validated = udf.validate_args(
+        args={
+            "json": {"name": "tracecat"},
+            "criteria_prompt": "Pick the name field.",
+            "model": encoded_model,
+            "source_id": source_id,
+        }
+    )
+
+    assert validated["model"] == encoded_model
 
 
 def test_deprecated_function_can_be_registered(mock_package):

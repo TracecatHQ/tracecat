@@ -56,6 +56,35 @@ def _make_context(
     )
 
 
+def test_agent_action_args_rejects_conflicting_model_fields() -> None:
+    with pytest.raises(ValueError, match="model conflicts with"):
+        AgentActionArgs.model_validate(
+            {
+                "user_prompt": "Hello",
+                "model": '["11111111-1111-1111-1111-111111111111","openai","gpt-5"]',
+                "source_id": "11111111-1111-1111-1111-111111111111",
+                "model_provider": "anthropic",
+                "model_name": "gpt-5",
+            }
+        )
+
+
+def test_agent_action_args_overwrites_none_source_id_from_model_selection() -> None:
+    source_id = uuid.uuid4()
+
+    parsed = AgentActionArgs.model_validate(
+        {
+            "user_prompt": "Hello",
+            "model": f'["{source_id}","openai","gpt-5"]',
+            "source_id": None,
+        }
+    )
+
+    assert parsed.source_id == source_id
+    assert parsed.model_provider == "openai"
+    assert parsed.model_name == "gpt-5"
+
+
 class TestBuildAgentArgsActivity:
     """Tests for DSLActivities.build_agent_args_activity."""
 

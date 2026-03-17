@@ -685,9 +685,11 @@ def _default_model_selection_from_authoring_models(
         if len(matches) == 1:
             return default_model, ModelSelection.model_validate(matches[0])
         return default_model, None
+    if callable(model_dump := getattr(default_model, "model_dump", None)):
+        default_model = model_dump(mode="json")
     try:
         selection = ModelSelection.model_validate(default_model)
-    except Exception:
+    except ValidationError:
         return None, None
     else:
         return selection.model_name, selection

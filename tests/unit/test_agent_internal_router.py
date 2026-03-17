@@ -8,9 +8,17 @@ import pytest
 from tracecat.agent.internal_router import (
     _merge_runtime_overrides,
     _provider_secrets_context,
+    rank_items_endpoint,
+    rank_items_pairwise_endpoint,
+)
+from tracecat.agent.schemas import (
+    InternalRankItemsPairwiseRequest,
+    InternalRankItemsRequest,
 )
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig
+from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
 
 
 def test_merge_runtime_overrides_preserves_unset_catalog_fields() -> None:
@@ -300,3 +308,144 @@ async def test_provider_secrets_context_merges_source_auth_header_into_model_set
         }
 
     get_runtime_credentials_for_config.assert_awaited_once_with(config)
+
+
+@pytest.mark.anyio
+async def test_rank_items_endpoint_resolves_runtime_config_before_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = cast(
+        Role,
+        SimpleNamespace(
+            type="service",
+            service_id="tracecat-service",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            scopes=frozenset({"agent:execute"}),
+        ),
+    )
+    resolved_config = AgentConfig(
+        source_id=uuid.uuid4(),
+        model_name="resolved-model",
+        model_provider="openai",
+    )
+    resolve_runtime_agent_config = AsyncMock(return_value=resolved_config)
+    require_enabled_model_selection = AsyncMock()
+    get_runtime_credentials_for_config = AsyncMock(
+        return_value={"OPENAI_API_KEY": "key"}
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.AgentManagementService",
+        lambda session, role: cast(
+            AgentManagementService,
+            SimpleNamespace(
+                require_enabled_model_selection=require_enabled_model_selection,
+                resolve_runtime_agent_config=resolve_runtime_agent_config,
+                get_runtime_credentials_for_config=get_runtime_credentials_for_config,
+            ),
+        ),
+    )
+    ranker_rank_items = AsyncMock(return_value=["item-1"])
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.ranker_rank_items", ranker_rank_items
+    )
+
+    token = ctx_role.set(role)
+    try:
+        result = await rank_items_endpoint(
+            role=role,
+            session=AsyncMock(),
+            params=InternalRankItemsRequest(
+                items=[{"id": "item-1", "text": "First"}],
+                criteria_prompt="Rank items",
+                source_id=uuid.uuid4(),
+                model_name="stale-model",
+                model_provider="openai",
+            ),
+        )
+    finally:
+        ctx_role.reset(token)
+
+    assert result == ["item-1"]
+    resolve_runtime_agent_config.assert_awaited_once()
+    require_enabled_model_selection.assert_awaited_once()
+    assert require_enabled_model_selection.await_args is not None
+    enabled_selection = require_enabled_model_selection.await_args.args[0]
+    assert enabled_selection.source_id == resolved_config.source_id
+    assert enabled_selection.model_name == resolved_config.model_name
+    assert enabled_selection.model_provider == resolved_config.model_provider
+    ranker_rank_items.assert_awaited_once()
+    assert ranker_rank_items.await_args is not None
+    assert ranker_rank_items.await_args.kwargs["model_name"] == "resolved-model"
+
+
+@pytest.mark.anyio
+async def test_rank_items_pairwise_endpoint_resolves_runtime_config_before_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = cast(
+        Role,
+        SimpleNamespace(
+            type="service",
+            service_id="tracecat-service",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            scopes=frozenset({"agent:execute"}),
+        ),
+    )
+    resolved_config = AgentConfig(
+        source_id=uuid.uuid4(),
+        model_name="resolved-model",
+        model_provider="openai",
+    )
+    resolve_runtime_agent_config = AsyncMock(return_value=resolved_config)
+    require_enabled_model_selection = AsyncMock()
+    get_runtime_credentials_for_config = AsyncMock(
+        return_value={"OPENAI_API_KEY": "key"}
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.AgentManagementService",
+        lambda session, role: cast(
+            AgentManagementService,
+            SimpleNamespace(
+                require_enabled_model_selection=require_enabled_model_selection,
+                resolve_runtime_agent_config=resolve_runtime_agent_config,
+                get_runtime_credentials_for_config=get_runtime_credentials_for_config,
+            ),
+        ),
+    )
+    ranker_rank_items_pairwise = AsyncMock(return_value=["item-1"])
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.ranker_rank_items_pairwise",
+        ranker_rank_items_pairwise,
+    )
+
+    token = ctx_role.set(role)
+    try:
+        result = await rank_items_pairwise_endpoint(
+            role=role,
+            session=AsyncMock(),
+            params=InternalRankItemsPairwiseRequest(
+                items=[{"id": "item-1", "text": "First"}],
+                criteria_prompt="Rank items",
+                source_id=uuid.uuid4(),
+                model_name="stale-model",
+                model_provider="openai",
+            ),
+        )
+    finally:
+        ctx_role.reset(token)
+
+    assert result == ["item-1"]
+    resolve_runtime_agent_config.assert_awaited_once()
+    require_enabled_model_selection.assert_awaited_once()
+    assert require_enabled_model_selection.await_args is not None
+    enabled_selection = require_enabled_model_selection.await_args.args[0]
+    assert enabled_selection.source_id == resolved_config.source_id
+    assert enabled_selection.model_name == resolved_config.model_name
+    assert enabled_selection.model_provider == resolved_config.model_provider
+    ranker_rank_items_pairwise.assert_awaited_once()
+    assert ranker_rank_items_pairwise.await_args is not None
+    assert (
+        ranker_rank_items_pairwise.await_args.kwargs["model_name"] == "resolved-model"
+    )
