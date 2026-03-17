@@ -9,7 +9,18 @@ View and create workflows in the Tracecat UI under the `/workflows` page.
 
 ![Create new workflow](/img/automations/workflows/create-new-workflow.png)
 
-## Run workflow manually
+## Run workflows manually
+
+You can run a workflow manually by clicking the `Run` button in the top right corner of the workflow builder.
+
+![Run workflow manually](/img/automations/workflows/run-workflow-manually.png)
+
+## Trigger inputs
+
+You can specify trigger inputs in the workflow builder.
+These inputs are passed to the workflow as `${{ TRIGGER }}` expressions.
+
+![Trigger inputs](/img/automations/workflows/trigger-inputs.png)
 
 ## Draft vs published workflows
 
@@ -28,6 +39,58 @@ Information about the failed workflow run is passed to the error workflow under 
 
 ![Error workflow](/img/automations/workflows/error-workflow.png)
 
+## Input schema
+
+You can specify an input schema to validate the trigger inputs to the workflow.
+Define the input schema as YAML or JSON-compatible YAML, where each top-level key is an input name.
+
+Each input supports these fields:
+
+- `type` is a Tracecat type expression such as `str`, `int`, `bool`, `float`, `datetime`, `duration`, `list[int]`, `dict[str, Any]`, `str | None`, or `enum["low", "high"]`
+- `description` is an optional description of the input
+- `default` is an optional default value; if you set it, the input becomes optional
+
+For example:
+```yaml
+my_param:
+  type: str
+  description: This is a string
+  default: My default value
+
+my_list:
+  type: list[int]
+  description: This is a list of integers without a default value
+
+my_union:
+  type: str | int | None
+  description: This is a union of a string, an integer, and None
+```
+
+![Input schema](/img/automations/workflows/input-schema.png)
+
+## Output schema
+
+Workflows return `null` by default.
+You can specify a return value for the workflow as an output schema.
+Output schemas support all Tracecat expressions.
+
+For example, assume a workflow has three actions `whoami`, `location`, and `contact`.
+
+The actions return the following results:
+- `whoami`: `{ "name": "John", "age": 30 }`
+- `location`: `{ "city": "New York", "country": "USA" }`
+- `contact`: `{ "email": "john@example.com", "phone": "1234567890" }`
+
+The output schema can be defined as:
+
+```php
+name: ${{ ACTIONS.whoami.result.name }}
+city: ${{ ACTIONS.location.result.city }}
+email: ${{ ACTIONS.contact.result.email }}
+```
+
+![Output schema](/img/automations/workflows/output-schema.png)
+
 ## Environments
 
 ## Export / import workflows
@@ -36,12 +99,12 @@ Information about the failed workflow run is passed to the error workflow under 
 
 <Badge icon="github" color="gray" size="lg" shape="pill">Open Source</Badge> users can export and import workflows directly from the Tracecat UI.
 Exported workflows are called workflow definitions and are saved as YAML files.
-
 Right click on a workflow in the `/workflows` page to export the draft or published workflow definition:
 
 ![Workflow export / import](/img/automations/workflows/workflow-export.png)
 
-Create workflow from the workflow definition:
+Exported workflows can be imported via the "Create new" button in the `/workflows` page:
+
 ![Workflow import](/img/automations/workflows/workflow-import.png)
 
 ## View workflow runs
@@ -92,3 +155,5 @@ The link icon copies the JSONPath reference to the action result. For example, `
 The copy icon copies the value of the action result itself.
 
 ![Copy action result](/img/automations/workflows/copy-action-result.png)
+
+## Workflow definition DSL
