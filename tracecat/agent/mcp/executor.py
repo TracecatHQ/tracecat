@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Never
 from uuid import UUID, uuid4
 
 from temporalio.client import WorkflowFailureError
@@ -174,6 +174,13 @@ async def _execute_action_workflow(
 ) -> StoredObject:
     """Execute a single registry UDF via a short workflow on agent-worker."""
     client = await get_temporal_client()
+
+    def _raise_action_execution_error(error: WorkflowFailureError) -> Never:
+        cause = error.cause
+        if isinstance(cause, ApplicationError):
+            raise ActionExecutionError(str(cause)) from error
+        raise ActionExecutionError(str(error)) from error
+
     try:
         stored = await client.execute_workflow(
             ExecuteRegistryToolWorkflow.run,
@@ -188,12 +195,12 @@ async def _execute_action_workflow(
             search_attributes=search_attributes,
         )
     except WorkflowAlreadyStartedError:
-        stored = await client.get_workflow_handle(workflow_id).result()
+        try:
+            stored = await client.get_workflow_handle(workflow_id).result()
+        except WorkflowFailureError as error:
+            _raise_action_execution_error(error)
     except WorkflowFailureError as e:
-        cause = e.cause
-        if isinstance(cause, ApplicationError):
-            raise ActionExecutionError(str(cause)) from e
-        raise ActionExecutionError(str(e)) from e
+        _raise_action_execution_error(e)
     return StoredObjectValidator.validate_python(stored)
 
 
