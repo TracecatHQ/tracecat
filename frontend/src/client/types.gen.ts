@@ -309,6 +309,10 @@ export type AgentDefaultModelSelection = {
   model_name: string
 }
 
+export type AgentModel = {
+  component_id?: "agent-model"
+}
+
 export type AgentModelSourceCreate = {
   type: CustomModelSourceType
   flavor?: CustomModelSourceFlavor | null
@@ -2926,6 +2930,7 @@ export type EditorComponent =
   | TagInput
   | ActionType
   | WorkflowAlias
+  | AgentModel
   | AgentPreset
 
 export type EditorFunctionRead = {

@@ -49,9 +49,26 @@ from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.tiers import defaults as tier_defaults
 from tracecat.validation.schemas import ActionValidationResult, ValidationResultType
-from tracecat.validation.service import validate_dsl
+from tracecat.validation.service import _normalize_registry_action_args, validate_dsl
 
 TEST_VERSION = "test-version"
+
+
+def test_normalize_registry_action_args_maps_legacy_ai_model_fields() -> None:
+    normalized = _normalize_registry_action_args(
+        "ai.agent",
+        {
+            "user_prompt": "hello",
+            "source_id": "11111111-1111-1111-1111-111111111111",
+            "model_provider": "openai",
+            "model_name": "gpt-5",
+        },
+    )
+
+    assert normalized == {
+        "user_prompt": "hello",
+        "model": '["11111111-1111-1111-1111-111111111111","openai","gpt-5"]',
+    }
 
 
 async def create_manifest_for_actions(

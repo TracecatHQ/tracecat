@@ -476,7 +476,9 @@ def _inject_provider_credentials(
 
             data["api_base"] = base.rstrip("/")
             data["api_version"] = version
-            data["model"] = f"azure/{deployment}"
+            data["model"] = (
+                deployment if deployment.startswith("azure/") else f"azure/{deployment}"
+            )
 
         case "azure_ai":
             base = creds.get("AZURE_API_BASE")

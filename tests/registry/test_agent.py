@@ -4,10 +4,16 @@ from typing import Any
 import pytest
 from tracecat_registry import ActionIsInterfaceError
 from tracecat_registry.core.agent import action, agent
+from tracecat_registry.sdk.agents import encode_model_selection
 
 from tracecat.auth.types import Role
 
 requires_openai_mocks = pytest.mark.usefixtures("mock_openai_secrets")
+OPENAI_TEST_MODEL = encode_model_selection(
+    source_id=None,
+    model_provider="openai",
+    model_name="gpt-4o-mini",
+)
 
 
 PRIMITIVE_OUTPUT_TYPES = [
@@ -65,8 +71,7 @@ async def test_agent_primitives(output_type: Any, test_role: Role) -> None:
     with pytest.raises(ActionIsInterfaceError):
         await agent(
             user_prompt=user_prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            model=OPENAI_TEST_MODEL,
             actions=[],
             instructions="Be concise and factual.",
             output_type=output_type,
@@ -100,8 +105,7 @@ async def test_agent_json_schema(output_type: Any, test_role: Role) -> None:
     with pytest.raises(ActionIsInterfaceError):
         await agent(
             user_prompt=user_prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            model=OPENAI_TEST_MODEL,
             actions=[],
             instructions="Be concise and factual.",
             output_type=output_type,
@@ -121,8 +125,7 @@ async def test_action_primitives(output_type: Any) -> None:
     with pytest.raises(ActionIsInterfaceError):
         await action(
             user_prompt=user_prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            model=OPENAI_TEST_MODEL,
             instructions="Be empathetic and concise.",
             output_type=output_type,
             max_requests=3,
@@ -140,8 +143,7 @@ async def test_action_json_schema(output_type: Any) -> None:
     with pytest.raises(ActionIsInterfaceError):
         await action(
             user_prompt=user_prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
+            model=OPENAI_TEST_MODEL,
             instructions="Be empathetic and concise.",
             output_type=output_type,
             max_requests=3,

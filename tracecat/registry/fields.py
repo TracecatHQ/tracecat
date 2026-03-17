@@ -16,6 +16,7 @@ class ComponentID(StrEnum):
     CODE = "code"
     SELECT = "select"
     AGENT_PRESET = "agent-preset"
+    AGENT_MODEL = "agent-model"
     TEXT_AREA = "text-area"
     TOGGLE = "toggle"
     TEXT = "text"
@@ -60,6 +61,13 @@ class AgentPreset(Component):
     """Render field as agent preset dropdown in UI"""
 
     component_id: Literal[ComponentID.AGENT_PRESET] = ComponentID.AGENT_PRESET
+
+
+@dataclass(slots=True)
+class AgentModel(Component):
+    """Render field as agent model dropdown in UI"""
+
+    component_id: Literal[ComponentID.AGENT_MODEL] = ComponentID.AGENT_MODEL
 
 
 @dataclass(slots=True)
@@ -291,6 +299,7 @@ class EditorComponent(RootModel):
         | TagInput
         | ActionType
         | WorkflowAlias
+        | AgentModel
         | AgentPreset,
         Field(discriminator="component_id"),
     ]

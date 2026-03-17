@@ -231,6 +231,19 @@ def test_azure_openai_uses_selected_model_as_deployment_name_by_default():
     assert data["model"] == "azure/gpt-4o"
 
 
+def test_azure_openai_does_not_double_prefix_selected_deployment_name():
+    data = {"model": "azure/eu/gpt-5.1"}
+    creds = {
+        "AZURE_API_BASE": "https://example.openai.azure.com",
+        "AZURE_API_VERSION": "2024-02-15-preview",
+        "AZURE_API_KEY": "azure-key",
+    }
+
+    _inject_provider_credentials(data, "azure_openai", creds, source_id=None)
+
+    assert data["model"] == "azure/eu/gpt-5.1"
+
+
 def test_azure_ai_uses_selected_model_by_default():
     data = {"model": "claude-sonnet-4-5"}
     creds = {
