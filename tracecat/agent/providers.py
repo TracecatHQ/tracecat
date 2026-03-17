@@ -38,6 +38,14 @@ def _source_default_query() -> dict[str, str]:
     return {}
 
 
+def _masked_source_headers(
+    default_headers: dict[str, str], *, auth_header: str
+) -> dict[str, str]:
+    headers = dict(default_headers)
+    headers.setdefault(auth_header, "")
+    return headers
+
+
 def _azure_uses_base_url(base_url: str) -> bool:
     path = urlsplit(base_url).path.rstrip("/")
     return path.endswith("/openai") or "/openai/deployments/" in path
@@ -72,8 +80,9 @@ def _build_openai_compatible_model(
     default_query = _source_default_query()
     api_key = secrets.get_or_default(api_key_env, default_api_key)
     if default_headers or default_query:
-        if default_headers:
-            default_headers.setdefault("Authorization", "")
+        default_headers = _masked_source_headers(
+            default_headers, auth_header="Authorization"
+        )
         provider = OpenAIProvider(
             openai_client=AsyncOpenAI(
                 base_url=base_url,
@@ -245,10 +254,12 @@ def get_model(
             default_query = _source_default_query()
             api_key = secrets.get("ANTHROPIC_API_KEY")
             if default_headers or default_query:
-                default_headers.setdefault("X-API-Key", "")
+                default_headers = _masked_source_headers(
+                    default_headers, auth_header="X-Api-Key"
+                )
                 provider = AnthropicProvider(
                     anthropic_client=AsyncAnthropic(
-                        api_key=api_key,
+                        api_key="not-needed",
                         base_url=base_url,
                         default_headers=default_headers or None,
                         default_query=default_query or None,
