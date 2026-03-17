@@ -436,6 +436,7 @@ class InternalRankItemsRequest(BaseModel):
 
     items: list[RankableItemSchema]
     criteria_prompt: str
+    source_id: uuid.UUID | None = None
     model_name: str
     model_provider: str
     model_settings: dict[str, Any] | None = None
@@ -451,6 +452,7 @@ class InternalRankItemsPairwiseRequest(BaseModel):
 
     items: list[RankableItemSchema]
     criteria_prompt: str
+    source_id: uuid.UUID | None = None
     model_name: str
     model_provider: str
     id_field: str = "id"

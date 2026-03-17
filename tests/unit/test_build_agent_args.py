@@ -60,6 +60,29 @@ class TestBuildAgentArgsActivity:
     """Tests for DSLActivities.build_agent_args_activity."""
 
     @pytest.mark.anyio
+    async def test_parses_composite_model_selection(self, role: Role):
+        source_id = uuid.uuid4()
+        args = {
+            "user_prompt": "Hello",
+            "model": f'["{source_id}","openai","gpt-5"]',
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        result = await DSLActivities.build_agent_args_activity(input)
+
+        assert isinstance(result, AgentActionArgs)
+        assert result.source_id == source_id
+        assert result.model_provider == "openai"
+        assert result.model_name == "gpt-5"
+        assert result.user_prompt == "Hello"
+
+    @pytest.mark.anyio
     async def test_resolves_vars_in_model_name(self, role: Role):
         """VARS expressions like ${{ VARS.models.claude }} should resolve
         via inline workspace variable fetch."""

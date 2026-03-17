@@ -16,7 +16,7 @@ export default function AgentSettingsPage() {
             <p className="text-base text-muted-foreground">
               {agentAddonsEnabled
                 ? "Manage org-scoped provider credentials, custom sources, allowed models, and the default model."
-                : "Manage org-scoped provider credentials and the organization model catalog."}
+                : "Manage org-scoped provider credentials and custom sources. Upgrade to control the org model catalog and default model."}
             </p>
           </div>
         </div>

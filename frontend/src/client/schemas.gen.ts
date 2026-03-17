@@ -1120,6 +1120,19 @@ export const $AgentDefaultModelSelection = {
   title: "AgentDefaultModelSelection",
 } as const
 
+export const $AgentModel = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "agent-model",
+      title: "Component Id",
+      default: "agent-model",
+    },
+  },
+  type: "object",
+  title: "AgentModel",
+} as const
+
 export const $AgentModelSourceCreate = {
   properties: {
     type: {
@@ -10363,6 +10376,9 @@ export const $EditorComponent = {
       $ref: "#/components/schemas/WorkflowAlias",
     },
     {
+      $ref: "#/components/schemas/AgentModel",
+    },
+    {
       $ref: "#/components/schemas/AgentPreset",
     },
   ],
@@ -10371,6 +10387,7 @@ export const $EditorComponent = {
     propertyName: "component_id",
     mapping: {
       "action-type": "#/components/schemas/ActionType",
+      "agent-model": "#/components/schemas/AgentModel",
       "agent-preset": "#/components/schemas/AgentPreset",
       code: "#/components/schemas/Code",
       float: "#/components/schemas/Float",

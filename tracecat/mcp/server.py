@@ -685,10 +685,12 @@ def _default_model_selection_from_authoring_models(
         if len(matches) == 1:
             return default_model, ModelSelection.model_validate(matches[0])
         return default_model, None
-    if hasattr(default_model, "model_dump"):
-        selection = ModelSelection.model_validate(default_model.model_dump(mode="json"))
+    try:
+        selection = ModelSelection.model_validate(default_model)
+    except Exception:
+        return None, None
+    else:
         return selection.model_name, selection
-    return None, None
 
 
 def _compact_authoring_model(model: dict[str, Any]) -> dict[str, Any]:

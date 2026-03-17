@@ -33,7 +33,12 @@ from tracecat.agent.service import (
     SourceDiscoveryResult,
     sync_model_catalogs_on_startup,
 )
-from tracecat.agent.types import AgentConfig, CustomModelSourceType, ModelSourceType
+from tracecat.agent.types import (
+    AgentConfig,
+    CustomModelSourceType,
+    ModelDiscoveryStatus,
+    ModelSourceType,
+)
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentCatalog,
@@ -1877,3 +1882,88 @@ async def test_upsert_catalog_rows_keeps_duplicate_model_names_across_providers(
         ("anthropic", "shared-model"),
         ("openai", "shared-model"),
     }
+
+
+@pytest.mark.anyio
+async def test_list_builtin_catalog_does_not_surface_snapshot_only_rows(
+    role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    service._get_builtin_catalog_state = AsyncMock(
+        return_value=(ModelDiscoveryStatus.READY, None, None)
+    )
+    service._list_org_enabled_rows = AsyncMock(return_value=[])
+    service._list_builtin_catalog_rows = AsyncMock(return_value=[])
+    service._get_provider_state = AsyncMock(
+        return_value=(ModelDiscoveryStatus.READY, None, None)
+    )
+    service.get_provider_credentials = AsyncMock(
+        return_value={"OPENAI_API_KEY": "sk-test"}
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.service.get_builtin_catalog_models",
+        lambda: (
+            BuiltInCatalogModel(
+                agent_catalog_id=uuid.uuid4(),
+                source_type=ModelSourceType.OPENAI,
+                model_provider="openai",
+                model_id="gpt-snapshot-only",
+                display_name="GPT Snapshot Only",
+                mode="chat",
+                enableable=True,
+                readiness_message=None,
+                metadata={"mode": "chat"},
+            ),
+        ),
+    )
+
+    result = await service.list_builtin_catalog()
+
+    assert result.models == []
+
+
+@pytest.mark.anyio
+async def test_list_builtin_catalog_uses_persisted_rows_with_existing_readiness_state(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    persisted_row = AgentCatalog(
+        id=uuid.uuid4(),
+        organization_id=None,
+        source_id=None,
+        model_provider="openai",
+        model_name="gpt-persisted",
+        model_metadata={"mode": "chat", "slot": "persisted"},
+    )
+    enabled_row = AgentEnabledModel(
+        organization_id=role.organization_id,
+        workspace_id=None,
+        source_id=None,
+        model_provider="openai",
+        model_name="gpt-persisted",
+        enabled_config=None,
+    )
+    service._get_builtin_catalog_state = AsyncMock(
+        return_value=(ModelDiscoveryStatus.READY, None, None)
+    )
+    service._list_org_enabled_rows = AsyncMock(return_value=[enabled_row])
+    service._list_builtin_catalog_rows = AsyncMock(return_value=[persisted_row])
+    service._get_provider_state = AsyncMock(
+        return_value=(ModelDiscoveryStatus.READY, None, None)
+    )
+    service.get_provider_credentials = AsyncMock(
+        return_value={"OPENAI_API_KEY": "sk-test"}
+    )
+
+    result = await service.list_builtin_catalog()
+
+    assert len(result.models) == 1
+    model = result.models[0]
+    assert model.model_name == "gpt-persisted"
+    assert model.enabled is True
+    assert model.ready is True
+    assert model.enableable is True
+    assert model.discovered is True
+    assert model.credentials_configured is True
+    assert model.metadata == {"mode": "chat", "slot": "persisted"}

@@ -6,6 +6,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
+import orjson
 from pydantic import BaseModel
 
 from tracecat_registry import config
@@ -52,6 +53,52 @@ class RankableItem(TypedDict):
     text: str
 
 
+class ModelSelection(TypedDict):
+    source_id: str | None
+    model_provider: str
+    model_name: str
+
+
+def encode_model_selection(
+    *,
+    source_id: str | None,
+    model_provider: str,
+    model_name: str,
+) -> str:
+    return orjson.dumps([source_id, model_provider, model_name]).decode()
+
+
+def parse_model_selection(value: str) -> ModelSelection:
+    if value.startswith("["):
+        payload = orjson.loads(value)
+        if (
+            isinstance(payload, list)
+            and len(payload) == 3
+            and (payload[0] is None or isinstance(payload[0], str))
+            and isinstance(payload[1], str)
+            and isinstance(payload[2], str)
+        ):
+            return {
+                "source_id": payload[0],
+                "model_provider": payload[1],
+                "model_name": payload[2],
+            }
+        raise ValueError("Invalid model selection payload")
+
+    source_id, separator, remainder = value.partition("::")
+    if separator and "::" in remainder:
+        model_provider, _, model_name = remainder.partition("::")
+        normalized_source_id = None if source_id in {"", "null"} else source_id
+        if model_provider and model_name:
+            return {
+                "source_id": normalized_source_id,
+                "model_provider": model_provider,
+                "model_name": model_name,
+            }
+
+    raise ValueError("Expected a serialized model selection value")
+
+
 @dataclass(kw_only=True, slots=True)
 class AgentConfig:
     """Configuration for an agent."""
@@ -59,6 +106,7 @@ class AgentConfig:
     # Model
     model_name: str
     model_provider: str
+    source_id: str | None = None
     base_url: str | None = None
     # Agent
     instructions: str | None = None
@@ -87,6 +135,7 @@ async def run_agent(
     user_prompt: str,
     model_name: str,
     model_provider: str,
+    source_id: str | None = None,
     actions: list[str] | None = None,
     namespaces: list[str] | None = None,
     tool_approvals: dict[str, bool] | None = None,
@@ -147,6 +196,7 @@ async def run_agent(
     result = await ctx.agents.run(
         user_prompt=user_prompt,
         config=AgentConfig(
+            source_id=source_id,
             model_name=model_name,
             model_provider=model_provider,
             actions=actions,
@@ -178,6 +228,7 @@ async def rank_items(
     criteria_prompt: str,
     model_name: str,
     model_provider: str,
+    source_id: str | None = None,
     model_settings: dict[str, object] | None = None,
     max_requests: int = 5,
     retries: int = 3,
@@ -213,6 +264,7 @@ async def rank_items(
         criteria_prompt=criteria_prompt,
         model_name=model_name,
         model_provider=model_provider,
+        source_id=source_id,
         model_settings=model_settings,
         max_requests=max_requests,
         retries=retries,
@@ -227,6 +279,7 @@ async def rank_items_pairwise(
     criteria_prompt: str,
     model_name: str,
     model_provider: str,
+    source_id: str | None = None,
     id_field: str = "id",
     batch_size: int = 10,
     num_passes: int = 10,
@@ -270,6 +323,7 @@ async def rank_items_pairwise(
         criteria_prompt=criteria_prompt,
         model_name=model_name,
         model_provider=model_provider,
+        source_id=source_id,
         id_field=id_field,
         batch_size=batch_size,
         num_passes=num_passes,
@@ -338,6 +392,7 @@ class AgentsClient:
         criteria_prompt: str,
         model_name: str,
         model_provider: str,
+        source_id: str | None = None,
         model_settings: dict[str, object] | None = None,
         max_requests: int = 5,
         retries: int = 3,
@@ -370,6 +425,8 @@ class AgentsClient:
             "max_requests": max_requests,
             "retries": retries,
         }
+        if source_id is not None:
+            data["source_id"] = source_id
         if model_settings is not None:
             data["model_settings"] = model_settings
         if base_url is not None:
@@ -388,6 +445,7 @@ class AgentsClient:
         criteria_prompt: str,
         model_name: str,
         model_provider: str,
+        source_id: str | None = None,
         id_field: str = "id",
         batch_size: int = 10,
         num_passes: int = 10,
@@ -432,6 +490,8 @@ class AgentsClient:
             "max_requests": max_requests,
             "retries": retries,
         }
+        if source_id is not None:
+            data["source_id"] = source_id
         if model_settings is not None:
             data["model_settings"] = model_settings
         if base_url is not None:
@@ -587,8 +647,11 @@ __all__ = [
     "AgentOutput",
     "AgentsClient",
     "MCPServerConfig",
+    "ModelSelection",
     "OutputType",
     "RankableItem",
+    "encode_model_selection",
+    "parse_model_selection",
     "rank_items",
     "rank_items_pairwise",
     "run_agent",
