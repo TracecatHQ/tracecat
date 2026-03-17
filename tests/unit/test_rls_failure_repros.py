@@ -266,7 +266,7 @@ def test_api_lifespan_rbac_seeding_uses_bypass_session_manager() -> None:
 
 
 @pytest.mark.anyio
-async def test_api_lifespan_waits_for_model_catalog_sync_before_serving_requests(
+async def test_api_lifespan_spawns_model_catalog_sync_in_background(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created_task_names: list[str] = []
@@ -322,8 +322,8 @@ async def test_api_lifespan_waits_for_model_catalog_sync_before_serving_requests
     async with lifespan(FastAPI()):
         pass
 
-    assert "model_catalog_sync" not in created_task_names
-    sync_mock.assert_awaited_once()
+    assert "model_catalog_sync" in created_task_names
+    sync_mock.assert_not_awaited()
 
 
 def test_registry_sync_startup_uses_bypass_session_manager() -> None:

@@ -371,59 +371,84 @@ def _inject_provider_credentials(
 
     match provider:
         case "openai":
-            api_key = creds.get("OPENAI_API_KEY")
+            api_key = (
+                creds.get(SOURCE_RUNTIME_API_KEY)
+                if source_id is not None
+                else creds.get("OPENAI_API_KEY")
+            ) or creds.get("OPENAI_API_KEY")
             if not api_key:
-                _gateway_log(
-                    logging.WARNING,
-                    "Required credential key missing for provider",
-                    provider=provider,
-                )
-                raise ProxyException(
-                    message="Provider credentials incomplete",
-                    type="auth_error",
-                    param=None,
-                    code=401,
-                )
+                if source_id is not None:
+                    api_key = "not-needed"
+                else:
+                    _gateway_log(
+                        logging.WARNING,
+                        "Required credential key missing for provider",
+                        provider=provider,
+                    )
+                    raise ProxyException(
+                        message="Provider credentials incomplete",
+                        type="auth_error",
+                        param=None,
+                        code=401,
+                    )
             data["api_key"] = api_key
-            if base_url := creds.get("OPENAI_BASE_URL"):
+            if base_url := creds.get(SOURCE_RUNTIME_BASE_URL) or creds.get(
+                "OPENAI_BASE_URL"
+            ):
                 data["api_base"] = base_url
             if not str(data.get("model", "")).startswith("openai/"):
                 data["model"] = f"openai/{data['model']}"
 
         case "anthropic":
-            api_key = creds.get("ANTHROPIC_API_KEY")
+            api_key = (
+                creds.get(SOURCE_RUNTIME_API_KEY)
+                if source_id is not None
+                else creds.get("ANTHROPIC_API_KEY")
+            ) or creds.get("ANTHROPIC_API_KEY")
             if not api_key:
-                _gateway_log(
-                    logging.WARNING,
-                    "Required credential key missing for provider",
-                    provider=provider,
-                )
-                raise ProxyException(
-                    message="Provider credentials incomplete",
-                    type="auth_error",
-                    param=None,
-                    code=401,
-                )
+                if source_id is not None:
+                    api_key = "not-needed"
+                else:
+                    _gateway_log(
+                        logging.WARNING,
+                        "Required credential key missing for provider",
+                        provider=provider,
+                    )
+                    raise ProxyException(
+                        message="Provider credentials incomplete",
+                        type="auth_error",
+                        param=None,
+                        code=401,
+                    )
             data["api_key"] = api_key
-            if base_url := creds.get("ANTHROPIC_BASE_URL"):
+            if base_url := creds.get(SOURCE_RUNTIME_BASE_URL) or creds.get(
+                "ANTHROPIC_BASE_URL"
+            ):
                 data["api_base"] = base_url
             if not str(data.get("model", "")).startswith("anthropic/"):
                 data["model"] = f"anthropic/{data['model']}"
 
         case "gemini":
-            api_key = creds.get("GEMINI_API_KEY")
+            api_key = (
+                creds.get(SOURCE_RUNTIME_API_KEY)
+                if source_id is not None
+                else creds.get("GEMINI_API_KEY")
+            ) or creds.get("GEMINI_API_KEY")
             if not api_key:
-                _gateway_log(
-                    logging.WARNING,
-                    "Required credential key missing for provider",
-                    provider=provider,
-                )
-                raise ProxyException(
-                    message="Provider credentials incomplete",
-                    type="auth_error",
-                    param=None,
-                    code=401,
-                )
+                if source_id is not None:
+                    api_key = "not-needed"
+                else:
+                    _gateway_log(
+                        logging.WARNING,
+                        "Required credential key missing for provider",
+                        provider=provider,
+                    )
+                    raise ProxyException(
+                        message="Provider credentials incomplete",
+                        type="auth_error",
+                        param=None,
+                        code=401,
+                    )
             data["api_key"] = api_key
             # Prefix model name for LiteLLM routing (e.g. gemini-2.5-flash -> gemini/gemini-2.5-flash)
             if not data.get("model", "").startswith("gemini/"):
