@@ -7,6 +7,7 @@ from tracecat.auth.types import Role
 from tracecat.dsl.schemas import RunActionInput
 
 AGENT_TOOL_PRIORITY = Priority(priority_key=2)
+"""Priority for tool execution activities. This is higher than the default priority (1) but lower than the priority for agent execution activities (3)."""
 
 
 class ExecuteRegistryToolWorkflowInput(BaseModel):
