@@ -65,9 +65,9 @@ function normalizeSelectionFields(
   "source_id" | "model_name" | "model_provider"
 > {
   return {
-    source_id: fields.source_id ?? undefined,
-    model_name: fields.model_name ?? undefined,
-    model_provider: fields.model_provider ?? undefined,
+    source_id: fields.source_id,
+    model_name: fields.model_name,
+    model_provider: fields.model_provider,
   }
 }
 

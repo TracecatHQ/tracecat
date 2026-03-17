@@ -574,9 +574,7 @@ async def _resolve_agent_preset_model(
                 matches = [
                     item
                     for item in models
-                    if item["model_name"] == selection.model_name
-                    and item["model_provider"] == selection.model_provider
-                    and item.get("source_id") == selection.source_id
+                    if _authoring_model_matches_selection(item, selection)
                 ]
                 if not matches:
                     raise ToolError(
@@ -672,6 +670,25 @@ def _authoring_model_matches_selection(
         and model.get("source_id")
         == (str(selection.source_id) if selection.source_id is not None else None)
     )
+
+
+def _default_model_selection_from_authoring_models(
+    default_model: object | None,
+    models: list[dict[str, Any]],
+) -> tuple[str | None, ModelSelection | None]:
+    if default_model is None:
+        return None, None
+    if isinstance(default_model, str):
+        matches = [
+            model for model in models if str(model.get("model_name")) == default_model
+        ]
+        if len(matches) == 1:
+            return default_model, ModelSelection.model_validate(matches[0])
+        return default_model, None
+    if hasattr(default_model, "model_dump"):
+        selection = ModelSelection.model_validate(default_model.model_dump(mode="json"))
+        return selection.model_name, selection
+    return None, None
 
 
 def _compact_authoring_model(model: dict[str, Any]) -> dict[str, Any]:
@@ -5998,30 +6015,8 @@ async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
     models_by_provider: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for model in models:
         models_by_provider[str(model["model_provider"])].append(model)
-    default_model_selection = (
-        ModelSelection(
-            source_id=None,
-            model_provider=str(
-                next(
-                    (
-                        model["model_provider"]
-                        for model in models
-                        if str(model["model_name"]) == default_model
-                    ),
-                    "",
-                )
-            ),
-            model_name=str(default_model),
-        )
-        if isinstance(default_model, str)
-        else ModelSelection.model_validate(default_model.model_dump(mode="json"))
-        if default_model is not None
-        else None
-    )
-    default_model_name = (
-        default_model_selection.model_name
-        if default_model_selection is not None
-        else None
+    default_model_name, default_model_selection = (
+        _default_model_selection_from_authoring_models(default_model, models)
     )
     default_model_ready_for_agent_presets = (
         any(
@@ -6029,6 +6024,8 @@ async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
             for model in models
         )
         if default_model_selection is not None
+        else False
+        if default_model_name is not None
         else None
     )
     if (

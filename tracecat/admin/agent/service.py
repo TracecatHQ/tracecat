@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from tracecat import config
 from tracecat.admin.agent.schemas import PlatformCatalogEntry, PlatformCatalogRead
 from tracecat.agent.builtin_catalog import get_builtin_catalog_models
+from tracecat.agent.schemas import ModelSelection
 from tracecat.agent.service import PRUNED_MODEL_NAME_SUFFIX
 from tracecat.agent.types import ModelDiscoveryStatus
 from tracecat.db.models import (
@@ -32,6 +33,25 @@ PLATFORM_CATALOG_STATE_SETTINGS = {
     "last_refreshed_at": "agent_builtin_catalog_last_refreshed_at",
     "last_error": "agent_builtin_catalog_last_error",
 }
+
+
+def _decode_default_model_ref(value: bytes) -> ModelSelection | None:
+    try:
+        payload = orjson.loads(value)
+    except orjson.JSONDecodeError:
+        return None
+    if not isinstance(payload, str) or not payload:
+        return None
+    try:
+        selection_payload = orjson.loads(payload)
+    except orjson.JSONDecodeError:
+        return None
+    if not isinstance(selection_payload, dict):
+        return None
+    try:
+        return ModelSelection.model_validate(selection_payload)
+    except Exception:
+        return None
 
 
 class AdminAgentService(BasePlatformService):
@@ -185,6 +205,21 @@ class AdminAgentService(BasePlatformService):
             .scalars()
             .all()
         )
+        default_ref_settings = (
+            (
+                await self.session.execute(
+                    select(OrganizationSetting).where(
+                        OrganizationSetting.key == "agent_default_model_ref"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        default_refs_by_org = {
+            setting.organization_id: _decode_default_model_ref(setting.value)
+            for setting in default_ref_settings
+        }
         affected_org_ids: set[uuid.UUID] = set()
         for setting in default_settings:
             try:
@@ -198,6 +233,28 @@ class AdminAgentService(BasePlatformService):
                     "model_name": str(model_name),
                 } if (model_provider, model_name) in stale_keys:
                     affected_org_ids.add(setting.organization_id)
+                case str(model_name):
+                    if (
+                        ref_selection := default_refs_by_org.get(
+                            setting.organization_id
+                        )
+                    ) is not None:
+                        if (
+                            ref_selection.source_id is None
+                            and (
+                                ref_selection.model_provider,
+                                ref_selection.model_name,
+                            )
+                            in stale_keys
+                            and ref_selection.model_name == model_name
+                        ):
+                            affected_org_ids.add(setting.organization_id)
+                        continue
+                    if any(
+                        stale_model_name == model_name
+                        for _, stale_model_name in stale_keys
+                    ):
+                        affected_org_ids.add(setting.organization_id)
                 case _:
                     continue
 

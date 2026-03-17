@@ -1,7 +1,9 @@
 import os
 
 import orjson
+from anthropic import AsyncAnthropic
 from google.oauth2 import service_account
+from openai import AsyncOpenAI
 from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.models.bedrock import BedrockConverseModel, BedrockModelSettings
@@ -15,6 +17,24 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from tracecat_registry import secrets
 from tracecat_registry.integrations.aws_boto3 import get_sync_session
 
+SOURCE_API_KEY = "TRACECAT_SOURCE_API_KEY"
+SOURCE_API_KEY_HEADER = "TRACECAT_SOURCE_API_KEY_HEADER"
+SOURCE_API_VERSION = "TRACECAT_SOURCE_API_VERSION"
+
+
+def _source_header_overrides() -> dict[str, str]:
+    api_key = secrets.get_or_default(SOURCE_API_KEY)
+    api_key_header = secrets.get_or_default(SOURCE_API_KEY_HEADER)
+    if not api_key or not api_key_header or api_key_header.lower() == "authorization":
+        return {}
+    return {api_key_header: api_key}
+
+
+def _source_default_query() -> dict[str, str]:
+    if api_version := secrets.get_or_default(SOURCE_API_VERSION):
+        return {"api-version": api_version}
+    return {}
+
 
 def _build_openai_compatible_model(
     *,
@@ -23,12 +43,28 @@ def _build_openai_compatible_model(
     api_key_env: str = "OPENAI_API_KEY",
     default_api_key: str = "not-needed",
 ) -> OpenAIChatModel:
+    default_headers = _source_header_overrides()
+    default_query = _source_default_query()
+    api_key = secrets.get_or_default(api_key_env, default_api_key)
+    if default_headers or default_query:
+        if default_headers:
+            default_headers.setdefault("Authorization", "")
+        provider = OpenAIProvider(
+            openai_client=AsyncOpenAI(
+                base_url=base_url,
+                api_key=api_key,
+                default_headers=default_headers or None,
+                default_query=default_query or None,
+            )
+        )
+    else:
+        provider = OpenAIProvider(
+            base_url=base_url,
+            api_key=api_key,
+        )
     return OpenAIChatModel(
         model_name=model_name,
-        provider=OpenAIProvider(
-            base_url=base_url,
-            api_key=secrets.get_or_default(api_key_env, default_api_key),
-        ),
+        provider=provider,
     )
 
 
@@ -93,15 +129,36 @@ def get_model(
                     "budget_tokens": 1024,
                 }
             )
+            default_headers = _source_header_overrides()
+            default_query = _source_default_query()
+            api_key = secrets.get("ANTHROPIC_API_KEY")
+            if default_headers or default_query:
+                default_headers.setdefault("X-API-Key", "")
+                provider = AnthropicProvider(
+                    anthropic_client=AsyncAnthropic(
+                        api_key=api_key,
+                        base_url=base_url,
+                        default_headers=default_headers or None,
+                        default_query=default_query or None,
+                    )
+                )
+            else:
+                provider = AnthropicProvider(
+                    api_key=api_key,
+                    base_url=base_url,
+                )
             model = AnthropicModel(
                 model_name=model_name,
-                provider=AnthropicProvider(api_key=secrets.get("ANTHROPIC_API_KEY")),
+                provider=provider,
                 settings=settings,
             )
         case "gemini":
             model = GoogleModel(
                 model_name=model_name,
-                provider=GoogleProvider(api_key=secrets.get("GEMINI_API_KEY")),
+                provider=GoogleProvider(
+                    api_key=secrets.get("GEMINI_API_KEY"),
+                    base_url=base_url,
+                ),
             )
         case "gemini_vertex" | "vertex_ai":
             credentials = service_account.Credentials.from_service_account_info(
