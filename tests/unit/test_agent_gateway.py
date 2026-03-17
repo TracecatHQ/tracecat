@@ -72,6 +72,57 @@ def test_manual_custom_source_uses_declared_provider_routing():
     assert data["model"] == "anthropic/claude-3-7-sonnet"
 
 
+def test_source_backed_openai_uses_source_endpoint_without_vendor_key():
+    data = {"model": "gpt-4o-mini"}
+
+    _inject_provider_credentials(
+        data,
+        "openai",
+        {
+            "TRACECAT_SOURCE_BASE_URL": "http://localhost:4000/v1",
+        },
+        source_id="00000000-0000-0000-0000-000000000001",
+    )
+
+    assert data["api_key"] == "not-needed"
+    assert data["api_base"] == "http://localhost:4000/v1"
+    assert data["model"] == "openai/gpt-4o-mini"
+
+
+def test_source_backed_anthropic_uses_source_endpoint_without_vendor_key():
+    data = {"model": "claude-3-7-sonnet"}
+
+    _inject_provider_credentials(
+        data,
+        "anthropic",
+        {
+            "TRACECAT_SOURCE_BASE_URL": "http://localhost:4000/v1",
+        },
+        source_id="00000000-0000-0000-0000-000000000001",
+    )
+
+    assert data["api_key"] == "not-needed"
+    assert data["api_base"] == "http://localhost:4000/v1"
+    assert data["model"] == "anthropic/claude-3-7-sonnet"
+
+
+def test_source_backed_gemini_uses_source_endpoint_without_vendor_key():
+    data = {"model": "gemini-2.5-flash"}
+
+    _inject_provider_credentials(
+        data,
+        "gemini",
+        {
+            "TRACECAT_SOURCE_BASE_URL": "http://localhost:4000/v1",
+        },
+        source_id="00000000-0000-0000-0000-000000000001",
+    )
+
+    assert data["api_key"] == "not-needed"
+    assert data["api_base"] == "http://localhost:4000/v1"
+    assert data["model"] == "gemini/gemini-2.5-flash"
+
+
 def test_gemini_injects_api_key_and_prefixes_model():
     data = {"model": "gemini-2.5-flash"}
     creds = {"GEMINI_API_KEY": "test-gemini-key"}
