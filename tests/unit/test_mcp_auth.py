@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import socket
 import uuid
 from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken
 from fastmcp.server.auth.cimd import CIMDDocument
 from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
-from key_value.aio.stores.memory import MemoryStore
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyHttpUrl, AnyUrl
@@ -62,7 +63,7 @@ def _build_test_auth(monkeypatch: pytest.MonkeyPatch) -> mcp_auth.OIDCProxy:
             return_value=_mock_oidc_discovery_config(),
         ),
     ):
-        auth = mcp_auth.create_mcp_auth(client_storage=MemoryStore())
+        auth = mcp_auth.create_mcp_auth()
     assert isinstance(auth, mcp_auth.OIDCProxy)
     return auth
 
@@ -72,6 +73,25 @@ def _build_test_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     mcp = FastMCP("test", auth=auth)
     app = mcp.http_app(path="/mcp", transport="streamable-http")
     return TestClient(app)
+
+
+def _redis_is_available() -> bool:
+    redis_url = urlparse(mcp_auth.REDIS_URL)
+    host = redis_url.hostname
+    port = redis_url.port or 6379
+    if host is None:
+        return False
+    try:
+        with socket.create_connection((host, port), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
+@pytest.fixture
+def require_redis() -> None:
+    if not _redis_is_available():
+        pytest.skip("Redis is not available")
 
 
 def test_oidc_consent_html_escapes_values() -> None:
@@ -170,6 +190,7 @@ def test_create_mcp_auth_protected_resource_metadata_uses_mcp_path(
 
 def test_create_mcp_auth_metadata_matches_public_client_registration(
     monkeypatch: pytest.MonkeyPatch,
+    require_redis: None,
 ) -> None:
     client = _build_test_client(monkeypatch)
 
@@ -201,6 +222,7 @@ def test_create_mcp_auth_metadata_matches_public_client_registration(
 
 def test_create_mcp_auth_registration_accepts_platform_oidc_scopes(
     monkeypatch: pytest.MonkeyPatch,
+    require_redis: None,
 ) -> None:
     client = _build_test_client(monkeypatch)
 

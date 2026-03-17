@@ -43,6 +43,27 @@ def test_merge_runtime_overrides_preserves_unset_catalog_fields() -> None:
     assert merged.base_url == "https://catalog.example/v1"
 
 
+def test_merge_runtime_overrides_allows_explicit_base_url_clear() -> None:
+    base = AgentConfig(
+        model_name="gpt-5",
+        model_provider="openai",
+        base_url="https://catalog.example/v1",
+    )
+    overrides = AgentConfig(
+        model_name="gpt-5",
+        model_provider="openai",
+        base_url=None,
+    )
+
+    merged = _merge_runtime_overrides(
+        base,
+        overrides,
+        override_fields={"base_url"},
+    )
+
+    assert merged.base_url is None
+
+
 @pytest.mark.anyio
 async def test_provider_secrets_context_preserves_explicit_base_url_override() -> None:
     config = AgentConfig(

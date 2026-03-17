@@ -174,6 +174,17 @@ type ChatFooterModelSelector = {
   showSpinner?: boolean
 }
 
+type ChatFooterPresetSelector = {
+  label: string
+  presets: Array<{ id: string; name: string }>
+  presetsIsLoading: boolean
+  presetsError: unknown
+  selectedPresetId: string | null
+  onSelect: (presetId: string | null) => void | Promise<void>
+  disabled: boolean
+  showSpinner: boolean
+}
+
 function getCompositeModelKey(
   model: Pick<AgentCatalogEntry, "source_id" | "model_provider" | "model_name">
 ): string {
@@ -191,6 +202,7 @@ export interface ChatSessionPaneProps {
   modelInfo: ModelInfo
   toolsEnabled?: boolean
   fallbackTools?: string[]
+  presetSelector?: ChatFooterPresetSelector
   /** Autofocus the prompt input when the pane mounts. */
   autoFocusInput?: boolean
   /**
@@ -236,6 +248,7 @@ export function ChatSessionPane({
   modelInfo,
   toolsEnabled = true,
   fallbackTools,
+  presetSelector,
   autoFocusInput = false,
   onBeforeSend,
   pendingMessage,
@@ -987,12 +1000,20 @@ export function ChatSessionPane({
           </PromptInputBody>
           <PromptInputFooter>
             <PromptInputTools>
-              {!isReadonly && modelSelector ? (
+              {!isReadonly && presetSelector ? (
+                <PromptPresetSelector
+                  selector={presetSelector}
+                  disabled={inputDisabled || !canSubmit}
+                />
+              ) : null}
+              {!isReadonly &&
+              modelSelector &&
+              (!presetSelector || presetSelector.selectedPresetId === null) ? (
                 <PromptModelSelector
                   selector={modelSelector}
                   disabled={inputDisabled || !canSubmit}
                 />
-              ) : !isReadonly ? (
+              ) : !isReadonly && !presetSelector ? (
                 <PromptModelIndicator modelInfo={modelInfo} />
               ) : null}
             </PromptInputTools>
@@ -1007,6 +1028,54 @@ export function ChatSessionPane({
         </PromptInput>
       </div>
     </div>
+  )
+}
+
+function PromptPresetSelector({
+  selector,
+  disabled = false,
+}: {
+  selector: ChatFooterPresetSelector
+  disabled?: boolean
+}) {
+  const noPresetValue = "__no_preset__"
+  const effectiveDisabled = Boolean(disabled || selector.disabled)
+
+  return (
+    <Select
+      value={selector.selectedPresetId ?? noPresetValue}
+      onValueChange={(value) =>
+        void selector.onSelect(value === noPresetValue ? null : value)
+      }
+      disabled={effectiveDisabled || selector.presetsIsLoading}
+    >
+      <SelectTrigger
+        aria-label="Select chat preset"
+        className="h-7 max-w-[14rem] border-0 bg-transparent px-2 text-xs shadow-none hover:bg-muted/50 focus:ring-0"
+      >
+        <span className="truncate" title={selector.label}>
+          {selector.showSpinner ? "Loading presets..." : selector.label}
+        </span>
+      </SelectTrigger>
+      <SelectContent align="start" className="w-[18rem]">
+        <SelectItem value={noPresetValue}>No preset</SelectItem>
+        {selector.presetsIsLoading ? (
+          <SelectItem value="__loading" disabled>
+            Loading presets...
+          </SelectItem>
+        ) : null}
+        {selector.presetsError ? (
+          <SelectItem value="__error" disabled>
+            Failed to load presets
+          </SelectItem>
+        ) : null}
+        {selector.presets.map((preset) => (
+          <SelectItem key={preset.id} value={preset.id}>
+            {preset.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -1130,7 +1199,7 @@ function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
     >
       <ProviderIcon
         className="size-4 rounded-none bg-transparent p-0"
-        providerId={getProviderIconId(modelInfo.provider)}
+        providerId={modelInfo.iconId ?? getProviderIconId(modelInfo.provider)}
       />
       <span
         className="truncate font-medium text-foreground"

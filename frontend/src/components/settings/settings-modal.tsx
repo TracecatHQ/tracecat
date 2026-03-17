@@ -168,6 +168,7 @@ function SettingsModalContent() {
   ])
 
   const showWorkspaceSection = !!workspaceId && canAdministerWorkspace
+  const showAgentModelsNav = hasEntitlement("agent_addons")
   const displayedSection = showWorkspaceSection ? activeSection : "profile"
   const showSyncNav = hasEntitlement("git_sync")
 
@@ -218,6 +219,7 @@ function SettingsModalContent() {
                     section="workspace-models"
                     activeSection={displayedSection}
                     onSelect={setActiveSection}
+                    blocked={!showAgentModelsNav}
                   />
                   <NavItem
                     icon={FileIcon}

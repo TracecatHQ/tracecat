@@ -8961,9 +8961,6 @@ export type OrganizationGetInvitationByTokenData = {
 export type OrganizationGetInvitationByTokenResponse = OrgInvitationReadMinimal
 
 export type AgentListModelsData = {
-  /**
-   * Optional workspace filter for workspace-level enabled model subsets.
-   */
   workspaceId?: string | null
 }
 

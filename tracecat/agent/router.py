@@ -82,7 +82,7 @@ WorkspaceUserInPath = Annotated[
 @require_scope("agent:read")
 async def list_models(
     *,
-    role: OrganizationUserRole,
+    role: OrganizationUserOptionalWorkspaceRole,
     session: AsyncDBSession,
     workspace_id: uuid.UUID | None = Query(
         default=None,

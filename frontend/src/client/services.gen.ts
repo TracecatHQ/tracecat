@@ -3852,7 +3852,7 @@ export const organizationGetInvitationByToken = (
  * List Models
  * List all available AI models.
  * @param data The data for the request.
- * @param data.workspaceId Optional workspace filter for workspace-level enabled model subsets.
+ * @param data.workspaceId
  * @returns ModelCatalogEntry Successful Response
  * @throws ApiError
  */
