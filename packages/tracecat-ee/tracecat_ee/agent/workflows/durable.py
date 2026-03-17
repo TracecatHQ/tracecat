@@ -83,21 +83,19 @@ def _build_approved_tool_run_input(
     *,
     tool_call: ApprovedToolCall,
     registry_lock: RegistryLock,
-    agent_workflow_id: str,
-    workflow_run_id: str,
+    workflow_id: uuid.UUID,
+    run_id: uuid.UUID,
+    execution_id: uuid.UUID,
     logical_time: datetime,
 ):
-    agent_workflow_uuid = AgentWorkflowID.from_workflow_id(agent_workflow_id).session_id
-    workflow_run_uuid = uuid.UUID(workflow_run_id)
-    execution_uuid = uuid.uuid5(workflow_run_uuid, tool_call.tool_call_id)
     action_name = normalize_mcp_tool_name(tool_call.tool_name)
     return build_run_input(
         action_name=action_name,
         args=tool_call.args,
         registry_lock=registry_lock,
-        workflow_id=agent_workflow_uuid,
-        run_id=workflow_run_uuid,
-        execution_id=execution_uuid,
+        workflow_id=workflow_id,
+        run_id=run_id,
+        execution_id=execution_id,
         logical_time=logical_time,
     )
 
@@ -665,7 +663,6 @@ class DurableAgentWorkflow:
                 non_retryable=True,
             )
 
-        workflow_info = workflow.info()
         logical_time = workflow.now()
         pending_results: list[PendingToolResult] = []
         for tool_call in approved_tools:
@@ -676,8 +673,9 @@ class DurableAgentWorkflow:
                         _build_approved_tool_run_input(
                             tool_call=tool_call,
                             registry_lock=self._registry_lock,
-                            agent_workflow_id=workflow_info.workflow_id,
-                            workflow_run_id=workflow_info.run_id,
+                            workflow_id=workflow.uuid4(),
+                            run_id=workflow.uuid4(),
+                            execution_id=workflow.uuid4(),
                             logical_time=logical_time,
                         ),
                         self.role,

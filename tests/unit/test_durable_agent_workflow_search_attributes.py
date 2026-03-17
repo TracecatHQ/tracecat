@@ -238,8 +238,9 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
 
 
 def test_build_approved_tool_run_input_is_deterministic() -> None:
-    agent_workflow_id = "agent/00000000-0000-4000-8000-000000000123"
-    workflow_run_id = "00000000-0000-4000-8000-000000000456"
+    workflow_id = uuid.UUID("00000000-0000-4000-8000-000000000123")
+    run_id = uuid.UUID("00000000-0000-4000-8000-000000000456")
+    execution_id = uuid.UUID("00000000-0000-4000-8000-000000000789")
     logical_time = datetime(2026, 3, 17, tzinfo=UTC)
     registry_lock = RegistryLock(
         origins={"tracecat_registry": "test-version"},
@@ -254,20 +255,18 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
     result = _build_approved_tool_run_input(
         tool_call=tool_call,
         registry_lock=registry_lock,
-        agent_workflow_id=agent_workflow_id,
-        workflow_run_id=workflow_run_id,
+        workflow_id=workflow_id,
+        run_id=run_id,
+        execution_id=execution_id,
         logical_time=logical_time,
     )
 
-    workflow_uuid = uuid.UUID(agent_workflow_id.removeprefix("agent/"))
-    execution_uuid = uuid.uuid5(uuid.UUID(workflow_run_id), tool_call.tool_call_id)
-
     assert result.task.action == "core_http_request"
     assert result.task.args == {"url": "https://example.com"}
-    assert result.run_context.wf_id == WorkflowUUID.from_uuid(workflow_uuid)
-    assert result.run_context.wf_run_id == uuid.UUID(workflow_run_id)
+    assert result.run_context.wf_id == WorkflowUUID.from_uuid(workflow_id)
+    assert result.run_context.wf_run_id == run_id
     assert (
         result.run_context.wf_exec_id
-        == f"{WorkflowUUID.from_uuid(workflow_uuid).short()}/{ExecutionUUID.from_uuid(execution_uuid).short()}"
+        == f"{WorkflowUUID.from_uuid(workflow_id).short()}/{ExecutionUUID.from_uuid(execution_id).short()}"
     )
     assert result.run_context.logical_time == logical_time
