@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
+from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
 
 from tracecat import config
 from tracecat.agent.tokens import MCPTokenClaims
@@ -145,8 +146,6 @@ async def _execute_action_workflow(
     input: ExecuteRegistryToolWorkflowInput,
 ) -> StoredObject:
     """Execute a single registry UDF via a short workflow on agent-worker."""
-    from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
-
     client = await get_temporal_client()
     try:
         stored = await client.execute_workflow(
