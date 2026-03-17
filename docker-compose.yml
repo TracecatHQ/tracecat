@@ -274,6 +274,7 @@ services:
         TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
         TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
         TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+        SENTRY_DSN: ${SENTRY_DSN:-}
         # Agent worker configuration
         TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
         TRACECAT__AGENT_EXECUTOR_QUEUE: ${TRACECAT__AGENT_EXECUTOR_QUEUE:-shared-agent-executor-queue}
