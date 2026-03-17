@@ -3,8 +3,28 @@
 from __future__ import annotations
 
 import os
+from enum import StrEnum
 
 from tracecat.config import TRACECAT__PUBLIC_APP_URL
+
+
+class MCPAuthMode(StrEnum):
+    OIDC = "oidc"
+    NONE = "none"
+
+
+def _parse_auth_mode(raw: str) -> MCPAuthMode:
+    if not raw.strip():
+        raise ValueError("TRACECAT_MCP__AUTH_METHODS must include at least one method")
+    normalized = raw.strip().lower()
+    try:
+        return MCPAuthMode(normalized)
+    except ValueError as exc:
+        raise ValueError(
+            "TRACECAT_MCP__AUTH_METHODS must be one of: "
+            + ", ".join(mode.value for mode in MCPAuthMode)
+        ) from exc
+
 
 TRACECAT_MCP__HOST: str = os.environ.get("TRACECAT_MCP__HOST", "0.0.0.0")
 """Host to bind the MCP HTTP server to."""
@@ -20,6 +40,18 @@ TRACECAT_MCP__BASE_URL: str = os.environ.get(
 This should be the public root URL for the MCP OAuth/discovery endpoints.
 FastMCP derives the protected resource path (for example `/mcp`) separately.
 Defaults to `TRACECAT__PUBLIC_APP_URL` for local development and cluster setups.
+"""
+
+_AUTH_METHODS_ENV = os.environ.get("TRACECAT_MCP__AUTH_METHODS")
+
+TRACECAT_MCP__AUTH_MODE: MCPAuthMode = _parse_auth_mode(
+    "oidc" if _AUTH_METHODS_ENV is None else _AUTH_METHODS_ENV
+)
+"""Enabled MCP auth mode.
+
+Defaults to OIDC-only. The only unsafe auth mode supported on this branch is
+`none`, which allows unauthenticated access and should only be used for local
+development.
 """
 
 TRACECAT_MCP__RATE_LIMIT_RPS: float = float(
