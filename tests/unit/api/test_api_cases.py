@@ -5,8 +5,10 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from asyncpg import DuplicateColumnError
 from fastapi import status
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import ProgrammingError
 
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
@@ -380,6 +382,31 @@ async def test_delete_case_field_invalid_identifier_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "Identifier must" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_update_case_field_duplicate_name_returns_409(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        duplicate_error = DuplicateColumnError("Column already exists")
+        programming_error = ProgrammingError("", {}, duplicate_error)
+        programming_error.__cause__ = duplicate_error
+        mock_service.update_field.side_effect = programming_error
+        mock_service_cls.return_value = mock_service
+
+        response = client.patch(
+            "/case-fields/existing_field",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "duplicate_name"},
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()["detail"] == (
+        "A field with the name 'duplicate_name' already exists"
+    )
 
 
 @pytest.mark.anyio

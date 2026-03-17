@@ -12,6 +12,9 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from tracecat.tables.enums import SqlType
 
+POSTGRES_BIGINT_MIN = -(2**63)
+POSTGRES_BIGINT_MAX = 2**63 - 1
+
 
 def is_valid_sql_type(type: str | SqlType) -> bool:
     """Check if the type is a valid SQL type for user-defined columns."""
@@ -136,6 +139,13 @@ def coerce_default_value(type: SqlType, default: Any) -> Any:
                     f"Invalid integer default value: {default!r}"
                 )
             if decimal_value != decimal_value.to_integral_value():
+                raise InvalidDefaultValueError(
+                    f"Invalid integer default value: {default!r}"
+                )
+            if (
+                decimal_value < POSTGRES_BIGINT_MIN
+                or decimal_value > POSTGRES_BIGINT_MAX
+            ):
                 raise InvalidDefaultValueError(
                     f"Invalid integer default value: {default!r}"
                 )

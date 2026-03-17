@@ -784,6 +784,15 @@ async def update_field(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+    except ProgrammingError as err:
+        while (cause := err.__cause__) is not None:
+            err = cause
+        if isinstance(err, DuplicateColumnError):
+            raise HTTPException(
+                status_code=HTTP_409_CONFLICT,
+                detail=f"A field with the name '{params.name}' already exists",
+            ) from err
+        raise
 
 
 @case_fields_router.delete("/{field_id}", status_code=HTTP_204_NO_CONTENT)

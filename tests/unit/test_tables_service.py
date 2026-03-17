@@ -537,6 +537,12 @@ class TestHandleDefaultValue:
                 id="integer-infinity",
             ),
             pytest.param(
+                SqlType.INTEGER,
+                "1e500000",
+                "Invalid integer default value",
+                id="integer-out-of-range-exponent",
+            ),
+            pytest.param(
                 SqlType.NUMERIC,
                 "1 / 0.5",
                 "Invalid numeric default value",
