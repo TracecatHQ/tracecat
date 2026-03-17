@@ -116,6 +116,7 @@ locals {
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT = var.executor_client_timeout
         TRACECAT__AGENT_QUEUE             = var.agent_queue
         TRACECAT__AGENT_EXECUTOR_QUEUE    = var.agent_executor_queue
+        TRACECAT__EXECUTOR_QUEUE          = var.executor_queue
         TEMPORAL__CLUSTER_QUEUE           = local.temporal_cluster_queue
         SENTRY_DSN                        = var.sentry_dsn
       }

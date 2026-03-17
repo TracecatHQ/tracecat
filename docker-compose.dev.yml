@@ -265,6 +265,7 @@ services:
       # Agent worker configuration
       TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
       TRACECAT__AGENT_EXECUTOR_QUEUE: ${TRACECAT__AGENT_EXECUTOR_QUEUE:-shared-agent-executor-queue}
+      TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
       # Redis
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3/MinIO tarball access)
