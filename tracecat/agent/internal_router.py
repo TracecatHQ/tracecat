@@ -18,6 +18,8 @@ from tracecat.agent.schemas import (
     InternalRunAgentRequest,
 )
 from tracecat.agent.service import (
+    SOURCE_RUNTIME_API_KEY,
+    SOURCE_RUNTIME_API_KEY_HEADER,
     SOURCE_RUNTIME_BASE_URL,
     AgentManagementService,
 )
@@ -133,6 +135,20 @@ async def _provider_secrets_context(
             base_url_key := _provider_base_url_key(agent_svc, config.model_provider)
         ) and (provider_base_url := credentials.get(base_url_key)):
             config.base_url = provider_base_url
+    if (
+        (api_key := credentials.get(SOURCE_RUNTIME_API_KEY))
+        and (api_key_header := credentials.get(SOURCE_RUNTIME_API_KEY_HEADER))
+        and api_key_header.lower() != "authorization"
+    ):
+        model_settings = dict(config.model_settings or {})
+        extra_headers = dict(
+            model_settings.get("extra_headers", {})
+            if isinstance(model_settings.get("extra_headers"), dict)
+            else {}
+        )
+        extra_headers[api_key_header] = api_key
+        model_settings["extra_headers"] = extra_headers
+        config.model_settings = model_settings
 
     secrets_token = registry_secrets.set_context(credentials)
     try:

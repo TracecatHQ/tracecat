@@ -2448,6 +2448,12 @@ class AgentManagementService(BaseOrgService):
             return
 
         legacy_model_name = str(value)
+        if ref_selection := await self._get_default_model_ref_selection():
+            selection_key = self._selection_key_from_model_selection(ref_selection)
+            if selection_key not in disabled and await self.is_model_enabled(
+                selection_key, workspace_id=None
+            ):
+                return
         match await resolve_enabled_catalog_match_for_model_name(
             self.session,
             organization_id=self.organization_id,
@@ -2616,6 +2622,29 @@ class AgentManagementService(BaseOrgService):
             model_name=match_result.model_name,
         )
 
+    def _encode_default_model_ref(self, selection: ModelSelection) -> str:
+        return orjson.dumps(selection.model_dump(mode="json")).decode()
+
+    def _decode_default_model_ref(self, value: object) -> ModelSelection | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            payload = orjson.loads(value)
+        except orjson.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        try:
+            return ModelSelection.model_validate(payload)
+        except Exception:
+            return None
+
+    async def _get_default_model_ref_selection(self) -> ModelSelection | None:
+        setting = await self.settings_service.get_org_setting("agent_default_model_ref")
+        if setting is None:
+            return None
+        return self._decode_default_model_ref(self.settings_service.get_value(setting))
+
     async def _get_default_model_selection(self) -> ModelSelection | None:
         legacy_setting = await self.settings_service.get_org_setting(
             "agent_default_model"
@@ -2631,6 +2660,11 @@ class AgentManagementService(BaseOrgService):
         if not value:
             return None
         legacy_model_name = str(value)
+        if ref_selection := await self._get_default_model_ref_selection():
+            selection_key = self._selection_key_from_model_selection(ref_selection)
+            if await self.is_model_enabled(selection_key, workspace_id=None):
+                await self.set_default_model_selection(ref_selection)
+                return ref_selection
         match await resolve_enabled_catalog_match_for_model_name(
             self.session,
             organization_id=self.organization_id,
@@ -2682,6 +2716,23 @@ class AgentManagementService(BaseOrgService):
                 SettingCreate(
                     key="agent_default_model",
                     value=value,
+                    value_type=ValueType.JSON,
+                    is_sensitive=False,
+                )
+            )
+        ref_setting = await self.settings_service.get_org_setting(
+            "agent_default_model_ref"
+        )
+        ref_value = self._encode_default_model_ref(selection)
+        if ref_setting:
+            await self.settings_service.update_org_setting(
+                ref_setting, SettingUpdate(value=ref_value)
+            )
+        else:
+            await self.settings_service.create_org_setting(
+                SettingCreate(
+                    key="agent_default_model_ref",
+                    value=ref_value,
                     value_type=ValueType.JSON,
                     is_sensitive=False,
                 )
