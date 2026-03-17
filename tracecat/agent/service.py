@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import httpx
 import orjson
+from cryptography.fernet import InvalidToken
 from pydantic import SecretStr
 from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -199,10 +200,14 @@ class AgentManagementService(BaseOrgService):
     def _deserialize_sensitive_config(self, payload: bytes | None) -> dict[str, str]:
         if not payload:
             return {}
-        decrypted = decrypt_value(
-            payload,
-            key=config.TRACECAT__DB_ENCRYPTION_KEY or "",
-        )
+        try:
+            decrypted = decrypt_value(
+                payload,
+                key=config.TRACECAT__DB_ENCRYPTION_KEY or "",
+            )
+        except (InvalidToken, ValueError):
+            # Tolerate legacy/plain JSON rows and lightweight test fixtures.
+            return orjson.loads(payload)
         return orjson.loads(decrypted)
 
     def _provider_from_source_type(self, source_type: ModelSourceType) -> str:
