@@ -247,3 +247,56 @@ async def test_provider_secrets_context_loads_custom_source_credentials_without_
         }
 
     get_runtime_credentials_for_selection.assert_awaited_once_with(config)
+
+
+@pytest.mark.anyio
+async def test_provider_secrets_context_merges_source_auth_header_into_model_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = AgentConfig(
+        model_name="gemini-2.5-flash",
+        model_provider="gemini",
+        model_settings={"temperature": 0.1},
+    )
+    captured: dict[str, str] = {}
+
+    def _set_context(credentials: dict[str, str]) -> str:
+        captured.update(credentials)
+        return "token"
+
+    get_runtime_credentials_for_config = AsyncMock(
+        return_value={
+            "TRACECAT_SOURCE_API_KEY": "source-key",
+            "TRACECAT_SOURCE_API_KEY_HEADER": "X-Api-Key",
+            "TRACECAT_SOURCE_BASE_URL": "https://gateway.example/v1",
+        }
+    )
+    agent_svc = cast(
+        AgentManagementService,
+        SimpleNamespace(
+            get_runtime_credentials_for_config=get_runtime_credentials_for_config,
+        ),
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.registry_secrets.set_context",
+        _set_context,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.registry_secrets.reset_context",
+        lambda _token: None,
+    )
+
+    async with _provider_secrets_context(agent_svc, config):
+        assert config.base_url == "https://gateway.example/v1"
+        assert config.model_settings == {
+            "temperature": 0.1,
+            "extra_headers": {"X-Api-Key": "source-key"},
+        }
+        assert captured == {
+            "TRACECAT_SOURCE_API_KEY": "source-key",
+            "TRACECAT_SOURCE_API_KEY_HEADER": "X-Api-Key",
+            "TRACECAT_SOURCE_BASE_URL": "https://gateway.example/v1",
+        }
+
+    get_runtime_credentials_for_config.assert_awaited_once_with(config)

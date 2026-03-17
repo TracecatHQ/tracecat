@@ -5,17 +5,25 @@ import type {
   AgentSessionReadVercel,
   AgentSessionReadWithMessages,
 } from "@/client"
-import { agentSessionsUpdateSession } from "@/client"
-import { useUpdateChat } from "@/hooks/use-chat"
+import {
+  agentSessionsCreateSession,
+  agentSessionsUpdateSession,
+} from "@/client"
+import { useCreateChat, useUpdateChat } from "@/hooks/use-chat"
 
 jest.mock("@/client", () => {
   const actual = jest.requireActual("@/client")
   return {
     ...actual,
+    agentSessionsCreateSession: jest.fn(),
     agentSessionsUpdateSession: jest.fn(),
   }
 })
 
+const mockAgentSessionsCreateSession =
+  agentSessionsCreateSession as jest.MockedFunction<
+    typeof agentSessionsCreateSession
+  >
 const mockAgentSessionsUpdateSession =
   agentSessionsUpdateSession as jest.MockedFunction<
     typeof agentSessionsUpdateSession
@@ -345,5 +353,149 @@ describe("useUpdateChat", () => {
       })
     )
     await mutationPromise
+  })
+
+  it("preserves explicit null model-selection fields when clearing a chat override", async () => {
+    mockAgentSessionsUpdateSession.mockResolvedValue(
+      createSessionRead({
+        source_id: null,
+        model_name: null,
+        model_provider: null,
+      })
+    )
+
+    queryClient.setQueryData(
+      ["chat", "chat-1", "workspace-1"],
+      createSessionReadWithMessages({
+        source_id: "source-1",
+        model_name: "qwen-3",
+        model_provider: "direct_endpoint",
+      })
+    )
+    queryClient.setQueryData(
+      ["chat", "chat-1", "workspace-1", "vercel"],
+      createSessionReadVercel({
+        source_id: "source-1",
+        model_name: "qwen-3",
+        model_provider: "direct_endpoint",
+      })
+    )
+    queryClient.setQueryData(
+      ["chats", "workspace-1", "case", "case-1", 50],
+      [
+        createSessionRead({
+          source_id: "source-1",
+          model_name: "qwen-3",
+          model_provider: "direct_endpoint",
+        }),
+      ]
+    )
+
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+
+    const { result } = renderHook(() => useUpdateChat("workspace-1"), {
+      wrapper,
+    })
+
+    await result.current.updateChat({
+      chatId: "chat-1",
+      update: {
+        source_id: null,
+        model_name: null,
+        model_provider: null,
+      },
+    })
+
+    expect(mockAgentSessionsUpdateSession).toHaveBeenCalledWith({
+      sessionId: "chat-1",
+      workspaceId: "workspace-1",
+      requestBody: expect.objectContaining({
+        source_id: null,
+        model_name: null,
+        model_provider: null,
+      }),
+    })
+    expect(
+      queryClient.getQueryData<AgentSessionReadWithMessagesWithModelSelection>([
+        "chat",
+        "chat-1",
+        "workspace-1",
+      ])
+    ).toMatchObject({
+      source_id: null,
+      model_name: null,
+      model_provider: null,
+    })
+    expect(
+      queryClient.getQueryData<AgentSessionReadVercelWithModelSelection>([
+        "chat",
+        "chat-1",
+        "workspace-1",
+        "vercel",
+      ])
+    ).toMatchObject({
+      source_id: null,
+      model_name: null,
+      model_provider: null,
+    })
+    expect(
+      queryClient.getQueryData<AgentSessionReadWithModelSelection[]>([
+        "chats",
+        "workspace-1",
+        "case",
+        "case-1",
+        50,
+      ])?.[0]
+    ).toMatchObject({
+      source_id: null,
+      model_name: null,
+      model_provider: null,
+    })
+  })
+})
+
+describe("useCreateChat", () => {
+  let queryClient: QueryClient
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    })
+    jest.clearAllMocks()
+  })
+
+  it("preserves explicit null model-selection fields in the create payload", async () => {
+    mockAgentSessionsCreateSession.mockResolvedValue(createSessionRead())
+
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+
+    const { result } = renderHook(() => useCreateChat("workspace-1"), {
+      wrapper,
+    })
+
+    await result.current.createChat({
+      title: "New chat",
+      entity_type: "case",
+      entity_id: "case-1",
+      source_id: null,
+      model_name: null,
+      model_provider: null,
+    })
+
+    expect(mockAgentSessionsCreateSession).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      requestBody: expect.objectContaining({
+        source_id: null,
+        model_name: null,
+        model_provider: null,
+      }),
+    })
   })
 })

@@ -232,3 +232,89 @@ async def test_upsert_platform_catalog_rows_prunes_stale_org_state(
     assert version.base_url is None
     assert agent_session.model_provider is None
     assert agent_session.model_name is None
+
+
+@pytest.mark.anyio
+async def test_upsert_platform_catalog_rows_clears_legacy_string_default(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AdminAgentService(session, role=platform_role)
+    org_id = uuid.uuid4()
+    stale_catalog_id = uuid.uuid4()
+    fresh_catalog_id = uuid.uuid4()
+    session.add(
+        Organization(
+            id=org_id,
+            name="Test Organization",
+            slug=f"test-org-{org_id.hex[:8]}",
+            is_active=True,
+        )
+    )
+    await session.commit()
+
+    session.add(
+        AgentCatalog(
+            id=stale_catalog_id,
+            organization_id=None,
+            source_id=None,
+            model_provider="openai",
+            model_name="gpt-stale",
+        )
+    )
+    session.add_all(
+        [
+            AgentEnabledModel(
+                organization_id=org_id,
+                workspace_id=None,
+                source_id=None,
+                model_provider="openai",
+                model_name="gpt-stale",
+                enabled_config=None,
+            ),
+            OrganizationSetting(
+                organization_id=org_id,
+                key="agent_default_model",
+                value=orjson.dumps("gpt-stale"),
+                value_type="json",
+                is_encrypted=False,
+            ),
+        ]
+    )
+    await session.commit()
+
+    monkeypatch.setattr(
+        "tracecat.admin.agent.service.get_builtin_catalog_models",
+        lambda: [
+            BuiltInCatalogModel(
+                agent_catalog_id=fresh_catalog_id,
+                source_type=ModelSourceType.OPENAI,
+                model_provider="openai",
+                model_id="gpt-fresh",
+                display_name="GPT Fresh",
+                mode="chat",
+                enableable=True,
+                readiness_message=None,
+                metadata={"slot": "fresh"},
+            )
+        ],
+    )
+
+    await service._upsert_platform_catalog_rows()
+    await session.commit()
+
+    settings = (
+        (
+            await session.execute(
+                select(OrganizationSetting).where(
+                    OrganizationSetting.organization_id == org_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {setting.key: orjson.loads(setting.value) for setting in settings} == {
+        "agent_default_model": None
+    }

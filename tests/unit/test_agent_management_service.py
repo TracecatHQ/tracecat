@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, Mock
 
 import httpx
+import orjson
 import pytest
 from sqlalchemy import insert, null, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +42,7 @@ from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersion,
     AgentSession,
+    OrganizationSetting,
 )
 from tracecat.exceptions import TracecatNotFoundError
 
@@ -1301,6 +1303,136 @@ async def test_delete_model_source_clears_default_model_selection(
     await service.delete_model_source(source.id)
 
     assert await service.get_default_model() is None
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_set_default_model_selection_persists_selection_ref(
+    session: AsyncSession,
+    svc_admin_role: Role,
+) -> None:
+    service = AgentManagementService(session, role=svc_admin_role)
+    selection = ModelSelection(
+        source_id=None,
+        model_provider="openai",
+        model_name="gpt-5.2",
+    )
+    session.add_all(
+        [
+            AgentCatalog(
+                organization_id=None,
+                source_id=None,
+                model_provider="openai",
+                model_name="gpt-5.2",
+            ),
+            AgentEnabledModel(
+                organization_id=svc_admin_role.organization_id,
+                workspace_id=None,
+                source_id=None,
+                model_provider="openai",
+                model_name="gpt-5.2",
+                enabled_config=None,
+            ),
+        ]
+    )
+    await session.commit()
+
+    await service.set_default_model_selection(selection)
+
+    ref_setting = (
+        await session.execute(
+            select(OrganizationSetting).where(
+                OrganizationSetting.organization_id == svc_admin_role.organization_id,
+                OrganizationSetting.key == "agent_default_model_ref",
+            )
+        )
+    ).scalar_one()
+    ref_payload = orjson.loads(orjson.loads(ref_setting.value))
+    assert ref_payload == {
+        "source_id": None,
+        "model_provider": "openai",
+        "model_name": "gpt-5.2",
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("db")
+async def test_get_default_model_prefers_selection_ref_for_legacy_string_duplicates(
+    session: AsyncSession,
+    svc_admin_role: Role,
+) -> None:
+    service = AgentManagementService(session, role=svc_admin_role)
+    source = AgentModelSource(
+        organization_id=svc_admin_role.organization_id,
+        model_provider=CustomModelSourceType.MANUAL_CUSTOM.value,
+        display_name="Manual source",
+        declared_models=[],
+    )
+    session.add(source)
+    await session.flush()
+
+    selection = ModelSelection(
+        source_id=source.id,
+        model_provider="openai",
+        model_name="shared-model",
+    )
+    session.add_all(
+        [
+            AgentCatalog(
+                organization_id=None,
+                source_id=None,
+                model_provider="openai",
+                model_name="shared-model",
+            ),
+            AgentCatalog(
+                organization_id=svc_admin_role.organization_id,
+                source_id=source.id,
+                model_provider="openai",
+                model_name="shared-model",
+            ),
+            AgentEnabledModel(
+                organization_id=svc_admin_role.organization_id,
+                workspace_id=None,
+                source_id=None,
+                model_provider="openai",
+                model_name="shared-model",
+                enabled_config=None,
+            ),
+            AgentEnabledModel(
+                organization_id=svc_admin_role.organization_id,
+                workspace_id=None,
+                source_id=source.id,
+                model_provider="openai",
+                model_name="shared-model",
+                enabled_config=None,
+            ),
+        ]
+    )
+    await session.commit()
+
+    await service.set_default_model_selection(selection)
+
+    default_setting = (
+        await session.execute(
+            select(OrganizationSetting).where(
+                OrganizationSetting.organization_id == svc_admin_role.organization_id,
+                OrganizationSetting.key == "agent_default_model",
+            )
+        )
+    ).scalar_one()
+    default_setting.value = orjson.dumps("shared-model")
+    default_setting.is_encrypted = False
+    await session.commit()
+
+    default_model = await service.get_default_model()
+
+    assert default_model == DefaultModelSelection(
+        source_id=source.id,
+        model_provider="openai",
+        model_name="shared-model",
+        source_type=ModelSourceType.MANUAL_CUSTOM,
+        source_name="Manual source",
+    )
 
 
 @pytest.mark.anyio
