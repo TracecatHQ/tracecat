@@ -11,10 +11,7 @@ import React, { useCallback, useEffect, useMemo, useRef } from "react"
 import type { GraphOperation, RegistryActionReadMinimal } from "@/client"
 import { isEphemeral } from "@/components/builder/canvas/canvas"
 import { getIcon } from "@/components/icons"
-import {
-  LockedFeatureChip,
-  LockedFeatureModal,
-} from "@/components/locked-feature-modal"
+import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import {
   Command,
   CommandEmpty,
@@ -54,6 +51,22 @@ const SEARCH_KEY_INDEX: Record<(typeof SEARCH_KEYS)[number], number> =
     },
     {} as Record<(typeof SEARCH_KEYS)[number], number>
   )
+
+const FORCE_LOCKED_PRESET_ACTIONS = new Set([
+  "ai.agent.create_preset",
+  "ai.agent.delete_preset",
+  "ai.agent.get_preset",
+  "ai.agent.list_presets",
+  "ai.agent.update_preset",
+  "ai.preset_agent",
+])
+
+function isLockedAction(action: RegistryActionReadMinimal): boolean {
+  return (
+    FORCE_LOCKED_PRESET_ACTIONS.has(action.action) ||
+    (action.availability?.locked ?? false)
+  )
+}
 
 function filterActions(actions: RegistryActionReadMinimal[], search: string) {
   const results = fuzzysort.go<RegistryActionReadMinimal>(search, actions, {
@@ -317,7 +330,7 @@ function ActionCommandGroup({
 
   const handleSelect = useCallback(
     async (registryAction: RegistryActionReadMinimal) => {
-      if (registryAction.availability?.locked ?? false) {
+      if (isLockedAction(registryAction)) {
         setLockedFeatureOpen(true)
         return
       }
@@ -482,7 +495,7 @@ function ActionCommandGroup({
       <CommandGroup heading={group} className="text-xs">
         {filterResults.map((result) => {
           const action = result.obj
-          const isLocked = action.availability?.locked ?? false
+          const isLocked = isLockedAction(action)
 
           if (highlight) {
             // Get fuzzysort results by key name (resilient to SEARCH_KEYS reordering)
@@ -493,7 +506,7 @@ function ActionCommandGroup({
               <CommandItem
                 key={action.action}
                 className={cn(
-                  "flex items-center gap-3 py-2 text-xs",
+                  "flex w-full items-center gap-3 py-2 text-xs",
                   isLocked && "text-muted-foreground"
                 )}
                 onSelect={async () => await handleSelect(action)}
@@ -501,18 +514,13 @@ function ActionCommandGroup({
                 {getIcon(action.action, {
                   className: "size-8 rounded-md border p-1.5",
                 })}
-                <div className="flex min-w-0 flex-col">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-xs font-medium">
-                      <HighlightedText
-                        result={titleResult}
-                        text={action.default_title ?? action.action}
-                      />
-                    </span>
-                    {isLocked ? (
-                      <LockedFeatureChip className="shrink-0" />
-                    ) : null}
-                  </div>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-xs font-medium">
+                    <HighlightedText
+                      result={titleResult}
+                      text={action.default_title ?? action.action}
+                    />
+                  </span>
                   <span className="truncate text-xs text-muted-foreground">
                     <HighlightedText
                       result={actionResult}
@@ -528,7 +536,7 @@ function ActionCommandGroup({
             <CommandItem
               key={action.action}
               className={cn(
-                "flex items-center gap-3 py-2 text-xs",
+                "flex w-full items-center gap-3 py-2 text-xs",
                 isLocked && "text-muted-foreground"
               )}
               onSelect={async () => await handleSelect(action)}
@@ -536,13 +544,10 @@ function ActionCommandGroup({
               {getIcon(action.action, {
                 className: "size-8 rounded-md border p-1.5",
               })}
-              <div className="flex min-w-0 flex-col">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-xs font-medium">
-                    {action.default_title}
-                  </span>
-                  {isLocked ? <LockedFeatureChip className="shrink-0" /> : null}
-                </div>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-xs font-medium">
+                  {action.default_title}
+                </span>
                 <span className="truncate text-xs text-muted-foreground">
                   {action.action}
                 </span>

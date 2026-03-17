@@ -13,10 +13,7 @@ import {
 import { useCallback, useMemo, useState } from "react"
 import type { RegistryActionReadMinimal } from "@/client"
 import { getIcon } from "@/components/icons"
-import {
-  LockedFeatureChip,
-  LockedFeatureModal,
-} from "@/components/locked-feature-modal"
+import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -150,6 +147,21 @@ const TRANSFORM_TOP = [
 const SQL_TOP = ["core.duckdb.execute_sql", "core.sql.execute_query"]
 const AI_TOP = ["ai.action", "ai.ranker", "ai.slackbot"]
 const AGENT_TOP = ["ai.agent", "ai.preset_agent"]
+const FORCE_LOCKED_PRESET_ACTIONS = new Set([
+  "ai.agent.create_preset",
+  "ai.agent.delete_preset",
+  "ai.agent.get_preset",
+  "ai.agent.list_presets",
+  "ai.agent.update_preset",
+  "ai.preset_agent",
+])
+
+function isLockedAction(action: RegistryActionReadMinimal): boolean {
+  return (
+    FORCE_LOCKED_PRESET_ACTIONS.has(action.action) ||
+    (action.availability?.locked ?? false)
+  )
+}
 
 const WORKFLOW_EXTRA_ACTIONS = new Set([
   "core.transform.scatter",
@@ -369,7 +381,7 @@ function ToolbarCategoryDropdown({
 
   const handleSelect = useCallback(
     (action: RegistryActionReadMinimal) => {
-      if (action.availability?.locked ?? false) {
+      if (isLockedAction(action)) {
         setOpen(false)
         setSearch("")
         setLockedFeatureOpen(true)
@@ -403,7 +415,7 @@ function ToolbarCategoryDropdown({
   }
 
   function renderActionItem(action: RegistryActionReadMinimal) {
-    const isLocked = action.availability?.locked ?? false
+    const isLocked = isLockedAction(action)
 
     return (
       <CommandItem
@@ -411,18 +423,15 @@ function ToolbarCategoryDropdown({
         value={action.action}
         onSelect={() => handleSelect(action)}
         className={cn(
-          "flex cursor-pointer items-center gap-3 py-2",
+          "flex w-full cursor-pointer items-center gap-3 py-2",
           isLocked && "text-muted-foreground"
         )}
       >
         {renderActionIcon(action)}
-        <div className="flex min-w-0 flex-col">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-xs font-medium">
-              {action.default_title ?? action.action}
-            </span>
-            {isLocked ? <LockedFeatureChip className="shrink-0" /> : null}
-          </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-xs font-medium">
+            {action.default_title ?? action.action}
+          </span>
           <span className="truncate text-xs text-muted-foreground">
             {action.action}
           </span>

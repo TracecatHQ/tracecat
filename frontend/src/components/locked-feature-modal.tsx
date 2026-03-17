@@ -1,7 +1,7 @@
 "use client"
 
 import { ArrowUpRight, Lock } from "lucide-react"
-import type { ReactNode } from "react"
+import type { ReactElement } from "react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -21,7 +21,7 @@ const LOCKED_FEATURE_BULLETS = [
 ]
 
 interface LockedFeatureModalProps {
-  children?: ReactNode
+  children?: ReactElement
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }

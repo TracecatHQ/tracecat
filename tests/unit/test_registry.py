@@ -78,8 +78,17 @@ async def test_registry_actions_include_locked_marks_missing_entitlements(
 @pytest.mark.anyio
 async def test_registry_actions_include_locked_shows_agent_preset_crud(
     test_role,
+    monkeypatch,
 ) -> None:
     """Ensure agent preset CRUD actions show as locked when agent add-ons are disabled."""
+    from tracecat.tiers import defaults as tier_defaults
+
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": False}),
+    )
+
     async with RegistryActionsService.with_session(test_role) as service:
         entries = await service.list_actions_from_index(
             namespace="ai.agent", include_locked=True

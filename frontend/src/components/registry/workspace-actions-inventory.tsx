@@ -80,6 +80,13 @@ type TracecatVersionState =
   | { status: "error" }
 
 const PLATFORM_VERSION_FETCH_LIMIT = 200
+const FORCE_LOCKED_ACTIONS = new Set([
+  "ai.agent.create_preset",
+  "ai.agent.delete_preset",
+  "ai.agent.get_preset",
+  "ai.agent.list_presets",
+  "ai.agent.update_preset",
+])
 
 type RegistryActionGroup = {
   origin: string
@@ -108,7 +115,10 @@ function getActionDisplayName(action: RegistryActionReadMinimal): string {
 }
 
 function isLockedAction(action: RegistryActionReadMinimal): boolean {
-  return action.availability?.locked ?? false
+  return (
+    FORCE_LOCKED_ACTIONS.has(action.action) ||
+    (action.availability?.locked ?? false)
+  )
 }
 
 function getActionSortValue(
@@ -676,6 +686,7 @@ export function WorkspaceActionsInventory() {
                                   isLocked && "text-muted-foreground"
                                 )}
                               >
+                                <span className="truncate">{actionTitle}</span>
                                 {isLocked ? (
                                   <button
                                     type="button"
@@ -687,7 +698,6 @@ export function WorkspaceActionsInventory() {
                                     <LockedFeatureChip />
                                   </button>
                                 ) : null}
-                                <span className="truncate">{actionTitle}</span>
                               </ItemTitle>
                               <ItemDescription className="truncate font-mono text-[11px]">
                                 {action.action}
