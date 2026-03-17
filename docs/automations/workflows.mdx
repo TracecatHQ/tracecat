@@ -1,6 +1,6 @@
 ---
 title: "Workflows"
-description: "Build and manage workflows"
+description: "Build and manage workflows."
 ---
 
 ## Creating workflows
@@ -13,7 +13,20 @@ View and create workflows in the Tracecat UI under the `/workflows` page.
 
 ## Draft vs published workflows
 
+## Workflow alias
+
+Workflow aliases are used to reference the workflow in subflows and error workflows.
+Keep aliases short, descriptive, and snake_case.
+You must define a workflow alias in order to trigger it as a subflow or error workflow.
+
+![Workflow alias](/img/automations/workflows/workflow-alias.png)
+
 ## Error workflows
+
+You can specify an error workflow to run when a workflow fails.
+Information about the failed workflow run is passed to the error workflow under the `${{ TRIGGER }}` expression.
+
+![Error workflow](/img/automations/workflows/error-workflow.png)
 
 ## Environments
 
@@ -72,7 +85,7 @@ The Temporal UI exposes all your workflow runs. Do not expose it to the public i
 Hover over any action in the events panel or runs view.
 You'll see two icons: <Badge icon="link" size="lg" shape="pill">Link</Badge> and <Badge icon="copy" size="lg" shape="pill">Copy</Badge> next to the action key-value.
 
-The link icon copies the JSONPath reference to the action result. For example, `ACTIONS.first_action.result`.
+The link icon copies the JSONPath reference to the action result. For example, `${{ ACTIONS.first_action.result }}`.
 
 ![Copy action reference](/img/automations/workflows/copy-action-reference.png)
 

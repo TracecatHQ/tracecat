@@ -47,11 +47,14 @@
                   "automations/core-actions/reshape",
                   "automations/core-actions/email",
                   "automations/core-actions/python-script",
-                  "automations/core-actions/for-each",
                   "automations/core-actions/scatter-gather-loops",
+                  "automations/core-actions/while-loops",
                   "automations/core-actions/subflows",
                   "automations/core-actions/data-transforms",
-                  "automations/core-actions/sql"
+                  "automations/core-actions/sql",
+                  "automations/core-actions/ssh",
+                  "automations/core-actions/grpc",
+                  "automations/core-actions/ansible"
                 ]
               },
               {
