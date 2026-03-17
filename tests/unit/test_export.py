@@ -262,6 +262,98 @@ async def test_workflow_import_ignores_empty_case_trigger(test_role: Role):
 
 
 @pytest.mark.anyio
+async def test_workflow_import_preserves_error_path_dependencies(
+    test_role: Role,
+) -> None:
+    dsl = ExternalWorkflowDefinition(
+        definition=DSLInput(
+            **{
+                "title": "error_path_import",
+                "description": "Workflow import with error path dependencies",
+                "entrypoint": {"expects": {}, "ref": None},
+                "actions": [
+                    {
+                        "ref": "reshape",
+                        "action": "core.transform.reshape",
+                        "args": {"value": 1},
+                    },
+                    {
+                        "ref": "reshape2",
+                        "action": "core.transform.reshape",
+                        "args": {"value": 2},
+                        "depends_on": ["reshape"],
+                    },
+                    {
+                        "ref": "reshape3",
+                        "action": "core.transform.reshape",
+                        "args": {"value": 3},
+                        "depends_on": ["reshape.error"],
+                    },
+                ],
+                "returns": "${{ ACTIONS.reshape2.result }}",
+            }
+        )
+    )
+
+    async with WorkflowsManagementService.with_session(test_role) as service:
+        workflow = await service.create_workflow_from_external_definition(
+            dsl.model_dump(mode="json")
+        )
+        stored_workflow = await service.get_workflow(WorkflowUUID.new(workflow.id))
+
+        assert stored_workflow is not None
+
+        actions_by_ref = {action.ref: action for action in stored_workflow.actions}
+        assert actions_by_ref["reshape3"].upstream_edges == [
+            {
+                "source_id": str(actions_by_ref["reshape"].id),
+                "source_type": "udf",
+                "source_handle": "error",
+            }
+        ]
+
+        round_tripped = await service.build_dsl_from_workflow(stored_workflow)
+        reshape3 = next(
+            action for action in round_tripped.actions if action.ref == "reshape3"
+        )
+        assert reshape3.depends_on == ["reshape.error"]
+
+
+@pytest.mark.anyio
+async def test_workflow_import_preserves_error_handler(test_role: Role) -> None:
+    dsl = ExternalWorkflowDefinition(
+        definition=DSLInput(
+            **{
+                "title": "error_handler_import",
+                "description": "Workflow import with error handler",
+                "entrypoint": {"expects": {}, "ref": None},
+                "actions": [
+                    {
+                        "ref": "reshape",
+                        "action": "core.transform.reshape",
+                        "args": {"value": 1},
+                    }
+                ],
+                "returns": "${{ ACTIONS.reshape.result }}",
+                "error_handler": "notify_ops",
+            }
+        )
+    )
+
+    async with WorkflowsManagementService.with_session(test_role) as service:
+        workflow = await service.create_workflow_from_external_definition(
+            dsl.model_dump(mode="json")
+        )
+        stored_workflow = await service.get_workflow(WorkflowUUID.new(workflow.id))
+
+        assert stored_workflow is not None
+        assert stored_workflow.error_handler == "notify_ops"
+
+        round_tripped = await service.build_dsl_from_workflow(stored_workflow)
+        assert round_tripped.error_handler == "notify_ops"
+
+
+@pytest.mark.anyio
 async def test_workflow_import_applies_layout(test_role: Role):
     dsl = ExternalWorkflowDefinition(
         definition=DSLInput(
