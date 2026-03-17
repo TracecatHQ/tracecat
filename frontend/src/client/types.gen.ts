@@ -303,6 +303,12 @@ export type AgentChannelTokenUpdate = {
   is_active?: boolean | null
 }
 
+export type AgentDefaultModelSelection = {
+  source_id?: string | null
+  model_provider: string
+  model_name: string
+}
+
 export type AgentModelSourceCreate = {
   type: CustomModelSourceType
   flavor?: CustomModelSourceFlavor | null
@@ -700,7 +706,7 @@ export type AgentSessionUpdate = {
 }
 
 export type AgentSettingsRead = {
-  agent_default_model?: string | null
+  agent_default_model?: AgentDefaultModelSelection | string | null
   agent_default_model_ref?: string | null
   agent_fixed_args?: string | null
   agent_case_chat_prompt?: string
@@ -711,7 +717,7 @@ export type AgentSettingsUpdate = {
   /**
    * Legacy raw AI model name for compatibility during migration.
    */
-  agent_default_model?: string | null
+  agent_default_model?: AgentDefaultModelSelection | string | null
   /**
    * The default AI model to use for agent operations.
    */

@@ -46,6 +46,12 @@ _LIST_OUTPUT_TYPES: set[str] = {
     "list[int]",
     "list[str]",
 }
+_PROVIDER_BASE_URL_KEYS: dict[str, str] = {
+    "openai": "OPENAI_BASE_URL",
+    "anthropic": "ANTHROPIC_BASE_URL",
+    "azure_openai": "AZURE_API_BASE",
+    "azure_ai": "AZURE_API_BASE",
+}
 
 
 def _merge_runtime_overrides(
@@ -124,7 +130,7 @@ async def _provider_secrets_context(
         if source_base_url := credentials.get(SOURCE_RUNTIME_BASE_URL):
             config.base_url = source_base_url
         elif (
-            base_url_key := agent_svc._provider_base_url_key(config.model_provider)
+            base_url_key := _provider_base_url_key(agent_svc, config.model_provider)
         ) and (provider_base_url := credentials.get(base_url_key)):
             config.base_url = provider_base_url
 
@@ -133,6 +139,18 @@ async def _provider_secrets_context(
         yield
     finally:
         registry_secrets.reset_context(secrets_token)
+
+
+def _provider_base_url_key(
+    agent_svc: AgentManagementService,
+    provider: str,
+) -> str | None:
+    """Resolve provider base URL env key even when tests stub the service lightly."""
+    if callable(
+        resolver := getattr(agent_svc, "_provider_base_url_key", None)
+    ) and isinstance(base_url_key := resolver(provider), str):
+        return base_url_key
+    return _PROVIDER_BASE_URL_KEYS.get(provider)
 
 
 def _normalize_output_type(
