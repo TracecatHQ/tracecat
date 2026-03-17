@@ -28,6 +28,20 @@ async def _stream_litellm_stderr(process: asyncio.subprocess.Process) -> None:
         logger.warning("LiteLLM stderr stream ended", error=str(e))
 
 
+async def _wait_for_socket(
+    socket_path: Path,
+    *,
+    attempts: int = 50,
+    interval: float = 0.1,
+) -> bool:
+    """Wait for a Unix socket path to appear."""
+    for _ in range(attempts):
+        if socket_path.exists():
+            return True
+        await asyncio.sleep(interval)
+    return False
+
+
 async def start_litellm_proxy() -> None:
     """Start the LiteLLM proxy subprocess."""
     global _litellm_process, _litellm_stderr_task
@@ -159,14 +173,11 @@ async def start_mcp_server() -> None:
     server = uvicorn.Server(uvicorn_config)
     _mcp_server_task = asyncio.create_task(server.serve())
 
-    for _ in range(50):
-        if socket_path.exists():
-            break
-        await asyncio.sleep(0.1)
+    if not await _wait_for_socket(socket_path):
+        await stop_mcp_server()
+        raise RuntimeError(f"MCP server socket was not created at {socket_path}")
 
-    if socket_path.exists():
-        os.chmod(str(socket_path), 0o600)
-
+    os.chmod(str(socket_path), 0o600)
     logger.info("MCP server started", socket_path=str(socket_path))
 
 
