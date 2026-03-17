@@ -148,11 +148,16 @@ class ClaudeAgentRuntime:
         # Must match the cwd passed to ClaudeAgentOptions for session resume
         self._cwd: Path = Path.cwd()
 
-    def _should_inject_tool_metadata(self, action_name: str) -> bool:
+    def _should_inject_tool_metadata(self, tool_name: str, action_name: str) -> bool:
         """Return True when a tool executes through the registry proxy path."""
-        return not (
-            action_name.startswith("mcp.") or action_name.startswith("internal.")
-        )
+        return tool_name.startswith(
+            (
+                REGISTRY_MCP_TOOL_PREFIX,
+                REGISTRY_MCP_DOT_PREFIX,
+                LEGACY_REGISTRY_MCP_TOOL_PREFIX,
+                LEGACY_REGISTRY_MCP_DOT_PREFIX,
+            )
+        ) and not action_name.startswith(("mcp.", "internal."))
 
     def _with_tool_call_metadata(
         self,
@@ -438,7 +443,7 @@ class ClaudeAgentRuntime:
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow",
         }
-        if self._should_inject_tool_metadata(action_name):
+        if self._should_inject_tool_metadata(tool_name, action_name):
             if tool_use_id:
                 hook_output["updatedInput"] = self._with_tool_call_metadata(
                     tool_input,

@@ -426,6 +426,28 @@ class TestClaudeAgentRuntimePreToolUseHook:
         }
 
     @pytest.mark.anyio
+    async def test_auto_approve_non_registry_mcp_tool_does_not_inject_metadata(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__jira__search",
+                tool_input={"jql": "project = TRACE"},
+            ),
+            tool_use_id="call-jira",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
+
+    @pytest.mark.anyio
     async def test_tool_requires_approval(
         self,
         mock_socket_writer: MagicMock,
