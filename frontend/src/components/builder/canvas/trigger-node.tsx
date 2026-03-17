@@ -3,6 +3,7 @@ import {
   AlertTriangleIcon,
   CalendarCheck,
   CalendarClockIcon,
+  Info,
   Shield,
   ShieldOff,
   SquarePlay,
@@ -26,6 +27,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -331,6 +337,41 @@ export default React.memo(function TriggerNode({
           }}
         >
           <div className="flex h-full min-h-0 flex-col">
+            <div className="mb-2 flex items-center gap-1 px-1">
+              <HoverCard openDelay={100} closeDelay={100}>
+                <HoverCardTrigger asChild className="hover:border-none">
+                  <button
+                    type="button"
+                    className="inline-flex items-center"
+                    aria-label="Explain trigger inputs"
+                  >
+                    <Info className="size-3 stroke-muted-foreground" />
+                  </button>
+                </HoverCardTrigger>
+                <HoverCardContent
+                  className="w-[300px] bg-white p-3 font-mono text-xs tracking-tight text-foreground"
+                  side="top"
+                  align="start"
+                  sideOffset={10}
+                >
+                  <div className="w-full space-y-4">
+                    <div className="flex w-full items-center justify-between text-muted-foreground">
+                      <span className="font-mono text-sm font-semibold">
+                        Trigger inputs
+                      </span>
+                    </div>
+                    <span className="text-muted-foreground">
+                      This JSON payload is passed to{" "}
+                      <code className="text-foreground">TRIGGER</code>{" "}
+                      expressions when you run the workflow.
+                    </span>
+                  </div>
+                </HoverCardContent>
+              </HoverCard>
+              <span className="text-xs font-medium text-foreground">
+                Trigger inputs
+              </span>
+            </div>
             <CodeEditor
               value={triggerPayload}
               language="json"
