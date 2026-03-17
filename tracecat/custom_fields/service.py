@@ -13,7 +13,11 @@ from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
 from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_lock
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.service import BaseWorkspaceService
-from tracecat.tables.service import TableEditorService, sanitize_identifier
+from tracecat.tables.service import (
+    TableEditorService,
+    sanitize_identifier,
+    validate_identifier,
+)
 
 
 class CustomFieldsService(BaseWorkspaceService, ABC):
@@ -122,6 +126,7 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         """Update a custom field column."""
 
         await self._ensure_schema_ready()
+        validate_identifier(field_id)
         await self.editor.update_column(field_id, params)
         await self.session.commit()
 
@@ -138,6 +143,7 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         await self._ensure_schema_ready()
         if field_id in self._reserved_columns:
             raise ValueError(f"Field {field_id} is a reserved field")
+        validate_identifier(field_id)
         await self.editor.delete_column(field_id)
         await self.session.commit()
 

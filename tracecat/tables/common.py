@@ -1,14 +1,19 @@
 import re
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import UUID
 
 import orjson
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import JSONB
 
 from tracecat.tables.enums import SqlType
+
+POSTGRES_BIGINT_MIN = -(2**63)
+POSTGRES_BIGINT_MAX = 2**63 - 1
 
 
 def is_valid_sql_type(type: str | SqlType) -> bool:
@@ -84,52 +89,158 @@ def coerce_optional_to_date(
     return coerce_to_date(value)
 
 
-def handle_default_value(type: SqlType, default: Any) -> str:
-    """Handle converting default values to SQL-compatible strings based on type.
+class InvalidDefaultValueError(ValueError):
+    """Raised when a user-provided table default cannot be coerced safely."""
+
+
+def _compile_sql_literal(value: Any, sql_type: sa.types.TypeEngine) -> str:
+    expr = sa.literal(value, type_=sql_type)
+    compiled = expr.compile(
+        dialect=postgresql.dialect(),
+        compile_kwargs={"literal_binds": True},
+    )
+    return str(compiled)
+
+
+def coerce_default_value(type: SqlType, default: Any) -> Any:
+    """Coerce a user-provided default into a validated Python value."""
+    match type:
+        case SqlType.MULTI_SELECT:
+            return coerce_multi_select_value(default)
+        case SqlType.JSONB:
+            return default
+        case SqlType.TEXT | SqlType.SELECT:
+            return str(default)
+        case SqlType.DATE:
+            return coerce_to_date(default)
+        case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
+            return coerce_to_utc_datetime(default)
+        case SqlType.BOOLEAN:
+            if isinstance(default, bool):
+                return default
+            match str(default).lower():
+                case "true" | "1":
+                    return True
+                case "false" | "0":
+                    return False
+                case _:
+                    raise InvalidDefaultValueError(
+                        f"Invalid boolean default value: {default!r}"
+                    )
+        case SqlType.INTEGER:
+            try:
+                decimal_value = Decimal(str(default))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise InvalidDefaultValueError(
+                    f"Invalid integer default value: {default!r}"
+                ) from exc
+            if not decimal_value.is_finite():
+                raise InvalidDefaultValueError(
+                    f"Invalid integer default value: {default!r}"
+                )
+            if decimal_value != decimal_value.to_integral_value():
+                raise InvalidDefaultValueError(
+                    f"Invalid integer default value: {default!r}"
+                )
+            if (
+                decimal_value < POSTGRES_BIGINT_MIN
+                or decimal_value > POSTGRES_BIGINT_MAX
+            ):
+                raise InvalidDefaultValueError(
+                    f"Invalid integer default value: {default!r}"
+                )
+            return int(decimal_value)
+        case SqlType.NUMERIC:
+            try:
+                decimal_value = Decimal(str(default))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise InvalidDefaultValueError(
+                    f"Invalid numeric default value: {default!r}"
+                ) from exc
+            if not decimal_value.is_finite():
+                raise InvalidDefaultValueError(
+                    f"Invalid numeric default value: {default!r}"
+                )
+            return decimal_value
+        case SqlType.UUID:
+            try:
+                return UUID(str(default))
+            except (TypeError, ValueError) as exc:
+                raise InvalidDefaultValueError(
+                    f"Invalid UUID default value: {default!r}"
+                ) from exc
+        case _:
+            raise InvalidDefaultValueError(
+                f"Unsupported SQL type for default value: {type}"
+            )
+
+
+def normalize_default_value(type: SqlType, default: Any) -> Any:
+    """Normalize a validated default into a JSON-serializable metadata value."""
+    match type:
+        case SqlType.MULTI_SELECT | SqlType.JSONB:
+            return default
+        case SqlType.BOOLEAN:
+            return str(default).lower()
+        case SqlType.DATE | SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
+            return default.isoformat()
+        case SqlType.INTEGER | SqlType.NUMERIC | SqlType.TEXT | SqlType.SELECT:
+            return str(default)
+        case SqlType.UUID:
+            return str(default)
+        case _:
+            raise InvalidDefaultValueError(
+                f"Unsupported SQL type for default value: {type}"
+            )
+
+
+def render_default_value(type: SqlType, default: Any) -> str:
+    """Render a validated default as a SQL literal for PostgreSQL DDL.
 
     SECURITY NOTICE: Only used in a SQL DDL statement where parameter binding is not supported.
-
-    Args:
-        type: The SQL type to format the default value for
-        default: The default value to format
-
-    Returns:
-        A properly escaped and formatted SQL literal string
-
-    Raises:
-        TypeError: If the SQL type is not supported
     """
     match type:
         case SqlType.MULTI_SELECT:
-            coerced_default = coerce_multi_select_value(default)
-            json_literal = orjson.dumps(coerced_default).decode()
-            return f"'{json_literal.replace("'", "''")}'::jsonb"
-        case SqlType.JSONB:
-            # For JSONB, ensure default is properly quoted and cast
             json_literal = orjson.dumps(default).decode()
-            default_value = f"'{json_literal.replace("'", "''")}'::jsonb"
+            return f"{_compile_sql_literal(json_literal, sa.String())}::jsonb"
+        case SqlType.JSONB:
+            json_literal = orjson.dumps(default).decode()
+            return f"{_compile_sql_literal(json_literal, sa.String())}::jsonb"
         case SqlType.TEXT | SqlType.SELECT:
-            # For string types, ensure proper quoting
-            default_value = f"'{default}'"
+            return _compile_sql_literal(default, sa.String())
         case SqlType.DATE:
-            d = coerce_to_date(default)
-            default_value = f"'{d.isoformat()}'::date"
+            return f"{_compile_sql_literal(default, sa.Date())}::date"
         case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
-            # For timestamp with timezone, ensure proper format and quoting
-            dt = coerce_to_utc_datetime(default)
-            default_value = f"'{dt.isoformat()}'::timestamptz"
+            rendered_default = _compile_sql_literal(
+                default, sa.TIMESTAMP(timezone=True)
+            )
+            return f"{rendered_default}::timestamptz"
         case SqlType.BOOLEAN:
-            # For boolean, convert to lowercase string representation
-            default_value = str(bool(default)).lower()
-        case SqlType.INTEGER | SqlType.NUMERIC:
-            # For numeric types, use the value directly
-            default_value = str(default)
+            return _compile_sql_literal(default, sa.Boolean())
+        case SqlType.INTEGER:
+            return _compile_sql_literal(default, sa.BigInteger())
+        case SqlType.NUMERIC:
+            return _compile_sql_literal(default, sa.Numeric())
         case SqlType.UUID:
-            # For UUID, ensure proper quoting
-            default_value = f"'{default}'::uuid"
+            return f"{_compile_sql_literal(str(default), sa.String())}::uuid"
         case _:
-            raise TypeError(f"Unsupported SQL type for default value: {type}")
-    return default_value
+            raise InvalidDefaultValueError(
+                f"Unsupported SQL type for default value: {type}"
+            )
+
+
+def prepare_default_value(type: SqlType, default: Any) -> tuple[Any, str]:
+    """Validate a default once and return metadata + DDL representations."""
+    coerced_default = coerce_default_value(type, default)
+    normalized_default = normalize_default_value(type, coerced_default)
+    rendered_default = render_default_value(type, coerced_default)
+    return normalized_default, rendered_default
+
+
+def handle_default_value(type: SqlType, default: Any) -> str:
+    """Backward-compatible wrapper for SQL literal rendering."""
+    _, rendered_default = prepare_default_value(type, default)
+    return rendered_default
 
 
 def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
@@ -214,7 +325,7 @@ def parse_postgres_default(default_value: str | None) -> str | None:
 
     # Remove surrounding quotes if present
     if default_value.startswith("'") and default_value.endswith("'"):
-        default_value = default_value[1:-1]
+        default_value = default_value[1:-1].replace("''", "'")
 
     return default_value
 
