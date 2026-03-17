@@ -606,6 +606,11 @@ function AgentPresetChatPane({
       name: selectedModel?.modelName ?? preset.model_name,
       provider: selectedModel?.modelProvider ?? preset.model_provider,
       baseUrl: selectedModel?.baseUrl ?? preset.base_url ?? null,
+      iconId:
+        selectedModel?.iconId ??
+        getProviderIconId(
+          selectedModel?.modelProvider ?? preset.model_provider
+        ),
     }
   }, [preset, selectedModel])
 

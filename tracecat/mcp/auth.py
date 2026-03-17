@@ -17,7 +17,6 @@ from cryptography.fernet import Fernet
 from fastmcp.server.auth import AccessToken, AuthProvider
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.dependencies import get_access_token
-from key_value.aio.protocols import AsyncKeyValue
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
@@ -585,7 +584,7 @@ def _build_oidc_consent_html(
 </html>"""
 
 
-def create_mcp_auth(*, client_storage: AsyncKeyValue | None = None) -> AuthProvider:
+def create_mcp_auth() -> AuthProvider:
     """Build auth provider for external MCP."""
     base_url = TRACECAT_MCP__BASE_URL.strip().rstrip("/")
     if not base_url:
@@ -906,20 +905,19 @@ def create_mcp_auth(*, client_storage: AsyncKeyValue | None = None) -> AuthProvi
     # Build Redis-backed storage for OAuth state (client registrations,
     # auth codes, tokens, transactions) so state survives restarts and
     # is shared across MCP replicas.
-    if client_storage is None:
-        redis_client = AsyncRedis.from_url(REDIS_URL, decode_responses=True)
-        redis_store = RedisStore(client=redis_client)
-        prefixed_store = PrefixCollectionsWrapper(redis_store, prefix="mcp")
-        if TRACECAT__DB_ENCRYPTION_KEY:
-            client_storage = FernetEncryptionWrapper(
-                prefixed_store, fernet=Fernet(TRACECAT__DB_ENCRYPTION_KEY)
-            )
-        else:
-            logger.warning(
-                "TRACECAT__DB_ENCRYPTION_KEY is not set; "
-                "MCP OAuth state will be stored unencrypted in Redis"
-            )
-            client_storage = prefixed_store
+    redis_client = AsyncRedis.from_url(REDIS_URL, decode_responses=True)
+    redis_store = RedisStore(client=redis_client)
+    prefixed_store = PrefixCollectionsWrapper(redis_store, prefix="mcp")
+    if TRACECAT__DB_ENCRYPTION_KEY:
+        client_storage = FernetEncryptionWrapper(
+            prefixed_store, fernet=Fernet(TRACECAT__DB_ENCRYPTION_KEY)
+        )
+    else:
+        logger.warning(
+            "TRACECAT__DB_ENCRYPTION_KEY is not set; "
+            "MCP OAuth state will be stored unencrypted in Redis"
+        )
+        client_storage = prefixed_store
 
     config_url = f"{oidc_config.issuer}/.well-known/openid-configuration"
     auth = TracecatOIDCProxy(

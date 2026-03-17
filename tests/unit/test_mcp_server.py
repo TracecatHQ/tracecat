@@ -3436,19 +3436,151 @@ async def test_get_agent_preset_authoring_context_includes_output_type_guidance(
 
     payload = _payload(result)
     assert payload["default_model"] == "gpt-4o-mini"
-    assert payload["models"][0]["provider"] == "openai"
+    assert payload["default_model_selection"] == {
+        "source_id": None,
+        "model_provider": "openai",
+        "model_name": "gpt-4o-mini",
+    }
+    assert payload["models"] == [
+        {
+            "name": "gpt-4o-mini",
+            "provider": "openai",
+            "model_name": "gpt-4o-mini",
+            "model_provider": "openai",
+            "source_id": None,
+            "source_name": None,
+        }
+    ]
     assert payload["agent_credentials"]["providers"][0]["provider"] == "openai"
     assert payload["agent_credentials"]["providers"][0]["configured_org"] is True
-    assert payload["agent_credentials"]["providers"][0]["configured_workspace"] is True
     assert (
         payload["agent_credentials"]["providers"][0]["ready_for_agent_presets"] is True
     )
-    assert payload["agent_credentials"]["default_model_workspace_ready"] is True
+    assert payload["agent_credentials"]["providers"][0]["model_count"] == 1
+    assert payload["agent_credentials"]["providers"][0]["model_names"] == [
+        "gpt-4o-mini"
+    ]
+    assert payload["agent_credentials"]["default_model_ready_for_agent_presets"] is True
     assert payload["workspace_variables"][0]["name"] == "splunk"
     assert payload["workspace_secret_hints"][0]["name"] == "slack"
     assert "str" in payload["output_type_context"]["supported_literals"]
     assert payload["output_type_context"]["accepts_json_schema"] is True
     assert payload["output_type_context"]["examples"]["structured"]["type"] == "object"
+
+
+@pytest.mark.anyio
+async def test_get_agent_preset_authoring_context_preserves_source_backed_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    source_id = uuid.uuid4()
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    async def _secret_inventory(_role: Any) -> dict[str, set[str]]:
+        return {}
+
+    async def _integrations_inventory(_role: Any) -> dict[str, Any]:
+        return {"mcp_integrations": [], "oauth_providers": [], "notes": []}
+
+    class _Model:
+        def __init__(self, *, model_name: str, source_id: uuid.UUID | None) -> None:
+            self._payload = {
+                "model_name": model_name,
+                "model_provider": "anthropic",
+                "source_id": source_id,
+                "source_name": "Gateway" if source_id is not None else None,
+            }
+
+        def model_dump(self, *, mode: str = "json") -> dict[str, Any]:
+            assert mode == "json"
+            return self._payload
+
+    class _DefaultModel:
+        def __init__(self) -> None:
+            self.source_id = source_id
+            self.model_provider = "anthropic"
+            self.model_name = "claude-3-7-sonnet"
+
+        def model_dump(self, *, mode: str = "json") -> dict[str, Any]:
+            assert mode == "json"
+            return {
+                "source_id": self.source_id,
+                "model_provider": self.model_provider,
+                "model_name": self.model_name,
+            }
+
+    class _AgentManagementService:
+        async def list_models(self, workspace_id: uuid.UUID) -> list[_Model]:
+            assert workspace_id == role.workspace_id
+            return [
+                _Model(model_name="claude-3-7-sonnet", source_id=None),
+                _Model(model_name="claude-3-7-sonnet", source_id=source_id),
+            ]
+
+        async def get_default_model(self) -> _DefaultModel:
+            return _DefaultModel()
+
+        async def get_providers_status(self) -> dict[str, bool]:
+            return {"anthropic": False}
+
+    class _VariablesService:
+        async def list_variables(self, environment: str) -> list[Any]:
+            assert environment == "default"
+            return []
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(
+        mcp_server, "_build_integrations_inventory", _integrations_inventory
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.VariablesService,
+        "with_session",
+        lambda role: _AsyncContext(_VariablesService()),
+    )
+
+    result = await _tool(mcp_server.get_agent_preset_authoring_context)(
+        workspace_id=str(workspace_id)
+    )
+
+    payload = _payload(result)
+    assert payload["default_model"] == "claude-3-7-sonnet"
+    assert payload["default_model_selection"] == {
+        "source_id": str(source_id),
+        "model_provider": "anthropic",
+        "model_name": "claude-3-7-sonnet",
+    }
+    assert payload["agent_credentials"]["default_model_ready_for_agent_presets"] is True
+    assert payload["models"] == [
+        {
+            "model_name": "claude-3-7-sonnet",
+            "model_provider": "anthropic",
+            "source_id": None,
+            "source_name": None,
+            "name": "claude-3-7-sonnet",
+            "provider": "anthropic",
+        },
+        {
+            "model_name": "claude-3-7-sonnet",
+            "model_provider": "anthropic",
+            "source_id": str(source_id),
+            "source_name": "Gateway",
+            "name": "claude-3-7-sonnet",
+            "provider": "anthropic",
+        },
+    ]
+    assert payload["agent_credentials"]["providers"][0]["model_count"] == 2
+    assert payload["agent_credentials"]["providers"][0]["model_names"] == [
+        "claude-3-7-sonnet",
+    ]
 
 
 @pytest.mark.anyio
@@ -3927,6 +4059,101 @@ async def test_create_agent_preset_skips_org_credential_check_for_source_backed_
     result = await _tool(mcp_server.create_agent_preset)(
         workspace_id=str(workspace_id),
         name="Security triage",
+        model_name="claude-3-7-sonnet",
+        model_provider="anthropic",
+    )
+
+    payload = _payload(result)
+    params = created["params"]
+    assert params.source_id == source_id
+    assert payload["source_id"] == str(source_id)
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_accepts_source_id_for_ambiguous_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    source_id = uuid.uuid4()
+    other_source_id = uuid.uuid4()
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _Model:
+        def __init__(
+            self,
+            *,
+            source_id: uuid.UUID,
+            source_name: str,
+        ) -> None:
+            self._payload = {
+                "model_name": "claude-3-7-sonnet",
+                "model_provider": "anthropic",
+                "source_id": source_id,
+                "source_name": source_name,
+            }
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            assert mode == "json"
+            return self._payload
+
+    class _AgentManagementService:
+        async def list_models(self, workspace_id: uuid.UUID) -> list[_Model]:
+            assert workspace_id == role.workspace_id
+            return [
+                _Model(source_id=other_source_id, source_name="Source B"),
+                _Model(source_id=source_id, source_name="Source A"),
+            ]
+
+        async def get_providers_status(self) -> dict[str, bool]:
+            return {"anthropic": False}
+
+    class _PresetService:
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            now = datetime.now(UTC)
+            return SimpleNamespace(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name=params.name,
+                slug="security-triage",
+                description=params.description,
+                instructions=params.instructions,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                source_id=params.source_id,
+                base_url=params.base_url,
+                output_type=params.output_type,
+                actions=params.actions,
+                namespaces=params.namespaces,
+                tool_approvals=params.tool_approvals,
+                mcp_integrations=params.mcp_integrations,
+                retries=params.retries,
+                enable_internet_access=params.enable_internet_access,
+                current_version_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+        source_id=str(source_id),
         model_name="claude-3-7-sonnet",
         model_provider="anthropic",
     )

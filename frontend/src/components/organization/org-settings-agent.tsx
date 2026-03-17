@@ -27,6 +27,7 @@ import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { AgentCredentialsDialog } from "@/components/organization/org-agent-credentials-dialog"
+import { mergeCustomSourceRows } from "@/components/organization/org-settings-agent-utils"
 import {
   RbacListContainer,
   RbacListItem,
@@ -81,9 +82,12 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/ui/use-toast"
 import { useDebounce } from "@/hooks"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   type AgentModelSourceRead,
   type BuiltInProviderRead,
+  getModelSelectionKey,
+  isSameModelSelection as hasSameModelSelection,
   listAllBuiltInAgentCatalog,
   useAgentCatalogMutations,
   useAgentCredentials,
@@ -268,6 +272,71 @@ function getCustomSourceIconId(
   }
 }
 
+function normalizeSourceName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "")
+}
+
+function getCustomModelIconId(
+  model: Pick<
+    ModelCatalogEntry,
+    "metadata" | "model_name" | "source_name" | "source_type"
+  >
+): string {
+  const sourceFlavor =
+    model.metadata && typeof model.metadata.source_flavor === "string"
+      ? model.metadata.source_flavor
+      : null
+  switch (sourceFlavor) {
+    case "ollama":
+      return "ollama"
+    case "litellm":
+      return "litellm"
+    case "vllm":
+      return "vllm"
+    case "manual":
+      return "manual-custom-source"
+    case "generic_openai_compatible":
+      return "custom"
+    default:
+      break
+  }
+
+  const normalizedSourceName = normalizeSourceName(
+    model.source_name ?? model.model_name
+  )
+  if (normalizedSourceName.includes("ollama")) {
+    return "ollama"
+  }
+  if (normalizedSourceName.includes("vllm")) {
+    return "vllm"
+  }
+  if (normalizedSourceName.includes("litellm")) {
+    return "litellm"
+  }
+  if (model.source_type === "manual_custom") {
+    return "manual-custom-source"
+  }
+  return "custom"
+}
+
+function getCatalogModelIconId(
+  model: Pick<
+    ModelCatalogEntry,
+    "metadata" | "model_name" | "model_provider" | "source_name" | "source_type"
+  >
+): string {
+  if (
+    model.source_type === "openai_compatible_gateway" ||
+    model.source_type === "manual_custom"
+  ) {
+    return getCustomModelIconId(model)
+  }
+  return getProviderIconId(model.model_provider)
+}
+
 function getCustomSourceDefaults(
   source?: AgentModelSourceRead | null
 ): CustomSourceFormValues {
@@ -340,32 +409,18 @@ function toModelSelection(
   }
 }
 
-function getModelSelectionKey(selection: {
-  source_id?: string | null
-  model_provider?: string | null
-  model_name?: string | null
-}): string {
-  return `${selection.source_id ?? "platform"}::${selection.model_provider ?? ""}::${selection.model_name ?? ""}`
-}
-
-function hasSameModelSelection(
-  left:
-    | Pick<ModelSelection, "source_id" | "model_provider" | "model_name">
-    | null
-    | undefined,
-  right:
-    | Pick<ModelSelection, "source_id" | "model_provider" | "model_name">
-    | null
-    | undefined
-): boolean {
-  if (!left || !right) {
-    return left == null && right == null
-  }
-  return getModelSelectionKey(left) === getModelSelectionKey(right)
-}
-
 function getModelLabel(model: Pick<ModelCatalogEntry, "model_name">): string {
   return model.model_name
+}
+
+function getCustomSourceModelTitle(
+  model: Pick<ModelCatalogEntry, "model_name" | "metadata">
+): string {
+  return (
+    getMetadataString(model.metadata, "display_name") ??
+    getMetadataString(model.metadata, "name") ??
+    model.model_name
+  )
 }
 
 function getMetadataNumber(metadata: unknown, key: string): number | null {
@@ -415,7 +470,7 @@ function getModelSourceLabel(
   return model.source_name ?? (model.source_id ? "Custom" : "Platform")
 }
 
-function ModelRow({
+function _ModelRow({
   disabled,
   model,
   onToggle,
@@ -432,6 +487,64 @@ function ModelRow({
           <Badge variant="outline">{model.model_provider}</Badge>
           {model.base_url ? <Badge variant="outline">Custom URL</Badge> : null}
         </div>
+      </div>
+      <Button
+        disabled={disabled}
+        onClick={() => {
+          void onToggle(model)
+        }}
+        size="sm"
+        variant={model.enabled ? "secondary" : "outline"}
+      >
+        {model.enabled ? "Disable" : "Enable"}
+      </Button>
+    </div>
+  )
+}
+
+function CustomSourceModelRow({
+  disabled,
+  model,
+  onToggle,
+}: {
+  disabled: boolean
+  model: ModelCatalogEntry
+  onToggle: (model: ModelCatalogEntry) => Promise<void>
+}) {
+  const title = getCustomSourceModelTitle(model)
+  const showModelName = title !== model.model_name
+  const contextLabel = getModelContextLabel(model)
+  const outputLabel = getModelOutputLabel(model)
+  const modeLabel = getModelModeLabel(model)
+  const sourceLabel = getModelSourceLabel(model)
+  const detailParts = [
+    sourceLabel,
+    showModelName ? model.model_name : null,
+    modeLabel !== "n/a" ? modeLabel : null,
+  ].filter(Boolean)
+  const capabilityParts = [
+    contextLabel !== "n/a" ? `${contextLabel} ctx` : null,
+    outputLabel !== "n/a" ? `${outputLabel} out` : null,
+  ].filter(Boolean)
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <div className="min-w-0 space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="truncate text-sm font-medium">{title}</p>
+          <Badge variant="outline">{model.model_provider}</Badge>
+          {model.base_url ? <Badge variant="outline">Custom URL</Badge> : null}
+        </div>
+        {detailParts.length ? (
+          <p className="truncate text-xs text-muted-foreground">
+            {detailParts.join(" · ")}
+          </p>
+        ) : null}
+        {capabilityParts.length ? (
+          <p className="truncate text-xs text-muted-foreground">
+            {capabilityParts.join(" · ")}
+          </p>
+        ) : null}
       </div>
       <Button
         disabled={disabled}
@@ -1232,6 +1345,8 @@ function CustomSourceDialog({
 export function OrgSettingsAgentForm() {
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  const { hasEntitlement } = useEntitlements()
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const [sourceCatalogRowsById, setSourceCatalogRowsById] = useState<
     Record<string, ModelCatalogEntry[]>
   >({})
@@ -1613,102 +1728,105 @@ export function OrgSettingsAgentForm() {
         />
       ) : null}
 
-      <section className="space-y-4">
-        <div className="space-y-1">
-          <h3 className="text-lg font-semibold tracking-tight">
-            Default model
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Choose the organization-wide default from the enabled model catalog.
-            Workspaces can optionally narrow that catalog further in workspace
-            settings.
-          </p>
-        </div>
-        {!models?.length ? (
-          <p className="text-sm text-muted-foreground">
-            Enable at least one model from the sections below before choosing a
-            default.
-          </p>
-        ) : (
-          <Select
-            disabled={isSelectionUpdating || isUpdating || modelsLoading}
-            onValueChange={(selectionKey) => {
-              const nextModel = modelLookupByKey.get(selectionKey)
-              if (
-                !nextModel ||
-                hasSameModelSelection(toModelSelection(nextModel), defaultModel)
-              ) {
-                return
-              }
-              void handleSetDefaultModel(toModelSelection(nextModel))
-            }}
-            value={currentDefaultModelKey}
-          >
-            <SelectTrigger className="h-12 px-4 [&>svg]:shrink-0">
-              {currentDefaultModel ? (
-                <div className="flex min-w-0 items-center gap-3 text-left">
-                  <ProviderIcon
-                    className="size-5 rounded-sm p-0.5"
-                    providerId={getProviderIconId(
-                      currentDefaultModel.model_provider
-                    )}
-                  />
-                  <div className="min-w-0 space-y-0.5">
-                    <span className="block truncate text-sm font-medium text-foreground">
-                      {getModelLabel(currentDefaultModel)}
-                    </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {selectedDefaultCatalogModel?.source_name ??
-                        currentDefaultModel.source_name ??
-                        currentDefaultModel.model_provider}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <SelectValue placeholder="Choose a default model" />
-              )}
-            </SelectTrigger>
-            <SelectContent>
-              {models.map((model) => {
-                const isSelected = hasSameModelSelection(
-                  toModelSelection(model),
-                  defaultModel
-                )
-                const modelKey = getModelSelectionKey(toModelSelection(model))
-                return (
-                  <SelectItem key={modelKey} value={modelKey}>
-                    <div className="flex min-w-0 items-start gap-3 py-1">
-                      <ProviderIcon
-                        className="mt-0.5 size-5 rounded-sm p-0.5"
-                        providerId={getProviderIconId(model.model_provider)}
-                      />
-                      <div className="min-w-0 space-y-1">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-sm font-medium">
-                            {getModelLabel(model)}
-                          </span>
-                          {isSelected ? (
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                              Current default
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {getModelSourceLabel(model)}
-                        </p>
-                      </div>
+      {agentAddonsEnabled ? (
+        <section className="space-y-4">
+          <div className="space-y-1">
+            <h3 className="text-lg font-semibold tracking-tight">
+              Default model
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Choose the organization-wide default from the enabled model
+              catalog. Workspaces can optionally narrow that catalog further in
+              workspace settings.
+            </p>
+          </div>
+          {!models?.length ? (
+            <p className="text-sm text-muted-foreground">
+              Enable at least one model from the sections below before choosing
+              a default.
+            </p>
+          ) : (
+            <Select
+              disabled={isSelectionUpdating || isUpdating || modelsLoading}
+              onValueChange={(selectionKey) => {
+                const nextModel = modelLookupByKey.get(selectionKey)
+                if (
+                  !nextModel ||
+                  hasSameModelSelection(
+                    toModelSelection(nextModel),
+                    defaultModel
+                  )
+                ) {
+                  return
+                }
+                void handleSetDefaultModel(toModelSelection(nextModel))
+              }}
+              value={currentDefaultModelKey}
+            >
+              <SelectTrigger className="h-12 px-4 [&>svg]:shrink-0">
+                {currentDefaultModel ? (
+                  <div className="flex min-w-0 items-center gap-3 text-left">
+                    <ProviderIcon
+                      className="size-5 rounded-sm p-0.5"
+                      providerId={getCatalogModelIconId(currentDefaultModel)}
+                    />
+                    <div className="min-w-0 space-y-0.5">
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {getModelLabel(currentDefaultModel)}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {selectedDefaultCatalogModel?.source_name ??
+                          currentDefaultModel.source_name ??
+                          currentDefaultModel.model_provider}
+                      </span>
                     </div>
-                  </SelectItem>
-                )
-              })}
-            </SelectContent>
-          </Select>
-        )}
+                  </div>
+                ) : (
+                  <SelectValue placeholder="Choose a default model" />
+                )}
+              </SelectTrigger>
+              <SelectContent>
+                {models.map((model) => {
+                  const isSelected = hasSameModelSelection(
+                    toModelSelection(model),
+                    defaultModel
+                  )
+                  const modelKey = getModelSelectionKey(toModelSelection(model))
+                  return (
+                    <SelectItem key={modelKey} value={modelKey}>
+                      <div className="flex min-w-0 items-start gap-3 py-1">
+                        <ProviderIcon
+                          className="mt-0.5 size-5 rounded-sm p-0.5"
+                          providerId={getCatalogModelIconId(model)}
+                        />
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="truncate text-sm font-medium">
+                              {getModelLabel(model)}
+                            </span>
+                            {isSelected ? (
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                Current default
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {getModelSourceLabel(model)}
+                          </p>
+                        </div>
+                      </div>
+                    </SelectItem>
+                  )
+                })}
+              </SelectContent>
+            </Select>
+          )}
 
-        {isSelectionUpdating || isUpdating ? (
-          <p className="text-xs text-muted-foreground">Saving changes…</p>
-        ) : null}
-      </section>
+          {isSelectionUpdating || isUpdating ? (
+            <p className="text-xs text-muted-foreground">Saving changes…</p>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="space-y-4">
         <div className="flex items-start justify-between gap-4">
@@ -1724,9 +1842,9 @@ export function OrgSettingsAgentForm() {
         </div>
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">
-            The platform catalog stays shared, while each workspace can still
-            restrict itself to a smaller subset of the organization-enabled
-            catalog.
+            {agentAddonsEnabled
+              ? "The platform catalog stays shared, while each workspace can still restrict itself to a smaller subset of the organization-enabled catalog."
+              : "Configure provider credentials and enable the organization-level models you want available."}
           </p>
         </div>
         <div className="space-y-4">
@@ -1786,10 +1904,11 @@ export function OrgSettingsAgentForm() {
         {sources?.length ? (
           <div className="space-y-4">
             {sources.map((source) => {
-              const sourceModels =
-                sourceCatalogRowsById[source.id] ??
-                models?.filter((model) => model.source_id === source.id) ??
-                []
+              const sourceModels = mergeCustomSourceRows(
+                sourceCatalogRowsById[source.id],
+                models,
+                source.id
+              )
               return (
                 <Card key={source.id}>
                   <CardHeader className="space-y-4">
@@ -1899,8 +2018,8 @@ export function OrgSettingsAgentForm() {
 
                     {sourceModels.length ? (
                       sourceModels.map((model) => (
-                        <ModelRow
-                          disabled={isUpdating}
+                        <CustomSourceModelRow
+                          disabled={isUpdating || isSelectionUpdating}
                           key={getModelSelectionKey(toModelSelection(model))}
                           model={model}
                           onToggle={handleModelToggle}

@@ -120,11 +120,17 @@ export function AgentCredentialsDialog({
   }, [provider, providerConfig, form])
 
   const onSubmit = async (data: Record<string, string>) => {
-    if (!provider) return
+    if (!provider || !providerConfig) return
 
     try {
       setLoading(true)
       setError(null)
+      const normalizedCredentials = Object.fromEntries(
+        providerConfig.fields.map((field) => {
+          const rawValue = data[field.key]
+          return [field.key, rawValue?.trim() || ""]
+        })
+      )
 
       const response = await fetch("/api/agent/credentials", {
         method: "POST",
@@ -133,7 +139,7 @@ export function AgentCredentialsDialog({
         },
         body: JSON.stringify({
           provider,
-          credentials: data,
+          credentials: normalizedCredentials,
         }),
       })
 

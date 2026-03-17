@@ -5234,6 +5234,20 @@ interface AgentModelSourceUpdateInput {
   declared_models?: AgentManualDiscoveredModel[] | null
 }
 
+export function getAgentJsonErrorMessage(text: string, status: number): string {
+  let detail: string | null = null
+  try {
+    const parsed = JSON.parse(text) as unknown
+    if (parsed && typeof parsed === "object") {
+      const parsedDetail = (parsed as { detail?: unknown }).detail
+      if (typeof parsedDetail === "string" && parsedDetail.trim()) {
+        detail = parsedDetail
+      }
+    }
+  } catch {}
+  return detail ?? (text || `Request failed with status ${status}`)
+}
+
 async function fetchAgentJson<T>(path: string, init?: RequestInit): Promise<T> {
   const { headers, ...rest } = init ?? {}
   const response = await fetch(`/api${path}`, {
@@ -5245,7 +5259,8 @@ async function fetchAgentJson<T>(path: string, init?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
-    throw new Error(await response.text())
+    const text = await response.text()
+    throw new Error(getAgentJsonErrorMessage(text, response.status))
   }
 
   if (response.status === 204) {
@@ -5927,6 +5942,86 @@ function normalizeOptionalModelValue(value: string | null | undefined) {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function getProviderIconId(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "anthropic"
+    case "azure_ai":
+    case "azure_openai":
+      return "microsoft"
+    case "bedrock":
+      return "amazon-bedrock"
+    case "gemini":
+    case "vertex_ai":
+      return "google"
+    case "openai":
+      return "openai"
+    default:
+      return "custom-model-provider"
+  }
+}
+
+function normalizeSourceName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "")
+}
+
+function getCustomSourceIconId(
+  sourceType: string | null | undefined,
+  sourceName: string | null | undefined,
+  sourceFlavor: string | null | undefined
+): string {
+  switch (sourceFlavor) {
+    case "ollama":
+      return "ollama"
+    case "litellm":
+      return "litellm"
+    case "vllm":
+      return "vllm"
+    case "manual":
+      return "manual-custom-source"
+    case "generic_openai_compatible":
+      return "custom"
+    default:
+      break
+  }
+
+  const normalizedSourceName = normalizeSourceName(sourceName ?? "")
+  if (normalizedSourceName.includes("ollama")) {
+    return "ollama"
+  }
+  if (normalizedSourceName.includes("vllm")) {
+    return "vllm"
+  }
+  if (normalizedSourceName.includes("litellm")) {
+    return "litellm"
+  }
+  if (sourceType === "manual_custom") {
+    return "manual-custom-source"
+  }
+  return "custom"
+}
+
+function getCatalogModelIconId(model: AgentCatalogEntry): string {
+  if (
+    model.source_type === "openai_compatible_gateway" ||
+    model.source_type === "manual_custom"
+  ) {
+    const sourceFlavor =
+      model.metadata && typeof model.metadata.source_flavor === "string"
+        ? model.metadata.source_flavor
+        : null
+    return getCustomSourceIconId(
+      model.source_type,
+      model.source_name ?? model.model_name,
+      sourceFlavor
+    )
+  }
+  return getProviderIconId(model.model_provider)
+}
+
 function findCatalogEntryForModelOverride(
   models: AgentCatalogEntry[] | undefined,
   modelOverride: NonNullable<ChatReadinessOptions["modelOverride"]>
@@ -5968,17 +6063,27 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
   }
 
   if (modelOverride) {
+    const overrideCatalogModel = findCatalogEntryForModelOverride(
+      models,
+      modelOverride
+    )
     const modelInfo: ModelInfo = {
       name: modelOverride.name,
       provider: modelOverride.provider,
       baseUrl: modelOverride.baseUrl ?? null,
+      iconId: overrideCatalogModel
+        ? getCatalogModelIconId(overrideCatalogModel)
+        : null,
     }
-    const hasOverrideCreds = isModelOverrideCredentialFree(
-      models,
-      modelOverride
-    )
-      ? true
-      : (providersStatus?.[modelOverride.provider] ?? false)
+    let hasOverrideCreds = providersStatus?.[modelOverride.provider] ?? false
+    if (
+      overrideCatalogModel &&
+      isCatalogEntryCredentialFree(overrideCatalogModel)
+    ) {
+      hasOverrideCreds = true
+    } else if (isModelOverrideCredentialFree(models, modelOverride)) {
+      hasOverrideCreds = true
+    }
     if (!hasOverrideCreds) {
       return {
         ready: false,
@@ -6023,6 +6128,7 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
     name: modelCfg.model_name,
     provider: providerId,
     baseUrl: modelCfg.base_url ?? null,
+    iconId: getCatalogModelIconId(modelCfg),
   }
   if (!hasCreds) {
     return {
