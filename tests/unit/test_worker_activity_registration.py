@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -48,3 +49,30 @@ def test_agent_worker_registers_preset_resolution_activities() -> None:
 def test_agent_executor_worker_registers_only_runtime_execution_activity() -> None:
     names = _activity_names(get_agent_executor_activities())
     assert names == {_activity_name(run_agent_activity)}
+
+
+@pytest.mark.anyio
+async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.agent import executor_worker
+
+    stop_mcp_server = AsyncMock()
+    stop_litellm_proxy = AsyncMock()
+
+    monkeypatch.setattr(executor_worker, "start_litellm_proxy", AsyncMock())
+    monkeypatch.setattr(executor_worker, "start_mcp_server", AsyncMock())
+    monkeypatch.setattr(
+        executor_worker,
+        "get_temporal_client",
+        AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    monkeypatch.setattr(executor_worker, "stop_mcp_server", stop_mcp_server)
+    monkeypatch.setattr(executor_worker, "stop_litellm_proxy", stop_litellm_proxy)
+    executor_worker.interrupt_event.clear()
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await executor_worker.main()
+
+    stop_mcp_server.assert_awaited_once()
+    stop_litellm_proxy.assert_awaited_once()

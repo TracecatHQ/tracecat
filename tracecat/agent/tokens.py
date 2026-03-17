@@ -320,7 +320,7 @@ def mint_llm_token(
     return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")
 
 
-def verify_llm_token(token: str) -> LLMTokenClaims:
+def verify_llm_token(token: str | bytes) -> LLMTokenClaims:
     """Verify LLM JWT and return extracted claims.
 
     Args:
@@ -334,6 +334,14 @@ def verify_llm_token(token: str) -> LLMTokenClaims:
     """
     if not config.TRACECAT__SERVICE_KEY:
         raise ValueError("TRACECAT__SERVICE_KEY is not set")
+
+    if isinstance(token, bytes):
+        try:
+            token = token.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("Invalid LLM token") from exc
+    elif not isinstance(token, str) or not token:
+        raise ValueError("Invalid LLM token")
 
     try:
         payload = jwt.decode(

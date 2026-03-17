@@ -6,6 +6,8 @@ import asyncio
 import os
 from pathlib import Path
 
+import httpx
+
 from tracecat.logger import logger
 
 _litellm_process: asyncio.subprocess.Process | None = None
@@ -67,7 +69,47 @@ async def start_litellm_proxy() -> None:
         env=env,
     )
     _litellm_stderr_task = asyncio.create_task(_stream_litellm_stderr(_litellm_process))
+
+    # Wait for LiteLLM to become ready before returning
+    await _wait_for_litellm_ready()
     logger.info("LiteLLM proxy started")
+
+
+async def _wait_for_litellm_ready(
+    url: str = "http://127.0.0.1:4000/health/readiness",
+    max_attempts: int = 60,
+    interval: float = 0.5,
+) -> None:
+    """Poll LiteLLM health endpoint until it responds 200."""
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=2.0, read=2.0, write=2.0, pool=2.0)
+    ) as client:
+        for attempt in range(1, max_attempts + 1):
+            # Check if the process died while we're waiting
+            if _litellm_process is not None and _litellm_process.returncode is not None:
+                raise RuntimeError(
+                    f"LiteLLM process exited with code {_litellm_process.returncode} during startup"
+                )
+            try:
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    logger.info(
+                        "LiteLLM readiness confirmed",
+                        attempts=attempt,
+                    )
+                    return
+            except httpx.ConnectError:
+                pass
+            except httpx.TimeoutException:
+                pass
+            if attempt % 10 == 0:
+                logger.info(
+                    "Waiting for LiteLLM to become ready",
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                )
+            await asyncio.sleep(interval)
+    raise RuntimeError(f"LiteLLM did not become ready after {max_attempts} attempts")
 
 
 async def stop_litellm_proxy() -> None:
