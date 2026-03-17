@@ -43,7 +43,9 @@ from tracecat.authz.controls import has_scope
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.config import REDIS_URL, TRACECAT__DB_ENCRYPTION_KEY
 from tracecat.contexts import ctx_role
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import (
+    get_async_session_bypass_rls_context_manager,
+)
 from tracecat.db.models import (
     Membership,
     OrganizationMembership,
@@ -1006,7 +1008,7 @@ def create_mcp_auth() -> AuthProvider | None:
 
 async def resolve_user_by_email(email: str) -> User:
     """Look up a user by email, raising if not found."""
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(select(User).filter_by(email=email))
         user = result.scalars().first()
         if user is None:
@@ -1033,7 +1035,7 @@ async def resolve_org_membership(
     Raises:
         ValueError: If the user has no membership in the organization.
     """
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(
             select(OrganizationMembership).where(
                 OrganizationMembership.user_id == user_id,
@@ -1054,7 +1056,7 @@ async def resolve_workspace_org(workspace_id: WorkspaceID) -> OrganizationID:
     Raises:
         ValueError: If the workspace does not exist.
     """
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(
             select(Workspace.organization_id).where(Workspace.id == workspace_id)
         )
@@ -1084,7 +1086,7 @@ async def list_all_workspaces(
     organization_ids: frozenset[OrganizationID] | None = None,
 ) -> list[dict[str, str]]:
     """List all workspaces, optionally narrowed to specific organizations."""
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         stmt = select(Workspace.id, Workspace.name)
         if organization_ids:
             stmt = stmt.where(Workspace.organization_id.in_(organization_ids))
@@ -1105,7 +1107,7 @@ async def resolve_workspace_membership(
     The Membership model is a simple link table without a role column.
     Membership presence grants editor-level access.
     """
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
         result = await session.execute(
             select(Membership).where(
                 Membership.user_id == user_id,
@@ -1166,7 +1168,7 @@ async def list_user_workspaces(
     """
     user = await resolve_user_by_email(email)
 
-    async with get_async_session_context_manager() as session:
+    async with get_async_session_bypass_rls_context_manager() as session:
 
         async def _list_direct_membership_rows(
             scoped_org_ids: set[OrganizationID] | None = None,

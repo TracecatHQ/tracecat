@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import MagicMock, patch
@@ -15,6 +16,8 @@ from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
 from tracecat.mcp import auth as mcp_auth
+
+type AsyncLookup = Callable[..., Awaitable[object]]
 
 
 def _mock_oidc_discovery_config(
@@ -1167,10 +1170,88 @@ async def test_list_user_workspaces_includes_direct_memberships_without_org_memb
     monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
     monkeypatch.setattr(
         mcp_auth,
-        "get_async_session_context_manager",
+        "get_async_session_bypass_rls_context_manager",
         lambda: _AsyncContext(_Session()),
     )
 
     workspaces = await mcp_auth.list_user_workspaces("user@example.com")
 
     assert workspaces == [{"id": str(workspace_id), "name": "Workspace A"}]
+
+
+@pytest.mark.anyio
+async def test_mcp_pre_role_lookups_use_bypass_session_manager(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class BypassSessionUsed(Exception):
+        pass
+
+    class _AsyncContext:
+        async def __aenter__(self) -> None:
+            raise BypassSessionUsed
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
+        return SimpleNamespace(id=uuid.uuid4(), is_superuser=False)
+
+    cases: list[tuple[str, AsyncLookup, tuple[object, ...], bool]] = [
+        (
+            "resolve_user_by_email",
+            mcp_auth.resolve_user_by_email,
+            ("user@example.com",),
+            False,
+        ),
+        (
+            "resolve_org_membership",
+            mcp_auth.resolve_org_membership,
+            (uuid.uuid4(), uuid.uuid4()),
+            False,
+        ),
+        (
+            "resolve_workspace_org",
+            mcp_auth.resolve_workspace_org,
+            (uuid.uuid4(),),
+            False,
+        ),
+        ("list_all_workspaces", mcp_auth.list_all_workspaces, (), False),
+        (
+            "resolve_workspace_membership",
+            mcp_auth.resolve_workspace_membership,
+            (uuid.uuid4(), uuid.uuid4()),
+            False,
+        ),
+        (
+            "list_user_workspaces",
+            mcp_auth.list_user_workspaces,
+            ("user@example.com",),
+            True,
+        ),
+    ]
+
+    for _, fn, args, stub_user_lookup in cases:
+        call_count = 0
+
+        def _bypass_session_manager() -> _AsyncContext:
+            nonlocal call_count
+            call_count += 1
+            return _AsyncContext()
+
+        with monkeypatch.context() as patch_ctx:
+            patch_ctx.setattr(
+                mcp_auth,
+                "get_async_session_bypass_rls_context_manager",
+                _bypass_session_manager,
+            )
+            if stub_user_lookup:
+                patch_ctx.setattr(
+                    mcp_auth,
+                    "resolve_user_by_email",
+                    _resolve_user_by_email,
+                )
+
+            with pytest.raises(BypassSessionUsed):
+                await fn(*args)
+
+        assert call_count == 1
