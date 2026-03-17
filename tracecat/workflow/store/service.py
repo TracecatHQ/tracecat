@@ -30,7 +30,7 @@ from tracecat.workspaces.service import WorkspaceService
 class WorkflowStoreService(BaseWorkspaceService):
     service_name = "workflow_store"
 
-    @require_scope("workflow:update")
+    @require_scope("workflow:update", "workflow:sync")
     async def publish_workflow_dsl(
         self,
         *,

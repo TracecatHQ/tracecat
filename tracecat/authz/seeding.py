@@ -186,6 +186,12 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ScopeDefinition(
         "workflow:read", "workflow", "read", "View workflows and their details"
     ),
+    ScopeDefinition(
+        "workflow:sync",
+        "workflow",
+        "sync",
+        "Sync workflows with the configured Git repository",
+    ),
     ScopeDefinition("workflow:create", "workflow", "create", "Create new workflows"),
     ScopeDefinition(
         "workflow:update", "workflow", "update", "Modify existing workflows"
