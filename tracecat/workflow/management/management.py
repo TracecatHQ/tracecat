@@ -31,6 +31,7 @@ from tracecat.dsl.common import (
     DSLEntrypoint,
     DSLInput,
     build_action_statements_from_actions,
+    edge_components_from_dep,
 )
 from tracecat.dsl.schemas import DSLConfig, ExecutionContext, RunContext
 from tracecat.dsl.view import RFGraph
@@ -80,6 +81,18 @@ class WorkflowsManagementService(BaseWorkspaceService):
     """Manages CRUD operations for Workflows."""
 
     service_name = "workflows"
+
+    @staticmethod
+    def _workflow_fields_from_dsl(dsl: DSLInput) -> dict[str, Any]:
+        """Project runtime-relevant workflow fields from a DSLInput."""
+        return {
+            "title": dsl.title,
+            "description": dsl.description,
+            "expects": dsl.entrypoint.model_dump().get("expects"),
+            "returns": dsl.returns,
+            "config": dsl.config.model_dump(),
+            "error_handler": dsl.error_handler,
+        }
 
     @staticmethod
     def _build_schedule_summary_subqueries() -> tuple[sa.Subquery, sa.Subquery]:
@@ -909,15 +922,10 @@ class WorkflowsManagementService(BaseWorkspaceService):
         resolved_lock = await lock_service.resolve_lock_with_bindings(action_names)
         registry_lock = resolved_lock.model_dump()
 
-        entrypoint = dsl.entrypoint.model_dump()
         workflow_kwargs = {
-            "title": dsl.title,
-            "description": dsl.description,
             "workspace_id": self.workspace_id,
-            "returns": dsl.returns,
-            "config": dsl.config.model_dump(),
-            "expects": entrypoint.get("expects"),
             "registry_lock": registry_lock,
+            **self._workflow_fields_from_dsl(dsl),
         }
         if workflow_id:
             workflow_kwargs["id"] = workflow_id
@@ -1015,12 +1023,13 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
             if act_stmt.depends_on:
                 for dep_ref in act_stmt.depends_on:
-                    if dep_action := ref_to_action.get(dep_ref):
+                    src_ref, edge_type = edge_components_from_dep(dep_ref)
+                    if dep_action := ref_to_action.get(src_ref):
                         upstream_edges.append(
                             ActionEdge(
                                 source_id=str(dep_action.id),
                                 source_type="udf",
-                                source_handle="success",
+                                source_handle=edge_type.value,
                             )
                         )
             else:
