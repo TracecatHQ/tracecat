@@ -15,6 +15,7 @@ from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.api.app import info, lifespan
 from tracecat.auth.credentials import _role_dependency
 from tracecat.auth.discovery import AuthDiscoveryService
+from tracecat.auth.org_context import resolve_auth_organization_id
 from tracecat.auth.saml import login as saml_login
 from tracecat.auth.saml import sso_acs
 from tracecat.auth.types import Role
@@ -251,6 +252,11 @@ def test_list_my_pending_invitations_uses_bypass_session_dependency() -> None:
 def test_get_invitation_by_token_uses_bypass_session_dependency() -> None:
     source = inspect.getsource(get_invitation_by_token)
     assert "session: AsyncDBSessionBypass" in source
+
+
+def test_resolve_auth_organization_id_uses_bypass_session_manager() -> None:
+    source = inspect.getsource(resolve_auth_organization_id)
+    assert "get_async_session_bypass_rls_context_manager" in source
 
 
 def test_api_lifespan_rbac_seeding_uses_bypass_session_manager() -> None:
