@@ -10,9 +10,14 @@ import inspect
 import json
 from collections.abc import Callable, Mapping
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from tracecat_registry import RegistrySecretType
+from tracecat_registry.sdk.agents import (
+    encode_model_selection,
+    parse_model_selection,
+)
 
 from tracecat.exceptions import RegistryActionError, RegistryValidationError
 from tracecat.expressions.expectations import create_expectation_model
@@ -137,7 +142,9 @@ class BoundRegistryAction(BaseModel):
             # Note that we're allowing type coercion for the input arguments
             # Use cases would be transforming a UTC string to a datetime object
             # We return the validated input arguments as a dictionary
-            validated = self.args_cls.model_validate(args)
+            validated = self.args_cls.model_validate(
+                _normalize_ai_model_args(self.action, args)
+            )
             validated_args = validated.model_dump(mode=mode)
             return validated_args
         except ValidationError as e:
@@ -147,8 +154,94 @@ class BoundRegistryAction(BaseModel):
             )
             logger.error(msg)
             raise RegistryValidationError(msg, key=self.action, err=e) from e
+        except RegistryValidationError:
+            raise
         except Exception as e:
             raise RegistryValidationError(
                 f"Unexpected error when validating input arguments for bound registry action {self.action!r}. {e!r}",
                 key=self.action,
             ) from e
+
+
+_AI_ACTIONS_WITH_COMPOSITE_MODEL = frozenset(
+    {
+        "ai.agent",
+        "ai.action",
+        "ai.rank_documents",
+        "ai.select_field",
+        "ai.select_fields",
+    }
+)
+
+
+def _normalize_source_id_value(source_id: object) -> object:
+    if source_id is None:
+        return None
+    if isinstance(source_id, UUID):
+        return str(source_id)
+    if isinstance(source_id, str):
+        try:
+            return str(UUID(source_id))
+        except ValueError:
+            return source_id
+    return source_id
+
+
+def _normalize_ai_model_args(
+    action_name: str, args: Mapping[str, Any]
+) -> Mapping[str, Any]:
+    if action_name not in _AI_ACTIONS_WITH_COMPOSITE_MODEL:
+        return args
+
+    normalized = dict(args)
+    if isinstance(model := normalized.get("model"), str):
+        selection = parse_model_selection(model)
+        explicit_source_id = _normalize_source_id_value(normalized.get("source_id"))
+        explicit_provider = normalized.get("model_provider")
+        explicit_model_name = normalized.get("model_name")
+        normalized_source_id = _normalize_source_id_value(selection["source_id"])
+        if (
+            explicit_source_id is not None
+            and explicit_source_id != normalized_source_id
+        ):
+            raise RegistryValidationError(
+                "model conflicts with source_id", key=action_name
+            )
+        if (
+            explicit_provider is not None
+            and explicit_provider != selection["model_provider"]
+        ):
+            raise RegistryValidationError(
+                "model conflicts with model_provider", key=action_name
+            )
+        if (
+            explicit_model_name is not None
+            and explicit_model_name != selection["model_name"]
+        ):
+            raise RegistryValidationError(
+                "model conflicts with model_name", key=action_name
+            )
+        normalized.pop("source_id", None)
+        normalized.pop("model_provider", None)
+        normalized.pop("model_name", None)
+        return normalized
+
+    if not (
+        isinstance(model_name := normalized.get("model_name"), str)
+        and isinstance(model_provider := normalized.get("model_provider"), str)
+    ):
+        return args
+
+    normalized["model"] = encode_model_selection(
+        source_id=(
+            normalized.get("source_id")
+            if isinstance(normalized.get("source_id"), str)
+            else None
+        ),
+        model_provider=model_provider,
+        model_name=model_name,
+    )
+    normalized.pop("source_id", None)
+    normalized.pop("model_provider", None)
+    normalized.pop("model_name", None)
+    return normalized

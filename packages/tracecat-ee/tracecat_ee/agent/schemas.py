@@ -44,14 +44,34 @@ class AgentActionArgs(BaseModel):
 
         normalized = dict(value)
         selection = parse_model_selection(model)
-        normalized.setdefault(
-            "source_id",
-            UUID(selection["source_id"])
-            if selection["source_id"] is not None
-            else None,
+        normalized_source_id = (
+            UUID(selection["source_id"]) if selection["source_id"] is not None else None
         )
-        normalized.setdefault("model_provider", selection["model_provider"])
-        normalized.setdefault("model_name", selection["model_name"])
+        explicit_source_id = normalized.get("source_id")
+        if isinstance(explicit_source_id, str):
+            explicit_source_id = UUID(explicit_source_id)
+        if (
+            explicit_source_id is not None
+            and explicit_source_id != normalized_source_id
+        ):
+            raise ValueError("model conflicts with source_id")
+        if (
+            normalized.get("model_provider") is not None
+            and normalized["model_provider"] != selection["model_provider"]
+        ):
+            raise ValueError("model conflicts with model_provider")
+        if (
+            normalized.get("model_name") is not None
+            and normalized["model_name"] != selection["model_name"]
+        ):
+            raise ValueError("model conflicts with model_name")
+
+        if normalized.get("source_id") is None:
+            normalized["source_id"] = normalized_source_id
+        if normalized.get("model_provider") is None:
+            normalized["model_provider"] = selection["model_provider"]
+        if normalized.get("model_name") is None:
+            normalized["model_name"] = selection["model_name"]
         return normalized
 
 

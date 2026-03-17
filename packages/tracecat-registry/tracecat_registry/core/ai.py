@@ -43,6 +43,31 @@ DEFAULT_RANKING_REFINEMENT_RATIO: float = 0.5
 """Default ranking refinement ratio to use."""
 
 
+def _resolve_model_selection(
+    *,
+    model: str | None,
+    model_name: str | None,
+    model_provider: str | None,
+    source_id: str | None,
+    default_model: str,
+) -> tuple[str, str, str | None]:
+    if model:
+        selection = parse_model_selection(model)
+        return (
+            selection["model_name"],
+            selection["model_provider"],
+            selection["source_id"],
+        )
+    if model_name and model_provider:
+        return model_name, model_provider, source_id
+    selection = parse_model_selection(default_model)
+    return (
+        selection["model_name"],
+        selection["model_provider"],
+        selection["source_id"],
+    )
+
+
 @registry.register(
     default_title="Rank documents",
     description="Use AI to rank a list of text documents from best to worst according to a specified criteria.",
@@ -61,10 +86,22 @@ async def rank_documents(
         ),
     ],
     model: Annotated[
-        str,
+        str | None,
         Doc("Model selection to use for ranking."),
         AgentModel(),
-    ] = DEFAULT_RANKING_MODEL,
+    ] = None,
+    model_name: Annotated[
+        str | None,
+        Doc("Deprecated legacy model name field."),
+    ] = None,
+    model_provider: Annotated[
+        str | None,
+        Doc("Deprecated legacy model provider field."),
+    ] = None,
+    source_id: Annotated[
+        str | None,
+        Doc("Optional model source identifier."),
+    ] = None,
     algorithm: Annotated[
         Literal["single-pass", "pairwise"],
         Doc("Algorithm to use for ranking."),
@@ -96,7 +133,15 @@ async def rank_documents(
     if len(items) < 3:
         raise ValueError(f"Expected at least 3 items to rank, got {len(items)} items.")
 
-    selection = parse_model_selection(model)
+    resolved_model_name, resolved_model_provider, resolved_source_id = (
+        _resolve_model_selection(
+            model=model,
+            model_name=model_name,
+            model_provider=model_provider,
+            source_id=source_id,
+            default_model=DEFAULT_RANKING_MODEL,
+        )
+    )
 
     dict_items: list[RankableItem] = [
         {"id": i, "text": item} for i, item in enumerate(items)
@@ -106,9 +151,9 @@ async def rank_documents(
         ranked_ids = await rank_items_pairwise(
             items=dict_items,
             criteria_prompt=criteria_prompt,
-            model_name=selection["model_name"],
-            model_provider=selection["model_provider"],
-            source_id=selection["source_id"],
+            model_name=resolved_model_name,
+            model_provider=resolved_model_provider,
+            source_id=resolved_source_id,
             id_field="id",
             batch_size=batch_size,
             num_passes=num_passes,
@@ -120,9 +165,9 @@ async def rank_documents(
         ranked_ids = await rank_items(
             items=dict_items,
             criteria_prompt=criteria_prompt,
-            model_name=selection["model_name"],
-            model_provider=selection["model_provider"],
-            source_id=selection["source_id"],
+            model_name=resolved_model_name,
+            model_provider=resolved_model_provider,
+            source_id=resolved_source_id,
             min_items=1,
             max_items=1,
         )
@@ -169,10 +214,22 @@ async def select_field(
         ),
     ] = False,
     model: Annotated[
-        str,
+        str | None,
         Doc("Model selection to use for ranking."),
         AgentModel(),
-    ] = DEFAULT_RANKING_MODEL,
+    ] = None,
+    model_name: Annotated[
+        str | None,
+        Doc("Deprecated legacy model name field."),
+    ] = None,
+    model_provider: Annotated[
+        str | None,
+        Doc("Deprecated legacy model provider field."),
+    ] = None,
+    source_id: Annotated[
+        str | None,
+        Doc("Optional model source identifier."),
+    ] = None,
     algorithm: Annotated[
         Literal["single-pass", "pairwise"],
         Doc("Algorithm to use for ranking."),
@@ -184,7 +241,15 @@ async def select_field(
     if not json:
         raise ValueError("Expected JSON object with at least one key to rank.")
 
-    selection = parse_model_selection(model)
+    resolved_model_name, resolved_model_provider, resolved_source_id = (
+        _resolve_model_selection(
+            model=model,
+            model_name=model_name,
+            model_provider=model_provider,
+            source_id=source_id,
+            default_model=DEFAULT_RANKING_MODEL,
+        )
+    )
 
     # Get keys
     keys = _get_keys(json)
@@ -197,9 +262,9 @@ async def select_field(
         ranked_ids = await rank_items_pairwise(
             items=keys,
             criteria_prompt=criteria_prompt,
-            model_name=selection["model_name"],
-            model_provider=selection["model_provider"],
-            source_id=selection["source_id"],
+            model_name=resolved_model_name,
+            model_provider=resolved_model_provider,
+            source_id=resolved_source_id,
             min_items=1,
             max_items=1,
         )
@@ -207,9 +272,9 @@ async def select_field(
         ranked_ids = await rank_items(
             items=keys,
             criteria_prompt=criteria_prompt,
-            model_name=selection["model_name"],
-            model_provider=selection["model_provider"],
-            source_id=selection["source_id"],
+            model_name=resolved_model_name,
+            model_provider=resolved_model_provider,
+            source_id=resolved_source_id,
             min_items=1,
             max_items=1,
         )
@@ -268,10 +333,22 @@ async def select_fields(
         ),
     ] = False,
     model: Annotated[
-        str,
+        str | None,
         Doc("Model selection to use for ranking."),
         AgentModel(),
-    ] = DEFAULT_RANKING_MODEL,
+    ] = None,
+    model_name: Annotated[
+        str | None,
+        Doc("Deprecated legacy model name field."),
+    ] = None,
+    model_provider: Annotated[
+        str | None,
+        Doc("Deprecated legacy model provider field."),
+    ] = None,
+    source_id: Annotated[
+        str | None,
+        Doc("Optional model source identifier."),
+    ] = None,
     algorithm: Annotated[
         Literal["single-pass", "pairwise"],
         Doc("Algorithm to use for ranking."),
@@ -291,7 +368,15 @@ async def select_fields(
     if max_fields < 2:
         raise ValueError("Number of fields to select must be at least 2.")
 
-    selection = parse_model_selection(model)
+    resolved_model_name, resolved_model_provider, resolved_source_id = (
+        _resolve_model_selection(
+            model=model,
+            model_name=model_name,
+            model_provider=model_provider,
+            source_id=source_id,
+            default_model=DEFAULT_RANKING_MODEL,
+        )
+    )
 
     # Get keys
     keys = _get_keys(json)
@@ -300,9 +385,9 @@ async def select_fields(
         ranked_ids = await rank_items_pairwise(
             items=keys,
             criteria_prompt=criteria_prompt,
-            model_name=selection["model_name"],
-            model_provider=selection["model_provider"],
-            source_id=selection["source_id"],
+            model_name=resolved_model_name,
+            model_provider=resolved_model_provider,
+            source_id=resolved_source_id,
             min_items=min_fields,
             max_items=max_fields,
         )
@@ -310,9 +395,9 @@ async def select_fields(
         ranked_ids = await rank_items(
             items=keys,
             criteria_prompt=criteria_prompt,
-            model_name=selection["model_name"],
-            model_provider=selection["model_provider"],
-            source_id=selection["source_id"],
+            model_name=resolved_model_name,
+            model_provider=resolved_model_provider,
+            source_id=resolved_source_id,
             min_items=min_fields,
             max_items=max_fields,
         )

@@ -1,10 +1,18 @@
 import textwrap
+import uuid
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from tracecat_registry import ActionIsInterfaceError
 from tracecat_registry.core.agent import action, agent
-from tracecat_registry.sdk.agents import encode_model_selection
+from tracecat_registry.sdk.agents import (
+    encode_model_selection,
+    rank_items,
+    rank_items_pairwise,
+    run_agent,
+)
 
 from tracecat.auth.types import Role
 
@@ -150,3 +158,110 @@ async def test_action_json_schema(output_type: Any) -> None:
             output_type=output_type,
             max_requests=3,
         )
+
+
+@pytest.mark.anyio
+async def test_run_agent_keeps_legacy_positional_actions_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = AsyncMock(
+        return_value={
+            "output": "ok",
+            "message_history": None,
+            "duration": 0.1,
+            "usage": {},
+            "session_id": str(uuid.uuid4()),
+        }
+    )
+    monkeypatch.setattr(
+        "tracecat_registry.context.get_context",
+        lambda: SimpleNamespace(agents=SimpleNamespace(run=run)),
+    )
+
+    await run_agent(
+        "hello",
+        "gpt-5",
+        "openai",
+        ["tools.slack.post_message"],
+    )
+
+    assert run.await_count == 1
+    assert run.await_args is not None
+    assert run.await_args.kwargs["config"].actions == ["tools.slack.post_message"]
+    assert run.await_args.kwargs["config"].source_id is None
+
+
+@pytest.mark.anyio
+async def test_rank_items_keeps_legacy_positional_optional_slots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rank = AsyncMock(return_value=["item-1"])
+    monkeypatch.setattr(
+        "tracecat_registry.context.get_context",
+        lambda: SimpleNamespace(agents=SimpleNamespace(rank_items=rank)),
+    )
+
+    await rank_items(
+        [{"id": "item-1", "text": "First"}],
+        "Rank items",
+        "gpt-5",
+        "openai",
+        {"temperature": 0.1},
+        5,
+        3,
+        None,
+        1,
+        10,
+        "11111111-1111-1111-1111-111111111111",
+    )
+
+    assert rank.await_count == 1
+    assert rank.await_args is not None
+    assert rank.await_args.kwargs["model_settings"] == {"temperature": 0.1}
+    assert rank.await_args.kwargs["source_id"] == (
+        "11111111-1111-1111-1111-111111111111"
+    )
+    assert rank.await_args.kwargs["min_items"] == 1
+    assert rank.await_args.kwargs["max_items"] == 10
+
+
+@pytest.mark.anyio
+async def test_rank_items_pairwise_keeps_legacy_positional_optional_slots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rank = AsyncMock(return_value=["item-1"])
+    monkeypatch.setattr(
+        "tracecat_registry.context.get_context",
+        lambda: SimpleNamespace(agents=SimpleNamespace(rank_items_pairwise=rank)),
+    )
+
+    await rank_items_pairwise(
+        [{"id": "item-1", "text": "First"}],
+        "Rank items",
+        "gpt-5",
+        "openai",
+        "custom_id",
+        5,
+        2,
+        0.4,
+        {"temperature": 0.1},
+        5,
+        3,
+        None,
+        1,
+        10,
+        "11111111-1111-1111-1111-111111111111",
+    )
+
+    assert rank.await_count == 1
+    assert rank.await_args is not None
+    assert rank.await_args.kwargs["id_field"] == "custom_id"
+    assert rank.await_args.kwargs["batch_size"] == 5
+    assert rank.await_args.kwargs["num_passes"] == 2
+    assert rank.await_args.kwargs["refinement_ratio"] == 0.4
+    assert rank.await_args.kwargs["model_settings"] == {"temperature": 0.1}
+    assert rank.await_args.kwargs["source_id"] == (
+        "11111111-1111-1111-1111-111111111111"
+    )
+    assert rank.await_args.kwargs["min_items"] == 1
+    assert rank.await_args.kwargs["max_items"] == 10

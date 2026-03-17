@@ -16,6 +16,7 @@ from tracecat.agent.schemas import (
     InternalRankItemsPairwiseRequest,
     InternalRankItemsRequest,
     InternalRunAgentRequest,
+    ModelSelection,
 )
 from tracecat.agent.service import (
     SOURCE_RUNTIME_API_KEY,
@@ -30,6 +31,7 @@ from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.contexts import ctx_role, ctx_session_id
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
@@ -255,12 +257,22 @@ async def rank_items_endpoint(
 
     try:
         agent_svc = AgentManagementService(session, role=role)
-        config = AgentConfig(
-            source_id=params.source_id,
-            model_name=params.model_name,
-            model_provider=params.model_provider,
-            model_settings=params.model_settings,
-            base_url=params.base_url,
+        config = await agent_svc.resolve_runtime_agent_config(
+            AgentConfig(
+                source_id=params.source_id,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                model_settings=params.model_settings,
+                base_url=params.base_url,
+            )
+        )
+        await agent_svc.require_enabled_model_selection(
+            ModelSelection(
+                source_id=config.source_id,
+                model_name=config.model_name,
+                model_provider=config.model_provider,
+            ),
+            workspace_id=role.workspace_id,
         )
         async with _provider_secrets_context(agent_svc, config):
             return await ranker_rank_items(
@@ -275,6 +287,11 @@ async def rank_items_endpoint(
                 min_items=params.min_items,
                 max_items=params.max_items,
             )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -295,12 +312,22 @@ async def rank_items_pairwise_endpoint(
 
     try:
         agent_svc = AgentManagementService(session, role=role)
-        config = AgentConfig(
-            source_id=params.source_id,
-            model_name=params.model_name,
-            model_provider=params.model_provider,
-            model_settings=params.model_settings,
-            base_url=params.base_url,
+        config = await agent_svc.resolve_runtime_agent_config(
+            AgentConfig(
+                source_id=params.source_id,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                model_settings=params.model_settings,
+                base_url=params.base_url,
+            )
+        )
+        await agent_svc.require_enabled_model_selection(
+            ModelSelection(
+                source_id=config.source_id,
+                model_name=config.model_name,
+                model_provider=config.model_provider,
+            ),
+            workspace_id=role.workspace_id,
         )
         async with _provider_secrets_context(agent_svc, config):
             return await ranker_rank_items_pairwise(
@@ -319,6 +346,11 @@ async def rank_items_pairwise_endpoint(
                 min_items=params.min_items,
                 max_items=params.max_items,
             )
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
