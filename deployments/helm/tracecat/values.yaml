@@ -236,6 +236,7 @@ tracecat:
       TracecatTriggeredByUserId: Keyword
       TracecatWorkspaceId: Keyword
       TracecatAlias: Keyword
+      TracecatCorrelationId: Keyword
       TracecatExecutionType: Keyword
 
     # Temporal SDK metrics (Prometheus endpoint exposed by Tracecat processes that connect to Temporal).
