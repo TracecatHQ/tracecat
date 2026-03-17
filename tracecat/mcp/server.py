@@ -1,7 +1,7 @@
 """Standalone MCP server for Tracecat workflow management.
 
 Exposes workflow operations to external MCP clients (Claude Desktop, Cursor, etc.).
-Users authenticate via the configured MCP auth methods. Enabling `none` is
+Users authenticate via the configured MCP auth mode. Enabling `none` is
 highly unsafe and should only be used for local development.
 """
 

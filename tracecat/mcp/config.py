@@ -3,24 +3,27 @@
 from __future__ import annotations
 
 import os
+from enum import StrEnum
 
 from tracecat.config import TRACECAT__PUBLIC_APP_URL
 
 
-def _parse_auth_methods(raw: str) -> frozenset[str]:
+class MCPAuthMode(StrEnum):
+    OIDC = "oidc"
+    NONE = "none"
+
+
+def _parse_auth_mode(raw: str) -> MCPAuthMode:
     if not raw.strip():
-        return frozenset({"oidc"})
-    methods = {part.strip().lower() for part in raw.split(",") if part.strip()}
-    if not methods:
         raise ValueError("TRACECAT_MCP__AUTH_METHODS must include at least one method")
-    valid_methods = {"oidc", "none"}
-    invalid_methods = sorted(methods - valid_methods)
-    if invalid_methods:
+    normalized = raw.strip().lower()
+    try:
+        return MCPAuthMode(normalized)
+    except ValueError as exc:
         raise ValueError(
-            "TRACECAT_MCP__AUTH_METHODS contains invalid values: "
-            + ", ".join(invalid_methods)
-        )
-    return frozenset(methods)
+            "TRACECAT_MCP__AUTH_METHODS must be one of: "
+            + ", ".join(mode.value for mode in MCPAuthMode)
+        ) from exc
 
 
 TRACECAT_MCP__HOST: str = os.environ.get("TRACECAT_MCP__HOST", "0.0.0.0")
@@ -39,10 +42,12 @@ FastMCP derives the protected resource path (for example `/mcp`) separately.
 Defaults to `TRACECAT__PUBLIC_APP_URL` for local development and cluster setups.
 """
 
-TRACECAT_MCP__AUTH_METHODS: frozenset[str] = _parse_auth_methods(
-    os.environ.get("TRACECAT_MCP__AUTH_METHODS") or "oidc"
+_AUTH_METHODS_ENV = os.environ.get("TRACECAT_MCP__AUTH_METHODS")
+
+TRACECAT_MCP__AUTH_MODE: MCPAuthMode = _parse_auth_mode(
+    "oidc" if _AUTH_METHODS_ENV is None else _AUTH_METHODS_ENV
 )
-"""Enabled MCP auth methods.
+"""Enabled MCP auth mode.
 
 Defaults to OIDC-only. The only unsafe auth mode supported on this branch is
 `none`, which allows unauthenticated access and should only be used for local

@@ -21,8 +21,6 @@ from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
-from mcp.server.auth.middleware.auth_context import AuthContextMiddleware
-from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from mcp.server.auth.provider import (
     AuthorizationParams,
     TokenError,
@@ -31,11 +29,8 @@ from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
-from starlette.authentication import AuthCredentials, AuthenticationBackend
 from starlette.datastructures import MutableHeaders
-from starlette.middleware import Middleware
-from starlette.middleware.authentication import AuthenticationMiddleware
-from starlette.requests import HTTPConnection, Request
+from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -122,94 +117,6 @@ def _build_none_access_token() -> AccessToken:
         scopes=["*"],
         claims=claims,
     )
-
-
-class _TracecatMCPAuthBackend(AuthenticationBackend):
-    def __init__(self, provider: TracecatMCPAuthProvider) -> None:
-        self.provider = provider
-
-    async def authenticate(self, conn: HTTPConnection):
-        auth_header = next(
-            (
-                conn.headers.get(key)
-                for key in conn.headers
-                if key.lower() == "authorization"
-            ),
-            None,
-        )
-        auth_was_attempted = auth_header is not None
-        auth_info: AccessToken | None = None
-        if auth_header:
-            scheme, _, credential = auth_header.partition(" ")
-            if scheme.lower() == "bearer" and credential:
-                auth_info = await self.provider.verify_token(credential)
-
-        if auth_info is None and self.provider.supports_none and not auth_was_attempted:
-            logger.warning(
-                "Accepted unauthenticated MCP request because auth method 'none' is enabled; this is highly unsafe and should only be used for development",
-                auth_source=MCPAuthSource.NONE.value,
-            )
-            auth_info = _build_none_access_token()
-
-        if auth_info is None:
-            return None
-        if auth_info.expires_at and auth_info.expires_at < int(time.time()):
-            return None
-
-        return AuthCredentials(auth_info.scopes), AuthenticatedUser(auth_info)
-
-
-class TracecatMCPAuthProvider(AuthProvider):
-    """MCP auth provider that wraps OIDC and optional unsafe authless access."""
-
-    def __init__(
-        self,
-        *,
-        base_url: str,
-        auth_methods: frozenset[str],
-        oidc_provider: OIDCProxy | None,
-    ) -> None:
-        super().__init__(
-            base_url=base_url,
-            required_scopes=(
-                list(oidc_provider.required_scopes) if oidc_provider else []
-            ),
-        )
-        self.auth_methods = auth_methods
-        self.server = oidc_provider
-
-    @property
-    def supports_none(self) -> bool:
-        return MCPAuthSource.NONE.value in self.auth_methods
-
-    async def verify_token(self, token: str) -> AccessToken | None:
-        if self.server is None:
-            return None
-        return await self.server.verify_token(token)
-
-    def set_mcp_path(self, mcp_path: str | None) -> None:
-        super().set_mcp_path(mcp_path)
-        if self.server is not None:
-            self.server.set_mcp_path(mcp_path)
-
-    def get_routes(self, mcp_path: str | None = None) -> list[Route]:
-        self.set_mcp_path(mcp_path)
-        if self.server is None:
-            return []
-        return self.server.get_routes(mcp_path)
-
-    def get_middleware(self) -> list[Middleware]:
-        if self.supports_none:
-            return [
-                Middleware(
-                    AuthenticationMiddleware,  # type: ignore[arg-type]
-                    backend=_TracecatMCPAuthBackend(self),
-                ),
-                Middleware(AuthContextMiddleware),  # type: ignore[arg-type]
-            ]
-        if self.server is None:
-            return []
-        return self.server.get_middleware()
 
 
 class _UserinfoFetchError(RuntimeError):
@@ -453,7 +360,10 @@ def get_token_identity() -> MCPTokenIdentity:
     """Extract normalized caller identity from the current access token."""
     access_token = get_access_token()
     if access_token is None:
-        raise ValueError("Authentication required")
+        if mcp_config.TRACECAT_MCP__AUTH_MODE is mcp_config.MCPAuthMode.NONE:
+            access_token = _build_none_access_token()
+        else:
+            raise ValueError("Authentication required")
 
     claims = access_token.claims
     email = get_email_claim(claims)
@@ -1075,7 +985,7 @@ def _create_oidc_auth() -> OIDCProxy:
     return auth
 
 
-def create_mcp_auth() -> AuthProvider:
+def create_mcp_auth() -> AuthProvider | None:
     """Build the configured auth provider for external MCP."""
     base_url = mcp_config.TRACECAT_MCP__BASE_URL.strip().rstrip("/")
     if not base_url:
@@ -1084,37 +994,14 @@ def create_mcp_auth() -> AuthProvider:
             "Set it to the public URL where the MCP server is accessible."
         )
 
-    auth_methods = mcp_config.TRACECAT_MCP__AUTH_METHODS
-    oidc_provider: OIDCProxy | None = None
-    if MCPAuthSource.OIDC.value in auth_methods:
-        try:
-            oidc_provider = _create_oidc_auth()
-        except Exception:
-            if auth_methods == frozenset({MCPAuthSource.OIDC.value}):
-                raise
-            logger.warning(
-                "MCP oidc auth is enabled but not configured; skipping OIDC and continuing with remaining auth methods",
-                auth_methods=sorted(auth_methods),
-                exc_info=True,
-            )
-
-    if (
-        auth_methods == frozenset({MCPAuthSource.OIDC.value})
-        and oidc_provider is not None
-    ):
-        return oidc_provider
-
-    if MCPAuthSource.NONE.value in auth_methods:
+    if mcp_config.TRACECAT_MCP__AUTH_MODE is mcp_config.MCPAuthMode.NONE:
         logger.warning(
             "MCP none auth is enabled; unauthenticated requests will run with a superuser-equivalent bypass. This is highly unsafe and should only be used for development",
-            auth_methods=sorted(auth_methods),
+            auth_mode=mcp_config.TRACECAT_MCP__AUTH_MODE.value,
         )
+        return None
 
-    return TracecatMCPAuthProvider(
-        base_url=base_url,
-        auth_methods=auth_methods,
-        oidc_provider=oidc_provider,
-    )
+    return _create_oidc_auth()
 
 
 async def resolve_user_by_email(email: str) -> User:
