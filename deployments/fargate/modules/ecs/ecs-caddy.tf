@@ -57,23 +57,50 @@ cat > /etc/caddy/Caddyfile <<'CONFIG'
     reverse_proxy http://temporal-ui-service:8080
   }
 
+${var.enable_mcp ? <<MCP
+  @mcp_routes {
+    path /mcp /mcp/*
+    path /.well-known/oauth-authorization-server
+    path /.well-known/oauth-protected-resource /.well-known/oauth-protected-resource/*
+    path /authorize /authorize/*
+    path /token
+    path /register
+    path /consent /consent/*
+    path /auth/callback /auth/callback/*
+  }
+  handle @mcp_routes {
+    reverse_proxy http://mcp-service:8099 {
+      flush_interval -1
+      header_up Connection "keep-alive"
+      header_up Keep-Alive "timeout=300"
+      header_down Connection "keep-alive"
+      header_down Keep-Alive "timeout=300"
+      header_up X-Forwarded-For {remote_host}
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-Proto {scheme}
+      header_up X-Forwarded-Host {host}
+    }
+  }
+MCP
+      : ""}
+
   reverse_proxy http://ui-service:3000
 }
 CONFIG
 
 caddy run --config /etc/caddy/Caddyfile
 EOT
-      ]
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
-          awslogs-region        = var.aws_region
-          awslogs-stream-prefix = "caddy"
-        }
+    ]
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.tracecat_log_group.name
+        awslogs-region        = var.aws_region
+        awslogs-stream-prefix = "caddy"
       }
     }
-  ])
+    }
+])
 }
 
 resource "aws_ecs_service" "tracecat_caddy" {
@@ -125,6 +152,7 @@ resource "aws_ecs_service" "tracecat_caddy" {
   depends_on = [
     aws_ecs_service.tracecat_api,
     aws_ecs_service.tracecat_ui,
-    aws_ecs_service.tracecat_worker
+    aws_ecs_service.tracecat_worker,
+    aws_ecs_service.tracecat_mcp,
   ]
 }
