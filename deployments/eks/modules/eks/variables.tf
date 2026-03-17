@@ -385,7 +385,7 @@ variable "agent_executor_backend" {
 variable "agent_executor_max_concurrent_activities" {
   description = "Maximum concurrent activities per agent-executor pod"
   type        = number
-  default     = 1
+  default     = 3
 }
 
 variable "ui_replicas" {

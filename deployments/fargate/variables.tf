@@ -505,7 +505,7 @@ variable "agent_executor_queue" {
 variable "agent_executor_max_concurrent_activities" {
   type        = number
   description = "Maximum concurrent activities per agent-executor task"
-  default     = 1
+  default     = 3
 }
 
 variable "agent_executor_worker_pool_size" {
