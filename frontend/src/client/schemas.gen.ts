@@ -1088,6 +1088,38 @@ export const $AgentChannelTokenUpdate = {
   description: "Request schema for updating an external channel token.",
 } as const
 
+export const $AgentDefaultModelSelection = {
+  properties: {
+    source_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Id",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Model Name",
+    },
+  },
+  type: "object",
+  required: ["model_provider", "model_name"],
+  title: "AgentDefaultModelSelection",
+} as const
+
 export const $AgentModelSourceCreate = {
   properties: {
     type: {
@@ -3364,6 +3396,9 @@ export const $AgentSettingsRead = {
     agent_default_model: {
       anyOf: [
         {
+          $ref: "#/components/schemas/AgentDefaultModelSelection",
+        },
+        {
           type: "string",
         },
         {
@@ -3413,6 +3448,9 @@ export const $AgentSettingsUpdate = {
   properties: {
     agent_default_model: {
       anyOf: [
+        {
+          $ref: "#/components/schemas/AgentDefaultModelSelection",
+        },
         {
           type: "string",
         },
