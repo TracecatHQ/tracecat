@@ -177,8 +177,11 @@ async def lifespan(app: FastAPI):
     async with get_async_session_bypass_rls_context_manager() as session:
         await setup_rbac_defaults(session)
 
-    await sync_model_catalogs_on_startup()
-    logger.debug("Completed startup model catalog sync and legacy repair")
+    model_catalog_sync_task = asyncio.create_task(
+        sync_model_catalogs_on_startup(),
+        name="model_catalog_sync",
+    )
+    logger.debug("Spawned background task for startup model catalog sync")
 
     # Spawn platform registry sync as background task (non-blocking)
     # Uses leader election to prevent race conditions across multiple API processes
@@ -203,6 +206,25 @@ async def lifespan(app: FastAPI):
     logger.info("API startup complete")
 
     yield
+
+    if not model_catalog_sync_task.done():
+        logger.info("Waiting for model catalog sync task to complete...")
+        try:
+            await asyncio.wait_for(model_catalog_sync_task, timeout=10.0)
+            logger.info("Model catalog sync task completed")
+        except TimeoutError:
+            logger.warning(
+                "Model catalog sync task did not complete in time, cancelling"
+            )
+            model_catalog_sync_task.cancel()
+            try:
+                await model_catalog_sync_task
+            except asyncio.CancelledError:
+                logger.debug("Model catalog sync task cancelled")
+        except Exception as e:
+            logger.warning(
+                "Model catalog sync task failed during shutdown", error=str(e)
+            )
 
     # Gracefully handle the registry sync task during shutdown
     if not registry_sync_task.done():
