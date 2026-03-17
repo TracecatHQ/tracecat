@@ -648,7 +648,7 @@ class DurableAgentWorkflow:
                     start_to_close_timeout=timedelta(
                         seconds=int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
                     ),
-                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    retry_policy=RETRY_POLICIES["activity:fail_slow"],
                     priority=AGENT_TOOL_PRIORITY,
                 )
                 pending_results.append(
