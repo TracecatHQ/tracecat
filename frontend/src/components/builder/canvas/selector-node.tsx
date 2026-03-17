@@ -12,6 +12,10 @@ import type { GraphOperation, RegistryActionReadMinimal } from "@/client"
 import { isEphemeral } from "@/components/builder/canvas/canvas"
 import { getIcon } from "@/components/icons"
 import {
+  LockedFeatureChip,
+  LockedFeatureModal,
+} from "@/components/locked-feature-modal"
+import {
   Command,
   CommandEmpty,
   CommandGroup,
@@ -213,7 +217,7 @@ function ActionCommandSelector({
   inputValue: string
 }) {
   const { registryActions, registryActionsIsLoading, registryActionsError } =
-    useBuilderRegistryActions()
+    useBuilderRegistryActions({ includeLocked: true })
 
   if (!registryActions || registryActionsIsLoading) {
     return (
@@ -309,9 +313,14 @@ function ActionCommandGroup({
   const filterResults = useMemo(() => {
     return filterActions(sortedActions, inputValue)
   }, [sortedActions, inputValue])
+  const [lockedFeatureOpen, setLockedFeatureOpen] = React.useState(false)
 
   const handleSelect = useCallback(
     async (registryAction: RegistryActionReadMinimal) => {
+      if (registryAction.availability?.locked ?? false) {
+        setLockedFeatureOpen(true)
+        return
+      }
       if (!workflowId) {
         return
       }
@@ -465,59 +474,83 @@ function ActionCommandGroup({
   )
 
   return (
-    <CommandGroup heading={group} className="text-xs">
-      {filterResults.map((result) => {
-        const action = result.obj
+    <>
+      <LockedFeatureModal
+        open={lockedFeatureOpen}
+        onOpenChange={setLockedFeatureOpen}
+      />
+      <CommandGroup heading={group} className="text-xs">
+        {filterResults.map((result) => {
+          const action = result.obj
+          const isLocked = action.availability?.locked ?? false
 
-        if (highlight) {
-          // Get fuzzysort results by key name (resilient to SEARCH_KEYS reordering)
-          const actionResult = result[SEARCH_KEY_INDEX.action]
-          const titleResult = result[SEARCH_KEY_INDEX.default_title]
+          if (highlight) {
+            // Get fuzzysort results by key name (resilient to SEARCH_KEYS reordering)
+            const actionResult = result[SEARCH_KEY_INDEX.action]
+            const titleResult = result[SEARCH_KEY_INDEX.default_title]
+
+            return (
+              <CommandItem
+                key={action.action}
+                className={cn(
+                  "flex items-center gap-3 py-2 text-xs",
+                  isLocked && "text-muted-foreground"
+                )}
+                onSelect={async () => await handleSelect(action)}
+              >
+                {getIcon(action.action, {
+                  className: "size-8 rounded-md border p-1.5",
+                })}
+                <div className="flex min-w-0 flex-col">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-xs font-medium">
+                      <HighlightedText
+                        result={titleResult}
+                        text={action.default_title ?? action.action}
+                      />
+                    </span>
+                    {isLocked ? (
+                      <LockedFeatureChip className="shrink-0" />
+                    ) : null}
+                  </div>
+                  <span className="truncate text-xs text-muted-foreground">
+                    <HighlightedText
+                      result={actionResult}
+                      text={action.action}
+                    />
+                  </span>
+                </div>
+              </CommandItem>
+            )
+          }
 
           return (
             <CommandItem
               key={action.action}
-              className="flex items-center gap-3 py-2 text-xs"
+              className={cn(
+                "flex items-center gap-3 py-2 text-xs",
+                isLocked && "text-muted-foreground"
+              )}
               onSelect={async () => await handleSelect(action)}
             >
               {getIcon(action.action, {
                 className: "size-8 rounded-md border p-1.5",
               })}
               <div className="flex min-w-0 flex-col">
-                <span className="truncate text-xs font-medium">
-                  <HighlightedText
-                    result={titleResult}
-                    text={action.default_title ?? action.action}
-                  />
-                </span>
-                <span className="truncate text-xs text-muted-foreground">
-                  <HighlightedText result={actionResult} text={action.action} />
-                </span>
-              </div>
-            </CommandItem>
-          )
-        } else {
-          return (
-            <CommandItem
-              key={action.action}
-              className="flex items-center gap-3 py-2 text-xs"
-              onSelect={async () => await handleSelect(action)}
-            >
-              {getIcon(action.action, {
-                className: "size-8 rounded-md border p-1.5",
-              })}
-              <div className="flex min-w-0 flex-col">
-                <span className="truncate text-xs font-medium">
-                  {action.default_title}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-xs font-medium">
+                    {action.default_title}
+                  </span>
+                  {isLocked ? <LockedFeatureChip className="shrink-0" /> : null}
+                </div>
                 <span className="truncate text-xs text-muted-foreground">
                   {action.action}
                 </span>
               </div>
             </CommandItem>
           )
-        }
-      })}
-    </CommandGroup>
+        })}
+      </CommandGroup>
+    </>
   )
 }

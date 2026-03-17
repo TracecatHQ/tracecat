@@ -1817,15 +1817,28 @@ export function useUserManager() {
 
 /* Registry Actions */
 // For selector node
-export function useBuilderRegistryActions(versions?: string[]) {
+interface UseBuilderRegistryActionsOptions {
+  versions?: string[]
+  includeLocked?: boolean
+}
+
+export function useBuilderRegistryActions(
+  options?: UseBuilderRegistryActionsOptions
+) {
   const {
     data: registryActions,
     isLoading: registryActionsIsLoading,
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
-    queryKey: ["builder_registry_actions", versions],
+    queryKey: [
+      "builder_registry_actions",
+      options?.versions,
+      options?.includeLocked,
+    ],
     queryFn: async () => {
-      return await registryActionsListRegistryActions()
+      return await registryActionsListRegistryActions(
+        options?.includeLocked ? { includeLocked: true } : {}
+      )
     },
   })
 
@@ -1866,15 +1879,22 @@ export function useGetRegistryAction(actionName?: string) {
 }
 
 // For selector node
-export function useRegistryActions(versions?: string[]) {
+interface UseRegistryActionsOptions {
+  versions?: string[]
+  includeLocked?: boolean
+}
+
+export function useRegistryActions(options?: UseRegistryActionsOptions) {
   const {
     data: registryActions,
     isLoading: registryActionsIsLoading,
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
-    queryKey: ["registry_actions", versions],
+    queryKey: ["registry_actions", options?.versions, options?.includeLocked],
     queryFn: async () => {
-      return await registryActionsListRegistryActions()
+      return await registryActionsListRegistryActions({
+        includeLocked: options?.includeLocked,
+      })
     },
   })
 

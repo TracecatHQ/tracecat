@@ -23,6 +23,10 @@ import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
 import { ExpressionInput } from "@/components/editor/expression-input"
 import { getIcon } from "@/components/icons"
+import {
+  LockedFeatureChip,
+  LockedFeatureModal,
+} from "@/components/locked-feature-modal"
 import { type FieldTypeTab, PolyField } from "@/components/polymorphic-field"
 import {
   CustomTagInput,
@@ -74,6 +78,7 @@ import {
   type TracecatEditorComponent,
   type TracecatJsonSchema,
 } from "@/lib/schema"
+import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export interface FormComponentProps {
@@ -587,9 +592,10 @@ function SingleActionTypeField({
   searchKeys: (keyof RegistryActionReadMinimal)[]
 }) {
   const [open, setOpen] = useState(false)
+  const [lockedFeatureOpen, setLockedFeatureOpen] = useState(false)
   const [searchValue, setSearchValue] = useState("")
   const { registryActions, registryActionsIsLoading } =
-    useBuilderRegistryActions()
+    useBuilderRegistryActions({ includeLocked: true })
 
   const filterActions = useCallback(
     (actions: RegistryActionReadMinimal[], search: string) => {
@@ -636,104 +642,123 @@ function SingleActionTypeField({
     return registryActions?.find((action) => action.action === field.value)
   }, [registryActions, field.value])
 
-  const handleSelect = (actionKey: string) => {
-    field.onChange(actionKey)
-    onChange(actionKey)
+  const handleSelect = (action: RegistryActionReadMinimal) => {
+    if (action.availability?.locked ?? false) {
+      setOpen(false)
+      setLockedFeatureOpen(true)
+      return
+    }
+
+    field.onChange(action.action)
+    onChange(action.action)
     setOpen(false)
     setSearchValue("")
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className="w-full justify-between text-left font-normal"
-        >
-          <div className="flex items-center gap-2 truncate">
-            {selectedAction ? (
-              getIcon(selectedAction.action, {
-                className: "size-4 shrink-0",
-              })
-            ) : (
-              <TypeIcon className="size-4 shrink-0" />
-            )}
-            <span className="truncate">
-              {selectedAction
-                ? selectedAction.default_title || selectedAction.action
-                : "Select action type..."}
-            </span>
-          </div>
-          <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[400px] p-0" align="start">
-        <Command shouldFilter={false}>
-          <CommandInput
-            placeholder="Search actions..."
-            value={searchValue}
-            onValueChange={setSearchValue}
-          />
-          <ScrollArea className="h-[300px]">
-            <CommandList>
-              <CommandEmpty className="py-6 text-center text-xs text-muted-foreground">
-                {registryActionsIsLoading
-                  ? "Loading actions..."
-                  : "No actions found."}
-              </CommandEmpty>
-              {sortedActions.map((result) => {
-                const action = result.obj
-                return (
-                  <CommandItem
-                    key={action.action}
-                    value={action.action}
-                    onSelect={() => handleSelect(action.action)}
-                    className="cursor-pointer p-2"
-                  >
-                    <div className="flex w-full flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        {getIcon(action.action, {
-                          className: "size-4 shrink-0 text-muted-foreground",
-                        })}
-                        <span className="font-medium">
-                          {action.default_title || action.name}
-                        </span>
-                        {action.type === "template" && (
-                          <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                            template
+    <>
+      <LockedFeatureModal
+        open={lockedFeatureOpen}
+        onOpenChange={setLockedFeatureOpen}
+      />
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full justify-between text-left font-normal"
+          >
+            <div className="flex items-center gap-2 truncate">
+              {selectedAction ? (
+                getIcon(selectedAction.action, {
+                  className: "size-4 shrink-0",
+                })
+              ) : (
+                <TypeIcon className="size-4 shrink-0" />
+              )}
+              <span className="truncate">
+                {selectedAction
+                  ? selectedAction.default_title || selectedAction.action
+                  : "Select action type..."}
+              </span>
+            </div>
+            <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[400px] p-0" align="start">
+          <Command shouldFilter={false}>
+            <CommandInput
+              placeholder="Search actions..."
+              value={searchValue}
+              onValueChange={setSearchValue}
+            />
+            <ScrollArea className="h-[300px]">
+              <CommandList>
+                <CommandEmpty className="py-6 text-center text-xs text-muted-foreground">
+                  {registryActionsIsLoading
+                    ? "Loading actions..."
+                    : "No actions found."}
+                </CommandEmpty>
+                {sortedActions.map((result) => {
+                  const action = result.obj
+                  const isLocked = action.availability?.locked ?? false
+
+                  return (
+                    <CommandItem
+                      key={action.action}
+                      value={action.action}
+                      onSelect={() => handleSelect(action)}
+                      className={cn(
+                        "cursor-pointer p-2",
+                        isLocked && "text-muted-foreground"
+                      )}
+                    >
+                      <div className="flex w-full flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          {getIcon(action.action, {
+                            className: "size-4 shrink-0 text-muted-foreground",
+                          })}
+                          <span className="font-medium">
+                            {action.default_title || action.name}
                           </span>
-                        )}
+                          {isLocked ? (
+                            <LockedFeatureChip className="shrink-0" />
+                          ) : null}
+                          {action.type === "template" && (
+                            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                              template
+                            </span>
+                          )}
+                        </div>
+                        <p className="line-clamp-2 text-xs text-muted-foreground">
+                          {action.description}
+                        </p>
+                        <span className="font-mono text-xs text-muted-foreground/70">
+                          {action.action}
+                        </span>
                       </div>
-                      <p className="line-clamp-2 text-xs text-muted-foreground">
-                        {action.description}
-                      </p>
-                      <span className="font-mono text-xs text-muted-foreground/70">
-                        {action.action}
-                      </span>
-                    </div>
-                  </CommandItem>
-                )
-              })}
-            </CommandList>
-          </ScrollArea>
-        </Command>
-      </PopoverContent>
-    </Popover>
+                    </CommandItem>
+                  )
+                })}
+              </CommandList>
+            </ScrollArea>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </>
   )
 }
 
 function MultipleActionTypeField({
   field,
   onChange,
-  searchKeys,
 }: {
   field: ControllerRenderProps<FieldValues>
   onChange: (value: string[]) => void
-  searchKeys: (keyof RegistryActionReadMinimal)[]
 }) {
-  const { registryActions } = useBuilderRegistryActions()
+  const [lockedFeatureOpen, setLockedFeatureOpen] = useState(false)
+  const { registryActions } = useBuilderRegistryActions({ includeLocked: true })
 
   // Map actions to suggestions format for MultiTagCommandInput
   const suggestions = useMemo(() => {
@@ -748,19 +773,27 @@ function MultipleActionTypeField({
           icon: getIcon(action.action, {
             className: "size-6 p-[3px] border-[0.5px]",
           }),
+          locked: action.availability?.locked ?? false,
+          onSelect: () => setLockedFeatureOpen(true),
         }))
         .sort((a, b) => a.value.localeCompare(b.value)) || []
     )
   }, [registryActions])
 
   return (
-    <MultiTagCommandInput
-      value={field.value}
-      onChange={onChange}
-      suggestions={suggestions}
-      searchKeys={searchKeys as (keyof Suggestion)[]}
-      placeholder="Start typing to search actions..."
-    />
+    <>
+      <LockedFeatureModal
+        open={lockedFeatureOpen}
+        onOpenChange={setLockedFeatureOpen}
+      />
+      <MultiTagCommandInput
+        value={field.value}
+        onChange={onChange}
+        suggestions={suggestions}
+        searchKeys={["value", "label", "description", "group"]}
+        placeholder="Start typing to search actions..."
+      />
+    </>
   )
 }
 
@@ -786,7 +819,6 @@ export function ActionTypeField({
       <MultipleActionTypeField
         field={field}
         onChange={onChange as (value: string[]) => void}
-        searchKeys={searchKeys}
       />
     )
   }
