@@ -64,7 +64,7 @@ async def start_litellm_proxy() -> None:
 
     _litellm_process = await asyncio.create_subprocess_exec(
         *cmd,
-        stdout=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
         env=env,
     )
