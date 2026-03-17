@@ -1,0 +1,41 @@
+tracecat/cases/router.py
+  1fc726f057518adb 563,566
+  3b77a6228742052c 549
+tracecat/cases/internal_router.py
+  3b77a6228742052c 460
+tracecat/cases/service.py
+  3b77a6228742052c 749-750,756-759,775-776
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "28b92f6d7550e820c11d2e95d7e6d4861352be44",
+  "prompts": {
+    "1fc726f057518adb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cf820-33b0-7252-95bc-36e4029578ea",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 163,
+      "total_deletions": 110,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "3b77a6228742052c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "28b0b7c3-d4bb-4fcf-931b-2e38b0ce8545",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 13,
+      "total_deletions": 3,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}
