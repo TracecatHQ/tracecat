@@ -362,10 +362,45 @@ class TestCaseCommentsService:
         assert workflow_publish["case_id"] == str(test_case.id)
         assert workflow_publish["workspace_id"] == str(test_case.workspace_id)
         assert workflow_publish["extra_fields"]["comment_id"] == str(created_comment.id)
+        assert workflow_publish["extra_fields"]["comment"] == "Run this workflow"
+        assert workflow_publish["extra_fields"]["parent_id"] is None
         assert workflow_publish["extra_fields"]["wf_exec_id"] == (
             created_comment.workflow_wf_exec_id
         )
         assert workflow_publish["extra_fields"]["text"] == "Run this workflow"
+
+    async def test_create_workflow_backed_reply_publishes_parent_context(
+        self,
+        case_comments_service: CaseCommentsService,
+        test_case: Case,
+        workflow: Workflow,
+    ) -> None:
+        parent_comment = await case_comments_service.create_comment(
+            test_case,
+            CaseCommentCreate(content="Parent comment"),
+        )
+
+        with patch(
+            "tracecat.cases.service.publish_case_event_payload",
+            new=AsyncMock(),
+        ) as publish_mock:
+            created_reply = await case_comments_service.create_comment(
+                test_case,
+                CaseCommentCreate(
+                    content="Reply workflow",
+                    parent_id=parent_comment.id,
+                    workflow_id=WorkflowUUID.new(workflow.id),
+                ),
+            )
+
+        workflow_publish = next(
+            kwargs
+            for _, kwargs in publish_mock.await_args_list
+            if kwargs.get("extra_fields", {}).get("workflow_id") == str(workflow.id)
+        )
+        assert workflow_publish["extra_fields"]["comment_id"] == str(created_reply.id)
+        assert workflow_publish["extra_fields"]["parent_id"] == str(parent_comment.id)
+        assert workflow_publish["extra_fields"]["comment"] == "Reply workflow"
 
     async def test_create_workflow_backed_comment_marks_failed_when_publish_fails(
         self,

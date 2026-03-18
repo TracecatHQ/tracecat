@@ -1799,6 +1799,7 @@ class CaseCommentsService(BaseWorkspaceService):
                             if comment.parent_id is not None
                             else None
                         ),
+                        "comment": comment.content,
                         "text": comment.content,
                         "workflow_id": str(workflow.id),
                         "wf_exec_id": wf_exec_id,
