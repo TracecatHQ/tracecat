@@ -49,12 +49,13 @@ def test_execute_command_uses_auto_add_policy_when_host_key_checking_disabled(
     monkeypatch.setattr(registry_ssh, "_load_private_key", lambda private_key: MagicMock())
     monkeypatch.setattr(paramiko, "SSHClient", lambda: mock_ssh_client)
 
-    result = registry_ssh.execute_command(
-        command="hostname",
-        host="example.com",
-        username="root",
-        host_key_checking=False,
-    )
+    with pytest.warns(RuntimeWarning, match="host_key_checking=False temporarily"):
+        result = registry_ssh.execute_command(
+            command="hostname",
+            host="example.com",
+            username="root",
+            host_key_checking=False,
+        )
 
     mock_ssh_client.load_host_keys.assert_not_called()
     policy = mock_ssh_client.set_missing_host_key_policy.call_args.args[0]

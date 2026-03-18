@@ -3,6 +3,7 @@
 import io
 import os
 import tempfile
+import warnings
 from typing import Annotated, TypedDict
 
 import paramiko
@@ -91,7 +92,8 @@ def execute_command(
     host_key_checking: Annotated[
         bool,
         Doc(
-            "Whether to verify the remote host key before connecting. Disable only for first-contact or otherwise trusted hosts."
+            "Whether to verify the remote host key before connecting. Disable only for first-contact or otherwise trusted hosts; "
+            "PID isolation and nsjail do not protect against SSH man-in-the-middle attacks."
         ),
     ] = True,
     password: Annotated[
@@ -135,6 +137,14 @@ def execute_command(
                 client.load_host_keys(known_hosts_path)
                 client.set_missing_host_key_policy(paramiko.RejectPolicy())
             else:
+                warnings.warn(
+                    "host_key_checking=False temporarily trusts unknown SSH host keys "
+                    "for this action run. Neither PID isolation nor nsjail protects "
+                    "against SSH man-in-the-middle attacks; prefer host_public_key "
+                    "pinning for production use.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
             client.connect(
