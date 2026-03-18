@@ -789,6 +789,8 @@ Merges: common + temporal + postgres + redis + agent-worker-specific
   value: {{ .Values.agentExecutor.queue | quote }}
 - name: TRACECAT__EXECUTOR_QUEUE
   value: {{ .Values.executor.queue | quote }}
+- name: TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+  value: {{ .Values.tracecat.executorClientTimeout | quote }}
 {{- /* Sentry */}}
 {{- if .Values.tracecat.sentryDsn }}
 - name: SENTRY_DSN
