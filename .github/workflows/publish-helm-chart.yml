@@ -69,7 +69,9 @@ jobs:
 
       - name: Package chart
         run: |
-          helm package "${{ env.CHART_PATH }}" --destination /tmp/chart
+          helm package "${{ env.CHART_PATH }}" \
+            --version "${{ steps.chart-metadata.outputs.version }}" \
+            --destination /tmp/chart
 
       - name: Push chart to GHCR
         run: |
