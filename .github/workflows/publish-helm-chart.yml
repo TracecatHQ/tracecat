@@ -43,11 +43,11 @@ jobs:
         run: |
           CHART_NAME="$(helm show chart "${{ env.CHART_PATH }}" | awk -F': ' '$1 == "name" {print $2}')"
 
+          CHART_VERSION="$(helm show chart "${{ env.CHART_PATH }}" | awk -F': ' '$1 == "version" {print $2}')"
+
           INPUT_REF="${{ inputs.ref }}"
           if [ -n "$INPUT_REF" ]; then
-            CHART_VERSION="$INPUT_REF"
-          else
-            CHART_VERSION="$(helm show chart "${{ env.CHART_PATH }}" | awk -F': ' '$1 == "version" {print $2}')"
+            CHART_VERSION="${CHART_VERSION}-${INPUT_REF}"
           fi
 
           if [ -z "$CHART_NAME" ] || [ -z "$CHART_VERSION" ]; then
