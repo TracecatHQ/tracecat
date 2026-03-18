@@ -50,15 +50,29 @@ class ActionExecutionError(Exception):
     """Raised when action execution fails."""
 
 
-def build_role_from_claims(claims: MCPTokenClaims) -> Role:
-    """Reconstruct the trusted service role from MCP token claims."""
+def build_tracecat_mcp_role(
+    *,
+    workspace_id: UUID | None,
+    organization_id: UUID | None,
+    user_id: UUID | None,
+) -> Role:
+    """Build the trusted MCP service role for action execution."""
     return Role(
         type="service",
         service_id="tracecat-mcp",
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        user_id=user_id,
+        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
+    )
+
+
+def build_role_from_claims(claims: MCPTokenClaims) -> Role:
+    """Reconstruct the trusted service role from MCP token claims."""
+    return build_tracecat_mcp_role(
         workspace_id=claims.workspace_id,
         organization_id=claims.organization_id,
         user_id=claims.user_id,
-        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"],
     )
 
 

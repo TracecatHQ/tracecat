@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.mcp.executor import (
         AGENT_TOOL_PRIORITY,
         build_run_input,
+        build_tracecat_mcp_role,
     )
     from tracecat.agent.mcp.utils import normalize_mcp_tool_name
     from tracecat.agent.parsers import try_parse_json
@@ -664,6 +665,11 @@ class DurableAgentWorkflow:
             )
 
         logical_time = workflow.now()
+        service_role = build_tracecat_mcp_role(
+            workspace_id=self.role.workspace_id,
+            organization_id=self.role.organization_id,
+            user_id=self.role.user_id,
+        )
         pending_results: list[PendingToolResult] = []
         for tool_call in approved_tools:
             try:
@@ -678,7 +684,7 @@ class DurableAgentWorkflow:
                             execution_id=workflow.uuid4(),
                             logical_time=logical_time,
                         ),
-                        self.role,
+                        service_role,
                     ],
                     task_queue=config.TRACECAT__EXECUTOR_QUEUE,
                     start_to_close_timeout=timedelta(

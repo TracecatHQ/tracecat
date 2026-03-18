@@ -62,6 +62,7 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import AgentSessionHistory, User
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.schemas import RunActionInput
@@ -523,6 +524,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
     agent_executor_task_queues: list[str] = []
     executor_task_queues: list[str] = []
     captured_run_inputs: list[RunActionInput] = []
+    captured_executor_roles: list[Role] = []
 
     class _FakeStream:
         async def append(self, event: Any) -> None:
@@ -700,9 +702,9 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
         input: RunActionInput,
         role: Role,
     ) -> InlineObject[dict[str, str]]:
-        del role
         executor_task_queues.append(activity.info().task_queue)
         captured_run_inputs.append(input)
+        captured_executor_roles.append(role)
         return InlineObject(
             data={
                 "status": "success",
@@ -780,7 +782,14 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
     assert executor_task_queues == [executor_queue]
     assert resumed_after_approval.is_set()
     assert len(captured_run_inputs) == 1
+    assert len(captured_executor_roles) == 1
     assert captured_run_inputs[0].task.action == "core__http_request"
+    assert captured_executor_roles[0].type == "service"
+    assert captured_executor_roles[0].service_id == "tracecat-mcp"
+    assert captured_executor_roles[0].workspace_id == svc_role.workspace_id
+    assert captured_executor_roles[0].organization_id == svc_role.organization_id
+    assert captured_executor_roles[0].user_id == svc_role.user_id
+    assert captured_executor_roles[0].scopes == SERVICE_PRINCIPAL_SCOPES["tracecat-mcp"]
 
     async with AgentSessionService.with_session(role=svc_role) as service:
         history = await service.get_session_history(mock_session_id)
