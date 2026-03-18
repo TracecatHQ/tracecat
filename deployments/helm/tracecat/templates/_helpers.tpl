@@ -858,6 +858,8 @@ Merges: common + temporal + postgres + redis + agent-executor-specific
   value: {{ .Values.agentWorker.queue | quote }}
 - name: TRACECAT__AGENT_EXECUTOR_QUEUE
   value: {{ .Values.agentExecutor.queue | quote }}
+- name: TRACECAT__EXECUTOR_QUEUE
+  value: {{ .Values.executor.queue | quote }}
 - name: TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES
   value: {{ .Values.agentExecutor.maxConcurrentActivities | quote }}
 - name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE
