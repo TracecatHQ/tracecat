@@ -9,7 +9,6 @@ from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
 from tracecat.dsl.action import DSLActivities
-from tracecat.dsl.compression import get_compression_payload_codec
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.identifiers import UserID, WorkflowID, WorkspaceID
 from tracecat.logger import logger
@@ -19,6 +18,7 @@ from tracecat.storage.object import (
     InlineObject,
     StoredObject,
 )
+from tracecat.temporal.codec import decode_payloads
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -248,11 +248,8 @@ async def extract_payload(
     payload: temporalio.api.common.v1.Payloads, index: int = 0
 ) -> Any:
     """Extract the first payload from a workflow history event."""
-    # Always call the decoder. It will return the original payload if it's not compressed.
-    # This enables backwards compatibility of newer payloads with older clients.
-    codec = get_compression_payload_codec()
-    decompressed_payload = await codec.decode(payload.payloads)
-    payload_obj = decompressed_payload[index]
+    decoded_payloads = await decode_payloads(payload.payloads, compression_enabled=True)
+    payload_obj = decoded_payloads[index]
     encoding = payload_obj.metadata.get("encoding", b"").decode()
     # Temporal's NullPayloadConverter encodes `None` as binary/null with no data.
     if encoding == "binary/null":
