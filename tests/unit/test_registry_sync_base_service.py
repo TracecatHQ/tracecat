@@ -91,9 +91,15 @@ async def test_sync_creates_collision_version_for_manifest_changes(
     mocker.patch(
         "tracecat.registry.sync.base_service.fetch_actions_from_subprocess",
         side_effect=[
-            SimpleNamespace(actions=first_actions, commit_sha=None),
-            SimpleNamespace(actions=second_actions, commit_sha=None),
-            SimpleNamespace(actions=second_actions, commit_sha=None),
+            SimpleNamespace(
+                actions=first_actions, commit_sha=None, validation_errors={}
+            ),
+            SimpleNamespace(
+                actions=second_actions, commit_sha=None, validation_errors={}
+            ),
+            SimpleNamespace(
+                actions=second_actions, commit_sha=None, validation_errors={}
+            ),
         ],
     )
 

@@ -19,7 +19,10 @@ from temporalio.exceptions import ApplicationError
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_role
-from tracecat.registry.actions.schemas import RegistryActionCreate
+from tracecat.registry.actions.schemas import (
+    RegistryActionCreate,
+    RegistryActionValidationErrorInfo,
+)
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
@@ -236,7 +239,7 @@ class BaseRegistrySyncService[
 
     def _build_validation_failure_message(
         self,
-        validation_errors: dict[str, list[object]],
+        validation_errors: dict[str, list[RegistryActionValidationErrorInfo]],
     ) -> str:
         total_errors = sum(len(errs) for errs in validation_errors.values())
         action_name = next(iter(validation_errors), "<unknown>")
@@ -259,7 +262,7 @@ class BaseRegistrySyncService[
 
     def _raise_if_validation_errors(
         self,
-        validation_errors: dict[str, list[object]],
+        validation_errors: dict[str, list[RegistryActionValidationErrorInfo]],
     ) -> None:
         if validation_errors:
             message = self._build_validation_failure_message(validation_errors)
