@@ -20,26 +20,36 @@ You can run a workflow manually by clicking the `Run` button in the top right co
 You can specify trigger inputs in the workflow builder.
 These inputs are passed to the workflow as `${{ TRIGGER }}` expressions.
 
-![Trigger inputs](/img/automations/workflows/trigger-inputs.png)
+## Draft workflows
 
-## Draft vs published workflows
+Draft workflows are workflows that are currently being edited.
+You can run draft workflows manually by clicking the `Run` button in the top right corner of the workflow builder.
 
-## Workflow alias
+## Published workflows
+
+To deploy a workflow, you must publish it.
+Webhooks, schedules, subflows, and other workflow triggers always run the latest published workflow version.
+
+![Publish workflow](/img/automations/workflows/publish-workflow.png)
+
+## Workflow settings
+
+Click on the workflow canvas to open the workflow settings panel.
+
+![Workflow settings](/img/automations/workflows/workflow-settings.png)
+
+### Workflow alias
 
 Workflow aliases are used to reference the workflow in subflows and error workflows.
 Keep aliases short, descriptive, and snake_case.
 You must define a workflow alias in order to trigger it as a subflow or error workflow.
 
-![Workflow alias](/img/automations/workflows/workflow-alias.png)
-
-## Error workflows
+### Error workflows
 
 You can specify an error workflow to run when a workflow fails.
 Information about the failed workflow run is passed to the error workflow under the `${{ TRIGGER }}` expression.
 
-![Error workflow](/img/automations/workflows/error-workflow.png)
-
-## Input schema
+### Input schema
 
 You can specify an input schema to validate the trigger inputs to the workflow.
 Define the input schema as YAML or JSON-compatible YAML, where each top-level key is an input name.
@@ -66,9 +76,7 @@ my_union:
   description: This is a union of a string, an integer, and None
 ```
 
-![Input schema](/img/automations/workflows/input-schema.png)
-
-## Output schema
+### Output schema
 
 Workflows return `null` by default.
 You can specify a return value for the workflow as an output schema.
@@ -89,9 +97,10 @@ city: ${{ ACTIONS.location.result.city }}
 email: ${{ ACTIONS.contact.result.email }}
 ```
 
-![Output schema](/img/automations/workflows/output-schema.png)
+### Environments
 
-## Environments
+You can specify a default environment to use for the workflow.
+Actions without an environment override will use the default environment to pull secrets and variables from.
 
 ## Export / import workflows
 
@@ -156,4 +165,7 @@ The copy icon copies the value of the action result itself.
 
 ![Copy action result](/img/automations/workflows/copy-action-result.png)
 
-## Workflow definition DSL
+## Workflow definition
+
+All workflows are stored, exported, and versioned as YAML-based workflow definitions.
+See [Workflow definition](/automations/workflow-definition) for the full specification.

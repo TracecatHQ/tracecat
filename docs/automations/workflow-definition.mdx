@@ -1,0 +1,352 @@
+---
+title: "Workflow definition"
+description: "YAML reference for Tracecat workflow definitions."
+---
+
+import ActionExpressionsSection from "/snippets/action-expressions-section.mdx";
+
+## Overview
+
+Workflows in Tracecat are defined as YAML workflow definitions.
+This page shows the workflow schema, fields, and action schema.
+
+See [Workflows](/automations/workflows) for the UI flow.
+
+## Workflow schema
+
+The workflow body uses these top-level fields:
+
+```yaml
+title:
+description:
+entrypoint:
+config:
+triggers:
+error_handler:
+actions:
+returns:
+```
+
+A minimal workflow looks like this:
+
+```yaml
+title: "Minimal workflow"
+description: "Return a static value"
+entrypoint:
+  expects: {}
+actions:
+  - ref: build_result
+    action: core.transform.reshape
+    args:
+      value:
+        status: ok
+returns: ${{ ACTIONS.build_result.result }}
+```
+
+## Top-level fields
+
+<ResponseField name="title" type="string">
+Workflow name.
+</ResponseField>
+
+<ResponseField name="description" type="string">
+Workflow description.
+</ResponseField>
+
+<ResponseField name="entrypoint" type="object">
+Input schema. Use `expects` to define trigger inputs in the workflow definition.
+</ResponseField>
+
+<ResponseField name="config" type="object">
+Workflow settings. Supported fields are `environment` and `timeout`.
+</ResponseField>
+
+<ResponseField name="triggers" type="list[object]">
+Optional trigger definitions. Trigger types are `webhook` and `schedule`.
+</ResponseField>
+
+<ResponseField name="error_handler" type="string">
+Workflow alias to run when the workflow fails.
+</ResponseField>
+
+<ResponseField name="actions" type="list[object]">
+Workflow actions.
+</ResponseField>
+
+<ResponseField name="returns" type="any">
+Output schema. Use `returns` to define the workflow output in the workflow definition.
+</ResponseField>
+
+Example input schema:
+
+```yaml
+entrypoint:
+  expects:
+    alert_id:
+      type: str
+      description: The alert to investigate
+    severity:
+      type: enum["low", "medium", "high"]
+      default: medium
+```
+
+Example output schema:
+
+```yaml
+returns:
+  finding_count: ${{ FN.length(ACTIONS.gather_results.result) }}
+  findings: ${{ ACTIONS.gather_results.result }}
+```
+
+## Actions schema
+
+<ResponseField name="ref" type="string">
+Unique action identifier. It must be unique within the workflow and match Tracecat's slug format.
+</ResponseField>
+
+<ResponseField name="action" type="string">
+Fully qualified action name such as `core.http_request`, `core.transform.reshape`, `core.transform.scatter`, `core.loop.end`, or `tools.slack.post_message`.
+</ResponseField>
+
+<ResponseField name="args" type="mapping">
+Action inputs. The valid keys depend on the action type.
+</ResponseField>
+
+<ResponseField name="depends_on" type="list[string]">
+Dependencies for this action.
+
+Use `upstream_ref` for a success edge, `upstream_ref.success` for an explicit success edge, and `upstream_ref.error` for an error edge. Any other suffix is invalid.
+</ResponseField>
+
+<ResponseField name="run_if" type="expression">
+Conditional expression. If it evaluates to a falsy value, the action is skipped.
+</ResponseField>
+
+<ResponseField name="for_each" type="expression | list[expression]">
+Run the action once per item in a collection. Inside the action, access the current item through `var.<name>`.
+Example: `for_each: ${{ for var.alert in TRIGGER.alerts }}`.
+</ResponseField>
+
+<ResponseField name="retry_policy" type="object">
+Retry configuration with `max_attempts` and `timeout`.
+</ResponseField>
+
+<ResponseField name="start_delay" type="float">
+Delay in seconds before the action starts.
+</ResponseField>
+
+<ResponseField name="join_strategy" type="string">
+Join behavior for downstream actions. Use `all` to wait for all upstream branches, or `any` to allow a downstream join to complete once any upstream branch completes.
+</ResponseField>
+
+<ResponseField name="environment" type="expression | string">
+Per-action override for the secrets environment.
+</ResponseField>
+
+<ResponseField name="interaction" type="object">
+Marks an action as interactive. `interaction` cannot be combined with `for_each`.
+</ResponseField>
+
+Example action:
+
+```yaml
+- ref: fetch_alert
+  action: core.http_request
+  args:
+    url: "https://api.example.com/alerts/${{ TRIGGER.alert_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer ${{ SECRETS.alerting.API_TOKEN }}"
+  retry_policy:
+    max_attempts: 3
+    timeout: 60
+```
+
+## Expressions
+
+<ActionExpressionsSection />
+
+## Control-flow primitives
+
+### Conditional execution with `run_if`
+
+```yaml
+title: "Conditional workflow"
+description: "Only notify on high severity"
+entrypoint:
+  expects:
+    severity:
+      type: str
+actions:
+  - ref: build_message
+    action: core.transform.reshape
+    args:
+      value: "Severity is ${{ TRIGGER.severity }}"
+  - ref: notify
+    action: tools.slack.post_message
+    depends_on:
+      - build_message
+    run_if: ${{ FN.is_equal(TRIGGER.severity, "high") }}
+    args:
+      channel: ${{ SECRETS.slack.SLACK_CHANNEL }}
+      text: ${{ ACTIONS.build_message.result }}
+```
+
+### Scatter and gather
+
+Use `core.transform.scatter` to fan out a collection into parallel streams, then `core.transform.gather` to collect results back into a list.
+
+```yaml
+title: "Scatter gather workflow"
+description: "Fetch details for each item"
+entrypoint:
+  expects:
+    items:
+      type: list[dict[str, Any]]
+actions:
+  - ref: scatter_items
+    action: core.transform.scatter
+    args:
+      collection: ${{ TRIGGER.items }}
+  - ref: fetch_item
+    action: core.http_request
+    depends_on:
+      - scatter_items
+    args:
+      url: "https://api.example.com/items/${{ ACTIONS.scatter_items.result.id }}"
+      method: GET
+  - ref: gather_results
+    action: core.transform.gather
+    depends_on:
+      - fetch_item
+    args:
+      items: ${{ ACTIONS.fetch_item.result }}
+      drop_nulls: true
+      error_strategy: partition
+returns: ${{ ACTIONS.gather_results.result }}
+```
+
+Within a scatter region, each downstream action reads the current item through `ACTIONS.<scatter_ref>.result`.
+
+### Do-while loops
+
+Use `core.loop.start` to open a loop region and `core.loop.end` to decide whether to continue.
+
+```yaml
+title: "Loop workflow"
+description: "Retry until the third iteration"
+entrypoint:
+  expects: {}
+actions:
+  - ref: loop_start
+    action: core.loop.start
+  - ref: body
+    action: core.transform.reshape
+    depends_on:
+      - loop_start
+    args:
+      value:
+        iteration: ${{ ACTIONS.loop_start.result.iteration }}
+  - ref: loop_end
+    action: core.loop.end
+    depends_on:
+      - body
+    args:
+      condition: ${{ ACTIONS.loop_start.result.iteration < 2 }}
+      max_iterations: 10
+  - ref: after_loop
+    action: core.transform.reshape
+    depends_on:
+      - loop_end
+    args:
+      value: ${{ ACTIONS.loop_end.result.continue }}
+returns: ${{ ACTIONS.after_loop.result }}
+```
+
+Loop-specific behavior:
+
+- `core.loop.start` exposes `ACTIONS.<loop_start_ref>.result.iteration`
+- `core.loop.end` requires `condition`
+- `max_iterations` defaults to `100`
+
+### Subflows
+
+Use `core.workflow.execute` to run a subflow.
+
+```yaml
+title: "Subflow launcher"
+description: "Execute a subflow for each alert"
+entrypoint:
+  expects:
+    alerts:
+      type: list[dict[str, Any]]
+actions:
+  - ref: run_subflow
+    action: core.workflow.execute
+    for_each: ${{ for var.alert in TRIGGER.alerts }}
+    args:
+      workflow_id: wf-fee9abc1cc88417bbccb73433646e2c6
+      trigger_inputs:
+        alert: ${{ var.alert }}
+returns: null
+```
+
+The subflow target is usually provided through `workflow_id`. Trigger data is passed through `trigger_inputs`.
+
+## Validation rules
+
+These are the main workflow rules:
+
+- All action refs must be unique.
+- Every dependency in `depends_on` must reference a real action.
+- Cycles in the action graph are invalid.
+- `interaction` cannot be combined with `for_each`.
+- Outer scopes cannot reference actions inside a nested scatter or loop scope.
+- Inner scopes can reference actions in parent scopes.
+- `core.transform.gather` must close the scatter scope it depends on.
+- `core.loop.end` must close the loop scope it depends on.
+
+## Workflow definition schema
+
+Workflow definitions may also use this outer schema:
+
+```yaml
+definition:
+  title: "Imported workflow"
+  description: "This is the executable workflow DSL"
+  entrypoint:
+    expects: {}
+  actions:
+    - ref: a
+      action: core.transform.reshape
+      args:
+        value: ok
+  returns: ${{ ACTIONS.a.result }}
+
+layout:
+  trigger:
+    x: 0
+    y: 0
+  viewport:
+    x: 0
+    y: 0
+    zoom: 1
+  actions:
+    - ref: a
+      x: 0
+      y: 160
+
+schedules:
+  - cron: "0 * * * *"
+    status: online
+
+webhook:
+  methods:
+    - POST
+  status: online
+
+case_trigger:
+  status: offline
+  event_types: []
+  tag_filters: []
+```

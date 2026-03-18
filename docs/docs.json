@@ -30,6 +30,7 @@
             "pages": [
               "automations/ai-builder",
               "automations/workflows",
+              "automations/workflow-definition",
               "automations/actions",
               {
                 "group": "Triggers",
