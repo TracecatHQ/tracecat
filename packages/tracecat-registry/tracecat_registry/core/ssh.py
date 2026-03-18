@@ -29,6 +29,16 @@ class SSHCommandResult(TypedDict):
     exit_status: int
 
 
+class _TransientMissingHostKeyPolicy(paramiko.MissingHostKeyPolicy):
+    """Accept unknown host keys for a single client without persisting trust."""
+
+    def missing_host_key(  # noqa: D102
+        self, client: paramiko.SSHClient, hostname: str, key: paramiko.PKey
+    ) -> None:
+        del client, hostname, key
+        return None
+
+
 def _load_private_key(private_key: str) -> paramiko.PKey:
     key_stream = io.StringIO(private_key)
     key_types = (
@@ -140,12 +150,13 @@ def execute_command(
                 warnings.warn(
                     "host_key_checking=False temporarily trusts unknown SSH host keys "
                     "for this action run. Neither PID isolation nor nsjail protects "
-                    "against SSH man-in-the-middle attacks; prefer host_public_key "
-                    "pinning for production use.",
+                    "against SSH man-in-the-middle attacks, but the accepted key is "
+                    "not persisted across action runs or shared workers. Prefer "
+                    "host_public_key pinning for production use.",
                     RuntimeWarning,
                     stacklevel=2,
                 )
-                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                client.set_missing_host_key_policy(_TransientMissingHostKeyPolicy())
 
             client.connect(
                 hostname=host,
