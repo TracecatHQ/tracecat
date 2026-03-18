@@ -441,9 +441,9 @@ def test_auto_generate_layout_round_trips_through_extract():
     assert action_positions is not None
     assert "step1" in action_positions
     assert "step2" in action_positions
-    # step1 at depth 0 → y=150, step2 at depth 1 → y=300
-    assert action_positions["step1"][1] == 150
-    assert action_positions["step2"][1] == 300
+    # step1 at depth 0 → y=300, step2 at depth 1 → y=600
+    assert action_positions["step1"][1] == 300
+    assert action_positions["step2"][1] == 600
 
 
 @pytest.mark.anyio

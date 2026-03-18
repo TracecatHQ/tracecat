@@ -1233,7 +1233,7 @@ def _auto_generate_layout(
     Walks the dependency graph to assign each action a depth (row), then
     spreads siblings horizontally. The trigger node sits at the top.
     """
-    NODE_HEIGHT = 150  # vertical spacing between rows
+    NODE_HEIGHT = 300  # vertical spacing between rows
     NODE_WIDTH = 300  # horizontal spacing between columns
 
     # Build dependency graph
