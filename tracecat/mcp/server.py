@@ -5680,12 +5680,9 @@ async def _collect_agent_response(
 
 @mcp.tool()
 async def list_agent_presets(workspace_id: str) -> str:
-    """List saved agent presets with lightweight metadata.
+    """List saved agent preset slugs and names.
 
-    Use this tool to quickly see which reusable agents are available in the
-    workspace and which slug to pass to `run_agent_preset`. It intentionally
-    omits prompts and tool configuration to avoid bloating MCP client context;
-    call `get_agent_preset` only when you need the full preset definition.
+    Use `get_agent_preset` for the full preset definition.
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
