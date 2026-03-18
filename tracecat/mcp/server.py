@@ -1828,7 +1828,8 @@ when the workflow fits within that limit; otherwise it returns
 2. `list_integrations` — inspect workspace MCP integrations and broader provider status
 3. `list_actions` / `get_action_context` — choose preset tools and inspect arg schemas
 4. `create_agent_preset` — create a reusable preset
-5. `list_agent_presets` / `run_agent_preset` — inspect and test saved presets
+5. `list_agent_presets` — find reusable agents you can invoke by slug without loading their full prompts or tool configs
+6. `get_agent_preset` / `run_agent_preset` — fetch a preset's full configuration when you need to inspect it, or run it once you know which slug to use
 
 ## Debugging workflow runs
 After running a workflow, use `list_workflow_executions` to see recent runs and their \
@@ -5679,10 +5680,12 @@ async def _collect_agent_response(
 
 @mcp.tool()
 async def list_agent_presets(workspace_id: str) -> str:
-    """List agent presets in a workspace with their capabilities.
+    """List saved agent presets with lightweight metadata.
 
-    Returns each preset's slug, name, description, model, instructions,
-    configured actions (tools), and namespaces.
+    Use this tool to quickly see which reusable agents are available in the
+    workspace and which slug to pass to `run_agent_preset`. It intentionally
+    omits prompts and tool configuration to avoid bloating MCP client context;
+    call `get_agent_preset` only when you need the full preset definition.
     """
     try:
         _, role = await _resolve_workspace_role(workspace_id)
@@ -5691,17 +5694,10 @@ async def list_agent_presets(workspace_id: str) -> str:
         return _json(
             [
                 {
-                    "id": str(p.id),
-                    "slug": p.slug,
-                    "name": p.name,
-                    "description": p.description,
-                    "model_name": p.model_name,
-                    "model_provider": p.model_provider,
-                    "instructions": p.instructions,
-                    "actions": p.actions,
-                    "namespaces": p.namespaces,
+                    "slug": preset.slug,
+                    "name": preset.name,
                 }
-                for p in presets
+                for preset in presets
             ]
         )
     except ToolError:
@@ -5709,6 +5705,25 @@ async def list_agent_presets(workspace_id: str) -> str:
     except Exception as e:
         logger.error("Failed to list agent presets", error=str(e))
         raise ToolError(f"Failed to list agent presets: {e}") from None
+
+
+@mcp.tool()
+async def get_agent_preset(workspace_id: str, preset_slug: str) -> str:
+    """Get the full configuration for a saved agent preset by slug."""
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with AgentPresetService.with_session(role=role) as svc:
+            preset = await svc.get_preset_by_slug(preset_slug)
+        if not preset:
+            raise ToolError(f"Agent preset '{preset_slug}' not found")
+        return _json(AgentPresetRead.model_validate(preset).model_dump(mode="json"))
+    except ToolError:
+        raise
+    except Exception as e:
+        logger.error(
+            "Failed to get agent preset", error=str(e), preset_slug=preset_slug
+        )
+        raise ToolError(f"Failed to get agent preset: {e}") from None
 
 
 @mcp.tool()
