@@ -1,0 +1,31 @@
+AGENTS.md
+  fc7f75669b16acff 478
+deployments/fargate/README.md
+  fc7f75669b16acff 31
+README.md
+  fc7f75669b16acff 77
+.github/workflows/publish-helm-chart.yml
+  fc7f75669b16acff 8-9,13,26-28
+.gitmodules
+  fc7f75669b16acff 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "742a991f96635ce9bd6ec408b87f9ebf0f8f0618",
+  "prompts": {
+    "fc7f75669b16acff": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019cfca5-774f-7791-a0ec-8e76e72a512c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 10304,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    }
+  }
+}
