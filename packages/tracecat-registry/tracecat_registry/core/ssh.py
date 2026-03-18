@@ -29,16 +29,6 @@ class SSHCommandResult(TypedDict):
     exit_status: int
 
 
-class _TransientMissingHostKeyPolicy(paramiko.MissingHostKeyPolicy):
-    """Accept unknown host keys for a single client without persisting trust."""
-
-    def missing_host_key(  # noqa: D102
-        self, client: paramiko.SSHClient, hostname: str, key: paramiko.PKey
-    ) -> None:
-        del client, hostname, key
-        return None
-
-
 def _load_private_key(private_key: str) -> paramiko.PKey:
     key_stream = io.StringIO(private_key)
     key_types = (
@@ -122,8 +112,8 @@ def execute_command(
     """Execute a command over SSH and return stdout, stderr, and exit status.
 
     By default, unknown host keys are rejected; provide `host_public_key` to trust
-    a host. Set `host_key_checking=False` to accept unknown host keys for this
-    action run.
+    a host. Set `host_key_checking=False` to disable application-level pinning
+    while still using Paramiko's default host key policy.
     """
     private_key = secrets.get("PRIVATE_KEY")
     pkey = _load_private_key(private_key)
@@ -148,15 +138,14 @@ def execute_command(
                 client.set_missing_host_key_policy(paramiko.RejectPolicy())
             else:
                 warnings.warn(
-                    "host_key_checking=False temporarily trusts unknown SSH host keys "
-                    "for this action run. Neither PID isolation nor nsjail protects "
-                    "against SSH man-in-the-middle attacks, but the accepted key is "
-                    "not persisted across action runs or shared workers. Prefer "
-                    "host_public_key pinning for production use.",
+                    "host_key_checking=False disables application-level host key "
+                    "pinning for this action run, but unknown SSH host keys are "
+                    "still subject to Paramiko's default safe policy. Neither PID "
+                    "isolation nor nsjail protects against SSH man-in-the-middle "
+                    "attacks; prefer host_public_key pinning for production use.",
                     RuntimeWarning,
                     stacklevel=2,
                 )
-                client.set_missing_host_key_policy(_TransientMissingHostKeyPolicy())
 
             client.connect(
                 hostname=host,
