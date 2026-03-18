@@ -192,6 +192,7 @@ class RegistrySyncRunner:
             actions, validation_errors = await self._discover_actions(
                 repository_id=request.repository_id,
                 origin=request.origin,
+                commit_sha=commit_sha,
                 validate=request.validate_actions,
                 git_repo_package_name=request.git_repo_package_name,
                 organization_id=request.organization_id,
@@ -411,6 +412,7 @@ class RegistrySyncRunner:
         self,
         repository_id: UUID,
         origin: str,
+        commit_sha: str | None = None,
         validate: bool = False,
         git_repo_package_name: str | None = None,
         organization_id: UUID | None = None,
@@ -426,6 +428,7 @@ class RegistrySyncRunner:
         Args:
             repository_id: Database repository ID.
             origin: Repository origin (e.g., "tracecat_registry", "local", or git URL).
+            commit_sha: Optional commit SHA to load for remote repositories.
             validate: Whether to validate template actions.
             git_repo_package_name: Optional override for git repository package name.
 
@@ -440,6 +443,7 @@ class RegistrySyncRunner:
             result = await fetch_actions_from_subprocess(
                 origin=origin,
                 repository_id=repository_id,
+                commit_sha=commit_sha,
                 validate=validate,
                 git_repo_package_name=git_repo_package_name,
                 timeout=float(self.discover_timeout),
