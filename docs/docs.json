@@ -28,7 +28,7 @@
             "group": "Building automations",
             "icon": "workflow",
             "pages": [
-              "automations/ai-builder",
+              "automations/tracecat-mcp",
               "automations/workflows",
               "automations/workflow-definition",
               "automations/actions",
@@ -201,6 +201,10 @@
     ]
   },
   "redirects": [
+    {
+      "source": "/automations/ai-builder",
+      "destination": "/automations/tracecat-mcp"
+    },
     {
       "source": "/automations/triggers/case-triggers",
       "destination": "/automations/triggers/cases"
