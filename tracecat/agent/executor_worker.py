@@ -68,10 +68,10 @@ async def main() -> None:
     """Run the AgentExecutorWorker."""
     interrupt_event.clear()
     max_concurrent = int(
-        os.environ.get("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES", 1)
+        os.environ.get("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES") or 1
     )
     threadpool_max_workers = int(
-        os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS", 100)
+        os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS") or 100
     )
 
     logger.info(
