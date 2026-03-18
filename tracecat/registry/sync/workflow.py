@@ -32,7 +32,10 @@ from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
-    from tracecat.registry.sync.runner import RegistrySyncRunner
+    from tracecat.registry.sync.runner import (
+        RegistrySyncRunner,
+        RegistrySyncValidationError,
+    )
     from tracecat.registry.sync.schemas import (
         RegistrySyncRequest,
         RegistrySyncResult,
@@ -114,7 +117,14 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
 
     # Create the runner and execute the sync
     runner = RegistrySyncRunner()
-    result = await runner.run(request)
+    try:
+        result = await runner.run(request)
+    except RegistrySyncValidationError as exc:
+        raise ApplicationError(
+            str(exc),
+            non_retryable=True,
+            type="RegistrySyncValidationError",
+        ) from exc
 
     if result.validation_errors:
         error_count = sum(len(errs) for errs in result.validation_errors.values())

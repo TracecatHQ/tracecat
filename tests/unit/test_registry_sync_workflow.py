@@ -9,7 +9,8 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
-from tracecat.registry.sync.schemas import RegistrySyncRequest, RegistrySyncResult
+from tracecat.registry.sync.runner import RegistrySyncValidationError
+from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.workflow import sync_registry_activity
 
 
@@ -20,13 +21,10 @@ async def test_sync_registry_activity_raises_validation_application_error(
     """The sync activity should fail fast when validation errors are returned."""
 
     class _FakeRunner:
-        async def run(self, request: RegistrySyncRequest) -> RegistrySyncResult:
+        async def run(self, request: RegistrySyncRequest) -> None:
             del request
-            return RegistrySyncResult(
-                actions=[],
-                tarball_uri="s3://registry/tarball.tgz",
-                commit_sha="abc123",
-                validation_errors={
+            raise RegistrySyncValidationError(
+                {
                     "tools.example.action": [
                         RegistryActionValidationErrorInfo(
                             type=TemplateActionValidationErrorType.SERIALIZATION_ERROR,
@@ -36,7 +34,7 @@ async def test_sync_registry_activity_raises_validation_application_error(
                             loc_secondary=None,
                         )
                     ]
-                },
+                }
             )
 
     monkeypatch.setattr(

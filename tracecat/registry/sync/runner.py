@@ -61,6 +61,36 @@ class ActionDiscoveryError(RegistrySyncRunnerError):
     """Raised when action discovery fails."""
 
 
+def _build_validation_failure_message(
+    validation_errors: dict[str, list[RegistryActionValidationErrorInfo]],
+) -> str:
+    total_errors = sum(len(errs) for errs in validation_errors.values())
+    action_name = next(iter(validation_errors), "<unknown>")
+    first_error = (
+        validation_errors[action_name][0] if validation_errors[action_name] else None
+    )
+
+    first_detail = ""
+    if first_error is not None and first_error.details:
+        first_detail = first_error.details[0]
+
+    suffix = f" First error in '{action_name}': {first_detail}" if first_detail else ""
+    return (
+        f"Registry sync validation failed: {total_errors} validation error(s).{suffix}"
+    )
+
+
+class RegistrySyncValidationError(RegistrySyncRunnerError):
+    """Raised when action discovery returns validation errors."""
+
+    def __init__(
+        self,
+        validation_errors: dict[str, list[RegistryActionValidationErrorInfo]],
+    ) -> None:
+        super().__init__(_build_validation_failure_message(validation_errors))
+        self.validation_errors = validation_errors
+
+
 class RegistrySyncRunner:
     """Orchestrates all phases of sandboxed registry sync.
 
@@ -172,6 +202,9 @@ class RegistrySyncRunner:
                 num_actions=len(actions),
                 num_validation_errors=len(validation_errors),
             )
+
+            if validation_errors:
+                raise RegistrySyncValidationError(validation_errors)
 
             # Phase 4: Upload tarball to S3
             tarball_uri = await self._upload_tarball(
