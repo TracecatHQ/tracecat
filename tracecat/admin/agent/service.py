@@ -35,6 +35,14 @@ PLATFORM_CATALOG_STATE_SETTINGS = {
 }
 
 
+def _parse_catalog_offset(cursor: str | None) -> int:
+    if cursor is None:
+        return 0
+    if not cursor.isdecimal():
+        raise ValueError("Invalid cursor. Expected a non-negative integer offset.")
+    return int(cursor)
+
+
 def _decode_default_model_ref(value: bytes) -> ModelSelection | None:
     try:
         payload = orjson.loads(value)
@@ -368,7 +376,7 @@ class AdminAgentService(BasePlatformService):
     ) -> PlatformCatalogRead:
         status, refreshed_at, last_error = await self._get_catalog_state()
         bounded_limit = max(1, min(limit, 200))
-        offset = int(cursor) if cursor else 0
+        offset = _parse_catalog_offset(cursor)
 
         stmt = (
             select(

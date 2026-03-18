@@ -56,6 +56,7 @@ def test_custom_source_preserves_custom_header_and_api_version():
     assert data["extra_headers"] == {"X-Api-Key": "source-key"}
     assert data["model"] == "openai/gpt-5"
 
+
 def test_manual_custom_source_uses_declared_provider_routing():
     data = {"model": "claude-3-7-sonnet"}
 
@@ -127,6 +128,8 @@ def test_source_backed_gemini_uses_source_endpoint_without_vendor_key():
     assert data["api_key"] == "not-needed"
     assert data["api_base"] == "http://localhost:4000/v1"
     assert data["model"] == "gemini/gemini-2.5-flash"
+
+
 def test_gemini_injects_api_key_and_prefixes_model():
     data = {"model": "gemini-2.5-flash"}
     creds = {"GEMINI_API_KEY": "test-gemini-key"}
@@ -597,6 +600,7 @@ async def test_pre_call_hook_tracks_active_gateway_requests(
 
     assert tracker.snapshot().active_requests == 0
     assert id(request_data) not in _hook_request_counters
+
 
 @pytest.mark.anyio
 async def test_failure_hook_does_not_require_internal_request_id_in_payload(

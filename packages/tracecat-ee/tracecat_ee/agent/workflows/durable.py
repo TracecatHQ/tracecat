@@ -53,7 +53,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.auth.types import Role
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
-    from tracecat.executor.activities import ExecutorActivities
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
     from tracecat.workflow.executions.correlation import (
@@ -371,6 +370,7 @@ class DurableAgentWorkflow:
                     in (
                         AgentSessionEntity.AGENT_PRESET,
                         AgentSessionEntity.EXTERNAL_CHANNEL,
+                        AgentSessionEntity.WORKFLOW,
                     )
                     else cfg.source_id
                 ),
@@ -382,6 +382,7 @@ class DurableAgentWorkflow:
                     in (
                         AgentSessionEntity.AGENT_PRESET,
                         AgentSessionEntity.EXTERNAL_CHANNEL,
+                        AgentSessionEntity.WORKFLOW,
                     )
                     else cfg.model_name
                 ),
@@ -393,6 +394,7 @@ class DurableAgentWorkflow:
                     in (
                         AgentSessionEntity.AGENT_PRESET,
                         AgentSessionEntity.EXTERNAL_CHANNEL,
+                        AgentSessionEntity.WORKFLOW,
                     )
                     else cfg.model_provider
                 ),
@@ -707,7 +709,7 @@ class DurableAgentWorkflow:
         for tool_call in approved_tools:
             try:
                 stored = await workflow.execute_activity(
-                    ExecutorActivities.execute_action_activity,
+                    "execute_action_activity",
                     args=[
                         _build_approved_tool_run_input(
                             tool_call=tool_call,

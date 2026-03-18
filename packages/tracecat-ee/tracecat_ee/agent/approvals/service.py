@@ -486,7 +486,7 @@ class ApprovalManager:
         ]
         # Persist the approval state (and chat messages atomically for chat namespace)
         await workflow.execute_activity(
-            ApprovalManager.record_approval_requests,
+            "record_approval_requests",
             arg=PersistApprovalsActivityInputs(
                 role=self.role,
                 session_id=self.session_id,
@@ -604,7 +604,7 @@ class ApprovalManager:
             )
         if decisions:
             await workflow.execute_activity(
-                ApprovalManager.apply_approval_decisions,
+                "apply_approval_decisions",
                 arg=ApplyApprovalResultsActivityInputs(
                     role=self.role,
                     session_id=self.session_id,

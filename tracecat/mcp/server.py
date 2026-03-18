@@ -6271,7 +6271,11 @@ async def update_agent_preset(
                 if value is not None
             }
         )
-        if source_id is not None or model_name is not None or model_provider is not None:
+        if (
+            source_id is not None
+            or model_name is not None
+            or model_provider is not None
+        ):
             selection = await _resolve_agent_preset_model(
                 role,
                 source_id=source_id,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock
 
 import orjson
 import pytest
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.admin.agent.service import AdminAgentService
 from tracecat.agent.builtin_catalog import BuiltInCatalogModel
-from tracecat.agent.types import ModelSourceType
+from tracecat.agent.types import ModelDiscoveryStatus, ModelSourceType
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import (
     AgentCatalog,
@@ -318,3 +319,20 @@ async def test_upsert_platform_catalog_rows_clears_legacy_string_default(
     assert {setting.key: orjson.loads(setting.value) for setting in settings} == {
         "agent_default_model": None
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("cursor", ["abc", "-1"])
+async def test_list_platform_catalog_rejects_invalid_cursor(
+    cursor: str,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminAgentService(AsyncMock(), role=platform_role)
+    service._get_catalog_state = AsyncMock(
+        return_value=(ModelDiscoveryStatus.READY, None, None)
+    )
+
+    with pytest.raises(
+        ValueError, match="Invalid cursor. Expected a non-negative integer offset."
+    ):
+        await service.list_platform_catalog(cursor=cursor)

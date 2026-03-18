@@ -58,13 +58,17 @@ def _resolve_model_selection(
             selection["model_provider"],
             selection["source_id"],
         )
-    if model_name and model_provider:
-        return model_name, model_provider, source_id
-    selection = parse_model_selection(default_model)
+    default_selection = parse_model_selection(default_model)
+    if model_name:
+        return (
+            model_name,
+            model_provider or default_selection["model_provider"],
+            source_id if source_id is not None else default_selection["source_id"],
+        )
     return (
-        selection["model_name"],
-        selection["model_provider"],
-        selection["source_id"],
+        default_selection["model_name"],
+        default_selection["model_provider"],
+        default_selection["source_id"],
     )
 
 

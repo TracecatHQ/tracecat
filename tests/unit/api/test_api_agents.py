@@ -317,6 +317,26 @@ async def test_list_models_rejects_workspace_filter_outside_role_workspace(
 
 
 @pytest.mark.anyio
+async def test_list_platform_catalog_invalid_cursor_returns_bad_request(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_builtin_catalog.side_effect = ValueError(
+            "Invalid cursor. Expected a non-negative integer offset."
+        )
+        mock_service_cls.return_value = mock_svc
+
+        response = client.get("/agent/catalog/platform?cursor=abc")
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {
+        "detail": "Invalid cursor. Expected a non-negative integer offset."
+    }
+
+
+@pytest.mark.anyio
 async def test_get_workspace_model_subset_allows_workspace_member_without_org_workspace_scope(
     client: TestClient,
     test_admin_role: Role,

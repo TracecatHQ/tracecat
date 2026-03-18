@@ -237,6 +237,11 @@ async def run_agent_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error_type": e.exc_cls.__name__, "message": e.exc_msg},
         ) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

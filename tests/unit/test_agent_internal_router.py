@@ -4,21 +4,26 @@ from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from tracecat.agent.internal_router import (
     _merge_runtime_overrides,
     _provider_secrets_context,
     rank_items_endpoint,
     rank_items_pairwise_endpoint,
+    run_agent_endpoint,
 )
 from tracecat.agent.schemas import (
+    AgentConfigSchema,
     InternalRankItemsPairwiseRequest,
     InternalRankItemsRequest,
+    InternalRunAgentRequest,
 )
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
+from tracecat.exceptions import TracecatNotFoundError
 
 
 def test_merge_runtime_overrides_preserves_unset_catalog_fields() -> None:
@@ -449,3 +454,49 @@ async def test_rank_items_pairwise_endpoint_resolves_runtime_config_before_execu
     assert (
         ranker_rank_items_pairwise.await_args.kwargs["model_name"] == "resolved-model"
     )
+
+
+@pytest.mark.anyio
+async def test_run_agent_endpoint_maps_missing_model_selection_to_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = cast(
+        Role,
+        SimpleNamespace(
+            type="service",
+            service_id="tracecat-service",
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            scopes=frozenset({"agent:execute"}),
+        ),
+    )
+    resolve_runtime_agent_config = AsyncMock(
+        side_effect=TracecatNotFoundError("Model openai/stale-model is not enabled")
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.internal_router.AgentManagementService",
+        lambda session, role: cast(
+            AgentManagementService,
+            SimpleNamespace(resolve_runtime_agent_config=resolve_runtime_agent_config),
+        ),
+    )
+
+    token = ctx_role.set(role)
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await run_agent_endpoint(
+                role=role,
+                session=AsyncMock(),
+                params=InternalRunAgentRequest(
+                    user_prompt="hello",
+                    config=AgentConfigSchema(
+                        model_name="stale-model",
+                        model_provider="openai",
+                    ),
+                ),
+            )
+    finally:
+        ctx_role.reset(token)
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Model openai/stale-model is not enabled"

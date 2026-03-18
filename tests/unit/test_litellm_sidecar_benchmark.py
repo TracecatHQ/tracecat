@@ -4,6 +4,7 @@ import uuid
 
 import pytest
 
+import scripts.benchmark.litellm_sidecar_benchmark as benchmark_script
 from scripts.benchmark.litellm_sidecar_benchmark import (
     AuthMode,
     BenchmarkConfig,
@@ -88,6 +89,33 @@ def test_build_auth_headers_in_none_mode_returns_empty_headers() -> None:
     headers = build_auth_headers(make_config(auth_mode=AuthMode.NONE), uuid.uuid4())
 
     assert headers == {}
+
+
+def test_build_auth_headers_in_tracecat_jwt_mode_mints_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    minted: dict[str, object] = {}
+
+    def fake_mint_llm_token(**kwargs: object) -> str:
+        minted.update(kwargs)
+        return "jwt-token"
+
+    monkeypatch.setattr(benchmark_script, "mint_llm_token", fake_mint_llm_token)
+
+    config = make_config(auth_mode=AuthMode.TRACECAT_JWT)
+    session_id = uuid.uuid4()
+
+    headers = build_auth_headers(config, session_id)
+
+    assert headers == {"Authorization": "Bearer jwt-token"}
+    assert minted == {
+        "workspace_id": config.workspace_id,
+        "organization_id": config.organization_id,
+        "session_id": session_id,
+        "model": config.model,
+        "provider": config.provider,
+        "model_settings": {},
+    }
 
 
 def test_build_request_payload_uses_stream_and_prompt() -> None:

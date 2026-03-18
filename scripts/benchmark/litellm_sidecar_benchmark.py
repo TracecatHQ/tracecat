@@ -356,7 +356,6 @@ def build_auth_headers(
                 model=config.model,
                 provider=config.provider,
                 model_settings={},
-                use_workspace_credentials=config.use_workspace_credentials,
             )
             return {"Authorization": f"Bearer {token}"}
         case AuthMode.BEARER_ENV:
