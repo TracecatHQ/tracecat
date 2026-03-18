@@ -597,6 +597,12 @@ def create_mcp_auth() -> AuthProvider:
     if not oidc_config.issuer:
         raise ValueError("OIDC_ISSUER must be configured for the MCP server.")
 
+    # Full scope set for registration, authorization, and client loading.
+    # Includes offline_access so the IdP issues refresh tokens.
+    _required_scopes = append_scope_if_missing(
+        list(oidc_config.scopes), _MCP_REFRESH_SCOPE
+    )
+
     class TracecatOIDCProxy(OIDCProxy):
         """OIDC proxy with user-existence validation and a custom consent page."""
 
@@ -605,18 +611,17 @@ def create_mcp_auth() -> AuthProvider:
             client: OAuthClientInformationFull,
             params: AuthorizationParams,
         ) -> str:
-            """Inject refresh scope by default for MCP clients.
+            """Merge all required OIDC scopes into the authorization request.
 
-            Request `offline_access` optimistically even if the upstream OIDC
-            metadata omits it. Some providers issue refresh tokens despite not
-            advertising the scope in discovery metadata. If the provider truly
-            rejects the scope, `_retry_without_refresh_scope()` handles a single
-            retry without it.
+            Request ``offline_access`` optimistically even if the upstream OIDC
+            metadata omits it — some providers issue refresh tokens despite not
+            advertising the scope in discovery metadata.  If the provider truly
+            rejects the scope, ``_retry_without_refresh_scope()`` handles a
+            single retry without it.
             """
-            scopes = merge_unique_scopes(list(params.scopes or []), oidc_config.scopes)
-            scopes = append_scope_if_missing(scopes, _MCP_REFRESH_SCOPE)
-            params_with_refresh = params.model_copy(update={"scopes": scopes})
-            return await super().authorize(client, params_with_refresh)
+            scopes = merge_unique_scopes(list(params.scopes or []), _required_scopes)
+            params_with_scopes = params.model_copy(update={"scopes": scopes})
+            return await super().authorize(client, params_with_scopes)
 
         async def _retry_without_refresh_scope(
             self,
@@ -928,10 +933,16 @@ def create_mcp_auth() -> AuthProvider:
         client_storage=client_storage,
         fallback_access_token_expiry_seconds=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
     )
-    advertised_scopes = list(oidc_config.scopes)
+    # Patch client_registration_options so the MCP SDK's registration
+    # handler advertises and accepts the full scope set (including
+    # offline_access).  Do NOT pass required_scopes to the constructor
+    # — it flows into the JWT verifier which then rejects any token
+    # missing those scopes, breaking tokens issued before a scope
+    # change.  Scope merging is handled by our get_client(),
+    # register_client(), and authorize() overrides instead.
     if auth.client_registration_options is not None:
-        auth.client_registration_options.valid_scopes = advertised_scopes
-        auth.client_registration_options.default_scopes = advertised_scopes
+        auth.client_registration_options.valid_scopes = _required_scopes
+        auth.client_registration_options.default_scopes = _required_scopes
     return auth
 
 
