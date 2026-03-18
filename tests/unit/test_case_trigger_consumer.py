@@ -362,6 +362,48 @@ async def test_process_explicit_workflow_commits_before_setting_done_key():
     client.set.assert_awaited_once()
 
 
+def test_build_explicit_comment_payload_includes_reply_context() -> None:
+    consumer = CaseTriggerConsumer(client=AsyncMock())
+    case = cast(
+        Case,
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            tags=[],
+        ),
+    )
+    event = cast(
+        CaseEvent,
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            created_at=None,
+            type="comment_reply_created",
+            user_id=uuid.uuid4(),
+        ),
+    )
+    comment_id = uuid.uuid4()
+    parent_id = uuid.uuid4()
+
+    payload = consumer._build_explicit_comment_payload(
+        case=case,
+        event=event,
+        fields={
+            "comment": "Reply workflow",
+            "parent_id": str(parent_id),
+            "triggered_by_type": "user",
+        },
+        comment_id=comment_id,
+    )
+
+    assert payload["case_id"] == str(case.id)
+    assert payload["comment"] == "Reply workflow"
+    assert payload["comment_id"] == str(comment_id)
+    assert payload["parent_id"] == str(parent_id)
+    assert payload["thread_root_id"] == str(parent_id)
+    assert payload["is_reply"] is True
+    assert payload["text"] == "Reply workflow"
+
+
 @pytest.mark.anyio
 async def test_dispatch_selected_workflow_marks_comment_failed_on_start_error(
     session: AsyncSession,
@@ -574,6 +616,14 @@ async def test_dispatch_selected_workflow_treats_already_started_as_success(
 
     assert processed is True
     exec_service.create_workflow_execution_wait_for_start.assert_awaited_once()
+    payload = exec_service.create_workflow_execution_wait_for_start.await_args.kwargs[
+        "payload"
+    ]
+    assert payload["comment"] == "Replay this workflow"
+    assert payload["comment_id"] == str(comment.id)
+    assert payload["parent_id"] is None
+    assert payload["thread_root_id"] == str(comment.id)
+    assert payload["is_reply"] is False
 
     await session.refresh(comment)
     persisted = comment

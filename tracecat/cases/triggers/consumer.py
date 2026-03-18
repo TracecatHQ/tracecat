@@ -476,12 +476,19 @@ class CaseTriggerConsumer:
         triggered_by_user_id = fields.get("triggered_by_user_id")
         triggered_by_service_id = fields.get("triggered_by_service_id")
         parent_id = fields.get("parent_id")
+        comment = fields.get("comment") or fields.get("text", "")
+        thread_root_id = parent_id or (
+            str(comment_id) if comment_id is not None else None
+        )
 
         return {
             "case_id": str(case.id),
+            "comment": comment,
             "comment_id": str(comment_id) if comment_id is not None else None,
             "parent_id": parent_id,
-            "text": fields.get("text", ""),
+            "thread_root_id": thread_root_id,
+            "is_reply": parent_id is not None,
+            "text": comment,
             "workspace_id": str(case.workspace_id),
             "triggered_by": {
                 "type": fields.get("triggered_by_type") or "service",
