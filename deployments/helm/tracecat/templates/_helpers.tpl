@@ -864,6 +864,8 @@ Merges: common + temporal + postgres + redis + agent-executor-specific
   value: {{ .Values.agentExecutor.maxConcurrentActivities | quote }}
 - name: TRACECAT__EXECUTOR_WORKER_POOL_SIZE
   value: {{ .Values.agentExecutor.workerPoolSize | quote }}
+- name: TRACECAT__EXECUTOR_CLIENT_TIMEOUT
+  value: {{ .Values.tracecat.executorClientTimeout | quote }}
 - name: TRACECAT__LLM_PROXY_READ_TIMEOUT
   value: {{ .Values.agentExecutor.llmProxyReadTimeout | quote }}
 {{- end }}
