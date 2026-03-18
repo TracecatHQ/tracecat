@@ -40,3 +40,23 @@ export function isRequestValidationErrorArray(
 ): obj is RequestValidationError[] {
   return Array.isArray(obj) && obj.every((o) => isRequestValidationError(o))
 }
+
+export function getApiErrorDetail(error: unknown): string | null {
+  if (!(error instanceof Error)) {
+    return null
+  }
+
+  const maybeApiError = error as TracecatApiError<unknown>
+  const detail = maybeApiError.body?.detail
+  if (typeof detail === "string") {
+    return detail
+  }
+  if (detail == null) {
+    return error.message
+  }
+  try {
+    return JSON.stringify(detail)
+  } catch {
+    return error.message
+  }
+}

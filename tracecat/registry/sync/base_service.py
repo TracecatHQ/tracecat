@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
@@ -232,6 +234,37 @@ class BaseRegistrySyncService[
         tiebreaker = uuid.uuid4().int % 1_000_000
         return f"{base_version}.dev{suffix}{tiebreaker:06d}"
 
+    def _build_validation_failure_message(
+        self,
+        validation_errors: dict[str, list[object]],
+    ) -> str:
+        total_errors = sum(len(errs) for errs in validation_errors.values())
+        action_name = next(iter(validation_errors), "<unknown>")
+        first_error = (
+            validation_errors[action_name][0]
+            if validation_errors[action_name]
+            else None
+        )
+
+        first_detail = ""
+        if first_error is not None:
+            details = getattr(first_error, "details", None)
+            if isinstance(details, list) and details:
+                first_detail = str(details[0])
+
+        suffix = (
+            f" First error in '{action_name}': {first_detail}" if first_detail else ""
+        )
+        return f"Registry sync validation failed with {total_errors} error(s).{suffix}"
+
+    def _raise_if_validation_errors(
+        self,
+        validation_errors: dict[str, list[object]],
+    ) -> None:
+        if validation_errors:
+            message = self._build_validation_failure_message(validation_errors)
+            raise self._sync_error_cls()(message)
+
     async def sync_repository_v2(
         self,
         db_repo: RepoT,
@@ -293,6 +326,7 @@ class BaseRegistrySyncService[
             git_repo_package_name=git_repo_package_name,
             organization_id=org_id,
         )
+        self._raise_if_validation_errors(sync_result.validation_errors)
         actions = sync_result.actions
         commit_sha = sync_result.commit_sha
 
@@ -599,6 +633,28 @@ class BaseRegistrySyncService[
                     initial_interval=timedelta(seconds=5),
                 ),
             )
+        except WorkflowFailureError as exc:
+            failure = exc.cause
+            while (
+                isinstance(failure, BaseException)
+                and (nested := getattr(failure, "cause", None))
+                and isinstance(nested, BaseException)
+            ):
+                failure = nested
+
+            if isinstance(failure, ApplicationError) and (
+                failure.type == "RegistrySyncValidationError"
+            ):
+                raise self._sync_error_cls()(str(failure)) from exc
+
+            self.logger.error(
+                "Registry sync workflow failed",
+                repository=origin,
+                error=str(exc),
+            )
+            raise self._sync_error_cls()(
+                f"Registry sync workflow failed: {exc}"
+            ) from exc
         except Exception as exc:
             self.logger.error(
                 "Registry sync workflow failed",
@@ -610,6 +666,7 @@ class BaseRegistrySyncService[
             ) from exc
 
         actions = workflow_result.actions
+        self._raise_if_validation_errors(workflow_result.validation_errors)
         tarball_uri = workflow_result.tarball_uri
         commit_sha = workflow_result.commit_sha
 

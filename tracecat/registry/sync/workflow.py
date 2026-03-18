@@ -28,6 +28,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from temporalio import activity, workflow
+from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
@@ -114,6 +115,25 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
     # Create the runner and execute the sync
     runner = RegistrySyncRunner()
     result = await runner.run(request)
+
+    if result.validation_errors:
+        error_count = sum(len(errs) for errs in result.validation_errors.values())
+        first_action, first_errors = next(iter(result.validation_errors.items()))
+        first_error = first_errors[0] if first_errors else None
+        first_detail = (
+            first_error.details[0]
+            if first_error is not None and first_error.details
+            else ""
+        )
+        raise ApplicationError(
+            (
+                "Registry sync validation failed: "
+                f"{error_count} validation error(s). "
+                f"First error in '{first_action}': {first_detail}"
+            ),
+            non_retryable=True,
+            type="RegistrySyncValidationError",
+        )
 
     logger.info(
         "sync_registry_activity completed",
