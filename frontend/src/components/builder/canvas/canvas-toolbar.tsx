@@ -120,12 +120,15 @@ const CORE_TOP = [
   "core.http_request",
   "core.http_paginate",
   "core.http_poll",
+  "core.ssh.execute_command",
   "core.send_email_smtp",
   "core.grpc.request",
 ]
 const WORKFLOW_TOP = [
   "core.workflow.execute",
   "core.workflow.get_status",
+  "core.loop.start",
+  "core.loop.end",
   "core.transform.scatter",
   "core.transform.gather",
 ]
@@ -151,6 +154,7 @@ const WORKFLOW_EXTRA_ACTIONS = new Set([
   "core.transform.scatter",
   "core.transform.gather",
 ])
+const WORKFLOW_NAMESPACES = ["core.workflow", "core.loop"]
 const SQL_NAMESPACES = ["core.sql", "core.duckdb"]
 const CATEGORY_STYLES: Record<string, { buttonClass: string }> = {
   core: {
@@ -208,6 +212,7 @@ function isCoreAction(action: RegistryActionReadMinimal): boolean {
   if (action.action.startsWith("core.http_")) return true
   if (matchesNamespace(action.namespace, "core.script")) return true
   if (matchesNamespace(action.namespace, "core.grpc")) return true
+  if (matchesNamespace(action.namespace, "core.ssh")) return true
   return false
 }
 
@@ -286,8 +291,9 @@ export function CanvasToolbar({ onAddAction }: CanvasToolbarProps) {
         }
         if (category.id === "core.workflow") {
           return (
-            matchesNamespace(action.namespace, "core.workflow") ||
-            WORKFLOW_EXTRA_ACTIONS.has(action.action)
+            WORKFLOW_NAMESPACES.some((namespace) =>
+              matchesNamespace(action.namespace, namespace)
+            ) || WORKFLOW_EXTRA_ACTIONS.has(action.action)
           )
         }
         if (category.id === "core.sql") {
