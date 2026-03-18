@@ -110,6 +110,7 @@ locals {
   max_tracecat_pod_cpu_millicores = max(
     var.api_cpu_request_millicores,
     var.worker_cpu_request_millicores,
+    var.agent_worker_cpu_request_millicores,
     var.executor_cpu_request_millicores,
     var.agent_executor_cpu_request_millicores,
     var.ui_cpu_request_millicores
@@ -118,6 +119,7 @@ locals {
   max_tracecat_pod_memory_mib = max(
     var.api_memory_request_mib,
     var.worker_memory_request_mib,
+    var.agent_worker_memory_request_mib,
     var.executor_memory_request_mib,
     var.agent_executor_memory_request_mib,
     var.ui_memory_request_mib
