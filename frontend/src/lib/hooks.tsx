@@ -6382,6 +6382,14 @@ export function useRbacUserAssignments(options?: {
   const queryClient = useQueryClient()
   const enabled = options?.enabled ?? true
 
+  const invalidateAssignmentQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] }),
+      queryClient.invalidateQueries({ queryKey: ["user-scopes"] }),
+      queryClient.invalidateQueries({ queryKey: ["org-members"] }),
+    ])
+  }
+
   // List user assignments
   const {
     data: userAssignments,
@@ -6409,9 +6417,8 @@ export function useRbacUserAssignments(options?: {
   } = useMutation({
     mutationFn: async (params: UserRoleAssignmentCreate) =>
       await rbacCreateUserAssignment({ requestBody: params }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
-      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    onSuccess: async () => {
+      await invalidateAssignmentQueries()
       toast({
         title: "User assignment created",
         description: "Role assigned to user successfully.",
@@ -6469,9 +6476,8 @@ export function useRbacUserAssignments(options?: {
       ...params
     }: UserRoleAssignmentUpdate & { assignmentId: string }) =>
       await rbacUpdateUserAssignment({ assignmentId, requestBody: params }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
-      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    onSuccess: async () => {
+      await invalidateAssignmentQueries()
       toast({
         title: "User assignment updated",
         description: "User assignment updated successfully.",
@@ -6512,9 +6518,8 @@ export function useRbacUserAssignments(options?: {
   } = useMutation({
     mutationFn: async (assignmentId: string) =>
       await rbacDeleteUserAssignment({ assignmentId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
-      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    onSuccess: async () => {
+      await invalidateAssignmentQueries()
       toast({
         title: "User assignment deleted",
         description: "User assignment removed successfully.",
