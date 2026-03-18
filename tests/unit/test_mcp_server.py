@@ -3196,6 +3196,106 @@ async def test_export_csv_rejects_stdio_transport(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_list_agent_presets_returns_lightweight_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    now = datetime.now(UTC)
+    presets = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            workspace_id=workspace_id,
+            name="Security triage",
+            slug="security-triage",
+            description="Investigate alerts",
+            instructions="Very long system prompt",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            actions=["tools.alpha"],
+            namespaces=["tools"],
+            current_version_id=None,
+            created_at=now,
+            updated_at=now,
+        )
+    ]
+
+    class _PresetService:
+        async def list_presets(self) -> list[SimpleNamespace]:
+            return presets
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = await _tool(mcp_server.list_agent_presets)(workspace_id=str(workspace_id))
+
+    assert _payload(result) == [{"slug": "security-triage", "name": "Security triage"}]
+
+
+@pytest.mark.anyio
+async def test_get_agent_preset_returns_full_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    now = datetime.now(UTC)
+    preset = SimpleNamespace(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name="Security triage",
+        slug="security-triage",
+        description="Investigate alerts",
+        instructions="Very long system prompt",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        base_url=None,
+        output_type=None,
+        actions=["tools.alpha"],
+        namespaces=["tools"],
+        tool_approvals={"tools.alpha": False},
+        mcp_integrations=[str(uuid.uuid4())],
+        retries=3,
+        enable_internet_access=False,
+        current_version_id=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _PresetService:
+        async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
+            assert preset_slug == "security-triage"
+            return preset
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = await _tool(mcp_server.get_agent_preset)(
+        workspace_id=str(workspace_id),
+        preset_slug="security-triage",
+    )
+
+    payload = _payload(result)
+    assert payload["slug"] == "security-triage"
+    assert payload["instructions"] == "Very long system prompt"
+    assert payload["actions"] == ["tools.alpha"]
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("last_stream_id", "expected_start_id"),
     [
