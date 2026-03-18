@@ -2,7 +2,8 @@ import type { ApiError } from "@/client"
 
 export interface TracecatApiError<T = unknown> extends ApiError {
   readonly body: {
-    detail: T
+    detail?: T
+    message?: string | null
   }
 }
 
@@ -51,12 +52,16 @@ export function getApiErrorDetail(error: unknown): string | null {
   if (typeof detail === "string") {
     return detail
   }
-  if (detail == null) {
-    return error.message
+  if (detail != null) {
+    try {
+      return JSON.stringify(detail)
+    } catch {
+      return error.message
+    }
   }
-  try {
-    return JSON.stringify(detail)
-  } catch {
-    return error.message
+  const message = maybeApiError.body?.message
+  if (typeof message === "string" && message.length > 0) {
+    return message
   }
+  return error.message
 }
