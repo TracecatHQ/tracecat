@@ -59,18 +59,27 @@
                 ]
               },
               {
+                "group": "Custom actions",
+                "pages": [
+                  "custom-actions/install",
+                  "custom-actions/sync",
+                  "custom-actions/python",
+                  "custom-actions/yaml"
+                ]
+              },
+              {
                 "group": "Integrations",
                 "pages": [
-                  "automations/prebuilt-credentials",
+                  "automations/credentials",
                   "automations/oauth-integrations",
                   "automations/mcp-integrations"
                 ]
               },
               "automations/expressions",
-              "automations/jsonpath",
-              "automations/functions",
               "automations/secrets",
               "automations/variables",
+              "automations/functions",
+              "automations/jsonpath",
               "automations/tables",
               "automations/cases"
             ]
@@ -83,17 +92,6 @@
               "agents/ai-agent",
               "agents/ai-preset-agent",
               "agents/slackbot"
-            ]
-          }
-          ,
-          {
-            "group": "Building custom actions",
-            "icon": "blocks",
-            "pages": [
-              "custom-actions/install",
-              "custom-actions/sync",
-              "custom-actions/python",
-              "custom-actions/yaml"
             ]
           },
           {
