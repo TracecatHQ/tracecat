@@ -280,6 +280,30 @@ variable "context_compression_threshold_kb" {
   default     = 16
 }
 
+variable "temporal_payload_encryption_enabled" {
+  type        = bool
+  description = "Enable application-layer encryption for Temporal payloads"
+  default     = false
+}
+
+variable "temporal_payload_encryption_key_version" {
+  type        = string
+  description = "Current Temporal payload encryption key version"
+  default     = "1"
+}
+
+variable "temporal_payload_encryption_cache_ttl_seconds" {
+  type        = number
+  description = "In-memory cache TTL in seconds for resolved Temporal encryption keys"
+  default     = 3600
+}
+
+variable "temporal_payload_encryption_cache_max_items" {
+  type        = number
+  description = "Maximum number of cached Temporal encryption keys"
+  default     = 128
+}
+
 ### Secret ARNs
 
 variable "tracecat_db_encryption_key_arn" {
@@ -295,6 +319,24 @@ variable "tracecat_service_key_arn" {
 variable "tracecat_signing_secret_arn" {
   type        = string
   description = "The ARN of the secret containing the Tracecat signing secret"
+}
+
+variable "temporal_payload_encryption_key_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal payload encryption root key"
+  default     = null
+}
+
+variable "temporal_visibility_hmac_key_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal visibility HMAC key"
+  default     = null
+}
+
+variable "temporal_codec_server_shared_secret_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal codec server shared secret"
+  default     = null
 }
 
 variable "oauth_client_id_arn" {

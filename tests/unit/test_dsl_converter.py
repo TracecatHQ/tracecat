@@ -61,7 +61,8 @@ def test_from_payload_sanitizes_type_conversion_failures() -> None:
     assert "secret-token" not in message
 
 
-def test_agent_action_memo_logging_omits_raw_payload(
+@pytest.mark.anyio
+async def test_agent_action_memo_logging_omits_raw_payload(
     monkeypatch,
 ) -> None:
     """Memo parse warnings should not log the full protobuf payload."""
@@ -87,7 +88,7 @@ def test_agent_action_memo_logging_omits_raw_payload(
         }
     )
 
-    AgentActionMemo.from_temporal(memo)
+    await AgentActionMemo.from_temporal(memo)
 
     assert len(warnings) == 1
     warning = warnings[0]

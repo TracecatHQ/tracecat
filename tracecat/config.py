@@ -363,6 +363,46 @@ TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION = os.environ.get(
     "TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION", "true"
 ).lower() in ("true", "1")
 """Disable eager activity execution for Temporal workflows."""
+TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", "false"
+).lower() in ("true", "1")
+"""Enable application-layer encryption for Temporal payloads."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_KEY = os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_KEY")
+"""Root secret used to derive workspace-scoped Temporal payload keys."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN"
+)
+"""AWS Secrets Manager ARN containing the Temporal payload encryption root key."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION = (
+    os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION") or "1"
+)
+"""Current key version used when encrypting new Temporal payloads."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS = int(
+    os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS") or 3600
+)
+"""TTL for cached derived Temporal payload keys."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS = int(
+    os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS") or 4096
+)
+"""Maximum number of cached derived Temporal payload keys."""
+
+TEMPORAL__VISIBILITY_HMAC_KEY = os.environ.get("TEMPORAL__VISIBILITY_HMAC_KEY")
+"""Secret used to tokenize Temporal visibility metadata such as alias."""
+
+TEMPORAL__VISIBILITY_HMAC_KEY__ARN = os.environ.get(
+    "TEMPORAL__VISIBILITY_HMAC_KEY__ARN"
+)
+"""AWS Secrets Manager ARN containing the Temporal visibility HMAC key."""
+
+TEMPORAL__CODEC_SERVER_SHARED_SECRET = os.environ.get(
+    "TEMPORAL__CODEC_SERVER_SHARED_SECRET"
+)
+"""Shared secret for the Temporal codec server break-glass endpoint."""
 
 # === Sentry config === #
 SENTRY_ENVIRONMENT_OVERRIDE = os.environ.get("SENTRY_ENVIRONMENT_OVERRIDE")

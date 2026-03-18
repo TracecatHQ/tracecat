@@ -54,17 +54,21 @@ module "ecs" {
   temporal_namespace         = var.temporal_namespace
 
   # Container environment variables
-  tracecat_app_env                       = var.tracecat_app_env
-  log_level                              = var.log_level
-  temporal_log_level                     = var.temporal_log_level
-  feature_flags                          = var.feature_flags
-  ee_multi_tenant                        = var.ee_multi_tenant
-  context_compression_enabled            = var.context_compression_enabled
-  context_compression_threshold_kb       = var.context_compression_threshold_kb
-  result_externalization_enabled         = var.result_externalization_enabled
-  collection_manifests_enabled           = var.collection_manifests_enabled
-  result_externalization_threshold_bytes = var.result_externalization_threshold_bytes
-  workflow_artifact_retention_days       = var.workflow_artifact_retention_days
+  tracecat_app_env                              = var.tracecat_app_env
+  log_level                                     = var.log_level
+  temporal_log_level                            = var.temporal_log_level
+  feature_flags                                 = var.feature_flags
+  ee_multi_tenant                               = var.ee_multi_tenant
+  context_compression_enabled                   = var.context_compression_enabled
+  context_compression_threshold_kb              = var.context_compression_threshold_kb
+  temporal_payload_encryption_enabled           = var.temporal_payload_encryption_enabled
+  temporal_payload_encryption_key_version       = var.temporal_payload_encryption_key_version
+  temporal_payload_encryption_cache_ttl_seconds = var.temporal_payload_encryption_cache_ttl_seconds
+  temporal_payload_encryption_cache_max_items   = var.temporal_payload_encryption_cache_max_items
+  result_externalization_enabled                = var.result_externalization_enabled
+  collection_manifests_enabled                  = var.collection_manifests_enabled
+  result_externalization_threshold_bytes        = var.result_externalization_threshold_bytes
+  workflow_artifact_retention_days              = var.workflow_artifact_retention_days
 
   # Database connection pool
   db_max_overflow          = var.db_max_overflow
@@ -83,9 +87,12 @@ module "ecs" {
   temporal_db_snapshot_name        = var.temporal_db_snapshot_name
 
   # Secrets from AWS Secrets Manager
-  tracecat_db_encryption_key_arn = var.tracecat_db_encryption_key_arn
-  tracecat_service_key_arn       = var.tracecat_service_key_arn
-  tracecat_signing_secret_arn    = var.tracecat_signing_secret_arn
+  tracecat_db_encryption_key_arn          = var.tracecat_db_encryption_key_arn
+  tracecat_service_key_arn                = var.tracecat_service_key_arn
+  tracecat_signing_secret_arn             = var.tracecat_signing_secret_arn
+  temporal_payload_encryption_key_arn     = var.temporal_payload_encryption_key_arn
+  temporal_visibility_hmac_key_arn        = var.temporal_visibility_hmac_key_arn
+  temporal_codec_server_shared_secret_arn = var.temporal_codec_server_shared_secret_arn
 
   # Authentication
   auth_types               = var.auth_types

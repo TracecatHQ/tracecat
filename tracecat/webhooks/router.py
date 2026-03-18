@@ -18,7 +18,7 @@ from temporalio.service import RPCError
 
 from tracecat import config
 from tracecat.concurrency import cooperative
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_role, with_temporal_workspace_id
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.workflow import DSLWorkflow
@@ -514,10 +514,12 @@ async def receive_interaction(
         # Get temporal client and workflow handle
         client = await get_temporal_client()
         handle = client.get_workflow_handle_for(DSLWorkflow.run, input.execution_id)
+        role = ctx_role.get()
 
         # Convert to internal interaction format
         # Execute workflow interaction handler
-        result = await handle.execute_update(DSLWorkflow.interaction_handler, input)
+        with with_temporal_workspace_id(role.workspace_id if role else None):
+            result = await handle.execute_update(DSLWorkflow.interaction_handler, input)
         logger.info("Interaction processed", result=result)
 
         return ReceiveInteractionResponse(
