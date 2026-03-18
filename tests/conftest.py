@@ -1226,14 +1226,9 @@ def temporal_client():
         policy = asyncio.get_event_loop_policy()
         loop = policy.new_event_loop()
 
-    try:
-        client = loop.run_until_complete(
-            get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
-        )
-    except RuntimeError as e:
-        if "Failed to connect to host" in str(e) or "Failed client connect" in str(e):
-            pytest.skip(f"Temporal is not available: {e}")
-        raise
+    client = loop.run_until_complete(
+        get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
+    )
     return client
 
 
