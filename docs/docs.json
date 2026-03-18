@@ -37,8 +37,9 @@
                 "pages": [
                   "automations/triggers/webhooks",
                   "automations/triggers/schedules",
-                  "automations/triggers/case-triggers",
-                  "automations/triggers/comment-triggers"
+                  "automations/triggers/cases",
+                  "automations/triggers/tasks",
+                  "automations/triggers/comments"
                 ]
               },
               {
@@ -91,7 +92,7 @@
               "agents/ai-action",
               "agents/ai-agent",
               "agents/ai-preset-agent",
-              "agents/slackbot"
+              "agents/ai-slackbot"
             ]
           },
           {
@@ -199,6 +200,20 @@
       }
     ]
   },
+  "redirects": [
+    {
+      "source": "/automations/triggers/case-triggers",
+      "destination": "/automations/triggers/cases"
+    },
+    {
+      "source": "/automations/triggers/task-triggers",
+      "destination": "/automations/triggers/tasks"
+    },
+    {
+      "source": "/automations/triggers/comment-triggers",
+      "destination": "/automations/triggers/comments"
+    }
+  ],
   "logo": {
     "light": "/img/logos/light.svg",
     "dark": "/img/logos/dark.svg"
