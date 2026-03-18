@@ -13,19 +13,9 @@ AGENT_TOOL_PRIORITY = Priority(priority_key=2)
 AGENT_TOOL_WORKFLOW_PREFIX = "agent-tool"
 
 
-def is_valid_agent_tool_call_id(tool_call_id: str) -> bool:
-    """Return True when a tool call ID is safe to embed in a workflow ID."""
-    return bool(tool_call_id) and "/" not in tool_call_id
-
-
-def build_agent_tool_workflow_id(session_id: UUID, tool_call_id: str) -> str:
-    """Build the deterministic workflow ID for a registry tool execution."""
-    return f"{AGENT_TOOL_WORKFLOW_PREFIX}/{session_id}/{tool_call_id}"
-
-
-def build_fallback_agent_tool_workflow_id(session_id: UUID) -> str:
-    """Build a workflow ID when no safe tool call ID is available."""
-    return build_agent_tool_workflow_id(session_id, str(uuid4()))
+def build_agent_tool_workflow_id() -> str:
+    """Build a fresh workflow ID for a registry tool execution."""
+    return f"{AGENT_TOOL_WORKFLOW_PREFIX}/{uuid4()}"
 
 
 class ExecuteRegistryToolWorkflowInput(BaseModel):

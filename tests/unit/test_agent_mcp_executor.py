@@ -35,10 +35,13 @@ def _build_registry_lock() -> RegistryLock:
 
 
 @pytest.mark.anyio
-async def test_execute_action_starts_deterministic_registry_tool_workflow(
+async def test_execute_action_starts_registry_tool_workflow_with_alias_correlation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     claims = _build_claims()
+    monkeypatch.setattr(
+        executor, "build_agent_tool_workflow_id", lambda: "agent-tool/tool-wf-123"
+    )
     fake_client = SimpleNamespace(
         execute_workflow=AsyncMock(return_value={"uri": "s3://stored"}),
     )
@@ -62,7 +65,7 @@ async def test_execute_action_starts_deterministic_registry_tool_workflow(
     )
 
     call = fake_client.execute_workflow.await_args
-    assert call.kwargs["id"] == f"agent-tool/{claims.session_id}/toolu_123"
+    assert call.kwargs["id"] == "agent-tool/tool-wf-123"
     assert call.kwargs["memo"] == {
         "parent_agent_workflow_id": f"agent/{claims.session_id}",
         "parent_agent_run_id": "run-123",
@@ -75,6 +78,7 @@ async def test_execute_action_starts_deterministic_registry_tool_workflow(
     assert pairs[
         TemporalSearchAttr.CORRELATION_ID.value
     ] == build_agent_session_correlation_id(claims.session_id)
+    assert pairs[TemporalSearchAttr.ALIAS.value] == "cc:toolu_123"
     assert pairs[TemporalSearchAttr.WORKSPACE_ID.value] == str(claims.workspace_id)
     retrieve_stored_object.assert_awaited_once_with({"uri": "s3://stored"})
     assert result == {"ok": True}
@@ -85,7 +89,8 @@ async def test_execute_action_reuses_existing_workflow_on_duplicate_start(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     claims = _build_claims()
-    workflow_id = f"agent-tool/{claims.session_id}/toolu_123"
+    workflow_id = "agent-tool/tool-wf-123"
+    monkeypatch.setattr(executor, "build_agent_tool_workflow_id", lambda: workflow_id)
     handle = SimpleNamespace(result=AsyncMock(return_value={"uri": "s3://existing"}))
     fake_client = SimpleNamespace(
         execute_workflow=AsyncMock(
@@ -125,7 +130,8 @@ async def test_execute_action_maps_existing_workflow_failures_on_duplicate_start
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     claims = _build_claims()
-    workflow_id = f"agent-tool/{claims.session_id}/toolu_123"
+    workflow_id = "agent-tool/tool-wf-123"
+    monkeypatch.setattr(executor, "build_agent_tool_workflow_id", lambda: workflow_id)
     handle = SimpleNamespace(
         result=AsyncMock(
             side_effect=WorkflowFailureError(
@@ -158,10 +164,12 @@ async def test_execute_action_maps_existing_workflow_failures_on_duplicate_start
         )
 
 
-def test_build_tool_workflow_id_falls_back_for_unsafe_tool_call_id() -> None:
-    session_id = uuid.UUID("00000000-0000-0000-0000-000000000003")
+def test_build_tool_workflow_alias_attrs_uses_claude_code_prefix() -> None:
+    attrs = executor.build_tool_workflow_alias_attrs("toolu_123")
+    assert len(attrs) == 1
+    assert attrs[0].key.name == TemporalSearchAttr.ALIAS.value
+    assert attrs[0].value == "cc:toolu_123"
 
-    workflow_id = executor._build_tool_workflow_id(session_id, "tool/123")
 
-    assert workflow_id.startswith(f"agent-tool/{session_id}/")
-    assert workflow_id != f"agent-tool/{session_id}/tool/123"
+def test_build_tool_workflow_alias_attrs_skips_missing_tool_call_id() -> None:
+    assert executor.build_tool_workflow_alias_attrs(None) == []

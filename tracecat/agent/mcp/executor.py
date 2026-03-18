@@ -18,8 +18,6 @@ from tracecat.agent.workflows.tool_execution import (
     ExecuteRegistryToolWorkflowInput,
     ExecuteRegistryToolWorkflowMemo,
     build_agent_tool_workflow_id,
-    build_fallback_agent_tool_workflow_id,
-    is_valid_agent_tool_call_id,
 )
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -105,7 +103,7 @@ async def execute_action(
     run_input = build_run_input(action_name, args, registry_lock)
     stored = await _execute_action_workflow(
         ExecuteRegistryToolWorkflowInput(role=role, run_input=run_input),
-        workflow_id=_build_tool_workflow_id(claims.session_id, tool_call_id),
+        workflow_id=build_agent_tool_workflow_id(),
         memo=ExecuteRegistryToolWorkflowMemo(
             parent_agent_workflow_id=claims.parent_agent_workflow_id,
             parent_agent_run_id=claims.parent_agent_run_id,
@@ -116,6 +114,7 @@ async def execute_action(
         search_attributes=TypedSearchAttributes(
             search_attributes=[
                 build_tool_workflow_correlation_attr(claims.session_id),
+                *build_tool_workflow_alias_attrs(tool_call_id),
                 build_tool_workflow_workspace_attr(claims),
                 *build_tool_workflow_user_attrs(claims),
             ]
@@ -204,26 +203,20 @@ async def _execute_action_workflow(
     return StoredObjectValidator.validate_python(stored)
 
 
-def _build_tool_workflow_id(
-    session_id: UUID,
-    tool_call_id: str | None,
-) -> str:
-    """Build a deterministic workflow ID for a registry tool execution."""
-    if tool_call_id is not None and is_valid_agent_tool_call_id(tool_call_id):
-        return build_agent_tool_workflow_id(session_id, tool_call_id)
-
-    if tool_call_id is not None:
-        logger.warning("Unsafe tool call ID for workflow ID", tool_call_id=tool_call_id)
-    else:
-        logger.warning("Missing tool call ID for workflow ID")
-    return build_fallback_agent_tool_workflow_id(session_id)
-
-
 def build_tool_workflow_correlation_attr(session_id: UUID) -> SearchAttributePair[str]:
     """Build the grouped correlation search attribute for registry tool workflows."""
     return TemporalSearchAttr.CORRELATION_ID.create_pair(
         build_agent_session_correlation_id(session_id)
     )
+
+
+def build_tool_workflow_alias_attrs(
+    tool_call_id: str | None,
+) -> list[SearchAttributePair[str]]:
+    """Build optional harness-specific alias search attributes for registry tools."""
+    if tool_call_id is None:
+        return []
+    return [TemporalSearchAttr.ALIAS.create_pair(f"cc:{tool_call_id}")]
 
 
 def build_tool_workflow_workspace_attr(
