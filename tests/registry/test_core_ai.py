@@ -94,3 +94,76 @@ async def test_rank_documents_accepts_legacy_split_model_fields(
     assert captured["source_id"] is None
     assert captured["model_provider"] == "openai"
     assert captured["model_name"] == "gpt-5"
+
+
+@pytest.mark.anyio
+async def test_rank_documents_accepts_legacy_model_name_without_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_rank_items(**kwargs: Any) -> list[int]:
+        captured.update(kwargs)
+        return [0, 1, 2]
+
+    monkeypatch.setattr("tracecat_registry.core.ai.rank_items", fake_rank_items)
+
+    await rank_documents(
+        items=["first", "second", "third"],
+        criteria_prompt="Rank them",
+        model_name="gpt-5",
+    )
+
+    assert captured["source_id"] is None
+    assert captured["model_provider"] == "openai"
+    assert captured["model_name"] == "gpt-5"
+
+
+@pytest.mark.anyio
+async def test_select_field_accepts_legacy_model_name_without_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_rank_items(**kwargs: Any) -> list[str]:
+        captured.update(kwargs)
+        return ["name"]
+
+    monkeypatch.setattr("tracecat_registry.core.ai.rank_items", fake_rank_items)
+
+    result = await select_field(
+        json={"name": "tracecat", "type": "agent"},
+        criteria_prompt="Pick the name field.",
+        model_name="gpt-5",
+    )
+
+    assert result == {"key": "name", "value": "tracecat"}
+    assert captured["source_id"] is None
+    assert captured["model_provider"] == "openai"
+    assert captured["model_name"] == "gpt-5"
+
+
+@pytest.mark.anyio
+async def test_select_fields_accepts_legacy_model_name_without_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_rank_items(**kwargs: Any) -> list[str]:
+        captured.update(kwargs)
+        return ["name", "type"]
+
+    monkeypatch.setattr("tracecat_registry.core.ai.rank_items", fake_rank_items)
+
+    result = await select_fields(
+        json={"name": "tracecat", "type": "agent", "priority": "high"},
+        criteria_prompt="Pick the most important fields.",
+        min_fields=2,
+        max_fields=2,
+        model_name="gpt-5",
+    )
+
+    assert result == {"name": "tracecat", "type": "agent"}
+    assert captured["source_id"] is None
+    assert captured["model_provider"] == "openai"
+    assert captured["model_name"] == "gpt-5"

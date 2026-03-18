@@ -165,12 +165,18 @@ async def list_platform_catalog(
 ) -> BuiltInCatalogRead:
     """List the shared platform catalog with org readiness state."""
     service = AgentManagementService(session, role=role)
-    return await service.list_builtin_catalog(
-        query=query,
-        provider=provider,
-        cursor=cursor,
-        limit=limit,
-    )
+    try:
+        return await service.list_builtin_catalog(
+            query=query,
+            provider=provider,
+            cursor=cursor,
+            limit=limit,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
 
 @router.get("/providers")

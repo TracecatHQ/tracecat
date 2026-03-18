@@ -205,6 +205,14 @@ _BUILT_IN_PROVIDER_ORDER = (
 )
 
 
+def _parse_catalog_offset(cursor: str | None) -> int:
+    if cursor is None:
+        return 0
+    if not cursor.isdecimal():
+        raise ValueError("Invalid cursor. Expected a non-negative integer offset.")
+    return int(cursor)
+
+
 @dataclass(frozen=True, slots=True)
 class ModelSelectionKey:
     source_id: uuid.UUID | None
@@ -1493,6 +1501,7 @@ class AgentManagementService(BaseOrgService):
         cursor: str | None = None,
         limit: int = 100,
     ) -> BuiltInCatalogRead:
+        start = _parse_catalog_offset(cursor)
         status, refreshed_at, last_error = await self._get_builtin_catalog_state()
         enabled_rows_by_key = {
             self._selection_key_from_enabled_row(row): row
@@ -1535,7 +1544,6 @@ class AgentManagementService(BaseOrgService):
                 item.model_name.lower(),
             )
         )
-        start = int(cursor) if cursor else 0
         bounded_limit = max(1, min(limit, 200))
         page = items[start : start + bounded_limit]
         next_cursor = (

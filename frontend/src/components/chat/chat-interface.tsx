@@ -7,6 +7,7 @@ import type {
   AgentPresetRead,
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
+  ModelSelection,
 } from "@/client"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
@@ -40,6 +41,7 @@ import {
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { buildChatReadinessOptions } from "@/lib/chat-readiness"
 import {
   type AgentCatalogEntry,
   matchesModelSelection,
@@ -105,6 +107,7 @@ type ChatModelSelector = {
   modelsError: unknown
   modelsIsLoading: boolean
   selectedModel: AgentCatalogEntry | null
+  selectedSelection?: ModelSelection | null
   onSelect: (model: AgentCatalogEntry | null) => void | Promise<void>
   disabled?: boolean
   showSpinner?: boolean
@@ -217,6 +220,7 @@ export function ChatInterface({
     enabledModelsError,
     enabledModelsLoading,
     selectedModel,
+    selectedModelSelection,
     handleModelSelectionChange,
     defaultModelLabel,
     defaultModelProvider,
@@ -492,6 +496,7 @@ export function ChatInterface({
                   modelsError: enabledModelsError,
                   modelsIsLoading: enabledModelsLoading,
                   selectedModel: effectiveSelectedModel,
+                  selectedSelection: selectedModelSelection,
                   onSelect: (model) =>
                     void handleModelSelectionChange(
                       model
@@ -575,27 +580,11 @@ function ChatBody({
     reason: chatReason,
     modelInfo,
   } = useChatReadiness(
-    selectedPreset
-      ? {
-          workspaceId,
-          selection: {
-            source_id: selectedPreset.source_id ?? null,
-            model_provider: selectedPreset.model_provider,
-            model_name: selectedPreset.model_name,
-          },
-        }
-      : modelSelector?.selectedModel
-        ? {
-            workspaceId,
-            selection: {
-              source_id: modelSelector.selectedModel.source_id ?? null,
-              model_provider: modelSelector.selectedModel.model_provider,
-              model_name: modelSelector.selectedModel.model_name,
-            },
-          }
-        : {
-            workspaceId,
-          }
+    buildChatReadinessOptions({
+      workspaceId,
+      preset: selectedPreset,
+      selection: modelSelector?.selectedSelection ?? null,
+    })
   )
 
   if (chatError) {

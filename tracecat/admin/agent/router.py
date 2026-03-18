@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat.admin.agent.schemas import PlatformCatalogRead
 from tracecat.admin.agent.service import AdminAgentService
@@ -22,12 +22,18 @@ async def list_platform_catalog(
     limit: int = Query(default=100, ge=1, le=200),
 ) -> PlatformCatalogRead:
     service = AdminAgentService(session, role)
-    return await service.list_platform_catalog(
-        query=query,
-        provider=provider,
-        cursor=cursor,
-        limit=limit,
-    )
+    try:
+        return await service.list_platform_catalog(
+            query=query,
+            provider=provider,
+            cursor=cursor,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post("/catalog/platform/refresh", response_model=PlatformCatalogRead)

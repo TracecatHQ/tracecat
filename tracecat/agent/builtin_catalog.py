@@ -8,12 +8,12 @@ from functools import lru_cache
 from importlib.metadata import version
 from typing import Any
 
-import litellm
-
 from tracecat.agent.types import ModelSourceType
 
 
 def _load_litellm_model_payload() -> dict[str, Any]:
+    import litellm  # lazy: litellm calls load_dotenv() at import time
+
     return dict(litellm.model_cost)
 
 

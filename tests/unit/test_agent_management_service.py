@@ -1994,3 +1994,17 @@ async def test_list_builtin_catalog_uses_persisted_rows_with_existing_readiness_
     assert model.discovered is True
     assert model.credentials_configured is True
     assert model.metadata == {"mode": "chat", "slot": "persisted"}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("cursor", ["abc", "-1"])
+async def test_list_builtin_catalog_rejects_invalid_cursor(
+    role: Role,
+    cursor: str,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+
+    with pytest.raises(
+        ValueError, match="Invalid cursor. Expected a non-negative integer offset."
+    ):
+        await service.list_builtin_catalog(cursor=cursor)

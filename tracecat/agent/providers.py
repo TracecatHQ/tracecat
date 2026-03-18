@@ -161,7 +161,9 @@ def _build_azure_ai_model(
     if not default_headers:
         if api_key := secrets.get_or_default("AZURE_API_KEY"):
             default_headers["api-key"] = api_key
-        default_headers["Authorization"] = ""
+    default_headers = _masked_source_headers(
+        default_headers, auth_header="Authorization"
+    )
 
     return OpenAIChatModel(
         model_name=_strip_provider_prefix(
