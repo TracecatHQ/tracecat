@@ -28,7 +28,7 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 > Fargate does not support the permissions model required by `nsjail`, so `core.script.run_python` and executor code paths run without `nsjail` isolation.
 > Tracecat uses `unsafe_pid_executor` fallback in this mode. It attempts PID namespace isolation with `unshare --pid`, but this is typically unavailable on Fargate.
 > As a result, script execution uses subprocess isolation without nsjail-level mount/network/cgroup controls.
-> If you need highest isolation for untrusted code execution, deploy Tracecat on Kubernetes with our [Helm chart](https://github.com/tracecathq/tracecat/deployments/helm), where `nsjail` is enabled by default.
+> If you need highest isolation for untrusted code execution, deploy Tracecat on Kubernetes with the Helm chart, where `nsjail` is enabled by default.
 
 - `TRACECAT__DISABLE_NSJAIL=true`
 - `TRACECAT__EXECUTOR_BACKEND=direct` (executor + agent-executor)
