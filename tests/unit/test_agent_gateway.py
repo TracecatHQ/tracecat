@@ -248,4 +248,4 @@ async def test_user_api_key_auth_allows_health_readiness_without_token() -> None
 
 def test_verify_llm_token_rejects_invalid_token_type() -> None:
     with pytest.raises(ValueError, match="Invalid LLM token"):
-        verify_llm_token(cast(str | bytes, None))
+        verify_llm_token("")
