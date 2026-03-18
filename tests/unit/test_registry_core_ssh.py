@@ -41,7 +41,7 @@ def test_execute_command_rejects_missing_host_key_when_checking_enabled(
     mock_ssh_client.connect.assert_not_called()
 
 
-def test_execute_command_retains_default_policy_when_host_key_checking_disabled(
+def test_execute_command_uses_transient_policy_when_host_key_checking_disabled(
     monkeypatch: pytest.MonkeyPatch,
     mock_ssh_client: MagicMock,
 ) -> None:
@@ -49,7 +49,7 @@ def test_execute_command_retains_default_policy_when_host_key_checking_disabled(
     monkeypatch.setattr(registry_ssh, "_load_private_key", lambda private_key: MagicMock())
     monkeypatch.setattr(paramiko, "SSHClient", lambda: mock_ssh_client)
 
-    with pytest.warns(RuntimeWarning, match="default safe policy"):
+    with pytest.warns(RuntimeWarning, match="not persisted across action runs"):
         result = registry_ssh.execute_command(
             command="hostname",
             host="example.com",
@@ -58,7 +58,8 @@ def test_execute_command_retains_default_policy_when_host_key_checking_disabled(
         )
 
     mock_ssh_client.load_host_keys.assert_not_called()
-    mock_ssh_client.set_missing_host_key_policy.assert_not_called()
+    policy = mock_ssh_client.set_missing_host_key_policy.call_args.args[0]
+    assert isinstance(policy, registry_ssh._TransientMissingHostKeyPolicy)
     assert result == {"stdout": "hello\n", "stderr": "", "exit_status": 0}
 
 
