@@ -638,17 +638,17 @@ class BaseRegistrySyncService[
             )
         except WorkflowFailureError as exc:
             failure = exc.cause
-            while (
-                isinstance(failure, BaseException)
-                and (nested := getattr(failure, "cause", None))
-                and isinstance(nested, BaseException)
-            ):
+            while isinstance(failure, BaseException):
+                if isinstance(failure, ApplicationError) and (
+                    failure.type == "RegistrySyncValidationError"
+                ):
+                    raise self._sync_error_cls()(str(failure)) from exc
+                if not (
+                    (nested := getattr(failure, "cause", None))
+                    and isinstance(nested, BaseException)
+                ):
+                    break
                 failure = nested
-
-            if isinstance(failure, ApplicationError) and (
-                failure.type == "RegistrySyncValidationError"
-            ):
-                raise self._sync_error_cls()(str(failure)) from exc
 
             self.logger.error(
                 "Registry sync workflow failed",
