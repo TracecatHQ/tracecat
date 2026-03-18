@@ -142,6 +142,7 @@ def create_mock_run_agent_activity(*, output: str) -> Callable[..., Any]:
 @pytest.fixture
 def agent_worker_factory(
     threadpool: Any,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[Callable[..., Worker], None, None]:
     def create_agent_worker(
         client: Client,
@@ -149,8 +150,8 @@ def agent_worker_factory(
         task_queue: str,
         activities: Sequence[Callable[..., Any]],
     ) -> Worker:
-        config.TRACECAT__AGENT_EXECUTOR_QUEUE = task_queue
-        config.TRACECAT__EXECUTOR_QUEUE = task_queue
+        monkeypatch.setattr(config, "TRACECAT__AGENT_EXECUTOR_QUEUE", task_queue)
+        monkeypatch.setattr(config, "TRACECAT__EXECUTOR_QUEUE", task_queue)
         return Worker(
             client=client,
             task_queue=task_queue,

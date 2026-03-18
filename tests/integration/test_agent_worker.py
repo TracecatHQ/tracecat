@@ -146,6 +146,7 @@ def create_activities_with_mock_executor(
 @pytest.fixture
 def agent_worker_factory(
     threadpool: Any,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[Callable[..., Worker], None, None]:
     """Factory to create workers configured for agent workflows."""
 
@@ -167,8 +168,8 @@ def agent_worker_factory(
                 *ApprovalManager.get_activities(),
             ]
 
-        config.TRACECAT__AGENT_EXECUTOR_QUEUE = task_queue
-        config.TRACECAT__EXECUTOR_QUEUE = task_queue
+        monkeypatch.setattr(config, "TRACECAT__AGENT_EXECUTOR_QUEUE", task_queue)
+        monkeypatch.setattr(config, "TRACECAT__EXECUTOR_QUEUE", task_queue)
 
         return Worker(
             client=client,
