@@ -78,6 +78,7 @@ async def test_publish_workflow_omits_inert_case_trigger(
             status="offline",
             event_types=[],
             tag_filters=[],
+            event_filters={},
         ),
     )
 
@@ -125,8 +126,12 @@ async def test_publish_workflow_includes_configured_case_trigger(
         workflow_id,
         case_trigger=SimpleNamespace(
             status="online",
-            event_types=[CaseEventType.CASE_CREATED.value],
+            event_types=[
+                CaseEventType.CASE_CREATED.value,
+                CaseEventType.STATUS_CHANGED.value,
+            ],
             tag_filters=["phishing"],
+            event_filters={"status_changed": ["resolved"]},
         ),
     )
 
@@ -163,5 +168,9 @@ async def test_publish_workflow_includes_configured_case_trigger(
     push_obj = sync_service.push.call_args.kwargs["objects"][0]
     assert push_obj.data.case_trigger is not None
     assert push_obj.data.case_trigger.status == "online"
-    assert push_obj.data.case_trigger.event_types == [CaseEventType.CASE_CREATED]
+    assert push_obj.data.case_trigger.event_types == [
+        CaseEventType.CASE_CREATED,
+        CaseEventType.STATUS_CHANGED,
+    ]
     assert push_obj.data.case_trigger.tag_filters == ["phishing"]
+    assert push_obj.data.case_trigger.event_filters.status_changed == ["resolved"]

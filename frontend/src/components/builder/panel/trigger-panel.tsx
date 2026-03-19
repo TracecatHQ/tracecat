@@ -25,6 +25,9 @@ import {
   $WebhookStatus,
   ApiError,
   type CaseEventType,
+  type CasePriority,
+  type CaseSeverity,
+  type CaseStatus,
   type SchedulesCreateScheduleData,
   type WebhookMethod,
   type WebhookRead,
@@ -36,6 +39,12 @@ import {
   type TriggerPanelTab,
   TriggerPanelTabs,
 } from "@/components/builder/panel/trigger-panel-tabs"
+import {
+  buildCaseEventFilterOptions,
+  CASE_EVENT_FILTER_OPTIONS,
+  isCaseEventFilterType,
+} from "@/components/cases/case-duration-options"
+import { CaseFilterMultiSelect } from "@/components/cases/multiselect-case-filters"
 import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -139,6 +148,42 @@ import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
+type CaseTriggerFilterEventType = keyof typeof CASE_EVENT_FILTER_OPTIONS
+
+type CaseTriggerEventFiltersState = {
+  status_changed: CaseStatus[]
+  severity_changed: CaseSeverity[]
+  priority_changed: CasePriority[]
+}
+
+function createEmptyCaseTriggerEventFilters(): CaseTriggerEventFiltersState {
+  return {
+    status_changed: [],
+    severity_changed: [],
+    priority_changed: [],
+  }
+}
+
+function normalizeCaseTriggerEventFilters(
+  eventFilters: Partial<CaseTriggerEventFiltersState> | null | undefined,
+  eventTypes: CaseEventType[]
+): CaseTriggerEventFiltersState {
+  const nextEventFilters: CaseTriggerEventFiltersState = {
+    status_changed: eventFilters?.status_changed ?? [],
+    severity_changed: eventFilters?.severity_changed ?? [],
+    priority_changed: eventFilters?.priority_changed ?? [],
+  }
+
+  const selectedEventTypes = new Set(eventTypes)
+  for (const eventType of Object.keys(
+    nextEventFilters
+  ) as CaseTriggerFilterEventType[]) {
+    if (!selectedEventTypes.has(eventType)) {
+      nextEventFilters[eventType] = []
+    }
+  }
+  return nextEventFilters
+}
 
 const toCanonicalString = (address: ipaddr.IPv4 | ipaddr.IPv6): string => {
   const maybeNormalized =
@@ -1066,6 +1111,8 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
   const [status, setStatus] = useState<"online" | "offline">("offline")
   const [eventTypes, setEventTypes] = useState<CaseEventType[]>([])
   const [tagFilters, setTagFilters] = useState<string[]>([])
+  const [eventFilters, setEventFilters] =
+    useState<CaseTriggerEventFiltersState>(createEmptyCaseTriggerEventFilters())
 
   useEffect(() => {
     if (!caseTrigger) {
@@ -1074,18 +1121,26 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
     setStatus(caseTrigger.status)
     setEventTypes(caseTrigger.event_types ?? [])
     setTagFilters(caseTrigger.tag_filters ?? [])
+    setEventFilters(
+      normalizeCaseTriggerEventFilters(
+        caseTrigger.event_filters,
+        caseTrigger.event_types ?? []
+      )
+    )
   }, [caseTrigger])
 
   const persist = useCallback(
     async (
       nextStatus: "online" | "offline",
       nextEvents: CaseEventType[],
-      nextTags: string[]
+      nextTags: string[],
+      nextEventFilters: CaseTriggerEventFiltersState
     ) => {
       await upsertCaseTrigger({
         status: nextStatus,
         event_types: nextEvents,
         tag_filters: nextTags,
+        event_filters: nextEventFilters,
       })
     },
     [upsertCaseTrigger]
@@ -1105,7 +1160,7 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
       const previousStatus = status
       setStatus(nextStatus)
       try {
-        await persist(nextStatus, eventTypes, tagFilters)
+        await persist(nextStatus, eventTypes, tagFilters, eventFilters)
         toast({
           title: "Case trigger updated",
           description: `Case triggers are now ${nextStatus}.`,
@@ -1114,7 +1169,7 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
         setStatus(previousStatus)
       }
     },
-    [eventTypes, persist, status, tagFilters]
+    [eventFilters, eventTypes, persist, status, tagFilters]
   )
 
   const handleEventTypesChange = useCallback(
@@ -1123,16 +1178,22 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
       const wasOnline = status === "online"
       const nextStatus =
         wasOnline && nextEvents.length === 0 ? "offline" : status
+      const nextEventFilters = normalizeCaseTriggerEventFilters(
+        eventFilters,
+        nextEvents
+      )
 
       const previousEvents = eventTypes
       const previousStatus = status
+      const previousEventFilters = eventFilters
       setEventTypes(nextEvents)
+      setEventFilters(nextEventFilters)
       if (nextStatus !== status) {
         setStatus(nextStatus)
       }
 
       try {
-        await persist(nextStatus, nextEvents, tagFilters)
+        await persist(nextStatus, nextEvents, tagFilters, nextEventFilters)
         if (wasOnline && nextEvents.length === 0) {
           toast({
             title: "Case triggers disabled",
@@ -1146,10 +1207,11 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
         }
       } catch {
         setEventTypes(previousEvents)
+        setEventFilters(previousEventFilters)
         setStatus(previousStatus)
       }
     },
-    [eventTypes, persist, status, tagFilters]
+    [eventFilters, eventTypes, persist, status, tagFilters]
   )
 
   const handleTagFiltersChange = useCallback(
@@ -1157,7 +1219,7 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
       const previousFilters = tagFilters
       setTagFilters(values)
       try {
-        await persist(status, eventTypes, values)
+        await persist(status, eventTypes, values, eventFilters)
         toast({
           title: "Tag allowlist updated",
           description: "Case trigger tag filters saved successfully.",
@@ -1166,7 +1228,29 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
         setTagFilters(previousFilters)
       }
     },
-    [eventTypes, persist, status, tagFilters]
+    [eventFilters, eventTypes, persist, status, tagFilters]
+  )
+
+  const handleEventFilterChange = useCallback(
+    async (eventType: CaseTriggerFilterEventType, values: string[]) => {
+      const previousEventFilters = eventFilters
+      const nextEventFilters = {
+        ...eventFilters,
+        [eventType]: values,
+      } as CaseTriggerEventFiltersState
+
+      setEventFilters(nextEventFilters)
+      try {
+        await persist(status, eventTypes, tagFilters, nextEventFilters)
+        toast({
+          title: "Case event filters updated",
+          description: "Case trigger filters saved successfully.",
+        })
+      } catch {
+        setEventFilters(previousEventFilters)
+      }
+    },
+    [eventFilters, eventTypes, persist, status, tagFilters]
   )
 
   const tagSuggestions = useMemo(() => {
@@ -1177,6 +1261,20 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
       description: tag.ref,
     }))
   }, [caseTags])
+
+  const activeEventFilterTypes = useMemo(
+    () => eventTypes.filter(isCaseEventFilterType),
+    [eventTypes]
+  )
+
+  const eventFilterOptions = useMemo(
+    () => ({
+      status_changed: buildCaseEventFilterOptions("status_changed"),
+      severity_changed: buildCaseEventFilterOptions("severity_changed"),
+      priority_changed: buildCaseEventFilterOptions("priority_changed"),
+    }),
+    []
+  )
 
   if (isLoadingCaseTrigger) {
     return <CenteredSpinner />
@@ -1222,6 +1320,36 @@ export function CaseTriggerControls({ workflowId }: { workflowId: string }) {
           Choose which case events will fire this workflow.
         </p>
       </div>
+
+      {activeEventFilterTypes.length > 0 ? (
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label className="text-xs">Event filters</Label>
+            <p className="text-xs text-muted-foreground">
+              Narrow changed-value events to specific statuses, severities, or
+              priorities. Empty selections match any value.
+            </p>
+          </div>
+          {activeEventFilterTypes.map((eventType) => {
+            const filterConfig = CASE_EVENT_FILTER_OPTIONS[eventType]
+            return (
+              <div key={eventType} className="space-y-2">
+                <Label className="text-xs">{filterConfig.label}</Label>
+                <CaseFilterMultiSelect
+                  placeholder={`Select ${filterConfig.label.toLowerCase()}`}
+                  value={eventFilters[eventType]}
+                  options={eventFilterOptions[eventType]}
+                  onChange={(values) =>
+                    handleEventFilterChange(eventType, values)
+                  }
+                  disabled={isUpdatingCaseTrigger}
+                  className="h-9"
+                />
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
 
       <div className="space-y-2">
         <Label className="text-xs">Tag allowlist</Label>

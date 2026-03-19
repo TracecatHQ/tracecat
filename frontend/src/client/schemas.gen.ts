@@ -6716,9 +6716,40 @@ export const $CaseTriggerCreate = {
       type: "array",
       title: "Tag Filters",
     },
+    event_filters: {
+      $ref: "#/components/schemas/CaseTriggerEventFilters",
+    },
   },
   type: "object",
   title: "CaseTriggerCreate",
+} as const
+
+export const $CaseTriggerEventFilters = {
+  properties: {
+    status_changed: {
+      items: {
+        $ref: "#/components/schemas/CaseStatus",
+      },
+      type: "array",
+      title: "Status Changed",
+    },
+    severity_changed: {
+      items: {
+        $ref: "#/components/schemas/CaseSeverity",
+      },
+      type: "array",
+      title: "Severity Changed",
+    },
+    priority_changed: {
+      items: {
+        $ref: "#/components/schemas/CasePriority",
+      },
+      type: "array",
+      title: "Priority Changed",
+    },
+  },
+  type: "object",
+  title: "CaseTriggerEventFilters",
 } as const
 
 export const $CaseTriggerRead = {
@@ -6750,6 +6781,9 @@ export const $CaseTriggerRead = {
       },
       type: "array",
       title: "Tag Filters",
+    },
+    event_filters: {
+      $ref: "#/components/schemas/CaseTriggerEventFilters",
     },
   },
   type: "object",
@@ -6798,6 +6832,16 @@ export const $CaseTriggerUpdate = {
         },
       ],
       title: "Tag Filters",
+    },
+    event_filters: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseTriggerEventFilters",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",

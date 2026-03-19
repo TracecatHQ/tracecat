@@ -343,6 +343,7 @@ class TestCaseTagsService:  # noqa: D101
             status="offline",
             event_types=[],
             tag_filters=[tag.ref],
+            event_filters={},
         )
         session.add(case_trigger)
         await session.commit()

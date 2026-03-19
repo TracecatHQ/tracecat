@@ -14,6 +14,10 @@ from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowID, WorkflowIDShort
 from tracecat.store import Source
+from tracecat.workflow.case_triggers.schemas import (
+    CaseTriggerEventFilters,
+    normalize_case_trigger_event_filters,
+)
 
 # TODO(deps): This is only supported starting pydantic 2.11+
 WorkflowSource = Source[WorkflowID]
@@ -133,9 +137,16 @@ class RemoteCaseTrigger(BaseModel):
     status: Status = Field(default="offline")
     event_types: list[CaseEventType] = Field(default_factory=list)
     tag_filters: list[str] = Field(default_factory=list)
+    event_filters: CaseTriggerEventFilters = Field(
+        default_factory=CaseTriggerEventFilters
+    )
 
     @model_validator(mode="after")
     def validate_event_types(self) -> "RemoteCaseTrigger":
+        self.event_filters = normalize_case_trigger_event_filters(
+            self.event_filters,
+            event_types=self.event_types,
+        )
         if self.status == "online" and not self.event_types:
             raise ValueError("event_types must be non-empty when status is online")
         return self

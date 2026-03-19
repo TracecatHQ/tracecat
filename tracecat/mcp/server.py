@@ -130,6 +130,7 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
     CaseTriggerRead,
     CaseTriggerUpdate,
+    normalize_case_trigger_event_filters,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.service import WorkflowExecutionsService
@@ -947,6 +948,7 @@ async def _build_workflow_yaml_envelope(
             "status": case_trigger.status,
             "event_types": case_trigger.event_types,
             "tag_filters": case_trigger.tag_filters,
+            "event_filters": case_trigger.event_filters,
         }
     except TracecatNotFoundError:
         payload["case_trigger"] = None
@@ -1474,6 +1476,7 @@ async def _apply_case_trigger_payload(
             status=patch.status or "offline",
             event_types=patch.event_types or [],
             tag_filters=patch.tag_filters or [],
+            event_filters=normalize_case_trigger_event_filters(patch.event_filters),
         )
         await service.upsert_case_trigger(
             workflow_id,
@@ -1873,6 +1876,8 @@ field name/column id, not a UUID.
 `{_CASE_EVENT_TYPE_VALUES_JSON}`.
 - `update_case_trigger.tag_filters`: JSON array of tag ref strings, e.g. \
 `["malware","phishing"]`.
+- `update_case_trigger.event_filters`: JSON object keyed by changed-field event \
+types, e.g. `{{"status_changed":["resolved"],"severity_changed":["high"]}}`.
 - `create_table.columns_json`: JSON array of objects with schema \
 `{{"name": str, "type": SqlType, "nullable": bool?, "default": any?, "options": list[str]?}}`. \
 `options` are only valid for `SELECT` and `MULTI_SELECT`.
@@ -1985,7 +1990,7 @@ Each action in the `actions` list supports:
 | `depends_on` | list[str] | Refs of actions that must complete before this one runs |
 | `run_if` | expression | Conditional — skip this action if the expression is falsy |
 | `for_each` | expression or list | Iterate: run this action once per item in the list |
-| `retry_policy` | object | `{max_attempts: int, timeout: float}` |
+| `retry_policy` | object | `{{max_attempts: int, timeout: float}}` |
 | `join_strategy` | str | `"all"` (default) or `"any"` — how to join parallel branches |
 | `start_delay` | float | Seconds to wait before starting |
 | `environment` | str | Override secrets environment for this action |
@@ -4375,7 +4380,7 @@ async def get_case_trigger(
         workflow_id: The workflow ID.
 
     Returns JSON with the case trigger (id, workflow_id, status, event_types,
-    tag_filters).
+    tag_filters, event_filters).
     """
 
     try:
@@ -4402,6 +4407,7 @@ async def update_case_trigger(
     status: str | None = None,
     event_types: str | None = None,
     tag_filters: str | None = None,
+    event_filters: str | None = None,
 ) -> str:
     """Update an existing case trigger for a workflow.
 
@@ -4414,6 +4420,8 @@ async def update_case_trigger(
             documented in the shared MCP instructions.
         tag_filters: JSON array of tag ref strings, e.g.
             '["malware","phishing"]'. Schema: list[str].
+        event_filters: JSON object keyed by changed-field event types, e.g.
+            '{"status_changed":["resolved"],"severity_changed":["high"]}'.
 
     Returns a confirmation message.
     """
@@ -4423,11 +4431,13 @@ async def update_case_trigger(
 
         parsed_event_types = _parse_json_arg(event_types, "event_types")
         parsed_tag_filters = _parse_json_arg(tag_filters, "tag_filters")
+        parsed_event_filters = _parse_json_arg(event_filters, "event_filters")
 
         update_params = CaseTriggerUpdate(
             status=status,  # pyright: ignore[reportArgumentType]
             event_types=parsed_event_types,
             tag_filters=parsed_tag_filters,
+            event_filters=parsed_event_filters,
         )
 
         async with CaseTriggersService.with_session(role=role) as svc:

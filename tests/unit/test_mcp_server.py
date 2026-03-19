@@ -1883,6 +1883,7 @@ async def test_get_case_trigger(monkeypatch):
         status="online",
         event_types=["case_created"],
         tag_filters=["malware"],
+        event_filters={"status_changed": ["resolved"]},
     )
 
     async def _get_case_trigger(_workflow_id):
@@ -1904,6 +1905,7 @@ async def test_get_case_trigger(monkeypatch):
     assert payload["status"] == "online"
     assert payload["event_types"] == ["case_created"]
     assert payload["tag_filters"] == ["malware"]
+    assert payload["event_filters"]["status_changed"] == ["resolved"]
 
 
 @pytest.mark.anyio
@@ -1946,6 +1948,7 @@ async def test_update_case_trigger(monkeypatch):
         captured_update["status"] = _params.status
         captured_update["event_types"] = _params.event_types
         captured_update["tag_filters"] = _params.tag_filters
+        captured_update["event_filters"] = _params.event_filters
         captured_update["create_missing_tags"] = create_missing_tags
         return SimpleNamespace(
             id=trigger_id,
@@ -1953,6 +1956,11 @@ async def test_update_case_trigger(monkeypatch):
             status=_params.status or "offline",
             event_types=_params.event_types or [],
             tag_filters=_params.tag_filters or [],
+            event_filters=(
+                _params.event_filters.model_dump(mode="json")
+                if _params.event_filters
+                else {}
+            ),
         )
 
     ct_service = SimpleNamespace(update_case_trigger=_update_case_trigger)
@@ -1968,6 +1976,7 @@ async def test_update_case_trigger(monkeypatch):
         workflow_id=str(workflow_id),
         status="online",
         event_types='["case_created", "case_updated"]',
+        event_filters='{"status_changed":["resolved"]}',
     )
     payload = _payload(result)
     assert "updated successfully" in payload["message"]
@@ -1975,6 +1984,7 @@ async def test_update_case_trigger(monkeypatch):
     assert captured_update["status"] == "online"
     assert captured_update["event_types"] == ["case_created", "case_updated"]
     assert captured_update["tag_filters"] is None
+    assert captured_update["event_filters"].status_changed == ["resolved"]
     assert captured_update["create_missing_tags"] is True
 
 

@@ -1,7 +1,13 @@
 "use client"
 
 import { Check, ChevronsUpDown } from "lucide-react"
-import { type ComponentType, type ReactNode, useMemo, useState } from "react"
+import {
+  type ComponentType,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -32,6 +38,7 @@ export interface CaseFilterMultiSelectProps<T extends string> {
   value: T[]
   options: CaseFilterOption<T>[]
   onChange: (value: T[]) => void
+  disabled?: boolean
   className?: string
   emptyMessage?: string
 }
@@ -41,10 +48,17 @@ export function CaseFilterMultiSelect<T extends string>({
   value,
   options,
   onChange,
+  disabled = false,
   className,
   emptyMessage = "No results found.",
 }: CaseFilterMultiSelectProps<T>) {
   const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false)
+    }
+  }, [disabled])
 
   const valueSet = useMemo(() => new Set(value), [value])
   const optionMap = useMemo(() => {
@@ -64,13 +78,14 @@ export function CaseFilterMultiSelect<T extends string>({
         : `${placeholder} (${selectedCount})`
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={disabled ? undefined : setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
           size="sm"
           role="combobox"
           className={cn("h-8 w-full justify-between px-3 text-xs", className)}
+          disabled={disabled}
         >
           <span className="truncate text-left">{triggerLabel}</span>
           <ChevronsUpDown className="ml-2 size-3 opacity-50" aria-hidden />
@@ -88,6 +103,7 @@ export function CaseFilterMultiSelect<T extends string>({
           <CommandInput
             placeholder={`Search ${placeholder.toLowerCase()}...`}
             className="text-xs"
+            disabled={disabled}
           />
           <CommandList>
             <CommandEmpty>{emptyMessage}</CommandEmpty>
@@ -100,7 +116,11 @@ export function CaseFilterMultiSelect<T extends string>({
                     key={option.value}
                     value={`${option.label} ${option.value}`}
                     className="flex items-center gap-2 text-xs"
+                    disabled={disabled}
                     onSelect={() => {
+                      if (disabled) {
+                        return
+                      }
                       const nextValue = isSelected
                         ? value.filter((item) => item !== option.value)
                         : [...value, option.value]
@@ -148,6 +168,7 @@ export function CaseFilterMultiSelect<T extends string>({
               variant="ghost"
               size="sm"
               className="h-7 w-full text-xs"
+              disabled={disabled}
               onClick={() => onChange([])}
             >
               Clear selection

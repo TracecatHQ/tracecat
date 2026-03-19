@@ -42,6 +42,7 @@ async def test_case_trigger_consumer_matches_event_type(
         status="online",
         event_types=["case_created"],
         tag_filters=[],
+        event_filters={},
     )
     session.add(case_trigger)
     await session.commit()
@@ -110,6 +111,7 @@ async def test_case_trigger_consumer_lock_prevents_ack():
     trigger = SimpleNamespace(
         workflow_id=workflow_id,
         tag_filters=[],
+        event_filters={},
     )
 
     client = AsyncMock()
@@ -159,6 +161,7 @@ async def test_case_trigger_consumer_done_allows_ack():
     trigger = SimpleNamespace(
         workflow_id=workflow_id,
         tag_filters=[],
+        event_filters={},
     )
 
     client = AsyncMock()
@@ -208,6 +211,7 @@ async def test_case_trigger_consumer_missing_definition_no_ack():
     trigger = SimpleNamespace(
         workflow_id=workflow_id,
         tag_filters=[],
+        event_filters={},
     )
 
     client = AsyncMock()
@@ -281,6 +285,7 @@ async def test_case_trigger_consumer_skips_configured_duplicate_for_explicit_wor
     trigger = SimpleNamespace(
         workflow_id=workflow_id,
         tag_filters=[],
+        event_filters={},
     )
 
     client = AsyncMock()
@@ -313,6 +318,114 @@ async def test_case_trigger_consumer_skips_configured_duplicate_for_explicit_wor
     assert should_ack is True
     consumer._process_explicit_workflow.assert_awaited_once()
     consumer._dispatch_workflow.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_case_trigger_consumer_matches_event_filter_values():
+    consumer = CaseTriggerConsumer(client=AsyncMock())
+    trigger = cast(
+        CaseTrigger,
+        SimpleNamespace(
+            event_filters={"status_changed": ["resolved"]},
+        ),
+    )
+
+    assert consumer._matches_event_filters(
+        trigger,
+        cast(
+            CaseEvent,
+            SimpleNamespace(
+                type="status_changed",
+                data={"new": "resolved"},
+            ),
+        ),
+    )
+    assert not consumer._matches_event_filters(
+        trigger,
+        cast(
+            CaseEvent,
+            SimpleNamespace(
+                type="status_changed",
+                data={"new": "in_progress"},
+            ),
+        ),
+    )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_consumer_empty_event_filter_matches_any_value():
+    consumer = CaseTriggerConsumer(client=AsyncMock())
+    trigger = cast(
+        CaseTrigger,
+        SimpleNamespace(
+            event_filters={"status_changed": []},
+        ),
+    )
+
+    assert consumer._matches_event_filters(
+        trigger,
+        cast(
+            CaseEvent,
+            SimpleNamespace(
+                type="status_changed",
+                data={"new": "in_progress"},
+            ),
+        ),
+    )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_consumer_requires_tag_and_event_filters():
+    event_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    workflow_id = uuid.uuid4()
+
+    event = SimpleNamespace(
+        id=event_id,
+        data={"new": "resolved"},
+        created_at=None,
+        type="status_changed",
+        user_id=None,
+    )
+    case = SimpleNamespace(
+        id=case_id,
+        workspace_id=workspace_id,
+        tags=[SimpleNamespace(ref="malware")],
+    )
+    trigger = SimpleNamespace(
+        workflow_id=workflow_id,
+        tag_filters=["phishing"],
+        event_filters={"status_changed": ["resolved"]},
+    )
+
+    client = AsyncMock()
+    client.exists = AsyncMock(return_value=False)
+    client.set_if_not_exists = AsyncMock(return_value=True)
+    client.delete = AsyncMock(return_value=1)
+    client.set = AsyncMock(return_value=True)
+
+    dispatch = AsyncMock(return_value=True)
+    consumer = _build_consumer_with_mocks(
+        client,
+        event=event,
+        case=case,
+        triggers=[trigger],
+        role=_build_role(workspace_id),
+        dispatch=dispatch,
+    )
+
+    should_ack = await consumer._process_message(
+        {
+            "event_id": str(event_id),
+            "case_id": str(case_id),
+            "workspace_id": str(workspace_id),
+            "event_type": "status_changed",
+        }
+    )
+
+    assert should_ack is True
+    dispatch.assert_not_called()
 
 
 @pytest.mark.anyio

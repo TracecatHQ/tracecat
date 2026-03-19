@@ -27,6 +27,9 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.workflow.case_triggers.schemas import (
+    CaseTriggerEventFilters,
+)
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -200,6 +203,8 @@ class CaseTriggerConsumer:
                     and trigger.workflow_id == explicit_workflow_id
                 ):
                     continue
+                if not self._matches_event_filters(trigger, event):
+                    continue
                 if trigger.tag_filters:
                     if not case_tag_refs.intersection(trigger.tag_filters):
                         continue
@@ -256,6 +261,23 @@ class CaseTriggerConsumer:
             return uuid.UUID(value)
         except ValueError:
             return None
+
+    def _matches_event_filters(self, trigger: CaseTrigger, event: CaseEvent) -> bool:
+        if not isinstance(event.data, dict):
+            return True
+
+        event_filters = CaseTriggerEventFilters.model_validate(
+            trigger.event_filters or {}
+        )
+        allowed_values = event_filters.values_for(event.type)
+        if not allowed_values:
+            return True
+
+        match event.data:
+            case {"new": str(new_value)}:
+                return new_value in allowed_values
+            case _:
+                return False
 
     async def _process_explicit_workflow(
         self,

@@ -6,11 +6,26 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from tracecat.cases.enums import CaseEventType
+from tracecat.cases.enums import (
+    CaseEventType,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkflowID
 
 CaseTriggerStatus = Literal["online", "offline"]
+CaseTriggerFilterEventType = Literal[
+    CaseEventType.STATUS_CHANGED,
+    CaseEventType.SEVERITY_CHANGED,
+    CaseEventType.PRIORITY_CHANGED,
+]
+FILTERED_CASE_TRIGGER_EVENT_TYPES = (
+    CaseEventType.STATUS_CHANGED,
+    CaseEventType.SEVERITY_CHANGED,
+    CaseEventType.PRIORITY_CHANGED,
+)
 
 
 def _dedupe_items[T](items: list[T]) -> list[T]:
@@ -22,6 +37,56 @@ def _dedupe_items[T](items: list[T]) -> list[T]:
         seen.add(item)
         deduped.append(item)
     return deduped
+
+
+def _normalize_filter_event_types(
+    event_types: Sequence[CaseEventType | str] | None,
+) -> set[str]:
+    if not event_types:
+        return set()
+    return {
+        event_type.value if isinstance(event_type, CaseEventType) else event_type
+        for event_type in event_types
+    }
+
+
+class CaseTriggerEventFilters(BaseModel):
+    status_changed: list[CaseStatus] = Field(default_factory=list)
+    severity_changed: list[CaseSeverity] = Field(default_factory=list)
+    priority_changed: list[CasePriority] = Field(default_factory=list)
+
+    @field_validator("status_changed", "severity_changed", "priority_changed")
+    @classmethod
+    def dedupe_filter_values[T](cls, value: list[T]) -> list[T]:
+        return _dedupe_items(value)
+
+    def values_for(self, event_type: CaseTriggerFilterEventType | str) -> list[str]:
+        match event_type:
+            case CaseEventType.STATUS_CHANGED | "status_changed":
+                return [value.value for value in self.status_changed]
+            case CaseEventType.SEVERITY_CHANGED | "severity_changed":
+                return [value.value for value in self.severity_changed]
+            case CaseEventType.PRIORITY_CHANGED | "priority_changed":
+                return [value.value for value in self.priority_changed]
+            case _:
+                return []
+
+
+def normalize_case_trigger_event_filters(
+    event_filters: CaseTriggerEventFilters | dict[str, object] | None,
+    *,
+    event_types: Sequence[CaseEventType | str] | None = None,
+) -> CaseTriggerEventFilters:
+    normalized = CaseTriggerEventFilters.model_validate(event_filters or {})
+    if event_types is None:
+        return normalized
+
+    selected_event_types = _normalize_filter_event_types(event_types)
+    values = normalized.model_dump(mode="python")
+    for event_type in FILTERED_CASE_TRIGGER_EVENT_TYPES:
+        if event_type.value not in selected_event_types:
+            values[event_type.value] = []
+    return CaseTriggerEventFilters.model_validate(values)
 
 
 def is_case_trigger_configured(
@@ -41,6 +106,9 @@ class CaseTriggerConfig(BaseModel):
     status: CaseTriggerStatus = "offline"
     event_types: list[CaseEventType] = Field(default_factory=list)
     tag_filters: list[str] = Field(default_factory=list)
+    event_filters: CaseTriggerEventFilters = Field(
+        default_factory=CaseTriggerEventFilters
+    )
 
     @field_validator("event_types")
     @classmethod
@@ -55,6 +123,10 @@ class CaseTriggerConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_online_has_events(self) -> CaseTriggerConfig:
+        self.event_filters = normalize_case_trigger_event_filters(
+            self.event_filters,
+            event_types=self.event_types,
+        )
         if self.status == "online" and not self.event_types:
             raise ValueError("event_types must be non-empty when status is online")
         return self
@@ -75,6 +147,7 @@ class CaseTriggerUpdate(BaseModel):
     status: CaseTriggerStatus | None = None
     event_types: list[CaseEventType] | None = None
     tag_filters: list[str] | None = None
+    event_filters: CaseTriggerEventFilters | None = None
 
     @field_validator("event_types")
     @classmethod
@@ -100,3 +173,6 @@ class CaseTriggerRead(Schema):
     status: CaseTriggerStatus
     event_types: list[CaseEventType]
     tag_filters: list[str]
+    event_filters: CaseTriggerEventFilters = Field(
+        default_factory=CaseTriggerEventFilters
+    )

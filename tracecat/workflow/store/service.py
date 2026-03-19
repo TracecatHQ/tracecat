@@ -11,7 +11,10 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import Author, PushObject, PushOptions, PushStatus
-from tracecat.workflow.case_triggers.schemas import is_case_trigger_configured
+from tracecat.workflow.case_triggers.schemas import (
+    CaseTriggerEventFilters,
+    is_case_trigger_configured,
+)
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
     RemoteWebhook,
@@ -103,6 +106,9 @@ class WorkflowStoreService(BaseWorkspaceService):
                     for event_type in workflow.case_trigger.event_types
                 ],
                 tag_filters=workflow.case_trigger.tag_filters,
+                event_filters=CaseTriggerEventFilters.model_validate(
+                    workflow.case_trigger.event_filters
+                ),
             )
 
         defn = RemoteWorkflowDefinition(
