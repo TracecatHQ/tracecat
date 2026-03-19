@@ -738,7 +738,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
         match attrs.workflow_type.name:
             case "DSLWorkflow":
                 try:
-                    memo = ChildWorkflowMemo.from_temporal(attrs.memo)
+                    memo = await ChildWorkflowMemo.from_temporal(attrs.memo)
                 except Exception as e:
                     logger.error("Error parsing child workflow memo", error=e)
                     raise e
@@ -776,7 +776,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                 )
             case "DurableAgentWorkflow":
                 try:
-                    memo = AgentActionMemo.from_temporal(attrs.memo)
+                    memo = await AgentActionMemo.from_temporal(attrs.memo)
                 except Exception as e:
                     logger.error("Error parsing agent action memo", error=e)
                     raise e

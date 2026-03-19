@@ -122,6 +122,7 @@ with workflow.unsafe.imports_passed_through():
         return_key,
         trigger_key,
     )
+    from tracecat.temporal.visibility import tokenize_visibility_value
     from tracecat.tiers.activities import (
         AcquireActionPermitInput,
         AcquireWorkflowPermitInput,
@@ -167,7 +168,7 @@ def _inherit_search_attributes_with_alias(
     alias: str,
 ) -> TypedSearchAttributes:
     pairs: list[SearchAttributePair[Any]] = [
-        TemporalSearchAttr.ALIAS.create_pair(alias)
+        TemporalSearchAttr.ALIAS.create_pair(tokenize_visibility_value(alias))
     ]
     if base_attrs:
         pairs.extend(
