@@ -1,0 +1,23 @@
+.github/workflows/publish-release.yml
+  c781c50eca6323fd 147-172,174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "4ab4b83dccb44f15bb514e7a6212b16704303a5f",
+  "prompts": {
+    "c781c50eca6323fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d0703-fef1-7c22-8c94-9717b55bdd85",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 39,
+      "total_deletions": 12,
+      "accepted_lines": 27,
+      "overriden_lines": 0
+    }
+  }
+}
