@@ -823,6 +823,18 @@ class TestTableColumns:
         error_msg = str(exc_info.value)
         assert "unique" in error_msg.lower() or "duplicate" in error_msg.lower()
 
+    async def test_update_column_can_create_unique_index(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Creating a unique index via update_column should not trigger lazy-load IO."""
+        name_column = next(column for column in table.columns if column.name == "name")
+        column = await tables_service.get_column(table.id, name_column.id)
+
+        await tables_service.update_column(column, TableColumnUpdate(is_index=True))
+
+        index_columns = await tables_service.get_index(table)
+        assert "name" in index_columns
+
     async def test_create_unique_index_with_existing_duplicates(
         self, tables_service: TablesService, table: Table
     ) -> None:

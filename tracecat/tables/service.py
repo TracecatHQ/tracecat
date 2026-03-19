@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -418,9 +419,15 @@ class BaseTablesService(BaseWorkspaceService):
         self, table_id: TableID, column_id: TableColumnID
     ) -> TableColumn:
         """Get a column by ID."""
-        statement = select(TableColumn).where(
-            TableColumn.table_id == table_id,
-            TableColumn.id == column_id,
+        statement = (
+            select(TableColumn)
+            .options(
+                selectinload(TableColumn.table).selectinload(Table.columns),
+            )
+            .where(
+                TableColumn.table_id == table_id,
+                TableColumn.id == column_id,
+            )
         )
         result = await self.session.execute(statement)
         column = result.scalars().first()
