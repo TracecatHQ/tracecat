@@ -1,35 +1,60 @@
 ---
 title: "Cases"
-description: "Track cases and work with case data inside automations."
+description: "Manage cases, comments, attachments, tasks, linked rows, and metrics in automations."
 ---
 
-Cases give your automations a place to store investigation state, analyst notes,
-attachments, and linked records.
+Cases let workflows track investigations, analyst activity, evidence, and related data in one place.
 
-Use cases when you need to:
+## Case actions
 
-- Open and update work items from workflows
-- Add comments, tags, attachments, and linked table rows during an investigation
-- Route work between analysts and automated steps
+<CardGroup cols={2}>
+  <Card
+    title="Cases"
+    icon="layers"
+    href="/automations/core-actions/case-actions/cases"
+  >
+    Create, update, search, assign, tag, and delete cases.
+  </Card>
+  <Card
+    title="Comments"
+    icon="message-square"
+    href="/automations/core-actions/case-actions/comments"
+  >
+    Add comments, replies, and thread lookups.
+  </Card>
+  <Card
+    title="Attachments"
+    icon="paperclip"
+    href="/automations/core-actions/case-actions/attachments"
+  >
+    Upload, list, download, and delete case attachments.
+  </Card>
+  <Card
+    title="Tasks"
+    icon="lock"
+    href="/automations/core-actions/case-actions/tasks"
+  >
+    Manage case tasks for enterprise workspaces.
+  </Card>
+  <Card
+    title="Linked rows"
+    icon="lock"
+    href="/automations/core-actions/case-actions/linked-rows"
+  >
+    Link table rows to cases in enterprise workspaces.
+  </Card>
+  <Card
+    title="Metrics"
+    icon="lock"
+    href="/automations/core-actions/case-actions/metrics"
+  >
+    Read case metrics for enterprise workspaces.
+  </Card>
+</CardGroup>
 
-## Work with cases in workflows
+## Typical flow
 
-Use the [Cases core actions](/automations/core-actions/cases) page for the full
-action reference, including:
-
-- Creating, updating, searching, and deleting cases
-- Adding comments, tags, attachments, and linked rows
-- Managing case tasks
-
-## Trigger workflows from case activity
-
-Tracecat supports workflow triggers for case activity:
-
-- [Case triggers](/automations/triggers/cases)
-- [Task triggers](/automations/triggers/tasks)
-- [Comment triggers](/automations/triggers/comments)
-
-## Related pages
-
-- [Tables](/automations/tables) for shared lookup and enrichment data
-- [Workflows](/automations/workflows) for workflow authoring and execution
+1. Create or update a case from a trigger or enrichment result.
+2. Add comments and attachments as the investigation progresses.
+3. Link supporting rows from tables when you need structured memory.
+4. Use tasks and metrics when your workspace has the required enterprise features.

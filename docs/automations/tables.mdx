@@ -1,17 +1,31 @@
 ---
 title: "Tables"
-description: "Documentation for Tables in Tracecat."
+description: "Use tables and filesystem-backed memory in automations."
 ---
 
-# Tables
+Tables give workflows durable memory for lookups, enrichment context, and shared operational state.
 
-Tables let you store structured reference data that your automations and agents
-can read at runtime.
+## Memory actions
 
-Use tables when you need:
+<CardGroup cols={2}>
+  <Card
+    title="Tables"
+    icon="database"
+    href="/automations/core-actions/memory-actions/tables"
+  >
+    Create tables and read or write rows from workflows.
+  </Card>
+  <Card
+    title="Filesystem"
+    icon="folder-lock"
+    href="/automations/core-actions/memory-actions/filesystem"
+  >
+    Filesystem-backed memory actions are available in private beta.
+  </Card>
+</CardGroup>
 
-- Lookup data such as ownership, routing, or severity mappings
-- Shared datasets across multiple automations
-- A lightweight way to manage operational context without hardcoding values
+## When to use tables
 
-This page is coming soon.
+- Use tables for structured shared memory such as inventories, allowlists, and correlation state.
+- Use linked case rows when table data should stay attached to an investigation.
+- Use filesystem-backed memory when your workspace is enrolled in the beta and needs file-oriented persistence.

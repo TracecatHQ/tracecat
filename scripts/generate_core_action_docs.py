@@ -329,6 +329,7 @@ def _write_if_changed(path: Path, content: str, check: bool) -> bool:
     existing = path.read_text(encoding="utf-8") if path.exists() else None
     changed = existing != content
     if changed and not check:
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
     return changed
 

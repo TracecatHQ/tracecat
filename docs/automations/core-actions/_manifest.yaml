@@ -1,5 +1,5 @@
 pages:
-  - slug: http
+  - slug: request-actions/http
     title: HTTP
     actions:
       - id: core.http_request
@@ -12,7 +12,7 @@ pages:
         examples:
           - http-paginate-results
 
-  - slug: reshape
+  - slug: transform-actions/reshape
     title: Reshape
     actions:
       - id: core.transform.reshape
@@ -27,21 +27,21 @@ pages:
           - reshape-build-object
           - reshape-inline-functions
 
-  - slug: email
+  - slug: request-actions/email
     title: Email
     actions:
       - id: core.send_email_smtp
         examples:
           - email-smtp-notification
 
-  - slug: python-script
+  - slug: transform-actions/python-script
     title: Python script
     actions:
       - id: core.script.run_python
         examples:
           - python-script-enrich
 
-  - slug: scatter-gather-loops
+  - slug: workflow-actions/scatter-gather-loops
     title: Scatter-gather loops
     actions:
       - id: core.transform.scatter
@@ -51,7 +51,7 @@ pages:
         examples:
           - scatter-gather-fanout
 
-  - slug: while-loops
+  - slug: workflow-actions/while-loops
     title: While loops
     actions:
       - id: core.loop.start
@@ -61,8 +61,8 @@ pages:
         examples:
           - loop-until-complete
 
-  - slug: subflows
-    title: Subflows
+  - slug: workflow-actions/run-subflow
+    title: Run subflow
     actions:
       - id: core.workflow.execute
         examples:
@@ -71,7 +71,7 @@ pages:
         examples:
           - subflow-status
 
-  - slug: data-transforms
+  - slug: transform-actions/data-transforms
     title: Data transforms
     actions:
       - id: core.transform.apply
@@ -105,7 +105,7 @@ pages:
         examples:
           - transforms-json
 
-  - slug: sql
+  - slug: request-actions/sql
     title: SQL
     actions:
       - id: core.sql.execute_query
@@ -115,21 +115,21 @@ pages:
         examples:
           - sql-duckdb-query
 
-  - slug: ssh
+  - slug: request-actions/ssh
     title: SSH
     actions:
       - id: core.ssh.execute_command
         examples:
           - ssh-command
 
-  - slug: grpc
+  - slug: request-actions/grpc
     title: gRPC
     actions:
       - id: core.grpc.request
         examples:
           - grpc-request
 
-  - slug: cases
+  - slug: case-actions/cases
     title: Cases
     actions:
       - id: core.cases.create_case
@@ -150,6 +150,25 @@ pages:
       - id: core.cases.list_case_events
         examples:
           - cases-list-search
+      - id: core.cases.assign_user
+        examples:
+          - cases-assignment
+      - id: core.cases.assign_user_by_email
+        examples:
+          - cases-assignment
+      - id: core.cases.add_case_tag
+        examples:
+          - cases-tags
+      - id: core.cases.remove_case_tag
+        examples:
+          - cases-tags
+      - id: core.cases.delete_case
+        examples:
+          - cases-delete-case
+
+  - slug: case-actions/comments
+    title: Comments
+    actions:
       - id: core.cases.create_comment
         examples:
           - cases-comments
@@ -168,18 +187,10 @@ pages:
       - id: core.cases.get_comment_thread
         examples:
           - cases-comments
-      - id: core.cases.assign_user
-        examples:
-          - cases-assignment
-      - id: core.cases.assign_user_by_email
-        examples:
-          - cases-assignment
-      - id: core.cases.add_case_tag
-        examples:
-          - cases-tags
-      - id: core.cases.remove_case_tag
-        examples:
-          - cases-tags
+
+  - slug: case-actions/attachments
+    title: Attachments
+    actions:
       - id: core.cases.upload_attachment
         examples:
           - cases-attachments
@@ -201,15 +212,10 @@ pages:
       - id: core.cases.delete_attachment
         examples:
           - cases-attachments
-      - id: core.cases.link_row
-        examples:
-          - cases-rows
-      - id: core.cases.unlink_row
-        examples:
-          - cases-rows
-      - id: core.cases.insert_row
-        examples:
-          - cases-rows
+
+  - slug: case-actions/tasks
+    title: "🔒 Tasks"
+    actions:
       - id: core.cases.create_task
         examples:
           - cases-tasks
@@ -225,14 +231,28 @@ pages:
       - id: core.cases.delete_task
         examples:
           - cases-tasks
+
+  - slug: case-actions/linked-rows
+    title: "🔒 Linked rows"
+    actions:
+      - id: core.cases.link_row
+        examples:
+          - cases-rows
+      - id: core.cases.unlink_row
+        examples:
+          - cases-rows
+      - id: core.cases.insert_row
+        examples:
+          - cases-rows
+
+  - slug: case-actions/metrics
+    title: "🔒 Metrics"
+    actions:
       - id: core.cases.get_case_metrics
         examples:
           - cases-metrics
-      - id: core.cases.delete_case
-        examples:
-          - cases-delete-case
 
-  - slug: tables
+  - slug: memory-actions/tables
     title: Tables
     actions:
       - id: core.table.create_table
@@ -272,7 +292,7 @@ pages:
         examples:
           - tables-download
 
-  - slug: require
+  - slug: transform-actions/require
     title: Require
     actions:
       - id: core.require

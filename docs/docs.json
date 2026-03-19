@@ -29,31 +29,72 @@
             "icon": "workflow",
             "pages": [
               "automations/tracecat-mcp",
+              "automations/workflows",
+              "automations/actions",
               {
                 "group": "Core concepts",
                 "pages": [
-                  "automations/workflows",
-                  "automations/workflow-definition",
-                  "automations/actions"
+                  "automations/core-concepts/expressions",
+                  "automations/core-concepts/secrets",
+                  "automations/core-concepts/variables",
+                  "automations/core-concepts/functions",
+                  "automations/core-concepts/jsonpath",
+                  "automations/core-concepts/workflow-definition"
                 ]
               },
               {
                 "group": "Core actions",
                 "pages": [
-                  "automations/core-actions/http",
-                  "automations/core-actions/reshape",
-                  "automations/core-actions/email",
-                  "automations/core-actions/python-script",
-                  "automations/core-actions/scatter-gather-loops",
-                  "automations/core-actions/while-loops",
-                  "automations/core-actions/subflows",
-                  "automations/core-actions/data-transforms",
-                  "automations/core-actions/sql",
-                  "automations/core-actions/ssh",
-                  "automations/core-actions/grpc",
-                  "automations/core-actions/cases",
-                  "automations/core-actions/tables",
-                  "automations/core-actions/require"
+                  {
+                    "group": "Request actions",
+                    "expanded": true,
+                    "pages": [
+                      "automations/core-actions/request-actions/http",
+                      "automations/core-actions/request-actions/sql",
+                      "automations/core-actions/request-actions/ssh",
+                      "automations/core-actions/request-actions/grpc",
+                      "automations/core-actions/request-actions/email"
+                    ]
+                  },
+                  {
+                    "group": "Transform actions",
+                    "expanded": true,
+                    "pages": [
+                      "automations/core-actions/transform-actions/reshape",
+                      "automations/core-actions/transform-actions/python-script",
+                      "automations/core-actions/transform-actions/data-transforms",
+                      "automations/core-actions/transform-actions/require"
+                    ]
+                  },
+                  {
+                    "group": "Workflow actions",
+                    "expanded": true,
+                    "pages": [
+                      "automations/core-actions/workflow-actions/run-subflow",
+                      "automations/core-actions/workflow-actions/scatter-gather-loops",
+                      "automations/core-actions/workflow-actions/while-loops"
+                    ]
+                  },
+                  {
+                    "group": "Case actions",
+                    "expanded": true,
+                    "pages": [
+                      "automations/core-actions/case-actions/cases",
+                      "automations/core-actions/case-actions/comments",
+                      "automations/core-actions/case-actions/attachments",
+                      "automations/core-actions/case-actions/tasks",
+                      "automations/core-actions/case-actions/linked-rows",
+                      "automations/core-actions/case-actions/metrics"
+                    ]
+                  },
+                  {
+                    "group": "Memory actions",
+                    "expanded": true,
+                    "pages": [
+                      "automations/core-actions/memory-actions/tables",
+                      "automations/core-actions/memory-actions/filesystem"
+                    ]
+                  }
                 ]
               },
               {
@@ -61,32 +102,28 @@
                 "pages": [
                   "automations/triggers/webhooks",
                   "automations/triggers/schedules",
-                  "automations/triggers/cases",
-                  "automations/triggers/tasks",
-                  "automations/triggers/comments"
+                  "automations/triggers/case-triggers",
+                  "automations/triggers/task-triggers",
+                  "automations/triggers/comment-triggers"
                 ]
               },
               {
                 "group": "Integrations",
                 "pages": [
-                  "automations/prebuilt-credentials",
-                  "automations/oauth-integrations",
-                  "automations/mcp-integrations"
+                  "automations/integrations/prebuilt-credentials",
+                  "automations/integrations/oauth-integrations",
+                  "automations/integrations/mcp-integrations"
                 ]
               },
-              "automations/expressions",
-              "automations/secrets",
-              "automations/variables",
-              "automations/functions",
-              "automations/jsonpath"
+              "automations/cases",
+              "automations/tables"
             ]
           },
           {
             "group": "Building custom actions",
             "icon": "blocks",
             "pages": [
-              "custom-actions/install",
-              "custom-actions/sync",
+              "custom-actions/installation",
               "custom-actions/python",
               "custom-actions/yaml"
             ]
@@ -107,7 +144,6 @@
             "pages": [
               "self-hosting/docker-compose",
               "self-hosting/aws-fargate",
-              "self-hosting/kubernetes",
               "self-hosting/environment-variables"
             ]
           },
@@ -208,8 +244,128 @@
   },
   "redirects": [
     {
+      "source": "/automations/core-actions/http",
+      "destination": "/automations/core-actions/request-actions/http"
+    },
+    {
+      "source": "/automations/core-actions/sql",
+      "destination": "/automations/core-actions/request-actions/sql"
+    },
+    {
+      "source": "/automations/core-actions/ssh",
+      "destination": "/automations/core-actions/request-actions/ssh"
+    },
+    {
+      "source": "/automations/core-actions/grpc",
+      "destination": "/automations/core-actions/request-actions/grpc"
+    },
+    {
+      "source": "/automations/core-actions/email",
+      "destination": "/automations/core-actions/request-actions/email"
+    },
+    {
+      "source": "/automations/core-actions/python-script",
+      "destination": "/automations/core-actions/transform-actions/python-script"
+    },
+    {
+      "source": "/automations/core-actions/data-transforms",
+      "destination": "/automations/core-actions/transform-actions/data-transforms"
+    },
+    {
+      "source": "/automations/core-actions/require",
+      "destination": "/automations/core-actions/transform-actions/require"
+    },
+    {
+      "source": "/automations/core-actions/reshape",
+      "destination": "/automations/core-actions/transform-actions/reshape"
+    },
+    {
+      "source": "/automations/core-actions/subflows",
+      "destination": "/automations/core-actions/workflow-actions/run-subflow"
+    },
+    {
+      "source": "/automations/core-actions/scatter-gather-loops",
+      "destination": "/automations/core-actions/workflow-actions/scatter-gather-loops"
+    },
+    {
+      "source": "/automations/core-actions/while-loops",
+      "destination": "/automations/core-actions/workflow-actions/while-loops"
+    },
+    {
+      "source": "/automations/core-actions/cases",
+      "destination": "/automations/core-actions/case-actions/cases"
+    },
+    {
+      "source": "/automations/core-actions/case-comments",
+      "destination": "/automations/core-actions/case-actions/comments"
+    },
+    {
+      "source": "/automations/core-actions/case-attachments",
+      "destination": "/automations/core-actions/case-actions/attachments"
+    },
+    {
+      "source": "/automations/core-actions/case-tasks",
+      "destination": "/automations/core-actions/case-actions/tasks"
+    },
+    {
+      "source": "/automations/core-actions/case-tables",
+      "destination": "/automations/core-actions/case-actions/linked-rows"
+    },
+    {
+      "source": "/automations/core-actions/case-metrics",
+      "destination": "/automations/core-actions/case-actions/metrics"
+    },
+    {
+      "source": "/automations/core-actions/tables",
+      "destination": "/automations/core-actions/memory-actions/tables"
+    },
+    {
       "source": "/automations/ai-builder",
       "destination": "/automations/tracecat-mcp"
+    },
+    {
+      "source": "/automations/workflows",
+      "destination": "/automations/core-concepts/workflows"
+    },
+    {
+      "source": "/automations/workflow-definition",
+      "destination": "/automations/core-concepts/workflow-definition"
+    },
+    {
+      "source": "/automations/actions",
+      "destination": "/automations/core-concepts/actions"
+    },
+    {
+      "source": "/automations/expressions",
+      "destination": "/automations/core-concepts/expressions"
+    },
+    {
+      "source": "/automations/secrets",
+      "destination": "/automations/core-concepts/secrets"
+    },
+    {
+      "source": "/automations/variables",
+      "destination": "/automations/core-concepts/variables"
+    },
+    {
+      "source": "/automations/functions",
+      "destination": "/automations/core-concepts/functions"
+    },
+    {
+      "source": "/automations/jsonpath",
+      "destination": "/automations/core-concepts/jsonpath"
+    },
+    {
+      "source": "/automations/prebuilt-credentials",
+      "destination": "/automations/integrations/prebuilt-credentials"
+    },
+    {
+      "source": "/automations/oauth-integrations",
+      "destination": "/automations/integrations/oauth-integrations"
+    },
+    {
+      "source": "/automations/mcp-integrations",
+      "destination": "/automations/integrations/mcp-integrations"
     },
     {
       "source": "/automations/triggers/case-triggers",
