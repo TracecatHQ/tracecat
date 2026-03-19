@@ -1,0 +1,285 @@
+pages:
+  - slug: http
+    title: HTTP
+    actions:
+      - id: core.http_request
+        examples:
+          - http-request-basic
+      - id: core.http_poll
+        examples:
+          - http-poll-job
+      - id: core.http_paginate
+        examples:
+          - http-paginate-results
+
+  - slug: reshape
+    title: Reshape
+    actions:
+      - id: core.transform.reshape
+        info: |
+          <Tip>
+            `core.transform.reshape` evaluates expressions anywhere in the input
+            value. Use it to extract fields, rename keys, hardcode values, and
+            compose new objects or lists from trigger data and earlier actions.
+          </Tip>
+        examples:
+          - reshape-single-value
+          - reshape-build-object
+          - reshape-inline-functions
+        examples_note: |
+          <Note>
+            In the UI, Reshape uses the YAML editor. Define the output shape
+            under `value:` in that editor.
+          </Note>
+
+  - slug: email
+    title: Email
+    actions:
+      - id: core.send_email_smtp
+        examples:
+          - email-smtp-notification
+
+  - slug: python-script
+    title: Python script
+    actions:
+      - id: core.script.run_python
+        examples:
+          - python-script-enrich
+
+  - slug: scatter-gather-loops
+    title: Scatter-gather loops
+    actions:
+      - id: core.transform.scatter
+        examples:
+          - scatter-gather-fanout
+      - id: core.transform.gather
+        examples:
+          - scatter-gather-fanout
+
+  - slug: while-loops
+    title: While loops
+    actions:
+      - id: core.loop.start
+        examples:
+          - loop-until-complete
+      - id: core.loop.end
+        examples:
+          - loop-until-complete
+
+  - slug: subflows
+    title: Subflows
+    actions:
+      - id: core.workflow.execute
+        examples:
+          - subflow-execute
+      - id: core.workflow.get_status
+        examples:
+          - subflow-status
+
+  - slug: data-transforms
+    title: Data transforms
+    actions:
+      - id: core.transform.apply
+        examples:
+          - transforms-filter-map
+      - id: core.transform.filter
+        examples:
+          - transforms-filter-map
+      - id: core.transform.map
+        examples:
+          - transforms-filter-map
+      - id: core.transform.drop_nulls
+        examples:
+          - transforms-filter-map
+      - id: core.transform.is_in
+        examples:
+          - transforms-membership
+      - id: core.transform.not_in
+        examples:
+          - transforms-membership
+      - id: core.transform.deduplicate
+        examples:
+          - transforms-deduplicate
+      - id: core.transform.is_duplicate
+        examples:
+          - transforms-deduplicate
+      - id: core.transform.flatten_json
+        examples:
+          - transforms-json
+      - id: core.transform.eval_jsonpaths
+        examples:
+          - transforms-json
+
+  - slug: sql
+    title: SQL
+    actions:
+      - id: core.sql.execute_query
+        examples:
+          - sql-external-query
+      - id: core.duckdb.execute_sql
+        examples:
+          - sql-duckdb-query
+
+  - slug: ssh
+    title: SSH
+    actions:
+      - id: core.ssh.execute_command
+        examples:
+          - ssh-command
+
+  - slug: grpc
+    title: gRPC
+    actions:
+      - id: core.grpc.request
+        examples:
+          - grpc-request
+
+  - slug: cases
+    title: Cases
+    actions:
+      - id: core.cases.create_case
+        examples:
+          - cases-create-case
+      - id: core.cases.get_case
+        examples:
+          - cases-create-case
+      - id: core.cases.update_case
+        examples:
+          - cases-update-case
+      - id: core.cases.list_cases
+        examples:
+          - cases-list-search
+      - id: core.cases.search_cases
+        examples:
+          - cases-list-search
+      - id: core.cases.list_case_events
+        examples:
+          - cases-list-search
+      - id: core.cases.create_comment
+        examples:
+          - cases-comments
+      - id: core.cases.reply_to_comment
+        examples:
+          - cases-comments
+      - id: core.cases.update_comment
+        examples:
+          - cases-comments
+      - id: core.cases.list_comments
+        examples:
+          - cases-comments
+      - id: core.cases.list_comment_threads
+        examples:
+          - cases-comments
+      - id: core.cases.get_comment_thread
+        examples:
+          - cases-comments
+      - id: core.cases.assign_user
+        examples:
+          - cases-assignment
+      - id: core.cases.assign_user_by_email
+        examples:
+          - cases-assignment
+      - id: core.cases.add_case_tag
+        examples:
+          - cases-tags
+      - id: core.cases.remove_case_tag
+        examples:
+          - cases-tags
+      - id: core.cases.upload_attachment
+        examples:
+          - cases-attachments
+      - id: core.cases.upload_attachment_from_url
+        examples:
+          - cases-attachments
+      - id: core.cases.list_attachments
+        examples:
+          - cases-attachments
+      - id: core.cases.get_attachment
+        examples:
+          - cases-attachments
+      - id: core.cases.get_attachment_download_url
+        examples:
+          - cases-attachments
+      - id: core.cases.download_attachment
+        examples:
+          - cases-attachments
+      - id: core.cases.delete_attachment
+        examples:
+          - cases-attachments
+      - id: core.cases.link_row
+        examples:
+          - cases-rows
+      - id: core.cases.unlink_row
+        examples:
+          - cases-rows
+      - id: core.cases.insert_row
+        examples:
+          - cases-rows
+      - id: core.cases.create_task
+        examples:
+          - cases-tasks
+      - id: core.cases.get_task
+        examples:
+          - cases-tasks
+      - id: core.cases.list_tasks
+        examples:
+          - cases-tasks
+      - id: core.cases.update_task
+        examples:
+          - cases-tasks
+      - id: core.cases.delete_task
+        examples:
+          - cases-tasks
+      - id: core.cases.get_case_metrics
+        examples:
+          - cases-metrics
+      - id: core.cases.delete_case
+        examples:
+          - cases-delete-case
+
+  - slug: tables
+    title: Tables
+    actions:
+      - id: core.table.create_table
+        examples:
+          - tables-admin
+      - id: core.table.list_tables
+        examples:
+          - tables-admin
+      - id: core.table.get_table_metadata
+        examples:
+          - tables-admin
+      - id: core.table.lookup
+        examples:
+          - tables-lookup
+      - id: core.table.is_in
+        examples:
+          - tables-lookup
+      - id: core.table.lookup_many
+        examples:
+          - tables-lookup
+      - id: core.table.search_rows
+        examples:
+          - tables-search
+      - id: core.table.insert_row
+        examples:
+          - tables-write
+      - id: core.table.insert_rows
+        examples:
+          - tables-write
+      - id: core.table.update_row
+        examples:
+          - tables-write
+      - id: core.table.delete_row
+        examples:
+          - tables-write
+      - id: core.table.download
+        examples:
+          - tables-download
+
+  - slug: require
+    title: Require
+    actions:
+      - id: core.require
+        examples:
+          - require-check

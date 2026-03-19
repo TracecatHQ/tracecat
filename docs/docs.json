@@ -7,7 +7,7 @@
     "light": "#8E9BE1",
     "dark": "#465ACE"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/img/logos/light.svg",
   "icons": {
     "library": "lucide"
   },
@@ -29,17 +29,12 @@
             "icon": "workflow",
             "pages": [
               "automations/tracecat-mcp",
-              "automations/workflows",
-              "automations/workflow-definition",
-              "automations/actions",
               {
-                "group": "Triggers",
+                "group": "Core concepts",
                 "pages": [
-                  "automations/triggers/webhooks",
-                  "automations/triggers/schedules",
-                  "automations/triggers/cases",
-                  "automations/triggers/tasks",
-                  "automations/triggers/comments"
+                  "automations/workflows",
+                  "automations/workflow-definition",
+                  "automations/actions"
                 ]
               },
               {
@@ -56,22 +51,25 @@
                   "automations/core-actions/sql",
                   "automations/core-actions/ssh",
                   "automations/core-actions/grpc",
-                  "automations/core-actions/ansible"
+                  "automations/core-actions/cases",
+                  "automations/core-actions/tables",
+                  "automations/core-actions/require"
                 ]
               },
               {
-                "group": "Custom actions",
+                "group": "Triggers",
                 "pages": [
-                  "custom-actions/install",
-                  "custom-actions/sync",
-                  "custom-actions/python",
-                  "custom-actions/yaml"
+                  "automations/triggers/webhooks",
+                  "automations/triggers/schedules",
+                  "automations/triggers/cases",
+                  "automations/triggers/tasks",
+                  "automations/triggers/comments"
                 ]
               },
               {
                 "group": "Integrations",
                 "pages": [
-                  "automations/credentials",
+                  "automations/prebuilt-credentials",
                   "automations/oauth-integrations",
                   "automations/mcp-integrations"
                 ]
@@ -80,9 +78,17 @@
               "automations/secrets",
               "automations/variables",
               "automations/functions",
-              "automations/jsonpath",
-              "automations/tables",
-              "automations/cases"
+              "automations/jsonpath"
+            ]
+          },
+          {
+            "group": "Building custom actions",
+            "icon": "blocks",
+            "pages": [
+              "custom-actions/install",
+              "custom-actions/sync",
+              "custom-actions/python-udfs",
+              "custom-actions/yaml-templates"
             ]
           },
           {
