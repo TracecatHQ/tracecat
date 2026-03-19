@@ -115,7 +115,12 @@ def test_create_mcp_auth_metadata_advertises_public_client_auth(
     assert payload["authorization_endpoint"] == "https://mcp.example.com/authorize"
     assert payload["token_endpoint"] == "https://mcp.example.com/token"
     assert payload["registration_endpoint"] == "https://mcp.example.com/register"
-    assert payload["scopes_supported"] == ["openid", "profile", "email"]
+    assert payload["scopes_supported"] == [
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+    ]
     assert "none" in payload["token_endpoint_auth_methods_supported"]
 
 
@@ -157,7 +162,12 @@ def test_create_mcp_auth_protected_resource_metadata_uses_mcp_path(
     payload = response.json()
     assert payload["resource"] == "https://mcp.example.com/mcp"
     assert payload["authorization_servers"] == ["https://mcp.example.com/"]
-    assert payload["scopes_supported"] == ["openid", "profile", "email"]
+    assert payload["scopes_supported"] == [
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+    ]
 
 
 def test_create_mcp_auth_metadata_matches_public_client_registration(
@@ -184,7 +194,7 @@ def test_create_mcp_auth_metadata_matches_public_client_registration(
     registration = registration_response.json()
     assert registration["token_endpoint_auth_method"] == "none"
     assert registration.get("client_secret") is None
-    assert registration["scope"] == "openid profile email"
+    assert registration["scope"] == "openid profile email offline_access"
     assert (
         registration["token_endpoint_auth_method"]
         in metadata["token_endpoint_auth_methods_supported"]
@@ -211,6 +221,29 @@ def test_create_mcp_auth_registration_accepts_platform_oidc_scopes(
     assert registration_response.status_code == 201
     registration = registration_response.json()
     assert registration["scope"] == "openid profile email"
+
+
+def test_create_mcp_auth_registration_merges_oidc_scopes_into_partial_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Clients that register with a partial scope set are accepted."""
+    client = _build_test_client(monkeypatch)
+
+    registration_response = client.post(
+        "/register",
+        json={
+            "client_name": "claude-web",
+            "redirect_uris": ["https://claude.ai/api/mcp/auth_callback"],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "token_endpoint_auth_method": "none",
+            "scope": "openid",
+        },
+    )
+
+    assert registration_response.status_code == 201
+    registration = registration_response.json()
+    assert registration["scope"] == "openid"
 
 
 def test_create_mcp_auth_raises_when_base_url_missing(
