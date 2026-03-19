@@ -42,6 +42,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.agent.types import AgentConfig
     from tracecat.agent.workflow_config import agent_config_from_payload
+    from tracecat.agent.workflow_schemas import RunAgentActivityFailureMode
     from tracecat.auth.types import Role
     from tracecat.config import TRACECAT__AGENT_SANDBOX_TIMEOUT
     from tracecat.contexts import ctx_role
@@ -67,6 +68,10 @@ class AgentWorkflowArgs(BaseModel):
 
     role: Role
     agent_args: RunAgentArgs
+    run_agent_failure_mode: RunAgentActivityFailureMode = Field(
+        default=RunAgentActivityFailureMode.FAIL_FAST,
+        description="How run_agent_activity failures should be surfaced to Temporal.",
+    )
     # Session metadata
     title: str = Field(default="New Chat", description="Session title")
     entity_type: AgentSessionEntity = Field(
@@ -92,6 +97,12 @@ class WorkflowApprovalSubmission(BaseModel):
     approvals: ApprovalMap
     approved_by: uuid.UUID | None = None
     decision_metadata: dict[str, dict[str, Any]] | None = None
+
+
+_RUN_AGENT_RETRY_POLICY_BY_FAILURE_MODE = {
+    RunAgentActivityFailureMode.FAIL_FAST: RETRY_POLICIES["activity:fail_fast"],
+    RunAgentActivityFailureMode.RETRY: RETRY_POLICIES["activity:fail_slow"],
+}
 
 
 def _resolve_agent_output(
@@ -422,6 +433,7 @@ class DurableAgentWorkflow:
             allowed_actions=allowed_actions,
             sdk_session_id=self._sdk_session_id,
             sdk_session_data=self._sdk_session_data,
+            run_agent_failure_mode=args.run_agent_failure_mode,
             is_fork=is_fork,
         )
 
@@ -438,7 +450,9 @@ class DurableAgentWorkflow:
                     seconds=TRACECAT__AGENT_SANDBOX_TIMEOUT
                 ),
                 heartbeat_timeout=timedelta(seconds=60),
-                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                retry_policy=_RUN_AGENT_RETRY_POLICY_BY_FAILURE_MODE[
+                    args.run_agent_failure_mode
+                ],
             )
 
             if not result.success:
@@ -527,6 +541,7 @@ class DurableAgentWorkflow:
                     allowed_actions=allowed_actions,
                     sdk_session_id=self._sdk_session_id,
                     sdk_session_data=self._sdk_session_data,
+                    run_agent_failure_mode=args.run_agent_failure_mode,
                     is_approval_continuation=True,
                 )
                 self._turn += 1

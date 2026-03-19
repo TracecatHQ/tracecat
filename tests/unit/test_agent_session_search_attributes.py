@@ -14,6 +14,7 @@ from temporalio.common import TypedSearchAttributes
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
+from tracecat.agent.workflow_schemas import RunAgentActivityFailureMode
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import BasicChatRequest, ChatRequest
 from tracecat.db.models import AgentSession
@@ -124,6 +125,8 @@ async def test_run_turn_stamps_tracecat_search_attributes(
     assert pairs[TemporalSearchAttr.TRIGGERED_BY_USER_ID.value] == str(
         role_with_user.user_id
     )
+    workflow_args = temporal_client.start_workflow.await_args.args[1]
+    assert workflow_args.run_agent_failure_mode is RunAgentActivityFailureMode.FAIL_FAST
 
 
 @pytest.mark.anyio

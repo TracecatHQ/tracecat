@@ -6,11 +6,19 @@ across Temporal workflow/activity boundaries predictably.
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
 _LEGACY_AGENT_CONFIG_KEYS = frozenset({"deps_type", "custom_tools"})
+
+
+class RunAgentActivityFailureMode(StrEnum):
+    """How run_agent_activity should surface execution failures to Temporal."""
+
+    FAIL_FAST = "fail_fast"
+    RETRY = "retry"
 
 
 def _normalize_legacy_mcp_server_payload(value: Any) -> Any:

@@ -11,6 +11,7 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.executor.activity import (
@@ -29,6 +30,7 @@ from tracecat.agent.session.activities import (
 )
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
+from tracecat.agent.workflow_schemas import RunAgentActivityFailureMode
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 
@@ -418,6 +420,33 @@ class TestRunAgentActivity:
             result = await run_agent_activity(mock_executor_input)
 
             assert result.success is False
+
+    @pytest.mark.anyio
+    async def test_raises_on_execution_error_when_retry_mode_enabled(
+        self, mock_executor_input: AgentExecutorInput
+    ):
+        """Test that retry mode surfaces failures as Temporal exceptions."""
+        expected_result = AgentExecutorResult(
+            success=False,
+            error="Agent execution failed: timeout",
+        )
+        mock_executor_input.run_agent_failure_mode = RunAgentActivityFailureMode.RETRY
+
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.SandboxedAgentExecutor"
+            ) as mock_executor_cls,
+        ):
+            mock_activity.heartbeat = MagicMock()
+            mock_executor = MagicMock()
+            mock_executor.run = AsyncMock(return_value=expected_result)
+            mock_executor_cls.return_value = mock_executor
+
+            with pytest.raises(
+                ApplicationError, match="Agent execution failed: timeout"
+            ):
+                await run_agent_activity(mock_executor_input)
 
     @pytest.mark.anyio
     async def test_sends_heartbeats(self, mock_executor_input: AgentExecutorInput):
