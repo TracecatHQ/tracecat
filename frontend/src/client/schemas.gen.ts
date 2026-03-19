@@ -6720,6 +6720,7 @@ export const $CaseTriggerCreate = {
       $ref: "#/components/schemas/CaseTriggerEventFilters",
     },
   },
+  additionalProperties: false,
   type: "object",
   title: "CaseTriggerCreate",
 } as const
@@ -6748,6 +6749,7 @@ export const $CaseTriggerEventFilters = {
       title: "Priority Changed",
     },
   },
+  additionalProperties: false,
   type: "object",
   title: "CaseTriggerEventFilters",
 } as const
@@ -6844,6 +6846,7 @@ export const $CaseTriggerUpdate = {
       ],
     },
   },
+  additionalProperties: false,
   type: "object",
   title: "CaseTriggerUpdate",
 } as const

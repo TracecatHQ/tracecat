@@ -34,6 +34,85 @@ async def test_case_trigger_config_rejects_invalid_event_filter_values():
 
 
 @pytest.mark.anyio
+async def test_case_trigger_config_rejects_unknown_event_filter_keys():
+    with pytest.raises(ValidationError):
+        CaseTriggerConfig.model_validate(
+            {
+                "status": "offline",
+                "event_types": ["status_changed"],
+                "event_filters": {
+                    "status_change": ["resolved"],
+                },
+            }
+        )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_update_rejects_unknown_event_filter_keys():
+    with pytest.raises(ValidationError):
+        CaseTriggerUpdate.model_validate(
+            {
+                "event_filters": {
+                    "status_change": ["resolved"],
+                }
+            }
+        )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_config_rejects_unknown_top_level_keys():
+    with pytest.raises(ValidationError):
+        CaseTriggerConfig.model_validate(
+            {
+                "status": "offline",
+                "event_types": ["status_changed"],
+                "event_filter": {
+                    "status_changed": ["resolved"],
+                },
+            }
+        )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_update_rejects_unknown_top_level_keys():
+    with pytest.raises(ValidationError):
+        CaseTriggerUpdate.model_validate(
+            {
+                "event_filter": {
+                    "status_changed": ["resolved"],
+                }
+            }
+        )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_config_rejects_event_filters_for_missing_event_types():
+    with pytest.raises(ValidationError):
+        CaseTriggerConfig.model_validate(
+            {
+                "status": "offline",
+                "event_types": ["case_created"],
+                "event_filters": {
+                    "status_changed": ["resolved"],
+                },
+            }
+        )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_update_rejects_event_filters_for_missing_event_types():
+    with pytest.raises(ValidationError):
+        CaseTriggerUpdate.model_validate(
+            {
+                "event_types": ["case_created"],
+                "event_filters": {
+                    "status_changed": ["resolved"],
+                },
+            }
+        )
+
+
+@pytest.mark.anyio
 async def test_case_trigger_update_requires_events_when_online(
     session: AsyncSession, svc_role
 ):
@@ -60,6 +139,38 @@ async def test_case_trigger_update_requires_events_when_online(
     with pytest.raises(TracecatValidationError):
         await service.update_case_trigger(
             WorkflowUUID.new(workflow.id), CaseTriggerUpdate(status="online")
+        )
+
+
+@pytest.mark.anyio
+async def test_case_trigger_update_wraps_invalid_stored_event_filter_keys(
+    session: AsyncSession, svc_role
+):
+    workflow = Workflow(
+        title="Case Trigger Invalid Stored Filters",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.flush()
+
+    case_trigger = CaseTrigger(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=workflow.id,
+        status="offline",
+        event_types=["status_changed"],
+        tag_filters=[],
+        event_filters={"status_change": ["resolved"]},
+    )
+    session.add(case_trigger)
+    await session.commit()
+
+    service = CaseTriggersService(session, role=svc_role)
+    with pytest.raises(TracecatValidationError):
+        await service.update_case_trigger(
+            WorkflowUUID.new(workflow.id),
+            CaseTriggerUpdate(status="offline"),
         )
 
 
@@ -185,17 +296,11 @@ async def test_case_trigger_update_clears_event_filters_for_deselected_events(
     await session.commit()
 
     service = CaseTriggersService(session, role=svc_role)
-    updated = await service.update_case_trigger(
-        WorkflowUUID.new(workflow.id),
-        CaseTriggerUpdate(event_types=[CaseEventType.CASE_CREATED]),
-    )
-
-    assert updated.event_types == [CaseEventType.CASE_CREATED]
-    assert updated.event_filters == {
-        "status_changed": [],
-        "severity_changed": [],
-        "priority_changed": [],
-    }
+    with pytest.raises(TracecatValidationError):
+        await service.update_case_trigger(
+            WorkflowUUID.new(workflow.id),
+            CaseTriggerUpdate(event_types=[CaseEventType.CASE_CREATED]),
+        )
 
 
 @pytest.mark.anyio

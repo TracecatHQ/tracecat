@@ -1975,17 +1975,37 @@ async def test_update_case_trigger(monkeypatch):
         workspace_id=str(uuid.uuid4()),
         workflow_id=str(workflow_id),
         status="online",
-        event_types='["case_created", "case_updated"]',
+        event_types='["status_changed", "case_updated"]',
         event_filters='{"status_changed":["resolved"]}',
     )
     payload = _payload(result)
     assert "updated successfully" in payload["message"]
     assert captured_update["workflow_id"] == workflow_id
     assert captured_update["status"] == "online"
-    assert captured_update["event_types"] == ["case_created", "case_updated"]
+    assert captured_update["event_types"] == ["status_changed", "case_updated"]
     assert captured_update["tag_filters"] is None
     assert captured_update["event_filters"].status_changed == ["resolved"]
     assert captured_update["create_missing_tags"] is True
+
+
+@pytest.mark.anyio
+async def test_update_case_trigger_rejects_mismatched_event_filters(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    with pytest.raises(
+        ToolError,
+        match="event_filters keys must also be present in event_types: status_changed",
+    ):
+        await _tool(mcp_server.update_case_trigger)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(uuid.uuid4()),
+            status="online",
+            event_types='["case_created", "case_updated"]',
+            event_filters='{"status_changed":["resolved"]}',
+        )
 
 
 # ---------------------------------------------------------------------------

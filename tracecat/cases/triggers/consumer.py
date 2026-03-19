@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from time import monotonic
 from typing import Any
 
+from pydantic import ValidationError
 from redis.exceptions import ResponseError
 from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
@@ -28,7 +29,7 @@ from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.workflow.case_triggers.schemas import (
-    CaseTriggerEventFilters,
+    normalize_case_trigger_event_filters,
 )
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.service import WorkflowExecutionsService
@@ -263,15 +264,26 @@ class CaseTriggerConsumer:
             return None
 
     def _matches_event_filters(self, trigger: CaseTrigger, event: CaseEvent) -> bool:
-        if not isinstance(event.data, dict):
-            return True
+        try:
+            event_filters = normalize_case_trigger_event_filters(
+                trigger.event_filters or {},
+                event_types=getattr(trigger, "event_types", None),
+            )
+        except (ValidationError, ValueError) as e:
+            logger.warning(
+                "Skipping case trigger with invalid event filters",
+                workflow_id=str(trigger.workflow_id),
+                event_id=str(event.id),
+                event_type=event.type,
+                error=str(e),
+            )
+            return False
 
-        event_filters = CaseTriggerEventFilters.model_validate(
-            trigger.event_filters or {}
-        )
         allowed_values = event_filters.values_for(event.type)
         if not allowed_values:
             return True
+        if not isinstance(event.data, dict):
+            return False
 
         match event.data:
             case {"new": str(new_value)}:

@@ -13,6 +13,7 @@ from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Workflow
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PushStatus
 from tracecat.workflow.store.schemas import WorkflowDslPublish
@@ -174,3 +175,43 @@ async def test_publish_workflow_includes_configured_case_trigger(
     ]
     assert push_obj.data.case_trigger.tag_filters == ["phishing"]
     assert push_obj.data.case_trigger.event_filters.status_changed == ["resolved"]
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_wraps_invalid_stored_case_trigger(
+    workflow_store_service: WorkflowStoreService,
+    sample_dsl: DSLInput,
+) -> None:
+    workflow_id = WorkflowUUID.new_uuid4()
+    workflow = _workflow_fixture(
+        workflow_id,
+        case_trigger=SimpleNamespace(
+            status="online",
+            event_types=[CaseEventType.SEVERITY_CHANGED.value],
+            tag_filters=[],
+            event_filters={"status_changed": ["resolved"]},
+        ),
+    )
+
+    with (
+        patch("tracecat.workflow.store.service.WorkspaceService") as workspace_cls,
+        patch("tracecat.workflow.store.service.WorkflowSyncService") as sync_cls,
+    ):
+        workspace_service = AsyncMock()
+        workspace_service.get_workspace.return_value = SimpleNamespace(
+            settings={"git_repo_url": "git+ssh://git@github.com/test-org/test-repo.git"}
+        )
+        workspace_cls.return_value = workspace_service
+
+        sync_service = AsyncMock()
+        sync_cls.return_value = sync_service
+
+        with pytest.raises(TracecatValidationError):
+            await workflow_store_service.publish_workflow_dsl(
+                workflow_id=workflow_id,
+                dsl=sample_dsl,
+                params=WorkflowDslPublish(branch="feature/test", create_pr=False),
+                workflow=cast(Workflow, workflow),
+            )
+
+    sync_service.push.assert_not_called()

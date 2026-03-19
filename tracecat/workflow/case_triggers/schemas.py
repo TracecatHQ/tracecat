@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tracecat.cases.enums import (
     CaseEventType,
@@ -51,6 +51,8 @@ def _normalize_filter_event_types(
 
 
 class CaseTriggerEventFilters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     status_changed: list[CaseStatus] = Field(default_factory=list)
     severity_changed: list[CaseSeverity] = Field(default_factory=list)
     priority_changed: list[CasePriority] = Field(default_factory=list)
@@ -73,7 +75,7 @@ class CaseTriggerEventFilters(BaseModel):
 
 
 def normalize_case_trigger_event_filters(
-    event_filters: CaseTriggerEventFilters | dict[str, object] | None,
+    event_filters: CaseTriggerEventFilters | Mapping[str, object] | None,
     *,
     event_types: Sequence[CaseEventType | str] | None = None,
 ) -> CaseTriggerEventFilters:
@@ -82,11 +84,20 @@ def normalize_case_trigger_event_filters(
         return normalized
 
     selected_event_types = _normalize_filter_event_types(event_types)
-    values = normalized.model_dump(mode="python")
-    for event_type in FILTERED_CASE_TRIGGER_EVENT_TYPES:
-        if event_type.value not in selected_event_types:
-            values[event_type.value] = []
-    return CaseTriggerEventFilters.model_validate(values)
+    invalid_filter_event_types = [
+        event_type.value
+        for event_type in FILTERED_CASE_TRIGGER_EVENT_TYPES
+        if (
+            event_type.value not in selected_event_types
+            and normalized.values_for(event_type)
+        )
+    ]
+    if invalid_filter_event_types:
+        invalid_types = ", ".join(invalid_filter_event_types)
+        raise ValueError(
+            f"event_filters keys must also be present in event_types: {invalid_types}"
+        )
+    return normalized
 
 
 def is_case_trigger_configured(
@@ -103,6 +114,8 @@ def is_case_trigger_configured(
 
 
 class CaseTriggerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     status: CaseTriggerStatus = "offline"
     event_types: list[CaseEventType] = Field(default_factory=list)
     tag_filters: list[str] = Field(default_factory=list)
@@ -144,6 +157,8 @@ class CaseTriggerCreate(CaseTriggerConfig):
 
 
 class CaseTriggerUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     status: CaseTriggerStatus | None = None
     event_types: list[CaseEventType] | None = None
     tag_filters: list[str] | None = None
@@ -165,6 +180,15 @@ class CaseTriggerUpdate(BaseModel):
             return None
         normalized = [ref.strip() for ref in value if ref and ref.strip()]
         return _dedupe_items(normalized)
+
+    @model_validator(mode="after")
+    def validate_event_filter_event_types(self) -> CaseTriggerUpdate:
+        if self.event_types is not None and self.event_filters is not None:
+            self.event_filters = normalize_case_trigger_event_filters(
+                self.event_filters,
+                event_types=self.event_types,
+            )
+        return self
 
 
 class CaseTriggerRead(Schema):

@@ -134,6 +134,8 @@ class RemoteWebhook(BaseModel):
 class RemoteCaseTrigger(BaseModel):
     """Represents a case trigger configuration in a remote store."""
 
+    model_config = ConfigDict(extra="forbid")
+
     status: Status = Field(default="offline")
     event_types: list[CaseEventType] = Field(default_factory=list)
     tag_filters: list[str] = Field(default_factory=list)

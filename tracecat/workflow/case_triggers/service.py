@@ -141,18 +141,18 @@ class CaseTriggersService(BaseWorkspaceService):
                 tag_filters, create_missing=create_missing_tags
             )
 
-        event_filters = normalize_case_trigger_event_filters(
-            updates.get("event_filters", case_trigger.event_filters),
-            event_types=event_types,
-        )
         try:
+            event_filters = normalize_case_trigger_event_filters(
+                updates.get("event_filters", case_trigger.event_filters),
+                event_types=event_types,
+            )
             normalized = CaseTriggerConfig(
                 status=status,
                 event_types=list(event_types) if event_types is not None else [],
                 tag_filters=resolved_tags,
                 event_filters=event_filters,
             )
-        except ValidationError as e:
+        except (ValidationError, ValueError) as e:
             raise TracecatValidationError(str(e)) from e
 
         case_trigger.status = normalized.status
