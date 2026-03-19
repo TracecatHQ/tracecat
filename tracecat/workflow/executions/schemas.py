@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import (
@@ -45,6 +44,7 @@ from tracecat.ee.interactions.schemas import (
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.logger.security import sanitize_error_text
 from tracecat.sessions import Session
 from tracecat.storage.object import CollectionObject, StoredObject
 from tracecat.workflow.executions.common import (
@@ -60,28 +60,6 @@ from tracecat.workflow.executions.enums import (
     WorkflowExecutionStatusLiteral,
 )
 from tracecat.workflow.management.schemas import GetWorkflowDefinitionActivityInputs
-
-_ERROR_MESSAGE_MAX_LENGTH = 2048
-_SENSITIVE_ERROR_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (
-        re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+"),
-        r"\1 [REDACTED]",
-    ),
-    (
-        re.compile(
-            r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|passwd|secret)=([^&\s]+)"
-        ),
-        r"\1=[REDACTED]",
-    ),
-    (
-        re.compile(r"(?i)(authorization:\s*(?:basic|bearer)\s+)[^\s,;]+"),
-        r"\1[REDACTED]",
-    ),
-    (
-        re.compile(r"(?i)(://[^/\s:@]+:)([^@\s/]+)@"),
-        r"\1[REDACTED]@",
-    ),
-)
 
 
 class WorkflowExecutionBase(BaseModel):
@@ -536,15 +514,7 @@ class EventFailure(BaseModel):
 
     @staticmethod
     def sanitize_error_text(text: str | None) -> str | None:
-        if text is None:
-            return None
-
-        sanitized = text
-        for pattern, replacement in _SENSITIVE_ERROR_PATTERNS:
-            sanitized = pattern.sub(replacement, sanitized)
-        if len(sanitized) > _ERROR_MESSAGE_MAX_LENGTH:
-            return f"{sanitized[:_ERROR_MESSAGE_MAX_LENGTH]}...[truncated]"
-        return sanitized
+        return sanitize_error_text(text)
 
     @staticmethod
     def from_history_event(
