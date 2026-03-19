@@ -79,17 +79,22 @@ module "eks" {
   # Replica Counts
   api_replicas                             = var.api_replicas
   worker_replicas                          = var.worker_replicas
+  agent_worker_replicas                    = var.agent_worker_replicas
+  agent_queue                              = var.agent_queue
   executor_replicas                        = var.executor_replicas
   executor_queue                           = var.executor_queue
   executor_backend                         = var.executor_backend
   agent_executor_replicas                  = var.agent_executor_replicas
   agent_executor_queue                     = var.agent_executor_queue
   agent_executor_backend                   = var.agent_executor_backend
+  agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
   ui_replicas                              = var.ui_replicas
   api_cpu_request_millicores               = var.api_cpu_request_millicores
   api_memory_request_mib                   = var.api_memory_request_mib
   worker_cpu_request_millicores            = var.worker_cpu_request_millicores
   worker_memory_request_mib                = var.worker_memory_request_mib
+  agent_worker_cpu_request_millicores      = var.agent_worker_cpu_request_millicores
+  agent_worker_memory_request_mib          = var.agent_worker_memory_request_mib
   executor_cpu_request_millicores          = var.executor_cpu_request_millicores
   executor_memory_request_mib              = var.executor_memory_request_mib
   agent_executor_cpu_request_millicores    = var.agent_executor_cpu_request_millicores

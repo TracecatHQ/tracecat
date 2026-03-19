@@ -3,8 +3,14 @@ from typing import cast
 import pytest
 from litellm.caching.dual_cache import DualCache
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
+from starlette.requests import Request
 
-from tracecat.agent.gateway import TracecatCallbackHandler, _inject_provider_credentials
+from tracecat.agent.gateway import (
+    TracecatCallbackHandler,
+    _inject_provider_credentials,
+    user_api_key_auth,
+)
+from tracecat.agent.tokens import verify_llm_token
 
 
 def test_gemini_injects_api_key_and_prefixes_model():
@@ -215,3 +221,31 @@ async def test_pre_call_hook_uses_preset_base_url_over_custom_provider_credentia
 
     assert result["api_key"] == "test-custom-key"
     assert result["api_base"] == "https://preset.custom.example/v1"
+
+
+def _make_request(path: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "headers": [],
+            "query_string": b"",
+            "scheme": "http",
+            "server": ("127.0.0.1", 4000),
+            "client": ("127.0.0.1", 12345),
+        }
+    )
+
+
+@pytest.mark.anyio
+async def test_user_api_key_auth_allows_health_readiness_without_token() -> None:
+    auth = await user_api_key_auth(_make_request("/health/readiness"), api_key=None)
+
+    assert auth.api_key == "health-probe"
+    assert auth.user_role == "internal_user_viewer"
+
+
+def test_verify_llm_token_rejects_invalid_token_type() -> None:
+    with pytest.raises(ValueError, match="Invalid LLM token"):
+        verify_llm_token("")

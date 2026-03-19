@@ -236,6 +236,7 @@ tracecat:
       TracecatTriggeredByUserId: Keyword
       TracecatWorkspaceId: Keyword
       TracecatAlias: Keyword
+      TracecatCorrelationId: Keyword
       TracecatExecutionType: Keyword
 
     # Temporal SDK metrics (Prometheus endpoint exposed by Tracecat processes that connect to Temporal).
@@ -286,6 +287,20 @@ worker:
     enabled: false
     thresholdKb: 16
 
+agentWorker:
+  replicas: 2
+  resources:
+    requests:
+      cpu: "2000m"
+      memory: "2048Mi"
+    limits:
+      cpu: "2000m"
+      memory: "2048Mi"
+  queue: "shared-agent-queue"
+  contextCompression:
+    enabled: false
+    thresholdKb: 16
+
 executor:
   replicas: 4
   # Executor backend: 'pool', 'ephemeral', 'direct', or 'auto' (default)
@@ -325,7 +340,8 @@ agentExecutor:
     limits:
       cpu: "4000m"
       memory: "16384Mi"
-  queue: "shared-agent-queue"
+  queue: "shared-agent-executor-queue"
+  maxConcurrentActivities: 3
   workerPoolSize: ""
   llmProxyReadTimeout: "300"
   contextCompression:

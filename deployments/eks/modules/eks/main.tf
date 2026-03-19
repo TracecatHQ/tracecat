@@ -75,6 +75,7 @@ locals {
 
   api_rollout_replicas            = var.api_replicas + ceil(var.api_replicas * local.rollout_surge_fraction)
   worker_rollout_replicas         = var.worker_replicas + ceil(var.worker_replicas * local.rollout_surge_fraction)
+  agent_worker_rollout_replicas   = var.agent_worker_replicas + ceil(var.agent_worker_replicas * local.rollout_surge_fraction)
   executor_rollout_replicas       = var.executor_replicas + ceil(var.executor_replicas * local.rollout_surge_fraction)
   agent_executor_rollout_replicas = var.agent_executor_replicas + ceil(var.agent_executor_replicas * local.rollout_surge_fraction)
   ui_rollout_replicas             = var.ui_replicas + ceil(var.ui_replicas * local.rollout_surge_fraction)
@@ -82,6 +83,7 @@ locals {
   tracecat_rollout_peak_cpu_millicores = (
     local.api_rollout_replicas * var.api_cpu_request_millicores +
     local.worker_rollout_replicas * var.worker_cpu_request_millicores +
+    local.agent_worker_rollout_replicas * var.agent_worker_cpu_request_millicores +
     local.executor_rollout_replicas * var.executor_cpu_request_millicores +
     local.agent_executor_rollout_replicas * var.agent_executor_cpu_request_millicores +
     local.ui_rollout_replicas * var.ui_cpu_request_millicores
@@ -90,6 +92,7 @@ locals {
   tracecat_rollout_peak_memory_mib = (
     local.api_rollout_replicas * var.api_memory_request_mib +
     local.worker_rollout_replicas * var.worker_memory_request_mib +
+    local.agent_worker_rollout_replicas * var.agent_worker_memory_request_mib +
     local.executor_rollout_replicas * var.executor_memory_request_mib +
     local.agent_executor_rollout_replicas * var.agent_executor_memory_request_mib +
     local.ui_rollout_replicas * var.ui_memory_request_mib
@@ -98,6 +101,7 @@ locals {
   tracecat_rollout_peak_pods = (
     local.api_rollout_replicas +
     local.worker_rollout_replicas +
+    local.agent_worker_rollout_replicas +
     local.executor_rollout_replicas +
     local.agent_executor_rollout_replicas +
     local.ui_rollout_replicas
@@ -106,6 +110,7 @@ locals {
   max_tracecat_pod_cpu_millicores = max(
     var.api_cpu_request_millicores,
     var.worker_cpu_request_millicores,
+    var.agent_worker_cpu_request_millicores,
     var.executor_cpu_request_millicores,
     var.agent_executor_cpu_request_millicores,
     var.ui_cpu_request_millicores
@@ -114,6 +119,7 @@ locals {
   max_tracecat_pod_memory_mib = max(
     var.api_memory_request_mib,
     var.worker_memory_request_mib,
+    var.agent_worker_memory_request_mib,
     var.executor_memory_request_mib,
     var.agent_executor_memory_request_mib,
     var.ui_memory_request_mib

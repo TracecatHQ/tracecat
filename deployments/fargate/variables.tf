@@ -425,6 +425,28 @@ variable "worker_desired_count" {
   default     = 2
 }
 
+variable "agent_worker_cpu" {
+  type    = string
+  default = "2048"
+}
+
+variable "agent_worker_memory" {
+  type    = string
+  default = "4096"
+}
+
+variable "agent_worker_desired_count" {
+  type        = number
+  description = "Desired number of agent-worker instances to run"
+  default     = 2
+}
+
+variable "agent_queue" {
+  type        = string
+  description = "Task queue for agent-worker workflows"
+  default     = "shared-agent-queue"
+}
+
 variable "executor_cpu" {
   type    = string
   default = "4096"
@@ -474,10 +496,16 @@ variable "agent_executor_desired_count" {
   default     = 1
 }
 
-variable "agent_queue" {
+variable "agent_executor_queue" {
   type        = string
-  description = "Task queue for agent executor workers"
-  default     = "shared-agent-queue"
+  description = "Task queue for agent-executor workers"
+  default     = "shared-agent-executor-queue"
+}
+
+variable "agent_executor_max_concurrent_activities" {
+  type        = number
+  description = "Maximum concurrent activities per agent-executor task"
+  default     = 3
 }
 
 variable "agent_executor_worker_pool_size" {

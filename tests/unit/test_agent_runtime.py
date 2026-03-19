@@ -29,6 +29,10 @@ from tracecat.agent.common.types import (
 from tracecat.agent.common.types import (
     MCPToolDefinition as SharedMCPToolDefinition,
 )
+from tracecat.agent.mcp.proxy_server import (
+    PROXY_TOOL_CALL_ID_KEY,
+    PROXY_TOOL_METADATA_KEY,
+)
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
 from tracecat.agent.types import AgentConfig
 
@@ -36,7 +40,7 @@ from tracecat.agent.types import AgentConfig
 @pytest.fixture
 def sample_agent_config() -> AgentConfig:
     """Create a sample agent config for testing."""
-    return AgentConfig(
+    return cast(Any, AgentConfig)(
         model_name="claude-3-5-sonnet-20241022",
         model_provider="anthropic",
         instructions="You are a helpful assistant.",
@@ -59,6 +63,7 @@ def sample_tool_definitions() -> dict[str, MCPToolDefinition]:
                     "method": {"type": "string"},
                 },
                 "required": ["url", "method"],
+                "additionalProperties": False,
             },
         ),
     }
@@ -362,7 +367,10 @@ class TestClaudeAgentRuntimePreToolUseHook:
         )
 
         hook_output = get_hook_output(result)
-        assert hook_output.get("permissionDecision") == "allow"
+        assert hook_output == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
 
     @pytest.mark.anyio
     async def test_auto_approve_registry_tool_without_approval(
@@ -387,6 +395,57 @@ class TestClaudeAgentRuntimePreToolUseHook:
 
         hook_output = get_hook_output(result)
         assert hook_output.get("permissionDecision") == "allow"
+        assert hook_output["updatedInput"] == {
+            "url": "https://example.com",
+            "method": "GET",
+            PROXY_TOOL_METADATA_KEY: {
+                PROXY_TOOL_CALL_ID_KEY: "call-2",
+            },
+        }
+
+    @pytest.mark.anyio
+    async def test_auto_approve_internal_tool_does_not_inject_metadata(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__tracecat-registry__internal__builder__list_sessions",
+                tool_input={"query": "abc"},
+            ),
+            tool_use_id="call-internal",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
+
+    @pytest.mark.anyio
+    async def test_auto_approve_non_registry_mcp_tool_does_not_inject_metadata(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__jira__search",
+                tool_input={"jql": "project = TRACE"},
+            ),
+            tool_use_id="call-jira",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
 
     @pytest.mark.anyio
     async def test_tool_requires_approval(

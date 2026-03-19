@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import Request
 from litellm.caching.dual_cache import DualCache
 from litellm.integrations.custom_logger import CustomLogger
-from litellm.proxy._types import ProxyException, UserAPIKeyAuth
+from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
 from litellm.types.utils import CallTypesLiteral
 
 from tracecat.agent.litellm_compat import apply_patch
@@ -27,6 +27,12 @@ apply_patch()
 # -----------------------------------------------------------------------------
 # Credential Fetching via AgentManagementService
 # -----------------------------------------------------------------------------
+
+_UNAUTHENTICATED_HEALTH_ROUTES = {
+    "/health/liveliness",
+    "/health/liveness",
+    "/health/readiness",
+}
 
 
 async def get_provider_credentials(
@@ -57,14 +63,23 @@ async def get_provider_credentials(
 # -----------------------------------------------------------------------------
 
 
-async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
+async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKeyAuth:
     """Validate LLM token from jailed agent runtime.
 
     The api_key parameter is the Bearer token sent by the SDK, which is
     actually our JWT token minted by the agent executor.
     """
+    if request.url.path in _UNAUTHENTICATED_HEALTH_ROUTES:
+        logger.debug(
+            "Allowing unauthenticated LiteLLM health probe", path=request.url.path
+        )
+        return UserAPIKeyAuth(
+            api_key="health-probe",
+            user_role=LitellmUserRoles.INTERNAL_USER_VIEW_ONLY,
+        )
+
     try:
-        claims = verify_llm_token(api_key)
+        claims = verify_llm_token(api_key or "")
     except ValueError as e:
         logger.warning("LLM token validation failed")
         raise ProxyException(

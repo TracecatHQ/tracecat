@@ -147,6 +147,9 @@ class TemporalSearchAttr(StrEnum):
     ALIAS = "TracecatAlias"
     """The `Keyword` Search Attribute for a human-friendly workflow alias (e.g., workflow or agent slugs)."""
 
+    CORRELATION_ID = "TracecatCorrelationId"
+    """The `Keyword` Search Attribute for grouping related workflow executions."""
+
     EXECUTION_TYPE = "TracecatExecutionType"
     """The `Keyword` Search Attribute for the execution type (draft or published)."""
 

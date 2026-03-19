@@ -135,6 +135,7 @@ async def add_temporal_search_attributes():
         TemporalSearchAttr.TRIGGERED_BY_USER_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
         TemporalSearchAttr.WORKSPACE_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
         TemporalSearchAttr.ALIAS.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
+        TemporalSearchAttr.CORRELATION_ID.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
         TemporalSearchAttr.EXECUTION_TYPE.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD,
     }
     try:
@@ -179,6 +180,7 @@ async def remove_temporal_search_attributes():
                     TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
                     TemporalSearchAttr.WORKSPACE_ID.value,
                     TemporalSearchAttr.ALIAS.value,
+                    TemporalSearchAttr.CORRELATION_ID.value,
                     TemporalSearchAttr.EXECUTION_TYPE.value,
                 ],
                 namespace=namespace,
@@ -199,6 +201,7 @@ async def remove_temporal_search_attributes():
                 TemporalSearchAttr.TRIGGERED_BY_USER_ID.value,
                 TemporalSearchAttr.WORKSPACE_ID.value,
                 TemporalSearchAttr.ALIAS.value,
+                TemporalSearchAttr.CORRELATION_ID.value,
                 TemporalSearchAttr.EXECUTION_TYPE.value,
             ],
         )

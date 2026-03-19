@@ -283,6 +283,16 @@ resource "helm_release" "tracecat" {
   }
 
   set {
+    name  = "agentWorker.replicas"
+    value = var.agent_worker_replicas
+  }
+
+  set {
+    name  = "agentWorker.queue"
+    value = var.agent_queue
+  }
+
+  set {
     name  = "executor.replicas"
     value = var.executor_replicas
   }
@@ -306,6 +316,11 @@ resource "helm_release" "tracecat" {
   set {
     name  = "agentExecutor.queue"
     value = var.agent_executor_queue
+  }
+
+  set {
+    name  = "agentExecutor.maxConcurrentActivities"
+    value = var.agent_executor_max_concurrent_activities
   }
 
   set {
@@ -347,6 +362,26 @@ resource "helm_release" "tracecat" {
   set {
     name  = "worker.resources.requests.memory"
     value = "${var.worker_memory_request_mib}Mi"
+  }
+
+  set {
+    name  = "agentWorker.resources.requests.cpu"
+    value = "${var.agent_worker_cpu_request_millicores}m"
+  }
+
+  set {
+    name  = "agentWorker.resources.requests.memory"
+    value = "${var.agent_worker_memory_request_mib}Mi"
+  }
+
+  set {
+    name  = "agentWorker.resources.limits.cpu"
+    value = "${var.agent_worker_cpu_request_millicores}m"
+  }
+
+  set {
+    name  = "agentWorker.resources.limits.memory"
+    value = "${var.agent_worker_memory_request_mib}Mi"
   }
 
   set {

@@ -295,6 +295,7 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - Always avoid use of `type: ignore` when writing python code
 - You must *NEVER* put import statements in function bodies.
 - If you are facing issues with circular imports you should try use `if TYPE_CHECKING: ...` instead.
+- Prefer combining trivial nested `with` / `async with` blocks into a single statement (for example, `async with a, b, c:`) when there is no behavioral difference. This is especially preferred in tests and setup code.
 - Use PEP 695 generic syntax for new generics: `class Name[T: Bound]` over `TypeVar`
 - **Prefer enum types over plain `str` for finite value sets** in schemas and domain types. When a Pydantic field, function argument, or `types.py` type has a known set of string values, prefer `StrEnum`; `Literal` is acceptable when it fits — use your discretion. For database models representing these finite sets, store values as `String`/`Text` columns rather than Postgres enums unless the value set is truly stable — `ALTER TYPE ... ADD VALUE` migrations are painful and irreversible. Reserve bare `str` for free-form text.
 - Use `frozen=True` dataclasses for immutable value objects

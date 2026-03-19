@@ -68,6 +68,7 @@ async def execute_action_tool(
     action_name: str,
     args: dict[str, Any],
     auth_token: str,
+    tool_call_id: str | None = None,
 ) -> str:
     """Execute any Tracecat registry action.
 
@@ -101,7 +102,11 @@ async def execute_action_tool(
             )
 
         result = await execute_action(
-            normalized_action_name, args, claims, registry_lock
+            normalized_action_name,
+            args,
+            claims,
+            registry_lock,
+            tool_call_id=tool_call_id,
         )
         return json.dumps(result, default=str)
     except ActionExecutionError as e:

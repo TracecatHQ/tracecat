@@ -632,6 +632,14 @@ TRACECAT__AGENT_QUEUE = os.environ.get("TRACECAT__AGENT_QUEUE", "shared-agent-qu
 This is the dedicated queue for agent workflow execution, separate from the main
 tracecat-task-queue used by DSLWorkflow."""
 
+TRACECAT__AGENT_EXECUTOR_QUEUE = os.environ.get(
+    "TRACECAT__AGENT_EXECUTOR_QUEUE", "shared-agent-executor-queue"
+)
+"""Task queue for the AgentExecutorWorker.
+
+This queue is reserved for `run_agent_activity` so agent runtime capacity can be
+provisioned independently from agent workflow/control-plane work."""
+
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
     os.environ.get("TRACECAT__RATE_LIMIT_ENABLED", "true").lower() == "true"
