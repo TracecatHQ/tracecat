@@ -144,7 +144,34 @@ jobs:
 
             core.info(`Published release ${version}`)
 
+      - name: Create cross-repo automation token
+        id: cross-repo-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.CROSS_REPO_AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.CROSS_REPO_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            k8s
+          permission-contents: write
+
+      - name: Trigger k8s version bump
+        id: trigger-k8s-version-bump
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ steps.cross-repo-token.outputs.token }}
+        run: |
+          gh api \
+            -X POST \
+            repos/TracecatHQ/k8s/dispatches \
+            -f event_type=tracecat-release-published \
+            -F client_payload[version]="$VERSION" \
+            -F client_payload[source_repository]="${{ github.repository }}" \
+            -F client_payload[source_run_id]="${{ github.run_id }}"
+
       - name: Delete release branch
+        if: ${{ always() }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/release/${VERSION}" || true

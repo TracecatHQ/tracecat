@@ -119,21 +119,6 @@ if ! [[ $NEW_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?$ ]]; then
     exit 1
 fi
 
-# Bump chart version patch in Chart.yaml (e.g. 0.3.24 -> 0.3.25)
-CHART_FILE="deployments/helm/tracecat/Chart.yaml"
-if [ ! -f "$CHART_FILE" ]; then
-    echo "Error: Cannot find $CHART_FILE"
-    exit 1
-fi
-
-CHART_CURRENT_VERSION=$(grep -E '^version:[[:space:]]*' "$CHART_FILE" | head -1 | sed -E 's/^version:[[:space:]]*"?([^"]+)"?/\1/')
-if [[ $CHART_CURRENT_VERSION =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)([-+].*)?$ ]]; then
-    CHART_NEW_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
-else
-    echo "Error: Could not parse chart version from $CHART_FILE (found: $CHART_CURRENT_VERSION)"
-    exit 1
-fi
-
 # List of files to update (hardcoded)
 FILES=(
     "tracecat/__init__.py"
@@ -141,9 +126,6 @@ FILES=(
     "docker-compose.yml"
     "docker-compose.dev.yml"
     "docker-compose.local.yml"
-    "deployments/helm/tracecat/Chart.yaml"
-    "deployments/eks/variables.tf"
-    "deployments/eks/modules/eks/variables.tf"
     "deployments/fargate/variables.tf"
     "deployments/fargate/modules/ecs/variables.tf"
     "docs/self-hosting/deployment-options/docker-compose.mdx"
@@ -170,26 +152,13 @@ update_version() {
     local basename=$(basename "$file")
 
     # File-specific update strategies
-    if [[ "$basename" == "Chart.yaml" ]]; then
-        # Targeted: update both appVersion and chart version fields.
-        if [[ "$(uname)" == "Darwin" ]]; then
-            sed -i '' -E 's/^(version:[[:space:]]*).*/\1'"$CHART_NEW_VERSION"'/' "$file" && \
-            sed -i '' -E 's/^(appVersion:[[:space:]]*).*/\1"'"$NEW_VERSION"'"/' "$file" && \
-            echo "✓ Updated $file" || echo "✗ Failed to update $file"
-        else
-            sed -i -E 's/^(version:[[:space:]]*).*/\1'"$CHART_NEW_VERSION"'/' "$file" && \
-            sed -i -E 's/^(appVersion:[[:space:]]*).*/\1"'"$NEW_VERSION"'"/' "$file" && \
-            echo "✓ Updated $file" || echo "✗ Failed to update $file"
-        fi
-    elif [[ "$basename" == "variables.tf" ]]; then
-        # Targeted: update the tracecat_image_tag and tracecat_chart_version variable defaults
+    if [[ "$basename" == "variables.tf" ]]; then
+        # Targeted: update the tracecat_image_tag default in parent-managed Terraform.
         if [[ "$(uname)" == "Darwin" ]]; then
             sed -i '' -E '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$file" && \
-            sed -i '' -E '/variable "tracecat_chart_version"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$CHART_NEW_VERSION"'"/' "$file" && \
             echo "✓ Updated $file" || echo "✗ Failed to update $file"
         else
             sed -i -E '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$file" && \
-            sed -i -E '/variable "tracecat_chart_version"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$CHART_NEW_VERSION"'"/' "$file" && \
             echo "✓ Updated $file" || echo "✗ Failed to update $file"
         fi
     elif [[ "$basename" == docker-compose*.yml ]]; then
@@ -233,7 +202,6 @@ update_version() {
 
 # Main execution
 echo "Updating version from $CURRENT_VERSION to $NEW_VERSION"
-echo "Bumping chart version from $CHART_CURRENT_VERSION to $CHART_NEW_VERSION"
 echo "The following files will be modified:"
 echo "----------------------------------------"
 for file in "${FILES[@]}"; do
