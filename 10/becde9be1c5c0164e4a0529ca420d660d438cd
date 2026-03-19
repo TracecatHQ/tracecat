@@ -1,0 +1,29 @@
+packages/tracecat-ee/tracecat_ee/agent/schemas.py
+  c2df59db3baaff3a 5-10,22-23,39-40
+tests/unit/test_agent_schema_limits.py
+  c2df59db3baaff3a 1-50
+tracecat/agent/schemas.py
+  c2df59db3baaff3a 7,23-54,74,76,309-310
+tracecat/agent/session/service.py
+  c2df59db3baaff3a 30-34,989-994,1000-1001
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "10becde9be1c5c0164e4a0529ca420d660d438cd",
+  "prompts": {
+    "c2df59db3baaff3a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d02d8-3011-7682-9eca-4db73b7f448a",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 110,
+      "total_deletions": 30,
+      "accepted_lines": 110,
+      "overriden_lines": 0
+    }
+  }
+}
