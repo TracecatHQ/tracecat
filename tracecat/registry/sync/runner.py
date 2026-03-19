@@ -61,6 +61,36 @@ class ActionDiscoveryError(RegistrySyncRunnerError):
     """Raised when action discovery fails."""
 
 
+def _build_validation_failure_message(
+    validation_errors: dict[str, list[RegistryActionValidationErrorInfo]],
+) -> str:
+    total_errors = sum(len(errs) for errs in validation_errors.values())
+    action_name = next(iter(validation_errors), "<unknown>")
+    first_error = (
+        validation_errors[action_name][0] if validation_errors[action_name] else None
+    )
+
+    first_detail = ""
+    if first_error is not None and first_error.details:
+        first_detail = first_error.details[0]
+
+    suffix = f" First error in '{action_name}': {first_detail}" if first_detail else ""
+    return (
+        f"Registry sync validation failed: {total_errors} validation error(s).{suffix}"
+    )
+
+
+class RegistrySyncValidationError(RegistrySyncRunnerError):
+    """Raised when action discovery returns validation errors."""
+
+    def __init__(
+        self,
+        validation_errors: dict[str, list[RegistryActionValidationErrorInfo]],
+    ) -> None:
+        super().__init__(_build_validation_failure_message(validation_errors))
+        self.validation_errors = validation_errors
+
+
 class RegistrySyncRunner:
     """Orchestrates all phases of sandboxed registry sync.
 
@@ -162,6 +192,7 @@ class RegistrySyncRunner:
             actions, validation_errors = await self._discover_actions(
                 repository_id=request.repository_id,
                 origin=request.origin,
+                commit_sha=commit_sha,
                 validate=request.validate_actions,
                 git_repo_package_name=request.git_repo_package_name,
                 organization_id=request.organization_id,
@@ -172,6 +203,9 @@ class RegistrySyncRunner:
                 num_actions=len(actions),
                 num_validation_errors=len(validation_errors),
             )
+
+            if validation_errors:
+                raise RegistrySyncValidationError(validation_errors)
 
             # Phase 4: Upload tarball to S3
             tarball_uri = await self._upload_tarball(
@@ -378,6 +412,7 @@ class RegistrySyncRunner:
         self,
         repository_id: UUID,
         origin: str,
+        commit_sha: str | None = None,
         validate: bool = False,
         git_repo_package_name: str | None = None,
         organization_id: UUID | None = None,
@@ -393,6 +428,7 @@ class RegistrySyncRunner:
         Args:
             repository_id: Database repository ID.
             origin: Repository origin (e.g., "tracecat_registry", "local", or git URL).
+            commit_sha: Optional commit SHA to load for remote repositories.
             validate: Whether to validate template actions.
             git_repo_package_name: Optional override for git repository package name.
 
@@ -407,6 +443,7 @@ class RegistrySyncRunner:
             result = await fetch_actions_from_subprocess(
                 origin=origin,
                 repository_id=repository_id,
+                commit_sha=commit_sha,
                 validate=validate,
                 git_repo_package_name=git_repo_package_name,
                 timeout=float(self.discover_timeout),

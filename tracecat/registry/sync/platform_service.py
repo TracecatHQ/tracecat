@@ -9,13 +9,14 @@ from tracecat.db.models import (
     PlatformRegistryRepository,
     PlatformRegistryVersion,
 )
+from tracecat.exceptions import RegistryError
 from tracecat.registry.sync.base_service import BaseRegistrySyncService, BaseSyncResult
 from tracecat.registry.versions.service import PlatformRegistryVersionsService
 
 PLATFORM_REGISTRY_TARBALL_NAMESPACE = "platform"
 
 
-class PlatformRegistrySyncError(Exception):
+class PlatformRegistrySyncError(RegistryError):
     """Raised when platform registry sync fails."""
 
 

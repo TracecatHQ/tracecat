@@ -2,7 +2,8 @@ import type { ApiError } from "@/client"
 
 export interface TracecatApiError<T = unknown> extends ApiError {
   readonly body: {
-    detail: T
+    detail?: T
+    message?: string | null
   }
 }
 
@@ -39,4 +40,28 @@ export function isRequestValidationErrorArray(
   obj: unknown
 ): obj is RequestValidationError[] {
   return Array.isArray(obj) && obj.every((o) => isRequestValidationError(o))
+}
+
+export function getApiErrorDetail(error: unknown): string | null {
+  if (!(error instanceof Error)) {
+    return null
+  }
+
+  const maybeApiError = error as TracecatApiError<unknown>
+  const detail = maybeApiError.body?.detail
+  if (typeof detail === "string") {
+    return detail
+  }
+  if (detail != null) {
+    try {
+      return JSON.stringify(detail)
+    } catch {
+      return error.message
+    }
+  }
+  const message = maybeApiError.body?.message
+  if (typeof message === "string" && message.length > 0) {
+    return message
+  }
+  return error.message
 }
