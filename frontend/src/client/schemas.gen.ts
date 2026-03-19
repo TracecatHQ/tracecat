@@ -2190,6 +2190,13 @@ export const $AgentSessionCreate = {
       title: "Tools",
       description: "Tools available to the agent for this session",
     },
+    outbound_http_interception_enabled: {
+      type: "boolean",
+      title: "Outbound Http Interception Enabled",
+      description:
+        "Whether tool executions in this session should enable outbound HTTP interception",
+      default: false,
+    },
     agent_preset_id: {
       anyOf: [
         {
@@ -2334,6 +2341,11 @@ export const $AgentSessionRead = {
         },
       ],
       title: "Tools",
+    },
+    outbound_http_interception_enabled: {
+      type: "boolean",
+      title: "Outbound Http Interception Enabled",
+      default: false,
     },
     agent_preset_id: {
       anyOf: [
@@ -2486,6 +2498,11 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Tools",
+    },
+    outbound_http_interception_enabled: {
+      type: "boolean",
+      title: "Outbound Http Interception Enabled",
+      default: false,
     },
     agent_preset_id: {
       anyOf: [
@@ -2647,6 +2664,11 @@ export const $AgentSessionReadWithMessages = {
       ],
       title: "Tools",
     },
+    outbound_http_interception_enabled: {
+      type: "boolean",
+      title: "Outbound Http Interception Enabled",
+      default: false,
+    },
     agent_preset_id: {
       anyOf: [
         {
@@ -2773,6 +2795,19 @@ export const $AgentSessionUpdate = {
       ],
       title: "Tools",
       description: "Tools available to the agent",
+    },
+    outbound_http_interception_enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Outbound Http Interception Enabled",
+      description:
+        "Whether tool executions in this session should enable outbound HTTP interception",
     },
     agent_preset_id: {
       anyOf: [
@@ -8788,6 +8823,13 @@ export const $DSLRunArgs = {
         },
       ],
     },
+    outbound_http_interception_enabled: {
+      type: "boolean",
+      title: "Outbound Http Interception Enabled",
+      description:
+        "Whether outbound HTTP interception is enabled for this run.",
+      default: false,
+    },
     runtime_config: {
       $ref: "#/components/schemas/DSLConfig-Output",
       description:
@@ -8987,6 +9029,63 @@ distinguish multiple files.`,
   required: ["url", "media_type", "identifier"],
   title: "DocumentUrl",
   description: "The URL of the document.",
+} as const
+
+export const $DraftWorkflowExecutionCreate = {
+  properties: {
+    workflow_id: {
+      anyOf: [
+        {
+          type: "string",
+          pattern: "wf_[0-9a-zA-Z]+",
+        },
+        {
+          type: "string",
+          pattern: "wf-[0-9a-f]{32}",
+        },
+      ],
+      title: "Workflow Id",
+    },
+    inputs: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Inputs",
+    },
+    time_anchor: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Time Anchor",
+      description:
+        "Override the workflow's time anchor for FN.now() and related functions. If not provided, computed from TemporalScheduledStartTime (for schedules) or workflow start_time (for other triggers).",
+    },
+    outbound_http_interception_enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Outbound Http Interception Enabled",
+      description:
+        "Optional per-run override for the workflow draft's outbound HTTP interception flag.",
+    },
+  },
+  type: "object",
+  required: ["workflow_id"],
+  title: "DraftWorkflowExecutionCreate",
 } as const
 
 export const $DropdownValueChangedEventRead = {
@@ -16092,6 +16191,13 @@ export const $RunActionInput = {
     run_context: {
       $ref: "#/components/schemas/RunContext",
     },
+    outbound_http_interception_enabled: {
+      type: "boolean",
+      title: "Outbound Http Interception Enabled",
+      description:
+        "Whether outbound HTTP interception is enabled for this action.",
+      default: false,
+    },
     interaction_context: {
       anyOf: [
         {
@@ -16118,6 +16224,31 @@ export const $RunActionInput = {
         },
       ],
       title: "Session Id",
+    },
+    entity_type: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entity Type",
+      description: "Entity type associated with the action, if any.",
+    },
+    entity_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entity Id",
+      description: "Entity ID associated with the action, if any.",
     },
     registry_lock: {
       $ref: "#/components/schemas/RegistryLock",
@@ -16155,6 +16286,28 @@ export const $RunContext = {
       type: "string",
       format: "date-time",
       title: "Logical Time",
+    },
+    trigger_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/TriggerType",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Trigger type for this run when known.",
+    },
+    execution_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ExecutionType",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Execution type for this run when known.",
     },
   },
   type: "object",
@@ -22597,6 +22750,11 @@ export const $WorkflowDirectoryItem = {
       ],
       title: "Alias",
     },
+    outbound_http_interception_enabled: {
+      type: "boolean",
+      title: "Outbound Http Interception Enabled",
+      default: false,
+    },
     error_handler: {
       anyOf: [
         {
@@ -24287,6 +24445,11 @@ export const $WorkflowRead = {
         },
       ],
     },
+    outbound_http_interception_enabled: {
+      type: "boolean",
+      title: "Outbound Http Interception Enabled",
+      default: false,
+    },
     alias: {
       anyOf: [
         {
@@ -24428,6 +24591,11 @@ export const $WorkflowReadMinimal = {
         },
       ],
       title: "Alias",
+    },
+    outbound_http_interception_enabled: {
+      type: "boolean",
+      title: "Outbound Http Interception Enabled",
+      default: false,
     },
     error_handler: {
       anyOf: [
@@ -24850,6 +25018,17 @@ export const $WorkflowUpdate = {
           type: "null",
         },
       ],
+    },
+    outbound_http_interception_enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Outbound Http Interception Enabled",
     },
     alias: {
       anyOf: [

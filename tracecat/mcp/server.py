@@ -3982,6 +3982,9 @@ async def run_draft_workflow(
             dsl=dsl_input,
             wf_id=wf_id,
             payload=payload,
+            outbound_http_interception_enabled=(
+                workflow.outbound_http_interception_enabled
+            ),
         )
         return _json(
             {

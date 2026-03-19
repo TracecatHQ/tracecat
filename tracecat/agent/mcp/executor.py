@@ -90,7 +90,7 @@ async def execute_action(
     )
 
     # Build minimal RunActionInput
-    run_input = _build_run_input(action_name, args, registry_lock)
+    run_input = _build_run_input(action_name, args, claims, registry_lock)
 
     if TRACECAT__DISABLE_NSJAIL:
         backend = DirectBackend()
@@ -103,6 +103,7 @@ async def execute_action(
 def _build_run_input(
     action_name: str,
     args: dict[str, Any],
+    claims: MCPTokenClaims,
     registry_lock: RegistryLock,
 ) -> RunActionInput:
     """Build a minimal RunActionInput for ActionRunner.
@@ -133,5 +134,9 @@ def _build_run_input(
         task=task,
         run_context=run_context,
         exec_context=ExecutionContext(ACTIONS={}, TRIGGER=None),
+        session_id=claims.session_id,
+        outbound_http_interception_enabled=claims.outbound_http_interception_enabled,
+        entity_type=claims.entity_type,
+        entity_id=claims.entity_id,
         registry_lock=registry_lock,
     )

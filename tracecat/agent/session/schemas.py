@@ -44,6 +44,10 @@ class AgentSessionCreate(BaseModel):
         description="Tools available to the agent for this session",
         max_length=50,
     )
+    outbound_http_interception_enabled: bool = Field(
+        default=False,
+        description="Whether tool executions in this session should enable outbound HTTP interception",
+    )
     agent_preset_id: uuid.UUID | None = Field(
         default=None,
         description="Agent preset used for this session (if any)",
@@ -66,6 +70,10 @@ class AgentSessionUpdate(BaseModel):
     )
     tools: list[str] | None = Field(
         default=None, description="Tools available to the agent", max_length=50
+    )
+    outbound_http_interception_enabled: bool | None = Field(
+        default=None,
+        description="Whether tool executions in this session should enable outbound HTTP interception",
     )
     agent_preset_id: uuid.UUID | None = Field(
         default=None, description="Agent preset to use for this session"
@@ -107,6 +115,7 @@ class AgentSessionRead(BaseModel):
     entity_id: uuid.UUID
     channel_context: dict[str, Any] | None
     tools: list[str] | None
+    outbound_http_interception_enabled: bool = False
     agent_preset_id: uuid.UUID | None
     agent_preset_version_id: uuid.UUID | None
     # Harness

@@ -138,6 +138,7 @@ module "ecs" {
   executor_client_timeout                  = var.executor_client_timeout
   executor_queue                           = var.executor_queue
   executor_worker_pool_size                = var.executor_worker_pool_size
+  outbound_http_gateway_url                = var.outbound_http_gateway_url
   agent_executor_cpu                       = var.agent_executor_cpu
   agent_executor_memory                    = var.agent_executor_memory
   agent_executor_desired_count             = var.agent_executor_desired_count

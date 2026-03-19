@@ -352,6 +352,12 @@ variable "executor_backend" {
   default     = "ephemeral"
 }
 
+variable "outbound_http_gateway_url" {
+  description = "Full dispatch URL for outbound HTTP interception from executor workloads"
+  type        = string
+  default     = ""
+}
+
 variable "agent_executor_replicas" {
   description = "Number of agent-executor replicas"
   type        = number
