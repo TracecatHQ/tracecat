@@ -5,7 +5,6 @@ import Link from "next/link"
 import { useEffect, useState } from "react"
 import type {
   AgentPresetRead,
-  AgentPresetReadMinimal,
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
 } from "@/client"
@@ -41,7 +40,11 @@ import {
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useChatReadiness } from "@/lib/hooks"
+import {
+  type AgentCatalogEntry,
+  matchesModelSelection,
+  useChatReadiness,
+} from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -60,8 +63,99 @@ type PendingFirstMessage = {
 
 type PresetConfigLike = Pick<
   AgentPresetRead,
-  "model_name" | "model_provider" | "base_url"
+  | "source_id"
+  | "model_name"
+  | "model_provider"
+  | "base_url"
+  | "actions"
+  | "namespaces"
 >
+
+type ChatSessionWithCompositeSelection =
+  AgentSessionsGetSessionVercelResponse & {
+    source_id?: string | null
+    model_provider?: string | null
+    model_name?: string | null
+  }
+
+const DEFAULT_CHAT_TOOLS: Partial<Record<AgentSessionEntity, string[]>> = {
+  case: [
+    "core.cases.get_case",
+    "core.cases.list_cases",
+    "core.cases.update_case",
+    "core.cases.create_comment",
+    "core.cases.list_comments",
+  ],
+  copilot: [
+    "core.table.list_tables",
+    "core.table.get_table_metadata",
+    "core.table.lookup",
+    "core.table.search_rows",
+    "core.cases.list_cases",
+    "core.cases.get_case",
+    "core.cases.search_cases",
+  ],
+}
+
+type ChatModelSelector = {
+  label: string
+  defaultLabel: string
+  defaultProvider?: string | null
+  models?: AgentCatalogEntry[]
+  modelsError: unknown
+  modelsIsLoading: boolean
+  selectedModel: AgentCatalogEntry | null
+  onSelect: (model: AgentCatalogEntry | null) => void | Promise<void>
+  disabled?: boolean
+  showSpinner?: boolean
+}
+
+type ChatPresetSelector = {
+  label: string
+  presets: Pick<AgentPresetRead, "id" | "name">[]
+  presetsIsLoading: boolean
+  presetsError: unknown
+  selectedPresetId: string | null
+  onSelect: (presetId: string | null) => void | Promise<void>
+  disabled: boolean
+  showSpinner: boolean
+}
+
+function findSelectedModel(
+  models: AgentCatalogEntry[] | undefined,
+  chat: AgentSessionsGetSessionVercelResponse | undefined
+): AgentCatalogEntry | null {
+  const selection = chat as ChatSessionWithCompositeSelection | undefined
+  if (!selection?.model_provider || !selection?.model_name) {
+    return null
+  }
+  const modelProvider = selection.model_provider
+  const modelName = selection.model_name
+  return (
+    models?.find((model) =>
+      matchesModelSelection(model, {
+        source_id: selection.source_id ?? null,
+        model_provider: modelProvider,
+        model_name: modelName,
+      })
+    ) ?? null
+  )
+}
+
+function getSessionModelFields(model: AgentCatalogEntry | null): {
+  source_id?: string | null
+  model_provider?: string | null
+  model_name?: string | null
+} {
+  if (!model) {
+    return {}
+  }
+  return {
+    source_id: model.source_id ?? null,
+    model_provider: model.model_provider,
+    model_name: model.model_name,
+  }
+}
 
 export function ChatInterface({
   chatId,
@@ -109,17 +203,26 @@ export function ChatInterface({
     agentAddonsEnabled && (entityType === "case" || entityType === "copilot")
 
   const {
-    presets: presetOptions,
+    presets,
     presetsIsLoading,
     presetsError,
     selectedPreset,
     selectedPresetConfig,
     selectedPresetId: effectivePresetId,
-    selectedPresetVersionId,
     handlePresetChange,
     presetMenuLabel,
     presetMenuDisabled,
     showPresetSpinner,
+    enabledModels,
+    enabledModelsError,
+    enabledModelsLoading,
+    selectedModel,
+    handleModelSelectionChange,
+    defaultModelLabel,
+    defaultModelProvider,
+    modelSelectorLabel,
+    modelSelectorDisabled,
+    showModelSelectorSpinner,
   } = useChatPresetManager({
     workspaceId,
     chat,
@@ -129,7 +232,17 @@ export function ChatInterface({
     selectedChatId,
     enabled: presetsEnabled,
   })
+  const effectiveSelectedModel =
+    selectedModel ?? findSelectedModel(enabledModels, chat)
   const activePreset = selectedPresetConfig ?? selectedPreset
+  const fallbackTools = activePreset
+    ? Array.from(
+        new Set([
+          ...(activePreset.actions ?? []),
+          ...(activePreset.namespaces ?? []),
+        ])
+      )
+    : (DEFAULT_CHAT_TOOLS[entityType] ?? [])
 
   useEffect(() => {
     setAutoCreateAttempted(false)
@@ -164,6 +277,10 @@ export function ChatInterface({
         title: "Chat 1",
         entity_type: entityType,
         entity_id: entityId,
+        ...(effectivePresetId ? { agent_preset_id: effectivePresetId } : {}),
+        ...(effectivePresetId === null
+          ? getSessionModelFields(effectiveSelectedModel)
+          : {}),
       })
         .then((newChat) => {
           setSelectedChatId(newChat.id)
@@ -182,6 +299,8 @@ export function ChatInterface({
     createChatPending,
     entityType,
     entityId,
+    effectivePresetId,
+    effectiveSelectedModel,
     autoCreateAttempted,
     isCaseDraftChat,
   ])
@@ -201,6 +320,10 @@ export function ChatInterface({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: entityType,
         entity_id: entityId,
+        ...(effectivePresetId ? { agent_preset_id: effectivePresetId } : {}),
+        ...(effectivePresetId === null
+          ? getSessionModelFields(effectiveSelectedModel)
+          : {}),
       })
       setSelectedChatId(newChat.id)
       onChatSelect?.(newChat.id)
@@ -223,8 +346,10 @@ export function ChatInterface({
         entity_type: "case",
         entity_id: entityId,
         tools: selectedTools,
-        agent_preset_id: effectivePresetId,
-        agent_preset_version_id: selectedPresetVersionId,
+        ...(effectivePresetId ? { agent_preset_id: effectivePresetId } : {}),
+        ...(effectivePresetId === null
+          ? getSessionModelFields(effectiveSelectedModel)
+          : {}),
       })
 
       setIsCaseDraftChat(false)
@@ -338,23 +463,47 @@ export function ChatInterface({
           chatLoading={chatLoading}
           chatError={chatError}
           selectedPreset={activePreset}
-          toolsEnabled={!activePreset}
-          draftMode={
-            entityType === "case" && (isCaseDraftChat || chats?.length === 0)
-          }
           presetSelector={
             presetsEnabled
               ? {
                   label: presetMenuLabel,
-                  presets: presetOptions,
-                  presetsError,
+                  presets,
                   presetsIsLoading,
+                  presetsError,
                   selectedPresetId: effectivePresetId,
+                  onSelect: handlePresetChange,
                   disabled: presetMenuDisabled,
                   showSpinner: showPresetSpinner,
-                  noPresetDescription:
-                    "Use workspace default case agent instructions.",
-                  onSelect: (presetId) => void handlePresetChange(presetId),
+                }
+              : undefined
+          }
+          toolsEnabled={!activePreset}
+          fallbackTools={fallbackTools}
+          draftMode={
+            entityType === "case" && (isCaseDraftChat || chats?.length === 0)
+          }
+          modelSelector={
+            presetsEnabled && effectivePresetId === null
+              ? {
+                  label: modelSelectorLabel,
+                  defaultLabel: defaultModelLabel,
+                  defaultProvider: defaultModelProvider,
+                  models: enabledModels,
+                  modelsError: enabledModelsError,
+                  modelsIsLoading: enabledModelsLoading,
+                  selectedModel: effectiveSelectedModel,
+                  onSelect: (model) =>
+                    void handleModelSelectionChange(
+                      model
+                        ? {
+                            source_id: model.source_id ?? null,
+                            model_provider: model.model_provider,
+                            model_name: model.model_name,
+                          }
+                        : null
+                    ),
+                  disabled: modelSelectorDisabled,
+                  showSpinner: showModelSelectorSpinner,
                 }
               : undefined
           }
@@ -387,19 +536,11 @@ interface ChatBodyProps {
   chatLoading: boolean
   chatError: unknown
   selectedPreset?: PresetConfigLike
+  presetSelector?: ChatPresetSelector
   toolsEnabled: boolean
+  fallbackTools: string[]
   draftMode: boolean
-  presetSelector?: {
-    label: string
-    presets?: AgentPresetReadMinimal[]
-    presetsIsLoading: boolean
-    presetsError: unknown
-    selectedPresetId: string | null
-    onSelect: (presetId: string | null) => void | Promise<void>
-    disabled?: boolean
-    showSpinner?: boolean
-    noPresetDescription?: string
-  }
+  modelSelector?: ChatModelSelector
   onCreateSessionBeforeSend?: (
     messageText: string,
     selectedTools?: string[]
@@ -418,9 +559,11 @@ function ChatBody({
   chatLoading,
   chatError,
   selectedPreset,
-  toolsEnabled,
-  draftMode,
   presetSelector,
+  toolsEnabled,
+  fallbackTools,
+  draftMode,
+  modelSelector,
   onCreateSessionBeforeSend,
   draftInputDisabled,
   pendingMessage,
@@ -434,13 +577,25 @@ function ChatBody({
   } = useChatReadiness(
     selectedPreset
       ? {
-          modelOverride: {
-            name: selectedPreset.model_name,
-            provider: selectedPreset.model_provider,
-            baseUrl: selectedPreset.base_url ?? null,
+          workspaceId,
+          selection: {
+            source_id: selectedPreset.source_id ?? null,
+            model_provider: selectedPreset.model_provider,
+            model_name: selectedPreset.model_name,
           },
         }
-      : undefined
+      : modelSelector?.selectedModel
+        ? {
+            workspaceId,
+            selection: {
+              source_id: modelSelector.selectedModel.source_id ?? null,
+              model_provider: modelSelector.selectedModel.model_provider,
+              model_name: modelSelector.selectedModel.model_name,
+            },
+          }
+        : {
+            workspaceId,
+          }
   )
 
   if (chatError) {
@@ -478,9 +633,11 @@ function ChatBody({
                 </h4>
                 <p className="text-xs text-muted-foreground">
                   {chatReason === "no_model" &&
-                    "Select a default model in agent settings to enable chat."}
+                    (modelSelector
+                      ? "Choose an enabled model for this chat or set an organization default model."
+                      : "Select a default model in agent settings to enable chat.")}
                   {chatReason === "no_credentials" &&
-                    `Configure ${modelInfo?.provider || "model provider"} credentials in agent settings to enable chat.`}
+                    `Configure ${modelInfo?.provider || "model provider"} credentials in organization agent settings to enable chat.`}
                 </p>
               </div>
               <ChevronDown className="size-4 rotate-[-90deg] text-muted-foreground" />
@@ -501,19 +658,23 @@ function ChatBody({
     }
 
     return (
-      <ChatSessionPane
-        workspaceId={workspaceId}
-        entityType={entityType}
-        entityId={entityId}
-        placeholder={`Ask about this ${entityType}...`}
-        className="flex-1 min-h-0"
-        modelInfo={modelInfo}
-        toolsEnabled={toolsEnabled}
-        presetSelector={presetSelector}
-        onBeforeSend={onCreateSessionBeforeSend}
-        inputDisabled={draftInputDisabled}
-        inputDisabledPlaceholder="Creating chat..."
-      />
+      <>
+        <ChatSessionPane
+          workspaceId={workspaceId}
+          entityType={entityType}
+          entityId={entityId}
+          placeholder={`Ask about this ${entityType}...`}
+          className="flex-1 min-h-0"
+          modelInfo={modelInfo}
+          toolsEnabled={toolsEnabled}
+          fallbackTools={fallbackTools}
+          presetSelector={presetSelector}
+          modelSelector={modelSelector}
+          onBeforeSend={onCreateSessionBeforeSend}
+          inputDisabled={draftInputDisabled}
+          inputDisabledPlaceholder="Creating chat..."
+        />
+      </>
     )
   }
 
@@ -526,18 +687,22 @@ function ChatBody({
   }
 
   return (
-    <ChatSessionPane
-      chat={chat}
-      workspaceId={workspaceId}
-      entityType={entityType}
-      entityId={entityId}
-      placeholder={`Ask about this ${entityType}...`}
-      className="flex-1 min-h-0"
-      modelInfo={modelInfo}
-      toolsEnabled={toolsEnabled}
-      presetSelector={presetSelector}
-      pendingMessage={pendingMessage ?? undefined}
-      onPendingMessageSent={onPendingMessageSent}
-    />
+    <>
+      <ChatSessionPane
+        chat={chat}
+        workspaceId={workspaceId}
+        entityType={entityType}
+        entityId={entityId}
+        placeholder={`Ask about this ${entityType}...`}
+        className="flex-1 min-h-0"
+        modelInfo={modelInfo}
+        toolsEnabled={toolsEnabled}
+        fallbackTools={fallbackTools}
+        presetSelector={presetSelector}
+        modelSelector={modelSelector}
+        pendingMessage={pendingMessage ?? undefined}
+        onPendingMessageSent={onPendingMessageSent}
+      />
+    </>
   )
 }

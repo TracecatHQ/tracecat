@@ -9,8 +9,10 @@ from fastapi.testclient import TestClient
 
 from tracecat.agent.router import (
     OrganizationAdminUserRole,
+    OrganizationUserOptionalWorkspaceRole,
     OrganizationUserRole,
 )
+from tracecat.agent.router import WorkspaceUserInPath as AgentWorkspaceUserInPath
 from tracecat.api.app import app
 from tracecat.auth.credentials import AuthenticatedUserOnly, SuperuserRole
 from tracecat.auth.dependencies import (
@@ -60,12 +62,14 @@ def client() -> Generator[TestClient, None, None]:
         SuperuserRole,
         AuthenticatedUserOnly,
         OrganizationUserRole,
+        OrganizationUserOptionalWorkspaceRole,
         OrganizationAdminUserRole,
         SecretsWorkspaceUser,
         OrgUserRole,
         TablesWorkspaceUser,
         TablesWorkspaceEditorUser,
         WorkspaceUserInPath,
+        AgentWorkspaceUserInPath,
     ]
 
     for annotated_type in role_dependencies:

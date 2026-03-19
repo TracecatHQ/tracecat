@@ -48,6 +48,7 @@ from tracecat import config
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetRead
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.schemas import ModelSelection
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
@@ -477,40 +478,226 @@ async def _build_integrations_inventory(role: Any) -> dict[str, Any]:
 async def _resolve_agent_preset_model(
     role: Any,
     *,
+    source_id: str | None,
     model_name: str | None,
     model_provider: str | None,
-) -> tuple[str, str]:
+) -> ModelSelection:
     """Resolve explicit or default model inputs for preset creation."""
     async with AgentManagementService.with_session(role=role) as svc:
-        if model_name is not None or model_provider is not None:
+        list_models = getattr(svc, "list_models", None)
+        provider_status_org: dict[str, bool] | None = None
+        if get_provider_status := getattr(svc, "get_providers_status", None):
+            provider_status_org = await get_provider_status()
+        if (
+            source_id is not None
+            or model_name is not None
+            or model_provider is not None
+        ):
             if not model_name or not model_provider:
                 raise ToolError(
                     "model_name and model_provider must both be provided when setting an explicit model"
                 )
-            try:
+            parsed_source_id: uuid.UUID | None = None
+            if source_id is not None:
+                try:
+                    parsed_source_id = uuid.UUID(source_id)
+                except ValueError as exc:
+                    raise ToolError("Invalid source_id") from exc
+            if callable(list_models):
+                models = await _list_authoring_models(
+                    svc, workspace_id=role.workspace_id
+                )
+                matches = [
+                    item
+                    for item in models
+                    if item["model_name"] == model_name
+                    and item["model_provider"] == model_provider
+                    and (
+                        parsed_source_id is None
+                        or item.get("source_id") == str(parsed_source_id)
+                    )
+                ]
+                if not matches:
+                    source_hint = f" for source_id '{source_id}'" if source_id else ""
+                    raise ToolError(f"Model '{model_name}' not found{source_hint}")
+                if len(matches) > 1:
+                    raise ToolError(
+                        f"Model '{model_provider}/{model_name}' is ambiguous across multiple sources. "
+                        "Pass source_id to select the desired source-backed model."
+                    )
+                selection = ModelSelection.model_validate(matches[0])
+            else:
                 model_config = await svc.get_model_config(model_name)
-            except TracecatNotFoundError as exc:
-                raise ToolError(f"Model '{model_name}' not found") from exc
-            if model_config.provider != model_provider:
-                raise ToolError(
-                    f"Model '{model_name}' belongs to provider '{model_config.provider}', not '{model_provider}'"
+                actual_provider = str(model_config.provider)
+                if actual_provider != model_provider:
+                    raise ToolError(
+                        f"Model '{model_name}' belongs to provider '{actual_provider}', not '{model_provider}'"
+                    )
+                selection = ModelSelection(
+                    source_id=parsed_source_id,
+                    model_provider=model_provider,
+                    model_name=model_name,
                 )
         else:
             if not (default_model := await svc.get_default_model()):
                 raise ToolError(
                     "No default model configured for this organization. Set one before creating a preset without explicit model fields."
                 )
-            try:
-                model_config = await svc.get_model_config(default_model)
-            except TracecatNotFoundError as exc:
-                raise ToolError(
-                    f"Default model '{default_model}' is configured but no longer exists"
-                ) from exc
-        if not await svc.check_workspace_provider_credentials(model_config.provider):
+            if isinstance(default_model, str):
+                selection = ModelSelection(
+                    source_id=None,
+                    model_provider=str(
+                        (await svc.get_model_config(default_model)).provider
+                    ),
+                    model_name=default_model,
+                )
+            else:
+                selection = ModelSelection(
+                    source_id=default_model.source_id,
+                    model_provider=default_model.model_provider,
+                    model_name=default_model.model_name,
+                )
+            if callable(list_models) and role.workspace_id is not None:
+                models = await _list_authoring_models(
+                    svc, workspace_id=role.workspace_id
+                )
+                matches = [
+                    item
+                    for item in models
+                    if _authoring_model_matches_selection(item, selection)
+                ]
+                if not matches:
+                    raise ToolError(
+                        f"Model {selection.model_provider}/{selection.model_name} is not enabled"
+                    )
+            elif require_enabled := getattr(
+                svc, "require_enabled_model_selection", None
+            ):
+                try:
+                    await require_enabled(selection, workspace_id=role.workspace_id)
+                except TracecatNotFoundError as exc:
+                    raise ToolError(str(exc)) from exc
+        if selection.source_id is not None:
+            return selection
+        if (
+            provider_status_org is not None
+            and selection.model_provider in provider_status_org
+            and not provider_status_org[selection.model_provider]
+        ):
             raise ToolError(
-                f"Workspace credentials for provider '{model_config.provider}' are not configured"
+                f"Credentials for provider '{selection.model_provider}' are not configured"
             )
-        return model_config.name, model_config.provider
+        return selection
+
+
+async def _list_authoring_models(
+    svc: Any, *, workspace_id: uuid.UUID | None
+) -> list[dict[str, Any]]:
+    list_models = svc.list_models
+    try:
+        raw_models = await list_models(workspace_id=workspace_id)
+    except TypeError:
+        raw_models = await list_models()
+
+    normalized: list[dict[str, Any]] = []
+    if isinstance(raw_models, dict):
+        for fallback_name, model in sorted(raw_models.items()):
+            payload = model.model_dump(mode="json")
+            model_name = str(
+                payload.get("model_name") or payload.get("name") or fallback_name
+            )
+            model_provider = str(
+                payload.get("model_provider") or payload.get("provider") or ""
+            )
+            source_id = payload.get("source_id")
+            normalized.append(
+                {
+                    **payload,
+                    "name": payload.get("name") or model_name,
+                    "provider": payload.get("provider") or model_provider,
+                    "model_name": model_name,
+                    "model_provider": model_provider,
+                    "source_id": str(source_id) if source_id is not None else None,
+                }
+            )
+        return normalized
+
+    for model in raw_models:
+        payload = model.model_dump(mode="json")
+        model_name = str(payload.get("model_name") or payload.get("name") or "")
+        model_provider = str(
+            payload.get("model_provider") or payload.get("provider") or ""
+        )
+        source_id = payload.get("source_id")
+        normalized.append(
+            {
+                **payload,
+                "name": payload.get("name") or model_name,
+                "provider": payload.get("provider") or model_provider,
+                "model_name": model_name,
+                "model_provider": model_provider,
+                "source_id": str(source_id) if source_id is not None else None,
+            }
+        )
+    normalized.sort(
+        key=lambda item: (
+            str(item.get("source_name") or ""),
+            str(item["model_provider"]),
+            str(item["model_name"]),
+            str(item.get("source_id") or ""),
+        )
+    )
+    return normalized
+
+
+def _authoring_model_matches_selection(
+    model: dict[str, Any], selection: ModelSelection
+) -> bool:
+    """Check whether an authoring model payload matches a model selection."""
+    return (
+        str(model.get("model_provider")) == selection.model_provider
+        and str(model.get("model_name")) == selection.model_name
+        and model.get("source_id")
+        == (str(selection.source_id) if selection.source_id is not None else None)
+    )
+
+
+def _default_model_selection_from_authoring_models(
+    default_model: object | None,
+    models: list[dict[str, Any]],
+) -> tuple[str | None, ModelSelection | None]:
+    if default_model is None:
+        return None, None
+    if isinstance(default_model, str):
+        matches = [
+            model for model in models if str(model.get("model_name")) == default_model
+        ]
+        if len(matches) == 1:
+            return default_model, ModelSelection.model_validate(matches[0])
+        return default_model, None
+    if callable(model_dump := getattr(default_model, "model_dump", None)):
+        default_model = model_dump(mode="json")
+    try:
+        selection = ModelSelection.model_validate(default_model)
+    except ValidationError:
+        return None, None
+    else:
+        return selection.model_name, selection
+
+
+def _compact_authoring_model(model: dict[str, Any]) -> dict[str, Any]:
+    """Project authoring models to the minimal selection fields."""
+    compact = {
+        "name": str(model.get("name") or model["model_name"]),
+        "provider": str(model.get("provider") or model["model_provider"]),
+        "model_name": str(model["model_name"]),
+        "model_provider": str(model["model_provider"]),
+        "source_id": model.get("source_id"),
+        "source_name": model.get("source_name"),
+    }
+    if source_type := model.get("source_type"):
+        compact["source_type"] = source_type
+    return compact
 
 
 _WORKFLOW_YAML_TOP_LEVEL_KEYS = frozenset(
@@ -5428,54 +5615,78 @@ async def get_secret_metadata(
 async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
     """Build authoring context for MCP preset creation."""
     async with AgentManagementService.with_session(role=role) as svc:
-        models = await svc.list_models()
+        raw_models = await _list_authoring_models(svc, workspace_id=role.workspace_id)
         default_model = await svc.get_default_model()
         provider_status_org = await svc.get_providers_status()
-        provider_status_workspace = await svc.get_workspace_providers_status()
 
     async with VariablesService.with_session(role=role) as svc:
         variables = await svc.list_variables(environment=DEFAULT_SECRETS_ENVIRONMENT)
 
     workspace_inventory = await _load_secret_inventory(role)
-    models_by_provider: dict[str, list[str]] = defaultdict(list)
-    for model_name, model in sorted(models.items(), key=lambda item: item[0]):
-        provider = cast(str, model.model_dump(mode="json")["provider"])
-        models_by_provider[provider].append(model_name)
+    models = [_compact_authoring_model(model) for model in raw_models]
+    models_by_provider: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for model in models:
+        models_by_provider[str(model["model_provider"])].append(model)
+    default_model_name, default_model_selection = (
+        _default_model_selection_from_authoring_models(default_model, models)
+    )
+    default_model_ready_for_agent_presets = (
+        any(
+            _authoring_model_matches_selection(model, default_model_selection)
+            for model in models
+        )
+        if default_model_selection is not None
+        else False
+        if default_model_name is not None
+        else None
+    )
+    if (
+        default_model_ready_for_agent_presets
+        and default_model_selection is not None
+        and default_model_selection.source_id is None
+    ):
+        default_model_ready_for_agent_presets = provider_status_org.get(
+            default_model_selection.model_provider, False
+        )
     agent_credentials = {
         "providers": [
             {
                 "provider": provider,
                 "configured_org": provider_status_org.get(provider, False),
-                "configured_workspace": provider_status_workspace.get(provider, False),
-                "ready_for_agent_presets": provider_status_workspace.get(
-                    provider, False
+                "ready_for_agent_presets": provider_status_org.get(provider, False),
+                "model_count": len(provider_models),
+                "model_names": sorted(
+                    {str(model["model_name"]) for model in provider_models}
                 ),
-                "models": model_names,
             }
-            for provider, model_names in sorted(models_by_provider.items())
+            for provider, provider_models in sorted(models_by_provider.items())
         ],
-        "default_model_workspace_ready": (
-            provider_status_workspace.get(
-                cast(str, models[default_model].model_dump(mode="json")["provider"]),
-                False,
-            )
-            if default_model in models
-            else None
+        "default_model_ready_for_agent_presets": (
+            default_model_ready_for_agent_presets
         ),
         "notes": [
-            "Agent preset sessions require workspace-scoped credentials for the selected provider.",
-            "configured_org may still be useful for other agent flows, but it is not sufficient for run_agent_preset.",
+            "Agent preset sessions require organization credentials for the selected provider.",
+            "ready_for_agent_presets matches organization credential status.",
+            (
+                "Configured providers may still have no preset-eligible models in this workspace."
+                if any(provider_status_org.values()) and not models
+                else None
+            ),
         ],
     }
+    agent_credentials["notes"] = [
+        note for note in agent_credentials["notes"] if note is not None
+    ]
 
     return {
-        "default_model": default_model,
-        "models": [
-            model.model_dump(mode="json")
-            for _, model in sorted(models.items(), key=lambda item: item[0])
-        ],
+        "default_model": default_model_name,
+        "default_model_selection": (
+            default_model_selection.model_dump(mode="json")
+            if default_model_selection is not None
+            else None
+        ),
+        "models": models,
         "provider_status_org": provider_status_org,
-        "provider_status_workspace": provider_status_workspace,
         "agent_credentials": agent_credentials,
         "workspace_variables": [
             {
@@ -5497,7 +5708,7 @@ async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
         "output_type_context": _build_output_type_context(),
         "notes": [
             "provider_status_org describes organization-scoped model credentials.",
-            "provider_status_workspace describes workspace-scoped model credentials used by some agent flows.",
+            "Agent preset credential readiness is determined by organization-scoped provider credentials.",
         ],
     }
 
@@ -5543,6 +5754,7 @@ async def create_agent_preset(
     slug: str | None = None,
     description: str | None = None,
     instructions: str | None = None,
+    source_id: str | None = None,
     model_name: str | None = None,
     model_provider: str | None = None,
     base_url: str | None = None,
@@ -5558,18 +5770,17 @@ async def create_agent_preset(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        (
-            resolved_model_name,
-            resolved_model_provider,
-        ) = await _resolve_agent_preset_model(
+        selection = await _resolve_agent_preset_model(
             role,
+            source_id=source_id,
             model_name=model_name,
             model_provider=model_provider,
         )
         create_data: dict[str, Any] = {
             "name": name,
-            "model_name": resolved_model_name,
-            "model_provider": resolved_model_provider,
+            "model_name": selection.model_name,
+            "model_provider": selection.model_provider,
+            "source_id": selection.source_id,
         }
         optional_fields = {
             "slug": slug,

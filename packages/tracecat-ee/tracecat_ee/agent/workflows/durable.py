@@ -318,6 +318,39 @@ class DurableAgentWorkflow:
                 tools=args.tools,
                 agent_preset_id=args.agent_preset_id,
                 agent_preset_version_id=args.agent_preset_version_id,
+                source_id=(
+                    None
+                    if args.agent_args.preset_slug
+                    or args.agent_preset_id is not None
+                    or args.entity_type
+                    in (
+                        AgentSessionEntity.AGENT_PRESET,
+                        AgentSessionEntity.EXTERNAL_CHANNEL,
+                    )
+                    else cfg.source_id
+                ),
+                model_name=(
+                    None
+                    if args.agent_args.preset_slug
+                    or args.agent_preset_id is not None
+                    or args.entity_type
+                    in (
+                        AgentSessionEntity.AGENT_PRESET,
+                        AgentSessionEntity.EXTERNAL_CHANNEL,
+                    )
+                    else cfg.model_name
+                ),
+                model_provider=(
+                    None
+                    if args.agent_args.preset_slug
+                    or args.agent_preset_id is not None
+                    or args.entity_type
+                    in (
+                        AgentSessionEntity.AGENT_PRESET,
+                        AgentSessionEntity.EXTERNAL_CHANNEL,
+                    )
+                    else cfg.model_provider
+                ),
                 harness_type=HarnessType(self.harness_type),
                 curr_run_id=curr_run_id,
                 initial_user_prompt=args.agent_args.user_prompt,
@@ -405,9 +438,9 @@ class DurableAgentWorkflow:
             session_id=self.session_id,
             model=cfg.model_name,
             provider=cfg.model_provider,
+            source_id=cfg.source_id,
             base_url=cfg.base_url,
             model_settings=cfg.model_settings,
-            use_workspace_credentials=args.agent_args.use_workspace_credentials,
         )
 
         # Prepare executor input
