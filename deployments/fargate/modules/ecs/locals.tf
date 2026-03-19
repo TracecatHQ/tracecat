@@ -173,6 +173,29 @@ locals {
     { name = k, value = tostring(v) } if v != null
   ]
 
+  mcp_env = [
+    for k, v in merge(
+      local.tracecat_common_env,
+      local.tracecat_db_configs,
+      {
+        TRACECAT__DB_ENDPOINT                     = local.core_db_hostname
+        OIDC_ISSUER                               = var.oidc_issuer
+        OIDC_SCOPES                               = var.oidc_scopes
+        TRACECAT_MCP__HOST                        = "0.0.0.0"
+        TRACECAT_MCP__PORT                        = "8099"
+        TRACECAT_MCP__BASE_URL                    = "https://${var.domain_name}"
+        TRACECAT_MCP__RATE_LIMIT_RPS              = var.mcp_rate_limit_rps
+        TRACECAT_MCP__RATE_LIMIT_BURST            = var.mcp_rate_limit_burst
+        TRACECAT_MCP__TOOL_TIMEOUT_SECONDS        = var.mcp_tool_timeout_seconds
+        TRACECAT_MCP__MAX_INPUT_SIZE_BYTES        = var.mcp_max_input_size_bytes
+        TRACECAT_MCP__STARTUP_MAX_ATTEMPTS        = var.mcp_startup_max_attempts
+        TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS = var.mcp_startup_retry_delay_seconds
+        TEMPORAL__CLUSTER_QUEUE                   = local.temporal_cluster_queue
+      }
+    ) :
+    { name = k, value = tostring(v) } if v != null
+  ]
+
   migrations_env = [
     for k, v in merge(
       {

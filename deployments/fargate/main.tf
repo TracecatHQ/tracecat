@@ -164,6 +164,18 @@ module "ecs" {
   temporal_db_allocated_storage            = local.temporal_db_allocated_storage
   db_engine_version                        = var.db_engine_version
 
+  # MCP Service
+  enable_mcp                      = var.enable_mcp
+  mcp_cpu                         = var.mcp_cpu
+  mcp_memory                      = var.mcp_memory
+  mcp_desired_count               = var.mcp_desired_count
+  mcp_rate_limit_rps              = var.mcp_rate_limit_rps
+  mcp_rate_limit_burst            = var.mcp_rate_limit_burst
+  mcp_tool_timeout_seconds        = var.mcp_tool_timeout_seconds
+  mcp_max_input_size_bytes        = var.mcp_max_input_size_bytes
+  mcp_startup_max_attempts        = var.mcp_startup_max_attempts
+  mcp_startup_retry_delay_seconds = var.mcp_startup_retry_delay_seconds
+
   # Sentry configuration
   sentry_dsn = var.sentry_dsn
 }
