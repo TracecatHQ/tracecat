@@ -21,7 +21,7 @@
 
 ## Introduction
 
-[Tracecat](https://tracecat.com) is the AI-native automation platform for technical operations.
+[Tracecat](https://tracecat.com) is the AI automation platform for built for security teams and agents.
 
 Purpose-built for agents and open source for builders:
 - **Prompt-to-automations**: build end-to-end automations with agents, workflows, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
