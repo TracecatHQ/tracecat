@@ -10,23 +10,19 @@ Transform a collection of items into parallel execution streams, where each item
 
 ### Inputs
 
-<ResponseField name="collection" type="string | array[any]">
-
-Required.
+<ParamField path="collection" type="string | array[any]" required>
 
 The collection to scatter. Each item in the collection will be processed independently in its own execution stream. This should be a JSONPath expression to a collection or a list of items.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="interval" type="number | null">
-
-Optional.
+<ParamField path="interval" type="number | null">
 
 The interval in seconds between each scatter task.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -60,27 +56,21 @@ Collect the results of a list of execution streams into a single list.
 
 ### Inputs
 
-<ResponseField name="items" type="string">
-
-Required.
+<ParamField path="items" type="string" required>
 
 The JSONPath expression referencing the item to gather in the current execution stream.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="drop_nulls" type="boolean">
-
-Optional.
+<ParamField path="drop_nulls" type="boolean">
 
 Whether to drop null values from the final result. If True, any null values encountered during the gather operation will be omitted from the output list.
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="error_strategy" type="string">
-
-Optional.
+<ParamField path="error_strategy" type="string">
 
 Controls how errors are handled when gathering. "partition" puts successful results in `.result` and errors in `.error`. "include" puts errors in `.result` as JSON objects. "drop" removes errors from `.result`. "raise" fails the gather if any branch errors.
 
@@ -88,7 +78,7 @@ Default: `"partition"`.
 
 Allowed values: `partition`, `include`, `drop`, `raise`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 

@@ -26,11 +26,6 @@ pages:
           - reshape-single-value
           - reshape-build-object
           - reshape-inline-functions
-        examples_note: |
-          <Note>
-            In the UI, Reshape uses the YAML editor. Define the output shape
-            under `value:` in that editor.
-          </Note>
 
   - slug: email
     title: Email

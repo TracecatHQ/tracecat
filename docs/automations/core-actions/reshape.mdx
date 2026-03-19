@@ -16,13 +16,11 @@ Define the exact scalar, object, or list output you want from workflow data.
 
 ### Inputs
 
-<ResponseField name="value" type="any | array[any] | object">
-
-Required.
+<ParamField path="value" type="any | array[any] | object" required>
 
 The value to reshape
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -63,8 +61,3 @@ The value to reshape
       source_ip_version: ${{ FN.check_ip_version(TRIGGER.source_ip) }}
       created_at: ${{ FN.to_isoformat(TRIGGER.created_at) }}
 ```
-
-<Note>
-  In the UI, Reshape uses the YAML editor. Define the output shape
-  under `value:` in that editor.
-</Note>

@@ -8,45 +8,43 @@ title: "SQL"
 
 Execute a parameterized SQL query on an external database.
 
+### Secrets
+
+Required secrets:
+
+- `sql`: required values `CONNECTION_URL`.
+
 ### Inputs
 
-<ResponseField name="query" type="string">
-
-Required.
+<ParamField path="query" type="string" required>
 
 SQL query to execute. Use :param_name syntax for bound parameters. Do NOT use Tracecat expressions in the query string.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="bound_params" type="object | null">
-
-Optional.
+<ParamField path="bound_params" type="object | null">
 
 Bound query parameters as a dictionary (injected with :param_name syntax). Supply dynamic values here, NOT within the query string. This is required for safe, parameterized SQL queries.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="fetch_one" type="boolean">
-
-Optional.
+<ParamField path="fetch_one" type="boolean">
 
 Return a single row instead of a list of rows. Defaults to False, which fetches all rows.
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="max_rows" type="integer">
-
-Optional.
+<ParamField path="max_rows" type="integer">
 
 Maximum number of rows to return. Default 200. Prevents accidentally returning huge result sets.
 
 Default: `200`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -72,13 +70,11 @@ Execute SQL in an in-process DuckDB engine
 
 ### Inputs
 
-<ResponseField name="sql" type="string">
-
-Required.
+<ParamField path="sql" type="string" required>
 
 SQL to execute in an in-process DuckDB connection.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 

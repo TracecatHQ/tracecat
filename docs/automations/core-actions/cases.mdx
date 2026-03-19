@@ -10,55 +10,43 @@ Create a new case.
 
 ### Inputs
 
-<ResponseField name="description" type="string">
-
-Required.
+<ParamField path="description" type="string" required>
 
 The description of the case.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="summary" type="string">
-
-Required.
+<ParamField path="summary" type="string" required>
 
 The summary of the case.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="dropdown_values" type="array[CaseDropdownValueInput] | null">
-
-Optional.
+<ParamField path="dropdown_values" type="array[CaseDropdownValueInput] | null">
 
 Dropdown selections to set on the case. Each item must include either definition_id or definition_ref, and either option_id or option_ref (or null to clear).
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="fields" type="object | null">
-
-Optional.
+<ParamField path="fields" type="object | null">
 
 Custom fields for the case.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="payload" type="object | null">
-
-Optional.
+<ParamField path="payload" type="object | null">
 
 Payload for the case.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="priority" type="string">
-
-Optional.
+<ParamField path="priority" type="string">
 
 The priority of the case.
 
@@ -66,11 +54,9 @@ Default: `"unknown"`.
 
 Allowed values: `unknown`, `low`, `medium`, `high`, `critical`, `other`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="severity" type="string">
-
-Optional.
+<ParamField path="severity" type="string">
 
 The severity of the case.
 
@@ -78,11 +64,9 @@ Default: `"unknown"`.
 
 Allowed values: `unknown`, `informational`, `low`, `medium`, `high`, `critical`, `fatal`, `other`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="status" type="string">
-
-Optional.
+<ParamField path="status" type="string">
 
 The status of the case.
 
@@ -90,17 +74,15 @@ Default: `"unknown"`.
 
 Allowed values: `unknown`, `new`, `in_progress`, `on_hold`, `resolved`, `closed`, `other`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="tags" type="array[string] | null">
-
-Optional.
+<ParamField path="tags" type="array[string] | null">
 
 List of tag identifiers (IDs or refs) to add to the case.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -130,13 +112,11 @@ Get details of a specific case by ID.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to retrieve.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -166,113 +146,91 @@ Update an existing case.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to update.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="append" type="boolean">
-
-Optional.
+<ParamField path="append" type="boolean">
 
 If true, append the provided description to the existing description when it is not empty.
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="description" type="string | null">
-
-Optional.
+<ParamField path="description" type="string | null">
 
 The updated description of the case.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="dropdown_values" type="array[CaseDropdownValueInput] | null">
-
-Optional.
+<ParamField path="dropdown_values" type="array[CaseDropdownValueInput] | null">
 
 Dropdown selections to set or clear. Each item must include either definition_id or definition_ref, and either option_id or option_ref (or null to clear).
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="fields" type="object | null">
-
-Optional.
+<ParamField path="fields" type="object | null">
 
 Updated custom fields for the case.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="payload" type="object | null">
-
-Optional.
+<ParamField path="payload" type="object | null">
 
 Updated payload for the case.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="priority" type="string | null">
-
-Optional.
+<ParamField path="priority" type="string | null">
 
 The updated priority of the case.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="severity" type="string | null">
-
-Optional.
+<ParamField path="severity" type="string | null">
 
 The updated severity of the case.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="status" type="string | null">
-
-Optional.
+<ParamField path="status" type="string | null">
 
 The updated status of the case.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="summary" type="string | null">
-
-Optional.
+<ParamField path="summary" type="string | null">
 
 The updated summary of the case.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="tags" type="array[string] | null">
-
-Optional.
+<ParamField path="tags" type="array[string] | null">
 
 List of tag identifiers (IDs or refs) to set on the case. This will replace all existing tags.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -297,65 +255,53 @@ List all cases.
 
 ### Inputs
 
-<ResponseField name="cursor" type="string | null">
-
-Optional.
+<ParamField path="cursor" type="string | null">
 
 Pagination cursor used to fetch a specific page when paginate=true.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="limit" type="integer">
-
-Optional.
+<ParamField path="limit" type="integer">
 
 Maximum number of cases to return.
 
 Default: `100`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="order_by" type="string | null">
-
-Optional.
+<ParamField path="order_by" type="string | null">
 
 The field to order the cases by.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="paginate" type="boolean">
-
-Optional.
+<ParamField path="paginate" type="boolean">
 
 If true, return cursor pagination metadata along with items.
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="reverse" type="boolean">
-
-Optional.
+<ParamField path="reverse" type="boolean">
 
 Reverse pagination direction when paginate=true.
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="sort" type="string | null">
-
-Optional.
+<ParamField path="sort" type="string | null">
 
 The direction to order the cases by.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -388,175 +334,141 @@ Search cases based on various criteria.
 
 ### Inputs
 
-<ResponseField name="assignee_id" type="string | array[string] | null">
-
-Optional.
+<ParamField path="assignee_id" type="string | array[string] | null">
 
 Filter by assignee ID or 'unassigned'.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="cursor" type="string | null">
-
-Optional.
+<ParamField path="cursor" type="string | null">
 
 Pagination cursor used to fetch a specific page when paginate=true.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="dropdown" type="array[string] | null">
-
-Optional.
+<ParamField path="dropdown" type="array[string] | null">
 
 Filter by dropdown values in definition_ref:option_ref format.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="end_time" type="string | null">
-
-Optional.
+<ParamField path="end_time" type="string | null">
 
 Filter cases created before this time.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="limit" type="integer">
-
-Optional.
+<ParamField path="limit" type="integer">
 
 Maximum number of cases to return.
 
 Default: `100`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="order_by" type="string | null">
-
-Optional.
+<ParamField path="order_by" type="string | null">
 
 The field to order the cases by.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="paginate" type="boolean">
-
-Optional.
+<ParamField path="paginate" type="boolean">
 
 If true, return cursor pagination metadata along with items.
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="priority" type="string | array[string] | null">
-
-Optional.
+<ParamField path="priority" type="string | array[string] | null">
 
 Filter by case priority.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="reverse" type="boolean">
-
-Optional.
+<ParamField path="reverse" type="boolean">
 
 Reverse pagination direction when paginate=true.
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="search_term" type="string | null">
-
-Optional.
+<ParamField path="search_term" type="string | null">
 
 Text to search for in case summary and description.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="severity" type="string | array[string] | null">
-
-Optional.
+<ParamField path="severity" type="string | array[string] | null">
 
 Filter by case severity.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="sort" type="string | null">
-
-Optional.
+<ParamField path="sort" type="string | null">
 
 The direction to order the cases by.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="start_time" type="string | null">
-
-Optional.
+<ParamField path="start_time" type="string | null">
 
 Filter cases created after this time.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="status" type="string | array[string] | null">
-
-Optional.
+<ParamField path="status" type="string | array[string] | null">
 
 Filter by case status.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="tags" type="array[string] | null">
-
-Optional.
+<ParamField path="tags" type="array[string] | null">
 
 Filter by tag IDs or refs (AND logic).
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="updated_after" type="string | null">
-
-Optional.
+<ParamField path="updated_after" type="string | null">
 
 Filter cases updated after this time.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="updated_before" type="string | null">
-
-Optional.
+<ParamField path="updated_before" type="string | null">
 
 Filter cases updated before this time.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -589,13 +501,11 @@ List all events for a case in chronological order.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to get events for.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -628,41 +538,33 @@ Add a comment to an existing case.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to comment on.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="content" type="string">
-
-Required.
+<ParamField path="content" type="string" required>
 
 The comment content.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="parent_id" type="string | null">
-
-Optional.
+<ParamField path="parent_id" type="string | null">
 
 The ID of the parent comment if this is a reply.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="workflow_id" type="string | null">
-
-Optional.
+<ParamField path="workflow_id" type="string | null">
 
 The ID of the workflow to run when the comment is created.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -711,29 +613,23 @@ Reply to a top-level case comment.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case containing the parent comment.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="content" type="string">
-
-Required.
+<ParamField path="content" type="string" required>
 
 The reply content.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="parent_comment_id" type="string">
-
-Required.
+<ParamField path="parent_comment_id" type="string" required>
 
 The ID of the top-level comment to reply to.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -782,21 +678,17 @@ Update an existing case comment.
 
 ### Inputs
 
-<ResponseField name="comment_id" type="string">
-
-Required.
+<ParamField path="comment_id" type="string" required>
 
 The ID of the comment to update.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="content" type="string">
-
-Required.
+<ParamField path="content" type="string" required>
 
 The updated comment content.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -845,13 +737,11 @@ List all comments for a case.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to get comments for.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -900,13 +790,11 @@ List comment threads for a case.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to get comment threads for.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -955,13 +843,11 @@ Get the full thread for a comment ID.
 
 ### Inputs
 
-<ResponseField name="comment_id" type="string">
-
-Required.
+<ParamField path="comment_id" type="string" required>
 
 The ID of a comment within the thread.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1010,21 +896,17 @@ Assign a user to an existing case.
 
 ### Inputs
 
-<ResponseField name="assignee_id" type="string">
-
-Required.
+<ParamField path="assignee_id" type="string" required>
 
 The ID of the user to assign to the case.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to assign a user to.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1049,21 +931,17 @@ Assign a user to an existing case by email.
 
 ### Inputs
 
-<ResponseField name="assignee_email" type="string">
-
-Required.
+<ParamField path="assignee_email" type="string" required>
 
 The email of the user to assign to the case.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to assign a user to.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1088,31 +966,25 @@ Add a tag to a case by tag ID or ref.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to add a tag to.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="tag" type="string">
-
-Required.
+<ParamField path="tag" type="string" required>
 
 The tag identifier (ID or ref) to add to the case.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="create_if_missing" type="boolean">
-
-Optional.
+<ParamField path="create_if_missing" type="boolean">
 
 If true, create the tag if it does not exist.
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1138,21 +1010,17 @@ Remove a tag from a case by tag ID or ref.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to remove a tag from.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="tag" type="string">
-
-Required.
+<ParamField path="tag" type="string" required>
 
 The tag identifier (ID or ref) to remove from the case.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1178,37 +1046,29 @@ Upload a file attachment to a case.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to attach the file to.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="content_base64" type="string">
-
-Required.
+<ParamField path="content_base64" type="string" required>
 
 The file content encoded in base64.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="content_type" type="string">
-
-Required.
+<ParamField path="content_type" type="string" required>
 
 The MIME type of the file (e.g., 'application/pdf').
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="file_name" type="string">
-
-Required.
+<ParamField path="file_name" type="string" required>
 
 The original filename.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1263,41 +1123,33 @@ Upload a file attachment to a case from a URL.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to attach the file to.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="url" type="string">
-
-Required.
+<ParamField path="url" type="string" required>
 
 The URL of the file to upload.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="file_name" type="string | null">
-
-Optional.
+<ParamField path="file_name" type="string | null">
 
 Filename of the file to upload. If not provided, the filename will be inferred from the URL.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="headers" type="map[string, string] | null">
-
-Optional.
+<ParamField path="headers" type="map[string, string] | null">
 
 The headers to use when downloading the file.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1352,13 +1204,11 @@ List all attachments for a case.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to list attachments for.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1413,21 +1263,17 @@ Get attachment metadata without downloading the content.
 
 ### Inputs
 
-<ResponseField name="attachment_id" type="string">
-
-Required.
+<ParamField path="attachment_id" type="string" required>
 
 The ID of the attachment to get.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case containing the attachment.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1482,31 +1328,25 @@ Get a presigned S3 URL for downloading an attachment.
 
 ### Inputs
 
-<ResponseField name="attachment_id" type="string">
-
-Required.
+<ParamField path="attachment_id" type="string" required>
 
 The ID of the attachment.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case containing the attachment.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="expiry" type="integer | null">
-
-Optional.
+<ParamField path="expiry" type="integer | null">
 
 URL expiry time in seconds. If not provided, uses the default from configuration.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1561,21 +1401,17 @@ Download an attachment's content.
 
 ### Inputs
 
-<ResponseField name="attachment_id" type="string">
-
-Required.
+<ParamField path="attachment_id" type="string" required>
 
 The ID of the attachment to download.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case containing the attachment.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1630,21 +1466,17 @@ Delete an attachment from a case.
 
 ### Inputs
 
-<ResponseField name="attachment_id" type="string">
-
-Required.
+<ParamField path="attachment_id" type="string" required>
 
 The ID of the attachment to delete.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case containing the attachment.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1699,29 +1531,23 @@ Link an existing table row to a case.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 Case ID
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="row_id" type="string">
-
-Required.
+<ParamField path="row_id" type="string" required>
 
 Row ID
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="table_id" type="string">
-
-Required.
+<ParamField path="table_id" type="string" required>
 
 Table ID
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1756,29 +1582,23 @@ Remove a linked table row from a case.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 Case ID
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="row_id" type="string">
-
-Required.
+<ParamField path="row_id" type="string" required>
 
 Row ID
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="table_id" type="string">
-
-Required.
+<ParamField path="table_id" type="string" required>
 
 Table ID
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1813,29 +1633,23 @@ Insert a row into a table and link it to a case.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 Case ID
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="row" type="object">
-
-Required.
+<ParamField path="row" type="object" required>
 
 Row values
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="table_id" type="string">
-
-Required.
+<ParamField path="table_id" type="string" required>
 
 Table ID
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1872,81 +1686,65 @@ Create a new task for a case.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to create a task for.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="title" type="string">
-
-Required.
+<ParamField path="title" type="string" required>
 
 The title of the task.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="assignee_id" type="string | null">
-
-Optional.
+<ParamField path="assignee_id" type="string | null">
 
 The ID of the user to assign the task to.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="default_trigger_values" type="object | null">
-
-Optional.
+<ParamField path="default_trigger_values" type="object | null">
 
 The default trigger values for the task.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="description" type="string | null">
-
-Optional.
+<ParamField path="description" type="string | null">
 
 The description of the task.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="priority" type="string">
-
-Optional.
+<ParamField path="priority" type="string">
 
 The priority of the task (unknown, low, medium, high, critical).
 
 Default: `"unknown"`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="status" type="string">
-
-Optional.
+<ParamField path="status" type="string">
 
 The status of the task (todo, in_progress, blocked, completed).
 
 Default: `"todo"`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="workflow_id" type="string | null">
-
-Optional.
+<ParamField path="workflow_id" type="string | null">
 
 The ID of the workflow associated with this task.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -1994,13 +1792,11 @@ Get a specific case task by ID.
 
 ### Inputs
 
-<ResponseField name="task_id" type="string">
-
-Required.
+<ParamField path="task_id" type="string" required>
 
 The ID of the task to retrieve.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -2048,13 +1844,11 @@ List all tasks for a case.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to list tasks for.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -2102,83 +1896,67 @@ Update an existing case task.
 
 ### Inputs
 
-<ResponseField name="task_id" type="string">
-
-Required.
+<ParamField path="task_id" type="string" required>
 
 The ID of the task to update.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="assignee_id" type="string | null">
-
-Optional.
+<ParamField path="assignee_id" type="string | null">
 
 The ID of the user to assign the task to.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="default_trigger_values" type="object | null">
-
-Optional.
+<ParamField path="default_trigger_values" type="object | null">
 
 The default trigger values for the task.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="description" type="string | null">
-
-Optional.
+<ParamField path="description" type="string | null">
 
 The updated description of the task.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="priority" type="string | null">
-
-Optional.
+<ParamField path="priority" type="string | null">
 
 The updated priority of the task (unknown, low, medium, high, critical).
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="status" type="string | null">
-
-Optional.
+<ParamField path="status" type="string | null">
 
 The updated status of the task (todo, in_progress, blocked, completed).
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="title" type="string | null">
-
-Optional.
+<ParamField path="title" type="string | null">
 
 The updated title of the task.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="workflow_id" type="string | null">
-
-Optional.
+<ParamField path="workflow_id" type="string | null">
 
 The ID of the workflow associated with this task.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -2226,13 +2004,11 @@ Delete a case task.
 
 ### Inputs
 
-<ResponseField name="task_id" type="string">
-
-Required.
+<ParamField path="task_id" type="string" required>
 
 The ID of the task to delete.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -2280,13 +2056,11 @@ Get case metrics as OTEL-aligned time-series for the provided case IDs.
 
 ### Inputs
 
-<ResponseField name="case_ids" type="array[string]">
-
-Required.
+<ParamField path="case_ids" type="array[string]" required>
 
 List of case IDs to get case metrics for.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -2307,13 +2081,11 @@ Delete a case.
 
 ### Inputs
 
-<ResponseField name="case_id" type="string">
-
-Required.
+<ParamField path="case_id" type="string" required>
 
 The ID of the case to delete.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 

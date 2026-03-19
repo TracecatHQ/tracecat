@@ -10,21 +10,17 @@ Apply a Python lambda function to a value.
 
 ### Inputs
 
-<ResponseField name="python_lambda" type="string">
-
-Required.
+<ParamField path="python_lambda" type="string" required>
 
 Python lambda function as a string (e.g. `"lambda x: x.get('name')"`).
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="value" type="any">
-
-Required.
+<ParamField path="value" type="any" required>
 
 Value to apply the lambda function to.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -58,21 +54,17 @@ Filter a collection using a Python lambda function.
 
 ### Inputs
 
-<ResponseField name="items" type="array[any]">
-
-Required.
+<ParamField path="items" type="array[any]" required>
 
 Items to filter.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="python_lambda" type="string">
-
-Required.
+<ParamField path="python_lambda" type="string" required>
 
 Filter condition as a Python lambda expression (e.g. `"lambda x: x > 2"`).
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -106,21 +98,17 @@ Map a Python lambda function to each item in a list.
 
 ### Inputs
 
-<ResponseField name="items" type="array[any]">
-
-Required.
+<ParamField path="items" type="array[any]" required>
 
 Items to map the lambda function to.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="python_lambda" type="string">
-
-Required.
+<ParamField path="python_lambda" type="string" required>
 
 Python lambda function as a string (e.g. `"lambda x: x.get('name')"`).
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -154,13 +142,11 @@ Remove null values from a list.
 
 ### Inputs
 
-<ResponseField name="items" type="array[any]">
-
-Required.
+<ParamField path="items" type="array[any]" required>
 
 List of items to filter.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -194,31 +180,25 @@ Filters items in a list based on whether they are in a collection.
 
 ### Inputs
 
-<ResponseField name="collection" type="array[any]">
-
-Required.
+<ParamField path="collection" type="array[any]" required>
 
 Collection of hashable items to check against.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="items" type="array[any]">
-
-Required.
+<ParamField path="items" type="array[any]" required>
 
 Items to filter.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="python_lambda" type="string | null">
-
-Optional.
+<ParamField path="python_lambda" type="string | null">
 
 Python lambda applied to each item before checking membership (e.g. `"lambda x: x.get('name')"`). Similar to `key` in the Python `sorted` function.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -249,31 +229,25 @@ Filters items in a list based on whether they are not in a collection.
 
 ### Inputs
 
-<ResponseField name="collection" type="array[any]">
-
-Required.
+<ParamField path="collection" type="array[any]" required>
 
 Collection of hashable items to check against.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="items" type="array[any]">
-
-Required.
+<ParamField path="items" type="array[any]" required>
 
 Items to filter.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="python_lambda" type="string | null">
-
-Optional.
+<ParamField path="python_lambda" type="string | null">
 
 Python lambda applied to each item before checking membership (e.g. `"lambda x: x.get('name')"`). Similar to `key` in the Python `sorted` function.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -304,41 +278,33 @@ Deduplicate a JSON object or a list of JSON objects given a list of keys. Return
 
 ### Inputs
 
-<ResponseField name="items" type="object | array[object]">
-
-Required.
+<ParamField path="items" type="object | array[object]" required>
 
 JSON object or list of JSON objects to deduplicate.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="keys" type="array[string]">
-
-Required.
+<ParamField path="keys" type="array[string]" required>
 
 List of JSONPath keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`).
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="expire_seconds" type="integer">
-
-Optional.
+<ParamField path="expire_seconds" type="integer">
 
 Time to live for the deduplicated items in seconds. Defaults to 1 hour.
 
 Default: `3600`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="persist" type="boolean">
-
-Optional.
+<ParamField path="persist" type="boolean">
 
 Whether to persist deduplicated items across calls. If True, deduplicates across calls. If False, deduplicates within the current call only.
 
 Default: `true`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -368,31 +334,25 @@ Check if a JSON object was recently seen.
 
 ### Inputs
 
-<ResponseField name="item" type="object">
-
-Required.
+<ParamField path="item" type="object" required>
 
 JSON object to check.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="keys" type="array[string]">
-
-Required.
+<ParamField path="keys" type="array[string]" required>
 
 List of JSONPath keys to check.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="expire_seconds" type="integer">
-
-Optional.
+<ParamField path="expire_seconds" type="integer">
 
 Time to live for the deduplicated items in seconds. Defaults to 1 hour.
 
 Default: `3600`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -422,13 +382,11 @@ Flatten a JSON object into a single level of fields.
 
 ### Inputs
 
-<ResponseField name="json" type="string | object">
-
-Required.
+<ParamField path="json" type="string | object" required>
 
 JSON object to flatten.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -454,21 +412,17 @@ Eval multiple JSONPath expressions on an object.
 
 ### Inputs
 
-<ResponseField name="json" type="string | object">
-
-Required.
+<ParamField path="json" type="string | object" required>
 
 JSON object to eval JSONPath expressions on.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="jsonpaths" type="array[string]">
-
-Required.
+<ParamField path="jsonpaths" type="array[string]" required>
 
 JSONPath expressions to eval.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 

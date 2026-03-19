@@ -8,69 +8,61 @@ title: "SSH"
 
 Execute a command over SSH and return stdout, stderr, and exit status.
 
+### Secrets
+
+Required secrets:
+
+- `ssh`: required values `PRIVATE_KEY`.
+
 ### Inputs
 
-<ResponseField name="command" type="string">
-
-Required.
+<ParamField path="command" type="string" required>
 
 Command to execute on the remote host.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="host" type="string">
-
-Required.
+<ParamField path="host" type="string" required>
 
 SSH host to connect to.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="host_public_key" type="string">
-
-Required.
+<ParamField path="host_public_key" type="string" required>
 
 Expected public host key for the target host in '&lt;key_type> &lt;base64>' format. For non-22 ports, the entry is stored as [host]:port.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="username" type="string">
-
-Required.
+<ParamField path="username" type="string" required>
 
 SSH username.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="password" type="string | null">
-
-Optional.
+<ParamField path="password" type="string | null">
 
 Password for the SSH user.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="port" type="integer">
-
-Optional.
+<ParamField path="port" type="integer">
 
 SSH port. Defaults to 22.
 
 Default: `22`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="timeout_seconds" type="number">
-
-Optional.
+<ParamField path="timeout_seconds" type="number">
 
 Timeout in seconds for connection and command execution.
 
 Default: `30.0`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 

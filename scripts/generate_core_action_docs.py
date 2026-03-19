@@ -152,7 +152,7 @@ def _render_nested_fields(schema: dict[str, Any]) -> list[str]:
             label += ", required"
         label += ")"
         if description := child.get("description"):
-            label += f": {_escape_text(str(description))}"
+            label += f": {_escape_text(str(description).strip())}"
         lines.append(label)
     return lines
 
@@ -167,11 +167,11 @@ def _order_field_names(
 
 def _render_field(name: str, schema: dict[str, Any], required: bool) -> list[str]:
     field_type = _escape_text(_format_type(schema))
-    lines = [f'<ResponseField name="{name}" type="{field_type}">', ""]
-    lines.append("Required." if required else "Optional.")
+    required_attr = " required" if required else ""
+    lines = [f'<ParamField path="{name}" type="{field_type}"{required_attr}>', ""]
 
     if description := schema.get("description"):
-        lines.extend(["", _escape_text(str(description))])
+        lines.append(_escape_text(str(description).strip()))
 
     if "default" in schema:
         lines.extend(["", f"Default: `{_format_value(schema['default'])}`."])
@@ -181,7 +181,7 @@ def _render_field(name: str, schema: dict[str, Any], required: bool) -> list[str
         lines.extend(["", f"Allowed values: {allowed_values}."])
 
     lines.extend(_render_nested_fields(schema))
-    lines.extend(["", "</ResponseField>", ""])
+    lines.extend(["", "</ParamField>", ""])
     return lines
 
 
@@ -199,6 +199,58 @@ def _render_input_fields(expects_schema: dict[str, Any]) -> list[str]:
         lines.extend(
             _render_field(name=name, schema=schema, required=name in required_fields)
         )
+    return lines
+
+
+def _render_secret(secret: Any) -> str:
+    secret_type = getattr(secret, "type", None)
+    name = f"`{_escape_text(str(secret.name))}`"
+
+    if secret_type == "custom":
+        required_keys = getattr(secret, "keys", None) or []
+        optional_keys = getattr(secret, "optional_keys", None) or []
+        details: list[str] = []
+        if required_keys:
+            details.append(
+                "required values "
+                + ", ".join(f"`{_escape_text(str(key))}`" for key in required_keys)
+            )
+        if optional_keys:
+            details.append(
+                "optional values "
+                + ", ".join(f"`{_escape_text(str(key))}`" for key in optional_keys)
+            )
+        return f"- {name}: {'; '.join(details)}."
+
+    if secret_type == "oauth":
+        return f"- {name}: OAuth token `{_escape_text(str(secret.token_name))}`."
+
+    raise ValueError(f"Unsupported secret type: {secret_type!r}")
+
+
+def _render_secrets(action: Any) -> list[str]:
+    secrets = getattr(action, "secrets", None) or []
+    if not secrets:
+        return []
+
+    lines = ["### Secrets", ""]
+    required_secrets = [
+        secret for secret in secrets if not getattr(secret, "optional", False)
+    ]
+    optional_secrets = [
+        secret for secret in secrets if getattr(secret, "optional", False)
+    ]
+
+    if required_secrets:
+        lines.extend(["Required secrets:", ""])
+        lines.extend(_render_secret(secret) for secret in required_secrets)
+        lines.append("")
+
+    if optional_secrets:
+        lines.extend(["Optional secrets:", ""])
+        lines.extend(_render_secret(secret) for secret in optional_secrets)
+        lines.append("")
+
     return lines
 
 
@@ -262,14 +314,13 @@ def _render_page(
         if info_block := action_entry.get("info"):
             lines.extend([str(info_block).strip(), ""])
 
+        lines.extend(_render_secrets(action))
+
         lines.extend(["### Inputs", ""])
         lines.extend(_render_input_fields(expects_schema))
 
         lines.extend(["### Examples", ""])
         lines.extend(_render_examples(action_entry["examples"], examples))
-
-        if examples_note := action_entry.get("examples_note"):
-            lines.extend([str(examples_note).strip(), ""])
 
     return "\n".join(lines).rstrip() + "\n"
 

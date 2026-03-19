@@ -41,23 +41,19 @@ Close a do-while control-flow region and evaluate whether execution should loop 
 
 ### Inputs
 
-<ResponseField name="condition" type="string">
-
-Required.
+<ParamField path="condition" type="string" required>
 
 Expression evaluated after the loop body; truthy values continue looping.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="max_iterations" type="integer">
-
-Optional.
+<ParamField path="max_iterations" type="integer">
 
 Maximum number of loop iterations before failing.
 
 Default: `100`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 

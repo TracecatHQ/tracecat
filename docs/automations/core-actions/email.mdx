@@ -6,75 +6,65 @@ title: "Email"
 
 ## `core.send_email_smtp`
 
-Run a send email action.
+Send email using SMTP.
+
+### Secrets
+
+Required secrets:
+
+- `smtp`: required values `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`.
 
 ### Inputs
 
-<ResponseField name="body" type="string">
-
-Required.
+<ParamField path="body" type="string" required>
 
 Body content of the email
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="recipients" type="array[string]">
-
-Required.
+<ParamField path="recipients" type="array[string]" required>
 
 List of recipient email addresses
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="sender" type="string">
-
-Required.
+<ParamField path="sender" type="string" required>
 
 Email address of the sender
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="subject" type="string">
-
-Required.
+<ParamField path="subject" type="string" required>
 
 Subject of the email
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="allowed_attributes" type="map[string, array[string]] | null">
-
-Optional.
+<ParamField path="allowed_attributes" type="map[string, array[string]] | null">
 
 Key-value pairs of allowed attributes to add to the email body. e.g. &#123;'*': ['style']&#125;. This allows all tags to have a style attribute
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="bcc" type="string | array[string] | null">
-
-Optional.
+<ParamField path="bcc" type="string | array[string] | null">
 
 Recipient(s) to be copied in the BCC field
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="cc" type="string | array[string] | null">
-
-Optional.
+<ParamField path="cc" type="string | array[string] | null">
 
 Recipient(s) to be copied in the CC field
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="content_type" type="string">
-
-Optional.
+<ParamField path="content_type" type="string">
 
 Email content type ('text/plain' or 'text/html'). Defaults to 'text/plain'.
 
@@ -82,87 +72,71 @@ Default: `"text/plain"`.
 
 Allowed values: `text/plain`, `text/html`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="enable_auth" type="boolean">
-
-Optional.
+<ParamField path="enable_auth" type="boolean">
 
 Enable SMTP authentication
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="enable_ssl" type="boolean">
-
-Optional.
+<ParamField path="enable_ssl" type="boolean">
 
 Enable SSL for secure connection
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="enable_starttls" type="boolean">
-
-Optional.
+<ParamField path="enable_starttls" type="boolean">
 
 Enable STARTTLS for secure connection
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="headers" type="map[string, string] | null">
-
-Optional.
+<ParamField path="headers" type="map[string, string] | null">
 
 Additional email headers
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="ignore_cert_errors" type="boolean">
-
-Optional.
+<ParamField path="ignore_cert_errors" type="boolean">
 
 Ignore SSL certificate errors
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="reply_to" type="string | array[string] | null">
-
-Optional.
+<ParamField path="reply_to" type="string | array[string] | null">
 
 Email address(es) to be used in the Reply-To field
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="sender_prefix" type="string | null">
-
-Optional.
+<ParamField path="sender_prefix" type="string | null">
 
 Email address prefix of the sender
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="timeout" type="number | null">
-
-Optional.
+<ParamField path="timeout" type="number | null">
 
 Timeout for SMTP operations in seconds
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 

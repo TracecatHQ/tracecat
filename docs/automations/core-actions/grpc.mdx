@@ -8,69 +8,62 @@ title: "gRPC"
 
 Call a gRPC method using a runtime-compiled protobuf definition.
 
+### Secrets
+
+Optional secrets:
+
+- `grpc_mtls`: required values `TLS_CERTIFICATE`, `TLS_PRIVATE_KEY`.
+- `grpc_ca_cert`: required values `CA_CERTIFICATE`.
+
 ### Inputs
 
-<ResponseField name="method_name" type="string">
-
-Required.
+<ParamField path="method_name" type="string" required>
 
 gRPC method name (e.g., 'Query').
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="proto" type="string">
-
-Required.
+<ParamField path="proto" type="string" required>
 
 Inline .proto definition.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="service_name" type="string">
-
-Required.
+<ParamField path="service_name" type="string" required>
 
 gRPC service name (e.g., 'API').
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="target" type="string">
-
-Required.
+<ParamField path="target" type="string" required>
 
 gRPC server address in host:port format.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="insecure" type="boolean">
-
-Optional.
+<ParamField path="insecure" type="boolean">
 
 Use an insecure plaintext channel. Defaults to False (TLS channel).
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="payload" type="object | null">
-
-Optional.
+<ParamField path="payload" type="object | null">
 
 Request payload as a dict matching the protobuf schema.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="timeout_seconds" type="number | null">
-
-Optional.
+<ParamField path="timeout_seconds" type="number | null">
 
 Timeout in seconds for the RPC. Defaults to no timeout.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 

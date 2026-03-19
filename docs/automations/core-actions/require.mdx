@@ -10,33 +10,27 @@ Evaluate a conditional expression and returns the boolean result.
 
 ### Inputs
 
-<ResponseField name="conditions" type="boolean | array[boolean]">
-
-Required.
+<ParamField path="conditions" type="boolean | array[boolean]" required>
 
 Conditional expression(s) to evaluate. All must be true for the result to be true.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="raise_error" type="boolean">
-
-Optional.
+<ParamField path="raise_error" type="boolean">
 
 If `True`, the function will raise an error if the condition is false. If `False`, the function will return `False` instead.
 
 Default: `true`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="require_all" type="boolean">
-
-Optional.
+<ParamField path="require_all" type="boolean">
 
 If `True`, all conditions must be true for the result to be true. If `False`, only one condition must be true.
 
 Default: `true`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 

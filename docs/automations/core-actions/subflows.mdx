@@ -10,37 +10,29 @@ Execute a workflow by alias.
 
 ### Inputs
 
-<ResponseField name="workflow_alias" type="string | null">
-
-Required.
+<ParamField path="workflow_alias" type="string | null" required>
 
 Alias of the subflow to execute. Must be provided.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="batch_size" type="integer">
-
-Optional.
+<ParamField path="batch_size" type="integer">
 
 Number of subflows to execute in parallel.
 
 Default: `32`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="environment" type="string | null">
-
-Optional.
+<ParamField path="environment" type="string | null">
 
 Subflow's target execution environment. This is used to isolate secrets across different environments.If not provided, the subflow's default environment is used.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="fail_strategy" type="string">
-
-Optional.
+<ParamField path="fail_strategy" type="string">
 
 Fail strategy to use when a subflow fails.
 
@@ -48,11 +40,9 @@ Default: `"isolated"`.
 
 Allowed values: `isolated`, `all`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="loop_strategy" type="string">
-
-Optional.
+<ParamField path="loop_strategy" type="string">
 
 Execution strategy to use for the subflow.
 
@@ -60,41 +50,33 @@ Default: `"batch"`.
 
 Allowed values: `parallel`, `batch`, `sequential`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="timeout" type="number | null">
-
-Optional.
+<ParamField path="timeout" type="number | null">
 
 Maximum number of seconds to wait for the subflow to complete. If not provided, the subflow's default timeout is used.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="trigger_inputs" type="any | null">
-
-Optional.
+<ParamField path="trigger_inputs" type="any | null">
 
 Inputs to pass to the subflow (arbitrary JSON).
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="version" type="integer | null">
-
-Optional.
+<ParamField path="version" type="integer | null">
 
 Version of the subflow definition, if any.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="wait_strategy" type="string">
-
-Optional.
+<ParamField path="wait_strategy" type="string">
 
 Wait strategy to use when waiting for subflows to complete. In `wait` mode, this action will wait for all subflows to complete before returning. Any subflow failures will be reported as an error. In `detach` mode, this action will return immediately after the subflows are created. A failing subflow will not affect the parent.
 
@@ -102,7 +84,7 @@ Default: `"detach"`.
 
 Allowed values: `wait`, `detach`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -126,13 +108,11 @@ Get the status of a workflow execution.
 
 ### Inputs
 
-<ResponseField name="wf_exec_id" type="string">
-
-Required.
+<ParamField path="wf_exec_id" type="string" required>
 
 The workflow execution ID to check.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 

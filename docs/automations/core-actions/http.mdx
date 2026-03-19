@@ -8,145 +8,124 @@ title: "HTTP"
 
 Perform a HTTP request to a given URL.
 
+### Secrets
+
+Optional secrets:
+
+- `mtls`: required values `TLS_CERTIFICATE`, `TLS_PRIVATE_KEY`.
+- `ca_cert`: required values `CA_CERTIFICATE`.
+
 ### Inputs
 
-<ResponseField name="method" type="string">
-
-Required.
+<ParamField path="method" type="string" required>
 
 HTTP request method
 
 Allowed values: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="url" type="string">
-
-Required.
+<ParamField path="url" type="string" required>
 
 The destination of the HTTP request
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="auth" type="map[string, string] | null">
-
-Optional.
+<ParamField path="auth" type="map[string, string] | null">
 
 Basic auth credentials with `username` and `password` keys
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="base64_encode_data" type="boolean">
-
-Optional.
+<ParamField path="base64_encode_data" type="boolean">
 
 Base64 encode the raw response body before returning. Use this for binary downloads to prevent corruption from text decoding.
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="files" type="map[string, string | FileUploadData] | null">
-
-Optional.
+<ParamField path="files" type="map[string, string | FileUploadData] | null">
 
 Files to upload using multipart/form-data. The dictionary key is the form field name. The value can be a simple base64 encoded string (filename defaults to form field name), or a dictionary with 'filename', 'content_base64', and optional 'content_type'.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="follow_redirects" type="boolean">
-
-Optional.
+<ParamField path="follow_redirects" type="boolean">
 
 Follow HTTP redirects
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="form_data" type="object | null">
-
-Optional.
+<ParamField path="form_data" type="object | null">
 
 Form encoded data in request body (POST, PUT, and PATCH)
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="headers" type="map[string, string] | null">
-
-Optional.
+<ParamField path="headers" type="map[string, string] | null">
 
 HTTP request headers
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="ignore_status_codes" type="array[integer] | null">
-
-Optional.
+<ParamField path="ignore_status_codes" type="array[integer] | null">
 
 If specified, these status codes will not be treated as errors. Defaults to None.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="max_redirects" type="integer">
-
-Optional.
+<ParamField path="max_redirects" type="integer">
 
 Maximum number of redirects
 
 Default: `20`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="params" type="object | null">
-
-Optional.
+<ParamField path="params" type="object | null">
 
 URL query parameters
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="payload" type="object | array[any] | null">
-
-Optional.
+<ParamField path="payload" type="object | array[any] | null">
 
 JSON serializable data in request body (POST, PUT, and PATCH)
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="timeout" type="number">
-
-Optional.
+<ParamField path="timeout" type="number">
 
 Timeout in seconds
 
 Default: `10.0`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="verify_ssl" type="boolean">
-
-Optional.
+<ParamField path="verify_ssl" type="boolean">
 
 Verify SSL certificates. Defaults to True, disable at own risk.
 
 Default: `true`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -166,155 +145,132 @@ Default: `true`.
 
 Perform a HTTP request to a given URL with optional polling.
 
+### Secrets
+
+Optional secrets:
+
+- `mtls`: required values `TLS_CERTIFICATE`, `TLS_PRIVATE_KEY`.
+- `ca_cert`: required values `CA_CERTIFICATE`.
+
 ### Inputs
 
-<ResponseField name="method" type="string">
-
-Required.
+<ParamField path="method" type="string" required>
 
 HTTP request method
 
 Allowed values: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="url" type="string">
-
-Required.
+<ParamField path="url" type="string" required>
 
 The destination of the HTTP request
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="auth" type="map[string, string] | null">
-
-Optional.
+<ParamField path="auth" type="map[string, string] | null">
 
 Basic auth credentials with `username` and `password` keys
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="follow_redirects" type="boolean">
-
-Optional.
+<ParamField path="follow_redirects" type="boolean">
 
 Follow HTTP redirects
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="form_data" type="object | null">
-
-Optional.
+<ParamField path="form_data" type="object | null">
 
 Form encoded data in request body (POST, PUT, and PATCH)
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="headers" type="map[string, string] | null">
-
-Optional.
+<ParamField path="headers" type="map[string, string] | null">
 
 HTTP request headers
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="max_redirects" type="integer">
-
-Optional.
+<ParamField path="max_redirects" type="integer">
 
 Maximum number of redirects
 
 Default: `20`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="params" type="object | null">
-
-Optional.
+<ParamField path="params" type="object | null">
 
 URL query parameters
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="payload" type="object | array[any] | null">
-
-Optional.
+<ParamField path="payload" type="object | array[any] | null">
 
 JSON serializable data in request body (POST, PUT, and PATCH)
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="poll_condition" type="string | null">
-
-Optional.
+<ParamField path="poll_condition" type="string | null">
 
 Python lambda function when evaluated to True, stops polling. The function receives a dict with `headers`, `data`, and `status_code` fields.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="poll_interval" type="number | null">
-
-Optional.
+<ParamField path="poll_interval" type="number | null">
 
 Interval in seconds between polling attempts. If not specified, defaults to polling with exponential wait.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="poll_max_attempts" type="integer">
-
-Optional.
+<ParamField path="poll_max_attempts" type="integer">
 
 Maximum number of polling attempts. If set to 0, the action will poll indefinitely (until timeout).
 
 Default: `10`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="poll_retry_codes" type="integer | array[integer] | null">
-
-Optional.
+<ParamField path="poll_retry_codes" type="integer | array[integer] | null">
 
 Status codes on which the action will retry. Ignored if `poll_condition` is provided. If neither are specified, an error will be raised.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="timeout" type="number">
-
-Optional.
+<ParamField path="timeout" type="number">
 
 Timeout in seconds
 
 Default: `10.0`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="verify_ssl" type="boolean">
-
-Optional.
+<ParamField path="verify_ssl" type="boolean">
 
 Verify SSL certificates. Defaults to True, disable at own risk.
 
 Default: `true`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -339,149 +295,119 @@ Paginate through a HTTP response.
 
 ### Inputs
 
-<ResponseField name="method" type="string">
-
-Required.
+<ParamField path="method" type="string" required>
 
 HTTP request method
 
 Allowed values: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="next_request" type="string">
-
-Required.
+<ParamField path="next_request" type="string" required>
 
 Python lambda function that returns the next request as a JSON of `url`, `method`, `headers`, `params`, `payload`, `form_data` to paginate to. The function receives a dict with `headers`, `data`, and `status_code` fields.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="stop_condition" type="string">
-
-Required.
+<ParamField path="stop_condition" type="string" required>
 
 Python lambda function that determines when pagination should STOP. The function receives a dict with `headers`, `data`, and `status_code` fields.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="url" type="string">
-
-Required.
+<ParamField path="url" type="string" required>
 
 The destination of the HTTP request
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="auth" type="map[string, string] | null">
-
-Optional.
+<ParamField path="auth" type="map[string, string] | null">
 
 Basic auth credentials with `username` and `password` keys
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="follow_redirects" type="boolean">
-
-Optional.
+<ParamField path="follow_redirects" type="boolean">
 
 Follow HTTP redirects
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="form_data" type="object | null">
-
-Optional.
+<ParamField path="form_data" type="object | null">
 
 Form encoded data in request body (POST, PUT, and PATCH)
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="headers" type="map[string, string] | null">
-
-Optional.
+<ParamField path="headers" type="map[string, string] | null">
 
 HTTP request headers
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="items_jsonpath" type="string | null">
-
-Optional.
+<ParamField path="items_jsonpath" type="string | null">
 
 JSONPath expression that evaluates to the items to paginate through.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="limit" type="integer">
-
-Optional.
+<ParamField path="limit" type="integer">
 
 Maximum number of items to paginate through. Defaults to 1000.
 
 Default: `1000`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="max_redirects" type="integer">
-
-Optional.
+<ParamField path="max_redirects" type="integer">
 
 Maximum number of redirects
 
 Default: `20`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="params" type="object | null">
-
-Optional.
+<ParamField path="params" type="object | null">
 
 URL query parameters
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="payload" type="object | array[any] | null">
-
-Optional.
+<ParamField path="payload" type="object | array[any] | null">
 
 JSON serializable data in request body (POST, PUT, and PATCH)
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="timeout" type="number">
-
-Optional.
+<ParamField path="timeout" type="number">
 
 Timeout in seconds
 
 Default: `10.0`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="verify_ssl" type="boolean">
-
-Optional.
+<ParamField path="verify_ssl" type="boolean">
 
 Verify SSL certificates. Defaults to True, disable at own risk.
 
 Default: `true`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 

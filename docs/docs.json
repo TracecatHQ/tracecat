@@ -87,8 +87,8 @@
             "pages": [
               "custom-actions/install",
               "custom-actions/sync",
-              "custom-actions/python-udfs",
-              "custom-actions/yaml-templates"
+              "custom-actions/python",
+              "custom-actions/yaml"
             ]
           },
           {

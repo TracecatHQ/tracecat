@@ -10,33 +10,27 @@ Create a new lookup table with optional columns.
 
 ### Inputs
 
-<ResponseField name="name" type="string">
-
-Required.
+<ParamField path="name" type="string" required>
 
 The name of the table to create.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="columns" type="array[object] | null">
-
-Optional.
+<ParamField path="columns" type="array[object] | null">
 
 List of column definitions. Each column should have 'name', 'type', and optionally 'nullable' and 'default' fields.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="raise_on_duplicate" type="boolean">
-
-Optional.
+<ParamField path="raise_on_duplicate" type="boolean">
 
 If true, raise an error if the table already exists.
 
 Default: `true`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -98,13 +92,11 @@ Get a table's metadata by name. This includes the columns and whether they are i
 
 ### Inputs
 
-<ResponseField name="name" type="string">
-
-Required.
+<ParamField path="name" type="string" required>
 
 The name of the table to get.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -135,29 +127,23 @@ Get a single row from a table corresponding to the given column and value.
 
 ### Inputs
 
-<ResponseField name="column" type="string">
-
-Required.
+<ParamField path="column" type="string" required>
 
 The column to lookup the value in.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="table" type="string">
-
-Required.
+<ParamField path="table" type="string" required>
 
 The table to lookup the value in.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="value" type="any">
-
-Required.
+<ParamField path="value" type="any" required>
 
 The value to lookup.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -191,29 +177,23 @@ Check if a value exists in a table column.
 
 ### Inputs
 
-<ResponseField name="column" type="string">
-
-Required.
+<ParamField path="column" type="string" required>
 
 The column to check in.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="table" type="string">
-
-Required.
+<ParamField path="table" type="string" required>
 
 The table to check.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="value" type="any">
-
-Required.
+<ParamField path="value" type="any" required>
 
 The value to check for.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -247,39 +227,31 @@ Get multiple rows from a table corresponding to the given column and values.
 
 ### Inputs
 
-<ResponseField name="column" type="string">
-
-Required.
+<ParamField path="column" type="string" required>
 
 The column to lookup the value in.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="table" type="string">
-
-Required.
+<ParamField path="table" type="string" required>
 
 The table to lookup the value in.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="value" type="any">
-
-Required.
+<ParamField path="value" type="any" required>
 
 The value to lookup.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="limit" type="integer">
-
-Optional.
+<ParamField path="limit" type="integer">
 
 The maximum number of rows to return.
 
 Default: `100`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -313,103 +285,83 @@ Search for rows in a table with optional filtering.
 
 ### Inputs
 
-<ResponseField name="table" type="string">
-
-Required.
+<ParamField path="table" type="string" required>
 
 The table to search in.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="cursor" type="string | null">
-
-Optional.
+<ParamField path="cursor" type="string | null">
 
 Cursor for pagination.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="end_time" type="string | null">
-
-Optional.
+<ParamField path="end_time" type="string | null">
 
 Filter rows created before this time.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="limit" type="integer">
-
-Optional.
+<ParamField path="limit" type="integer">
 
 The maximum number of rows to return.
 
 Default: `100`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="paginate" type="boolean">
-
-Optional.
+<ParamField path="paginate" type="boolean">
 
 If true, return cursor pagination metadata along with items.
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="reverse" type="boolean">
-
-Optional.
+<ParamField path="reverse" type="boolean">
 
 Reverse pagination direction.
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="search_term" type="string | null">
-
-Optional.
+<ParamField path="search_term" type="string | null">
 
 Text to search for across all text and JSONB columns.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="start_time" type="string | null">
-
-Optional.
+<ParamField path="start_time" type="string | null">
 
 Filter rows created after this time.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="updated_after" type="string | null">
-
-Optional.
+<ParamField path="updated_after" type="string | null">
 
 Filter rows updated after this time.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="updated_before" type="string | null">
-
-Optional.
+<ParamField path="updated_before" type="string | null">
 
 Filter rows updated before this time.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -431,31 +383,25 @@ Insert a row into a table.
 
 ### Inputs
 
-<ResponseField name="row_data" type="object">
-
-Required.
+<ParamField path="row_data" type="object" required>
 
 The data to insert into the row.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="table" type="string">
-
-Required.
+<ParamField path="table" type="string" required>
 
 The table to insert the row into.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="upsert" type="boolean">
-
-Optional.
+<ParamField path="upsert" type="boolean">
 
 If true, update the row if it already exists (based on primary key).
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -498,31 +444,25 @@ Insert multiple rows into a table.
 
 ### Inputs
 
-<ResponseField name="rows_data" type="array[object]">
-
-Required.
+<ParamField path="rows_data" type="array[object]" required>
 
 The list of data to insert into the table.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="table" type="string">
-
-Required.
+<ParamField path="table" type="string" required>
 
 The table to insert the rows into.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="upsert" type="boolean">
-
-Optional.
+<ParamField path="upsert" type="boolean">
 
 If true, update the rows if they already exist (based on primary key).
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -565,29 +505,23 @@ Update a row in a table.
 
 ### Inputs
 
-<ResponseField name="row_data" type="object">
-
-Required.
+<ParamField path="row_data" type="object" required>
 
 The new data for the row.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="row_id" type="string">
-
-Required.
+<ParamField path="row_id" type="string" required>
 
 The ID of the row to update.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="table" type="string">
-
-Required.
+<ParamField path="table" type="string" required>
 
 The table to update the row in.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -630,21 +564,17 @@ Delete a row from a table.
 
 ### Inputs
 
-<ResponseField name="row_id" type="string">
-
-Required.
+<ParamField path="row_id" type="string" required>
 
 The ID of the row to delete.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="table" type="string">
-
-Required.
+<ParamField path="table" type="string" required>
 
 The table to delete the row from.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
@@ -687,33 +617,27 @@ Download a table's data by name as list of dicts, JSON string, NDJSON string, CS
 
 ### Inputs
 
-<ResponseField name="name" type="string">
-
-Required.
+<ParamField path="name" type="string" required>
 
 The name of the table to download.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="format" type="string | null">
-
-Optional.
+<ParamField path="format" type="string | null">
 
 The format to download the table data in.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="limit" type="integer">
-
-Optional.
+<ParamField path="limit" type="integer">
 
 The maximum number of rows to download.
 
 Default: `1000`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 

@@ -10,63 +10,51 @@ Execute a Python script.
 
 ### Inputs
 
-<ResponseField name="script" type="string">
-
-Required.
+<ParamField path="script" type="string" required>
 
 Python script to execute. Must contain at least one function. If multiple functions are defined, one must be named 'main'. Returns the output of the function.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="allow_network" type="boolean">
-
-Optional.
+<ParamField path="allow_network" type="boolean">
 
 Whether to allow network access during script execution. Default is False. Note: package installation always has network access.
 
 Default: `false`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="dependencies" type="array[string] | null">
-
-Optional.
+<ParamField path="dependencies" type="array[string] | null">
 
 Optional list of Python package dependencies to install via pip. Packages are cached between executions for performance.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="env_vars" type="map[string, string] | null">
-
-Optional.
+<ParamField path="env_vars" type="map[string, string] | null">
 
 Environment variables to set in the sandbox. Use this to inject secrets or configuration.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="inputs" type="object | null">
-
-Optional.
+<ParamField path="inputs" type="object | null">
 
 Input data passed as function arguments to the main function. Keys must match the parameter names in the function signature. Missing parameters will receive `None`.
 
 Default: `null`.
 
-</ResponseField>
+</ParamField>
 
-<ResponseField name="timeout_seconds" type="integer">
-
-Optional.
+<ParamField path="timeout_seconds" type="integer">
 
 Maximum execution time in seconds. Default is 300 seconds (5 minutes).
 
 Default: `300`.
 
-</ResponseField>
+</ParamField>
 
 ### Examples
 
