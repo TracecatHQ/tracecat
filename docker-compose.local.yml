@@ -247,7 +247,7 @@ services:
       minio:
         condition: service_healthy
 
-  agent-worker:
+  litellm:
     build:
       context: .
       dockerfile: Dockerfile
@@ -258,58 +258,29 @@ services:
       - core-db
       - temporal
     environment:
-      # Common
+      TRACECAT__LITELLM_PORT: ${TRACECAT__LITELLM_PORT}
+      TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL}
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__APP_ENV: production
-      TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID: ${TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID:-}
-      TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN: ${TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN:-}
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
-      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
-      TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
-      TRACECAT__API_URL: ${TRACECAT__API_URL:-http://api:8000}
-      # Compression (must match worker for codec compatibility)
-      TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
-      TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
-      TRACECAT__RESULT_EXTERNALIZATION_ENABLED: ${TRACECAT__RESULT_EXTERNALIZATION_ENABLED}
-      TRACECAT__COLLECTION_MANIFESTS_ENABLED: ${TRACECAT__COLLECTION_MANIFESTS_ENABLED}
-      TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES: ${TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES}
-      # Registry
-      TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
-      # Local registry
-      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
-      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
-      # Temporal
-      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
-      TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
-      TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
-      SENTRY_DSN: ${SENTRY_DSN:-}
-      # Agent worker configuration
-      TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
-      TRACECAT__AGENT_EXECUTOR_QUEUE: ${TRACECAT__AGENT_EXECUTOR_QUEUE:-shared-agent-executor-queue}
-      TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
-      TRACECAT__EXECUTOR_CLIENT_TIMEOUT: ${TRACECAT__EXECUTOR_CLIENT_TIMEOUT:-300}
-      # Redis
-      REDIS_URL: ${REDIS_URL}
-      # Blob storage (for S3/MinIO tarball access)
-      TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    volumes:
-      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
-    command: ["python", "-m", "tracecat.agent.worker"]
+      PYTHONPATH: /app:/app/packages/tracecat-registry:/app/packages/tracecat-ee
+    command: ["python", "-m", "tracecat.agent.litellm"]
     depends_on:
       migrations:
         condition: service_completed_successfully
-      temporal:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import os, socket; port=int(os.environ['TRACECAT__LITELLM_PORT']); s=socket.create_connection(('127.0.0.1', port), timeout=5); s.close()\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
   agent-executor:
     build:
@@ -343,6 +314,7 @@ services:
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
       TRACECAT__API_URL: ${TRACECAT__API_URL:-http://api:8000}
+      TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL}
       # Compression (must match worker for codec compatibility)
       TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
       TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
@@ -384,6 +356,8 @@ services:
       - sandbox-cache:/var/lib/tracecat/sandbox-cache
     command: ["python", "-m", "tracecat.agent.executor_worker"]
     depends_on:
+      litellm:
+        condition: service_healthy
       migrations:
         condition: service_completed_successfully
       temporal:

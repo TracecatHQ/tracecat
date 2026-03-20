@@ -626,6 +626,19 @@ TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
 )
 """Read timeout for the LLM socket proxy in seconds (default: 5 minutes)."""
 
+TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
+"""Bind port for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_BASE_URL = os.environ.get(
+    "TRACECAT__LITELLM_BASE_URL", f"http://127.0.0.1:{TRACECAT__LITELLM_PORT}"
+)
+"""Internal base URL for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_URL = (
+    os.environ.get("TRACECAT__LITELLM_URL") or TRACECAT__LITELLM_BASE_URL
+)
+"""Internal URL for the managed LiteLLM service."""
+
 TRACECAT__AGENT_QUEUE = os.environ.get("TRACECAT__AGENT_QUEUE", "shared-agent-queue")
 """Task queue for the AgentWorker (Temporal workflow queue).
 

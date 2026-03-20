@@ -1,9 +1,9 @@
 """LLM socket proxy for agent executor.
 
 This module provides a Unix socket server that runs on the host side and
-proxies HTTP traffic to the LiteLLM proxy at localhost:4000. The socket
-is mounted into the NSJail sandbox, allowing the sandboxed agent runtime
-to communicate with LiteLLM without direct network access.
+proxies HTTP traffic to the managed LiteLLM service. The socket is mounted
+into the NSJail sandbox, allowing the sandboxed agent runtime to communicate
+with LiteLLM without direct network access.
 
 The proxy handles:
 - HTTP/1.1 request parsing from the Unix socket
@@ -24,11 +24,14 @@ from pathlib import Path
 
 import httpx
 
-from tracecat.config import TRACECAT__LLM_PROXY_READ_TIMEOUT
+from tracecat.config import TRACECAT__LITELLM_URL, TRACECAT__LLM_PROXY_READ_TIMEOUT
 from tracecat.logger import logger
 
-# LiteLLM proxy runs on localhost:4000
-LITELLM_URL = "http://127.0.0.1:4000"
+
+def get_default_litellm_url() -> str:
+    """Return the configured managed LiteLLM service URL."""
+    return TRACECAT__LITELLM_URL.rstrip("/")
+
 
 # Socket filename (created in job's socket directory)
 LLM_SOCKET_NAME = "llm.sock"
@@ -73,18 +76,18 @@ class LLMSocketProxy:
     def __init__(
         self,
         socket_path: Path,
-        litellm_url: str = LITELLM_URL,
+        litellm_url: str | None = None,
         on_error: Callable[[str], None] | None = None,
     ):
         """Initialize the LLM socket proxy.
 
         Args:
             socket_path: Path where the Unix socket will be created.
-            litellm_url: URL of the LiteLLM proxy (default: http://127.0.0.1:4000).
+            litellm_url: URL of the managed LiteLLM service.
             on_error: Callback invoked when an error (e.g., auth failure) is detected.
         """
         self.socket_path = socket_path
-        self.litellm_url = litellm_url
+        self.litellm_url = litellm_url or get_default_litellm_url()
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
         self._on_error = on_error
