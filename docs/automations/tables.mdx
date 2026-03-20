@@ -45,26 +45,52 @@ This works well for data such as:
 - Investigation evidence
 - External system references
 
-If you already know the field and value you want, use a direct lookup.
-If you need broader filtering or text search, use row search instead.
+If you already know the field and value you want, use `core.table.lookup`.
+If you need broader filtering or text search, use `core.table.search_rows`.
+
+For example, use `core.table.lookup` when you know the exact value:
+
+```yaml
+- ref: lookup_asset
+  action: core.table.lookup
+  args:
+    table: asset_inventory
+    column: hostname
+    value: ${{ TRIGGER.hostname }}
+```
+
+For example, use `core.table.search_rows` when you want to search across rows:
+
+```yaml
+- ref: search_assets
+  action: core.table.search_rows
+  args:
+    table: asset_inventory
+    search_term: production
+    limit: 25
+```
 
 ## Index and upsert
 
-You'll often need to deduplicate data or keep one current record for a given key.
-You can do that by creating an index and then using upsert when you insert rows.
+You'll often need to deduplicate data or require all values in a column to be unique.
+You can do that by creating an index and then using `core.table.insert_row` with `upsert: true`.
 
 ![Create unique index](/img/tables/create-unique-index.png)
 
-For example, you might want one row per hostname, email address, or indicator value.
-A unique index enforces that rule, and upsert lets your workflow update the existing row instead of creating a duplicate.
+For example:
+- One row per hostname
+- One row per email address
+- One row per alert ID
+- One row per hash value
 
-This pattern is useful when you want your workflows to keep a table current over time instead of appending duplicate rows.
+A unique index enforces that rule, and `core.table.insert_row` with `upsert: true` updates the existing row instead of creating a duplicate.
 
 ## Table actions
 
 Use `core.table.*` actions when you want your workflows to work with tables directly.
 
 - [Tables](/automations/core-actions/memory-actions/tables) to create tables, inspect metadata, insert rows, search rows, and export data
+- Use `core.table.insert_row` with `upsert: true` when you want to update an existing row that matches a unique index
 
 For example:
 
@@ -93,4 +119,18 @@ For example:
     table: asset_inventory
     column: hostname
     value: ${{ TRIGGER.hostname }}
+```
+
+For example, this upserts one row per alert ID:
+
+```yaml
+- ref: upsert_alert
+  action: core.table.insert_row
+  args:
+    table: alerts
+    upsert: true
+    row_data:
+      alert_id: ${{ TRIGGER.alert_id }}
+      status: ${{ TRIGGER.status }}
+      severity: ${{ TRIGGER.severity }}
 ```
