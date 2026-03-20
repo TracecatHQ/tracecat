@@ -9,12 +9,21 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken
-from mcp.server.auth.provider import AuthorizationParams
-from mcp.shared.auth import OAuthClientInformationFull
+from fastmcp.server.auth.oidc_proxy import OIDCConfiguration
+from key_value.aio.stores.memory import MemoryStore
+from mcp.server.auth.provider import (
+    AuthorizationCode,
+    AuthorizationParams,
+    RefreshToken,
+)
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from pydantic import AnyUrl
 from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 from starlette.testclient import TestClient
 
+from tracecat.auth.dex.mode import MCPDexMode
 from tracecat.mcp import auth as mcp_auth
 
 type AsyncLookup = Callable[..., Awaitable[object]]
@@ -22,20 +31,39 @@ type AsyncLookup = Callable[..., Awaitable[object]]
 
 def _mock_oidc_discovery_config(
     *, scopes_supported: list[str] | None = None
-) -> MagicMock:
-    config = MagicMock()
-    config.issuer = "https://issuer.example.com"
-    config.authorization_endpoint = "https://issuer.example.com/oauth2/authorize"
-    config.token_endpoint = "https://issuer.example.com/oauth2/token"
-    config.jwks_uri = "https://issuer.example.com/.well-known/jwks.json"
-    config.userinfo_endpoint = "https://issuer.example.com/oauth2/userinfo"
-    config.scopes_supported = scopes_supported
-    config.service_documentation = None
-    config.revocation_endpoint = None
-    return config
+) -> OIDCConfiguration:
+    return OIDCConfiguration.model_validate(
+        {
+            "issuer": "https://issuer.example.com",
+            "authorization_endpoint": "https://issuer.example.com/oauth2/authorize",
+            "token_endpoint": "https://issuer.example.com/oauth2/token",
+            "jwks_uri": "https://issuer.example.com/.well-known/jwks.json",
+            "userinfo_endpoint": "https://issuer.example.com/oauth2/userinfo",
+            "scopes_supported": scopes_supported,
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"],
+            "service_documentation": None,
+            "revocation_endpoint": None,
+        }
+    )
 
 
-def _build_test_auth(monkeypatch: pytest.MonkeyPatch) -> mcp_auth.OIDCProxy:
+def _set_dex_mcp_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mcp_auth.config, "DEX_ISSUER", "https://dex.example.com")
+    monkeypatch.setattr(mcp_auth.config, "DEX_TRACECAT_CLIENT_ID", "tracecat-mcp")
+    monkeypatch.setattr(
+        mcp_auth.config,
+        "DEX_TRACECAT_CLIENT_SECRET",
+        "tracecat-mcp-secret",
+    )
+
+
+def _build_test_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    mode: MCPDexMode = MCPDexMode.OIDC,
+) -> mcp_auth.OIDCProxy:
     monkeypatch.setattr(
         mcp_auth.mcp_config,
         "TRACECAT_MCP__AUTH_MODE",
@@ -44,6 +72,8 @@ def _build_test_auth(monkeypatch: pytest.MonkeyPatch) -> mcp_auth.OIDCProxy:
     monkeypatch.setattr(
         mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
     )
+    _set_dex_mcp_config(monkeypatch)
+    monkeypatch.setattr(mcp_auth, "get_mcp_dex_mode", lambda: mode)
     with (
         patch(
             "tracecat.mcp.auth.get_platform_oidc_config",
@@ -62,6 +92,10 @@ def _build_test_auth(monkeypatch: pytest.MonkeyPatch) -> mcp_auth.OIDCProxy:
             mcp_auth.OIDCProxy,
             "get_oidc_configuration",
             return_value=_mock_oidc_discovery_config(),
+        ),
+        patch(
+            "tracecat.mcp.auth._create_mcp_client_storage",
+            return_value=MemoryStore(),
         ),
     ):
         auth = mcp_auth.create_mcp_auth()
@@ -103,6 +137,82 @@ def test_create_mcp_auth_uses_oidc_mode(
     assert getattr(auth, "_fallback_access_token_expiry_seconds", None) == 24 * 60 * 60
 
 
+def test_create_mcp_auth_rewrites_internal_dex_endpoints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
+    )
+    monkeypatch.setattr(mcp_auth.config, "DEX_ISSUER", "http://localhost:180/auth")
+    monkeypatch.setattr(mcp_auth.config, "DEX_INTERNAL_ISSUER", "http://dex:5556/auth")
+    monkeypatch.setattr(mcp_auth.config, "DEX_TRACECAT_CLIENT_ID", "tracecat-mcp")
+    monkeypatch.setattr(
+        mcp_auth.config,
+        "DEX_TRACECAT_CLIENT_SECRET",
+        "tracecat-mcp-secret",
+    )
+    monkeypatch.setattr(mcp_auth, "get_mcp_dex_mode", lambda: MCPDexMode.OIDC)
+    public_config = OIDCConfiguration.model_validate(
+        {
+            "issuer": "http://localhost:180/auth",
+            "authorization_endpoint": "http://localhost:180/auth/auth",
+            "token_endpoint": "http://localhost:180/auth/token",
+            "userinfo_endpoint": "http://localhost:180/auth/userinfo",
+            "jwks_uri": "http://localhost:180/auth/keys",
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"],
+        }
+    )
+    with (
+        patch(
+            "tracecat.mcp.auth.get_platform_oidc_config",
+            return_value=type(
+                "OIDCConfig",
+                (),
+                {
+                    "issuer": "https://issuer.example.com",
+                    "client_id": "client-id",
+                    "client_secret": "client-secret",
+                    "scopes": ("openid", "profile", "email"),
+                },
+            )(),
+        ),
+        patch.object(
+            mcp_auth.OIDCProxy,
+            "get_oidc_configuration",
+            return_value=public_config,
+        ),
+        patch(
+            "tracecat.mcp.auth._create_mcp_client_storage",
+            return_value=MemoryStore(),
+        ),
+    ):
+        auth = cast(mcp_auth.OIDCProxy, mcp_auth.create_mcp_auth())
+
+    assert str(auth.oidc_config.issuer) == "http://localhost:180/auth"
+    assert str(auth.oidc_config.authorization_endpoint) == (
+        "http://localhost:180/auth/auth"
+    )
+    assert str(auth.oidc_config.token_endpoint) == "http://dex:5556/auth/token"
+    assert str(auth.oidc_config.userinfo_endpoint) == "http://dex:5556/auth/userinfo"
+    assert str(auth.oidc_config.jwks_uri) == "http://dex:5556/auth/keys"
+    assert getattr(auth, "_redirect_path", None) == "/_/mcp/auth/callback"
+
+
+def test_create_mcp_auth_skips_refresh_scope_in_saml_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = cast(mcp_auth.OIDCProxy, _build_test_auth(monkeypatch, mode=MCPDexMode.SAML))
+
+    assert auth.client_registration_options is not None
+    valid_scopes = auth.client_registration_options.valid_scopes or []
+    assert "offline_access" not in valid_scopes
+    assert getattr(auth, "_fallback_access_token_expiry_seconds", None) == (
+        30 * 24 * 60 * 60
+    )
+
+
 def test_create_mcp_auth_metadata_advertises_public_client_auth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -121,7 +231,7 @@ def test_create_mcp_auth_metadata_advertises_public_client_auth(
         "email",
         "offline_access",
     ]
-    assert "none" in payload["token_endpoint_auth_methods_supported"]
+    assert payload["token_endpoint_auth_methods_supported"] == ["none"]
 
 
 def test_create_mcp_auth_metadata_preserves_upstream_fields(
@@ -168,6 +278,51 @@ def test_create_mcp_auth_protected_resource_metadata_uses_mcp_path(
         "email",
         "offline_access",
     ]
+
+
+def test_patch_oauth_register_route_defaults_missing_auth_method_to_none() -> None:
+    async def register_endpoint(request):
+        return JSONResponse(await request.json())
+
+    route = Route("/register", endpoint=register_endpoint, methods=["POST"])
+    route.app = mcp_auth._patch_oauth_register_route(route.app)
+    client = TestClient(Starlette(routes=[route]))
+
+    response = client.post(
+        "/register",
+        json={
+            "client_name": "codex-test",
+            "redirect_uris": ["http://localhost:3333/callback"],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["token_endpoint_auth_method"] == "none"
+
+
+def test_patch_oauth_register_route_overrides_secret_auth_method() -> None:
+    async def register_endpoint(request):
+        return JSONResponse(await request.json())
+
+    route = Route("/register", endpoint=register_endpoint, methods=["POST"])
+    route.app = mcp_auth._patch_oauth_register_route(route.app)
+    client = TestClient(Starlette(routes=[route]))
+
+    response = client.post(
+        "/register",
+        json={
+            "client_name": "codex-test",
+            "redirect_uris": ["http://localhost:3333/callback"],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "token_endpoint_auth_method": "client_secret_post",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["token_endpoint_auth_method"] == "none"
 
 
 def test_create_mcp_auth_metadata_matches_public_client_registration(
@@ -268,6 +423,13 @@ def test_create_mcp_auth_raises_when_oidc_issuer_missing(
     monkeypatch.setattr(
         mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
     )
+    monkeypatch.setattr(mcp_auth.config, "DEX_ISSUER", "")
+    monkeypatch.setattr(mcp_auth.config, "DEX_TRACECAT_CLIENT_ID", "tracecat-mcp")
+    monkeypatch.setattr(
+        mcp_auth.config,
+        "DEX_TRACECAT_CLIENT_SECRET",
+        "tracecat-mcp-secret",
+    )
     with patch(
         "tracecat.mcp.auth.get_platform_oidc_config",
         return_value=type(
@@ -275,14 +437,45 @@ def test_create_mcp_auth_raises_when_oidc_issuer_missing(
             (),
             {
                 "issuer": "",
-                "client_id": "client-id",
-                "client_secret": "client-secret",
+                "client_id": "",
+                "client_secret": "",
+                "scopes": ("openid", "profile", "email"),
             },
         )(),
     ):
         with pytest.raises(
             ValueError,
-            match="OIDC_ISSUER must be configured for the MCP server",
+            match="DEX_ISSUER must be configured for the MCP server",
+        ):
+            mcp_auth.create_mcp_auth()
+
+
+def test_create_mcp_auth_raises_when_dex_client_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
+    )
+    monkeypatch.setattr(mcp_auth.config, "DEX_ISSUER", "https://dex.example.com")
+    monkeypatch.setattr(mcp_auth.config, "DEX_TRACECAT_CLIENT_ID", "")
+    monkeypatch.setattr(mcp_auth.config, "DEX_TRACECAT_CLIENT_SECRET", "")
+
+    with patch(
+        "tracecat.mcp.auth.get_platform_oidc_config",
+        return_value=type(
+            "OIDCConfig",
+            (),
+            {
+                "issuer": "https://issuer.example.com",
+                "client_id": "client-id",
+                "client_secret": "client-secret",
+                "scopes": ("openid", "profile", "email"),
+            },
+        )(),
+    ):
+        with pytest.raises(
+            ValueError,
+            match="DEX_TRACECAT_CLIENT_ID and DEX_TRACECAT_CLIENT_SECRET must be configured",
         ):
             mcp_auth.create_mcp_auth()
 
@@ -387,6 +580,7 @@ async def test_create_mcp_auth_authorize_includes_platform_oidc_scopes(
     monkeypatch.setattr(
         mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
     )
+    _set_dex_mcp_config(monkeypatch)
     captured: dict[str, object] = {}
 
     async def _capture_authorize(self, client, params):
@@ -460,6 +654,7 @@ async def test_create_mcp_auth_authorize_keeps_offline_access_when_metadata_omit
     monkeypatch.setattr(
         mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
     )
+    _set_dex_mcp_config(monkeypatch)
     captured: dict[str, object] = {}
 
     async def _capture_authorize(self, client, params):
@@ -513,6 +708,74 @@ async def test_create_mcp_auth_authorize_keeps_offline_access_when_metadata_omit
     assert isinstance(forwarded, AuthorizationParams)
     assert forwarded.scopes is not None
     assert forwarded.scopes == ["custom:scope", "openid", "profile", "offline_access"]
+
+
+@pytest.mark.anyio
+async def test_create_mcp_auth_authorize_strips_client_refresh_scope_in_saml_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        mcp_auth.mcp_config,
+        "TRACECAT_MCP__AUTH_MODE",
+        mcp_auth.mcp_config.MCPAuthMode.OIDC,
+    )
+    monkeypatch.setattr(
+        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
+    )
+    _set_dex_mcp_config(monkeypatch)
+    monkeypatch.setattr(mcp_auth, "get_mcp_dex_mode", lambda: MCPDexMode.SAML)
+    captured: dict[str, object] = {}
+
+    async def _capture_authorize(self, client, params):
+        captured["params"] = params
+        return "https://issuer.example.com/oauth2/authorize?state=txn"
+
+    with (
+        patch(
+            "tracecat.mcp.auth.get_platform_oidc_config",
+            return_value=type(
+                "OIDCConfig",
+                (),
+                {
+                    "issuer": "https://issuer.example.com",
+                    "client_id": "client-id",
+                    "client_secret": "client-secret",
+                    "scopes": ("openid", "profile", "email", "offline_access"),
+                },
+            )(),
+        ),
+        patch.object(
+            mcp_auth.OIDCProxy,
+            "get_oidc_configuration",
+            return_value=_mock_oidc_discovery_config(
+                scopes_supported=["openid", "profile", "email", "offline_access"]
+            ),
+        ),
+        patch.object(mcp_auth.OIDCProxy, "authorize", _capture_authorize),
+    ):
+        auth = mcp_auth.create_mcp_auth()
+        assert isinstance(auth, mcp_auth.OIDCProxy)
+        client = OAuthClientInformationFull(
+            client_id="claude-client",
+            redirect_uris=[AnyUrl("http://localhost/callback")],
+            grant_types=["authorization_code"],
+            response_types=["code"],
+            token_endpoint_auth_method="none",
+        )
+        params = AuthorizationParams(
+            state="txn",
+            scopes=["custom:scope", "offline_access"],
+            code_challenge="challenge",
+            redirect_uri=AnyUrl("http://localhost/callback"),
+            redirect_uri_provided_explicitly=True,
+            resource="https://mcp.example.com/mcp",
+        )
+
+        await auth.authorize(client, params)
+
+    forwarded = captured["params"]
+    assert isinstance(forwarded, AuthorizationParams)
+    assert forwarded.scopes == ["custom:scope", "openid", "profile", "email"]
 
 
 @pytest.mark.anyio
@@ -706,6 +969,208 @@ async def test_load_access_token_preserves_fastmcp_upstream_claims(
     assert merged.scopes == [f"organization:{org_id}", f"workspace:{ws_id}"]
     assert merged.claims["email"] == "user@example.com"
     assert merged.claims["upstream_claims"] == {"email": " user@example.com "}
+
+
+@pytest.mark.anyio
+async def test_exchange_authorization_code_logs_short_expiry_and_refresh_issue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    client = OAuthClientInformationFull(
+        client_id="tracecat-client",
+        redirect_uris=[AnyUrl("http://localhost:3333/callback")],
+        grant_types=["authorization_code", "refresh_token"],
+        response_types=["code"],
+        token_endpoint_auth_method="none",
+    )
+    authorization_code = AuthorizationCode(
+        code="auth-code",
+        scopes=["openid", "offline_access"],
+        expires_at=1_700_000_000.0,
+        client_id="tracecat-client",
+        code_challenge="challenge",
+        redirect_uri=AnyUrl("http://localhost:3333/callback"),
+        redirect_uri_provided_explicitly=True,
+        resource="https://mcp.example.com/mcp",
+    )
+
+    async def _exchange_authorization_code(self, client, authorization_code):
+        assert client.client_id == "tracecat-client"
+        assert authorization_code.code == "auth-code"
+        return OAuthToken(
+            access_token="access-token",
+            refresh_token="refresh-token",
+            expires_in=5,
+            scope="openid offline_access",
+        )
+
+    monkeypatch.setattr(
+        mcp_auth.OIDCProxy,
+        "exchange_authorization_code",
+        _exchange_authorization_code,
+    )
+    info = MagicMock()
+    monkeypatch.setattr(mcp_auth.logger, "info", info)
+
+    token = await auth.exchange_authorization_code(client, authorization_code)
+
+    assert token.expires_in == 5
+    assert info.call_args_list[0].args == ("Exchanging MCP authorization code",)
+    assert info.call_args_list[0].kwargs == {
+        "client_id": "tracecat-client",
+        "scope_count": 2,
+        "requests_refresh_scope": True,
+    }
+    assert info.call_args_list[1].args == (
+        "Issued MCP tokens from authorization code exchange",
+    )
+    assert info.call_args_list[1].kwargs == {
+        "client_id": "tracecat-client",
+        "access_token_expires_in": 5,
+        "issued_refresh_token": True,
+    }
+
+
+@pytest.mark.anyio
+async def test_exchange_refresh_token_logs_refresh_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    client = OAuthClientInformationFull(
+        client_id="tracecat-client",
+        redirect_uris=[AnyUrl("http://localhost:3333/callback")],
+        grant_types=["authorization_code", "refresh_token"],
+        response_types=["code"],
+        token_endpoint_auth_method="none",
+    )
+    refresh_token = RefreshToken(
+        token="old-refresh-token",
+        client_id="tracecat-client",
+        scopes=["openid", "offline_access"],
+        expires_at=1_700_000_000,
+    )
+
+    async def _exchange_refresh_token(self, client, refresh_token, scopes):
+        assert client.client_id == "tracecat-client"
+        assert refresh_token.token == "old-refresh-token"
+        assert scopes == ["openid", "offline_access"]
+        return OAuthToken(
+            access_token="new-access-token",
+            refresh_token="new-refresh-token",
+            expires_in=5,
+            scope="openid offline_access",
+        )
+
+    monkeypatch.setattr(
+        mcp_auth.OIDCProxy,
+        "exchange_refresh_token",
+        _exchange_refresh_token,
+    )
+    info = MagicMock()
+    monkeypatch.setattr(mcp_auth.logger, "info", info)
+
+    token = await auth.exchange_refresh_token(
+        client,
+        refresh_token,
+        ["openid", "offline_access"],
+    )
+
+    assert token.expires_in == 5
+    assert info.call_args_list[0].args == ("Attempting MCP refresh grant",)
+    assert info.call_args_list[0].kwargs == {
+        "client_id": "tracecat-client",
+        "scope_count": 2,
+        "requests_refresh_scope": True,
+    }
+    assert info.call_args_list[1].args == ("MCP refresh grant succeeded",)
+    assert info.call_args_list[1].kwargs == {
+        "client_id": "tracecat-client",
+        "access_token_expires_in": 5,
+        "issued_refresh_token": True,
+        "refresh_token_rotated": True,
+    }
+
+
+@pytest.mark.anyio
+async def test_exchange_refresh_token_logs_invalid_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    client = OAuthClientInformationFull(
+        client_id="tracecat-client",
+        redirect_uris=[AnyUrl("http://localhost:3333/callback")],
+        grant_types=["authorization_code", "refresh_token"],
+        response_types=["code"],
+        token_endpoint_auth_method="none",
+    )
+    refresh_token = RefreshToken(
+        token="bad-refresh-token",
+        client_id="tracecat-client",
+        scopes=["openid", "offline_access"],
+        expires_at=1_700_000_000,
+    )
+
+    async def _exchange_refresh_token(self, client, refresh_token, scopes):
+        raise mcp_auth.TokenError("invalid_grant", "refresh token rejected")
+
+    monkeypatch.setattr(
+        mcp_auth.OIDCProxy,
+        "exchange_refresh_token",
+        _exchange_refresh_token,
+    )
+    warning = MagicMock()
+    monkeypatch.setattr(mcp_auth.logger, "warning", warning)
+
+    with pytest.raises(mcp_auth.TokenError) as exc_info:
+        await auth.exchange_refresh_token(
+            client,
+            refresh_token,
+            ["openid", "offline_access"],
+        )
+
+    assert exc_info.value.error == "invalid_grant"
+    warning.assert_called_once_with(
+        "MCP refresh grant failed",
+        client_id="tracecat-client",
+        error="invalid_grant",
+        error_description="refresh token rejected",
+    )
+
+
+@pytest.mark.anyio
+async def test_load_access_token_logs_upstream_validation_failure_with_fastmcp_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+
+    async def _load_access_token(self, token: str) -> None:
+        assert token == "fastmcp-jwt"
+        return None
+
+    monkeypatch.setattr(mcp_auth.OIDCProxy, "load_access_token", _load_access_token)
+    monkeypatch.setattr(
+        auth,
+        "_jwt_issuer",
+        SimpleNamespace(
+            verify_token=lambda token: {
+                "jti": "abcdef1234567890",
+                "client_id": "tracecat-client",
+                "scope": "openid offline_access",
+            }
+        ),
+    )
+    warning = MagicMock()
+    monkeypatch.setattr(mcp_auth.logger, "warning", warning)
+
+    access_token = await auth.load_access_token("fastmcp-jwt")
+
+    assert access_token is None
+    warning.assert_called_once_with(
+        "MCP access token validation failed after upstream check",
+        client_id="tracecat-client",
+        jti_prefix="abcdef12",
+        scope_count=2,
+    )
 
 
 def test_get_token_identity_extracts_ids_from_claims_and_scopes(

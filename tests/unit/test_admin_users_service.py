@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from typing import cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import func, select
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Mapped
 from tracecat_ee.admin.users.schemas import AdminUserCreate
 from tracecat_ee.admin.users.service import AdminUserService
 
+from tracecat.auth.dex.service import DexLocalAuthProvisioningError
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import Membership, OrganizationMembership, User
@@ -42,7 +44,11 @@ async def test_create_user_creates_platform_user_without_memberships(
         is_superuser=False,
     )
 
-    created = await service.create_user(params)
+    with patch(
+        "tracecat_ee.admin.users.service.get_dex_local_auth_service",
+        return_value=None,
+    ):
+        created = await service.create_user(params)
 
     user_result = await session.execute(
         select(User).where(cast(Mapped[uuid.UUID], User.id) == created.id)
@@ -86,7 +92,11 @@ async def test_create_user_respects_superuser_flag(
         is_superuser=True,
     )
 
-    created = await service.create_user(params)
+    with patch(
+        "tracecat_ee.admin.users.service.get_dex_local_auth_service",
+        return_value=None,
+    ):
+        created = await service.create_user(params)
 
     user_result = await session.execute(
         select(User).where(cast(Mapped[uuid.UUID], User.id) == created.id)
@@ -106,7 +116,72 @@ async def test_create_user_rejects_duplicate_email(
         password="this-is-a-strong-password",
     )
 
-    await service.create_user(params)
-
-    with pytest.raises(ValueError, match="already exists"):
+    with patch(
+        "tracecat_ee.admin.users.service.get_dex_local_auth_service",
+        return_value=None,
+    ):
         await service.create_user(params)
+
+    with (
+        patch(
+            "tracecat_ee.admin.users.service.get_dex_local_auth_service",
+            return_value=None,
+        ),
+        pytest.raises(ValueError, match="already exists"),
+    ):
+        await service.create_user(params)
+
+
+@pytest.mark.anyio
+async def test_create_user_provisions_dex_local_auth_user(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminUserService(session, role=platform_role)
+    params = AdminUserCreate(
+        email="dex-user@example.com",
+        password="this-is-a-strong-password",
+    )
+    dex_service = AsyncMock()
+
+    with patch(
+        "tracecat_ee.admin.users.service.get_dex_local_auth_service",
+        return_value=dex_service,
+    ):
+        created = await service.create_user(params)
+
+    dex_service.upsert_password.assert_awaited_once()
+    kwargs = dex_service.upsert_password.await_args.kwargs
+    assert kwargs["email"] == params.email
+    assert kwargs["username"] == params.email
+    assert kwargs["user_id"] == str(created.id)
+    assert kwargs["password_hash"] != params.password
+    assert kwargs["password_hash"].startswith("$2")
+
+
+@pytest.mark.anyio
+async def test_create_user_rolls_back_when_dex_provisioning_fails(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminUserService(session, role=platform_role)
+    params = AdminUserCreate(
+        email="dex-fail@example.com",
+        password="this-is-a-strong-password",
+    )
+    dex_service = AsyncMock()
+    dex_service.upsert_password.side_effect = DexLocalAuthProvisioningError("dex down")
+
+    with (
+        patch(
+            "tracecat_ee.admin.users.service.get_dex_local_auth_service",
+            return_value=dex_service,
+        ),
+        pytest.raises(DexLocalAuthProvisioningError, match="dex down"),
+    ):
+        await service.create_user(params)
+
+    result = await session.execute(
+        select(User).where(cast(Mapped[str], User.email) == params.email)
+    )
+    assert result.scalar_one_or_none() is None

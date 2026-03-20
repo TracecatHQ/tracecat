@@ -40,6 +40,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.audit.service import AuditService
+from tracecat.auth.dex.service import (
+    DexLocalAuthProvisioningError,
+    get_dex_local_auth_service,
+    hash_password_for_dex,
+)
 from tracecat.auth.enums import AuthType
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.types import PlatformRole
@@ -83,6 +88,46 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self.logger = logger.bind(unit="UserManager")
         # Store invitation token between create() and on_after_register()
         self._pending_invitation_token: str | None = None
+        self._pending_dex_password_hash: str | None = None
+        self._pending_previous_email: str | None = None
+
+    async def _update_with_dex_sync(
+        self,
+        user_update: schemas.BaseUserUpdate,
+        user: User,
+        *,
+        safe: bool,
+        request: Request | None = None,
+    ) -> User:
+        set_fields = user_update.model_fields_set
+        if (
+            "email" in set_fields
+            and "password" not in set_fields
+            and (service := get_dex_local_auth_service())
+            and await service.is_local_auth_enabled()
+        ):
+            raise InvalidPasswordException(
+                "Password is required when changing email in Dex local-auth mode"
+            )
+
+        previous_pending_dex_password_hash = self._pending_dex_password_hash
+        previous_pending_email = self._pending_previous_email
+        next_dex_password_hash = (
+            hash_password_for_dex(password)
+            if "password" in set_fields
+            and isinstance((password := getattr(user_update, "password", None)), str)
+            and password
+            else previous_pending_dex_password_hash
+        )
+        self._pending_dex_password_hash = next_dex_password_hash
+        self._pending_previous_email = (
+            user.email if "email" in set_fields else previous_pending_email
+        )
+        try:
+            return await super().update(user_update, user, safe=safe, request=request)
+        finally:
+            self._pending_dex_password_hash = previous_pending_dex_password_hash
+            self._pending_previous_email = previous_pending_email
 
     async def update(
         self,
@@ -103,8 +148,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             is_unprivileged and any(field in set_fields for field in denylist)
         ):
             raise PermissionsException("Operation not permitted")
-
-        return await super().update(user_update, user, safe=True, request=request)
+        return await self._update_with_dex_sync(
+            user_update, user, safe=True, request=request
+        )
 
     async def admin_update(
         self,
@@ -113,7 +159,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         request: Request | None = None,
     ) -> User:
         """Update a user with admin privileges. This is only used to bootstrap the first user."""
-        return await super().update(user_update, user, safe=False, request=request)
+        return await self._update_with_dex_sync(
+            user_update, user, safe=False, request=request
+        )
 
     async def validate_password(
         self, password: str, user: schemas.BaseUserCreate | User
@@ -155,10 +203,14 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
     async def authenticate(self, credentials: OAuth2PasswordRequestForm) -> User | None:
         """Authenticate local email/password and enforce platform/org policy."""
+        self._pending_dex_password_hash = None
         user = await super().authenticate(credentials)
         if user is None:
             return None
         if await self._is_local_password_login_allowed(user):
+            self._pending_dex_password_hash = hash_password_for_dex(
+                credentials.password
+            )
             return user
         self.logger.info(
             "Blocked local email/password login by auth policy",
@@ -323,12 +375,24 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # This allows atomic invitation acceptance during registration
         if isinstance(user_create, UserCreate) and user_create.invitation_token:
             self._pending_invitation_token = user_create.invitation_token
+        self._pending_dex_password_hash = hash_password_for_dex(user_create.password)
 
         try:
             return await super().create(user_create, safe, request)
         except UserAlreadyExists:
             # NOTE(security): Bypass fastapi users exception handler
             raise InvalidEmailException() from None
+        finally:
+            self._pending_dex_password_hash = None
+
+    async def reset_password(
+        self, token: str, password: str, request: Request | None = None
+    ) -> User:
+        self._pending_dex_password_hash = hash_password_for_dex(password)
+        try:
+            return await super().reset_password(token, password, request)
+        finally:
+            self._pending_dex_password_hash = None
 
     async def on_after_login(
         self,
@@ -336,17 +400,26 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         request: Request | None = None,
         response: Response | None = None,
     ) -> None:
-        # Update last login info
         try:
-            now = datetime.now(UTC)
-            await self.user_db.update(user, update_dict={"last_login_at": now})
-        except Exception as e:
-            self.logger.warning(
-                "Failed to update last login info",
-                user_id=user.id,
-                user=user.email,
-                error=e,
+            # Update last login info
+            try:
+                now = datetime.now(UTC)
+                await self.user_db.update(user, update_dict={"last_login_at": now})
+            except Exception as e:
+                self.logger.warning(
+                    "Failed to update last login info",
+                    user_id=user.id,
+                    user=user.email,
+                    error=e,
+                )
+
+            await self._sync_dex_local_auth_user(
+                user,
+                dex_password_hash=self._pending_dex_password_hash,
+                raise_on_error=False,
             )
+        finally:
+            self._pending_dex_password_hash = None
 
     async def on_after_register(
         self, user: User, request: Request | None = None
@@ -381,6 +454,23 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # - Superusers have implicit access to all orgs (via is_platform_superuser)
         # - Regular users get org membership via invitation acceptance flow
         # - Workspace membership is managed separately by workspace admins
+        await self._sync_dex_local_auth_user(
+            user, dex_password_hash=self._pending_dex_password_hash
+        )
+
+    async def on_after_update(
+        self,
+        user: User,
+        update_dict: dict[str, object],
+        request: Request | None = None,
+    ) -> None:
+        if "email" not in update_dict and "password" not in update_dict:
+            return
+        await self._sync_dex_local_auth_user(
+            user,
+            dex_password_hash=self._pending_dex_password_hash,
+            previous_email=self._pending_previous_email,
+        )
 
     async def _accept_invitation_atomically(self, user: User) -> None:
         """Accept an invitation during registration if a token was provided.
@@ -436,6 +526,16 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             f"Verification requested for user {user.id}. Verification token: {token}"
         )
 
+    async def on_after_reset_password(
+        self, user: User, request: Request | None = None
+    ) -> None:
+        await self._sync_dex_local_auth_user(
+            user, dex_password_hash=self._pending_dex_password_hash
+        )
+
+    async def on_after_delete(self, user: User, request: Request | None = None) -> None:
+        await self._delete_dex_local_auth_user(user.email)
+
     async def saml_callback(
         self,
         *,
@@ -472,16 +572,73 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 ) from e
             # Create account
             password = self.password_helper.generate()
+            self._pending_dex_password_hash = hash_password_for_dex(password)
             user_dict = {
                 "email": email,
                 "hashed_password": self.password_helper.hash(password),
                 "is_verified": is_verified_by_default,
             }
             user = await self.user_db.create(user_dict)
-            await self.on_after_register(user)
+            try:
+                await self.on_after_register(user)
+            finally:
+                self._pending_dex_password_hash = None
 
         self.logger.info(f"User {user.id} authenticated via SAML.")
         return user
+
+    async def _sync_dex_local_auth_user(
+        self,
+        user: User,
+        *,
+        dex_password_hash: str | None = None,
+        previous_email: str | None = None,
+        raise_on_error: bool = True,
+    ) -> None:
+        if not (service := get_dex_local_auth_service()):
+            return
+        if not dex_password_hash:
+            if previous_email:
+                self.logger.warning(
+                    "Skipping Dex local-auth sync because no Dex password hash was available",
+                    user_id=str(user.id),
+                    email=user.email,
+                    previous_email=previous_email,
+                )
+            return
+
+        try:
+            await service.upsert_password(
+                email=user.email,
+                password_hash=dex_password_hash,
+                username=user.email,
+                user_id=str(user.id),
+                previous_email=previous_email,
+            )
+        except DexLocalAuthProvisioningError as exc:
+            self.logger.exception(
+                "Failed to sync Dex local-auth user",
+                user_id=str(user.id),
+                email=user.email,
+                previous_email=previous_email,
+                error=str(exc),
+            )
+            if raise_on_error:
+                raise
+
+    async def _delete_dex_local_auth_user(self, email: str) -> None:
+        if not (service := get_dex_local_auth_service()):
+            return
+
+        try:
+            await service.delete_password(email)
+        except DexLocalAuthProvisioningError as exc:
+            self.logger.exception(
+                "Failed to delete Dex local-auth user",
+                email=email,
+                error=str(exc),
+            )
+            raise
 
 
 async def get_user_db(session: AsyncSession = Depends(get_async_session)):

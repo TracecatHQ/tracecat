@@ -234,7 +234,7 @@ OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "").strip().rstrip("/")
 
 if TRACECAT__AUTH_TYPES == {AuthType.OIDC} and not OIDC_ISSUER:
     raise ValueError(
-        "OIDC_ISSUER must be set when TRACECAT__AUTH_TYPES includes 'oidc'"
+        "OIDC_ISSUER must be set when TRACECAT__AUTH_TYPES is exactly 'oidc'"
     )
 
 OIDC_CLIENT_ID = (
@@ -249,6 +249,23 @@ OIDC_SCOPES = tuple(
         os.environ.get("OIDC_SCOPES", "openid profile email").replace(",", " ").split()
     )
     if scope
+)
+
+DEX_ISSUER = os.environ.get("DEX_ISSUER", "").strip().rstrip("/")
+DEX_INTERNAL_ISSUER = os.environ.get("DEX_INTERNAL_ISSUER", "").strip().rstrip("/")
+DEX_TRACECAT_CLIENT_ID = os.environ.get("DEX_TRACECAT_CLIENT_ID", "").strip()
+DEX_TRACECAT_CLIENT_SECRET = os.environ.get("DEX_TRACECAT_CLIENT_SECRET", "").strip()
+MCP_DEX_MODE = os.environ.get("MCP_DEX_MODE", "").strip().lower()
+MCP_DEX_SAML_SSO_URL = os.environ.get("MCP_DEX_SAML_SSO_URL", "").strip()
+MCP_DEX_SAML_CA_DATA = os.environ.get("MCP_DEX_SAML_CA_DATA", "").strip()
+
+MCP_DEX_GRPC_TARGET = (
+    os.environ.get("MCP_DEX_GRPC_TARGET") or os.environ.get("DEX_GRPC_TARGET") or ""
+).strip()
+MCP_DEX_GRPC_TIMEOUT_SECONDS = float(
+    os.environ.get("MCP_DEX_GRPC_TIMEOUT_SECONDS")
+    or os.environ.get("DEX_GRPC_TIMEOUT_SECONDS")
+    or 5.0
 )
 
 # Backward-compatible aliases for legacy config names.
@@ -305,6 +322,9 @@ XMLSEC_BINARY_PATH = os.environ.get("XMLSEC_BINARY_PATH", "/usr/bin/xmlsec1")
 
 SAML_CA_CERTS = os.environ.get("SAML_CA_CERTS")
 """Base64 encoded CA certificates for validating self-signed certificates."""
+
+SAML_METADATA_CERT = os.environ.get("SAML_METADATA_CERT", "").strip()
+"""PEM/base64 certificate material extracted from the upstream SAML metadata."""
 
 SAML_VERIFY_SSL_ENTITY = (
     os.environ.get("SAML_VERIFY_SSL_ENTITY", "true").lower() == "true"
