@@ -49,11 +49,14 @@ When renaming or moving a page, add a redirect in `docs/docs.json` `redirects` a
 - Clarity over cleverness and verbosity: always keep sentences concise, do not add unnecessary words.
 - Be consistent: always use terminology and spelling consistent with the codebase and the rest of the docs.
 - Be skimmable: avoid more than 2 sentences per paragraph.
-- Write in second person: referring to the rader makes it easier to follow instructions and makes the docs feel more personal.
+- Do not split a short thought into two paragraphs or two one-line sentences when one sentence reads more naturally.
+- Capitalize the first word of every bullet point.
+- Write in second person: referring to the reader makes it easier to follow instructions and makes the docs feel more personal.
 - Use product terms that match the app and codebase. For example, use `workflow definition`, `schema`, `subflow`, `upstream`, and `downstream`. Do not introduce alternatives such as `workflow file`, `shape`, `child workflow`, or `child action` unless the code itself uses that term in a user-facing name.
 - Use `Action inputs` for user-facing docs. Use `action.args` only when you are explicitly referring to the `args` field in a workflow definition.
 - Use `Input schema` and `Output schema` for user-facing docs. Use `expects` and `returns` only when you are explicitly referring to those workflow definition fields.
 - Use `Workflow environment` for user-facing docs. Use `config.environment` only when you are explicitly referring to the workflow definition field.
+- Use full-sentence bullets in `Related pages` sections. Start each bullet with `See [Page]...` and explain why the reader should open it.
 - Do not document `retry_until` or `wait_until` in user-facing docs. Treat them as internal or transitional fields unless the product direction changes.
 
 ## Key rules

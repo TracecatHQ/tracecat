@@ -1,9 +1,31 @@
 ---
 title: "Comment triggers"
-description: "Documentation for Comments in Tracecat."
+description: "Run workflows from case comments and replies."
 icon: "lock"
 ---
 
-# Comments
+## Overview
 
-This page is coming soon. Add content for this topic.
+You can select a workflow when posting a case comment or reply.
+
+![Comment trigger](/img/triggers/comment-triggers.png)
+
+## Select a workflow on a comment
+
+The comment composer includes a workflow selector. If you do not choose a workflow, Tracecat only posts the comment.
+
+## What happens when you send the comment
+
+When you send the comment, Tracecat creates the comment and starts the selected workflow from that comment context.
+
+## What the workflow receives
+
+The trigger payload includes:
+
+- Case ID in `case_id`.
+- Comment ID in `comment_id`.
+- Parent comment ID in `parent_id`.
+- Comment text in `text`.
+- Actor details in `triggered_by`.
+- Event details in `event`.
+- Case tags in `tags`.

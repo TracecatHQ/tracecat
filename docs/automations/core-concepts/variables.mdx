@@ -5,112 +5,55 @@ description: "Create and use reusable workspace variables in workflows and agent
 
 ## Overview
 
-Variables store reusable non-secret values that you want to reference across workflows, tools, and agents.
-
-Each variable has:
-
-- a `name`
-- one or more key-value pairs in `values`
-- an `environment`
-
-If you do not set an environment, Tracecat uses `default`.
-
-## Variable shape
-
-Variable names use lowercase snake case such as `jira`, `api_config`, or `routing_rules`.
-
-Each variable can contain multiple keys:
-
-<CodeGroup>
-```yaml Variable
-name: jira
-environment: default
-values:
-  base_url: https://your-company.atlassian.net
-  project_key: SEC
-```
-
-```yaml Expressions
-base_url: ${{ VARS.jira.base_url }}
-project_key: ${{ VARS.jira.project_key }}
-```
-</CodeGroup>
-
-## When to use variables
-
-Use variables for values that are useful but not sensitive, such as:
-
-- base URLs
-- project IDs
-- queue names
-- routing rules
-- tenant-specific defaults
-
-If the value is sensitive, use a [secret](/automations/core-concepts/secrets) instead.
-
-## Variable environments
-
-Variables are environment-aware in the same way as secrets. This lets you keep the same variable name across environments while swapping the values that should be used.
-
-Example:
-
-<CodeGroup>
-```yaml Variables
-- name: crowdstrike
-  environment: prod
-  values:
-    base_url: https://api.crowdstrike.com
-
-- name: crowdstrike
-  environment: eu
-  values:
-    base_url: https://api.eu-1.crowdstrike.com
-```
-
-```yaml Expression
-url: ${{ VARS.crowdstrike.base_url }}
-```
-</CodeGroup>
-
-The workflow environment determines which value is resolved.
+Variables store reusable non-secret values for workflows, tools, and agents.
 
 ## Using variables in expressions
 
-Reference variables with:
+Access a variable in expressions with:
 
 ```yaml
 ${{ VARS.<variable_name>.<key> }}
 ```
 
-Examples:
+## Variable fields
+
+Each variable has these fields:
+
+- Name: a lowercase snake case name such as `jira` or `api_config`
+- Values: one or more key-value pairs
+- Environment: the Workflow environment where the variable applies
+
+## When to use variables
+
+Use variables for non-sensitive values such as:
+
+- Base URLs
+- Project IDs
+- Queue names
+- Routing rules
+- Tenant-specific defaults
+
+If the value is sensitive, use a [secret](/automations/core-concepts/secrets) instead.
+
+## Variable environments
+
+Every variable belongs to a Workflow environment, and if you do not set one, Tracecat uses `default`.
+Environments let you keep the same variable name and change the value by target.
+
+## Access variables in agents
+
+Agents can use variable expressions in tool arguments and integration configuration.
+Tracecat resolves variables during tool execution, and the values are not fetched directly by the LLM provider.
 
 <CodeGroup>
-```yaml URL construction
-url: ${{ VARS.elastic_security.base_url }}/api/detection_engine/signals/search
-```
-
-```yaml Prompt context
-instructions: Investigate alerts for project ${{ VARS.jira.project_key }}.
-```
-</CodeGroup>
-
-## How to use with agents
-
-Agents support variable expressions in tool arguments and integration configuration. Like secrets, these expressions are resolved by Tracecat when a tool call is prepared, not by asking the model provider to fetch values itself.
-
-Use prompts that tell the agent which variable expressions to reuse:
-
-<CodeGroup>
-```text Good
+```text
 When you call Jira tools, use `${{ VARS.jira.base_url }}` as the base URL and `${{ VARS.jira.project_key }}` as the default project key.
 ```
-
-```text Better
-Use Tracecat variable expressions for stable configuration values. Reuse `${{ VARS.jira.base_url }}` and `${{ VARS.jira.project_key }}` in tool calls instead of hardcoding them in your response.
-```
 </CodeGroup>
+
+This also applies to MCP `stdio` environment settings.
 
 ## Related pages
 
-- [Secrets](/automations/core-concepts/secrets)
-- [Expressions](/automations/core-concepts/expressions)
+- See [Secrets](/automations/core-concepts/secrets) for sensitive values such as API keys, passwords, and certificates.
+- See [Expressions](/automations/core-concepts/expressions) for how expressions work across triggers, actions, secrets, and variables.

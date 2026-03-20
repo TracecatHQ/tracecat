@@ -1,9 +1,23 @@
 ---
 title: "Task triggers"
-description: "Documentation for task triggers in Tracecat."
+description: "Run workflows from case tasks."
 icon: "lock"
 ---
 
-## Coming soon
+## Overview
 
-This page is coming soon. Add content for this topic.
+You can attach a workflow to a case task and run it from the task UI.
+
+![Task trigger](/img/triggers/task-trigger.png)
+
+## Attach a workflow to a task
+
+The task editor lets you select an optional workflow for the task. If you do not select one, the task does not trigger a workflow.
+
+## Run a task workflow
+
+Starting the task workflow opens a trigger dialog. Tracecat always passes `case_id` and `task_id` to the workflow.
+
+## Input handling
+
+If the workflow has an Input schema, the dialog asks for inputs before the run starts. If it does not, Tracecat shows a confirmation using generated trigger inputs from the case and task context.

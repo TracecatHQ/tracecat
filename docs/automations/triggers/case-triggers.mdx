@@ -1,9 +1,40 @@
 ---
 title: "Case triggers"
-description: "Documentation for case triggers in Tracecat."
+description: "Start workflows from case events."
 icon: "lock"
 ---
 
-## Coming soon
+## Overview
 
-This page is coming soon. Add content for this topic.
+Case triggers start a workflow when selected case events happen.
+
+![Case trigger](/img/triggers/case-triggers.png)
+
+## Case events
+
+You can configure one or more case events before enabling the trigger. Supported event families include:
+
+- Case events such as create, update, close, reopen, and view.
+- Comment events such as comment and reply activity.
+- Field changes such as status, priority, severity, assignee, and payload changes.
+- Tag events such as tag add and remove.
+- Task events such as task create, delete, and workflow or assignee changes.
+- Attachment events such as add and remove.
+- Dropdown changes.
+
+## Tag allowlist
+
+You can restrict runs to cases with matching tags. If the allowlist is empty, no tag filtering is applied. Matching uses the case's current tags.
+
+## What the workflow receives
+
+The trigger payload includes:
+
+- Case ID in `case_id`.
+- Event details in `event`.
+- Case tags in `tags`.
+- Workspace ID in `workspace_id`.
+
+## Important behavior
+
+Workflow-originated case events are ignored to avoid loops.

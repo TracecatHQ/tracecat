@@ -31,6 +31,31 @@ Workflows can be triggered by:
 You can specify trigger inputs in the workflow builder.
 These inputs are passed to the workflow as `${{ TRIGGER }}` expressions.
 
+## View workflow runs
+
+There are three views for workflow runs:
+- Events panel: most recent run in the left part of the workflow builder
+- Runs view: all runs for a specific workflow
+- <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> History view: all runs across all workflows
+
+<br />
+
+<Frame caption="Events panel" hint="We only show runs that you triggered manually or by a trigger. This allows other users to work on the same workflow without seeing your runs.">
+  ![Workflow events panel](/img/automations/workflows/workflow-events-panel.png)
+</Frame>
+
+<br />
+
+<Frame caption="Runs view">
+  ![Workflow runs view](/img/automations/workflows/workflow-runs-view.png)
+</Frame>
+
+<br />
+
+<Frame caption="History view">
+  ![Workflow runs history](/img/automations/workflows/workflow-runs-history.png)
+</Frame>
+
 ## Draft workflows
 
 Draft workflows are workflows that are currently being edited.
@@ -126,13 +151,6 @@ Right click on a workflow in the `/workflows` page to export the draft or publis
 Exported workflows can be imported via the "Create new" button in the `/workflows` page:
 
 ![Workflow import](/img/automations/workflows/workflow-import.png)
-
-## View workflow runs
-
-There are three views for workflow runs:
-- Events panel: most recent run in the workflow builder
-- Runs view: all runs for a specific workflow
-- <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> History view: all runs across all workflows
 
 ## Cancel / terminate / reset runs
 

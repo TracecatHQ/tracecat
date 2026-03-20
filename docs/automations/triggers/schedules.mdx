@@ -1,8 +1,35 @@
 ---
 title: "Schedules"
-description: "Documentation for Schedules in Tracecat."
+description: "Run workflows on a time-based cadence."
 ---
 
-# Schedules
+## Overview
 
-This page is coming soon. Add content for this topic.
+Schedules run a workflow automatically on a time-based cadence. The workflow must be saved before you can create a schedule.
+
+![Schedule trigger](/img/triggers/schedule.png)
+
+## Schedule types
+
+Tracecat supports two schedule types:
+
+- Interval schedules use `every`.
+- Cron schedules use `cron`.
+
+Cron schedules use standard 5-field or 6-field cron expressions.
+
+## Schedule fields
+
+- Status: `online` or `offline`.
+- Start time: optional.
+- End time: optional.
+- Timeout: optional, and `0` means no timeout.
+- Offset: interval-only, using an ISO 8601 duration.
+
+## When to use schedules
+
+Use schedules when you want to:
+
+- Poll an external system on a fixed cadence.
+- Run cleanup or maintenance workflows on a timer.
+- Sync data or refresh enrichments throughout the day.

@@ -1,8 +1,72 @@
 ---
 title: "Webhooks"
-description: "Documentation for Webhooks in Tracecat."
+description: "Trigger workflows from external systems with webhooks."
 ---
 
-# Webhooks
+## Overview
 
-This page is coming soon. Add content for this topic.
+Webhooks let an external system start a workflow through its public URL. The URL includes the webhook secret, so you should treat it as sensitive. `POST` is the primary method, and `GET` is also supported for verification-style flows. The workflow must have a saved definition before the webhook can run it.
+
+![Webhook trigger](/img/triggers/webhook.png)
+
+## Using webhook payloads
+
+The request body becomes the trigger payload for the workflow. Your workflow can read it from `TRIGGER`.
+
+## Supported request formats
+
+Tracecat accepts these request formats:
+
+- JSON by default.
+- Form payloads with `application/x-www-form-urlencoded`.
+- NDJSON payloads with `application/x-ndjson`, `application/jsonlines`, and `application/jsonl`.
+
+NDJSON payloads start multiple workflow runs, one per line, instead of one combined run.
+
+## Securing webhooks
+
+### Allowed HTTP methods
+
+You can allow `GET`, `POST`, or both. Requests that use a method outside the allowed list are rejected.
+
+### API key authentication
+
+Webhook API keys are optional. If you configure one, the sender must include it in the `x-tracecat-api-key` header.
+
+You can generate, rotate, revoke, and delete the key from the UI. If you revoke a key, webhook requests are blocked until you generate a new one or remove API key protection.
+
+### IP allowlist
+
+You can restrict requests to specific IPs or CIDR ranges. The allowlist is IPv4-only.
+
+## Webhook responses
+
+By default, a webhook returns JSON in this shape:
+
+```json
+{
+  "message": "Workflow execution created",
+  "wf_id": "<workflow_id>",
+  "wf_exec_id": "<workflow_execution_id>"
+}
+```
+
+If you use `echo=true`, the response also includes `payload`. If you use `echo=true&empty_echo=true`, Tracecat returns an empty `200` response instead of the default JSON body.
+
+## Slack event subscriptions
+
+For Slack event subscription verification, use `?echo=true`.
+
+## Slack modal close and fast acknowledgements
+
+For Slack interactive flows that need a fast empty acknowledgement, use `?echo=true&empty_echo=true`. This returns an empty `200` response instead of the default workflow execution JSON.
+
+## Okta verification
+
+Use `vendor=okta` for Okta verification requests. Tracecat reads `x-okta-verification-challenge` and returns:
+
+```json
+{
+  "verification": "<challenge>"
+}
+```
