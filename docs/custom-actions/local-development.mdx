@@ -1,0 +1,25 @@
+---
+title: "Local development"
+description: "Hot reload custom actions in Tracecat."
+---
+
+You can test custom actions locally without syncing on every change.
+This is for development only with the Docker compose stack.
+You should only use remote [custom registry](/custom-actions/custom-registry) sync for production.
+
+## Why local development
+
+- Faster feedback loop
+- No need to sync on every change
+- No need to republish a workflow to use the latest platform and custom actions
+
+## How to enable local development
+
+1. Set the `TRACECAT__LOCAL_REPOSITORY_ENABLED` environment variable to `true`
+2. Set the `TRACECAT__LOCAL_REPOSITORY_PATH` environment variable to the path of the local registry
+3. Set
+
+```env
+TRACECAT__LOCAL_REPOSITORY_ENABLED=true
+TRACECAT__LOCAL_REPOSITORY_PATH=~/dev/org/internal-registry
+```
