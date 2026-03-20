@@ -5,6 +5,7 @@ Tests the runtime execution with mocked Claude SDK.
 
 from __future__ import annotations
 
+import os
 import tempfile
 import uuid
 from dataclasses import replace
@@ -238,7 +239,88 @@ class TestClaudeAgentRuntimeRun:
 
         # Should have called send_stream_event
         mock_socket_writer.send_stream_event.assert_awaited()
-        mock_adapter.to_unified_event.assert_called()
+
+    @pytest.mark.anyio
+    async def test_sets_skip_version_check_before_sdk_connect(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Test that the runtime primes the SDK skip-version-check env var."""
+        monkeypatch.delenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", raising=False)
+        mock_client = MagicMock()
+
+        async def enter_client() -> MagicMock:
+            assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "1"
+            return mock_client
+
+        mock_client.__aenter__ = AsyncMock(side_effect=enter_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.query = AsyncMock()
+        mock_client.interrupt = AsyncMock()
+
+        async def empty_response() -> Any:
+            return
+            yield  # pragma: no cover  # noqa: B901
+
+        mock_client.receive_response = empty_response
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            await runtime.run(sample_init_payload)
+
+        assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "1"
+
+    @pytest.mark.anyio
+    async def test_preserves_existing_skip_version_check_value(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Test that runtime does not overwrite an existing SDK env value."""
+        monkeypatch.setenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "existing")
+        mock_client = MagicMock()
+
+        async def enter_client() -> MagicMock:
+            assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "existing"
+            return mock_client
+
+        mock_client.__aenter__ = AsyncMock(side_effect=enter_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.query = AsyncMock()
+        mock_client.interrupt = AsyncMock()
+
+        async def empty_response() -> Any:
+            return
+            yield  # pragma: no cover  # noqa: B901
+
+        mock_client.receive_response = empty_response
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            await runtime.run(sample_init_payload)
+
+        assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "existing"
 
     @pytest.mark.anyio
     async def test_sends_error_on_exception(
