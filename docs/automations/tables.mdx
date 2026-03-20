@@ -1,31 +1,96 @@
 ---
 title: "Tables"
-description: "Use tables and filesystem-backed memory in automations."
+description: "Store and manage structured data."
 ---
 
-Tables give workflows durable memory for lookups, enrichment context, and shared operational state.
+## Tables
 
-## Memory actions
+![Table](/img/tables/table.png)
 
-<CardGroup cols={2}>
-  <Card
-    title="Tables"
-    icon="database"
-    href="/automations/core-actions/memory-actions/tables"
-  >
-    Create tables and read or write rows from workflows.
-  </Card>
-  <Card
-    title="Filesystem"
-    icon="folder-lock"
-    href="/automations/core-actions/memory-actions/filesystem"
-  >
-    Filesystem-backed memory actions are available in private beta.
-  </Card>
-</CardGroup>
+Tables let you store structured data in your workspace.
+You can use them from the UI or from `core.table.*` actions in a workflow definition.
 
-## When to use tables
+Use tables when you want to:
+- Keep durable records across workflow runs
+- Look up known values such as users, hosts, or indicators
+- Search and export structured data for investigation or reporting
+- Reuse the same dataset across multiple workflows
 
-- Use tables for structured shared memory such as inventories, allowlists, and correlation state.
-- Use linked case rows when table data should stay attached to an investigation.
-- Use filesystem-backed memory when your workspace is enrolled in the beta and needs file-oriented persistence.
+## Columns
+
+Each table has a schema that defines its columns.
+Choose column types based on the data you want to store and query.
+
+You can create tables with the following column types:
+- TEXT
+- INTEGER
+- BOOLEAN
+- NUMERIC
+- JSONB
+- TIMESTAMPTZ
+- UUID
+
+Use `TEXT`, `INTEGER`, `BOOLEAN`, and `NUMERIC` for simple fields.
+Use `JSONB` when you need to store nested structured data, and use `TIMESTAMPTZ` or `UUID` for timestamps and identifiers.
+
+## Rows
+
+Rows hold the actual records in a table.
+You can insert, update, delete, look up, and search rows as your workflows process new events.
+
+This works well for data such as:
+- Asset inventories
+- User allowlists
+- Enrichment results
+- Investigation evidence
+- External system references
+
+If you already know the field and value you want, use a direct lookup.
+If you need broader filtering or text search, use row search instead.
+
+## Index and upsert
+
+You'll often need to deduplicate data or keep one current record for a given key.
+You can do that by creating an index and then using upsert when you insert rows.
+
+![Create unique index](/img/tables/create-unique-index.png)
+
+For example, you might want one row per hostname, email address, or indicator value.
+A unique index enforces that rule, and upsert lets your workflow update the existing row instead of creating a duplicate.
+
+This pattern is useful when you want your workflows to keep a table current over time instead of appending duplicate rows.
+
+## Table actions
+
+Use `core.table.*` actions when you want your workflows to work with tables directly.
+
+- [Tables](/automations/core-actions/memory-actions/tables) to create tables, inspect metadata, insert rows, search rows, and export data
+
+For example:
+
+```yaml
+- ref: ensure_inventory_table
+  action: core.table.create_table
+  args:
+    name: asset_inventory
+    columns:
+      - name: hostname
+        type: text
+      - name: owner
+        type: text
+    raise_on_duplicate: false
+- ref: upsert_asset
+  action: core.table.insert_row
+  args:
+    table: asset_inventory
+    upsert: true
+    row_data:
+      hostname: ${{ TRIGGER.hostname }}
+      owner: ${{ TRIGGER.owner }}
+- ref: lookup_asset
+  action: core.table.lookup
+  args:
+    table: asset_inventory
+    column: hostname
+    value: ${{ TRIGGER.hostname }}
+```
