@@ -12,7 +12,6 @@ import {
   type NodeRemoveChange,
   type OnConnectStartParams,
   Panel,
-  Position,
   ReactFlow,
   type ReactFlowInstance,
   useEdgesState,
@@ -32,7 +31,6 @@ import { v4 as uuid4 } from "uuid"
 
 import "@xyflow/react/dist/style.css"
 
-import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
 import type {
   GraphOperation,
@@ -62,11 +60,10 @@ import { useGraph, useGraphOperations } from "@/lib/hooks"
 import { pruneGraphObject } from "@/lib/workflow"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
+import { getLayoutedElements } from "./graph-layout"
 
-const dagreGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
 const defaultNodeWidth = 172
 const defaultNodeHeight = 36
-const triggerNodeAutoLayoutGap = 64
 
 const fitViewOptions: FitViewOptions = {
   minZoom: 0.75,
@@ -74,83 +71,6 @@ const fitViewOptions: FitViewOptions = {
 }
 
 const getId = () => uuid4()
-
-/**
- * Taken from https://reactflow.dev/examples/layout/dagre
- * @param nodes
- * @param edges
- * @param direction
- * @returns
- */
-function getLayoutedElements(
-  nodes: Node[],
-  edges: Edge[],
-  direction = "TB"
-): {
-  nodes: Node[]
-  edges: Edge[]
-} {
-  const isHorizontal = direction === "LR"
-  dagreGraph.setGraph({ rankdir: direction, nodesep: 250, ranksep: 300 })
-
-  nodes.forEach((node) => {
-    dagreGraph.setNode(node.id, {
-      width: node.width ?? defaultNodeWidth,
-      height: node.height ?? defaultNodeHeight,
-    })
-  })
-
-  edges.forEach((edge) => {
-    dagreGraph.setEdge(edge.source, edge.target)
-  })
-
-  Dagre.layout(dagreGraph)
-
-  const newNodes = nodes.map((node) => {
-    const nodeWithPosition = dagreGraph.node(node.id)
-    const height = node.height ?? defaultNodeHeight
-    const width = node.width ?? defaultNodeWidth
-    const newNode = {
-      ...node,
-      targetPosition: isHorizontal ? Position.Left : Position.Top,
-      sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
-      // We are shifting the dagre node position (anchor=center center) to the top left
-      // so it matches the React Flow node anchor point (top left).
-      position: {
-        x: nodeWithPosition.x - width / 2,
-        y: nodeWithPosition.y - height / 2,
-      },
-    }
-
-    return newNode
-  })
-
-  if (!isHorizontal) {
-    const triggerNode = newNodes.find((node) => node.type === TriggerTypename)
-    if (triggerNode) {
-      const triggerY = triggerNode.position.y
-      const adjustedNodes = newNodes.map((node) => {
-        if (node.id === triggerNode.id) {
-          return node
-        }
-        if (node.position.y <= triggerY) {
-          return node
-        }
-        return {
-          ...node,
-          position: {
-            ...node.position,
-            y: node.position.y + triggerNodeAutoLayoutGap,
-          },
-        }
-      })
-
-      return { nodes: adjustedNodes, edges }
-    }
-  }
-
-  return { nodes: newNodes, edges }
-}
 
 export type NodeTypename = "udf" | "trigger" | "selector"
 export type NodeType = ActionNodeType | TriggerNodeType | SelectorNodeType
