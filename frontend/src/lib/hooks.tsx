@@ -475,6 +475,20 @@ type GraphOpParams = {
   operations: GraphOperation[]
 }
 
+const structuralGraphOperationTypes = new Set<GraphOperation["type"]>([
+  "add_node",
+  "update_node",
+  "delete_node",
+  "add_edge",
+  "delete_edge",
+])
+
+function shouldSyncGraphCache(operations: GraphOperation[]): boolean {
+  return operations.some((operation) =>
+    structuralGraphOperationTypes.has(operation.type)
+  )
+}
+
 /**
  * Hook to fetch graph data for a workflow.
  */
@@ -508,11 +522,12 @@ export function useGraphOperations(workspaceId: string, workflowId: string) {
           operations,
         },
       }),
-    onSuccess: (graph) => {
-      // Update the graph cache with the new version
-      queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
-      // Also invalidate workflow to pick up any action changes
-      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+    onSuccess: (graph, variables) => {
+      if (shouldSyncGraphCache(variables.operations)) {
+        // Update the graph cache with the latest structural state.
+        queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
+        queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+      }
     },
     onError: (error) => {
       console.error("Failed to apply graph operations:", error)
