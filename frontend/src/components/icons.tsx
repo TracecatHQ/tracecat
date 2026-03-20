@@ -747,6 +747,106 @@ export function ClaudeIcon({ className, ...rest }: IconProps) {
   )
 }
 
+export function GeminiIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      role="img"
+      {...rest}
+    >
+      <path
+        d="M12 2.5 14.75 9.25 21.5 12l-6.75 2.75L12 21.5l-2.75-6.75L2.5 12l6.75-2.75L12 2.5Z"
+        fill="currentColor"
+      />
+    </svg>
+  )
+}
+
+export function CursorIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      role="img"
+      {...rest}
+    >
+      <path d="M4 3.5 20 12 4 20.5V3.5Z" fill="currentColor" />
+      <path d="m10.5 10.25 5.25 8.25" stroke="#fff" strokeWidth="1.75" />
+    </svg>
+  )
+}
+
+export function WindsurfIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      role="img"
+      {...rest}
+    >
+      <path
+        d="M3 15.5c2.4 0 2.4-2 4.8-2s2.4 2 4.8 2 2.4-2 4.8-2 2.4 2 3.6 2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M3 10.5c2.4 0 2.4-2 4.8-2s2.4 2 4.8 2 2.4-2 4.8-2 2.4 2 3.6 2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+export function OpenCodeIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      role="img"
+      {...rest}
+    >
+      <path
+        d="m8 7-4 5 4 5M16 7l4 5-4 5M13 5l-2 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+export function OpenClawIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      role="img"
+      {...rest}
+    >
+      <path
+        d="M7 5v5M12 4v6M17 5v5M6.5 12.5c1.2 2.8 3 4.5 5.5 5.5 2.5-1 4.3-2.7 5.5-5.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 export function OpenAIIcon({ className, ...rest }: IconProps) {
   return (
     <svg

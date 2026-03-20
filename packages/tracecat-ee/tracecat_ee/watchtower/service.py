@@ -518,6 +518,8 @@ def _classify_agent_text(value: str) -> WatchtowerAgentType:
         return WatchtowerAgentType.CLAUDE_CODE
     if "codex" in text or "openai" in text:
         return WatchtowerAgentType.CODEX
+    if "gemini" in text:
+        return WatchtowerAgentType.GEMINI
     if "cursor" in text:
         return WatchtowerAgentType.CURSOR
     if "windsurf" in text:
