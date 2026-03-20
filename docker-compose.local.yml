@@ -9,10 +9,52 @@ services:
     ports:
       - ${PUBLIC_APP_PORT}:${PUBLIC_APP_PORT}
     environment:
-      - BASE_DOMAIN=${BASE_DOMAIN}
+      - BASE_DOMAIN=${BASE_DOMAIN:-localhost:${PUBLIC_APP_PORT:-80}}
+      - DEX_BASE_DOMAIN=${DEX_BASE_DOMAIN:-dex.localhost:${PUBLIC_APP_PORT:-80}}
       - ADDRESS=${ADDRESS}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
+
+  dex:
+    image: ${DEX_IMAGE:-ghcr.io/dexidp/dex:v2.45.0}
+    container_name: dex
+    restart: unless-stopped
+    networks:
+      - core
+    environment:
+      DEX_HTTP_ADDR: ${DEX_HTTP_ADDR:-0.0.0.0:5556}
+      DEX_GRPC_ADDR: ${DEX_GRPC_ADDR:-0.0.0.0:5557}
+      DEX_ISSUER: ${DEX_ISSUER:-${TRACECAT__PUBLIC_APP_URL:-${PUBLIC_URL:-http://localhost:${PUBLIC_APP_PORT:-80}}}/auth}
+      DEX_STORAGE_PATH: ${DEX_STORAGE_PATH:-/var/dex/dex.db}
+      DEX_ID_TOKEN_TTL: ${DEX_ID_TOKEN_TTL:-15m}
+      DEX_SAML_ID_TOKEN_TTL: ${DEX_SAML_ID_TOKEN_TTL:-720h}
+      DEX_REFRESH_IDLE_TTL: ${DEX_REFRESH_IDLE_TTL:-168h}
+      DEX_REFRESH_ABSOLUTE_TTL: ${DEX_REFRESH_ABSOLUTE_TTL:-720h}
+      DEX_REFRESH_REUSE_INTERVAL: ${DEX_REFRESH_REUSE_INTERVAL:-2m}
+      MCP_DEX_MODE: ${MCP_DEX_MODE:-}
+      DEX_TRACECAT_CLIENT_ID: ${DEX_TRACECAT_CLIENT_ID:-tracecat-local}
+      DEX_TRACECAT_CLIENT_SECRET: ${DEX_TRACECAT_CLIENT_SECRET:-tracecat-local-secret}
+      DEX_TRACECAT_MCP_REDIRECT_URI: ${TRACECAT_MCP__BASE_URL:-${PUBLIC_APP_URL}}/_/mcp/auth/callback
+      DEX_UPSTREAM_REDIRECT_URI: ${DEX_UPSTREAM_REDIRECT_URI:-${TRACECAT__PUBLIC_APP_URL:-${PUBLIC_URL:-http://localhost:${PUBLIC_APP_PORT:-80}}}/auth/callback}
+      TRACECAT__AUTH_SUPERADMIN_EMAIL: ${TRACECAT__AUTH_SUPERADMIN_EMAIL:-}
+      MCP_DEX_BOOTSTRAP_PASSWORD_HASH: ${MCP_DEX_BOOTSTRAP_PASSWORD_HASH:-}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-${OAUTH_CLIENT_ID:-}}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-${OAUTH_CLIENT_SECRET:-}}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid profile email offline_access}
+      SAML_IDP_METADATA_URL: ${SAML_IDP_METADATA_URL:-}
+      SAML_METADATA_CERT: ${SAML_METADATA_CERT:-}
+      MCP_DEX_SAML_SSO_URL: ${MCP_DEX_SAML_SSO_URL:-}
+      MCP_DEX_SAML_CA_DATA: ${MCP_DEX_SAML_CA_DATA:-}
+      MCP_DEX_SAML_SSO_ISSUER: ${MCP_DEX_SAML_SSO_ISSUER:-}
+      MCP_DEX_SAML_USERNAME_ATTR: ${MCP_DEX_SAML_USERNAME_ATTR:-email}
+      MCP_DEX_SAML_EMAIL_ATTR: ${MCP_DEX_SAML_EMAIL_ATTR:-email}
+      MCP_DEX_SAML_GROUPS_ATTR: ${MCP_DEX_SAML_GROUPS_ATTR:-}
+    volumes:
+      - ${DEX_CONFIG_PATH:-./deployments/dex/config.docker.yaml}:/etc/dex/config.docker.yaml:ro
+      - ./scripts/dex-entrypoint.sh:/usr/local/bin/dex-entrypoint.sh:ro
+      - dex-data:/var/dex
+    command: ["/bin/sh", "/usr/local/bin/dex-entrypoint.sh"]
 
   # All services use the production target from the multi-stage Dockerfile
   # to match the TRACECAT__APP_ENV=production environment variable
@@ -26,6 +68,8 @@ services:
     networks:
       - core
       - core-db
+    extra_hosts:
+      - "${DEX_HOST:-dex.localhost}:host-gateway"
     environment:
       # App
       LOG_LEVEL: ${LOG_LEVEL}
@@ -49,10 +93,11 @@ services:
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
       OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
-      OIDC_ISSUER: ${OIDC_ISSUER}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
-      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
-      OIDC_SCOPES: ${OIDC_SCOPES}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-${OAUTH_CLIENT_ID:-}}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-${OAUTH_CLIENT_SECRET:-}}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid profile email}
+      MCP_DEX_GRPC_TARGET: ${MCP_DEX_GRPC_TARGET:-dex:5557}
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
@@ -93,6 +138,8 @@ services:
     depends_on:
       migrations:
         condition: service_completed_successfully
+      dex:
+        condition: service_started
       temporal:
         condition: service_healthy
       minio:
@@ -411,6 +458,8 @@ services:
       - core
       - core-db
       - temporal
+    extra_hosts:
+      - "${DEX_HOST:-dex.localhost}:host-gateway"
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
       TRACECAT__APP_ENV: production
@@ -422,10 +471,14 @@ services:
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
       REDIS_URL: ${REDIS_URL}
-      OIDC_ISSUER: ${OIDC_ISSUER}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
-      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
-      OIDC_SCOPES: ${OIDC_SCOPES}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-${OAUTH_CLIENT_ID:-}}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-${OAUTH_CLIENT_SECRET:-}}
+      OIDC_SCOPES: ${OIDC_SCOPES:-openid profile email offline_access}
+      DEX_ISSUER: ${DEX_ISSUER:-${TRACECAT__PUBLIC_APP_URL:-${PUBLIC_URL:-http://localhost:${PUBLIC_APP_PORT:-80}}}/auth}
+      DEX_INTERNAL_ISSUER: ${DEX_INTERNAL_ISSUER:-http://dex:5556/auth}
+      DEX_TRACECAT_CLIENT_ID: ${DEX_TRACECAT_CLIENT_ID:-tracecat-local}
+      DEX_TRACECAT_CLIENT_SECRET: ${DEX_TRACECAT_CLIENT_SECRET:-tracecat-local-secret}
       TRACECAT_MCP__BASE_URL: ${TRACECAT_MCP__BASE_URL:-${PUBLIC_URL:-http://localhost:${PUBLIC_APP_PORT:-80}}}
       TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS: ${TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS:-300}
       TRACECAT_MCP__STARTUP_MAX_ATTEMPTS: ${TRACECAT_MCP__STARTUP_MAX_ATTEMPTS:-3}
@@ -438,6 +491,8 @@ services:
     depends_on:
       migrations:
         condition: service_completed_successfully
+      dex:
+        condition: service_started
       temporal:
         condition: service_healthy
       redis:
@@ -597,6 +652,7 @@ services:
 volumes:
   core-db:
   temporal-db:
+  dex-data:
   minio-data:
   redis-data:
   sandbox-cache:

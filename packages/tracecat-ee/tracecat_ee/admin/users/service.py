@@ -9,6 +9,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped
 
 from tracecat.audit.service import AuditService
+from tracecat.auth.dex.service import (
+    DexLocalAuthProvisioningError,
+    get_dex_local_auth_service,
+    hash_password_for_dex,
+)
 from tracecat.auth.schemas import UserCreate, UserRole
 from tracecat.auth.users import get_user_db_context, get_user_manager_context
 from tracecat.db.models import User
@@ -29,6 +34,7 @@ class AdminUserService(BasePlatformService):
                 user_create = UserCreate(email=params.email, password=params.password)
                 await user_manager.validate_password(params.password, user_create)
                 hashed_password = user_manager.password_helper.hash(params.password)
+                dex_password_hash = hash_password_for_dex(params.password)
 
         user = User(
             email=params.email,
@@ -42,10 +48,17 @@ class AdminUserService(BasePlatformService):
         )
         self.session.add(user)
         try:
+            await self.session.flush()
+            await self._sync_dex_local_auth_user(
+                user, dex_password_hash=dex_password_hash
+            )
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
             raise ValueError(f"User with email {params.email} already exists") from e
+        except DexLocalAuthProvisioningError:
+            await self.session.rollback()
+            raise
 
         await self.session.refresh(user)
 
@@ -59,6 +72,18 @@ class AdminUserService(BasePlatformService):
             )
 
         return AdminUserRead.model_validate(user)
+
+    async def _sync_dex_local_auth_user(
+        self, user: User, *, dex_password_hash: str
+    ) -> None:
+        if not (service := get_dex_local_auth_service()):
+            return
+        await service.upsert_password(
+            email=user.email,
+            password_hash=dex_password_hash,
+            username=user.email,
+            user_id=str(user.id),
+        )
 
     async def list_users(self) -> Sequence[AdminUserRead]:
         """List all users."""
