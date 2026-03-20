@@ -8,8 +8,6 @@ locals {
   public_app_url   = "https://${var.domain_name}"
   public_api_url   = "https://${var.domain_name}/api"
   internal_api_url = "http://api-service:8000" # Service connect DNS name
-  litellm_port     = "4000"
-  litellm_url      = "http://litellm-service:${local.litellm_port}" # Service connect DNS name
 
   temporal_cluster_url   = var.temporal_cluster_url
   temporal_cluster_queue = var.temporal_cluster_queue
@@ -193,20 +191,6 @@ locals {
         TRACECAT_MCP__STARTUP_MAX_ATTEMPTS        = var.mcp_startup_max_attempts
         TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS = var.mcp_startup_retry_delay_seconds
         TEMPORAL__CLUSTER_QUEUE                   = local.temporal_cluster_queue
-      }
-    ) :
-    { name = k, value = tostring(v) } if v != null
-  ]
-
-  litellm_env = [
-    for k, v in merge(
-      local.tracecat_common_env,
-      local.tracecat_db_configs,
-      {
-        TRACECAT__LITELLM_PORT     = local.litellm_port
-        TRACECAT__LITELLM_BASE_URL = local.litellm_url
-        TRACECAT__API_URL          = local.internal_api_url
-        TRACECAT__DB_ENDPOINT      = local.core_db_hostname
       }
     ) :
     { name = k, value = tostring(v) } if v != null

@@ -1,7 +1,6 @@
 from typing import cast
 
 import pytest
-from fastapi import Request
 from litellm.caching.dual_cache import DualCache
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
 from starlette.datastructures import URL
