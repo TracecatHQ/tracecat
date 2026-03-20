@@ -60,7 +60,7 @@ import { useGraph, useGraphOperations } from "@/lib/hooks"
 import { pruneGraphObject } from "@/lib/workflow"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { getLayoutedElements } from "./graph-layout"
+import { getLayoutedElements, mergeHydratedNodes } from "./graph-layout"
 
 const defaultNodeWidth = 172
 const defaultNodeHeight = 36
@@ -192,15 +192,7 @@ export const WorkflowCanvas = React.forwardRef<
       setGraphVersion(graph.version)
       const { nodes: rfNodes, edges: rfEdges } =
         buildNodesAndEdgesFromGraph(graph)
-      setNodes((nodes) => {
-        const selectedNodeIds = new Set(
-          nodes.filter((node) => node.selected).map((node) => node.id)
-        )
-        return rfNodes.map((node) => ({
-          ...node,
-          selected: selectedNodeIds.has(node.id),
-        }))
-      })
+      setNodes((nodes) => mergeHydratedNodes(nodes, rfNodes))
       setEdges(rfEdges)
       setHydratedWorkflowId(workflowId ?? null)
     },
@@ -223,15 +215,7 @@ export const WorkflowCanvas = React.forwardRef<
       // Build nodes and edges from graph API response
       const { nodes: graphNodes, edges: graphEdges } =
         buildNodesAndEdgesFromGraph(graphData)
-      setNodes((nodes) => {
-        const selectedNodeIds = new Set(
-          nodes.filter((node) => node.selected).map((node) => node.id)
-        )
-        return graphNodes.map((node) => ({
-          ...node,
-          selected: selectedNodeIds.has(node.id),
-        }))
-      })
+      setNodes((nodes) => mergeHydratedNodes(nodes, graphNodes))
       setEdges(graphEdges)
       setGraphVersion(graphData.version)
 

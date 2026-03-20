@@ -2,6 +2,7 @@ import type { Edge, Node } from "@xyflow/react"
 import {
   getLayoutedElements,
   getNodeLayoutDimensions,
+  mergeHydratedNodes,
 } from "@/components/builder/canvas/graph-layout"
 
 function createNode(id: string, type: string, overrides?: Partial<Node>): Node {
@@ -89,5 +90,54 @@ describe("getLayoutedElements", () => {
 
     expect(trigger?.position.y).toBe(0)
     expect(action?.position.y).toBe(400)
+  })
+})
+
+describe("mergeHydratedNodes", () => {
+  it("preserves measured dimensions, width, height, and selection for matching nodes", () => {
+    const currentNodes = [
+      createNode("trigger-1", "trigger", {
+        selected: true,
+        measured: { width: 256, height: 48 },
+        width: 256,
+        height: 48,
+      }),
+      createNode("action-1", "udf", {
+        measured: { width: 320, height: 64 },
+        width: 320,
+        height: 64,
+      }),
+    ]
+    const hydratedNodes = [
+      createNode("trigger-1", "trigger", {
+        selected: false,
+        position: { x: 10, y: 20 },
+      }),
+      createNode("action-1", "udf", {
+        position: { x: 30, y: 40 },
+      }),
+      createNode("action-2", "udf", {
+        position: { x: 50, y: 60 },
+      }),
+    ]
+
+    expect(mergeHydratedNodes(currentNodes, hydratedNodes)).toEqual([
+      createNode("trigger-1", "trigger", {
+        selected: true,
+        position: { x: 10, y: 20 },
+        measured: { width: 256, height: 48 },
+        width: 256,
+        height: 48,
+      }),
+      createNode("action-1", "udf", {
+        position: { x: 30, y: 40 },
+        measured: { width: 320, height: 64 },
+        width: 320,
+        height: 64,
+      }),
+      createNode("action-2", "udf", {
+        position: { x: 50, y: 60 },
+      }),
+    ])
   })
 })

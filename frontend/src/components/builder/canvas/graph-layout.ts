@@ -91,3 +91,25 @@ export function getLayoutedElements(
     edges,
   }
 }
+
+export function mergeHydratedNodes(
+  currentNodes: Node[],
+  hydratedNodes: Node[]
+): Node[] {
+  const currentNodesById = new Map(currentNodes.map((node) => [node.id, node]))
+
+  return hydratedNodes.map((node) => {
+    const currentNode = currentNodesById.get(node.id)
+    if (!currentNode) {
+      return node
+    }
+
+    return {
+      ...node,
+      selected: currentNode.selected ?? node.selected,
+      measured: currentNode.measured ?? node.measured,
+      width: currentNode.width ?? node.width,
+      height: currentNode.height ?? node.height,
+    }
+  })
+}
