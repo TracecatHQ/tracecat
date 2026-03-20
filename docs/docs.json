@@ -126,7 +126,8 @@
             "pages": [
               "custom-actions/custom-registry",
               "custom-actions/python-udf",
-              "custom-actions/yaml-template"
+              "custom-actions/yaml-template",
+              "custom-actions/local-development"
             ]
           },
           {
