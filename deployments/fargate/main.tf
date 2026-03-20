@@ -141,6 +141,9 @@ module "ecs" {
   agent_executor_cpu                       = var.agent_executor_cpu
   agent_executor_memory                    = var.agent_executor_memory
   agent_executor_desired_count             = var.agent_executor_desired_count
+  litellm_cpu                              = var.litellm_cpu
+  litellm_memory                           = var.litellm_memory
+  litellm_desired_count                    = var.litellm_desired_count
   agent_queue                              = var.agent_queue
   agent_executor_worker_pool_size          = var.agent_executor_worker_pool_size
   llm_proxy_read_timeout                   = var.llm_proxy_read_timeout

@@ -314,6 +314,11 @@ resource "helm_release" "tracecat" {
   }
 
   set {
+    name  = "litellm.replicas"
+    value = var.litellm_replicas
+  }
+
+  set {
     name  = "ui.replicas"
     value = var.ui_replicas
   }
@@ -397,6 +402,26 @@ resource "helm_release" "tracecat" {
   set {
     name  = "agentExecutor.resources.limits.memory"
     value = "${var.agent_executor_memory_request_mib}Mi"
+  }
+
+  set {
+    name  = "litellm.resources.requests.cpu"
+    value = "${var.litellm_cpu_request_millicores}m"
+  }
+
+  set {
+    name  = "litellm.resources.requests.memory"
+    value = "${var.litellm_memory_request_mib}Mi"
+  }
+
+  set {
+    name  = "litellm.resources.limits.cpu"
+    value = "${var.litellm_cpu_request_millicores}m"
+  }
+
+  set {
+    name  = "litellm.resources.limits.memory"
+    value = "${var.litellm_memory_request_mib}Mi"
   }
 
   set {

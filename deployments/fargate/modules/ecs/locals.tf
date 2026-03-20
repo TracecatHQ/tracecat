@@ -8,6 +8,8 @@ locals {
   public_app_url   = "https://${var.domain_name}"
   public_api_url   = "https://${var.domain_name}/api"
   internal_api_url = "http://api-service:8000" # Service connect DNS name
+  litellm_port     = "4000"
+  litellm_url      = "http://litellm-service:${local.litellm_port}" # Service connect DNS name
 
   temporal_cluster_url   = var.temporal_cluster_url
   temporal_cluster_queue = var.temporal_cluster_queue
@@ -138,11 +140,26 @@ locals {
         TRACECAT__AGENT_QUEUE               = var.agent_queue
         TRACECAT__EXECUTOR_WORKER_POOL_SIZE = var.agent_executor_worker_pool_size
         TRACECAT__LLM_PROXY_READ_TIMEOUT    = var.llm_proxy_read_timeout
+        TRACECAT__LITELLM_BASE_URL          = local.litellm_url
         TRACECAT__UNSAFE_DISABLE_SM_MASKING = "false"
         TRACECAT__DISABLE_NSJAIL            = "true"
         TRACECAT__SANDBOX_NSJAIL_PATH       = "/usr/local/bin/nsjail"
         TRACECAT__SANDBOX_ROOTFS_PATH       = "/var/lib/tracecat/sandbox-rootfs"
         TRACECAT__SANDBOX_CACHE_DIR         = "/var/lib/tracecat/sandbox-cache"
+      }
+    ) :
+    { name = k, value = tostring(v) } if v != null
+  ]
+
+  litellm_env = [
+    for k, v in merge(
+      local.tracecat_common_env,
+      local.tracecat_db_configs,
+      {
+        TRACECAT__LITELLM_PORT     = local.litellm_port
+        TRACECAT__LITELLM_BASE_URL = local.litellm_url
+        TRACECAT__API_URL          = local.internal_api_url
+        TRACECAT__DB_ENDPOINT      = local.core_db_hostname
       }
     ) :
     { name = k, value = tostring(v) } if v != null

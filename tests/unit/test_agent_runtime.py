@@ -27,7 +27,10 @@ from tracecat.agent.common.types import (
 from tracecat.agent.common.types import (
     MCPToolDefinition as SharedMCPToolDefinition,
 )
-from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
+from tracecat.agent.runtime.claude_code.runtime import (
+    ClaudeAgentRuntime,
+    get_litellm_url,
+)
 from tracecat.agent.types import AgentConfig
 
 
@@ -153,6 +156,28 @@ def make_hook_context() -> HookContext:
 def get_hook_output(result: SyncHookJSONOutput) -> dict[str, Any]:
     """Extract hookSpecificOutput from result."""
     return cast(dict[str, Any], result.get("hookSpecificOutput", {}))
+
+
+def test_get_litellm_url_uses_bridge_port_when_network_isolated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.runtime.claude_code.runtime.TRACECAT__DISABLE_NSJAIL", True
+    )
+    monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "4312")
+
+    assert get_litellm_url(enable_internet_access=False) == "http://127.0.0.1:4312"
+
+
+def test_get_litellm_url_uses_managed_service_url_when_internet_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.runtime.claude_code.runtime.TRACECAT__DISABLE_NSJAIL", False
+    )
+    monkeypatch.setenv("TRACECAT__LITELLM_URL", "http://litellm:4000/")
+
+    assert get_litellm_url(enable_internet_access=True) == "http://litellm:4000"
 
 
 class TestClaudeAgentRuntimeRun:

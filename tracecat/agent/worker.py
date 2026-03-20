@@ -5,7 +5,6 @@ instances. It is separate from the main DSLWorker to allow independent scaling
 and isolation of agent workloads.
 
 Services started at init:
-- LiteLLM proxy subprocess (multi-tenant credential injection)
 - Trusted MCP HTTP server (Unix socket for tool execution)
 
 Architecture:
@@ -32,7 +31,6 @@ import os
 import signal
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 from temporalio import workflow
 from temporalio.worker import Worker
@@ -104,103 +102,7 @@ interrupt_event = asyncio.Event()
 # Service Lifecycle
 # ============================================================================
 
-_litellm_process: asyncio.subprocess.Process | None = None
-_litellm_stderr_task: asyncio.Task[None] | None = None
 _mcp_server_task: asyncio.Task[None] | None = None
-
-
-async def _stream_litellm_stderr(process: asyncio.subprocess.Process) -> None:
-    """Stream LiteLLM stderr to logger."""
-    if process.stderr is None:
-        return
-    try:
-        async for line in process.stderr:
-            decoded = line.decode("utf-8", errors="replace").rstrip()
-            if decoded:
-                logger.info("LiteLLM stderr", line=decoded)
-    except Exception as e:
-        logger.warning("LiteLLM stderr stream ended", error=str(e))
-
-
-async def start_litellm_proxy() -> None:
-    """Start the LiteLLM proxy subprocess."""
-    global _litellm_process, _litellm_stderr_task
-
-    # Use the config file from the tracecat.agent package
-    source_config = Path(__file__).parent / "litellm_config.yaml"
-    if not source_config.exists():
-        logger.error("LiteLLM config not found", config_path=str(source_config))
-        return
-
-    # LiteLLM resolves custom_auth/callbacks paths relative to config file directory.
-    # Create symlink at /app so that "tracecat.agent.gateway" resolves correctly
-    # (dirname(/app/litellm_config.yaml) + tracecat/agent/gateway.py = /app/tracecat/agent/gateway.py)
-    # Use atomic rename to prevent TOCTOU race condition
-    runtime_config = Path("/app/litellm_config.yaml")
-    temp_symlink = runtime_config.with_suffix(f".yaml.{os.getpid()}.tmp")
-    try:
-        temp_symlink.symlink_to(source_config)
-        temp_symlink.replace(runtime_config)  # Atomic rename
-    except FileExistsError:
-        # Another process already created the symlink
-        pass
-    finally:
-        # Clean up temp symlink if it still exists
-        if temp_symlink.exists() or temp_symlink.is_symlink():
-            temp_symlink.unlink()
-
-    logger.info("Starting LiteLLM proxy")
-
-    cmd = [
-        "litellm",
-        "--port",
-        "4000",
-        "--config",
-        str(runtime_config),
-    ]
-
-    # Pass current environment with PYTHONPATH set to include /app
-    # This allows LiteLLM to import tracecat modules for custom auth/callbacks
-    env = os.environ.copy()
-    pythonpath = env.get("PYTHONPATH", "")
-    app_paths = "/app:/app/packages/tracecat-registry:/app/packages/tracecat-ee"
-    env["PYTHONPATH"] = f"{app_paths}:{pythonpath}" if pythonpath else app_paths
-
-    _litellm_process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-    )
-
-    # Start background task to stream stderr
-    _litellm_stderr_task = asyncio.create_task(_stream_litellm_stderr(_litellm_process))
-
-    logger.info("LiteLLM proxy started")
-
-
-async def stop_litellm_proxy() -> None:
-    """Stop the LiteLLM proxy subprocess."""
-    global _litellm_process, _litellm_stderr_task
-
-    # Cancel stderr streaming task
-    if _litellm_stderr_task:
-        _litellm_stderr_task.cancel()
-        try:
-            await _litellm_stderr_task
-        except asyncio.CancelledError:
-            pass
-        _litellm_stderr_task = None
-
-    if _litellm_process and _litellm_process.returncode is None:
-        logger.info("Stopping LiteLLM proxy")
-        _litellm_process.terminate()
-        try:
-            await asyncio.wait_for(_litellm_process.wait(), timeout=5.0)
-        except TimeoutError:
-            _litellm_process.kill()
-            await _litellm_process.wait()
-        _litellm_process = None
 
 
 async def start_mcp_server() -> None:
@@ -301,7 +203,6 @@ async def main() -> None:
     )
 
     # Initialize services before accepting tasks
-    await start_litellm_proxy()
     await start_mcp_server()
 
     try:
@@ -353,7 +254,6 @@ async def main() -> None:
     finally:
         logger.info("Shutting down services")
         await stop_mcp_server()
-        await stop_litellm_proxy()
 
 
 def _signal_handler(sig: int, _frame: object) -> None:

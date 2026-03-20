@@ -56,22 +56,34 @@ from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
-# Default LiteLLM port for NSJail mode and internet-enabled mode
+# Default LiteLLM port for bridge-backed sandbox modes.
 # In direct mode with network isolation, the bridge uses a dynamic port
-# passed via TRACECAT__LLM_BRIDGE_PORT environment variable
+# passed via TRACECAT__LLM_BRIDGE_PORT environment variable.
 LITELLM_DEFAULT_PORT = 4000
 
 
-def get_litellm_url() -> str:
+def get_litellm_url(*, enable_internet_access: bool) -> str:
     """Get the LiteLLM URL based on runtime mode.
 
-    - NSJail mode: Uses fixed port 4000 (network namespace isolated)
-    - Direct mode (network isolated): Uses dynamic port from env var
-    - Internet enabled: Uses default port 4000 (direct gateway access)
+    - Network isolated: use the local LLM bridge on localhost
+    - Internet enabled: connect directly to the managed LiteLLM service URL
     """
 
+    if not enable_internet_access:
+        if TRACECAT__DISABLE_NSJAIL:
+            # Direct mode: check for dynamic port from LLM bridge
+            port = os.environ.get(
+                "TRACECAT__LLM_BRIDGE_PORT", str(LITELLM_DEFAULT_PORT)
+            )
+            return f"http://127.0.0.1:{port}"
+        return f"http://127.0.0.1:{LITELLM_DEFAULT_PORT}"
+
+    if litellm_url := (
+        os.environ.get("TRACECAT__LITELLM_URL")
+        or os.environ.get("TRACECAT__LITELLM_BASE_URL")
+    ):
+        return litellm_url.rstrip("/")
     if TRACECAT__DISABLE_NSJAIL:
-        # Direct mode: check for dynamic port from LLM bridge
         port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT", str(LITELLM_DEFAULT_PORT))
         return f"http://127.0.0.1:{port}"
     return f"http://127.0.0.1:{LITELLM_DEFAULT_PORT}"
@@ -541,7 +553,9 @@ class ClaudeAgentRuntime:
                 fork_session=fork_session,  # If True, creates new session from parent's history
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.litellm_auth_token,
-                    "ANTHROPIC_BASE_URL": get_litellm_url(),
+                    "ANTHROPIC_BASE_URL": get_litellm_url(
+                        enable_internet_access=payload.config.enable_internet_access
+                    ),
                 },
                 model=payload.config.model_name,
                 system_prompt=self._build_system_prompt(payload.config.instructions),

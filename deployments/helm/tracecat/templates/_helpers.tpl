@@ -322,6 +322,13 @@ Internal API URL - used for service-to-service communication
 {{- end }}
 
 {{/*
+Internal LiteLLM URL - used by runtimes and agent executor consumers
+*/}}
+{{- define "tracecat.internalLiteLLMUrl" -}}
+{{- printf "http://%s-litellm:%d" (include "tracecat.fullname" .) (.Values.litellm.port | int) }}
+{{- end }}
+
+{{/*
 Internal Blob Storage URL
 */}}
 {{- define "tracecat.blobStorageEndpoint" -}}
@@ -821,6 +828,8 @@ Merges: common + temporal + postgres + redis + agent-executor-specific
   value: {{ .Values.agentExecutor.workerPoolSize | quote }}
 - name: TRACECAT__LLM_PROXY_READ_TIMEOUT
   value: {{ .Values.agentExecutor.llmProxyReadTimeout | quote }}
+- name: TRACECAT__LITELLM_BASE_URL
+  value: {{ include "tracecat.internalLiteLLMUrl" . | quote }}
 {{- end }}
 
 {{/*

@@ -245,6 +245,41 @@ services:
       minio:
         condition: service_healthy
 
+  litellm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    networks:
+      - core
+      - core-db
+      - temporal
+    environment:
+      TRACECAT__LITELLM_PORT: ${TRACECAT__LITELLM_PORT}
+      TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__APP_ENV: production
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      PYTHONPATH: /app:/app/packages/tracecat-registry:/app/packages/tracecat-ee
+    command: ["python", "-m", "tracecat.agent.litellm"]
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import os, socket; port=int(os.environ['TRACECAT__LITELLM_PORT']); s=socket.create_connection(('127.0.0.1', port), timeout=5); s.close()\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
   agent-executor:
     build:
       context: .
@@ -277,6 +312,7 @@ services:
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
       TRACECAT__API_URL: ${TRACECAT__API_URL:-http://api:8000}
+      TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL}
       # Compression (must match worker for codec compatibility)
       TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
       TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
@@ -314,6 +350,8 @@ services:
       - sandbox-cache:/var/lib/tracecat/sandbox-cache
     command: ["python", "-m", "tracecat.agent.worker"]
     depends_on:
+      litellm:
+        condition: service_healthy
       migrations:
         condition: service_completed_successfully
       temporal:

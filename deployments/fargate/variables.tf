@@ -474,6 +474,22 @@ variable "agent_executor_desired_count" {
   default     = 1
 }
 
+variable "litellm_cpu" {
+  type    = string
+  default = "1024"
+}
+
+variable "litellm_memory" {
+  type    = string
+  default = "2048"
+}
+
+variable "litellm_desired_count" {
+  type        = number
+  description = "Desired number of LiteLLM instances to run"
+  default     = 2
+}
+
 variable "agent_queue" {
   type        = string
   description = "Task queue for agent executor workers"

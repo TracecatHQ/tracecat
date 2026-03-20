@@ -1,10 +1,16 @@
 from typing import cast
 
 import pytest
+from fastapi import Request
 from litellm.caching.dual_cache import DualCache
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
+from starlette.datastructures import URL
 
-from tracecat.agent.gateway import TracecatCallbackHandler, _inject_provider_credentials
+from tracecat.agent.gateway import (
+    TracecatCallbackHandler,
+    _inject_provider_credentials,
+    user_api_key_auth,
+)
 
 
 def test_gemini_injects_api_key_and_prefixes_model():
@@ -215,3 +221,80 @@ async def test_pre_call_hook_uses_preset_base_url_over_custom_provider_credentia
 
     assert result["api_key"] == "test-custom-key"
     assert result["api_base"] == "https://preset.custom.example/v1"
+
+
+@pytest.mark.anyio
+async def test_user_api_key_auth_rejects_invalid_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.verify_llm_token",
+        lambda _: (_ for _ in ()).throw(ValueError("bad token")),
+    )
+
+    with pytest.raises(ProxyException, match="Invalid or expired token"):
+        await user_api_key_auth(request=cast(Request, object()), api_key="bad-token")
+
+
+@pytest.mark.anyio
+async def test_user_api_key_auth_allows_healthcheck_without_token() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/health",
+            "headers": [],
+            "query_string": b"",
+            "client": ("127.0.0.1", 12345),
+            "server": ("localhost", 4000),
+            "scheme": "http",
+        }
+    )
+
+    auth = await user_api_key_auth(request=request, api_key="")
+
+    assert auth.api_key == "litellm-healthcheck"
+    assert auth.request_route == URL("http://localhost:4000/health").path
+
+
+@pytest.mark.anyio
+async def test_pre_call_hook_filters_model_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {"OPENAI_API_KEY": "test-openai-key"}
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="llm-token",
+        metadata={
+            "workspace_id": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "model": "gpt-5",
+            "provider": "openai",
+            "model_settings": {
+                "temperature": 0.2,
+                "seed": 7,
+                "api_key": "should-not-pass",
+                "metadata": {"unsafe": True},
+            },
+            "use_workspace_credentials": True,
+        },
+    )
+
+    handler = TracecatCallbackHandler()
+    result = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cast(DualCache, object()),
+        data={},
+        call_type="completion",
+    )
+
+    assert result["temperature"] == 0.2
+    assert result["seed"] == 7
+    assert "metadata" not in result
+    assert result["api_key"] == "test-openai-key"

@@ -85,6 +85,7 @@ module "eks" {
   agent_executor_replicas                  = var.agent_executor_replicas
   agent_executor_queue                     = var.agent_executor_queue
   agent_executor_backend                   = var.agent_executor_backend
+  litellm_replicas                         = var.litellm_replicas
   ui_replicas                              = var.ui_replicas
   api_cpu_request_millicores               = var.api_cpu_request_millicores
   api_memory_request_mib                   = var.api_memory_request_mib
@@ -94,6 +95,8 @@ module "eks" {
   executor_memory_request_mib              = var.executor_memory_request_mib
   agent_executor_cpu_request_millicores    = var.agent_executor_cpu_request_millicores
   agent_executor_memory_request_mib        = var.agent_executor_memory_request_mib
+  litellm_cpu_request_millicores           = var.litellm_cpu_request_millicores
+  litellm_memory_request_mib               = var.litellm_memory_request_mib
   ui_cpu_request_millicores                = var.ui_cpu_request_millicores
   ui_memory_request_mib                    = var.ui_memory_request_mib
   node_schedulable_cpu_millicores_per_node = var.node_schedulable_cpu_millicores_per_node

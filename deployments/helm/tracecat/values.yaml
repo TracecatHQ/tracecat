@@ -332,6 +332,17 @@ agentExecutor:
     enabled: false
     thresholdKb: 16
 
+litellm:
+  replicas: 2
+  port: 4000
+  resources:
+    requests:
+      cpu: "1000m"
+      memory: "2048Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2048Mi"
+
 mcp:
   enabled: false
   replicas: 2

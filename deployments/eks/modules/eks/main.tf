@@ -77,6 +77,7 @@ locals {
   worker_rollout_replicas         = var.worker_replicas + ceil(var.worker_replicas * local.rollout_surge_fraction)
   executor_rollout_replicas       = var.executor_replicas + ceil(var.executor_replicas * local.rollout_surge_fraction)
   agent_executor_rollout_replicas = var.agent_executor_replicas + ceil(var.agent_executor_replicas * local.rollout_surge_fraction)
+  litellm_rollout_replicas        = var.litellm_replicas + ceil(var.litellm_replicas * local.rollout_surge_fraction)
   ui_rollout_replicas             = var.ui_replicas + ceil(var.ui_replicas * local.rollout_surge_fraction)
 
   tracecat_rollout_peak_cpu_millicores = (
@@ -84,6 +85,7 @@ locals {
     local.worker_rollout_replicas * var.worker_cpu_request_millicores +
     local.executor_rollout_replicas * var.executor_cpu_request_millicores +
     local.agent_executor_rollout_replicas * var.agent_executor_cpu_request_millicores +
+    local.litellm_rollout_replicas * var.litellm_cpu_request_millicores +
     local.ui_rollout_replicas * var.ui_cpu_request_millicores
   )
 
@@ -92,6 +94,7 @@ locals {
     local.worker_rollout_replicas * var.worker_memory_request_mib +
     local.executor_rollout_replicas * var.executor_memory_request_mib +
     local.agent_executor_rollout_replicas * var.agent_executor_memory_request_mib +
+    local.litellm_rollout_replicas * var.litellm_memory_request_mib +
     local.ui_rollout_replicas * var.ui_memory_request_mib
   )
 
@@ -100,6 +103,7 @@ locals {
     local.worker_rollout_replicas +
     local.executor_rollout_replicas +
     local.agent_executor_rollout_replicas +
+    local.litellm_rollout_replicas +
     local.ui_rollout_replicas
   )
 
@@ -108,6 +112,7 @@ locals {
     var.worker_cpu_request_millicores,
     var.executor_cpu_request_millicores,
     var.agent_executor_cpu_request_millicores,
+    var.litellm_cpu_request_millicores,
     var.ui_cpu_request_millicores
   )
 
@@ -116,6 +121,7 @@ locals {
     var.worker_memory_request_mib,
     var.executor_memory_request_mib,
     var.agent_executor_memory_request_mib,
+    var.litellm_memory_request_mib,
     var.ui_memory_request_mib
   )
 

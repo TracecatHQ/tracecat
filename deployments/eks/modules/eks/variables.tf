@@ -370,6 +370,12 @@ variable "agent_executor_backend" {
   default     = "ephemeral"
 }
 
+variable "litellm_replicas" {
+  description = "Number of LiteLLM replicas"
+  type        = number
+  default     = 2
+}
+
 variable "ui_replicas" {
   description = "Number of UI replicas"
   type        = number
@@ -423,6 +429,18 @@ variable "agent_executor_memory_request_mib" {
   description = "Agent executor memory request in MiB"
   type        = number
   default     = 16384
+}
+
+variable "litellm_cpu_request_millicores" {
+  description = "LiteLLM CPU request in millicores"
+  type        = number
+  default     = 1000
+}
+
+variable "litellm_memory_request_mib" {
+  description = "LiteLLM memory request in MiB"
+  type        = number
+  default     = 2048
 }
 
 variable "ui_cpu_request_millicores" {
