@@ -102,6 +102,7 @@
                 "pages": [
                   "automations/triggers/webhooks",
                   "automations/triggers/schedules",
+                  "automations/triggers/error-workflows",
                   "automations/triggers/case-triggers",
                   "automations/triggers/task-triggers",
                   "automations/triggers/comment-triggers"
@@ -123,9 +124,9 @@
             "group": "Building custom actions",
             "icon": "blocks",
             "pages": [
-              "custom-actions/installation",
-              "custom-actions/python",
-              "custom-actions/yaml"
+              "custom-actions/custom-registry",
+              "custom-actions/python-udf",
+              "custom-actions/yaml-template"
             ]
           },
           {

@@ -56,6 +56,12 @@ There are three views for workflow runs:
   ![Workflow runs history](/img/automations/workflows/workflow-runs-history.png)
 </Frame>
 
+## Tag workflow
+
+Right click on a workflow in the workflows table then hover over the "Tags" menu item.
+
+![Tag workflow](/img/automations/workflows/tag-workflow.png)
+
 ## Draft workflows
 
 Draft workflows are workflows that are currently being edited.
@@ -84,6 +90,8 @@ You must define a workflow alias in order to trigger it as a subflow or error wo
 
 You can specify an error workflow to run when a workflow fails.
 Information about the failed workflow run is passed to the error workflow under the `${{ TRIGGER }}` expression.
+
+See [Error workflows](/automations/triggers/error-workflows) for more information.
 
 ### Input schema
 

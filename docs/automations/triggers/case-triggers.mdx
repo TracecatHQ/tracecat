@@ -10,9 +10,47 @@ Case triggers start a workflow when selected case events happen.
 
 ![Case trigger](/img/triggers/case-triggers.png)
 
+## Trigger payload
+
+Case trigger data is available under `${{ TRIGGER }}`.
+
+Fields:
+
+- `${{ TRIGGER.case_id }}`: case ID.
+- `${{ TRIGGER.event }}`: event details.
+- `${{ TRIGGER.tags }}`: case tags.
+- `${{ TRIGGER.workspace_id }}`: workspace ID.
+
+Example payload:
+
+```json
+{
+  "case_id": "case_01abc",
+  "event": {
+    "id": "evt_01abc",
+    "type": "comment_created",
+    "data": {
+      "comment_id": "cmt_01abc"
+    },
+    "created_at": "2026-03-19T14:22:00+00:00",
+    "user_id": "usr_01abc",
+    "wf_exec_id": null
+  },
+  "tags": [
+    {
+      "id": "tag_01abc",
+      "ref": "triage",
+      "name": "Triage",
+      "color": null
+    }
+  ],
+  "workspace_id": "ws_01abc"
+}
+```
+
 ## Case events
 
-You can configure one or more case events before enabling the trigger. Supported event families include:
+One or more case events must be selected before the trigger is enabled. Supported event families include:
 
 - Case events such as create, update, close, reopen, and view.
 - Comment events such as comment and reply activity.
@@ -24,16 +62,7 @@ You can configure one or more case events before enabling the trigger. Supported
 
 ## Tag allowlist
 
-You can restrict runs to cases with matching tags. If the allowlist is empty, no tag filtering is applied. Matching uses the case's current tags.
-
-## What the workflow receives
-
-The trigger payload includes:
-
-- Case ID in `case_id`.
-- Event details in `event`.
-- Case tags in `tags`.
-- Workspace ID in `workspace_id`.
+Restrict runs to cases with matching tags. If the allowlist is empty, no tag filtering is applied. Matching uses the case's current tags.
 
 ## Important behavior
 

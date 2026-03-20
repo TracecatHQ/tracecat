@@ -5,7 +5,7 @@ description: "Create and use reusable workspace variables in workflows and agent
 
 ## Overview
 
-Variables store reusable non-secret values for workflows, tools, and agents.
+Variables store reusable non-secret values.
 
 ## Using variables in expressions
 
@@ -33,25 +33,25 @@ Use variables for non-sensitive values such as:
 - Routing rules
 - Tenant-specific defaults
 
-If the value is sensitive, use a [secret](/automations/core-concepts/secrets) instead.
+Use a [secret](/automations/core-concepts/secrets) for sensitive values.
 
 ## Variable environments
 
-Every variable belongs to a Workflow environment, and if you do not set one, Tracecat uses `default`.
-Environments let you keep the same variable name and change the value by target.
+Every variable belongs to a Workflow environment.
+
+- Default source: the workflow default environment in [Workflows](/automations/workflows).
+- Override: per action in [Actions](/automations/actions) control flow.
+- Fallback: `default`.
 
 ## Access variables in agents
 
-Agents can use variable expressions in tool arguments and integration configuration.
-Tracecat resolves variables during tool execution, and the values are not fetched directly by the LLM provider.
+Agents can use variable expressions in tool arguments and integration configuration. Values are resolved during tool execution and are not fetched directly by the LLM provider.
 
 <CodeGroup>
 ```text
 When you call Jira tools, use `${{ VARS.jira.base_url }}` as the base URL and `${{ VARS.jira.project_key }}` as the default project key.
 ```
 </CodeGroup>
-
-This also applies to MCP `stdio` environment settings.
 
 ## Related pages
 

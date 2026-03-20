@@ -5,18 +5,18 @@ description: "Run workflows on a time-based cadence."
 
 ## Overview
 
-Schedules run a workflow automatically on a time-based cadence. The workflow must be saved before you can create a schedule.
+Schedules run a workflow on a time-based cadence. The workflow must be saved before a schedule can be created.
 
 ![Schedule trigger](/img/triggers/schedule.png)
 
 ## Schedule types
 
-Tracecat supports two schedule types:
+Schedule types:
 
 - Interval schedules use `every`.
 - Cron schedules use `cron`.
 
-Cron schedules use standard 5-field or 6-field cron expressions.
+Cron uses standard 5-field or 6-field expressions.
 
 ## Schedule fields
 
@@ -28,8 +28,8 @@ Cron schedules use standard 5-field or 6-field cron expressions.
 
 ## When to use schedules
 
-Use schedules when you want to:
+Use schedules for:
 
-- Poll an external system on a fixed cadence.
-- Run cleanup or maintenance workflows on a timer.
-- Sync data or refresh enrichments throughout the day.
+- Polling an external system on a fixed cadence.
+- Running cleanup or maintenance workflows on a timer.
+- Syncing data or refreshing enrichments throughout the day.

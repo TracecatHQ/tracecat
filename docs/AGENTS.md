@@ -46,7 +46,17 @@ When renaming or moving a page, add a redirect in `docs/docs.json` `redirects` a
 
 - Always use active voice.
 - Always address the reader directly.
+- If a user explicitly asks for a different voice, follow that request instead of the default.
 - Clarity over cleverness and verbosity: always keep sentences concise, do not add unnecessary words.
+- Prefer the shortest explanation that preserves the behavioral contract.
+- Write for builder action, not product explanation. If a sentence does not change how the reader configures, references, or runs the feature, cut it.
+- Do not write circular definitions such as "X is a template for X" or abstract definitions that do not say what the feature does.
+- Do not add justification, rationale, or benefits unless they change a build decision.
+- Lead with what the product does. Do not lead with parser details, implementation detail, or edge-case detail unless it changes how the reader uses the feature.
+- Do not restate the same idea in multiple sentences.
+- Avoid “for example” clauses unless the example removes ambiguity.
+- Prefer compact mappings when documenting input or payload formats, such as `JSON: becomes TRIGGER` and `Form: keys become TRIGGER fields`.
+- If a sentence only adds precision that most readers do not need, cut it or move it to a note.
 - Be consistent: always use terminology and spelling consistent with the codebase and the rest of the docs.
 - Be skimmable: avoid more than 2 sentences per paragraph.
 - Do not split a short thought into two paragraphs or two one-line sentences when one sentence reads more naturally.
