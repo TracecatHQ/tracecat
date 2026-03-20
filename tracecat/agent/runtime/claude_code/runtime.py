@@ -79,6 +79,16 @@ def get_litellm_url() -> str:
     return f"http://127.0.0.1:{LITELLM_DEFAULT_PORT}"
 
 
+def _configure_claude_sdk_process_env() -> None:
+    """Prime process-level SDK env before ClaudeSDKClient.connect().
+
+    The SDK checks this flag from ``os.environ`` during connect, before it merges
+    ``ClaudeAgentOptions.env`` into the child process environment.
+    """
+    if "CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK" not in os.environ:
+        os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] = "1"
+
+
 # Tools that are always disallowed regardless of sandbox mode
 # These are interactive/planning tools that don't make sense for automation
 DISALLOWED_TOOLS = [
@@ -613,6 +623,7 @@ class ClaudeAgentRuntime:
                 "Creating ClaudeSDKClient",
                 mcp_servers=list(mcp_servers.keys()),
             )
+            _configure_claude_sdk_process_env()
             client = ClaudeSDKClient(options=options)
             logger.debug("Client created, entering context")
             async with client:
