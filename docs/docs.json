@@ -135,9 +135,7 @@
             "icon": "sparkles",
             "pages": [
               "agents/ai-action",
-              "agents/ai-agent",
-              "agents/ai-preset-agent",
-              "agents/ai-slackbot"
+              "agents/ai-agent"
             ]
           },
           {
