@@ -9,9 +9,9 @@ from fastapi import (
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.dependencies import OrgActorRole
 from tracecat.auth.types import Role
-from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.controls import require_scope
 from tracecat.authz.service import MembershipService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import (
@@ -46,6 +46,7 @@ WorkspaceUserInPath = Annotated[
     RoleACL(
         allow_user=True,
         allow_service=False,
+        allow_api_key=True,
         require_workspace="yes",
         workspace_id_in_path=True,
     ),
@@ -54,10 +55,15 @@ WorkspaceUserInPath = Annotated[
 
 
 @router.get("")
-@require_scope("org:read")
+@require_scope(
+    "org:read",
+    "org:workspace:read",
+    "workspace:read",
+    require_all=False,
+)
 async def list_workspaces(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> list[WorkspaceReadMinimal]:
     """List workspaces the user has access to.
@@ -70,18 +76,12 @@ async def list_workspaces(
     No scope requirement - membership itself is the authorization.
     """
     service = WorkspaceService(session, role=role)
-
-    # Org admins/owners have org:workspace:read scope and can see all workspaces
-    # NOTE: org:read is too broad — organization-member also has it
-    if role.scopes and has_scope(role.scopes, "org:workspace:read"):
-        workspaces = await service.admin_list_workspaces()
-    else:
-        if role.user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User ID is required",
-            )
-        workspaces = await service.list_workspaces(role.user_id)
+    try:
+        workspaces = await service.list_accessible_workspaces()
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+        ) from e
     return [WorkspaceReadMinimal(id=ws.id, name=ws.name) for ws in workspaces]
 
 
@@ -89,7 +89,7 @@ async def list_workspaces(
 @require_scope("workspace:create")
 async def create_workspace(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     params: WorkspaceCreate,
     session: AsyncDBSession,
 ) -> WorkspaceReadMinimal:
@@ -119,16 +119,26 @@ async def create_workspace(
 
 # NOTE: This route must be defined before the route for getting a single workspace for both to work
 @router.get("/search")
-@require_scope("org:read")
+@require_scope(
+    "org:read",
+    "org:workspace:read",
+    "workspace:read",
+    require_all=False,
+)
 async def search_workspaces(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     params: WorkspaceSearch = Depends(),
 ) -> list[WorkspaceReadMinimal]:
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
     service = WorkspaceService(session, role=role)
-    workspaces = await service.search_workspaces(params)
+    try:
+        workspaces = await service.search_workspaces(params)
+    except TracecatAuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+        ) from e
     return [WorkspaceReadMinimal(id=ws.id, name=ws.name) for ws in workspaces]
 
 

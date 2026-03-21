@@ -21,10 +21,15 @@ from tracecat.db.models import (
 from tracecat.db.models import (
     Role as DBRole,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.workspaces.schemas import (
     WorkspaceInvitationCreate,
+    WorkspaceSearch,
     WorkspaceSettings,
     WorkspaceSettingsUpdate,
     WorkspaceUpdate,
@@ -154,6 +159,161 @@ class TestWorkspaceService:
 
         assert membership is None
         assert deleted_workspace is None
+
+    async def test_list_accessible_workspaces_returns_bound_workspace_for_service_account(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        workspace = Workspace(
+            name="bound-workspace",
+            organization_id=svc_organization.id,
+        )
+        other_workspace = Workspace(
+            name="other-workspace",
+            organization_id=svc_organization.id,
+        )
+        session.add_all([workspace, other_workspace])
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                workspace_id=workspace.id,
+                bound_workspace_id=workspace.id,
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"workspace:read"}),
+            ),
+        )
+
+        workspaces = await service.list_accessible_workspaces()
+
+        assert [item.id for item in workspaces] == [workspace.id]
+
+    async def test_list_accessible_workspaces_returns_all_for_org_service_account(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        workspace_ids = [uuid.uuid4(), uuid.uuid4()]
+        session.add_all(
+            [
+                Workspace(
+                    id=workspace_ids[0],
+                    name="alpha",
+                    organization_id=svc_organization.id,
+                ),
+                Workspace(
+                    id=workspace_ids[1],
+                    name="beta",
+                    organization_id=svc_organization.id,
+                ),
+            ]
+        )
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"org:workspace:read"}),
+            ),
+        )
+
+        workspaces = await service.list_accessible_workspaces()
+
+        assert {item.id for item in workspaces} == set(workspace_ids)
+
+    async def test_list_accessible_workspaces_rejects_org_service_account_without_scope(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"workspace:read"}),
+            ),
+        )
+
+        with pytest.raises(TracecatAuthorizationError):
+            await service.list_accessible_workspaces()
+
+    async def test_search_workspaces_returns_bound_workspace_for_service_account(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        workspace = Workspace(
+            name="bound-workspace",
+            organization_id=svc_organization.id,
+        )
+        other_workspace = Workspace(
+            name="other-workspace",
+            organization_id=svc_organization.id,
+        )
+        session.add_all([workspace, other_workspace])
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                workspace_id=workspace.id,
+                bound_workspace_id=workspace.id,
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"workspace:read"}),
+            ),
+        )
+
+        results = await service.search_workspaces(
+            WorkspaceSearch(name="bound-workspace")
+        )
+
+        assert [item.id for item in results] == [workspace.id]
+
+    async def test_search_workspaces_returns_org_matches_for_org_service_account(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        alpha = Workspace(
+            name="alpha",
+            organization_id=svc_organization.id,
+        )
+        beta = Workspace(
+            name="beta",
+            organization_id=svc_organization.id,
+        )
+        session.add_all([alpha, beta])
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"org:workspace:read"}),
+            ),
+        )
+
+        results = await service.search_workspaces(WorkspaceSearch(name="alpha"))
+
+        assert [item.id for item in results] == [alpha.id]
 
     async def test_update_workspace_merges_partial_settings(
         self,

@@ -6,7 +6,8 @@ from typing import Annotated
 from fastapi import APIRouter, Body, HTTPException, status
 from pydantic import UUID4
 
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import WorkspaceActorRole
+from tracecat.authz.controls import require_scope
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownDefinitionCreate,
     CaseDropdownDefinitionRead,
@@ -30,9 +31,10 @@ definitions_router = APIRouter(prefix="/case-dropdowns", tags=["case-dropdowns"]
 
 
 @definitions_router.get("", response_model=list[CaseDropdownDefinitionRead])
+@require_scope("case:read")
 async def list_dropdown_definitions(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
 ) -> list[CaseDropdownDefinitionRead]:
     """List all dropdown definitions for the workspace."""
@@ -49,9 +51,10 @@ async def list_dropdown_definitions(
     response_model=CaseDropdownDefinitionRead,
     status_code=status.HTTP_201_CREATED,
 )
+@require_scope("case:create")
 async def create_dropdown_definition(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     params: CaseDropdownDefinitionCreate,
 ) -> CaseDropdownDefinitionRead:
@@ -68,9 +71,10 @@ async def create_dropdown_definition(
 
 
 @definitions_router.get("/{definition_id}", response_model=CaseDropdownDefinitionRead)
+@require_scope("case:read")
 async def get_dropdown_definition(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     definition_id: UUID4,
 ) -> CaseDropdownDefinitionRead:
@@ -86,9 +90,10 @@ async def get_dropdown_definition(
 
 
 @definitions_router.patch("/{definition_id}", response_model=CaseDropdownDefinitionRead)
+@require_scope("case:update")
 async def update_dropdown_definition(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     definition_id: UUID4,
     params: CaseDropdownDefinitionUpdate,
@@ -112,9 +117,10 @@ async def update_dropdown_definition(
 
 
 @definitions_router.delete("/{definition_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("case:delete")
 async def delete_dropdown_definition(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     definition_id: UUID4,
 ) -> None:
@@ -137,9 +143,10 @@ async def delete_dropdown_definition(
     response_model=CaseDropdownOptionRead,
     status_code=status.HTTP_201_CREATED,
 )
+@require_scope("case:create")
 async def add_dropdown_option(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     definition_id: UUID4,
     params: CaseDropdownOptionCreate,
@@ -167,9 +174,10 @@ async def add_dropdown_option(
     "/{definition_id}/options/{option_id}",
     response_model=CaseDropdownOptionRead,
 )
+@require_scope("case:update")
 async def update_dropdown_option(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     definition_id: UUID4,
     option_id: UUID4,
@@ -202,9 +210,10 @@ async def update_dropdown_option(
     "/{definition_id}/options/{option_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("case:delete")
 async def delete_dropdown_option(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     definition_id: UUID4,
     option_id: UUID4,
@@ -230,9 +239,10 @@ async def delete_dropdown_option(
     "/{definition_id}/options/reorder",
     status_code=status.HTTP_204_NO_CONTENT,
 )
+@require_scope("case:update")
 async def reorder_dropdown_options(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     definition_id: UUID4,
     option_ids: Annotated[list[uuid.UUID], Body()],
@@ -254,9 +264,10 @@ values_router = APIRouter(prefix="/cases", tags=["cases"])
 
 
 @values_router.get("/{case_id}/dropdowns", response_model=list[CaseDropdownValueRead])
+@require_scope("case:read")
 async def list_case_dropdown_values(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     case_id: UUID4,
 ) -> list[CaseDropdownValueRead]:
@@ -269,9 +280,10 @@ async def list_case_dropdown_values(
     "/{case_id}/dropdowns/{definition_id}",
     response_model=CaseDropdownValueRead,
 )
+@require_scope("case:update")
 async def set_case_dropdown_value(
     *,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     case_id: UUID4,
     definition_id: UUID4,

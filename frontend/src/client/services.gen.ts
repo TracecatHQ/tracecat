@@ -505,6 +505,45 @@ import type {
   SecretsSearchSecretsResponse,
   SecretsUpdateSecretByIdData,
   SecretsUpdateSecretByIdResponse,
+  ServiceAccountsCreateOrganizationServiceAccountApiKeyData,
+  ServiceAccountsCreateOrganizationServiceAccountApiKeyResponse,
+  ServiceAccountsCreateOrganizationServiceAccountData,
+  ServiceAccountsCreateOrganizationServiceAccountResponse,
+  ServiceAccountsCreateWorkspaceServiceAccountApiKeyData,
+  ServiceAccountsCreateWorkspaceServiceAccountApiKeyResponse,
+  ServiceAccountsCreateWorkspaceServiceAccountData,
+  ServiceAccountsCreateWorkspaceServiceAccountResponse,
+  ServiceAccountsDisableOrganizationServiceAccountData,
+  ServiceAccountsDisableOrganizationServiceAccountResponse,
+  ServiceAccountsDisableWorkspaceServiceAccountData,
+  ServiceAccountsDisableWorkspaceServiceAccountResponse,
+  ServiceAccountsEnableOrganizationServiceAccountData,
+  ServiceAccountsEnableOrganizationServiceAccountResponse,
+  ServiceAccountsEnableWorkspaceServiceAccountData,
+  ServiceAccountsEnableWorkspaceServiceAccountResponse,
+  ServiceAccountsGetOrganizationServiceAccountData,
+  ServiceAccountsGetOrganizationServiceAccountResponse,
+  ServiceAccountsGetWorkspaceServiceAccountData,
+  ServiceAccountsGetWorkspaceServiceAccountResponse,
+  ServiceAccountsListOrganizationServiceAccountApiKeysData,
+  ServiceAccountsListOrganizationServiceAccountApiKeysResponse,
+  ServiceAccountsListOrganizationServiceAccountScopesResponse,
+  ServiceAccountsListOrganizationServiceAccountsData,
+  ServiceAccountsListOrganizationServiceAccountsResponse,
+  ServiceAccountsListWorkspaceServiceAccountApiKeysData,
+  ServiceAccountsListWorkspaceServiceAccountApiKeysResponse,
+  ServiceAccountsListWorkspaceServiceAccountScopesData,
+  ServiceAccountsListWorkspaceServiceAccountScopesResponse,
+  ServiceAccountsListWorkspaceServiceAccountsData,
+  ServiceAccountsListWorkspaceServiceAccountsResponse,
+  ServiceAccountsRevokeOrganizationServiceAccountApiKeyData,
+  ServiceAccountsRevokeOrganizationServiceAccountApiKeyResponse,
+  ServiceAccountsRevokeWorkspaceServiceAccountApiKeyData,
+  ServiceAccountsRevokeWorkspaceServiceAccountApiKeyResponse,
+  ServiceAccountsUpdateOrganizationServiceAccountData,
+  ServiceAccountsUpdateOrganizationServiceAccountResponse,
+  ServiceAccountsUpdateWorkspaceServiceAccountData,
+  ServiceAccountsUpdateWorkspaceServiceAccountResponse,
   SettingsGetAgentSettingsResponse,
   SettingsGetAppSettingsResponse,
   SettingsGetAuditSettingsResponse,
@@ -1319,6 +1358,267 @@ export const workspacesRevokeWorkspaceInvitation = (
 }
 
 /**
+ * List Workspace Service Accounts
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_ServiceAccountRead_ Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsListWorkspaceServiceAccounts = (
+  data: ServiceAccountsListWorkspaceServiceAccountsData
+): CancelablePromise<ServiceAccountsListWorkspaceServiceAccountsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/service-accounts",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Workspace Service Account
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ServiceAccountApiKeyIssueResponse Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsCreateWorkspaceServiceAccount = (
+  data: ServiceAccountsCreateWorkspaceServiceAccountData
+): CancelablePromise<ServiceAccountsCreateWorkspaceServiceAccountResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/service-accounts",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workspace Service Account Scopes
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns ServiceAccountScopeList Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsListWorkspaceServiceAccountScopes = (
+  data: ServiceAccountsListWorkspaceServiceAccountScopesData
+): CancelablePromise<ServiceAccountsListWorkspaceServiceAccountScopesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/service-accounts/scopes",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workspace Service Account
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.workspaceId
+ * @returns ServiceAccountRead Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsGetWorkspaceServiceAccount = (
+  data: ServiceAccountsGetWorkspaceServiceAccountData
+): CancelablePromise<ServiceAccountsGetWorkspaceServiceAccountResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}",
+    path: {
+      service_account_id: data.serviceAccountId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Workspace Service Account
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ServiceAccountRead Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsUpdateWorkspaceServiceAccount = (
+  data: ServiceAccountsUpdateWorkspaceServiceAccountData
+): CancelablePromise<ServiceAccountsUpdateWorkspaceServiceAccountResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}",
+    path: {
+      service_account_id: data.serviceAccountId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workspace Service Account Api Keys
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_ServiceAccountApiKeyRead_ Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsListWorkspaceServiceAccountApiKeys = (
+  data: ServiceAccountsListWorkspaceServiceAccountApiKeysData
+): CancelablePromise<ServiceAccountsListWorkspaceServiceAccountApiKeysResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}/api-keys",
+    path: {
+      service_account_id: data.serviceAccountId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Workspace Service Account Api Key
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ServiceAccountApiKeyIssueResponse Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsCreateWorkspaceServiceAccountApiKey = (
+  data: ServiceAccountsCreateWorkspaceServiceAccountApiKeyData
+): CancelablePromise<ServiceAccountsCreateWorkspaceServiceAccountApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}/api-keys",
+    path: {
+      service_account_id: data.serviceAccountId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disable Workspace Service Account
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsDisableWorkspaceServiceAccount = (
+  data: ServiceAccountsDisableWorkspaceServiceAccountData
+): CancelablePromise<ServiceAccountsDisableWorkspaceServiceAccountResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}/disable",
+    path: {
+      service_account_id: data.serviceAccountId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Enable Workspace Service Account
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsEnableWorkspaceServiceAccount = (
+  data: ServiceAccountsEnableWorkspaceServiceAccountData
+): CancelablePromise<ServiceAccountsEnableWorkspaceServiceAccountResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}/enable",
+    path: {
+      service_account_id: data.serviceAccountId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Workspace Service Account Api Key
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.apiKeyId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsRevokeWorkspaceServiceAccountApiKey = (
+  data: ServiceAccountsRevokeWorkspaceServiceAccountApiKeyData
+): CancelablePromise<ServiceAccountsRevokeWorkspaceServiceAccountApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/service-accounts/{service_account_id}/api-keys/{api_key_id}/revoke",
+    path: {
+      service_account_id: data.serviceAccountId,
+      api_key_id: data.apiKeyId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Workflows
  * List workflows.
  * @param data The data for the request.
@@ -1995,9 +2295,9 @@ export const graphApplyGraphOperations = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.trigger
- * @param data.userId
  * @param data.limit
  * @param data.workflowId
+ * @param data.userId
  * @returns WorkflowExecutionReadMinimal Successful Response
  * @throws ApiError
  */
@@ -2009,10 +2309,10 @@ export const workflowExecutionsListWorkflowExecutions = (
     url: "/workflow-executions",
     query: {
       trigger: data.trigger,
-      user_id: data.userId,
       limit: data.limit,
       workspace_id: data.workspaceId,
       workflow_id: data.workflowId,
+      user_id: data.userId,
     },
     errors: {
       422: "Validation Error",
@@ -2051,7 +2351,6 @@ export const workflowExecutionsCreateWorkflowExecution = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.trigger
- * @param data.userId
  * @param data.status
  * @param data.statusMode
  * @param data.startTimeFrom
@@ -2066,6 +2365,7 @@ export const workflowExecutionsCreateWorkflowExecution = (
  * @param data.limit
  * @param data.cursor
  * @param data.reverse
+ * @param data.userId
  * @returns CursorPaginatedResponse_WorkflowRunReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -2077,7 +2377,6 @@ export const workflowExecutionsSearchWorkflowExecutions = (
     url: "/workflow-executions/search",
     query: {
       trigger: data.trigger,
-      user_id: data.userId,
       status: data.status,
       status_mode: data.statusMode,
       start_time_from: data.startTimeFrom,
@@ -2093,6 +2392,7 @@ export const workflowExecutionsSearchWorkflowExecutions = (
       limit: data.limit,
       cursor: data.cursor,
       reverse: data.reverse,
+      user_id: data.userId,
     },
     errors: {
       422: "Validation Error",
@@ -3809,6 +4109,236 @@ export const organizationGetInvitationByToken = (
     url: "/organization/invitations/token/{token}",
     path: {
       token: data.token,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Organization Service Accounts
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_ServiceAccountRead_ Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsListOrganizationServiceAccounts = (
+  data: ServiceAccountsListOrganizationServiceAccountsData = {}
+): CancelablePromise<ServiceAccountsListOrganizationServiceAccountsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/service-accounts",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Organization Service Account
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ServiceAccountApiKeyIssueResponse Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsCreateOrganizationServiceAccount = (
+  data: ServiceAccountsCreateOrganizationServiceAccountData
+): CancelablePromise<ServiceAccountsCreateOrganizationServiceAccountResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/service-accounts",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Organization Service Account Scopes
+ * @returns ServiceAccountScopeList Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsListOrganizationServiceAccountScopes =
+  (): CancelablePromise<ServiceAccountsListOrganizationServiceAccountScopesResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/service-accounts/scopes",
+    })
+  }
+
+/**
+ * Get Organization Service Account
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @returns ServiceAccountRead Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsGetOrganizationServiceAccount = (
+  data: ServiceAccountsGetOrganizationServiceAccountData
+): CancelablePromise<ServiceAccountsGetOrganizationServiceAccountResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/service-accounts/{service_account_id}",
+    path: {
+      service_account_id: data.serviceAccountId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Organization Service Account
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.requestBody
+ * @returns ServiceAccountRead Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsUpdateOrganizationServiceAccount = (
+  data: ServiceAccountsUpdateOrganizationServiceAccountData
+): CancelablePromise<ServiceAccountsUpdateOrganizationServiceAccountResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/organization/service-accounts/{service_account_id}",
+    path: {
+      service_account_id: data.serviceAccountId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Organization Service Account Api Keys
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_ServiceAccountApiKeyRead_ Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsListOrganizationServiceAccountApiKeys = (
+  data: ServiceAccountsListOrganizationServiceAccountApiKeysData
+): CancelablePromise<ServiceAccountsListOrganizationServiceAccountApiKeysResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/service-accounts/{service_account_id}/api-keys",
+    path: {
+      service_account_id: data.serviceAccountId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Organization Service Account Api Key
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.requestBody
+ * @returns ServiceAccountApiKeyIssueResponse Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsCreateOrganizationServiceAccountApiKey = (
+  data: ServiceAccountsCreateOrganizationServiceAccountApiKeyData
+): CancelablePromise<ServiceAccountsCreateOrganizationServiceAccountApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/service-accounts/{service_account_id}/api-keys",
+    path: {
+      service_account_id: data.serviceAccountId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disable Organization Service Account
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsDisableOrganizationServiceAccount = (
+  data: ServiceAccountsDisableOrganizationServiceAccountData
+): CancelablePromise<ServiceAccountsDisableOrganizationServiceAccountResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/service-accounts/{service_account_id}/disable",
+    path: {
+      service_account_id: data.serviceAccountId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Enable Organization Service Account
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsEnableOrganizationServiceAccount = (
+  data: ServiceAccountsEnableOrganizationServiceAccountData
+): CancelablePromise<ServiceAccountsEnableOrganizationServiceAccountResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/service-accounts/{service_account_id}/enable",
+    path: {
+      service_account_id: data.serviceAccountId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Organization Service Account Api Key
+ * @param data The data for the request.
+ * @param data.serviceAccountId
+ * @param data.apiKeyId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const serviceAccountsRevokeOrganizationServiceAccountApiKey = (
+  data: ServiceAccountsRevokeOrganizationServiceAccountApiKeyData
+): CancelablePromise<ServiceAccountsRevokeOrganizationServiceAccountApiKeyResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/service-accounts/{service_account_id}/api-keys/{api_key_id}/revoke",
+    path: {
+      service_account_id: data.serviceAccountId,
+      api_key_id: data.apiKeyId,
     },
     errors: {
       422: "Validation Error",

@@ -166,8 +166,11 @@ function SettingsModalContent() {
     workspaceId,
   ])
 
-  const showWorkspaceSection = !!workspaceId && canAdministerWorkspace
-  const displayedSection = showWorkspaceSection ? activeSection : "profile"
+  const showWorkspaceNav = !!workspaceId && canAdministerWorkspace
+  const canDisplaySection =
+    activeSection === "profile" || canAdministerWorkspace
+  const displayedSection =
+    showWorkspaceNav && canDisplaySection ? activeSection : "profile"
   const showSyncNav = hasEntitlement("git_sync")
 
   return (
@@ -192,40 +195,44 @@ function SettingsModalContent() {
                 onSelect={setActiveSection}
               />
 
-              {showWorkspaceSection && (
+              {showWorkspaceNav && (
                 <>
                   <span className="mt-3 px-2 py-1 text-xs font-medium text-muted-foreground">
                     Workspace
                   </span>
-                  <NavItem
-                    icon={Settings2}
-                    label="General"
-                    section="workspace-general"
-                    activeSection={displayedSection}
-                    onSelect={setActiveSection}
-                  />
-                  <NavItem
-                    icon={WorkflowIcon}
-                    label="Workflows"
-                    section="workspace-runtime"
-                    activeSection={displayedSection}
-                    onSelect={setActiveSection}
-                  />
-                  <NavItem
-                    icon={FileIcon}
-                    label="Files"
-                    section="workspace-files"
-                    activeSection={displayedSection}
-                    onSelect={setActiveSection}
-                  />
-                  <NavItem
-                    icon={GitBranchIcon}
-                    label="Git sync"
-                    section="workspace-sync"
-                    activeSection={displayedSection}
-                    onSelect={setActiveSection}
-                    blocked={!showSyncNav}
-                  />
+                  {canAdministerWorkspace && (
+                    <>
+                      <NavItem
+                        icon={Settings2}
+                        label="General"
+                        section="workspace-general"
+                        activeSection={displayedSection}
+                        onSelect={setActiveSection}
+                      />
+                      <NavItem
+                        icon={WorkflowIcon}
+                        label="Workflows"
+                        section="workspace-runtime"
+                        activeSection={displayedSection}
+                        onSelect={setActiveSection}
+                      />
+                      <NavItem
+                        icon={FileIcon}
+                        label="Files"
+                        section="workspace-files"
+                        activeSection={displayedSection}
+                        onSelect={setActiveSection}
+                      />
+                      <NavItem
+                        icon={GitBranchIcon}
+                        label="Git sync"
+                        section="workspace-sync"
+                        activeSection={displayedSection}
+                        onSelect={setActiveSection}
+                        blocked={!showSyncNav}
+                      />
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -246,7 +253,7 @@ function SettingsModalContent() {
           </div>
 
           {/* Right content panel */}
-          <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-8">
+          <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-x-hidden overflow-y-auto p-8">
             {displayedSection === "profile" ? (
               <ProfileSettings />
             ) : workspaceId ? (

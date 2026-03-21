@@ -1,13 +1,10 @@
-"""Tests for Role header serialization and _authenticate_service() roundtrip.
-
-Validates that Role.to_headers() correctly serializes all current fields
-and that _authenticate_service() reconstructs them from request headers.
-"""
+"""Tests for Role header serialization and _authenticate_service() roundtrip."""
 
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from tracecat.auth.credentials import _authenticate_service
 from tracecat.auth.types import Role
@@ -16,14 +13,9 @@ from tracecat.auth.types import Role
 class MockHeaders(dict):
     """Dict subclass that can be used as request.headers mock."""
 
-    pass
-
 
 class TestRoleToHeaders:
-    """Tests for Role.to_headers() method."""
-
-    def test_to_headers_includes_all_fields(self):
-        """Verify to_headers() serializes type, service_id, user_id, workspace_id, organization_id, and scopes."""
+    def test_to_headers_includes_all_fields(self) -> None:
         workspace_id = uuid4()
         organization_id = uuid4()
         user_id = uuid4()
@@ -42,11 +34,9 @@ class TestRoleToHeaders:
         assert headers["x-tracecat-role-user-id"] == str(user_id)
         assert headers["x-tracecat-role-workspace-id"] == str(workspace_id)
         assert headers["x-tracecat-role-organization-id"] == str(organization_id)
-        # Scopes are sorted and comma-joined
         assert headers["x-tracecat-role-scopes"] == "cases:write,workflow:read"
 
-    def test_to_headers_omits_none_fields(self):
-        """Verify optional fields are excluded from headers when None."""
+    def test_to_headers_omits_none_fields(self) -> None:
         role = Role(
             type="service",
             service_id="tracecat-runner",
@@ -57,29 +47,73 @@ class TestRoleToHeaders:
         assert headers["x-tracecat-role-service-id"] == "tracecat-runner"
         assert "x-tracecat-role-user-id" not in headers
         assert "x-tracecat-role-workspace-id" not in headers
+        assert "x-tracecat-role-bound-workspace-id" not in headers
         assert "x-tracecat-role-organization-id" not in headers
         assert "x-tracecat-role-scopes" not in headers
 
-    def test_to_headers_does_not_include_workspace_role(self):
-        """Verify workspace_role header is never present (removed in RBAC migration)."""
+    def test_to_headers_includes_service_account_metadata(self) -> None:
+        service_account_id = uuid4()
+        workspace_id = uuid4()
         role = Role(
-            type="service",
-            service_id="tracecat-runner",
-            workspace_id=uuid4(),
+            type="service_account",
+            service_id="tracecat-api",
+            organization_id=uuid4(),
+            workspace_id=workspace_id,
+            bound_workspace_id=workspace_id,
+            service_account_id=service_account_id,
+            scopes=frozenset({"workflow:read"}),
         )
+
         headers = role.to_headers()
 
-        assert "x-tracecat-role-workspace-role" not in headers
+        assert headers["x-tracecat-role-type"] == "service_account"
+        assert headers["x-tracecat-role-service-id"] == "tracecat-api"
+        assert headers["x-tracecat-role-service-account-id"] == str(service_account_id)
+        assert headers["x-tracecat-role-bound-workspace-id"] == str(workspace_id)
+
+    def test_service_account_role_requires_organization_id(self) -> None:
+        with pytest.raises(ValidationError, match="organization_id"):
+            Role(
+                type="service_account",
+                service_id="tracecat-api",
+                service_account_id=uuid4(),
+            )
+
+    def test_service_account_role_requires_service_account_id(self) -> None:
+        with pytest.raises(ValidationError, match="service_account_id"):
+            Role(
+                type="service_account",
+                service_id="tracecat-api",
+                organization_id=uuid4(),
+            )
+
+    def test_service_account_role_rejects_user_id(self) -> None:
+        with pytest.raises(ValidationError, match="must not set user_id"):
+            Role(
+                type="service_account",
+                service_id="tracecat-api",
+                organization_id=uuid4(),
+                service_account_id=uuid4(),
+                user_id=uuid4(),
+            )
+
+    def test_service_account_role_rejects_mismatched_bound_workspace(self) -> None:
+        with pytest.raises(ValidationError, match="bound_workspace_id"):
+            Role(
+                type="service_account",
+                service_id="tracecat-api",
+                organization_id=uuid4(),
+                workspace_id=uuid4(),
+                bound_workspace_id=uuid4(),
+                service_account_id=uuid4(),
+            )
 
 
 @pytest.mark.anyio
 class TestAuthenticateServiceRoundtrip:
-    """Tests for _authenticate_service() reconstructing Role from headers."""
-
     async def test_roundtrip_preserves_all_fields(
         self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Verify full roundtrip: Role -> to_headers() -> _authenticate_service() preserves fields."""
+    ) -> None:
         monkeypatch.setattr(
             "tracecat.auth.credentials.config.TRACECAT__SERVICE_KEY", "test-key"
         )
@@ -116,8 +150,7 @@ class TestAuthenticateServiceRoundtrip:
 
     async def test_authenticate_service_reads_scopes(
         self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Verify _authenticate_service parses scopes from header."""
+    ) -> None:
         monkeypatch.setattr(
             "tracecat.auth.credentials.config.TRACECAT__SERVICE_KEY", "test-key"
         )
@@ -141,8 +174,7 @@ class TestAuthenticateServiceRoundtrip:
 
     async def test_authenticate_service_derives_org_from_workspace(
         self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Verify _authenticate_service derives organization_id from workspace_id when org header is missing."""
+    ) -> None:
         monkeypatch.setattr(
             "tracecat.auth.credentials.config.TRACECAT__SERVICE_KEY", "test-key"
         )
@@ -169,3 +201,33 @@ class TestAuthenticateServiceRoundtrip:
 
         assert role is not None
         assert role.organization_id == derived_org_id
+
+    async def test_authenticate_service_reads_workspace_provenance(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "tracecat.auth.credentials.config.TRACECAT__SERVICE_KEY", "test-key"
+        )
+        monkeypatch.setattr(
+            "tracecat.auth.credentials.config.TRACECAT__SERVICE_ROLES_WHITELIST",
+            ["tracecat-runner"],
+        )
+
+        workspace_id = uuid4()
+        organization_id = uuid4()
+        request = MagicMock()
+        request.headers = MockHeaders(
+            {
+                "x-tracecat-role-service-id": "tracecat-runner",
+                "x-tracecat-role-workspace-id": str(workspace_id),
+                "x-tracecat-role-organization-id": str(organization_id),
+                "x-tracecat-role-bound-workspace-id": str(workspace_id),
+            }
+        )
+
+        role = await _authenticate_service(request, api_key="test-key")
+
+        assert role is not None
+        assert role.workspace_id == workspace_id
+        assert role.organization_id == organization_id
+        assert role.bound_workspace_id == workspace_id

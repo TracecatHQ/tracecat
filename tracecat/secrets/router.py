@@ -1,13 +1,11 @@
-from typing import Annotated, Any
+from typing import Any
 
 from cryptography.fernet import InvalidToken
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
-from tracecat.auth.credentials import RoleACL
-from tracecat.auth.dependencies import OrgUserRole
-from tracecat.auth.types import Role
+from tracecat.auth.dependencies import OrgActorRole, WorkspaceActorRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -35,15 +33,6 @@ from tracecat.secrets.service import SecretsService
 
 router = APIRouter(prefix="/secrets", tags=["secrets"])
 org_router = APIRouter(prefix="/organization/secrets", tags=["organization-secrets"])
-
-WorkspaceUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
 
 
 def _serialize_secret_read_minimal(
@@ -80,7 +69,7 @@ def _serialize_secret_read_minimal(
 @require_scope("secret:read")
 async def search_secrets(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     environment: str = Query(...),
     names: set[str] | None = Query(
@@ -113,7 +102,7 @@ async def search_secrets(
 @require_scope("secret:read")
 async def list_secrets(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     types: set[SecretType] | None = Query(
         None, alias="type", description="Filter by secret type"
@@ -132,7 +121,7 @@ async def list_secrets(
 @require_scope("secret:read")
 async def list_secret_definitions(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
 ) -> list[SecretDefinition]:
     """List registry secret definitions."""
@@ -144,7 +133,7 @@ async def list_secret_definitions(
 @require_scope("secret:read")
 async def get_aws_assume_role_access(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActorRole,
 ) -> AwsAssumeRoleAccessRead:
     """Get workspace-scoped AWS AssumeRole details for credential setup."""
     workspace_id = role.workspace_id
@@ -171,7 +160,7 @@ async def get_aws_assume_role_access(
 @require_scope("secret:read")
 async def get_secret_by_name(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     secret_name: str,
 ) -> SecretRead:
@@ -191,7 +180,7 @@ async def get_secret_by_name(
 @require_scope("secret:create")
 async def create_secret(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     params: SecretCreate,
 ) -> None:
@@ -215,7 +204,7 @@ async def create_secret(
 @require_scope("secret:update")
 async def update_secret_by_id(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
     params: SecretUpdate,
@@ -245,7 +234,7 @@ async def update_secret_by_id(
 @require_scope("secret:delete")
 async def delete_secret_by_id(
     *,
-    role: WorkspaceUser,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
 ) -> None:
@@ -265,7 +254,7 @@ async def delete_secret_by_id(
 @require_scope("org:secret:read")
 async def list_org_secrets(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     types: set[SecretType] | None = Query(
         None, alias="type", description="Filter by secret type"
@@ -284,7 +273,7 @@ async def list_org_secrets(
 @require_scope("org:secret:read")
 async def get_org_secret_by_name(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     secret_name: str,
     environment: str | None = Query(None),
@@ -305,7 +294,7 @@ async def get_org_secret_by_name(
 @require_scope("org:secret:create")
 async def create_org_secret(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     params: SecretCreate,
 ) -> None:
@@ -332,7 +321,7 @@ async def create_org_secret(
 @require_scope("org:secret:update")
 async def update_org_secret_by_id(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
     params: SecretUpdate,
@@ -367,7 +356,7 @@ async def update_org_secret_by_id(
 @require_scope("org:secret:delete")
 async def delete_org_secret_by_id(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
 ) -> None:

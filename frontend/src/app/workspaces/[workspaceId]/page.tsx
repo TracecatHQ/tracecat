@@ -40,6 +40,7 @@ export default function WorkspacePage() {
   const canViewVariables = useScopeCheck("variable:read")
   const canViewSecrets = useScopeCheck("secret:read")
   const canViewIntegrations = useScopeCheck("integration:read")
+  const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewInbox = useScopeCheck("inbox:read")
 
@@ -56,6 +57,7 @@ export default function WorkspacePage() {
       canViewVariables,
       canViewSecrets,
       canViewIntegrations,
+      canViewServiceAccounts,
       canViewMembers,
       canViewInbox,
     ].some((value) => value === undefined)
@@ -86,6 +88,9 @@ export default function WorkspacePage() {
     if (canViewIntegrations === true) {
       return `${basePath}/integrations`
     }
+    if (canViewServiceAccounts === true) {
+      return `${basePath}/service-accounts`
+    }
     if (canViewMembers === true) {
       return `${basePath}/members`
     }
@@ -104,6 +109,7 @@ export default function WorkspacePage() {
     canViewTables,
     canViewVariables,
     canViewWorkflows,
+    canViewServiceAccounts,
     isLoading,
     workspaceId,
   ])

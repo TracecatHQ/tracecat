@@ -2405,6 +2405,54 @@ export type CursorPaginatedResponse_InboxItemRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
+  items: Array<ServiceAccountApiKeyRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_ServiceAccountRead_ = {
+  items: Array<ServiceAccountRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_TableRowRead_ = {
   items: Array<TableRowRead>
   /**
@@ -3767,6 +3815,11 @@ export type InteractionType = "approval" | "response"
  */
 export type InvitationStatus = "pending" | "accepted" | "revoked"
 
+export type IssuedServiceAccountApiKey = {
+  raw_key: string
+  api_key: ServiceAccountApiKeyRead
+}
+
 export type JoinStrategy = "any" | "all"
 
 /**
@@ -4911,18 +4964,7 @@ export type RetryPromptPart = {
 }
 
 /**
- * The identity and authorization of a user or service.
- *
- * Params
- * ------
- * type : Literal["user", "service"]
- * The type of role.
- * user_id : UUID | None
- * The user's ID, or the service's user_id.
- * This can be None for internal services, or when a user hasn't been set for the role.
- * service_id : str | None = None
- * The service's role name, or None if the role is a user.
- *
+ * The identity, intrinsic bindings, and resolved authorization context.
  *
  * User roles
  * ----------
@@ -4937,10 +4979,12 @@ export type RetryPromptPart = {
  * - A service's `user_id` is the user it's acting on behalf of. This can be None for internal services.
  */
 export type Role = {
-  type: "user" | "service"
+  type: "user" | "service" | "service_account"
   workspace_id?: string | null
+  bound_workspace_id?: string | null
   organization_id?: string | null
   user_id?: string | null
+  service_account_id?: string | null
   service_id:
     | "tracecat-api"
     | "tracecat-bootstrap"
@@ -4959,7 +5003,7 @@ export type Role = {
   [key: string]: unknown | string | boolean
 }
 
-export type type3 = "user" | "service"
+export type type3 = "user" | "service" | "service_account"
 
 export type service_id =
   | "tracecat-api"
@@ -5353,6 +5397,78 @@ export type Select = {
   component_id?: "select"
   options?: Array<string> | null
   multiple?: boolean
+}
+
+export type ServiceAccountApiKeyCounts = {
+  total?: number
+  active?: number
+  revoked?: number
+}
+
+export type ServiceAccountApiKeyCreate = {
+  name?: string
+}
+
+export type ServiceAccountApiKeyIssueResponse = {
+  issued_api_key: IssuedServiceAccountApiKey
+  service_account: ServiceAccountRead
+}
+
+export type ServiceAccountApiKeyRead = {
+  id: string
+  name: string
+  key_id: string
+  preview: string
+  created_by?: string | null
+  created_by_user?: UserReadMinimal | null
+  revoked_by?: string | null
+  revoked_by_user?: UserReadMinimal | null
+  last_used_at?: string | null
+  revoked_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ServiceAccountCreate = {
+  name: string
+  description?: string | null
+  scope_ids?: Array<string>
+  initial_key_name?: string
+}
+
+export type ServiceAccountRead = {
+  id: string
+  organization_id: string
+  workspace_id?: string | null
+  owner_user_id?: string | null
+  owner_user?: UserReadMinimal | null
+  name: string
+  description?: string | null
+  disabled_at?: string | null
+  last_used_at?: string | null
+  created_at: string
+  updated_at: string
+  scopes?: Array<ServiceAccountScopeRead>
+  active_api_key?: ServiceAccountApiKeyRead | null
+  api_key_counts?: ServiceAccountApiKeyCounts
+}
+
+export type ServiceAccountScopeList = {
+  items?: Array<ServiceAccountScopeRead>
+}
+
+export type ServiceAccountScopeRead = {
+  id: string
+  name: string
+  resource: string
+  action: string
+  description?: string | null
+}
+
+export type ServiceAccountUpdate = {
+  name?: string | null
+  description?: string | null
+  scope_ids?: Array<string> | null
 }
 
 export type SessionRead = {
@@ -6428,6 +6544,14 @@ export type UserRead = {
   settings: {
     [key: string]: unknown
   }
+}
+
+export type UserReadMinimal = {
+  id: string
+  email: string
+  role: UserRole
+  first_name?: string | null
+  last_name?: string | null
 }
 
 export type UserRole = "basic" | "admin"
@@ -8001,6 +8125,90 @@ export type WorkspacesRevokeWorkspaceInvitationData = {
 
 export type WorkspacesRevokeWorkspaceInvitationResponse = void
 
+export type ServiceAccountsListWorkspaceServiceAccountsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type ServiceAccountsListWorkspaceServiceAccountsResponse =
+  CursorPaginatedResponse_ServiceAccountRead_
+
+export type ServiceAccountsCreateWorkspaceServiceAccountData = {
+  requestBody: ServiceAccountCreate
+  workspaceId: string
+}
+
+export type ServiceAccountsCreateWorkspaceServiceAccountResponse =
+  ServiceAccountApiKeyIssueResponse
+
+export type ServiceAccountsListWorkspaceServiceAccountScopesData = {
+  workspaceId: string
+}
+
+export type ServiceAccountsListWorkspaceServiceAccountScopesResponse =
+  ServiceAccountScopeList
+
+export type ServiceAccountsGetWorkspaceServiceAccountData = {
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsGetWorkspaceServiceAccountResponse =
+  ServiceAccountRead
+
+export type ServiceAccountsUpdateWorkspaceServiceAccountData = {
+  requestBody: ServiceAccountUpdate
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsUpdateWorkspaceServiceAccountResponse =
+  ServiceAccountRead
+
+export type ServiceAccountsListWorkspaceServiceAccountApiKeysData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsListWorkspaceServiceAccountApiKeysResponse =
+  CursorPaginatedResponse_ServiceAccountApiKeyRead_
+
+export type ServiceAccountsCreateWorkspaceServiceAccountApiKeyData = {
+  requestBody: ServiceAccountApiKeyCreate
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsCreateWorkspaceServiceAccountApiKeyResponse =
+  ServiceAccountApiKeyIssueResponse
+
+export type ServiceAccountsDisableWorkspaceServiceAccountData = {
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsDisableWorkspaceServiceAccountResponse = void
+
+export type ServiceAccountsEnableWorkspaceServiceAccountData = {
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsEnableWorkspaceServiceAccountResponse = void
+
+export type ServiceAccountsRevokeWorkspaceServiceAccountApiKeyData = {
+  apiKeyId: string
+  serviceAccountId: string
+  workspaceId: string
+}
+
+export type ServiceAccountsRevokeWorkspaceServiceAccountApiKeyResponse = void
+
 export type WorkflowsListWorkflowsData = {
   cursor?: string | null
   limit?: number
@@ -8738,6 +8946,77 @@ export type OrganizationGetInvitationByTokenData = {
 }
 
 export type OrganizationGetInvitationByTokenResponse = OrgInvitationReadMinimal
+
+export type ServiceAccountsListOrganizationServiceAccountsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+}
+
+export type ServiceAccountsListOrganizationServiceAccountsResponse =
+  CursorPaginatedResponse_ServiceAccountRead_
+
+export type ServiceAccountsCreateOrganizationServiceAccountData = {
+  requestBody: ServiceAccountCreate
+}
+
+export type ServiceAccountsCreateOrganizationServiceAccountResponse =
+  ServiceAccountApiKeyIssueResponse
+
+export type ServiceAccountsListOrganizationServiceAccountScopesResponse =
+  ServiceAccountScopeList
+
+export type ServiceAccountsGetOrganizationServiceAccountData = {
+  serviceAccountId: string
+}
+
+export type ServiceAccountsGetOrganizationServiceAccountResponse =
+  ServiceAccountRead
+
+export type ServiceAccountsUpdateOrganizationServiceAccountData = {
+  requestBody: ServiceAccountUpdate
+  serviceAccountId: string
+}
+
+export type ServiceAccountsUpdateOrganizationServiceAccountResponse =
+  ServiceAccountRead
+
+export type ServiceAccountsListOrganizationServiceAccountApiKeysData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  serviceAccountId: string
+}
+
+export type ServiceAccountsListOrganizationServiceAccountApiKeysResponse =
+  CursorPaginatedResponse_ServiceAccountApiKeyRead_
+
+export type ServiceAccountsCreateOrganizationServiceAccountApiKeyData = {
+  requestBody: ServiceAccountApiKeyCreate
+  serviceAccountId: string
+}
+
+export type ServiceAccountsCreateOrganizationServiceAccountApiKeyResponse =
+  ServiceAccountApiKeyIssueResponse
+
+export type ServiceAccountsDisableOrganizationServiceAccountData = {
+  serviceAccountId: string
+}
+
+export type ServiceAccountsDisableOrganizationServiceAccountResponse = void
+
+export type ServiceAccountsEnableOrganizationServiceAccountData = {
+  serviceAccountId: string
+}
+
+export type ServiceAccountsEnableOrganizationServiceAccountResponse = void
+
+export type ServiceAccountsRevokeOrganizationServiceAccountApiKeyData = {
+  apiKeyId: string
+  serviceAccountId: string
+}
+
+export type ServiceAccountsRevokeOrganizationServiceAccountApiKeyResponse = void
 
 export type AgentListModelsResponse = {
   [key: string]: ModelConfig
@@ -11088,6 +11367,150 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/service-accounts": {
+    get: {
+      req: ServiceAccountsListWorkspaceServiceAccountsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ServiceAccountRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ServiceAccountsCreateWorkspaceServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ServiceAccountApiKeyIssueResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/service-accounts/scopes": {
+    get: {
+      req: ServiceAccountsListWorkspaceServiceAccountScopesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ServiceAccountScopeList
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/service-accounts/{service_account_id}": {
+    get: {
+      req: ServiceAccountsGetWorkspaceServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ServiceAccountRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: ServiceAccountsUpdateWorkspaceServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ServiceAccountRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/service-accounts/{service_account_id}/api-keys": {
+    get: {
+      req: ServiceAccountsListWorkspaceServiceAccountApiKeysData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ServiceAccountApiKeyRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ServiceAccountsCreateWorkspaceServiceAccountApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ServiceAccountApiKeyIssueResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/service-accounts/{service_account_id}/disable": {
+    post: {
+      req: ServiceAccountsDisableWorkspaceServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/service-accounts/{service_account_id}/enable": {
+    post: {
+      req: ServiceAccountsEnableWorkspaceServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/service-accounts/{service_account_id}/api-keys/{api_key_id}/revoke": {
+    post: {
+      req: ServiceAccountsRevokeWorkspaceServiceAccountApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workflows": {
     get: {
       req: WorkflowsListWorkflowsData
@@ -12389,6 +12812,145 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: OrgInvitationReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/service-accounts": {
+    get: {
+      req: ServiceAccountsListOrganizationServiceAccountsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ServiceAccountRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ServiceAccountsCreateOrganizationServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ServiceAccountApiKeyIssueResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/service-accounts/scopes": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ServiceAccountScopeList
+      }
+    }
+  }
+  "/organization/service-accounts/{service_account_id}": {
+    get: {
+      req: ServiceAccountsGetOrganizationServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ServiceAccountRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: ServiceAccountsUpdateOrganizationServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ServiceAccountRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/service-accounts/{service_account_id}/api-keys": {
+    get: {
+      req: ServiceAccountsListOrganizationServiceAccountApiKeysData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_ServiceAccountApiKeyRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ServiceAccountsCreateOrganizationServiceAccountApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: ServiceAccountApiKeyIssueResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/service-accounts/{service_account_id}/disable": {
+    post: {
+      req: ServiceAccountsDisableOrganizationServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/service-accounts/{service_account_id}/enable": {
+    post: {
+      req: ServiceAccountsEnableOrganizationServiceAccountData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/service-accounts/{service_account_id}/api-keys/{api_key_id}/revoke": {
+    post: {
+      req: ServiceAccountsRevokeOrganizationServiceAccountApiKeyData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
