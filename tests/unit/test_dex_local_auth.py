@@ -13,7 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.dex import api_pb2
 from tracecat.auth.dex.mode import MCPDexMode
-from tracecat.auth.dex.service import DexLocalAuthProvisioningService
+from tracecat.auth.dex.service import (
+    DexLocalAuthProvisioningError,
+    DexLocalAuthProvisioningService,
+)
 from tracecat.auth.enums import AuthType
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.types import Role
@@ -104,6 +107,29 @@ class RecordingProvisioningService:
 
     async def delete_password(self, email: str) -> None:
         self.deletes.append(email)
+
+
+class FailingProvisioningService(RecordingProvisioningService):
+    def __init__(self) -> None:
+        super().__init__()
+        self.upsert_attempts = 0
+        self.delete_attempts = 0
+
+    async def upsert_password(
+        self,
+        *,
+        email: str,
+        password_hash: str,
+        username: str,
+        user_id: str,
+        previous_email: str | None = None,
+    ) -> None:
+        self.upsert_attempts += 1
+        raise DexLocalAuthProvisioningError("Dex unavailable")
+
+    async def delete_password(self, email: str) -> None:
+        self.delete_attempts += 1
+        raise DexLocalAuthProvisioningError("Dex unavailable")
 
 
 @asynccontextmanager
@@ -473,3 +499,117 @@ async def test_user_manager_delete_syncs_dex_local_auth(
         await user_manager.delete(user)
 
     assert service.deletes == ["delete@example.com"]
+
+
+@pytest.mark.anyio
+async def test_user_manager_on_after_register_tolerates_dex_failures(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = FailingProvisioningService()
+
+    async with user_manager_context(session) as (user_db, user_manager):
+        monkeypatch.setattr(
+            "tracecat.auth.users.get_dex_local_auth_service",
+            lambda: service,
+        )
+        user = await user_db.create(
+            {
+                "email": "register-failure@example.com",
+                "hashed_password": user_manager.password_helper.hash(
+                    "this-is-a-strong-password"
+                ),
+                "is_verified": True,
+            }
+        )
+
+        user_manager._pending_dex_password_hash = "$2b$12$post-commit-hash"
+        await user_manager.on_after_register(user)
+
+    assert service.upsert_attempts == 1
+
+
+@pytest.mark.anyio
+async def test_user_manager_on_after_update_tolerates_dex_failures(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = FailingProvisioningService()
+
+    async with user_manager_context(session) as (user_db, user_manager):
+        monkeypatch.setattr(
+            "tracecat.auth.users.get_dex_local_auth_service",
+            lambda: service,
+        )
+        user = await user_db.create(
+            {
+                "email": "update-failure@example.com",
+                "hashed_password": user_manager.password_helper.hash(
+                    "this-is-a-strong-password"
+                ),
+                "is_verified": True,
+            }
+        )
+
+        user_manager._pending_dex_password_hash = "$2b$12$post-commit-hash"
+        user_manager._pending_previous_email = "before@example.com"
+        await user_manager.on_after_update(
+            user, {"email": "update-failure@example.com", "password": "new-password"}
+        )
+
+    assert service.upsert_attempts == 1
+
+
+@pytest.mark.anyio
+async def test_user_manager_on_after_reset_password_tolerates_dex_failures(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = FailingProvisioningService()
+
+    async with user_manager_context(session) as (user_db, user_manager):
+        monkeypatch.setattr(
+            "tracecat.auth.users.get_dex_local_auth_service",
+            lambda: service,
+        )
+        user = await user_db.create(
+            {
+                "email": "reset-failure@example.com",
+                "hashed_password": user_manager.password_helper.hash(
+                    "this-is-a-strong-password"
+                ),
+                "is_verified": True,
+            }
+        )
+
+        user_manager._pending_dex_password_hash = "$2b$12$post-commit-hash"
+        await user_manager.on_after_reset_password(user)
+
+    assert service.upsert_attempts == 1
+
+
+@pytest.mark.anyio
+async def test_user_manager_on_after_delete_tolerates_dex_failures(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = FailingProvisioningService()
+
+    async with user_manager_context(session) as (user_db, user_manager):
+        monkeypatch.setattr(
+            "tracecat.auth.users.get_dex_local_auth_service",
+            lambda: service,
+        )
+        user = await user_db.create(
+            {
+                "email": "delete-failure@example.com",
+                "hashed_password": user_manager.password_helper.hash(
+                    "this-is-a-strong-password"
+                ),
+                "is_verified": True,
+            }
+        )
+
+        await user_manager.on_after_delete(user)
+
+    assert service.delete_attempts == 1

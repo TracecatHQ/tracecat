@@ -1,13 +1,7 @@
 issuer: {{ .Env.DEX_ISSUER | quote }}
 {{- $mode := .Env.MCP_DEX_MODE }}
 {{- if not $mode }}
-  {{- if and .Env.SAML_IDP_METADATA_URL .Env.MCP_DEX_SAML_SSO_URL (or .Env.MCP_DEX_SAML_CA_DATA .Env.SAML_METADATA_CERT) }}
-    {{- $mode = "saml" }}
-  {{- else if and .Env.OIDC_ISSUER .Env.OIDC_CLIENT_ID .Env.OIDC_CLIENT_SECRET }}
-    {{- $mode = "oidc" }}
-  {{- else }}
-    {{- $mode = "basic" }}
-  {{- end }}
+  {{- $mode = "" }}
 {{- end }}
 {{- $bootstrapEmail := .Env.TRACECAT__AUTH_SUPERADMIN_EMAIL }}
 {{- $bootstrapHash := .Env.MCP_DEX_BOOTSTRAP_PASSWORD_HASH }}
