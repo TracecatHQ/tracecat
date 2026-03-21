@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken
+from fastmcp.server.auth.cimd import CIMDDocument
+from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
 from fastmcp.server.auth.oidc_proxy import OIDCConfiguration
 from key_value.aio.stores.memory import MemoryStore
 from mcp.server.auth.provider import (
@@ -17,7 +19,7 @@ from mcp.server.auth.provider import (
     RefreshToken,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
-from pydantic import AnyUrl
+from pydantic import AnyHttpUrl, AnyUrl
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -211,6 +213,57 @@ def test_create_mcp_auth_skips_refresh_scope_in_saml_mode(
     assert getattr(auth, "_fallback_access_token_expiry_seconds", None) == (
         30 * 24 * 60 * 60
     )
+
+
+def test_normalize_mcp_client_accepts_ephemeral_localhost_ports() -> None:
+    client = ProxyDCRClient(
+        client_id="https://claude.ai/oauth/claude-code-client-metadata",
+        client_secret=None,
+        redirect_uris=None,
+        grant_types=["authorization_code", "refresh_token"],
+        scope="openid profile email offline_access",
+        token_endpoint_auth_method="none",
+        cimd_document=CIMDDocument(
+            client_id=AnyHttpUrl("https://claude.ai/oauth/claude-code-client-metadata"),
+            redirect_uris=["http://localhost/callback"],
+            token_endpoint_auth_method="none",
+        ),
+    )
+
+    normalized = mcp_auth._normalize_mcp_client(
+        client,
+        required_scopes=["openid", "profile", "email", "offline_access"],
+    )
+
+    assert isinstance(normalized, ProxyDCRClient)
+    assert normalized.scope == "openid profile email offline_access"
+    assert normalized.cimd_document is not None
+    assert normalized.cimd_document.redirect_uris == [
+        "http://localhost/callback",
+        "http://localhost:*/callback",
+    ]
+    assert normalized.validate_redirect_uri(
+        AnyUrl("http://localhost:58554/callback")
+    ) == AnyUrl("http://localhost:58554/callback")
+
+
+def test_normalize_mcp_client_merges_required_scopes_for_partial_registration() -> None:
+    client = ProxyDCRClient(
+        client_id="claude-web",
+        client_secret=None,
+        redirect_uris=[AnyUrl("http://localhost:3333/callback")],
+        grant_types=["authorization_code", "refresh_token"],
+        scope="openid",
+        token_endpoint_auth_method="none",
+    )
+
+    normalized = mcp_auth._normalize_mcp_client(
+        client,
+        required_scopes=["openid", "profile", "email", "offline_access"],
+    )
+
+    assert isinstance(normalized, ProxyDCRClient)
+    assert normalized.scope == "openid profile email offline_access"
 
 
 def test_create_mcp_auth_metadata_advertises_public_client_auth(

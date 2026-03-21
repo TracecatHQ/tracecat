@@ -11,11 +11,12 @@ from base64 import urlsafe_b64decode
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import Any, cast
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 import httpx
 from cryptography.fernet import Fernet
 from fastmcp.server.auth import AccessToken, AuthProvider
+from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.redis import RedisStore
@@ -92,6 +93,7 @@ _MCP_AUTH_SOURCE_CLAIM = "tracecat_mcp_auth_source"
 _MCP_BYPASS_CLAIM = "tracecat_mcp_superuser_bypass"
 _MCP_NONE_CLIENT_ID = "tracecat-mcp-none"
 _MCP_DEX_REDIRECT_PATH = "/_/mcp/auth/callback"
+_MCP_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 def _normalize_auth_source(value: object) -> MCPAuthSource:
@@ -157,6 +159,75 @@ def _rewrite_issuer_url(
     if not text.startswith(public_issuer):
         return text
     return f"{internal_issuer}{text[len(public_issuer) :]}"
+
+
+def _is_loopback_redirect_uri(uri: str) -> bool:
+    parsed = urlparse(uri)
+    return parsed.scheme == "http" and parsed.hostname in _MCP_LOOPBACK_HOSTS
+
+
+def _add_loopback_port_wildcard(uri: str) -> str:
+    parsed = urlparse(uri)
+    hostname = parsed.hostname
+    if hostname is None:
+        return uri
+
+    userinfo = ""
+    if parsed.username is not None:
+        userinfo = parsed.username
+        if parsed.password is not None:
+            userinfo = f"{userinfo}:{parsed.password}"
+        userinfo = f"{userinfo}@"
+
+    host = (
+        f"[{hostname}]"
+        if ":" in hostname and not hostname.startswith("[")
+        else hostname
+    )
+    netloc = f"{userinfo}{host}:*"
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
+def _expand_cimd_loopback_redirect_uris(redirect_uris: Sequence[str]) -> list[str]:
+    expanded: list[str] = []
+    for redirect_uri in redirect_uris:
+        normalized = redirect_uri.rstrip("/")
+        if normalized not in expanded:
+            expanded.append(normalized)
+        if _is_loopback_redirect_uri(normalized) and urlparse(normalized).port is None:
+            wildcard = _add_loopback_port_wildcard(normalized)
+            if wildcard not in expanded:
+                expanded.append(wildcard)
+    return expanded
+
+
+def _normalize_mcp_client(
+    client: OAuthClientInformationFull | None,
+    *,
+    required_scopes: Sequence[str],
+) -> OAuthClientInformationFull | None:
+    if client is None:
+        return None
+
+    updates: dict[str, object] = {}
+
+    current_scopes = [scope for scope in (client.scope or "").split(" ") if scope]
+    normalized_scopes = merge_unique_scopes(current_scopes, required_scopes)
+    normalized_scope_str = " ".join(normalized_scopes)
+    if normalized_scope_str != (client.scope or ""):
+        updates["scope"] = normalized_scope_str
+
+    if isinstance(client, ProxyDCRClient) and client.cimd_document is not None:
+        redirect_uris = client.cimd_document.redirect_uris
+        expanded_redirect_uris = _expand_cimd_loopback_redirect_uris(redirect_uris)
+        if expanded_redirect_uris != redirect_uris:
+            updates["cimd_document"] = client.cimd_document.model_copy(
+                update={"redirect_uris": expanded_redirect_uris}
+            )
+
+    if not updates:
+        return client
+    return client.model_copy(update=updates)
 
 
 def append_scope_if_missing(scopes: list[str], scope: str) -> list[str]:
@@ -815,6 +886,10 @@ def _create_oidc_auth() -> OIDCProxy:
             if not update_fields:
                 return oidc_metadata
             return oidc_metadata.model_copy(update=update_fields)
+
+        async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
+            client = await super().get_client(client_id)
+            return _normalize_mcp_client(client, required_scopes=_required_scopes)
 
         async def authorize(
             self,

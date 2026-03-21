@@ -455,7 +455,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # - Regular users get org membership via invitation acceptance flow
         # - Workspace membership is managed separately by workspace admins
         await self._sync_dex_local_auth_user(
-            user, dex_password_hash=self._pending_dex_password_hash
+            user,
+            dex_password_hash=self._pending_dex_password_hash,
+            raise_on_error=False,
         )
 
     async def on_after_update(
@@ -470,6 +472,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             user,
             dex_password_hash=self._pending_dex_password_hash,
             previous_email=self._pending_previous_email,
+            raise_on_error=False,
         )
 
     async def _accept_invitation_atomically(self, user: User) -> None:
@@ -530,11 +533,13 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self, user: User, request: Request | None = None
     ) -> None:
         await self._sync_dex_local_auth_user(
-            user, dex_password_hash=self._pending_dex_password_hash
+            user,
+            dex_password_hash=self._pending_dex_password_hash,
+            raise_on_error=False,
         )
 
     async def on_after_delete(self, user: User, request: Request | None = None) -> None:
-        await self._delete_dex_local_auth_user(user.email)
+        await self._delete_dex_local_auth_user(user.email, raise_on_error=False)
 
     async def saml_callback(
         self,
@@ -626,7 +631,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             if raise_on_error:
                 raise
 
-    async def _delete_dex_local_auth_user(self, email: str) -> None:
+    async def _delete_dex_local_auth_user(
+        self, email: str, *, raise_on_error: bool = True
+    ) -> None:
         if not (service := get_dex_local_auth_service()):
             return
 
@@ -638,7 +645,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 email=email,
                 error=str(exc),
             )
-            raise
+            if raise_on_error:
+                raise
 
 
 async def get_user_db(session: AsyncSession = Depends(get_async_session)):
