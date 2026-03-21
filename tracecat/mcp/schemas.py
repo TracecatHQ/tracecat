@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tracecat.dsl.common import DSLInput
+
+T = TypeVar("T")
 
 
 class LayoutPosition(BaseModel):
@@ -154,3 +156,22 @@ class WorkflowRunResponse(BaseModel):
     workflow_id: str
     execution_id: str
     message: str
+
+
+class MCPPaginatedResponse[T](BaseModel):
+    items: list[T]
+    next_cursor: str | None = Field(default=None)
+    prev_cursor: str | None = Field(default=None)
+    has_more: bool = Field(default=False)
+    has_previous: bool = Field(default=False)
+
+
+class MCPTruncationInfo(BaseModel):
+    limit: int
+    total: int
+    returned: int
+    truncated: bool
+
+
+class MCPTruncationSummary(BaseModel):
+    collections: dict[str, MCPTruncationInfo] = Field(default_factory=dict)

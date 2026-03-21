@@ -264,10 +264,16 @@
     <ResponseField name="agents_create_agent_preset" type="tool">
   Create an agent preset in the selected workspace.
     </ResponseField>
+    <ResponseField name="agents_update_agent_preset" type="tool">
+  Update an existing agent preset in the selected workspace.
+    </ResponseField>
     <ResponseField name="agents_list_agent_presets" type="tool">
   List saved agent preset slugs and names.
 
   Use `get_agent_preset` for the full preset definition.
+    </ResponseField>
+    <ResponseField name="agents_get_agent_preset" type="tool">
+  Get the full configuration for a saved agent preset by slug.
     </ResponseField>
     <ResponseField name="agents_run_agent_preset" type="tool">
   Run an agent preset with a prompt and return text or approval status.
