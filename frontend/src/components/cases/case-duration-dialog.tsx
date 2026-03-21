@@ -6,11 +6,7 @@ import { type ReactNode, useEffect, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
-  PRIORITIES,
-  SEVERITIES,
-  STATUSES,
-} from "@/components/cases/case-categories"
-import {
+  buildCaseEventFilterOptions,
   CASE_DURATION_SELECTION_OPTIONS,
   CASE_EVENT_FILTER_OPTIONS,
   CASE_EVENT_OPTIONS,
@@ -58,12 +54,6 @@ const anchorSchema = z.object({
   filterValues: z.array(z.string()).optional(),
 })
 
-const CATEGORY_OPTIONS = {
-  priority_changed: PRIORITIES,
-  severity_changed: SEVERITIES,
-  status_changed: STATUSES,
-} as const
-
 type CaseDurationEventTypeValue = (typeof CASE_EVENT_VALUES)[number]
 
 const requiresFilterSelection = (
@@ -83,10 +73,6 @@ const getFilterLabel = (
   }
   return null
 }
-
-const getOptionIconClass = (color?: string) =>
-  color?.split(" ").find((token) => token.startsWith("text-")) ||
-  "text-muted-foreground"
 
 const formSchema = z
   .object({
@@ -163,20 +149,7 @@ const buildFilterOptions = (
   }
 
   if (isCaseEventFilterType(eventType)) {
-    const categoryMap = CATEGORY_OPTIONS[eventType] as Record<
-      string,
-      { icon: CaseFilterOption["icon"]; color?: string }
-    >
-
-    return CASE_EVENT_FILTER_OPTIONS[eventType].options.map((option) => {
-      const category = categoryMap[option.value]
-      return {
-        value: option.value,
-        label: option.label,
-        icon: category?.icon,
-        iconClassName: getOptionIconClass(category?.color),
-      }
-    })
+    return buildCaseEventFilterOptions(eventType) as CaseFilterOption[]
   }
 
   if (isCaseTagEventType(eventType)) {

@@ -1273,3 +1273,42 @@ class TestWorkflowImportServiceFolders:
         # Verify folder creation was not called and folder_id was not set
         workflow_import_service._ensure_folder_exists.assert_not_called()
         # folder_id should not be set (remains None by default)
+
+    @pytest.mark.anyio
+    async def test_parse_workflow_definitions_rejects_unknown_case_trigger_keys(
+        self, workflow_sync_service
+    ):
+        content_map = {
+            "workflows/test-workflow.yml": yaml.dump(
+                {
+                    "type": "workflow",
+                    "id": "wf_remote123",
+                    "definition": {
+                        "title": "Test workflow",
+                        "entrypoint": {"ref": "start", "expects": {}},
+                        "actions": [
+                            {
+                                "ref": "start",
+                                "action": "core.transform.passthrough",
+                                "args": {"value": "test"},
+                            }
+                        ],
+                    },
+                    "case_trigger": {
+                        "event_types": ["status_changed"],
+                        "event_filter": {"status_changed": ["resolved"]},
+                    },
+                }
+            )
+        }
+
+        (
+            remote_workflows,
+            diagnostics,
+        ) = await workflow_sync_service._parse_workflow_definitions(content_map)
+
+        assert remote_workflows == []
+        assert len(diagnostics) == 1
+        assert diagnostics[0].workflow_path == "workflows/test-workflow.yml"
+        assert diagnostics[0].error_type == "validation"
+        assert "case_trigger.event_filter" in diagnostics[0].message
