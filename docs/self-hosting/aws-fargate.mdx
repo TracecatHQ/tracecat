@@ -98,7 +98,7 @@ terraform apply
 ### Is untrusted code execution safe on Fargate?
 
 Fargate does not support the permissions model required by `nsjail`. Tracecat uses a fallback executor without `nsjail` isolation on Fargate.
-If you need the highest isolation for untrusted code execution (like custom registry actions or `core.script.run_python`), deploy Tracecat on Kubernetes using our [Helm chart](/self-hosting/kubernetes), where `nsjail` is enabled by default.
+If you need the highest isolation for untrusted code execution (like custom registry actions or `core.script.run_python`), deploy Tracecat on Kubernetes using the [Helm chart](https://github.com/TracecatHQ/tracecat/tree/main/deployments/k8s/helm), where `nsjail` is enabled by default.
 
 ### What infrastructure does this stack create?
 

@@ -1,10 +1,10 @@
-# Prefect Documentation
+# Tracecat Documentation
 
 Structural context for any agent working in `docs/`. For the full writing guide (page types, components, code testing, style), use the `/write-docs` skill.
 
 ## Platform
 
-[Mintlify](https://mintlify.com/) docs published to [docs.tracecat.com](https://docs.tracecat.com). All files use `.mdx` (Markdown + JSX). Site config lives in `docs/docs.json`.
+The docs site is published to [docs.tracecat.com](https://docs.tracecat.com). All files use `.mdx` (Markdown + JSX). Site config lives in `docs/docs.json`.
 
 ## File format
 
@@ -73,7 +73,7 @@ When renaming or moving a page, add a redirect in `docs/docs.json` `redirects` a
 
 1. **Register new pages in `docs/docs.json`.** An unregistered page won't appear in navigation.
 2. **Use `.mdx` extension** for all new documentation files.
-3. **Use Mintlify components** (`<Note>`, `<Tabs>`, `<Steps>`, etc.) rather than Markdown-native admonition syntax.
+3. **Use the built-in docs components** (`<Note>`, `<Tabs>`, `<Steps>`, etc.) rather than Markdown-native admonition syntax.
 4. **Use absolute link paths** without file extensions (e.g., `/automations/overview`).
 5. **Check for existing snippets** in `snippets/` before duplicating content.
 6. **Start body content at `##`.** The frontmatter `title` renders as H1; do not add another H1 in the body.

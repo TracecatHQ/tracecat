@@ -168,22 +168,19 @@
               "tools/alertmedia",
               "tools/amazon_s3",
               "tools/ansible",
-              "tools/anthropic",
               "tools/anyrun",
-              "tools/azure_log_analytics",
               "tools/aws_boto3",
-              "tools/bedrock",
+              "tools/azure_log_analytics",
               "tools/caldera",
               "tools/confluence",
-              "tools/crowdsec_cti",
+              "tools/crowdsec",
               "tools/crowdstrike",
-              "tools/crowdstrike_falconpy",
               "tools/datadog",
               "tools/elastic_security",
               "tools/elasticsearch",
               "tools/emailrep",
               "tools/exa",
-              "tools/gemini",
+              "tools/falconpy",
               "tools/github",
               "tools/gmail",
               "tools/google_api",
@@ -199,7 +196,7 @@
               "tools/hybrid_analysis",
               "tools/ipinfo",
               "tools/jira",
-              "tools/ldap3",
+              "tools/ldap",
               "tools/leakcheck",
               "tools/linear",
               "tools/microsoft_defender_endpoint",
@@ -210,8 +207,6 @@
               "tools/notion",
               "tools/okta",
               "tools/okta_oar",
-              "tools/ollama",
-              "tools/openai",
               "tools/pagerduty",
               "tools/panther",
               "tools/phishlabs",
@@ -223,17 +218,17 @@
               "tools/servicenow",
               "tools/slack",
               "tools/slack_sdk",
-              "tools/slackbot",
               "tools/splunk",
               "tools/sublime",
               "tools/tavily",
               "tools/tenable_sc",
-              "tools/terraform_cloud",
+              "tools/terraform",
               "tools/threatstream",
               "tools/urlhaus",
               "tools/urlscan",
               "tools/virustotal",
               "tools/wazuh",
+              "tools/wiz",
               "tools/zendesk"
             ]
           }
@@ -323,16 +318,16 @@
       "destination": "/automations/tracecat-mcp"
     },
     {
-      "source": "/automations/workflows",
-      "destination": "/automations/core-concepts/workflows"
+      "source": "/automations/core-concepts/workflows",
+      "destination": "/automations/workflows"
     },
     {
       "source": "/automations/workflow-definition",
       "destination": "/automations/core-concepts/workflow-definition"
     },
     {
-      "source": "/automations/actions",
-      "destination": "/automations/core-concepts/actions"
+      "source": "/automations/core-concepts/actions",
+      "destination": "/automations/actions"
     },
     {
       "source": "/automations/expressions",
@@ -367,16 +362,16 @@
       "destination": "/automations/integrations/mcp-integrations"
     },
     {
-      "source": "/automations/triggers/case-triggers",
-      "destination": "/automations/triggers/cases"
+      "source": "/automations/triggers/cases",
+      "destination": "/automations/triggers/case-triggers"
     },
     {
-      "source": "/automations/triggers/task-triggers",
-      "destination": "/automations/triggers/tasks"
+      "source": "/automations/triggers/tasks",
+      "destination": "/automations/triggers/task-triggers"
     },
     {
-      "source": "/automations/triggers/comment-triggers",
-      "destination": "/automations/triggers/comments"
+      "source": "/automations/triggers/comments",
+      "destination": "/automations/triggers/comment-triggers"
     }
   ],
   "logo": {
@@ -390,13 +385,13 @@
     "links": [
       {
         "label": "Support",
-        "href": "mailto:hi@mintlify.com"
+        "href": "mailto:founders@tracecat.com"
       }
     ],
     "primary": {
       "type": "button",
       "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
+      "href": "https://platform.tracecat.com"
     }
   },
   "contextual": {
@@ -413,9 +408,7 @@
   },
   "footer": {
     "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
+      "github": "https://github.com/TracecatHQ/tracecat"
     }
   }
 }

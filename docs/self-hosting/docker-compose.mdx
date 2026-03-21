@@ -21,23 +21,9 @@ description: Deploy Tracecat using Docker Compose.
 curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/env.sh
 
 # 2. Download the .env.example template file (env.sh needs this to generate your .env file)
-<<<<<<< HEAD:docs/self-hosting/deployment-options/docker-compose.mdx
 curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/.env.example
-=======
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.32/.env.example
-<<<<<<< HEAD
-=======
-# 1. download the env.sh installation script
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.17/env.sh
->>>>>>> 05956bed6 (docs: Revamp documentation structure with new sections and pages for Tracecat):docs/self-hosting/docker-compose.mdx
 
-# 2. download the .env.example template file (env.sh needs this to generate your .env file)
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.17/.env.example
->>>>>>> a04366f95 (docs: Revamp documentation structure with new sections and pages for Tracecat):docs/self-hosting/docker-compose.mdx
-=======
->>>>>>> bfd33ae34 (docs: Update automation documentation with new cases and core actions)
-
-# 3. make the env.sh script executable and run it
+# 3. Make the env.sh script executable and run it
 chmod +x env.sh && ./env.sh
 ```
 
@@ -53,37 +39,13 @@ Tracecat uses Caddy as a reverse proxy.
 You'll need to download the following `Caddyfile` to configure this service.
 
 ```bash
-<<<<<<< HEAD
-<<<<<<< HEAD:docs/self-hosting/deployment-options/docker-compose.mdx
 curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/Caddyfile
-=======
-<<<<<<< HEAD:docs/self-hosting/deployment-options/docker-compose.mdx
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.32/Caddyfile
-=======
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.17/Caddyfile
->>>>>>> a04366f95 (docs: Revamp documentation structure with new sections and pages for Tracecat):docs/self-hosting/docker-compose.mdx
->>>>>>> 05956bed6 (docs: Revamp documentation structure with new sections and pages for Tracecat):docs/self-hosting/docker-compose.mdx
-=======
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.32/Caddyfile
->>>>>>> bfd33ae34 (docs: Update automation documentation with new cases and core actions)
 ```
 
-## Download Docker Compose File
+## Download Docker Compose file
 
 ```bash
-<<<<<<< HEAD
-<<<<<<< HEAD:docs/self-hosting/deployment-options/docker-compose.mdx
 curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/docker-compose.yml
-=======
-<<<<<<< HEAD:docs/self-hosting/deployment-options/docker-compose.mdx
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.32/docker-compose.yml
-=======
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.17/docker-compose.yml
->>>>>>> a04366f95 (docs: Revamp documentation structure with new sections and pages for Tracecat):docs/self-hosting/docker-compose.mdx
->>>>>>> 05956bed6 (docs: Revamp documentation structure with new sections and pages for Tracecat):docs/self-hosting/docker-compose.mdx
-=======
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.32/docker-compose.yml
->>>>>>> bfd33ae34 (docs: Update automation documentation with new cases and core actions)
 ```
 
 ## Start Tracecat
@@ -163,7 +125,6 @@ This suggests that the Tracecat UI is healthy but is unable to communicate with 
 You must configure `PUBLIC_APP_URL` and `PUBLIC_API_URL` to the same domain that your browser is accessing the Tracecat UI from.
 Tracecat strictly enforces CORS to prevent XSS attacks.
 
-<<<<<<< HEAD
 This error occurs when your browser cannot connect to Tracecat API via `PUBLIC_APP_URL`.
 Please check the following:
 
@@ -175,35 +136,7 @@ Please check the following:
 - View container logs: `docker compose logs api` and `docker compose logs temporal`.
 - Check firewall and port forwarding if using a reverse proxy.
 
-<Note>
-  Related issues: [#1166](https://github.com/TracecatHQ/tracecat/issues/1166),
-  [#887](https://github.com/TracecatHQ/tracecat/issues/887),
-  [#867](https://github.com/TracecatHQ/tracecat/issues/867),
-  [#779](https://github.com/TracecatHQ/tracecat/issues/779)
-</Note>
-
-## Next Steps
-
-<<<<<<< HEAD
-- Log into Tracecat and build your first playbook. [View quickstart](/quickstart).
-- Tracecat comes with basic (email + password) authentication. Find out how to configure other authentication methods. [View docs](/self-hosting/authentication/overview).
-<<<<<<< HEAD:docs/self-hosting/deployment-options/docker-compose.mdx
-- Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://github.com/TracecatHQ/tracecat/blob/1.0.0-beta.35/.env.example).
-=======
-<<<<<<< HEAD:docs/self-hosting/deployment-options/docker-compose.mdx
-- Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://github.com/TracecatHQ/tracecat/blob/1.0.0-beta.32/.env.example).
-=======
-- Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://github.com/TracecatHQ/tracecat/blob/1.0.0-beta.17/.env.example).
->>>>>>> a04366f95 (docs: Revamp documentation structure with new sections and pages for Tracecat):docs/self-hosting/docker-compose.mdx
->>>>>>> 05956bed6 (docs: Revamp documentation structure with new sections and pages for Tracecat):docs/self-hosting/docker-compose.mdx
-=======
-- Log into Tracecat and build your first playbook. [View getting started](/overview/getting-started).
-- Tracecat comes with basic (email + password) authentication. Find out how to configure other authentication methods. [View docs](/authentication/basic).
-- Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://github.com/TracecatHQ/tracecat/blob/1.0.0-beta.32/.env.example).
->>>>>>> bfd33ae34 (docs: Update automation documentation with new cases and core actions)
-=======
 For example, if you've deployed Tracecat into a VM and exposed it to your browser as `https://my-tracecat-instance.com`,
 you must set:
 - `PUBLIC_APP_URL` to `https://my-tracecat-instance.com`
 - `PUBLIC_API_URL` to `https://my-tracecat-instance.com/api`
->>>>>>> 70b9680aa (docs: Revise Docker Compose documentation for clarity and security emphasis)
