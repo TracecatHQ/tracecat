@@ -137,6 +137,7 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 RUN chown -R apiuser:apiuser /app
 
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/home/apiuser/.local"
 
 RUN mkdir -p /home/apiuser/.local/bin && ln -s $(which uv) /home/apiuser/.local/bin/uv
 
