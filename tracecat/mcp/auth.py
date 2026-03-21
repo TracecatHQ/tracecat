@@ -11,22 +11,25 @@ from base64 import urlsafe_b64decode
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import Any, cast
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 import httpx
 from cryptography.fernet import Fernet
 from fastmcp.server.auth import AccessToken, AuthProvider
+from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
 from mcp.server.auth.provider import (
+    AuthorizationCode,
     AuthorizationParams,
+    RefreshToken,
     TokenError,
 )
-from mcp.shared.auth import OAuthClientInformationFull
-from pydantic import BaseModel, Field
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from pydantic import AnyHttpUrl, BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
 from starlette.datastructures import MutableHeaders
@@ -37,7 +40,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tracecat import config
 from tracecat.auth.credentials import compute_effective_scopes
-from tracecat.auth.oidc import get_platform_oidc_config
+from tracecat.auth.dex.mode import MCPDexMode, get_mcp_dex_mode
+from tracecat.auth.oidc import OIDCProviderConfig, get_platform_oidc_config
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.enums import OrgRole, WorkspaceRole
@@ -82,11 +86,14 @@ _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
 
 _MCP_REFRESH_SCOPE = "offline_access"
 _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 24 * 60 * 60
+_MCP_SAML_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 30 * 24 * 60 * 60
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
-_MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
+_MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none"]
 _MCP_AUTH_SOURCE_CLAIM = "tracecat_mcp_auth_source"
 _MCP_BYPASS_CLAIM = "tracecat_mcp_superuser_bypass"
 _MCP_NONE_CLIENT_ID = "tracecat-mcp-none"
+_MCP_DEX_REDIRECT_PATH = "/_/mcp/auth/callback"
+_MCP_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 def _normalize_auth_source(value: object) -> MCPAuthSource:
@@ -125,6 +132,104 @@ class _UserinfoFetchError(RuntimeError):
     """Raised when the upstream userinfo endpoint cannot be queried."""
 
 
+def get_mcp_oidc_config() -> OIDCProviderConfig:
+    """Return normalized OIDC config for the MCP server.
+
+    MCP always authenticates through Dex. Dex may itself federate to the shared
+    upstream OIDC provider, but the MCP server trusts the Dex issuer/client.
+    """
+    platform_config = get_platform_oidc_config()
+    return OIDCProviderConfig(
+        issuer=config.DEX_ISSUER or None,
+        client_id=config.DEX_TRACECAT_CLIENT_ID,
+        client_secret=config.DEX_TRACECAT_CLIENT_SECRET,
+        scopes=platform_config.scopes,
+    )
+
+
+def _rewrite_issuer_url(
+    value: str | None,
+    *,
+    public_issuer: str,
+    internal_issuer: str | None,
+) -> str | None:
+    if value is None or not internal_issuer:
+        return value
+    text = str(value)
+    if not text.startswith(public_issuer):
+        return text
+    return f"{internal_issuer}{text[len(public_issuer) :]}"
+
+
+def _is_loopback_redirect_uri(uri: str) -> bool:
+    parsed = urlparse(uri)
+    return parsed.scheme == "http" and parsed.hostname in _MCP_LOOPBACK_HOSTS
+
+
+def _add_loopback_port_wildcard(uri: str) -> str:
+    parsed = urlparse(uri)
+    hostname = parsed.hostname
+    if hostname is None:
+        return uri
+
+    userinfo = ""
+    if parsed.username is not None:
+        userinfo = parsed.username
+        if parsed.password is not None:
+            userinfo = f"{userinfo}:{parsed.password}"
+        userinfo = f"{userinfo}@"
+
+    host = (
+        f"[{hostname}]"
+        if ":" in hostname and not hostname.startswith("[")
+        else hostname
+    )
+    netloc = f"{userinfo}{host}:*"
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
+def _expand_cimd_loopback_redirect_uris(redirect_uris: Sequence[str]) -> list[str]:
+    expanded: list[str] = []
+    for redirect_uri in redirect_uris:
+        normalized = redirect_uri.rstrip("/")
+        if normalized not in expanded:
+            expanded.append(normalized)
+        if _is_loopback_redirect_uri(normalized) and urlparse(normalized).port is None:
+            wildcard = _add_loopback_port_wildcard(normalized)
+            if wildcard not in expanded:
+                expanded.append(wildcard)
+    return expanded
+
+
+def _normalize_mcp_client(
+    client: OAuthClientInformationFull | None,
+    *,
+    required_scopes: Sequence[str],
+) -> OAuthClientInformationFull | None:
+    if client is None:
+        return None
+
+    updates: dict[str, object] = {}
+
+    current_scopes = [scope for scope in (client.scope or "").split(" ") if scope]
+    normalized_scopes = merge_unique_scopes(current_scopes, required_scopes)
+    normalized_scope_str = " ".join(normalized_scopes)
+    if normalized_scope_str != (client.scope or ""):
+        updates["scope"] = normalized_scope_str
+
+    if isinstance(client, ProxyDCRClient) and client.cimd_document is not None:
+        redirect_uris = client.cimd_document.redirect_uris
+        expanded_redirect_uris = _expand_cimd_loopback_redirect_uris(redirect_uris)
+        if expanded_redirect_uris != redirect_uris:
+            updates["cimd_document"] = client.cimd_document.model_copy(
+                update={"redirect_uris": expanded_redirect_uris}
+            )
+
+    if not updates:
+        return client
+    return client.model_copy(update=updates)
+
+
 def append_scope_if_missing(scopes: list[str], scope: str) -> list[str]:
     """Append a scope only if it is not already present."""
     if scope in scopes:
@@ -154,7 +259,7 @@ def supports_refresh_scope(scopes_supported: Sequence[str] | None) -> bool:
 
 
 def _patch_oauth_metadata_route(app: ASGIApp) -> ASGIApp:
-    """Patch only the advertised token auth methods on discovery responses."""
+    """Patch discovery responses to advertise public-client auth only."""
 
     async def patched_app(scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -197,6 +302,88 @@ def _patch_oauth_metadata_route(app: ASGIApp) -> ASGIApp:
         await send({"type": "http.response.body", "body": body, "more_body": False})
 
     return patched_app
+
+
+def _patch_oauth_register_route(app: ASGIApp) -> ASGIApp:
+    """Normalize MCP client registrations to public-client auth.
+
+    FastMCP defaults omitted ``token_endpoint_auth_method`` values to
+    ``client_secret_post``. Tracecat's MCP proxy uses public clients locally and
+    handles the upstream confidential-client exchange itself, so registrations
+    must consistently use ``none``.
+    """
+
+    async def patched_app(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await app(scope, receive, send)
+            return
+
+        request_messages: list[Message] = []
+        body_chunks: list[bytes] = []
+
+        while True:
+            message = await receive()
+            request_messages.append(message)
+            if message["type"] == "http.disconnect":
+                return
+            if message["type"] != "http.request":
+                continue
+
+            body_chunks.append(message.get("body", b""))
+            if not message.get("more_body", False):
+                break
+
+        body = b"".join(body_chunks)
+        try:
+            payload = json.loads(body) if body else None
+        except json.JSONDecodeError:
+            payload = None
+
+        if isinstance(payload, dict):
+            requested_auth_method = payload.get("token_endpoint_auth_method")
+            if requested_auth_method != "none":
+                payload["token_endpoint_auth_method"] = "none"
+                body = json.dumps(payload).encode("utf-8")
+                request_messages = [
+                    {
+                        "type": "http.request",
+                        "body": body,
+                        "more_body": False,
+                    }
+                ]
+                logger.info(
+                    "Normalized MCP client registration to public auth method",
+                    requested_auth_method=requested_auth_method,
+                )
+
+        pending_messages = iter(request_messages)
+
+        async def replay_receive() -> Message:
+            try:
+                return next(pending_messages)
+            except StopIteration:
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+        await app(scope, replay_receive, send)
+
+    return patched_app
+
+
+def _create_mcp_client_storage() -> PrefixCollectionsWrapper | FernetEncryptionWrapper:
+    """Build storage for MCP OAuth state."""
+    redis_client = AsyncRedis.from_url(REDIS_URL, decode_responses=True)
+    redis_store = RedisStore(client=redis_client)
+    prefixed_store = PrefixCollectionsWrapper(redis_store, prefix="mcp")
+    if TRACECAT__DB_ENCRYPTION_KEY:
+        return FernetEncryptionWrapper(
+            prefixed_store, fernet=Fernet(TRACECAT__DB_ENCRYPTION_KEY)
+        )
+
+    logger.warning(
+        "TRACECAT__DB_ENCRYPTION_KEY is not set; "
+        "MCP OAuth state will be stored unencrypted in Redis"
+    )
+    return prefixed_store
 
 
 def _coerce_uuid(value: object) -> uuid.UUID | None:
@@ -645,18 +832,64 @@ def _create_oidc_auth() -> OIDCProxy:
             "Set it to the public URL where the MCP server is accessible."
         )
 
-    oidc_config = get_platform_oidc_config()
+    oidc_config = get_mcp_oidc_config()
+    dex_mode = get_mcp_dex_mode()
     if not oidc_config.issuer:
-        raise ValueError("OIDC_ISSUER must be configured for the MCP server.")
+        raise ValueError("DEX_ISSUER must be configured for the MCP server.")
+    if not oidc_config.client_id or not oidc_config.client_secret:
+        raise ValueError(
+            "DEX_TRACECAT_CLIENT_ID and DEX_TRACECAT_CLIENT_SECRET must be configured for the MCP server."
+        )
 
-    # Full scope set for registration, authorization, and client loading.
-    # Includes offline_access so the IdP issues refresh tokens.
-    _required_scopes = append_scope_if_missing(
-        list(oidc_config.scopes), _MCP_REFRESH_SCOPE
-    )
+    requests_refresh_tokens = dex_mode is not MCPDexMode.SAML
+    _required_scopes = [
+        scope for scope in oidc_config.scopes if scope != _MCP_REFRESH_SCOPE
+    ]
+    if requests_refresh_tokens:
+        _required_scopes = append_scope_if_missing(_required_scopes, _MCP_REFRESH_SCOPE)
+
+    public_issuer = oidc_config.issuer
+    internal_issuer = config.DEX_INTERNAL_ISSUER or None
 
     class TracecatOIDCProxy(OIDCProxy):
         """OIDC proxy with user-existence validation and a custom consent page."""
+
+        def get_oidc_configuration(
+            self,
+            config_url: AnyHttpUrl,
+            strict: bool | None,
+            timeout_seconds: int | None,
+        ):
+            oidc_metadata = super().get_oidc_configuration(
+                config_url, strict, timeout_seconds
+            )
+            update_fields = {
+                field: rewritten
+                for field in (
+                    "token_endpoint",
+                    "userinfo_endpoint",
+                    "jwks_uri",
+                    "registration_endpoint",
+                    "revocation_endpoint",
+                    "introspection_endpoint",
+                    "service_documentation",
+                )
+                if (
+                    rewritten := _rewrite_issuer_url(
+                        getattr(oidc_metadata, field, None),
+                        public_issuer=public_issuer,
+                        internal_issuer=internal_issuer,
+                    )
+                )
+                != getattr(oidc_metadata, field, None)
+            }
+            if not update_fields:
+                return oidc_metadata
+            return oidc_metadata.model_copy(update=update_fields)
+
+        async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
+            client = await super().get_client(client_id)
+            return _normalize_mcp_client(client, required_scopes=_required_scopes)
 
         async def authorize(
             self,
@@ -665,13 +898,12 @@ def _create_oidc_auth() -> OIDCProxy:
         ) -> str:
             """Merge all required OIDC scopes into the authorization request.
 
-            Request ``offline_access`` optimistically even if the upstream OIDC
-            metadata omits it — some providers issue refresh tokens despite not
-            advertising the scope in discovery metadata.  If the provider truly
-            rejects the scope, ``_retry_without_refresh_scope()`` handles a
-            single retry without it.
+            Request ``offline_access`` only when the active MCP Dex mode supports
+            refresh tokens. If the provider rejects it, retry once without it.
             """
             scopes = merge_unique_scopes(list(params.scopes or []), _required_scopes)
+            if not requests_refresh_tokens:
+                scopes = remove_scope(scopes, _MCP_REFRESH_SCOPE)
             params_with_scopes = params.model_copy(update={"scopes": scopes})
             return await super().authorize(client, params_with_scopes)
 
@@ -682,6 +914,8 @@ def _create_oidc_auth() -> OIDCProxy:
         ) -> RedirectResponse | None:
             """Retry OAuth authorization once without refresh scope on invalid_scope."""
             if request.query_params.get("error") != "invalid_scope":
+                return None
+            if not requests_refresh_tokens:
                 return None
 
             txn_id = request.query_params.get("state")
@@ -761,21 +995,108 @@ def _create_oidc_auth() -> OIDCProxy:
 
             return {"email": email}
 
+        async def exchange_authorization_code(
+            self,
+            client: OAuthClientInformationFull,
+            authorization_code: AuthorizationCode,
+        ) -> OAuthToken:
+            client_id = client.client_id or authorization_code.client_id
+            logger.info(
+                "Exchanging MCP authorization code",
+                client_id=client_id,
+                scope_count=len(authorization_code.scopes),
+                requests_refresh_scope=_MCP_REFRESH_SCOPE in authorization_code.scopes,
+            )
+            try:
+                token = await super().exchange_authorization_code(
+                    client, authorization_code
+                )
+            except TokenError as exc:
+                logger.warning(
+                    "MCP authorization code exchange failed",
+                    client_id=client_id,
+                    error=exc.error,
+                    error_description=exc.error_description,
+                )
+                raise
+
+            logger.info(
+                "Issued MCP tokens from authorization code exchange",
+                client_id=client_id,
+                access_token_expires_in=token.expires_in,
+                issued_refresh_token=bool(token.refresh_token),
+            )
+            return token
+
+        async def exchange_refresh_token(
+            self,
+            client: OAuthClientInformationFull,
+            refresh_token: RefreshToken,
+            scopes: list[str],
+        ) -> OAuthToken:
+            client_id = client.client_id or refresh_token.client_id
+            logger.info(
+                "Attempting MCP refresh grant",
+                client_id=client_id,
+                scope_count=len(scopes),
+                requests_refresh_scope=_MCP_REFRESH_SCOPE in scopes,
+            )
+            try:
+                token = await super().exchange_refresh_token(
+                    client, refresh_token, scopes
+                )
+            except TokenError as exc:
+                logger.warning(
+                    "MCP refresh grant failed",
+                    client_id=client_id,
+                    error=exc.error,
+                    error_description=exc.error_description,
+                )
+                raise
+
+            logger.info(
+                "MCP refresh grant succeeded",
+                client_id=client_id,
+                access_token_expires_in=token.expires_in,
+                issued_refresh_token=bool(token.refresh_token),
+                refresh_token_rotated=bool(
+                    token.refresh_token and token.refresh_token != refresh_token.token
+                ),
+            )
+            return token
+
         async def load_access_token(self, token: str) -> AccessToken | None:
             """Preserve FastMCP JWT identity claims after upstream token validation."""
-            access_token = cast(
-                AccessToken | None, await super().load_access_token(token)
-            )
-            if access_token is None:
-                return None
-
+            fastmcp_claims: Mapping[str, object] | None = None
             try:
-                fastmcp_claims = self.jwt_issuer.verify_token(token)
+                verified_claims = self.jwt_issuer.verify_token(token)
             except Exception as exc:
                 logger.warning(
                     "Failed to decode FastMCP token claims during MCP auth",
                     error=str(exc),
                 )
+            else:
+                if isinstance(verified_claims, Mapping):
+                    fastmcp_claims = cast(Mapping[str, object], verified_claims)
+
+            access_token = cast(
+                AccessToken | None, await super().load_access_token(token)
+            )
+            if access_token is None:
+                if fastmcp_claims is not None:
+                    logger.warning(
+                        "MCP access token validation failed after upstream check",
+                        client_id=fastmcp_claims.get("client_id"),
+                        jti_prefix=(
+                            jti[:8]
+                            if isinstance((jti := fastmcp_claims.get("jti")), str)
+                            else None
+                        ),
+                        scope_count=len(_extract_fastmcp_scopes(fastmcp_claims) or []),
+                    )
+                return None
+
+            if fastmcp_claims is None:
                 return access_token
 
             merged_claims = _merge_fastmcp_token_claims(
@@ -786,8 +1107,10 @@ def _create_oidc_auth() -> OIDCProxy:
             if (fastmcp_scopes := _extract_fastmcp_scopes(fastmcp_claims)) is not None:
                 scopes = fastmcp_scopes
             client_id = access_token.client_id
-            if not client_id and isinstance(fastmcp_claims.get("client_id"), str):
-                client_id = fastmcp_claims["client_id"].strip()
+            if not client_id and isinstance(
+                (fastmcp_client_id := fastmcp_claims.get("client_id")), str
+            ):
+                client_id = fastmcp_client_id.strip()
 
             return access_token.model_copy(
                 update={
@@ -943,47 +1266,41 @@ def _create_oidc_auth() -> OIDCProxy:
             return response
 
         def get_routes(self, mcp_path: str | None = None) -> list[Route]:
-            """Patch OAuth metadata to advertise public-client auth (``"none"``)."""
+            """Patch OAuth routes to behave like a public-client MCP server."""
             routes = super().get_routes(mcp_path)
             if self.base_url is None:
                 return routes
 
             for route in routes:
-                if not (
-                    isinstance(route, Route)
-                    and route.path.startswith("/.well-known/oauth-authorization-server")
-                ):
+                if not isinstance(route, Route):
                     continue
 
-                route.app = _patch_oauth_metadata_route(route.app)
+                if route.path.startswith("/.well-known/oauth-authorization-server"):
+                    route.app = _patch_oauth_metadata_route(route.app)
+                elif route.path == "/register":
+                    route.app = _patch_oauth_register_route(route.app)
 
             return routes
 
-    # Build Redis-backed storage for OAuth state (client registrations,
+    # Build persistent storage for OAuth state (client registrations,
     # auth codes, tokens, transactions) so state survives restarts and
     # is shared across MCP replicas.
-    redis_client = AsyncRedis.from_url(REDIS_URL, decode_responses=True)
-    redis_store = RedisStore(client=redis_client)
-    prefixed_store = PrefixCollectionsWrapper(redis_store, prefix="mcp")
-    if TRACECAT__DB_ENCRYPTION_KEY:
-        client_storage = FernetEncryptionWrapper(
-            prefixed_store, fernet=Fernet(TRACECAT__DB_ENCRYPTION_KEY)
-        )
-    else:
-        logger.warning(
-            "TRACECAT__DB_ENCRYPTION_KEY is not set; "
-            "MCP OAuth state will be stored unencrypted in Redis"
-        )
-        client_storage = prefixed_store
+    client_storage = _create_mcp_client_storage()
 
-    config_url = f"{oidc_config.issuer}/.well-known/openid-configuration"
+    config_base_url = internal_issuer or oidc_config.issuer
+    config_url = f"{config_base_url}/.well-known/openid-configuration"
     auth = TracecatOIDCProxy(
         config_url=config_url,
         client_id=oidc_config.client_id,
         client_secret=oidc_config.client_secret,
         base_url=base_url,
+        redirect_path=_MCP_DEX_REDIRECT_PATH,
         client_storage=client_storage,
-        fallback_access_token_expiry_seconds=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+        fallback_access_token_expiry_seconds=(
+            _MCP_SAML_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS
+            if dex_mode is MCPDexMode.SAML
+            else _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS
+        ),
     )
     # Patch client_registration_options so the MCP SDK's registration
     # handler advertises and accepts the full scope set (including

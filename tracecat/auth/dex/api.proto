@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package api;
+
+message Password {
+  string email = 1;
+  bytes hash = 2;
+  string username = 3;
+  string user_id = 4;
+}
+
+message CreatePasswordReq {
+  Password password = 1;
+}
+
+message CreatePasswordResp {
+  bool already_exists = 1;
+}
+
+message UpdatePasswordReq {
+  string email = 1;
+  bytes new_hash = 2;
+  string new_username = 3;
+}
+
+message UpdatePasswordResp {
+  bool not_found = 1;
+}
+
+message DeletePasswordReq {
+  string email = 1;
+}
+
+message DeletePasswordResp {
+  bool not_found = 1;
+}
+
+message ListConnectorReq {}
+
+message Connector {
+  string id = 1;
+  string type = 2;
+  string name = 3;
+  bytes config = 4;
+  repeated string grant_types = 5;
+}
+
+message ListConnectorResp {
+  repeated Connector connectors = 1;
+}
+
+service Dex {
+  rpc CreatePassword(CreatePasswordReq) returns (CreatePasswordResp) {};
+  rpc UpdatePassword(UpdatePasswordReq) returns (UpdatePasswordResp) {};
+  rpc DeletePassword(DeletePasswordReq) returns (DeletePasswordResp) {};
+  rpc ListConnectors(ListConnectorReq) returns (ListConnectorResp) {};
+}
