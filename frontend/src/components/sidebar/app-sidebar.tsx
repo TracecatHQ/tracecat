@@ -23,6 +23,10 @@ import { useEffect, useRef, useState } from "react"
 import type { AgentPresetReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
+import {
+  LockedFeatureChip,
+  LockedFeatureModal,
+} from "@/components/locked-feature-modal"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import { Button } from "@/components/ui/button"
@@ -69,9 +73,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const caseId = params?.caseId
   const casesListPath = `${basePath}/cases`
   const isCasesList = pathname === casesListPath
-  const { hasEntitlement } = useEntitlements()
+  const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const [createCaseDialogOpen, setCreateCaseDialogOpen] = useState(false)
+  const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
 
   useEffect(() => {
     setSidebarOpenRef.current = setSidebarOpen
@@ -185,6 +190,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarHeaderContent workspaceId={workspaceId} />
       </SidebarHeader>
       <SidebarContent>
+        <LockedFeatureModal
+          open={lockedFeatureDialogOpen}
+          onOpenChange={setLockedFeatureDialogOpen}
+        />
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -275,7 +284,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </Collapsible>
         )}
 
-        {agentAddonsEnabled && canViewAgents === true && (
+        {canViewAgents === true && (
           <Collapsible defaultOpen className="group/collapsible">
             <SidebarGroup className="group/agents relative">
               <SidebarGroupLabel asChild>
@@ -284,44 +293,77 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
                 </CollapsibleTrigger>
               </SidebarGroupLabel>
-              <SidebarGroupAction
-                aria-label="Create agent"
-                onClick={openNewAgentBuilder}
-                className={[
-                  "right-10 opacity-0 pointer-events-none transition-opacity",
-                  "group-hover/agents:opacity-100 group-hover/agents:pointer-events-auto",
-                  "group-focus-within/agents:opacity-100 group-focus-within/agents:pointer-events-auto",
-                ].join(" ")}
-              >
-                <Plus />
-              </SidebarGroupAction>
+              {agentAddonsEnabled ? (
+                <SidebarGroupAction
+                  aria-label="Create agent"
+                  onClick={openNewAgentBuilder}
+                  className={[
+                    "right-10 opacity-0 pointer-events-none transition-opacity",
+                    "group-hover/agents:opacity-100 group-hover/agents:pointer-events-auto",
+                    "group-focus-within/agents:opacity-100 group-focus-within/agents:pointer-events-auto",
+                  ].join(" ")}
+                >
+                  <Plus />
+                </SidebarGroupAction>
+              ) : null}
               <CollapsibleContent>
                 <SidebarGroupContent>
-                  {presetsIsLoading ? (
+                  {entitlementsIsLoading ? (
                     <div className="px-2 py-3 text-xs text-muted-foreground">
                       Loading agents…
                     </div>
-                  ) : presets && presets.length > 0 ? (
-                    <SidebarMenu>
-                      {presets.map((preset) => (
-                        <AgentPresetSidebarItem
-                          key={preset.id}
-                          preset={preset}
-                          isActive={
-                            pathname === `${basePath}/agents/${preset.id}`
-                          }
-                          href={`${basePath}/agents/${preset.id}`}
-                        />
-                      ))}
-                    </SidebarMenu>
+                  ) : agentAddonsEnabled ? (
+                    presetsIsLoading ? (
+                      <div className="px-2 py-3 text-xs text-muted-foreground">
+                        Loading agents…
+                      </div>
+                    ) : presets && presets.length > 0 ? (
+                      <SidebarMenu>
+                        {presets.map((preset) => (
+                          <AgentPresetSidebarItem
+                            key={preset.id}
+                            preset={preset}
+                            isActive={
+                              pathname === `${basePath}/agents/${preset.id}`
+                            }
+                            href={`${basePath}/agents/${preset.id}`}
+                          />
+                        ))}
+                      </SidebarMenu>
+                    ) : (
+                      <Button
+                        variant="link"
+                        className="h-auto px-2 py-1 text-xs"
+                        onClick={openNewAgentBuilder}
+                      >
+                        Create first agent
+                      </Button>
+                    )
                   ) : (
-                    <Button
-                      variant="link"
-                      className="h-auto px-2 py-1 text-xs"
-                      onClick={openNewAgentBuilder}
-                    >
-                      Create first agent
-                    </Button>
+                    <SidebarMenu>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton
+                          type="button"
+                          onClick={() => setLockedFeatureDialogOpen(true)}
+                          className="h-auto py-2 text-muted-foreground"
+                        >
+                          <LayersIcon />
+                          <span>Case Agent</span>
+                          <LockedFeatureChip className="ml-auto shrink-0" />
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton
+                          type="button"
+                          onClick={() => setLockedFeatureDialogOpen(true)}
+                          className="h-auto py-2 text-muted-foreground"
+                        >
+                          <Table2Icon />
+                          <span>Table Agent</span>
+                          <LockedFeatureChip className="ml-auto shrink-0" />
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    </SidebarMenu>
                   )}
                 </SidebarGroupContent>
               </CollapsibleContent>

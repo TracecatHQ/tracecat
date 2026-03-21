@@ -52,6 +52,56 @@ async def test_registry_actions_filtered_by_entitlements(test_role, monkeypatch)
         assert result is None
 
 
+@pytest.mark.anyio
+async def test_registry_actions_include_locked_marks_missing_entitlements(
+    test_role, monkeypatch
+):
+    """Ensure include_locked returns locked actions with availability metadata."""
+    from tracecat.tiers import defaults as tier_defaults
+
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"case_addons": False}),
+    )
+
+    async with RegistryActionsService.with_session(test_role) as service:
+        entries = await service.list_actions_from_index(
+            namespace="core.cases", include_locked=True
+        )
+
+    actions = {f"{entry.namespace}.{entry.name}": entry for entry, _ in entries}
+    locked_action = actions["core.cases.create_task"]
+    assert locked_action.missing_entitlements == ("case_addons",)
+
+
+@pytest.mark.anyio
+async def test_registry_actions_include_locked_shows_agent_preset_crud(
+    test_role,
+    monkeypatch,
+) -> None:
+    """Ensure agent preset CRUD actions show as locked when agent add-ons are disabled."""
+    from tracecat.tiers import defaults as tier_defaults
+
+    monkeypatch.setattr(
+        tier_defaults,
+        "DEFAULT_ENTITLEMENTS",
+        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": False}),
+    )
+
+    async with RegistryActionsService.with_session(test_role) as service:
+        entries = await service.list_actions_from_index(
+            namespace="ai.agent", include_locked=True
+        )
+
+    actions = {f"{entry.namespace}.{entry.name}": entry for entry, _ in entries}
+    assert actions["ai.agent.create_preset"].missing_entitlements == ("agent_addons",)
+    assert actions["ai.agent.get_preset"].missing_entitlements == ("agent_addons",)
+    assert actions["ai.agent.list_presets"].missing_entitlements == ("agent_addons",)
+    assert actions["ai.agent.update_preset"].missing_entitlements == ("agent_addons",)
+    assert actions["ai.agent.delete_preset"].missing_entitlements == ("agent_addons",)
+
+
 @pytest.fixture
 def mock_package(tmp_path):
     """Pytest fixture that creates a mock package with files and cleans up after the test."""

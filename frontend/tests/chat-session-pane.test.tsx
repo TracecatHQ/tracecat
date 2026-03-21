@@ -314,6 +314,7 @@ describe("ChatSessionPane", () => {
       namespace: "core.cases",
       type: "template" as const,
       origin: "tracecat://test",
+      availability: { locked: false, missing_entitlements: [] },
     }
     mockUseBuilderRegistryActions.mockReturnValue({
       registryActions: [action],
@@ -378,6 +379,7 @@ describe("ChatSessionPane", () => {
       namespace: "core.cases",
       type: "template" as const,
       origin: "tracecat://test",
+      availability: { locked: false, missing_entitlements: [] },
     }
     mockUseBuilderRegistryActions.mockReturnValue({
       registryActions: [action],
@@ -462,6 +464,7 @@ describe("ChatSessionPane", () => {
       namespace: "core.cases",
       type: "template" as const,
       origin: "tracecat://test",
+      availability: { locked: false, missing_entitlements: [] },
     }
     mockUseBuilderRegistryActions.mockReturnValue({
       registryActions: [action],
@@ -536,6 +539,7 @@ describe("ChatSessionPane", () => {
       namespace: "core.cases",
       type: "template" as const,
       origin: "tracecat://test",
+      availability: { locked: false, missing_entitlements: [] },
     }
     mockUseBuilderRegistryActions.mockReturnValue({
       registryActions: [action],
@@ -599,6 +603,7 @@ describe("ChatSessionPane", () => {
       namespace: "core.cases",
       type: "template" as const,
       origin: "tracecat://test",
+      availability: { locked: false, missing_entitlements: [] },
     }
     const getCase = {
       id: "action-2",
@@ -609,6 +614,7 @@ describe("ChatSessionPane", () => {
       namespace: "core.cases",
       type: "template" as const,
       origin: "tracecat://test",
+      availability: { locked: false, missing_entitlements: [] },
     }
     mockUseBuilderRegistryActions.mockReturnValue({
       registryActions: [listCases, getCase],
