@@ -24,9 +24,8 @@ In your `.env` file, set the following environment variables:
 2. `TRACECAT__LOCAL_REPOSITORY_PATH` to the path of your local repository e.g. `~/repos/my-local-registry`
 3. `PYTHONPATH` to `/app/local_registry:`
 
-```yaml
-environment:
-  TRACECAT__LOCAL_REPOSITORY_ENABLED: true
-  TRACECAT__LOCAL_REPOSITORY_PATH: ~/dev/org/internal-registry
-  PYTHONPATH: /app/local_registry:
+```bash
+TRACECAT__LOCAL_REPOSITORY_ENABLED=true
+TRACECAT__LOCAL_REPOSITORY_PATH=~/dev/org/internal-registry
+PYTHONPATH=/app/local_registry:
 ```
