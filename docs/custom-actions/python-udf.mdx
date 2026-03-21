@@ -1,0 +1,64 @@
+---
+title: "Python UDFs"
+description: "Build custom Python actions in Tracecat."
+---
+
+Tracecat makes it easy to turn your Python scripts into actions for agents and workflows. All you need is:
+
+- A single Python decorator, `@registry.register`
+- `from typing import Annotated`
+- `from typing_extensions import Doc`
+
+## Quick start
+
+1. Add a Python file to your custom registry package.
+2. Register one async function with `@registry.register(...)`.
+3. Define typed inputs, read secrets with `secrets.get(...)`, and return JSON-serializable data.
+
+```python
+from typing import Annotated
+from typing_extensions import Doc
+
+from tracecat_registry import registry, RegistrySecret, secrets
+
+
+# (Optional) Define secrets used in the function
+secret_name = RegistrySecret(
+    name="secret_name",
+    keys=["SECRET_NAME"],
+    optional_keys=["OPTIONAL_SECRET_NAME"],
+)
+
+
+# Register the function as a Tracecat UDF
+@registry.register(
+    default_title="Say goodbye secretly",
+    description="This is a function that says goodbye",
+    display_group="Greetings",
+    namespace="integrations.greetings",
+    # (Optional) Define secrets used in the function
+    secrets=[secret_name],
+)
+def say_goodbye_secretly(
+    name: Annotated[str, Doc("The name to say goodbye to")],
+):
+    secret = secrets.get("SECRET_NAME")
+    # We're returning the secret for demonstration only.
+    # Do not do this in your own functions!
+    return {"message": f"Goodbye, {name}! Secret: {secret}"}
+```
+
+## What to define
+
+- Use `tools.<integration>` for the namespace.
+- Set `default_title`, `description`, `display_group`, `doc_url`, and `namespace` in `@registry.register(...)`.
+- Define action inputs with type hints and `Field(..., description=...)`.
+- Define required credentials with `RegistrySecret(...)` and pass them in `secrets=[...]`.
+- Read secret values with `secrets.get(...)`.
+- Return plain dicts, lists, strings, numbers, or booleans.
+
+## Example actions
+
+You can browse all open-source integrations in Tracecat in [tools actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/integrations). Use [template actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/templates/tools) to see how actions are composed, and use [core actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/core) to inspect built-in implementations.
+
+For concrete examples, browse the [Slack](https://github.com/TracecatHQ/tracecat/blob/main/packages/tracecat-registry/tracecat_registry/integrations/slack_sdk.py), [AWS Boto3](https://github.com/TracecatHQ/tracecat/blob/main/packages/tracecat-registry/tracecat_registry/integrations/aws_boto3.py), and [FalconPy](https://github.com/TracecatHQ/tracecat/blob/main/packages/tracecat-registry/tracecat_registry/integrations/crowdstrike_falconpy.py) integrations.

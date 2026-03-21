@@ -1,0 +1,32 @@
+---
+title: Basic
+description: Learn how to authenticate into Tracecat with basic auth.
+---
+
+<Warning>
+  In production, use OIDC or SAML SSO. Basic auth is meant for local development only.
+</Warning>
+
+## Overview
+
+Basic auth lets you sign in to Tracecat with an email and password.
+
+![Tracecat sign-in](/img/self-hosting/sign-in.png)
+
+## Configuration
+
+In your `.env` file, enable the basic auth type:
+
+```bash
+TRACECAT__AUTH_TYPES=basic
+```
+
+You can also combine auth types if you need to:
+
+```bash
+TRACECAT__AUTH_TYPES=basic,oidc
+```
+
+## Minimum password length
+
+When you use basic auth, your password must be at least 12 characters long.

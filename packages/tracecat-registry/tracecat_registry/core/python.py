@@ -8,7 +8,7 @@ from tracecat_registry.fields import Code
 
 @registry.register(
     default_title="Run Python script",
-    description="Execute a Python script in a secure nsjail sandbox with pip package support.",
+    description="Execute a Python script.",
     display_group="Run script",
     namespace="core.script",
 )
@@ -56,7 +56,7 @@ async def run_python(
         ),
     ] = None,
 ) -> Any:
-    """Execute a Python script in a secure nsjail sandbox.
+    """Execute a Python script.
 
     The code is executed in an isolated Linux namespace with:
     - Configurable network access (disabled by default)

@@ -1,0 +1,35 @@
+---
+title: "Schedules"
+description: "Run workflows on a time-based cadence."
+---
+
+## Overview
+
+Schedules run a workflow on a time-based cadence. The workflow must be saved before a schedule can be created.
+
+![Schedule trigger](/img/triggers/schedule.png)
+
+## Schedule types
+
+Schedule types:
+
+- Interval schedules use `every`.
+- Cron schedules use `cron`.
+
+Cron uses standard 5-field or 6-field expressions.
+
+## Schedule fields
+
+- Status: `online` or `offline`.
+- Start time: optional.
+- End time: optional.
+- Timeout: optional, and `0` means no timeout.
+- Offset: interval-only, using an ISO 8601 duration.
+
+## When to use schedules
+
+Use schedules for:
+
+- Polling an external system on a fixed cadence.
+- Running cleanup or maintenance workflows on a timer.
+- Syncing data or refreshing enrichments throughout the day.

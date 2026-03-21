@@ -1,0 +1,726 @@
+examples:
+  http-request-basic:
+    title: Basic request
+    language: yaml
+    code: |
+      - ref: fetch_alert
+        action: core.http_request
+        args:
+          url: https://api.example.com/alerts/${{ TRIGGER.alert_id }}
+          method: GET
+          headers:
+            Authorization: Bearer ${{ SECRETS.alerts.API_TOKEN }}
+
+  http-poll-job:
+    title: Poll until complete
+    language: yaml
+    code: |
+      - ref: wait_for_export
+        action: core.http_poll
+        args:
+          url: https://api.example.com/exports/${{ TRIGGER.export_id }}
+          method: GET
+          headers:
+            Authorization: Bearer ${{ SECRETS.exports.API_TOKEN }}
+          poll_interval: 5
+          poll_max_attempts: 24
+          poll_condition: "lambda response: response['data'].get('status') == 'completed'"
+
+  http-paginate-results:
+    title: Follow next page links
+    language: yaml
+    code: |
+      - ref: list_findings
+        action: core.http_paginate
+        args:
+          url: https://api.example.com/findings
+          method: GET
+          headers:
+            Authorization: Bearer ${{ SECRETS.findings.API_TOKEN }}
+          params:
+            limit: 100
+          items_jsonpath: $.items[*]
+          stop_condition: "lambda response: response['data'].get('next_cursor') is None"
+          next_request: "lambda response: {'url': 'https://api.example.com/findings', 'method': 'GET', 'headers': {'Authorization': 'Bearer ${{ SECRETS.findings.API_TOKEN }}'}, 'params': {'limit': 100, 'cursor': response['data']['next_cursor']}}"
+
+  reshape-single-value:
+    title: Return one value
+    language: yaml
+    code: |
+      - ref: extract_owner_email
+        action: core.transform.reshape
+        args:
+          value: ${{ ACTIONS.get_alert.result.data.owner.email }}
+
+  reshape-build-object:
+    title: Build a new object or list
+    language: yaml
+    code: |
+      - ref: build_summary
+        action: core.transform.reshape
+        args:
+          value:
+            alert_id: ${{ TRIGGER.alert_id }}
+            severity: ${{ TRIGGER.severity }}
+            owner: ${{ TRIGGER.owner.email }}
+            labels:
+              - triage
+              - security
+
+  reshape-inline-functions:
+    title: Use expressions and functions inline
+    language: yaml
+    code: |
+      - ref: normalize_alert
+        action: core.transform.reshape
+        args:
+          value:
+            id: ${{ TRIGGER.alert_id }}
+            title: ${{ TRIGGER.title || "Untitled alert" }}
+            severity: ${{ FN.lowercase(TRIGGER.severity) }}
+            source_ip_version: ${{ FN.check_ip_version(TRIGGER.source_ip) }}
+            created_at: ${{ FN.to_isoformat(TRIGGER.created_at) }}
+
+  email-smtp-notification:
+    title: Send a notification
+    language: yaml
+    code: |
+      - ref: notify_team
+        action: core.send_email_smtp
+        args:
+          sender: no-reply@example.com
+          recipients:
+            - secops@example.com
+          subject: "Tracecat alert ${{ TRIGGER.alert_id }}"
+          body: "Severity: ${{ TRIGGER.severity }}"
+          content_type: text/plain
+          enable_starttls: true
+          enable_auth: true
+
+  python-script-enrich:
+    title: Enrich a payload
+    language: yaml
+    code: |
+      - ref: normalize_findings
+        action: core.script.run_python
+        args:
+          inputs:
+            findings: ${{ TRIGGER.findings }}
+          script: |
+            def main(findings):
+                return [
+                    {
+                        "id": finding["id"],
+                        "severity": str(finding["severity"]).lower(),
+                    }
+                    for finding in findings
+                ]
+          timeout_seconds: 60
+
+  scatter-gather-fanout:
+    title: Fan out and collect results
+    language: yaml
+    code: |
+      - ref: scatter_hosts
+        action: core.transform.scatter
+        args:
+          collection: ${{ TRIGGER.hosts }}
+      - ref: check_host
+        action: core.http_request
+        depends_on:
+          - scatter_hosts
+        args:
+          url: https://scanner.example.com/hosts/${{ ACTIONS.scatter_hosts.result.id }}
+          method: GET
+      - ref: gather_results
+        action: core.transform.gather
+        depends_on:
+          - check_host
+        args:
+          items: ${{ ACTIONS.check_host.result }}
+          drop_nulls: true
+          error_strategy: partition
+
+  loop-until-complete:
+    title: Repeat until a condition is met
+    language: yaml
+    code: |
+      - ref: loop_start
+        action: core.loop.start
+      - ref: check_status
+        action: core.http_request
+        depends_on:
+          - loop_start
+        args:
+          url: https://api.example.com/jobs/${{ TRIGGER.job_id }}
+          method: GET
+      - ref: loop_end
+        action: core.loop.end
+        depends_on:
+          - check_status
+        args:
+          condition: ${{ ACTIONS.check_status.result.data.status != "completed" }}
+          max_iterations: 20
+
+  subflow-execute:
+    title: Run a subflow
+    language: yaml
+    code: |
+      - ref: run_subflow
+        action: core.workflow.execute
+        args:
+          workflow_alias: enrich_case
+          trigger_inputs:
+            case_id: ${{ TRIGGER.case_id }}
+            severity: ${{ TRIGGER.severity }}
+          wait_strategy: wait
+          timeout: 300
+
+  subflow-status:
+    title: Check an execution
+    language: yaml
+    code: |
+      - ref: launch_subflow
+        action: core.workflow.execute
+        args:
+          workflow_alias: collect_evidence
+          trigger_inputs:
+            case_id: ${{ TRIGGER.case_id }}
+      - ref: subflow_status
+        action: core.workflow.get_status
+        depends_on:
+          - launch_subflow
+        args:
+          wf_exec_id: ${{ ACTIONS.launch_subflow.result.wf_exec_id }}
+
+  transforms-filter-map:
+    title: Filter, transform, and compact
+    language: yaml
+    code: |
+      - ref: normalize_hostname
+        action: core.transform.apply
+        args:
+          value: ${{ TRIGGER.hostname }}
+          python_lambda: "lambda value: value.strip().lower()"
+      - ref: keep_open_findings
+        action: core.transform.filter
+        args:
+          items: ${{ TRIGGER.findings }}
+          python_lambda: "lambda finding: finding.get('status') == 'open'"
+      - ref: finding_ids
+        action: core.transform.map
+        args:
+          items: ${{ ACTIONS.keep_open_findings.result }}
+          python_lambda: "lambda finding: finding.get('id')"
+      - ref: compact_ids
+        action: core.transform.drop_nulls
+        args:
+          items: ${{ ACTIONS.finding_ids.result }}
+
+  transforms-membership:
+    title: Keep or exclude matching items
+    language: yaml
+    code: |
+      - ref: keep_known_users
+        action: core.transform.is_in
+        args:
+          items: ${{ TRIGGER.users }}
+          collection:
+            - alice@example.com
+            - bob@example.com
+          python_lambda: "lambda user: user.get('email')"
+      - ref: remove_known_users
+        action: core.transform.not_in
+        args:
+          items: ${{ TRIGGER.users }}
+          collection:
+            - alice@example.com
+            - bob@example.com
+          python_lambda: "lambda user: user.get('email')"
+
+  transforms-deduplicate:
+    title: Deduplicate by a stable key
+    language: yaml
+    code: |
+      - ref: deduplicate_findings
+        action: core.transform.deduplicate
+        args:
+          items: ${{ TRIGGER.findings }}
+          keys:
+            - finding_id
+          persist: true
+          expire_seconds: 3600
+      - ref: finding_seen
+        action: core.transform.is_duplicate
+        args:
+          item: ${{ TRIGGER.finding }}
+          keys:
+            - finding_id
+          expire_seconds: 3600
+
+  transforms-json:
+    title: Flatten and query JSON
+    language: yaml
+    code: |
+      - ref: flatten_alert
+        action: core.transform.flatten_json
+        args:
+          json: ${{ TRIGGER.alert }}
+      - ref: extract_fields
+        action: core.transform.eval_jsonpaths
+        args:
+          json: ${{ TRIGGER.alert }}
+          jsonpaths:
+            user: $.actor.email
+            source_ip: $.network.source.ip
+
+  sql-external-query:
+    title: Query an external database
+    language: yaml
+    code: |
+      - ref: recent_logins
+        action: core.sql.execute_query
+        args:
+          query: |
+            SELECT user_email, last_login_at
+            FROM user_logins
+            WHERE last_login_at >= :cutoff
+            ORDER BY last_login_at DESC
+          bound_params:
+            cutoff: ${{ TRIGGER.cutoff }}
+          max_rows: 100
+
+  sql-duckdb-query:
+    title: Run in-process SQL
+    language: yaml
+    code: |
+      - ref: aggregate_results
+        action: core.duckdb.execute_sql
+        args:
+          sql: |
+            WITH findings(id, severity) AS (
+              VALUES (1, 'high'), (2, 'low'), (3, 'high')
+            )
+            SELECT severity, count(*) AS count
+            FROM findings
+            GROUP BY severity
+            ORDER BY count DESC
+
+  ssh-command:
+    title: Execute a remote command
+    language: yaml
+    code: |
+      - ref: collect_uptime
+        action: core.ssh.execute_command
+        args:
+          host: 10.0.10.15
+          port: 22
+          username: tracecat
+          host_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBEXAMPLEHOSTKEY"
+          command: uptime
+          timeout_seconds: 20
+
+  grpc-request:
+    title: Call a gRPC service
+    language: yaml
+    code: |
+      - ref: grpc_query
+        action: core.grpc.request
+        args:
+          target: grpc.example.com:443
+          service_name: Alerts
+          method_name: GetAlert
+          proto: |
+            syntax = "proto3";
+
+            package alerts;
+
+            service Alerts {
+              rpc GetAlert (GetAlertRequest) returns (AlertResponse);
+            }
+
+            message GetAlertRequest {
+              string id = 1;
+            }
+
+            message AlertResponse {
+              string id = 1;
+              string severity = 2;
+            }
+          payload:
+            id: ${{ TRIGGER.alert_id }}
+
+  cases-create-case:
+    title: Create and fetch a case
+    language: yaml
+    code: |
+      - ref: create_case
+        action: core.cases.create_case
+        args:
+          summary: "Investigate alert ${{ TRIGGER.alert_id }}"
+          description: "Created from workflow trigger."
+          priority: high
+          severity: high
+          tags:
+            - phishing
+      - ref: get_case
+        action: core.cases.get_case
+        depends_on:
+          - create_case
+        args:
+          case_id: ${{ ACTIONS.create_case.result.id }}
+
+  cases-update-case:
+    title: Update case fields
+    language: yaml
+    code: |
+      - ref: update_case
+        action: core.cases.update_case
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          status: in_progress
+          priority: critical
+          append: true
+          description: |
+            Analyst note:
+            - Escalated after credential theft indicators were confirmed.
+
+  cases-list-search:
+    title: List, search, and inspect case activity
+    language: yaml
+    code: |
+      - ref: list_cases
+        action: core.cases.list_cases
+        args:
+          limit: 25
+          order_by: updated_at
+          sort: desc
+      - ref: search_cases
+        action: core.cases.search_cases
+        args:
+          search_term: phishing
+          status:
+            - new
+            - in_progress
+          limit: 25
+      - ref: case_events
+        action: core.cases.list_case_events
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+
+  cases-comments:
+    title: Manage case comments
+    language: yaml
+    code: |
+      - ref: create_comment
+        action: core.cases.create_comment
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          content: "Initial triage started."
+      - ref: reply_to_comment
+        action: core.cases.reply_to_comment
+        depends_on:
+          - create_comment
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          parent_comment_id: ${{ ACTIONS.create_comment.result.id }}
+          content: "Added IOC context."
+      - ref: update_comment
+        action: core.cases.update_comment
+        depends_on:
+          - create_comment
+        args:
+          comment_id: ${{ ACTIONS.create_comment.result.id }}
+          content: "Initial triage started. Waiting on endpoint data."
+      - ref: list_comments
+        action: core.cases.list_comments
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+      - ref: list_comment_threads
+        action: core.cases.list_comment_threads
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+      - ref: get_comment_thread
+        action: core.cases.get_comment_thread
+        depends_on:
+          - create_comment
+        args:
+          comment_id: ${{ ACTIONS.create_comment.result.id }}
+
+  cases-assignment:
+    title: Assign a case
+    language: yaml
+    code: |
+      - ref: assign_by_id
+        action: core.cases.assign_user
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          assignee_id: ${{ TRIGGER.assignee_id }}
+      - ref: assign_by_email
+        action: core.cases.assign_user_by_email
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          assignee_email: analyst@example.com
+
+  cases-tags:
+    title: Add and remove tags
+    language: yaml
+    code: |
+      - ref: add_tag
+        action: core.cases.add_case_tag
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          tag: credential-theft
+          create_if_missing: true
+      - ref: remove_tag
+        action: core.cases.remove_case_tag
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          tag: needs-triage
+
+  cases-attachments:
+    title: Work with attachments
+    language: yaml
+    code: |
+      - ref: upload_attachment
+        action: core.cases.upload_attachment
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          file_name: note.txt
+          content_base64: Zm9yZW5zaWMgbm90ZXM=
+          content_type: text/plain
+      - ref: upload_attachment_from_url
+        action: core.cases.upload_attachment_from_url
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
+          headers:
+            Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
+          file_name: evidence.json
+      - ref: list_attachments
+        action: core.cases.list_attachments
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+      - ref: get_attachment
+        action: core.cases.get_attachment
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          attachment_id: ${{ TRIGGER.attachment_id }}
+      - ref: get_download_url
+        action: core.cases.get_attachment_download_url
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          attachment_id: ${{ TRIGGER.attachment_id }}
+          expiry: 900
+      - ref: download_attachment
+        action: core.cases.download_attachment
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          attachment_id: ${{ TRIGGER.attachment_id }}
+      - ref: delete_attachment
+        action: core.cases.delete_attachment
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          attachment_id: ${{ TRIGGER.attachment_id }}
+
+  cases-rows:
+    title: Link table rows to a case
+    language: yaml
+    code: |
+      - ref: link_row
+        action: core.cases.link_row
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          table_id: indicators
+          row_id: ${{ TRIGGER.row_id }}
+      - ref: unlink_row
+        action: core.cases.unlink_row
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          table_id: indicators
+          row_id: ${{ TRIGGER.row_id }}
+      - ref: insert_case_row
+        action: core.cases.insert_row
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          table_id: indicators
+          row:
+            value: ${{ TRIGGER.indicator }}
+            indicator_type: domain
+
+  cases-tasks:
+    title: Manage case tasks
+    language: yaml
+    code: |
+      - ref: create_task
+        action: core.cases.create_task
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          title: Collect email headers
+          description: Pull the original message from the mail gateway.
+          priority: high
+          status: todo
+      - ref: get_task
+        action: core.cases.get_task
+        depends_on:
+          - create_task
+        args:
+          task_id: ${{ ACTIONS.create_task.result.id }}
+      - ref: list_tasks
+        action: core.cases.list_tasks
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+      - ref: update_task
+        action: core.cases.update_task
+        depends_on:
+          - create_task
+        args:
+          task_id: ${{ ACTIONS.create_task.result.id }}
+          status: in_progress
+      - ref: delete_task
+        action: core.cases.delete_task
+        depends_on:
+          - create_task
+        args:
+          task_id: ${{ ACTIONS.create_task.result.id }}
+
+  cases-metrics:
+    title: Read case metrics
+    language: yaml
+    code: |
+      - ref: case_metrics
+        action: core.cases.get_case_metrics
+        args:
+          case_ids:
+            - ${{ TRIGGER.case_id }}
+            - ${{ TRIGGER.related_case_id }}
+
+  cases-delete-case:
+    title: Delete a case
+    language: yaml
+    code: |
+      - ref: close_case
+        action: core.cases.update_case
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          status: closed
+      - ref: delete_case
+        action: core.cases.delete_case
+        depends_on:
+          - close_case
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+
+  tables-admin:
+    title: Create and inspect a table
+    language: yaml
+    code: |
+      - ref: create_table
+        action: core.table.create_table
+        args:
+          name: asset_inventory
+          columns:
+            - name: hostname
+              type: text
+            - name: owner
+              type: text
+          raise_on_duplicate: false
+      - ref: list_tables
+        action: core.table.list_tables
+      - ref: table_metadata
+        action: core.table.get_table_metadata
+        args:
+          name: asset_inventory
+
+  tables-lookup:
+    title: Look up rows
+    language: yaml
+    code: |
+      - ref: lookup_row
+        action: core.table.lookup
+        args:
+          table: asset_inventory
+          column: hostname
+          value: ${{ TRIGGER.hostname }}
+      - ref: row_exists
+        action: core.table.is_in
+        args:
+          table: asset_inventory
+          column: hostname
+          value: ${{ TRIGGER.hostname }}
+      - ref: lookup_many_rows
+        action: core.table.lookup_many
+        args:
+          table: asset_inventory
+          column: owner
+          value: secops
+          limit: 25
+
+  tables-search:
+    title: Search table rows
+    language: yaml
+    code: |
+      - ref: search_rows
+        action: core.table.search_rows
+        args:
+          table: asset_inventory
+          search_term: database
+          limit: 50
+          paginate: true
+
+  tables-write:
+    title: Insert, update, and delete rows
+    language: yaml
+    code: |
+      - ref: insert_row
+        action: core.table.insert_row
+        args:
+          table: asset_inventory
+          row_data:
+            hostname: app-01
+            owner: secops
+      - ref: insert_rows
+        action: core.table.insert_rows
+        args:
+          table: asset_inventory
+          rows_data:
+            - hostname: app-02
+              owner: secops
+            - hostname: app-03
+              owner: platform
+      - ref: update_row
+        action: core.table.update_row
+        args:
+          table: asset_inventory
+          row_id: ${{ TRIGGER.row_id }}
+          row_data:
+            owner: incident-response
+      - ref: delete_row
+        action: core.table.delete_row
+        args:
+          table: asset_inventory
+          row_id: ${{ TRIGGER.row_id }}
+
+  tables-download:
+    title: Export table data
+    language: yaml
+    code: |
+      - ref: export_table
+        action: core.table.download
+        args:
+          name: asset_inventory
+          format: csv
+          limit: 1000
+
+  require-check:
+    title: Stop when prerequisites are not met
+    language: yaml
+    code: |
+      - ref: require_inputs
+        action: core.require
+        args:
+          conditions:
+            - ${{ TRIGGER.case_id != None }}
+            - ${{ TRIGGER.severity in ["high", "critical"] }}
+          require_all: true
+          raise_error: true
