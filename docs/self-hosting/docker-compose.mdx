@@ -3,32 +3,9 @@ title: Docker compose
 description: Deploy Tracecat using a Docker Compose template.
 ---
 
-<Note>
-  Use Docker Compose for local deployments and smaller environments. For a more
-  production-oriented setup, use [AWS Fargate](/self-hosting/aws-fargate) or
-  [Kubernetes](/self-hosting/kubernetes).
-</Note>
-
 <Warning>
-  Docker Compose deployments default to basic email and password
-  authentication. If you need SSO or external identity providers, configure
-  [OIDC](/authentication/oidc) or [SAML](/authentication/saml).
-</Warning>
-
-
-<Warning>
-## ⚠️ Critical security requirement for code execution
-
-If you run untrusted or third-party code in production, you **must enable `nsjail`**.
-
-This includes both:
-
-- `core.script.run_python` actions
-- Custom registry actions that execute code pulled from third-party sources
-
-`docker compose` deployments have `nsjail` **disabled by default**. Do **not** run these workloads in production until you explicitly enable it.
-
-For comparison: Helm chart / Kubernetes deployments have `nsjail` enabled by default.
+  Docker Compose deployments default to basic email / password authentication.
+  Production deployments should use [OIDC](/authentication/oidc) or [SAML](/authentication/saml) SSO.
 </Warning>
 
 ## Prerequisites
@@ -37,30 +14,7 @@ For comparison: Helm chart / Kubernetes deployments have `nsjail` enabled by def
 - [Docker Compose](https://docs.docker.com/compose/install/) version 2.29.0+
 - [openssl](https://www.openssl.org/source/)
 
-## Verify Prerequisites
-
-To verify that Docker Compose and Docker are installed on the machine where you plan to install Tracecat, run the following commands.
-
-```bash
-# Check docker installation
-docker
-
-# Check docker compose installation
-docker compose
-```
-
-## Download Configuration Files
-
-<Info>
-  When installing Tracecat on a local workstation, set `PUBLIC_APP_URL` to
-  `localhost` or `127.0.0.1`. Do not use `0.0.0.0` because the browser cannot
-  reach it.
-</Info>
-
-Tracecat requires a set of environment variables and credentials stored in `.env` file to run.
-We created a helpful shell script to generate the `.env` file.
-Use the commands listed below to download the required configuration files
-(`env.sh`, `.env.example`) and generate your own `.env` file.
+## Download configuration files
 
 ```bash
 # 1. Download the env.sh installation script
@@ -89,32 +43,9 @@ chmod +x env.sh && ./env.sh
 
 After running `env.sh`, you'll be prompted to input the following:
 
-- Use production mode? - defaults to `y` (use `y` unless you are a Tracecat developer)
-- Set `PUBLIC_APP_URL` to - defaults to `localhost`
-- Require PostgreSQL SSL mode? - defaults to `n`
-- Enter email address for the first user (superadmin) - **required field**
-
-<Info>
-  When installing Tracecat on a local workstation, use `localhost` or
-  `127.0.0.1` as the IP address. Avoid using `0.0.0.0`, as the frontend will
-  attempt to call `0.0.0.0/api/` to access the backend API, causing connection
-  issues.
-</Info>
-
-<Tip>
-  If you want to expose Tracecat on a custom port, you can set `PUBLIC_APP_PORT`
-  in the `.env` file. For example, to expose Tracecat UI at
-  `http://localhost:8082`, set `PUBLIC_APP_PORT=8082` in the `.env` file.
-</Tip>
-
-<Note>
-  Setting production mode to `n` changes where Tracecat's remote repository is installed.
-  Do not set production mode to `n` unless you are a Tracecat developer.
-
-By default, Tracecat will install the remote repository to the user's home directory at `~/.local/lib/python3.12/site-packages/`.
-Setting production mode to `y` will install the remote repository to the `PYTHONUSERBASE` directory specified in enviroment variables.
-
-</Note>
+- Set `PUBLIC_APP_URL`. Defaults to `localhost`.
+- Require PostgreSQL SSL mode? Defaults to `n`.
+- **Required field**: Enter email address for the first user (superadmin).
 
 ## Download Caddyfile
 
@@ -157,12 +88,6 @@ curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat
 
 ## Start Tracecat
 
-<Note>
-  If you want to expose Tracecat on a custom port (default is `80`), you can set
-  `PUBLIC_APP_PORT` in the `.env` file. For example, to expose Tracecat UI at
-  `http://localhost:8080`, set `PUBLIC_APP_PORT=8080` in the `.env` file.
-</Note>
-
 Run the command below to start Tracecat and all related services.
 Make sure your `docker-compose.yml` and generated `.env` files are in the same directory.
 
@@ -173,49 +98,39 @@ docker compose up
 Your Tracecat instance should now be running on `http://localhost:${PUBLIC_APP_PORT}`.
 To access the Tracecat GUI, visit `http://localhost:${PUBLIC_APP_PORT}`.
 
-<Tip>
-  Tracecat comes with a REST API, you can visit the live API docs at
-  `http://localhost:${PUBLIC_APP_PORT}/api/docs`.
-</Tip>
+## FAQ
 
-## Login
+### Does Docker Compose support Traceact MCP?
 
-<Note>
-  Find out how to configure authentication in Tracecat. [View
-  docs](/authentication/basic).
-</Note>
+Yes. Tracecat uses [Dex](https://github.com/dexidp/dex) as a built-in OIDC provider for MCP.
+Dex is shipped with the Tracecat Docker Compose stack.
 
-For each new Tracecat deployment, the super admin role is assigned to the first user who logs into the Tracecat instance.
-This user owns the organization and has admin rights to every workspace in the Tracecat deployment.
+Seek assistance in our [#help-chat](https://discord.gg/3W3BMe85q6) channel if you encounter any issues.
 
-**Important:** Only the email address you specified during the `env.sh` setup can become super admin.
-You must sign up using exactly that email address to gain super admin privileges.
+### Does Tracecat support Windows?
 
-To proceed, sign up and create an account with a strong and secure password using the super admin email you configured.
-Check out [getting started](/overview/getting-started) for more information.
+Yes but don't forget to set `PUBLIC_APP_URL` to `127.0.0.1` instead of `localhost` in your `.env` file.
 
-## Networking
+### Does Tracecat support WSL?
 
-The following env variables are used to configure **external facing** network settings for Tracecat:
+Yes but you'll need to set `PUBLIC_APP_URL` to the WSL IP address instead of `localhost`.
+Run `ip addr` to find your WSL IP address (usually 172.x.x.x).
 
-- `PUBLIC_APP_URL` - Tracecat frontend URL.
-- `PUBLIC_APP_PORT` - Tracecat frontend port.
-- `PUBLIC_API_URL` - Tracecat API URL.
-- `NEXT_PUBLIC_APP_URL` - Browser client will use this URL to access the Tracecat frontend.
-- `NEXT_PUBLIC_API_URL` - Browser client will use this URL to access the Tracecat API.
-- `BASE_DOMAIN` - Caddy will use this domain to reverse proxy the Tracecat frontend and API. Defaults to `:{PUBLIC_APP_PORT}`
-- `ADDRESS` - Caddy will use this address to bind to the network. Defaults to `0.0.0.0`
+### I can see the landing page but not the login page
 
-Within the docker network, the following env variables are used to configure network settings **within the docker network** for Tracecat:
+This suggests that the Tracecat UI is healthy but is unable to communicate with the Tracecat API.
 
-- `INTERNAL_API_URL` - Tracecat API URL (defaults to `http://api:8000`)
-- `INTERNAL_EXECUTOR_URL` - Tracecat executor URL (defaults to `http://executor:8000`)
-- `NEXT_SERVER_API_URL` - Tracecat API URL (defaults to `INTERNAL_API_URL`)
+- Check that the `api` service is healthy
+- Check that this is not a CORS issue (see next FAQ)
+- Check that you changed `PUBLIC_APP_URL` and `PUBLIC_APP_PORT` to the correct address
+- Check the Chrome developer console for any errors
 
-## Troubleshooting
+### What is the CORS issue?
 
-### "Network error" / "Failed to fetch" sign-in page
+You must configure `PUBLIC_APP_URL` and `PUBLIC_API_URL` to the same domain that your browser is accessing the Tracecat UI from.
+Tracecat strictly enforces CORS to prevent XSS attacks.
 
+<<<<<<< HEAD
 This error occurs when your browser cannot connect to Tracecat API via `PUBLIC_APP_URL`.
 Please check the following:
 
@@ -253,3 +168,9 @@ Please check the following:
 - Tracecat comes with basic (email + password) authentication. Find out how to configure other authentication methods. [View docs](/authentication/basic).
 - Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://github.com/TracecatHQ/tracecat/blob/1.0.0-beta.32/.env.example).
 >>>>>>> bfd33ae34 (docs: Update automation documentation with new cases and core actions)
+=======
+For example, if you've deployed Tracecat into a VM and exposed it to your browser as `https://my-tracecat-instance.com`,
+you must set:
+- `PUBLIC_APP_URL` to `https://my-tracecat-instance.com`
+- `PUBLIC_API_URL` to `https://my-tracecat-instance.com/api`
+>>>>>>> 70b9680aa (docs: Revise Docker Compose documentation for clarity and security emphasis)
