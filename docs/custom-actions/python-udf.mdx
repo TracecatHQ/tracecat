@@ -39,7 +39,7 @@ secret_name = RegistrySecret(
     # (Optional) Define secrets used in the function
     secrets=[secret_name],
 )
-def say_goodbye_secretly(
+async def say_goodbye_secretly(
     name: Annotated[str, Doc("The name to say goodbye to")],
 ):
     secret = secrets.get("SECRET_NAME")
