@@ -145,8 +145,7 @@
             "icon": "server",
             "pages": [
               "self-hosting/docker-compose",
-              "self-hosting/aws-fargate",
-              "self-hosting/environment-variables"
+              "self-hosting/aws-fargate"
             ]
           },
           {

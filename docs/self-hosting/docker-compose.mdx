@@ -1,6 +1,6 @@
 ---
-title: Docker compose
-description: Deploy Tracecat using a Docker Compose template.
+title: Docker Compose
+description: Deploy Tracecat using Docker Compose.
 ---
 
 <Warning>
@@ -95,8 +95,41 @@ Make sure your `docker-compose.yml` and generated `.env` files are in the same d
 docker compose up
 ```
 
-Your Tracecat instance should now be running on `http://localhost:${PUBLIC_APP_PORT}`.
-To access the Tracecat GUI, visit `http://localhost:${PUBLIC_APP_PORT}`.
+## Access Tracecat
+
+Once deployed, access your instance at:
+- UI: `http://localhost:${PUBLIC_APP_PORT}`
+- API docs: `http://localhost:${PUBLIC_APP_PORT}/api/docs`
+- MCP: `http://localhost:${PUBLIC_APP_PORT}/mcp`
+
+## Updating Tracecat
+
+<Warning>
+  Be careful when updating Tracecat.
+  Do not accidentally overwrite or lose your existing `TRACECAT__SERVICE_KEY`, `TRACECAT__SIGNING_SECRET`, and `TRACECAT__DB_ENCRYPTION_KEY` secrets.
+  Losing these secrets will break your credentials and webhooks.
+</Warning>
+
+```bash
+# 1. Download the latest env migration script and env template
+curl -o env-migration.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/env-migration.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/.env.example
+
+# 2. Make the migration script executable and update your existing .env
+chmod +x env-migration.sh && ./env-migration.sh
+
+# 3. Download the latest Docker Compose file
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/docker-compose.yml
+
+# 4. Download the latest Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/Caddyfile
+
+# 5. Restart Tracecat with the updated configuration
+docker compose up -d
+```
+
+The migration script creates a backup of your existing `.env` before rewriting it.
+After the stack starts, verify that your containers are healthy and that you can sign in successfully.
 
 ## FAQ
 
