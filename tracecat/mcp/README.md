@@ -3,8 +3,10 @@
 This document lists the currently registered MCP tools in
 `tracecat/mcp/server.py` (the functions decorated with `@mcp.tool()`).
 
-All top-level collection tools now return a paginated object with:
+Top-level list/search tools return a paginated object with:
 `items`, `next_cursor`, `prev_cursor`, `has_more`, and `has_previous`.
+Object-style authoring/context tools remain object responses and document their
+own embedded collection truncation behavior below.
 
 ## Workflow tools
 

@@ -116,6 +116,7 @@ class WorkflowExecutionNotFoundError(ValueError):
 class WorkflowExecutionsPage:
     items: list[WorkflowExecution]
     next_cursor: str | None
+    prev_cursor: str | None
     has_more: bool
     has_previous: bool
 
@@ -299,10 +300,27 @@ class WorkflowExecutionsService:
         return hashlib.sha256(canonical).hexdigest()
 
     @staticmethod
-    def _encode_query_cursor(next_page_token: bytes, fingerprint: str) -> str:
+    def _encode_query_cursor(
+        page_token: bytes | None,
+        fingerprint: str,
+        *,
+        history: Sequence[bytes | None] | None = None,
+    ) -> str:
         payload = {
-            "token": base64.urlsafe_b64encode(next_page_token).decode("ascii"),
+            "token": (
+                base64.urlsafe_b64encode(page_token).decode("ascii")
+                if page_token is not None
+                else None
+            ),
             "fingerprint": fingerprint,
+            "history": [
+                (
+                    base64.urlsafe_b64encode(token).decode("ascii")
+                    if token is not None
+                    else None
+                )
+                for token in (history or [])
+            ],
         }
         encoded = base64.urlsafe_b64encode(
             orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
@@ -310,15 +328,33 @@ class WorkflowExecutionsService:
         return encoded.decode("ascii")
 
     @staticmethod
-    def _decode_query_cursor(cursor: str) -> tuple[bytes, str]:
+    def _decode_query_cursor(
+        cursor: str,
+    ) -> tuple[bytes | None, str, list[bytes | None]]:
         try:
             decoded = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
             data = json.loads(decoded)
             token_text = data["token"]
             fingerprint = data["fingerprint"]
-            if not isinstance(token_text, str) or not isinstance(fingerprint, str):
+            history_text = data.get("history", [])
+            if token_text is not None and not isinstance(token_text, str):
                 raise ValueError("Malformed workflow executions cursor")
-            return base64.urlsafe_b64decode(token_text.encode("ascii")), fingerprint
+            if not isinstance(fingerprint, str) or not isinstance(history_text, list):
+                raise ValueError("Malformed workflow executions cursor")
+            history: list[bytes | None] = []
+            for entry in history_text:
+                if entry is None:
+                    history.append(None)
+                elif isinstance(entry, str):
+                    history.append(base64.urlsafe_b64decode(entry.encode("ascii")))
+                else:
+                    raise ValueError("Malformed workflow executions cursor")
+            token = (
+                base64.urlsafe_b64decode(token_text.encode("ascii"))
+                if token_text is not None
+                else None
+            )
+            return token, fingerprint, history
         except Exception as e:
             raise ValueError("Invalid workflow executions cursor") from e
 
@@ -393,9 +429,9 @@ class WorkflowExecutionsService:
 
         fingerprint = self._build_query_fingerprint(query=query, relation=relation)
         next_page_token: bytes | None = None
-        has_previous = pagination.cursor is not None
+        history: list[bytes | None] = []
         if pagination.cursor is not None:
-            next_page_token, cursor_fingerprint = self._decode_query_cursor(
+            next_page_token, cursor_fingerprint, history = self._decode_query_cursor(
                 pagination.cursor
             )
             if cursor_fingerprint != fingerprint:
@@ -419,16 +455,26 @@ class WorkflowExecutionsService:
                 execution for execution in executions if execution.parent_id is not None
             ]
 
+        prev_cursor = None
         next_cursor = None
         if iterator.next_page_token:
             next_cursor = self._encode_query_cursor(
-                iterator.next_page_token, fingerprint
+                iterator.next_page_token,
+                fingerprint,
+                history=[*history, next_page_token],
+            )
+        if history:
+            prev_cursor = self._encode_query_cursor(
+                history[-1],
+                fingerprint,
+                history=history[:-1],
             )
         return WorkflowExecutionsPage(
             items=executions,
             next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
             has_more=next_cursor is not None,
-            has_previous=has_previous,
+            has_previous=prev_cursor is not None,
         )
 
     def _role_workspace_id(self) -> str | None:

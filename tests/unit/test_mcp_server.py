@@ -3225,6 +3225,64 @@ async def test_search_table_rows_returns_paginated_payload(
 
 
 @pytest.mark.anyio
+async def test_list_workflow_executions_forwards_prev_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    workflow_id = mcp_server.WorkflowUUID.new_uuid4()
+    start_time = datetime.now(UTC)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _ExecutionService:
+        async def list_executions_paginated(
+            self,
+            *,
+            pagination: Any,
+            workflow_id: Any,
+        ) -> SimpleNamespace:
+            assert pagination.limit == 20
+            assert pagination.cursor == "cursor-2"
+            assert workflow_id == mcp_server.WorkflowUUID.new(str(workflow_id))
+            return SimpleNamespace(
+                items=[
+                    SimpleNamespace(
+                        id="wf_example/exec_123",
+                        run_id="run-123",
+                        status=1,
+                        start_time=start_time,
+                        close_time=None,
+                        typed_search_attributes=None,
+                    )
+                ],
+                next_cursor="cursor-3",
+                prev_cursor="cursor-1",
+                has_more=True,
+                has_previous=True,
+            )
+
+    async def _connect(*, role: Any) -> _ExecutionService:
+        assert role is not None
+        return _ExecutionService()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server.WorkflowExecutionsService, "connect", _connect)
+
+    payload = _payload(
+        await _tool(mcp_server.list_workflow_executions)(
+            workspace_id=str(workspace_id),
+            workflow_id=str(workflow_id),
+            cursor="cursor-2",
+        )
+    )
+    assert payload["prev_cursor"] == "cursor-1"
+    assert payload["has_previous"] is True
+    assert payload["next_cursor"] == "cursor-3"
+
+
+@pytest.mark.anyio
 async def test_concurrent_workspace_calls_do_not_cross(monkeypatch):
     """Concurrent tool calls for different workspaces resolve independently."""
     resolved: dict[str, uuid.UUID] = {}

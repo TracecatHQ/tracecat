@@ -4424,7 +4424,7 @@ async def list_workflow_executions(
                 MCPPaginatedResponse[dict[str, Any]](
                     items=items,
                     next_cursor=executions.next_cursor,
-                    prev_cursor=None,
+                    prev_cursor=executions.prev_cursor,
                     has_more=executions.has_more,
                     has_previous=executions.has_previous,
                 )
