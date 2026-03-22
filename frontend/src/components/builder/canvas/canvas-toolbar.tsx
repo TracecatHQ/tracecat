@@ -13,6 +13,7 @@ import {
 import { useCallback, useMemo, useState } from "react"
 import type { RegistryActionReadMinimal } from "@/client"
 import { getIcon } from "@/components/icons"
+import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -149,6 +150,21 @@ const TRANSFORM_TOP = [
 const SQL_TOP = ["core.duckdb.execute_sql", "core.sql.execute_query"]
 const AI_TOP = ["ai.action", "ai.ranker", "ai.slackbot"]
 const AGENT_TOP = ["ai.agent", "ai.preset_agent"]
+const FORCE_LOCKED_PRESET_ACTIONS = new Set([
+  "ai.agent.create_preset",
+  "ai.agent.delete_preset",
+  "ai.agent.get_preset",
+  "ai.agent.list_presets",
+  "ai.agent.update_preset",
+  "ai.preset_agent",
+])
+
+function isLockedAction(action: RegistryActionReadMinimal): boolean {
+  return (
+    FORCE_LOCKED_PRESET_ACTIONS.has(action.action) ||
+    (action.availability?.locked ?? false)
+  )
+}
 
 const WORKFLOW_EXTRA_ACTIONS = new Set([
   "core.transform.scatter",
@@ -271,7 +287,7 @@ export interface CanvasToolbarProps {
 
 export function CanvasToolbar({ onAddAction }: CanvasToolbarProps) {
   const { registryActions, registryActionsIsLoading } =
-    useBuilderRegistryActions()
+    useBuilderRegistryActions({ includeLocked: true })
 
   const actionsByCategory = useMemo(() => {
     if (!registryActions) return new Map<string, RegistryActionReadMinimal[]>()
@@ -353,6 +369,7 @@ function ToolbarCategoryDropdown({
   Icon,
 }: ToolbarCategoryDropdownProps) {
   const [open, setOpen] = useState(false)
+  const [lockedFeatureOpen, setLockedFeatureOpen] = useState(false)
   const [search, setSearch] = useState("")
   const isAiCategory = category.id === "ai"
   const isAgentCategory = category.id === "agent"
@@ -370,6 +387,12 @@ function ToolbarCategoryDropdown({
 
   const handleSelect = useCallback(
     (action: RegistryActionReadMinimal) => {
+      if (isLockedAction(action)) {
+        setOpen(false)
+        setSearch("")
+        setLockedFeatureOpen(true)
+        return
+      }
       onAddAction(action)
       setOpen(false)
       setSearch("")
@@ -398,15 +421,20 @@ function ToolbarCategoryDropdown({
   }
 
   function renderActionItem(action: RegistryActionReadMinimal) {
+    const isLocked = isLockedAction(action)
+
     return (
       <CommandItem
         key={action.action}
         value={action.action}
         onSelect={() => handleSelect(action)}
-        className="flex cursor-pointer items-center gap-3 py-2"
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-3 py-2",
+          isLocked && "text-muted-foreground"
+        )}
       >
         {renderActionIcon(action)}
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-xs font-medium">
             {action.default_title ?? action.action}
           </span>
@@ -419,52 +447,58 @@ function ToolbarCategoryDropdown({
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn("size-9", categoryStyle?.buttonClass)}
-              disabled={isLoading || actions.length === 0}
-            >
-              <Icon className="size-5" />
-            </Button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">
-          {category.label}
-        </TooltipContent>
-      </Tooltip>
-      <PopoverContent
-        side="top"
-        align={category.align ?? "start"}
-        className="w-fit min-w-48 max-w-80 p-0"
-        sideOffset={8}
-      >
-        <Command shouldFilter={false}>
-          {category.hasSearch && (
-            <CommandInput
-              placeholder={`Search ${category.label.toLowerCase()}...`}
-              value={search}
-              onValueChange={setSearch}
-              className="text-xs"
-            />
-          )}
-          <CommandList>
-            <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
-              No actions found
-            </CommandEmpty>
-            <CommandGroup
-              heading={`${category.label} actions`}
-              className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium"
-            >
-              {filteredActions.map((action) => renderActionItem(action))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+    <>
+      <LockedFeatureModal
+        open={lockedFeatureOpen}
+        onOpenChange={setLockedFeatureOpen}
+      />
+      <Popover open={open} onOpenChange={setOpen}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("size-9", categoryStyle?.buttonClass)}
+                disabled={isLoading || actions.length === 0}
+              >
+                <Icon className="size-5" />
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs">
+            {category.label}
+          </TooltipContent>
+        </Tooltip>
+        <PopoverContent
+          side="top"
+          align={category.align ?? "start"}
+          className="w-fit min-w-48 max-w-80 p-0"
+          sideOffset={8}
+        >
+          <Command shouldFilter={false}>
+            {category.hasSearch && (
+              <CommandInput
+                placeholder={`Search ${category.label.toLowerCase()}...`}
+                value={search}
+                onValueChange={setSearch}
+                className="text-xs"
+              />
+            )}
+            <CommandList>
+              <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
+                No actions found
+              </CommandEmpty>
+              <CommandGroup
+                heading={`${category.label} actions`}
+                className="[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium"
+              >
+                {filteredActions.map((action) => renderActionItem(action))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </>
   )
 }
