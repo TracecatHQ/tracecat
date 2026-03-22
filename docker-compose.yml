@@ -196,7 +196,7 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
-      PYTHONPATH: ${PYTHONPATH:-/home/apiuser/.local:/app/local_registry}
+      PYTHONPATH: ${PYTHONPATH:+${PYTHONPATH}:}/home/apiuser/.local:/app/local_registry
       # Sandbox
       TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-true}
       TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
@@ -333,7 +333,7 @@ services:
         # Local registry
         TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
         TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
-        PYTHONPATH: ${PYTHONPATH:-/home/apiuser/.local:/app/local_registry}
+        PYTHONPATH: ${PYTHONPATH:+${PYTHONPATH}:}/home/apiuser/.local:/app/local_registry
         # Sandbox
         TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-direct}
         TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-true}
