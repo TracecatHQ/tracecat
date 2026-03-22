@@ -530,7 +530,7 @@ async def search_workflow_executions(
     return CursorPaginatedResponse(
         items=items,
         next_cursor=page.next_cursor,
-        prev_cursor=None,
+        prev_cursor=page.prev_cursor,
         has_more=page.has_more,
         has_previous=page.has_previous,
         total_estimate=None,

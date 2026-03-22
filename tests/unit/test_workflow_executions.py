@@ -27,6 +27,7 @@ from tracecat.db.models import Workspace
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.schemas import StreamID
 from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowUUID
+from tracecat.pagination import CursorPaginationParams
 from tracecat.storage.object import ExternalObject, InlineObject, ObjectRef
 from tracecat.workflow.executions.enums import (
     TriggerType,
@@ -1812,3 +1813,60 @@ class TestWorkflowStartAcknowledgement:
         assert (
             mock_client.start_workflow.await_args.kwargs["id"] == response["wf_exec_id"]
         )
+
+
+@pytest.mark.anyio
+async def test_list_executions_paginated_emits_prev_cursor_history(
+    workflow_executions_service: WorkflowExecutionsService,
+    mock_client: Mock,
+) -> None:
+    first_page_items = [Mock(id="wf_first/exec_1")]
+    second_page_items = [Mock(id="wf_first/exec_2")]
+    calls: list[bytes | None] = []
+
+    class _Iterator:
+        def __init__(self, items: list[Any], next_page_token: bytes | None) -> None:
+            self.current_page = items
+            self.next_page_token = next_page_token
+
+        async def fetch_next_page(self, *, page_size: int) -> None:
+            assert page_size == 1
+
+    def _list_workflows(
+        *,
+        query: str | None = None,
+        page_size: int,
+        next_page_token: bytes | None = None,
+    ) -> _Iterator:
+        _ = query
+        assert page_size == 1
+        calls.append(next_page_token)
+        if next_page_token is None:
+            return _Iterator(first_page_items, b"page-2")
+        if next_page_token == b"page-2":
+            return _Iterator(second_page_items, b"page-3")
+        raise AssertionError(f"Unexpected page token: {next_page_token!r}")
+
+    mock_client.list_workflows = Mock(side_effect=_list_workflows)
+
+    first_page = await workflow_executions_service.list_executions_paginated(
+        pagination=CursorPaginationParams(limit=1),
+    )
+    assert first_page.prev_cursor is None
+    assert first_page.has_previous is False
+    assert first_page.next_cursor is not None
+
+    second_page = await workflow_executions_service.list_executions_paginated(
+        pagination=CursorPaginationParams(limit=1, cursor=first_page.next_cursor),
+    )
+    assert second_page.items == second_page_items
+    assert second_page.prev_cursor is not None
+    assert second_page.has_previous is True
+
+    rewound_page = await workflow_executions_service.list_executions_paginated(
+        pagination=CursorPaginationParams(limit=1, cursor=second_page.prev_cursor),
+    )
+    assert rewound_page.items == first_page_items
+    assert rewound_page.has_previous is False
+    assert rewound_page.prev_cursor is None
+    assert calls == [None, b"page-2", None]

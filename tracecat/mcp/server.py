@@ -8,13 +8,14 @@ highly unsafe and should only be used for local development.
 from __future__ import annotations
 
 import asyncio
+import base64
 import csv
 import hashlib
 import json
 import re
 import uuid
 from collections import defaultdict, deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from io import StringIO
@@ -47,7 +48,11 @@ from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat import config
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
-from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetRead
+from tracecat.agent.preset.schemas import (
+    AgentPresetCreate,
+    AgentPresetRead,
+    AgentPresetUpdate,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
@@ -104,7 +109,12 @@ from tracecat.mcp.middleware import (
     WatchtowerMonitorMiddleware,
     get_mcp_client_id,
 )
-from tracecat.pagination import CursorPaginationParams
+from tracecat.mcp.schemas import (
+    MCPPaginatedResponse,
+    MCPTruncationInfo,
+    MCPTruncationSummary,
+)
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import (
     RegistryActionsService,
@@ -1844,8 +1854,9 @@ when the workflow fits within that limit; otherwise it returns
 2. `list_integrations` — inspect workspace MCP integrations and broader provider status
 3. `list_actions` / `get_action_context` — choose preset tools and inspect arg schemas
 4. `create_agent_preset` — create a reusable preset
-5. `list_agent_presets` — find reusable agents you can invoke by slug without loading their full prompts or tool configs
-6. `get_agent_preset` / `run_agent_preset` — fetch a preset's full configuration when you need to inspect it, or run it once you know which slug to use
+5. `update_agent_preset` — revise an existing preset by slug when its prompts, tools, or model settings need to change
+6. `list_agent_presets` — find reusable agents you can invoke by slug without loading their full prompts or tool configs
+7. `get_agent_preset` / `run_agent_preset` — fetch a preset's full configuration when you need to inspect it, or run it once you know which slug to use
 
 ## Debugging workflow runs
 After running a workflow, use `list_workflow_executions` to see recent runs and their \
@@ -2382,6 +2393,123 @@ def _json(obj: Any) -> str:
     return json.dumps(obj, default=str)
 
 
+def _normalize_limit(
+    limit: int | None,
+    *,
+    default: int,
+    max_limit: int,
+) -> int:
+    """Clamp a requested MCP list limit to a safe range."""
+    if limit is None:
+        return default
+    return max(config.TRACECAT__LIMIT_MIN, min(limit, max_limit))
+
+
+def _pagination_fingerprint(tool_name: str, **filters: Any) -> str:
+    """Build a stable fingerprint for cursor validation."""
+    payload = {"tool_name": tool_name, "filters": filters}
+    serialized = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
+    return hashlib.sha256(serialized).hexdigest()
+
+
+def _encode_offset_cursor(offset: int, fingerprint: str) -> str:
+    """Encode an in-memory pagination cursor."""
+    payload = {"offset": offset, "fingerprint": fingerprint}
+    serialized = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
+    return base64.urlsafe_b64encode(serialized).decode("ascii")
+
+
+def _decode_offset_cursor(cursor: str, *, expected_fingerprint: str) -> int:
+    """Decode an in-memory pagination cursor."""
+    try:
+        decoded = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+        payload = json.loads(decoded)
+    except Exception as e:
+        raise ToolError("Invalid cursor format") from e
+
+    if payload.get("fingerprint") != expected_fingerprint:
+        raise ToolError(
+            "Cursor no longer matches current filters. Retry without cursor."
+        )
+
+    offset = payload.get("offset")
+    if not isinstance(offset, int) or offset < 0:
+        raise ToolError("Invalid cursor format")
+    return offset
+
+
+def _paginate_items[T](
+    items: Sequence[T],
+    *,
+    tool_name: str,
+    limit: int,
+    cursor: str | None = None,
+    filters: dict[str, Any] | None = None,
+) -> MCPPaginatedResponse[T]:
+    """Paginate an in-memory collection with cursor validation."""
+    normalized_items = list(items)
+    fingerprint = _pagination_fingerprint(tool_name, **(filters or {}))
+    start = (
+        _decode_offset_cursor(cursor, expected_fingerprint=fingerprint)
+        if cursor is not None
+        else 0
+    )
+    end = start + limit
+    next_cursor = (
+        _encode_offset_cursor(end, fingerprint) if end < len(normalized_items) else None
+    )
+    prev_start = max(0, start - limit)
+    prev_cursor = _encode_offset_cursor(prev_start, fingerprint) if start > 0 else None
+    return MCPPaginatedResponse[T](
+        items=normalized_items[start:end],
+        next_cursor=next_cursor,
+        prev_cursor=prev_cursor,
+        has_more=next_cursor is not None,
+        has_previous=start > 0,
+    )
+
+
+def _serialize_paginated_response[T](
+    page: MCPPaginatedResponse[T] | CursorPaginatedResponse[T],
+) -> dict[str, Any]:
+    """Serialize a paginated response to a JSON-safe dict."""
+    return page.model_dump(mode="json")
+
+
+def _truncate_embedded_list[T](
+    items: Sequence[T],
+    *,
+    limit: int,
+) -> tuple[list[T], MCPTruncationInfo]:
+    """Cap an embedded list and return truncation metadata."""
+    normalized_items = list(items)
+    returned = normalized_items[:limit]
+    return returned, MCPTruncationInfo(
+        limit=limit,
+        total=len(normalized_items),
+        returned=len(returned),
+        truncated=len(normalized_items) > limit,
+    )
+
+
+def _truncate_named_sections(
+    sections: dict[str, Sequence[Any]],
+    *,
+    limit: int,
+) -> tuple[dict[str, list[Any]], MCPTruncationSummary]:
+    """Cap multiple embedded collections and summarize truncation."""
+    truncated_sections: dict[str, list[Any]] = {}
+    summary = MCPTruncationSummary()
+    for name, items in sections.items():
+        truncated_items, info = _truncate_embedded_list(items, limit=limit)
+        truncated_sections[name] = truncated_items
+        summary.collections[name] = info
+    return truncated_sections, summary
+
+
+_MCP_EMBEDDED_COLLECTION_LIMIT = min(50, config.TRACECAT__LIMIT_CURSOR_MAX)
+
+
 def _workflow_tag_payload(tag: Any) -> dict[str, Any]:
     """Serialize a workflow tag definition."""
     return TagRead.model_validate(tag, from_attributes=True).model_dump(mode="json")
@@ -2617,7 +2745,9 @@ _TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
     "list_integrations": "integrations",
     "get_agent_preset_authoring_context": "agents",
     "create_agent_preset": "agents",
+    "update_agent_preset": "agents",
     "list_agent_presets": "agents",
+    "get_agent_preset": "agents",
     "run_agent_preset": "agents",
 }
 
@@ -2650,14 +2780,27 @@ mcp.tool = cast(Any, _namespaced_tool)
 
 
 @mcp.tool()
-async def list_workspaces() -> str:
+async def list_workspaces(
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> str:
     """List all workspaces accessible to the authenticated user.
 
     Returns a JSON array of workspace objects with id, name, and role.
     """
     try:
         workspaces = await list_workspaces_for_request()
-        return _json(workspaces)
+        page = _paginate_items(
+            workspaces,
+            tool_name="list_workspaces",
+            limit=_normalize_limit(
+                limit,
+                default=config.TRACECAT__LIMIT_DEFAULT,
+                max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+            ),
+            cursor=cursor,
+        )
+        return _json(_serialize_paginated_response(page))
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -3186,41 +3329,43 @@ async def list_workflows(
     status: str | None = None,
     limit: int = 50,
     search: str | None = None,
+    cursor: str | None = None,
 ) -> str:
     """List workflows in a workspace."""
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        limit = max(1, min(limit, 200))
+        limit = _normalize_limit(limit, default=50, max_limit=200)
         async with WorkflowsManagementService.with_session(role=role) as svc:
-            page = await svc.list_workflows(CursorPaginationParams(limit=limit))
-            workflows: list[dict[str, Any]] = []
-            for workflow, latest_defn, _trigger_summary in page.items:
-                if status and workflow.status != status:
-                    continue
-                if search:
-                    needle = search.lower()
-                    if (
-                        needle not in workflow.title.lower()
-                        and needle not in (workflow.description or "").lower()
-                    ):
-                        continue
-                workflows.append(
-                    {
-                        "id": str(workflow.id),
-                        "title": workflow.title,
-                        "description": workflow.description,
-                        "status": workflow.status,
-                        "version": workflow.version,
-                        "alias": workflow.alias,
-                        "latest_definition_version": (
-                            latest_defn.version if latest_defn else None
-                        ),
-                    }
+            page = await svc.list_workflows(
+                CursorPaginationParams(limit=limit, cursor=cursor),
+                status=status,
+                search=search,
+            )
+            return _json(
+                _serialize_paginated_response(
+                    MCPPaginatedResponse[dict[str, Any]](
+                        items=[
+                            {
+                                "id": str(workflow.id),
+                                "title": workflow.title,
+                                "description": workflow.description,
+                                "status": workflow.status,
+                                "version": workflow.version,
+                                "alias": workflow.alias,
+                                "latest_definition_version": (
+                                    latest_defn.version if latest_defn else None
+                                ),
+                            }
+                            for workflow, latest_defn, _trigger_summary in page.items
+                        ],
+                        next_cursor=page.next_cursor,
+                        prev_cursor=page.prev_cursor,
+                        has_more=page.has_more,
+                        has_previous=page.has_previous,
+                    )
                 )
-                if len(workflows) >= limit:
-                    break
-            return _json(workflows)
+            )
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -3234,6 +3379,8 @@ async def list_workflow_tree(
     path: str = "/",
     depth: int = 1,
     include_workflows: bool = True,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
 ) -> str:
     """List workflow folders and workflows under a path.
 
@@ -3289,13 +3436,25 @@ async def list_workflow_tree(
                             }
                         )
 
-            return _json(
-                {
-                    "root_path": root_path,
-                    "depth": "unlimited" if depth == 0 else depth,
-                    "items": items,
-                }
+            page = _paginate_items(
+                items,
+                tool_name="list_workflow_tree",
+                limit=_normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                ),
+                cursor=cursor,
+                filters={
+                    "path": root_path,
+                    "depth": depth,
+                    "include_workflows": include_workflows,
+                },
             )
+            payload = _serialize_paginated_response(page)
+            payload["root_path"] = root_path
+            payload["depth"] = "unlimited" if depth == 0 else depth
+            return _json(payload)
     except ToolError:
         raise
     except ValueError as e:
@@ -3490,6 +3649,7 @@ async def list_actions(
     query: str | None = None,
     namespace: str | None = None,
     limit: int = 50,
+    cursor: str | None = None,
 ) -> str:
     """Search or browse available actions and return compact context metadata.
 
@@ -3517,11 +3677,11 @@ async def list_actions(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        limit = max(1, min(limit, 200))
+        limit = _normalize_limit(limit, default=50, max_limit=200)
         workspace_inventory = await _load_secret_inventory(role)
         async with RegistryActionsService.with_session(role=role) as svc:
             if query:
-                entries = await svc.search_actions_from_index(query, limit=limit)
+                entries = await svc.search_actions_from_index(query, limit=None)
             else:
                 entries = await svc.list_actions_from_index(namespace=namespace)
             items: list[dict[str, Any]] = []
@@ -3547,7 +3707,14 @@ async def list_actions(
                         "missing_requirements": missing,
                     }
                 )
-            return _json(items[:limit])
+            page = _paginate_items(
+                items,
+                tool_name="list_actions",
+                limit=limit,
+                cursor=cursor,
+                filters={"query": query, "namespace": namespace},
+            )
+            return _json(_serialize_paginated_response(page))
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -3712,14 +3879,24 @@ async def get_workflow_authoring_context(
                 }
             )
 
-        return _json(
+        truncated_sections, truncation = _truncate_named_sections(
             {
                 "actions": action_contexts,
                 "variable_hints": variable_hints,
                 "secret_hints": secret_hints,
+            },
+            limit=_MCP_EMBEDDED_COLLECTION_LIMIT,
+        )
+
+        return _json(
+            {
+                "actions": truncated_sections["actions"],
+                "variable_hints": truncated_sections["variable_hints"],
+                "secret_hints": truncated_sections["secret_hints"],
                 "notes": [
                     "configured means required secret names and required key names exist in the default environment",
                 ],
+                "truncation": truncation.model_dump(mode="json"),
             }
         )
     except ToolError:
@@ -4190,6 +4367,7 @@ async def list_workflow_executions(
     workspace_id: str,
     workflow_id: str,
     limit: int = 20,
+    cursor: str | None = None,
 ) -> str:
     """List recent executions for a workflow.
 
@@ -4208,12 +4386,15 @@ async def list_workflow_executions(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         wf_id = WorkflowUUID.new(workflow_id)
-        limit = max(1, min(limit, 100))
+        limit = _normalize_limit(limit, default=20, max_limit=100)
 
         exec_service = await WorkflowExecutionsService.connect(role=role)
-        executions = await exec_service.list_executions(workflow_id=wf_id, limit=limit)
+        executions = await exec_service.list_executions_paginated(
+            pagination=CursorPaginationParams(limit=limit, cursor=cursor),
+            workflow_id=wf_id,
+        )
         items: list[dict[str, Any]] = []
-        for execution in executions:
+        for execution in executions.items:
             trigger_type = None
             execution_type = None
             try:
@@ -4238,7 +4419,17 @@ async def list_workflow_executions(
                     "execution_type": str(execution_type) if execution_type else None,
                 }
             )
-        return _json(items)
+        return _json(
+            _serialize_paginated_response(
+                MCPPaginatedResponse[dict[str, Any]](
+                    items=items,
+                    next_cursor=executions.next_cursor,
+                    prev_cursor=executions.prev_cursor,
+                    has_more=executions.has_more,
+                    has_previous=executions.has_previous,
+                )
+            )
+        )
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -4552,7 +4743,11 @@ async def update_case_trigger(
 
 
 @mcp.tool()
-async def list_workflow_tags(workspace_id: str) -> str:
+async def list_workflow_tags(
+    workspace_id: str,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> str:
     """List workflow tag definitions in a workspace.
 
     Returns a JSON array of tag objects with `id`, `name`, `ref`, and `color`.
@@ -4562,7 +4757,17 @@ async def list_workflow_tags(workspace_id: str) -> str:
         _, role = await _resolve_workspace_role(workspace_id)
         async with TagsService.with_session(role=role) as svc:
             tags = await svc.list_tags()
-            return _json([_workflow_tag_payload(tag) for tag in tags])
+            page = _paginate_items(
+                [_workflow_tag_payload(tag) for tag in tags],
+                tool_name="list_workflow_tags",
+                limit=_normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                ),
+                cursor=cursor,
+            )
+            return _json(_serialize_paginated_response(page))
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -4661,7 +4866,12 @@ async def delete_workflow_tag(workspace_id: str, tag_id: str) -> str:
 
 
 @mcp.tool()
-async def list_tags_for_workflow(workspace_id: str, workflow_id: str) -> str:
+async def list_tags_for_workflow(
+    workspace_id: str,
+    workflow_id: str,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> str:
     """List tags attached to a workflow.
 
     Returns a JSON array of tag objects with `id`, `name`, `ref`, and `color`.
@@ -4672,7 +4882,18 @@ async def list_tags_for_workflow(workspace_id: str, workflow_id: str) -> str:
         wf_id = WorkflowUUID.new(workflow_id)
         async with WorkflowTagsService.with_session(role=role) as svc:
             tags = await svc.list_tags_for_workflow(wf_id)
-            return _json([_workflow_tag_payload(tag) for tag in tags])
+            page = _paginate_items(
+                [_workflow_tag_payload(tag) for tag in tags],
+                tool_name="list_tags_for_workflow",
+                limit=_normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                ),
+                cursor=cursor,
+                filters={"workflow_id": workflow_id},
+            )
+            return _json(_serialize_paginated_response(page))
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -4754,7 +4975,11 @@ async def remove_workflow_tag(
 
 
 @mcp.tool()
-async def list_case_tags(workspace_id: str) -> str:
+async def list_case_tags(
+    workspace_id: str,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> str:
     """List case tag definitions in a workspace.
 
     Returns a JSON array of tag objects with `id`, `name`, `ref`, and `color`.
@@ -4764,7 +4989,17 @@ async def list_case_tags(workspace_id: str) -> str:
         _, role = await _resolve_workspace_role(workspace_id)
         async with CaseTagsService.with_session(role=role) as svc:
             tags = await svc.list_workspace_tags()
-            return _json([_case_tag_payload(tag) for tag in tags])
+            page = _paginate_items(
+                [_case_tag_payload(tag) for tag in tags],
+                tool_name="list_case_tags",
+                limit=_normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                ),
+                cursor=cursor,
+            )
+            return _json(_serialize_paginated_response(page))
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -4863,7 +5098,12 @@ async def delete_case_tag(workspace_id: str, tag_id: str) -> str:
 
 
 @mcp.tool()
-async def list_tags_for_case(workspace_id: str, case_id: str) -> str:
+async def list_tags_for_case(
+    workspace_id: str,
+    case_id: str,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> str:
     """List tags attached to a case.
 
     Returns a JSON array of tag objects with `id`, `name`, `ref`, and `color`.
@@ -4874,7 +5114,18 @@ async def list_tags_for_case(workspace_id: str, case_id: str) -> str:
         parsed_case_id = uuid.UUID(case_id)
         async with CaseTagsService.with_session(role=role) as svc:
             tags = await svc.list_tags_for_case(parsed_case_id)
-            return _json([_case_tag_payload(tag) for tag in tags])
+            page = _paginate_items(
+                [_case_tag_payload(tag) for tag in tags],
+                tool_name="list_tags_for_case",
+                limit=_normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                ),
+                cursor=cursor,
+                filters={"case_id": case_id},
+            )
+            return _json(_serialize_paginated_response(page))
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -4951,7 +5202,11 @@ async def remove_case_tag(
 
 
 @mcp.tool()
-async def list_case_fields(workspace_id: str) -> str:
+async def list_case_fields(
+    workspace_id: str,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> str:
     """List case field definitions in a workspace.
 
     Returns a JSON array of field objects with `id`, `type`, `description`,
@@ -4963,12 +5218,20 @@ async def list_case_fields(workspace_id: str) -> str:
         async with CaseFieldsService.with_session(role=role) as svc:
             columns = await svc.list_fields()
             field_schema = await svc.get_field_schema()
-            return _json(
+            page = _paginate_items(
                 [
                     _case_field_payload(column, field_schema=field_schema)
                     for column in columns
-                ]
+                ],
+                tool_name="list_case_fields",
+                limit=_normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                ),
+                cursor=cursor,
             )
+            return _json(_serialize_paginated_response(page))
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -5087,16 +5350,28 @@ async def delete_case_field(workspace_id: str, field_id: str) -> str:
 
 
 @mcp.tool()
-async def list_tables(workspace_id: str) -> str:
+async def list_tables(
+    workspace_id: str,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> str:
     """List workspace tables."""
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         async with TablesService.with_session(role=role) as svc:
             tables = await svc.list_tables()
-            return _json(
-                [{"id": str(table.id), "name": table.name} for table in tables]
+            page = _paginate_items(
+                [{"id": str(table.id), "name": table.name} for table in tables],
+                tool_name="list_tables",
+                limit=_normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                ),
+                cursor=cursor,
             )
+            return _json(_serialize_paginated_response(page))
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -5261,22 +5536,22 @@ async def search_table_rows(
     table_id: str,
     search_term: str | None = None,
     limit: int = 100,
-    offset: int = 0,
+    cursor: str | None = None,
 ) -> str:
     """Search rows in a table."""
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        limit = max(1, min(limit, 1000))
-        _ = max(0, offset)  # offset reserved for future cursor support
+        limit = _normalize_limit(limit, default=100, max_limit=1000)
         async with TablesService.with_session(role=role) as svc:
             table = await svc.get_table(uuid.UUID(table_id))
             page = await svc.search_rows(
                 table,
                 search_term=search_term,
                 limit=limit,
+                cursor=cursor,
             )
-            return _json(page.items)
+            return _json(_serialize_paginated_response(page))
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -5374,6 +5649,8 @@ async def export_csv(
 async def list_variables(
     workspace_id: str,
     environment: str = DEFAULT_SECRETS_ENVIRONMENT,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
 ) -> str:
     """List workspace variables."""
 
@@ -5381,7 +5658,7 @@ async def list_variables(
         _, role = await _resolve_workspace_role(workspace_id)
         async with VariablesService.with_session(role=role) as svc:
             variables = await svc.list_variables(environment=environment)
-            return _json(
+            page = _paginate_items(
                 [
                     {
                         "id": str(variable.id),
@@ -5391,8 +5668,17 @@ async def list_variables(
                         "keys": sorted(variable.values.keys()),
                     }
                     for variable in variables
-                ]
+                ],
+                tool_name="list_variables",
+                limit=_normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                ),
+                cursor=cursor,
+                filters={"environment": environment},
             )
+            return _json(_serialize_paginated_response(page))
     except ValueError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
@@ -5434,6 +5720,8 @@ async def get_variable(
 async def list_secrets_metadata(
     workspace_id: str,
     environment: str = DEFAULT_SECRETS_ENVIRONMENT,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
 ) -> str:
     """List secret metadata without secret values."""
 
@@ -5456,7 +5744,18 @@ async def list_secrets_metadata(
                         "tags": secret.tags,
                     }
                 )
-            return _json(result)
+            page = _paginate_items(
+                result,
+                tool_name="list_secrets_metadata",
+                limit=_normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                ),
+                cursor=cursor,
+                filters={"environment": environment},
+            )
+            return _json(_serialize_paginated_response(page))
     except ToolError:
         raise
     except ValueError as e:
@@ -5545,37 +5844,59 @@ async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
         ],
     }
 
+    integrations = await _build_integrations_inventory(role)
+    truncated_sections, truncation = _truncate_named_sections(
+        {
+            "models": [
+                model.model_dump(mode="json")
+                for _, model in sorted(models.items(), key=lambda item: item[0])
+            ],
+            "agent_credentials.providers": agent_credentials["providers"],
+            "workspace_variables": [
+                {
+                    "name": variable.name,
+                    "keys": sorted(variable.values.keys()),
+                    "environment": variable.environment,
+                }
+                for variable in variables
+            ],
+            "workspace_secret_hints": [
+                {
+                    "name": secret_name,
+                    "keys": sorted(keys),
+                    "environment": DEFAULT_SECRETS_ENVIRONMENT,
+                }
+                for secret_name, keys in sorted(workspace_inventory.items())
+            ],
+            "integrations.mcp_integrations": integrations["mcp_integrations"],
+            "integrations.oauth_providers": integrations["oauth_providers"],
+        },
+        limit=_MCP_EMBEDDED_COLLECTION_LIMIT,
+    )
+
+    integrations["mcp_integrations"] = truncated_sections[
+        "integrations.mcp_integrations"
+    ]
+    integrations["oauth_providers"] = truncated_sections["integrations.oauth_providers"]
+
     return {
         "default_model": default_model,
-        "models": [
-            model.model_dump(mode="json")
-            for _, model in sorted(models.items(), key=lambda item: item[0])
-        ],
+        "models": truncated_sections["models"],
         "provider_status_org": provider_status_org,
         "provider_status_workspace": provider_status_workspace,
-        "agent_credentials": agent_credentials,
-        "workspace_variables": [
-            {
-                "name": variable.name,
-                "keys": sorted(variable.values.keys()),
-                "environment": variable.environment,
-            }
-            for variable in variables
-        ],
-        "workspace_secret_hints": [
-            {
-                "name": secret_name,
-                "keys": sorted(keys),
-                "environment": DEFAULT_SECRETS_ENVIRONMENT,
-            }
-            for secret_name, keys in sorted(workspace_inventory.items())
-        ],
-        "integrations": await _build_integrations_inventory(role),
+        "agent_credentials": {
+            **agent_credentials,
+            "providers": truncated_sections["agent_credentials.providers"],
+        },
+        "workspace_variables": truncated_sections["workspace_variables"],
+        "workspace_secret_hints": truncated_sections["workspace_secret_hints"],
+        "integrations": integrations,
         "output_type_context": _build_output_type_context(),
         "notes": [
             "provider_status_org describes organization-scoped model credentials.",
             "provider_status_workspace describes workspace-scoped model credentials used by some agent flows.",
         ],
+        "truncation": truncation.model_dump(mode="json"),
     }
 
 
@@ -5585,7 +5906,18 @@ async def list_integrations(workspace_id: str) -> str:
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        return _json(await _build_integrations_inventory(role))
+        inventory = await _build_integrations_inventory(role)
+        truncated_sections, truncation = _truncate_named_sections(
+            {
+                "mcp_integrations": inventory["mcp_integrations"],
+                "oauth_providers": inventory["oauth_providers"],
+            },
+            limit=_MCP_EMBEDDED_COLLECTION_LIMIT,
+        )
+        inventory["mcp_integrations"] = truncated_sections["mcp_integrations"]
+        inventory["oauth_providers"] = truncated_sections["oauth_providers"]
+        inventory["truncation"] = truncation.model_dump(mode="json")
+        return _json(inventory)
     except ToolError:
         raise
     except ValueError as e:
@@ -5683,6 +6015,84 @@ async def create_agent_preset(
         raise ToolError(f"Failed to create agent preset: {e}") from None
 
 
+@mcp.tool()
+async def update_agent_preset(
+    workspace_id: str,
+    preset_slug: str,
+    name: str | None = None,
+    slug: str | None = None,
+    description: str | None = None,
+    instructions: str | None = None,
+    model_name: str | None = None,
+    model_provider: str | None = None,
+    base_url: str | None = None,
+    output_type: OutputType | None = None,
+    actions: list[str] | None = None,
+    namespaces: list[str] | None = None,
+    tool_approvals: dict[str, bool] | None = None,
+    mcp_integration_ids: list[str] | None = None,
+    retries: int | None = None,
+    enable_internet_access: bool | None = None,
+) -> str:
+    """Update an existing agent preset in the selected workspace."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        update_data: dict[str, Any] = {}
+        optional_fields = {
+            "name": name,
+            "slug": slug,
+            "description": description,
+            "instructions": instructions,
+            "base_url": base_url,
+            "output_type": output_type,
+            "actions": actions,
+            "namespaces": namespaces,
+            "tool_approvals": tool_approvals,
+            "mcp_integrations": mcp_integration_ids,
+            "retries": retries,
+            "enable_internet_access": enable_internet_access,
+        }
+        update_data.update(
+            {
+                field: value
+                for field, value in optional_fields.items()
+                if value is not None
+            }
+        )
+        if model_name is not None or model_provider is not None:
+            (
+                resolved_model_name,
+                resolved_model_provider,
+            ) = await _resolve_agent_preset_model(
+                role,
+                model_name=model_name,
+                model_provider=model_provider,
+            )
+            update_data["model_name"] = resolved_model_name
+            update_data["model_provider"] = resolved_model_provider
+        params = AgentPresetUpdate.model_validate(update_data)
+        async with AgentPresetService.with_session(role=role) as svc:
+            preset = await svc.get_preset_by_slug(preset_slug)
+            if not preset:
+                raise ToolError(f"Agent preset '{preset_slug}' not found")
+            updated_preset = await svc.update_preset(preset, params)
+        return _json(
+            AgentPresetRead.model_validate(updated_preset).model_dump(mode="json")
+        )
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error(
+            "Failed to update agent preset", error=str(e), preset_slug=preset_slug
+        )
+        raise ToolError(f"Failed to update agent preset: {e}") from None
+
+
 def _parse_iso8601_duration(duration_str: str) -> timedelta:
     """Parse a simple ISO 8601 duration string into a timedelta.
 
@@ -5756,7 +6166,11 @@ async def _collect_agent_response(
 
 
 @mcp.tool()
-async def list_agent_presets(workspace_id: str) -> str:
+async def list_agent_presets(
+    workspace_id: str,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> str:
     """List saved agent preset slugs and names.
 
     Use `get_agent_preset` for the full preset definition.
@@ -5765,15 +6179,23 @@ async def list_agent_presets(workspace_id: str) -> str:
         _, role = await _resolve_workspace_role(workspace_id)
         async with AgentPresetService.with_session(role=role) as svc:
             presets = await svc.list_presets()
-        return _json(
+        page = _paginate_items(
             [
                 {
                     "slug": preset.slug,
                     "name": preset.name,
                 }
                 for preset in presets
-            ]
+            ],
+            tool_name="list_agent_presets",
+            limit=_normalize_limit(
+                limit,
+                default=config.TRACECAT__LIMIT_DEFAULT,
+                max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+            ),
+            cursor=cursor,
         )
+        return _json(_serialize_paginated_response(page))
     except ToolError:
         raise
     except Exception as e:

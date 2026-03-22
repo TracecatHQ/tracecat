@@ -16,6 +16,7 @@ def _empty_page() -> WorkflowExecutionsPage:
     return WorkflowExecutionsPage(
         items=[],
         next_cursor=None,
+        prev_cursor=None,
         has_more=False,
         has_previous=False,
     )

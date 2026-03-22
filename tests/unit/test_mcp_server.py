@@ -1674,8 +1674,8 @@ async def test_list_secrets_metadata_returns_keys_not_values(monkeypatch):
         workspace_id=str(uuid.uuid4()),
     )
     payload = _payload(result)
-    assert len(payload) == 1
-    assert payload[0]["keys"] == ["API_KEY"]
+    assert payload["items"][0]["keys"] == ["API_KEY"]
+    assert payload["has_more"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -2011,7 +2011,7 @@ async def test_list_workflow_tags(monkeypatch):
 
     result = await _tool(mcp_server.list_workflow_tags)(workspace_id=str(uuid.uuid4()))
     payload = _payload(result)
-    assert payload == [
+    assert payload["items"] == [
         {
             "id": str(tags[0].id),
             "name": "Critical",
@@ -2141,8 +2141,8 @@ async def test_list_case_tags(monkeypatch):
 
     result = await _tool(mcp_server.list_case_tags)(workspace_id=str(uuid.uuid4()))
     payload = _payload(result)
-    assert payload[0]["ref"] == "malware"
-    assert payload[0]["color"] == "#ff8800"
+    assert payload["items"][0]["ref"] == "malware"
+    assert payload["items"][0]["color"] == "#ff8800"
 
 
 @pytest.mark.anyio
@@ -2313,10 +2313,10 @@ async def test_list_case_fields(monkeypatch):
 
     result = await _tool(mcp_server.list_case_fields)(workspace_id=str(uuid.uuid4()))
     payload = _payload(result)
-    assert payload[0]["id"] == "status_reason"
-    assert payload[0]["type"] == "TEXT"
-    assert payload[1]["type"] == "SELECT"
-    assert payload[1]["options"] == ["low", "high"]
+    assert payload["items"][0]["id"] == "status_reason"
+    assert payload["items"][0]["type"] == "TEXT"
+    assert payload["items"][1]["type"] == "SELECT"
+    assert payload["items"][1]["options"] == ["low", "high"]
 
 
 @pytest.mark.anyio
@@ -2807,6 +2807,10 @@ async def test_action_catalog_resource(monkeypatch):
         async def list_actions_from_index(self, **_kwargs):
             return entries
 
+        async def search_actions_from_index(self, _query, *, limit=None):
+            _ = limit
+            return entries
+
         async def get_action_from_index(self, _action_name):
             return indexed_action
 
@@ -2866,6 +2870,10 @@ async def test_list_actions_browse_without_query(monkeypatch):
         async def list_actions_from_index(self, **_kwargs):
             return entries
 
+        async def search_actions_from_index(self, _query, *, limit=None):
+            _ = limit
+            return entries
+
         async def get_action_from_index(self, _action_name):
             return indexed_action
 
@@ -2883,9 +2891,10 @@ async def test_list_actions_browse_without_query(monkeypatch):
         workspace_id=str(uuid.uuid4()),
     )
     payload = _payload(result)
-    assert len(payload) == 2
-    assert payload[0]["action_name"] == "core.http_request"
-    assert payload[1]["action_name"] == "tools.slack.post_message"
+    assert len(payload["items"]) == 2
+    assert payload["items"][0]["action_name"] == "core.http_request"
+    assert payload["items"][1]["action_name"] == "tools.slack.post_message"
+    assert payload["has_more"] is False
 
 
 @pytest.mark.anyio
@@ -2937,8 +2946,80 @@ async def test_list_actions_browse_with_namespace(monkeypatch):
         namespace="tools.slack",
     )
     payload = _payload(result)
-    assert len(payload) == 1
+    assert len(payload["items"]) == 1
     assert captured_kwargs.get("namespace") == "tools.slack"
+
+
+@pytest.mark.anyio
+async def test_list_actions_paginates_and_rejects_mismatched_cursor(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _secret_inventory(_role):
+        return {}
+
+    class _IndexEntry:
+        def __init__(self, namespace, name, description):
+            self.namespace = namespace
+            self.name = name
+            self.description = description
+
+    entries = [
+        (_IndexEntry("core", "one", "One"), "platform"),
+        (_IndexEntry("core", "two", "Two"), "platform"),
+        (_IndexEntry("core", "three", "Three"), "platform"),
+    ]
+    indexed_action = SimpleNamespace(
+        manifest=SimpleNamespace(),
+        index_entry=SimpleNamespace(options=None),
+    )
+
+    class _RegistryService:
+        async def list_actions_from_index(self, **_kwargs):
+            return entries
+
+        async def search_actions_from_index(self, _query, *, limit=None):
+            _ = limit
+            return entries
+
+        async def get_action_from_index(self, _action_name):
+            return indexed_action
+
+        def aggregate_secrets_from_manifest(self, _manifest, _action_name):
+            return []
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(
+        "tracecat.registry.actions.service.RegistryActionsService.with_session",
+        lambda role: _AsyncContext(_RegistryService()),
+    )
+
+    first_page = _payload(
+        await _tool(mcp_server.list_actions)(
+            workspace_id=str(uuid.uuid4()),
+            limit=2,
+        )
+    )
+    assert len(first_page["items"]) == 2
+    assert first_page["has_more"] is True
+    assert first_page["next_cursor"] is not None
+
+    second_page = _payload(
+        await _tool(mcp_server.list_actions)(
+            workspace_id=str(uuid.uuid4()),
+            limit=2,
+            cursor=first_page["next_cursor"],
+        )
+    )
+    assert [item["action_name"] for item in second_page["items"]] == ["core.three"]
+
+    with pytest.raises(ToolError, match="Cursor no longer matches current filters"):
+        await _tool(mcp_server.list_actions)(
+            workspace_id=str(uuid.uuid4()),
+            query="two",
+            cursor=first_page["next_cursor"],
+        )
 
 
 @pytest.mark.anyio
@@ -2954,7 +3035,7 @@ async def test_list_workspaces_applies_org_scope(monkeypatch):
     result = await _tool(mcp_server.list_workspaces)()
     payload = _payload(result)
 
-    assert len(payload) == 1
+    assert len(payload["items"]) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -2982,10 +3063,15 @@ async def test_list_workspaces_returns_multi_org_workspaces(monkeypatch):
     result = await _tool(mcp_server.list_workspaces)()
     payload = _payload(result)
 
-    assert len(payload) == 2
-    returned_ids = {w["id"] for w in payload}
+    assert len(payload["items"]) == 2
+    returned_ids = {w["id"] for w in payload["items"]}
     assert str(WS_A) in returned_ids
     assert str(WS_B) in returned_ids
+
+
+def test_tool_namespace_mapping_includes_get_agent_preset() -> None:
+    assert mcp_server._TOOL_NAMESPACE_BY_NAME["get_agent_preset"] == "agents"
+    assert mcp_server._TOOL_NAMESPACE_BY_NAME["update_agent_preset"] == "agents"
 
 
 @pytest.mark.anyio
@@ -3022,6 +3108,178 @@ async def test_create_table_routes_to_correct_workspace(monkeypatch):
     assert len(captured_roles) == 2
     assert captured_roles[0].workspace_id == WS_A
     assert captured_roles[1].workspace_id == WS_B
+
+
+@pytest.mark.anyio
+async def test_list_workflow_tree_paginates_items(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace()
+
+    class _Item:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self._payload = payload
+
+        def model_dump(self, *, mode: str = "json") -> dict[str, Any]:
+            assert mode == "json"
+            return self._payload
+
+    class _FolderService:
+        async def get_directory_items(
+            self, path: str, order_by: str = "desc"
+        ) -> list[_Item]:
+            assert order_by == "desc"
+            if path == "/":
+                return [
+                    _Item({"type": "folder", "path": "/a/", "name": "a"}),
+                    _Item(
+                        {
+                            "type": "workflow",
+                            "id": str(uuid.uuid4()),
+                            "title": "Root workflow",
+                            "alias": None,
+                            "status": "offline",
+                            "tags": [],
+                        }
+                    ),
+                ]
+            return []
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    first_page = _payload(
+        await _tool(mcp_server.list_workflow_tree)(
+            workspace_id=str(workspace_id),
+            limit=1,
+        )
+    )
+    assert len(first_page["items"]) == 1
+    assert first_page["has_more"] is True
+    assert first_page["next_cursor"] is not None
+    assert first_page["root_path"] == "/"
+
+
+@pytest.mark.anyio
+async def test_search_table_rows_returns_paginated_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    table_id = uuid.uuid4()
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+
+    class _TableService:
+        async def get_table(self, parsed_table_id: uuid.UUID) -> SimpleNamespace:
+            assert parsed_table_id == table_id
+            return SimpleNamespace(id=table_id)
+
+        async def search_rows(
+            self,
+            _table: Any,
+            *,
+            search_term: str | None = None,
+            limit: int | None = None,
+            cursor: str | None = None,
+        ) -> Any:
+            captured["search_term"] = search_term
+            captured["limit"] = limit
+            captured["cursor"] = cursor
+            return mcp_server.MCPPaginatedResponse[dict[str, Any]](
+                items=[{"city": "NYC"}],
+                next_cursor="cursor-1",
+                prev_cursor=None,
+                has_more=True,
+                has_previous=False,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.TablesService,
+        "with_session",
+        lambda role: _AsyncContext(_TableService()),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.search_table_rows)(
+            workspace_id=str(workspace_id),
+            table_id=str(table_id),
+            search_term="ny",
+            limit=25,
+            cursor="cursor-0",
+        )
+    )
+    assert payload["items"] == [{"city": "NYC"}]
+    assert payload["next_cursor"] == "cursor-1"
+    assert captured == {"search_term": "ny", "limit": 25, "cursor": "cursor-0"}
+
+
+@pytest.mark.anyio
+async def test_list_workflow_executions_forwards_prev_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    workflow_id = mcp_server.WorkflowUUID.new_uuid4()
+    start_time = datetime.now(UTC)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _ExecutionService:
+        async def list_executions_paginated(
+            self,
+            *,
+            pagination: Any,
+            workflow_id: Any,
+        ) -> SimpleNamespace:
+            assert pagination.limit == 20
+            assert pagination.cursor == "cursor-2"
+            assert workflow_id == mcp_server.WorkflowUUID.new(str(workflow_id))
+            return SimpleNamespace(
+                items=[
+                    SimpleNamespace(
+                        id="wf_example/exec_123",
+                        run_id="run-123",
+                        status=1,
+                        start_time=start_time,
+                        close_time=None,
+                        typed_search_attributes=None,
+                    )
+                ],
+                next_cursor="cursor-3",
+                prev_cursor="cursor-1",
+                has_more=True,
+                has_previous=True,
+            )
+
+    async def _connect(*, role: Any) -> _ExecutionService:
+        assert role is not None
+        return _ExecutionService()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server.WorkflowExecutionsService, "connect", _connect)
+
+    payload = _payload(
+        await _tool(mcp_server.list_workflow_executions)(
+            workspace_id=str(workspace_id),
+            workflow_id=str(workflow_id),
+            cursor="cursor-2",
+        )
+    )
+    assert payload["prev_cursor"] == "cursor-1"
+    assert payload["has_previous"] is True
+    assert payload["next_cursor"] == "cursor-3"
 
 
 @pytest.mark.anyio
@@ -3237,7 +3495,13 @@ async def test_list_agent_presets_returns_lightweight_metadata(
 
     result = await _tool(mcp_server.list_agent_presets)(workspace_id=str(workspace_id))
 
-    assert _payload(result) == [{"slug": "security-triage", "name": "Security triage"}]
+    assert _payload(result) == {
+        "items": [{"slug": "security-triage", "name": "Security triage"}],
+        "next_cursor": None,
+        "prev_cursor": None,
+        "has_more": False,
+        "has_previous": False,
+    }
 
 
 @pytest.mark.anyio
@@ -3459,6 +3723,94 @@ async def test_list_integrations_returns_mcp_and_provider_inventory(
     assert payload["oauth_providers"][0]["integration_status"] == "connected"
     assert payload["oauth_providers"][1]["provider_id"] == "custom-crm"
     assert payload["oauth_providers"][1]["integration_status"] == "not_configured"
+    assert (
+        payload["truncation"]["collections"]["mcp_integrations"]["truncated"] is False
+    )
+
+
+@pytest.mark.anyio
+async def test_get_workflow_authoring_context_truncates_embedded_collections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    async def _secret_inventory(_role: Any) -> dict[str, set[str]]:
+        return {"alpha": {"TOKEN"}, "beta": {"TOKEN"}}
+
+    class _IndexEntry:
+        def __init__(self, namespace: str, name: str) -> None:
+            self.namespace = namespace
+            self.name = name
+
+    indexed_action = SimpleNamespace(manifest=SimpleNamespace())
+
+    class _RegistryService:
+        async def get_action_from_index(self, _action_name: str) -> Any:
+            return indexed_action
+
+        async def search_actions_from_index(
+            self, _query: str, limit: int = 20
+        ) -> list[tuple[_IndexEntry, str]]:
+            _ = limit
+            return [
+                (_IndexEntry("tools", "one"), "platform"),
+                (_IndexEntry("tools", "two"), "platform"),
+            ]
+
+        def aggregate_secrets_from_manifest(
+            self, _manifest: Any, action_name: str
+        ) -> list[Any]:
+            return [RegistrySecret(name=action_name, keys=["TOKEN"])]
+
+    class _VariablesService:
+        async def list_variables(self, environment: str) -> list[Any]:
+            assert environment == "default"
+            return [
+                SimpleNamespace(
+                    name="var_one", values={"k": "v"}, environment="default"
+                ),
+                SimpleNamespace(
+                    name="var_two", values={"k": "v"}, environment="default"
+                ),
+            ]
+
+    class _Tool:
+        description = "desc"
+        parameters_json_schema = {"type": "object", "properties": {}}
+
+    async def _create_tool(*_args: Any) -> _Tool:
+        return _Tool()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_load_secret_inventory", _secret_inventory)
+    monkeypatch.setattr(mcp_server, "_MCP_EMBEDDED_COLLECTION_LIMIT", 1)
+    monkeypatch.setattr(mcp_server, "create_tool_from_registry", _create_tool)
+    monkeypatch.setattr(
+        "tracecat.registry.actions.service.RegistryActionsService.with_session",
+        lambda role: _AsyncContext(_RegistryService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.VariablesService,
+        "with_session",
+        lambda role: _AsyncContext(_VariablesService()),
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.get_workflow_authoring_context)(
+            workspace_id=str(workspace_id),
+            query="tools",
+        )
+    )
+    assert len(payload["actions"]) == 1
+    assert len(payload["variable_hints"]) == 1
+    assert len(payload["secret_hints"]) == 1
+    assert payload["truncation"]["collections"]["actions"]["truncated"] is True
+    assert payload["truncation"]["collections"]["variable_hints"]["truncated"] is True
+    assert payload["truncation"]["collections"]["secret_hints"]["truncated"] is True
 
 
 @pytest.mark.anyio
@@ -3549,6 +3901,7 @@ async def test_get_agent_preset_authoring_context_includes_output_type_guidance(
     assert "str" in payload["output_type_context"]["supported_literals"]
     assert payload["output_type_context"]["accepts_json_schema"] is True
     assert payload["output_type_context"]["examples"]["structured"]["type"] == "object"
+    assert payload["truncation"]["collections"]["models"]["truncated"] is False
 
 
 @pytest.mark.anyio
@@ -3634,6 +3987,207 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
     assert params.enable_internet_access is True
     assert payload["model_name"] == "gpt-4o-mini"
     assert payload["output_type"]["type"] == "object"
+
+
+@pytest.mark.anyio
+async def test_update_agent_preset_updates_existing_preset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    updated: dict[str, Any] = {}
+    now = datetime.now(UTC)
+    preset = SimpleNamespace(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name="Security triage",
+        slug="security-triage",
+        description="Investigate alerts",
+        instructions="Original prompt",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        base_url=None,
+        output_type=None,
+        actions=["tools.alpha"],
+        namespaces=["tools"],
+        tool_approvals={"tools.alpha": False},
+        mcp_integrations=[str(uuid.uuid4())],
+        retries=3,
+        enable_internet_access=False,
+        current_version_id=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _PresetService:
+        async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
+            assert preset_slug == "security-triage"
+            return preset
+
+        async def update_preset(
+            self, current_preset: Any, params: Any
+        ) -> SimpleNamespace:
+            assert current_preset is preset
+            updated["params"] = params
+            updated_fields = {
+                **preset.__dict__,
+                "instructions": params.instructions,
+                "actions": params.actions,
+                "mcp_integrations": params.mcp_integrations,
+                "retries": params.retries,
+                "enable_internet_access": params.enable_internet_access,
+                "updated_at": datetime.now(UTC),
+            }
+            return SimpleNamespace(**updated_fields)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    integration_id = str(uuid.uuid4())
+    result = await _tool(mcp_server.update_agent_preset)(
+        workspace_id=str(workspace_id),
+        preset_slug="security-triage",
+        instructions="Updated prompt",
+        actions=["tools.bravo"],
+        mcp_integration_ids=[integration_id],
+        retries=5,
+        enable_internet_access=True,
+    )
+
+    payload = _payload(result)
+    params = updated["params"]
+    assert params.instructions == "Updated prompt"
+    assert params.actions == ["tools.bravo"]
+    assert params.mcp_integrations == [integration_id]
+    assert params.retries == 5
+    assert params.enable_internet_access is True
+    assert payload["instructions"] == "Updated prompt"
+    assert payload["actions"] == ["tools.bravo"]
+    assert payload["mcp_integrations"] == [integration_id]
+    assert payload["retries"] == 5
+    assert payload["enable_internet_access"] is True
+
+
+@pytest.mark.anyio
+async def test_update_agent_preset_resolves_explicit_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    now = datetime.now(UTC)
+    preset = SimpleNamespace(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name="Security triage",
+        slug="security-triage",
+        description=None,
+        instructions="Original prompt",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        base_url=None,
+        output_type=None,
+        actions=None,
+        namespaces=None,
+        tool_approvals=None,
+        mcp_integrations=None,
+        retries=3,
+        enable_internet_access=False,
+        current_version_id=None,
+        created_at=now,
+        updated_at=now,
+    )
+    captured: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    async def _resolve_model(
+        resolved_role: Any,
+        *,
+        model_name: str | None,
+        model_provider: str | None,
+    ) -> tuple[str, str]:
+        assert resolved_role is role
+        assert model_name == "o3-mini"
+        assert model_provider == "openai"
+        return "o3-mini", "openai"
+
+    class _PresetService:
+        async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
+            assert preset_slug == "security-triage"
+            return preset
+
+        async def update_preset(
+            self, current_preset: Any, params: Any
+        ) -> SimpleNamespace:
+            assert current_preset is preset
+            captured["params"] = params
+            updated_fields = {
+                **preset.__dict__,
+                "model_name": params.model_name,
+                "model_provider": params.model_provider,
+                "updated_at": datetime.now(UTC),
+            }
+            return SimpleNamespace(**updated_fields)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_resolve_agent_preset_model", _resolve_model)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = await _tool(mcp_server.update_agent_preset)(
+        workspace_id=str(workspace_id),
+        preset_slug="security-triage",
+        model_name="o3-mini",
+        model_provider="openai",
+    )
+
+    payload = _payload(result)
+    params = captured["params"]
+    assert params.model_name == "o3-mini"
+    assert params.model_provider == "openai"
+    assert payload["model_name"] == "o3-mini"
+    assert payload["model_provider"] == "openai"
+
+
+@pytest.mark.anyio
+async def test_update_agent_preset_requires_existing_slug(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _PresetService:
+        async def get_preset_by_slug(self, preset_slug: str) -> None:
+            assert preset_slug == "missing-preset"
+            return None
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    with pytest.raises(ToolError, match="Agent preset 'missing-preset' not found"):
+        await _tool(mcp_server.update_agent_preset)(
+            workspace_id=str(workspace_id),
+            preset_slug="missing-preset",
+            instructions="Updated prompt",
+        )
 
 
 @pytest.mark.anyio
@@ -3819,6 +4373,7 @@ def test_mcp_instructions_include_agent_preset_authoring_tools() -> None:
     assert "get_agent_preset_authoring_context" in mcp_server._MCP_INSTRUCTIONS
     assert "list_integrations" in mcp_server._MCP_INSTRUCTIONS
     assert "create_agent_preset" in mcp_server._MCP_INSTRUCTIONS
+    assert "update_agent_preset" in mcp_server._MCP_INSTRUCTIONS
 
 
 @pytest.mark.anyio

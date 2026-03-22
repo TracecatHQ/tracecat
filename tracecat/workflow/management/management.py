@@ -8,7 +8,7 @@ from typing import Any, cast
 import sqlalchemy as sa
 import yaml
 from pydantic import ValidationError
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -291,7 +291,12 @@ class WorkflowsManagementService(BaseWorkspaceService):
         return res
 
     async def list_workflows(
-        self, params: CursorPaginationParams, *, tags: list[str] | None = None
+        self,
+        params: CursorPaginationParams,
+        *,
+        tags: list[str] | None = None,
+        status: str | None = None,
+        search: str | None = None,
     ) -> CursorPaginatedResponse[
         tuple[
             Workflow,
@@ -370,6 +375,17 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 sa.cast(Workflow.id, sa.UUID) == schedule_preview_subq.c.workflow_id,
             )
         )
+
+        if status is not None:
+            stmt = stmt.where(Workflow.status == status)
+        if search:
+            search_pattern = f"%{search}%"
+            stmt = stmt.where(
+                or_(
+                    Workflow.title.ilike(search_pattern),
+                    Workflow.description.ilike(search_pattern),
+                )
+            )
 
         # Apply tag filtering if specified
         if tags:
