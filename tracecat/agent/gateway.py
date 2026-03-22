@@ -170,7 +170,7 @@ class TracecatCallbackHandler(CustomLogger):
         _inject_provider_credentials(data, provider, creds)
         if (
             model_base_url := user_api_key_dict.metadata.get("base_url")
-        ) and provider in {"openai", "anthropic", "custom-model-provider"}:
+        ) and provider in {"openai", "anthropic", "custom-model-provider", "novita"}:
             # Preset/config base_url should override provider credential base URL
             data["api_base"] = model_base_url
 
@@ -218,6 +218,22 @@ def _inject_provider_credentials(
 ) -> None:
     """Inject provider-specific credentials into request."""
     match provider:
+        case "novita":
+            api_key = creds.get("NOVITA_API_KEY")
+            if not api_key:
+                logger.warning(
+                    "Required credential key missing for provider", provider=provider
+                )
+                raise ProxyException(
+                    message="Provider credentials incomplete",
+                    type="auth_error",
+                    param=None,
+                    code=401,
+                )
+            data["api_key"] = api_key
+            if base_url := creds.get("NOVITA_BASE_URL"):
+                data["api_base"] = base_url
+
         case "openai":
             api_key = creds.get("OPENAI_API_KEY")
             if not api_key:
