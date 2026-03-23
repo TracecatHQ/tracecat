@@ -57,11 +57,44 @@ class DexLocalAuthProvisioningService:
             self._stub = api_pb2_grpc.DexStub(self._channel)
         return self._stub
 
-    async def _is_local_auth_enabled(self) -> bool:
-        return get_mcp_dex_mode() is MCPDexMode.BASIC
+    def _build_password(
+        self,
+        *,
+        email: str,
+        password_hash: str,
+        username: str,
+        user_id: str,
+    ) -> api_pb2.Password:
+        return api_pb2.Password(
+            email=email,
+            hash=password_hash.encode(),
+            username=username,
+            user_id=user_id,
+        )
+
+    async def _create_password(
+        self,
+        *,
+        email: str,
+        password_hash: str,
+        username: str,
+        user_id: str,
+        timeout: float | None = None,
+    ) -> api_pb2.CreatePasswordResp:
+        return await self._get_stub().CreatePassword(
+            api_pb2.CreatePasswordReq(
+                password=self._build_password(
+                    email=email,
+                    password_hash=password_hash,
+                    username=username,
+                    user_id=user_id,
+                )
+            ),
+            timeout=timeout if timeout is not None else self.timeout_seconds,
+        )
 
     async def is_local_auth_enabled(self) -> bool:
-        return await self._is_local_auth_enabled()
+        return get_mcp_dex_mode() is MCPDexMode.BASIC
 
     async def upsert_password(
         self,
@@ -72,7 +105,7 @@ class DexLocalAuthProvisioningService:
         user_id: str,
         previous_email: str | None = None,
     ) -> None:
-        if not await self._is_local_auth_enabled():
+        if not await self.is_local_auth_enabled():
             return
         if previous_email and previous_email != email:
             await self._create_or_replace_password(
@@ -101,16 +134,11 @@ class DexLocalAuthProvisioningService:
             return
 
         try:
-            response = await self._get_stub().CreatePassword(
-                api_pb2.CreatePasswordReq(
-                    password=api_pb2.Password(
-                        email=email,
-                        hash=password_hash.encode(),
-                        username=username,
-                        user_id=user_id,
-                    )
-                ),
-                timeout=self.timeout_seconds,
+            response = await self._create_password(
+                email=email,
+                password_hash=password_hash,
+                username=username,
+                user_id=user_id,
             )
         except grpc.aio.AioRpcError as exc:
             raise DexLocalAuthProvisioningError(
@@ -144,7 +172,7 @@ class DexLocalAuthProvisioningService:
             )
 
     async def delete_password(self, email: str) -> None:
-        if not await self._is_local_auth_enabled():
+        if not await self.is_local_auth_enabled():
             return
         try:
             await self._get_stub().DeletePassword(
@@ -166,16 +194,11 @@ class DexLocalAuthProvisioningService:
         replace_on_conflict: bool,
     ) -> None:
         try:
-            response = await self._get_stub().CreatePassword(
-                api_pb2.CreatePasswordReq(
-                    password=api_pb2.Password(
-                        email=email,
-                        hash=password_hash.encode(),
-                        username=username,
-                        user_id=user_id,
-                    )
-                ),
-                timeout=self.timeout_seconds,
+            response = await self._create_password(
+                email=email,
+                password_hash=password_hash,
+                username=username,
+                user_id=user_id,
             )
         except grpc.aio.AioRpcError as exc:
             raise DexLocalAuthProvisioningError(
@@ -188,16 +211,11 @@ class DexLocalAuthProvisioningService:
         await self.delete_password(email)
 
         try:
-            retry_response = await self._get_stub().CreatePassword(
-                api_pb2.CreatePasswordReq(
-                    password=api_pb2.Password(
-                        email=email,
-                        hash=password_hash.encode(),
-                        username=username,
-                        user_id=user_id,
-                    )
-                ),
-                timeout=self.timeout_seconds,
+            retry_response = await self._create_password(
+                email=email,
+                password_hash=password_hash,
+                username=username,
+                user_id=user_id,
             )
         except grpc.aio.AioRpcError as exc:
             raise DexLocalAuthProvisioningError(

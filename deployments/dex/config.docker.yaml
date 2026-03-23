@@ -5,10 +5,6 @@ issuer: {{ .Env.DEX_ISSUER | quote }}
 {{- end }}
 {{- $bootstrapEmail := .Env.TRACECAT__AUTH_SUPERADMIN_EMAIL }}
 {{- $bootstrapHash := .Env.MCP_DEX_BOOTSTRAP_PASSWORD_HASH }}
-{{- $idTokenTTL := .Env.DEX_ID_TOKEN_TTL }}
-{{- if and (eq $mode "saml") .Env.DEX_SAML_ID_TOKEN_TTL }}
-  {{- $idTokenTTL = .Env.DEX_SAML_ID_TOKEN_TTL }}
-{{- end }}
 
 storage:
   type: sqlite3
@@ -36,7 +32,7 @@ staticPasswords:
 {{- end }}
 
 expiry:
-  idTokens: {{ $idTokenTTL | quote }}
+  idTokens: {{ .Env.DEX_ID_TOKEN_TTL | quote }}
   refreshTokens:
     validIfNotUsedFor: {{ .Env.DEX_REFRESH_IDLE_TTL | quote }}
     absoluteLifetime: {{ .Env.DEX_REFRESH_ABSOLUTE_TTL | quote }}
@@ -48,28 +44,11 @@ staticClients:
     secret: {{ .Env.DEX_TRACECAT_CLIENT_SECRET | quote }}
     redirectURIs:
       - {{ .Env.DEX_TRACECAT_MCP_REDIRECT_URI | quote }}
-      {{- if .Env.DEX_TRACECAT_MCP_REDIRECT_URI_ALT }}
-      - {{ .Env.DEX_TRACECAT_MCP_REDIRECT_URI_ALT | quote }}
+      {{- if (index .Env "DEX_TRACECAT_MCP_REDIRECT_URI_ALT") }}
+      - {{ index .Env "DEX_TRACECAT_MCP_REDIRECT_URI_ALT" | quote }}
       {{- end }}
 
-{{- if eq $mode "saml" }}
-connectors:
-  - type: saml
-    id: "upstream-saml"
-    name: "Upstream SAML"
-    config:
-      ssoURL: {{ .Env.MCP_DEX_SAML_SSO_URL | quote }}
-      caData: {{ .Env.DEX_SAML_CA_DATA_B64 | quote }}
-      redirectURI: {{ .Env.DEX_UPSTREAM_REDIRECT_URI | quote }}
-      usernameAttr: {{ or .Env.MCP_DEX_SAML_USERNAME_ATTR "email" | quote }}
-      emailAttr: {{ or .Env.MCP_DEX_SAML_EMAIL_ATTR "email" | quote }}
-      {{- if .Env.MCP_DEX_SAML_SSO_ISSUER }}
-      ssoIssuer: {{ .Env.MCP_DEX_SAML_SSO_ISSUER | quote }}
-      {{- end }}
-      {{- if .Env.MCP_DEX_SAML_GROUPS_ATTR }}
-      groupsAttr: {{ .Env.MCP_DEX_SAML_GROUPS_ATTR | quote }}
-      {{- end }}
-{{- else if eq $mode "oidc" }}
+{{- if eq $mode "oidc" }}
 connectors:
   - type: oidc
     id: propelauth
@@ -83,7 +62,5 @@ connectors:
       getUserInfo: true
       userNameKey: email
       scopes:
-        - profile
-        - email
-        - offline_access
+{{ .Env.DEX_UPSTREAM_OIDC_SCOPES_YAML }}
 {{- end }}

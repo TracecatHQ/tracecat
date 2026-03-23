@@ -23,6 +23,7 @@ from tracecat.auth.enums import AuthType
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.types import Role
 from tracecat.auth.users import (
+    PendingDexSyncState,
     UserManager,
     get_user_db_context,
     get_user_manager_context,
@@ -149,6 +150,31 @@ async def user_manager_context(
             yield user_db, user_manager
 
 
+def patch_dex_service(monkeypatch: pytest.MonkeyPatch, service: object) -> None:
+    monkeypatch.setattr(
+        "tracecat.auth.users.get_dex_local_auth_service", lambda: service
+    )
+
+
+def set_pending_dex_state(
+    user_manager: UserManager,
+    *,
+    invitation_token: str | None = None,
+    password_hash: str | None = None,
+    previous_email: str | None = None,
+) -> None:
+    user_manager._pending_state = PendingDexSyncState(
+        invitation_token=invitation_token,
+        dex_password_hash=password_hash,
+        previous_email=previous_email,
+    )
+
+
+#
+# Dex provisioning service
+#
+
+
 @pytest.mark.anyio
 async def test_dex_local_auth_service_updates_existing_password() -> None:
     stub = RecordingDexStub(
@@ -231,6 +257,11 @@ async def test_dex_local_auth_service_skips_federated_mode() -> None:
     assert stub.create_requests == []
 
 
+#
+# User manager lifecycle
+#
+
+
 @pytest.mark.anyio
 async def test_user_manager_create_syncs_dex_local_auth(
     session: AsyncSession,
@@ -239,10 +270,7 @@ async def test_user_manager_create_syncs_dex_local_auth(
     service = RecordingProvisioningService(local_auth_enabled=False)
 
     async with user_manager_context(session) as (_, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         monkeypatch.setattr(
             user_manager,
             "validate_email",
@@ -278,10 +306,7 @@ async def test_user_manager_email_update_syncs_previous_email(
     )
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         monkeypatch.setattr(
             user_manager,
             "validate_email",
@@ -328,10 +353,7 @@ async def test_user_manager_email_update_requires_password_in_local_auth_mode(
     )
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         monkeypatch.setattr(
             user_manager,
             "validate_email",
@@ -362,6 +384,55 @@ async def test_user_manager_email_update_requires_password_in_local_auth_mode(
 
 
 @pytest.mark.anyio
+async def test_user_manager_email_update_allows_sso_only_user_without_password(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RecordingProvisioningService(local_auth_enabled=True)
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        is_platform_superuser=True,
+    )
+
+    async with user_manager_context(session) as (user_db, user_manager):
+        patch_dex_service(monkeypatch, service)
+        monkeypatch.setattr(
+            user_manager,
+            "validate_email",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
+            user_manager,
+            "is_local_password_login_allowed",
+            AsyncMock(return_value=False),
+        )
+        user = await user_db.create(
+            {
+                "email": "before@example.com",
+                "hashed_password": user_manager.password_helper.hash(
+                    "this-is-a-strong-password"
+                ),
+                "is_verified": True,
+            }
+        )
+
+        token = ctx_role.set(role)
+        try:
+            updated_user = await user_manager.update(
+                UserUpdate(email="after@example.com"),
+                user,
+                safe=False,
+            )
+        finally:
+            ctx_role.reset(token)
+
+    assert updated_user.email == "after@example.com"
+    assert service.upserts == []
+    assert service.deletes == ["after@example.com", "before@example.com"]
+
+
+@pytest.mark.anyio
 async def test_user_manager_non_identity_update_skips_dex_sync(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
@@ -374,10 +445,7 @@ async def test_user_manager_non_identity_update_skips_dex_sync(
     )
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         monkeypatch.setattr(
             user_manager,
             "validate_email",
@@ -414,10 +482,7 @@ async def test_user_manager_on_after_reset_password_syncs_dex_local_auth(
     service = RecordingProvisioningService()
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         user = await user_db.create(
             {
                 "email": "reset@example.com",
@@ -428,12 +493,20 @@ async def test_user_manager_on_after_reset_password_syncs_dex_local_auth(
             }
         )
 
-        user_manager._pending_dex_password_hash = "$2b$12$local-auth-reset-hash"
+        set_pending_dex_state(
+            user_manager,
+            password_hash="$2b$12$local-auth-reset-hash",
+        )
         await user_manager.on_after_reset_password(user)
 
     assert len(service.upserts) == 1
     assert service.upserts[0]["email"] == "reset@example.com"
     assert service.upserts[0]["password_hash"] == "$2b$12$local-auth-reset-hash"
+
+
+#
+# Policy reconciliation
+#
 
 
 @pytest.mark.anyio
@@ -444,13 +517,10 @@ async def test_user_manager_on_after_register_removes_dex_local_auth_when_policy
     service = RecordingProvisioningService()
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         monkeypatch.setattr(
             user_manager,
-            "_is_local_password_login_allowed",
+            "is_local_password_login_allowed",
             AsyncMock(return_value=False),
         )
         user = await user_db.create(
@@ -463,7 +533,10 @@ async def test_user_manager_on_after_register_removes_dex_local_auth_when_policy
             }
         )
 
-        user_manager._pending_dex_password_hash = "$2b$12$post-commit-hash"
+        set_pending_dex_state(
+            user_manager,
+            password_hash="$2b$12$post-commit-hash",
+        )
         await user_manager.on_after_register(user)
 
     assert service.upserts == []
@@ -478,13 +551,10 @@ async def test_user_manager_on_after_update_removes_dex_local_auth_aliases_when_
     service = RecordingProvisioningService()
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         monkeypatch.setattr(
             user_manager,
-            "_is_local_password_login_allowed",
+            "is_local_password_login_allowed",
             AsyncMock(return_value=False),
         )
         user = await user_db.create(
@@ -497,8 +567,11 @@ async def test_user_manager_on_after_update_removes_dex_local_auth_aliases_when_
             }
         )
 
-        user_manager._pending_dex_password_hash = "$2b$12$post-commit-hash"
-        user_manager._pending_previous_email = "old@example.com"
+        set_pending_dex_state(
+            user_manager,
+            password_hash="$2b$12$post-commit-hash",
+            previous_email="old@example.com",
+        )
         await user_manager.on_after_update(
             user,
             {"email": "new@example.com", "password": "new-password"},
@@ -516,13 +589,10 @@ async def test_user_manager_on_after_reset_password_removes_dex_local_auth_when_
     service = RecordingProvisioningService()
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         monkeypatch.setattr(
             user_manager,
-            "_is_local_password_login_allowed",
+            "is_local_password_login_allowed",
             AsyncMock(return_value=False),
         )
         user = await user_db.create(
@@ -535,7 +605,10 @@ async def test_user_manager_on_after_reset_password_removes_dex_local_auth_when_
             }
         )
 
-        user_manager._pending_dex_password_hash = "$2b$12$post-commit-hash"
+        set_pending_dex_state(
+            user_manager,
+            password_hash="$2b$12$post-commit-hash",
+        )
         await user_manager.on_after_reset_password(user)
 
     assert service.upserts == []
@@ -610,6 +683,11 @@ async def test_accept_invitation_reconciles_dex_local_auth_policy(
     assert reconcile_policy.await_args.kwargs == {"raise_on_error": False}
 
 
+#
+# Session lifecycle and failure tolerance
+#
+
+
 @pytest.mark.anyio
 async def test_user_manager_basic_login_syncs_dex_local_auth(
     session: AsyncSession,
@@ -618,10 +696,7 @@ async def test_user_manager_basic_login_syncs_dex_local_auth(
     service = RecordingProvisioningService()
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         monkeypatch.setattr(
             "tracecat.auth.users.config.TRACECAT__AUTH_TYPES",
             {AuthType.BASIC},
@@ -661,10 +736,7 @@ async def test_user_manager_delete_syncs_dex_local_auth(
     service = RecordingProvisioningService()
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         user = await user_db.create(
             {
                 "email": "delete@example.com",
@@ -688,10 +760,7 @@ async def test_user_manager_on_after_register_tolerates_dex_failures(
     service = FailingProvisioningService()
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         user = await user_db.create(
             {
                 "email": "register-failure@example.com",
@@ -702,7 +771,10 @@ async def test_user_manager_on_after_register_tolerates_dex_failures(
             }
         )
 
-        user_manager._pending_dex_password_hash = "$2b$12$post-commit-hash"
+        set_pending_dex_state(
+            user_manager,
+            password_hash="$2b$12$post-commit-hash",
+        )
         await user_manager.on_after_register(user)
 
     assert service.upsert_attempts == 1
@@ -716,10 +788,7 @@ async def test_user_manager_on_after_update_tolerates_dex_failures(
     service = FailingProvisioningService()
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         user = await user_db.create(
             {
                 "email": "update-failure@example.com",
@@ -730,8 +799,11 @@ async def test_user_manager_on_after_update_tolerates_dex_failures(
             }
         )
 
-        user_manager._pending_dex_password_hash = "$2b$12$post-commit-hash"
-        user_manager._pending_previous_email = "before@example.com"
+        set_pending_dex_state(
+            user_manager,
+            password_hash="$2b$12$post-commit-hash",
+            previous_email="before@example.com",
+        )
         await user_manager.on_after_update(
             user, {"email": "update-failure@example.com", "password": "new-password"}
         )
@@ -747,10 +819,7 @@ async def test_user_manager_on_after_reset_password_tolerates_dex_failures(
     service = FailingProvisioningService()
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         user = await user_db.create(
             {
                 "email": "reset-failure@example.com",
@@ -761,7 +830,10 @@ async def test_user_manager_on_after_reset_password_tolerates_dex_failures(
             }
         )
 
-        user_manager._pending_dex_password_hash = "$2b$12$post-commit-hash"
+        set_pending_dex_state(
+            user_manager,
+            password_hash="$2b$12$post-commit-hash",
+        )
         await user_manager.on_after_reset_password(user)
 
     assert service.upsert_attempts == 1
@@ -775,10 +847,7 @@ async def test_user_manager_on_after_delete_tolerates_dex_failures(
     service = FailingProvisioningService()
 
     async with user_manager_context(session) as (user_db, user_manager):
-        monkeypatch.setattr(
-            "tracecat.auth.users.get_dex_local_auth_service",
-            lambda: service,
-        )
+        patch_dex_service(monkeypatch, service)
         user = await user_db.create(
             {
                 "email": "delete-failure@example.com",

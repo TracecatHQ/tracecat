@@ -44,6 +44,22 @@
 	handle /consent* {
 		reverse_proxy http://mcp:8099
 	}
+	handle /auth/static/* {
+		reverse_proxy http://dex:5556 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
+	handle /auth/theme/* {
+		reverse_proxy http://dex:5556 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
 	@dex_auth_routes {
 		path /auth/.well-known /auth/.well-known/*
 		path /auth/auth /auth/auth/*

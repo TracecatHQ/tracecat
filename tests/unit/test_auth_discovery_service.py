@@ -50,6 +50,23 @@ async def _create_domain(
     return organization_domain
 
 
+def configure_auth_policy(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    auth_types: set[AuthType],
+    oidc_issuer: str = "",
+    multi_tenant: bool = True,
+    saml_enabled: bool | None = None,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", auth_types)
+    monkeypatch.setattr(config, "OIDC_ISSUER", oidc_issuer)
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", multi_tenant)
+    if saml_enabled is not None:
+        monkeypatch.setattr(
+            auth_discovery_module, "get_setting", AsyncMock(return_value=saml_enabled)
+        )
+
+
 @pytest.mark.anyio
 async def test_discovery_prefers_saml_for_mapped_domains(
     session: AsyncSession,
@@ -57,13 +74,10 @@ async def test_discovery_prefers_saml_for_mapped_domains(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await _create_domain(session, organization.id, "acme.com")
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
-    )
-    monkeypatch.setattr(
-        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
+    configure_auth_policy(
+        monkeypatch,
+        auth_types={AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+        saml_enabled=True,
     )
     service = AuthDiscoveryService(session)
 
@@ -79,12 +93,11 @@ async def test_discovery_returns_oidc_for_mapped_non_saml_domains(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await _create_domain(session, organization.id, "acme.io")
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.OIDC},
+    configure_auth_policy(
+        monkeypatch,
+        auth_types={AuthType.BASIC, AuthType.OIDC},
+        oidc_issuer="https://auth.example.com",
     )
-    monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
     service = AuthDiscoveryService(session)
 
     response = await service.discover("user@acme.io")
@@ -101,13 +114,11 @@ async def test_discovery_falls_back_when_mapped_org_is_inactive(
     await _create_domain(session, organization.id, "acme.dev")
     organization.is_active = False
     await session.commit()
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    configure_auth_policy(
+        monkeypatch,
+        auth_types={AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+        oidc_issuer="https://auth.example.com",
     )
-    monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
-    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
     service = AuthDiscoveryService(session)
 
     response = await service.discover("user@acme.dev")
@@ -120,13 +131,11 @@ async def test_discovery_returns_safe_platform_fallback_for_unknown_domains(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.OIDC},
+    configure_auth_policy(
+        monkeypatch,
+        auth_types={AuthType.BASIC, AuthType.OIDC},
+        oidc_issuer="https://auth.example.com",
     )
-    monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
     service = AuthDiscoveryService(session)
 
     response = await service.discover("user@unknown-domain.example")
@@ -140,15 +149,12 @@ async def test_discovery_prefers_default_org_saml_for_unknown_domains_in_single_
     organization: Organization,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
-    )
-    monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
-    monkeypatch.setattr(
-        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
+    configure_auth_policy(
+        monkeypatch,
+        auth_types={AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+        oidc_issuer="https://auth.example.com",
+        multi_tenant=False,
+        saml_enabled=True,
     )
     monkeypatch.setattr(
         auth_discovery_module,
@@ -167,15 +173,11 @@ async def test_discovery_unknown_domains_fallback_to_oidc_in_multi_tenant_with_s
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
-    )
-    monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
-    monkeypatch.setattr(
-        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
+    configure_auth_policy(
+        monkeypatch,
+        auth_types={AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+        oidc_issuer="https://auth.example.com",
+        saml_enabled=True,
     )
     service = AuthDiscoveryService(session)
 
@@ -189,7 +191,7 @@ async def test_discovery_returns_basic_when_basic_is_only_platform_auth_type(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC})
+    configure_auth_policy(monkeypatch, auth_types={AuthType.BASIC})
     service = AuthDiscoveryService(session)
 
     response = await service.discover("user@unknown-domain.example")
@@ -203,14 +205,11 @@ async def test_discovery_prefers_org_hint_over_email_domain(
     organization: Organization,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
-    )
-    monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
-    monkeypatch.setattr(
-        auth_discovery_module, "get_setting", AsyncMock(return_value=True)
+    configure_auth_policy(
+        monkeypatch,
+        auth_types={AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+        oidc_issuer="https://auth.example.com",
+        saml_enabled=True,
     )
     service = AuthDiscoveryService(session)
 
@@ -231,12 +230,11 @@ async def test_discovery_rejects_invalid_org_hint_without_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await _create_domain(session, organization.id, "acme.com")
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+    configure_auth_policy(
+        monkeypatch,
+        auth_types={AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+        oidc_issuer="https://auth.example.com",
     )
-    monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
     service = AuthDiscoveryService(session)
 
     with pytest.raises(TracecatValidationError) as exc:
@@ -250,13 +248,11 @@ async def test_discovery_returns_basic_when_oidc_policy_is_unconfigured(
     session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.OIDC},
+    configure_auth_policy(
+        monkeypatch,
+        auth_types={AuthType.BASIC, AuthType.OIDC},
+        oidc_issuer="",
     )
-    monkeypatch.setattr(config, "OIDC_ISSUER", "")
     service = AuthDiscoveryService(session)
 
     response = await service.discover("user@unknown-domain.example")
@@ -271,12 +267,11 @@ async def test_discovery_returns_basic_for_mapped_org_when_oidc_policy_is_unconf
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await _create_domain(session, organization.id, "acme.app")
-    monkeypatch.setattr(
-        config,
-        "TRACECAT__AUTH_TYPES",
-        {AuthType.BASIC, AuthType.OIDC},
+    configure_auth_policy(
+        monkeypatch,
+        auth_types={AuthType.BASIC, AuthType.OIDC},
+        oidc_issuer="",
     )
-    monkeypatch.setattr(config, "OIDC_ISSUER", "")
     service = AuthDiscoveryService(session)
 
     response = await service.discover("user@acme.app")

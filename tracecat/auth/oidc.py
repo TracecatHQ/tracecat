@@ -52,6 +52,17 @@ def get_platform_oidc_config() -> OIDCProviderConfig:
     )
 
 
+def get_mcp_oidc_config() -> OIDCProviderConfig:
+    """Return normalized Dex-backed OIDC config for the MCP server."""
+    platform_config = get_platform_oidc_config()
+    return OIDCProviderConfig(
+        issuer=config.DEX_ISSUER.strip().rstrip("/") or None,
+        client_id=config.DEX_TRACECAT_CLIENT_ID,
+        client_secret=config.DEX_TRACECAT_CLIENT_SECRET,
+        scopes=platform_config.scopes,
+    )
+
+
 def create_platform_oauth_client() -> BaseOAuth2:
     """Create the platform OAuth client used for login/callback routes."""
     oidc_config = get_platform_oidc_config()
