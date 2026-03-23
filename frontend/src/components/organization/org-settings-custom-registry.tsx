@@ -106,7 +106,7 @@ export function OrgSettingsCustomRegistryForm() {
               <FormLabel>Remote repository URL</FormLabel>
               <FormControl>
                 <Input
-                  placeholder="git+ssh://git@gitlab.example.com:2222/org/team/repo.git"
+                  placeholder="git+ssh://someuser@git.example.com:2222/org/team/repo.git"
                   {...field}
                   value={field.value ?? ""}
                 />
@@ -120,7 +120,7 @@ export function OrgSettingsCustomRegistryForm() {
                 <span>
                   Format:{" "}
                   <span className="font-mono tracking-tight">
-                    {"git+ssh://git@<hostname>[:<port>]/<org>/<repo>.git"}
+                    {"git+ssh://<user>@<hostname>[:<port>]/<org>/<repo>.git"}
                   </span>
                 </span>
               </FormDescription>

@@ -402,6 +402,27 @@ def test_validate_args_mode_parameter(tmp_path):
                 ref=None,
             ),
         ),
+        # GitHub Enterprise with a scoped SSH user
+        (
+            "git+ssh://someuser@git.example.com/org/repo",
+            GitUrl(
+                host="git.example.com",
+                org="org",
+                repo="repo",
+                user="someuser",
+                ref=None,
+            ),
+        ),
+        # Branch names may include slashes
+        (
+            "git+ssh://git@github.com/org/repo@feature/custom-branch",
+            GitUrl(
+                host="github.com",
+                org="org",
+                repo="repo",
+                ref="feature/custom-branch",
+            ),
+        ),
         # # Private GitLab nested in a subdirectory
         # (
         #     "git+ssh://git@internal.tracecat/org/group/repo",
@@ -437,14 +458,10 @@ def test_parse_git_url(url: str, expected: GitUrl):
             "git+ssh://git@github.com/org",
             id="Missing repository name",
         ),
-        pytest.param(
-            "git+ssh://git@github.com/org/repo@branch/extra",
-            id="Invalid branch format with extra path component",
-        ),
     ],
 )
 def test_parse_git_url_invalid(url: str):
-    allowed_domains = {"github.com", "gitlab.com"}
+    allowed_domains = {"github.com", "gitlab.com", "git.example.com"}
     with pytest.raises(ValueError):
         parse_git_url(url, allowed_domains=allowed_domains)
 
