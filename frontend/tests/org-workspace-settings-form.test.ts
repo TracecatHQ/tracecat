@@ -6,6 +6,8 @@ describe("syncSettingsSchema git_repo_url validation", () => {
     "git+ssh://git@gitlab.company.com:2222/team/project.git",
     "git+ssh://git@gitlab.com/group/subgroup/repo.git",
     "git+ssh://git@example.com/org/repo",
+    "git+ssh://someuser@git.example.com/org/repo.git",
+    "git+ssh://git@github.com/org/repo.git@feature/custom-branch",
   ])("accepts valid git SSH URL %s", (url) => {
     const result = syncSettingsSchema.safeParse({
       git_repo_url: url,
@@ -25,8 +27,8 @@ describe("syncSettingsSchema git_repo_url validation", () => {
     ],
     [
       "user",
-      "git+ssh://user@github.com/org/repo.git",
-      "URL must include 'git@' user specification",
+      "git+ssh://github.com/org/repo.git",
+      "URL must include an SSH user (e.g., git@ or someuser@)",
     ],
     ["path", "git+ssh://git@github.com", "URL must include a repository path"],
     [
@@ -47,7 +49,7 @@ describe("syncSettingsSchema git_repo_url validation", () => {
     [
       "trailing ref",
       "git+ssh://git@github.com/org/repo.git@@",
-      "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)",
+      "Must be a valid Git SSH URL (e.g., git+ssh://<user>@github.com/org/repo.git)",
     ],
   ])("rejects invalid git SSH URL with bad %s", (_, url, message) => {
     const result = syncSettingsSchema.safeParse({

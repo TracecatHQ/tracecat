@@ -5,17 +5,19 @@ describe("GIT_SSH_URL_REGEX", () => {
     "git+ssh://git@github.com/user/repo.git",
     "git+ssh://git@gitlab.company.com/team/project.git",
     "git+ssh://git@example.com/org/repo.git",
+    "git+ssh://someuser@git.example.com/org/repo.git",
     "git+ssh://git@github.com:2222/user/repo.git",
     "git+ssh://git@gitlab.com/org/team/subteam/repo.git",
     "git+ssh://git@github.com/user/repo",
     "git+ssh://git@github.com/user/repo.git@main",
+    "git+ssh://git@github.com/user/repo.git@feature/custom-branch",
   ]
 
   const invalidUrls = [
     "git+ssh://git@/user/repo.git",
     "https://github.com/user/repo.git",
     "ssh://git@github.com/user/repo.git",
-    "git+ssh://github.com/user/repo.git", // Missing git@ user
+    "git+ssh://github.com/user/repo.git", // Missing SSH user
     "git+ssh://git@github.com:not_a_port/user/repo.git", // Invalid port
     "git+ssh://git@github.com/repo.git", // Missing org segment
     "git+ssh://git@github.com:/org/repo/subdir.git", // Missing port

@@ -36,6 +36,19 @@ class TestGitUrl:
         git_url = GitUrl(host="github.com", org="myorg", repo="myrepo")
         assert git_url.to_url() == "git+ssh://git@github.com/myorg/myrepo.git"
 
+    def test_git_url_to_url_with_custom_user(self):
+        """Test GitUrl preserves non-default SSH users."""
+        git_url = GitUrl(
+            host="git.example.com",
+            org="myorg",
+            repo="myrepo",
+            user="someuser",
+        )
+        assert (
+            git_url.to_url()
+            == "git+ssh://someuser@git.example.com/myorg/myrepo.git"
+        )
+
     def test_git_url_to_url_with_ref(self):
         """Test GitUrl to_url method with ref."""
         git_url = GitUrl(host="github.com", org="myorg", repo="myrepo", ref="main")
@@ -144,6 +157,25 @@ class TestParseGitUrl:
         assert git_url.org == "workspace"
         assert git_url.repo == "myrepo"
         assert git_url.ref == "develop"
+
+    def test_parse_github_enterprise_url_with_custom_user(self):
+        """Test parsing GitHub Enterprise URLs that use a non-git SSH user."""
+        url = "git+ssh://someuser@git.example.com/acme/platform/custom-registry.git"
+        git_url = parse_git_url(url)
+        assert git_url.user == "someuser"
+        assert git_url.host == "git.example.com"
+        assert git_url.org == "acme/platform"
+        assert git_url.repo == "custom-registry"
+        assert git_url.ref is None
+
+    def test_parse_url_with_slash_ref(self):
+        """Test parsing refs that include path separators."""
+        url = "git+ssh://git@github.com/myorg/myrepo.git@feature/custom-branch"
+        git_url = parse_git_url(url)
+        assert git_url.host == "github.com"
+        assert git_url.org == "myorg"
+        assert git_url.repo == "myrepo"
+        assert git_url.ref == "feature/custom-branch"
 
     def test_parse_url_allowed_domains(self):
         """Test parsing with allowed domains."""

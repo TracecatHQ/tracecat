@@ -71,7 +71,7 @@ export function WorkspaceSyncSettings({
                 <FormLabel>Remote repository URL</FormLabel>
                 <FormControl>
                   <Input
-                    placeholder="git+ssh://git@my-host/my-org/my-repo.git"
+                    placeholder="git+ssh://someuser@git.example.com/my-org/my-repo.git"
                     {...field}
                     value={field.value ?? ""}
                   />

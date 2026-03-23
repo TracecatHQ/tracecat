@@ -1,7 +1,7 @@
 import { z } from "zod"
 
 export const GIT_SSH_URL_REGEX =
-  /^git\+ssh:\/\/git@(?<hostname>[^/:]+)(?::(?<port>\d+))?\/(?<path>[^/@]+(?:\/[^/@]+)+)(?:\.git)?(?:@(?<ref>[^/@]+))?$/
+  /^git\+ssh:\/\/(?<user>[^/@:]+)@(?<hostname>[^/:]+)(?::(?<port>\d+))?\/(?<path>[^/@]+(?:\/[^/@]+)+)(?:\.git)?(?:@(?<ref>[^@]+))?$/
 
 // Mirrors the backend validation in tracecat/git/constants.py but enforces at least
 // an <org>/<repo> path structure on the client.
@@ -22,15 +22,17 @@ export function validateGitSshUrl(
     return
   }
 
-  if (!url.includes("git@")) {
+  const protocolWithoutScheme = url.replace("git+ssh://", "")
+
+  if (!protocolWithoutScheme.includes("@")) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "URL must include 'git@' user specification",
+      message: "URL must include an SSH user (e.g., git@ or someuser@)",
     })
     return
   }
 
-  const afterProtocol = url.replace("git+ssh://git@", "")
+  const afterProtocol = protocolWithoutScheme
   const firstSlashIndex = afterProtocol.indexOf("/")
 
   if (firstSlashIndex === -1) {
@@ -88,6 +90,6 @@ export function validateGitSshUrl(
   ctx.addIssue({
     code: z.ZodIssueCode.custom,
     message:
-      "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)",
+      "Must be a valid Git SSH URL (e.g., git+ssh://<user>@github.com/org/repo.git)",
   })
 }
