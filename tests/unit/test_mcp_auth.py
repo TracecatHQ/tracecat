@@ -242,6 +242,37 @@ def test_normalize_mcp_client_accepts_ephemeral_localhost_ports() -> None:
     ) == AnyUrl("http://localhost:58554/callback")
 
 
+def test_normalize_mcp_client_preserves_trailing_slash_redirect_uris() -> None:
+    client = ProxyDCRClient(
+        client_id="https://claude.ai/oauth/claude-code-client-metadata",
+        client_secret=None,
+        redirect_uris=None,
+        grant_types=["authorization_code", "refresh_token"],
+        scope="openid profile email offline_access",
+        token_endpoint_auth_method="none",
+        cimd_document=CIMDDocument(
+            client_id=AnyHttpUrl("https://claude.ai/oauth/claude-code-client-metadata"),
+            redirect_uris=["http://localhost/callback/"],
+            token_endpoint_auth_method="none",
+        ),
+    )
+
+    normalized = mcp_auth._normalize_mcp_client(
+        client,
+        required_scopes=["openid", "profile", "email", "offline_access"],
+    )
+
+    assert isinstance(normalized, ProxyDCRClient)
+    assert normalized.cimd_document is not None
+    assert normalized.cimd_document.redirect_uris == [
+        "http://localhost/callback/",
+        "http://localhost:*/callback/",
+    ]
+    assert normalized.validate_redirect_uri(
+        AnyUrl("http://localhost:58554/callback/")
+    ) == AnyUrl("http://localhost:58554/callback/")
+
+
 def test_normalize_mcp_client_merges_required_scopes_for_partial_registration() -> None:
     client = ProxyDCRClient(
         client_id="claude-web",

@@ -15,7 +15,12 @@ def test_oidc_auth_type_enabled(monkeypatch) -> None:
     monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC})
     assert oidc_auth_type_enabled() is False
 
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC, AuthType.OIDC})
+    monkeypatch.setattr(config, "OIDC_ISSUER", "")
+    assert oidc_auth_type_enabled() is False
+
     monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.OIDC})
+    monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
     assert oidc_auth_type_enabled() is True
 
 

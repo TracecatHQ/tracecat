@@ -186,11 +186,13 @@ def _add_loopback_port_wildcard(uri: str) -> str:
 def _expand_cimd_loopback_redirect_uris(redirect_uris: Sequence[str]) -> list[str]:
     expanded: list[str] = []
     for redirect_uri in redirect_uris:
-        normalized = redirect_uri.rstrip("/")
-        if normalized not in expanded:
-            expanded.append(normalized)
-        if _is_loopback_redirect_uri(normalized) and urlparse(normalized).port is None:
-            wildcard = _add_loopback_port_wildcard(normalized)
+        if redirect_uri not in expanded:
+            expanded.append(redirect_uri)
+        if (
+            _is_loopback_redirect_uri(redirect_uri)
+            and urlparse(redirect_uri).port is None
+        ):
+            wildcard = _add_loopback_port_wildcard(redirect_uri)
             if wildcard not in expanded:
                 expanded.append(wildcard)
     return expanded
