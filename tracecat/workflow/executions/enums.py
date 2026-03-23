@@ -132,6 +132,18 @@ class ExecutionType(StrEnum):
         return TemporalSearchAttr.EXECUTION_TYPE.create_pair(self.value)
 
 
+class WorkflowRunExcludedWorkflowType(StrEnum):
+    """Workflow types that should not appear in the workflow runs UI."""
+
+    DURABLE_AGENT = "DurableAgentWorkflow"
+    EXECUTE_REGISTRY_TOOL = "ExecuteRegistryToolWorkflow"
+
+
+WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES = frozenset(
+    workflow_type.value for workflow_type in WorkflowRunExcludedWorkflowType
+)
+
+
 class TemporalSearchAttr(StrEnum):
     """Temporal search attribute keys."""
 

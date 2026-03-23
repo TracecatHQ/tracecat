@@ -504,6 +504,7 @@ class WorkflowExecutionsService:
         workflow_id: WorkflowID | None = None,
         trigger_types: set[TriggerType] | None = None,
         triggered_by_user_id: UserID | None = None,
+        exclude_workflow_types: set[str] | None = None,
         limit: int | None = None,
     ) -> list[WorkflowExecution]:
         """List all workflow executions."""
@@ -511,6 +512,7 @@ class WorkflowExecutionsService:
             workflow_id=workflow_id,
             trigger_types=trigger_types,
             triggered_by_user_id=triggered_by_user_id,
+            exclude_workflow_types=exclude_workflow_types,
             workspace_id=self.workspace_id,
         )
         return await self.query_executions(query=query, limit=limit)

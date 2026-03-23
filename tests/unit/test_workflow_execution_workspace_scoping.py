@@ -20,7 +20,11 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import CursorPaginationParams
 from tracecat.workflow.executions.common import build_query
-from tracecat.workflow.executions.enums import ExecutionType, TemporalSearchAttr
+from tracecat.workflow.executions.enums import (
+    WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES,
+    ExecutionType,
+    TemporalSearchAttr,
+)
 from tracecat.workflow.executions.schemas import (
     WorkflowExecutionRelationFilter,
     WorkflowExecutionStatusFilterMode,
@@ -435,11 +439,12 @@ class TestWorkflowExecutionWorkspaceFiltering:
         await service.list_executions_paginated(
             pagination=CursorPaginationParams(limit=10),
             execution_types={ExecutionType.PUBLISHED},
-            exclude_workflow_types={"DurableAgentWorkflow"},
+            exclude_workflow_types=set(WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES),
         )
 
         query = mock_client.list_workflows.call_args.kwargs["query"]
         assert "WorkflowType != 'DurableAgentWorkflow'" in query
+        assert "WorkflowType != 'ExecuteRegistryToolWorkflow'" in query
         assert (
             f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{mock_role.workspace_id}'"
             in query
@@ -487,11 +492,12 @@ class TestWorkflowExecutionWorkspaceFiltering:
         workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
         query = build_query(
             workspace_id=workspace_id,
-            exclude_workflow_types={"DurableAgentWorkflow"},
+            exclude_workflow_types=set(WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES),
         )
         workspace_clause = f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'"
         assert workspace_clause in query
         assert "WorkflowType != 'DurableAgentWorkflow'" in query
+        assert "WorkflowType != 'ExecuteRegistryToolWorkflow'" in query
 
     async def test_build_query_supports_time_duration_user_and_execution_type(
         self,
@@ -502,7 +508,7 @@ class TestWorkflowExecutionWorkspaceFiltering:
             workspace_id=workspace_id,
             triggered_by_user_id=user_id,
             execution_types={ExecutionType.PUBLISHED},
-            exclude_workflow_types={"DurableAgentWorkflow"},
+            exclude_workflow_types=set(WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES),
             start_time_from=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
             start_time_to=datetime(2026, 1, 31, 23, 59, tzinfo=UTC),
             close_time_from=datetime(2026, 2, 1, 0, 0, tzinfo=UTC),
@@ -518,6 +524,7 @@ class TestWorkflowExecutionWorkspaceFiltering:
         assert "TracecatExecutionType = 'published'" in query
         assert "TracecatExecutionType IS NULL" in query
         assert "WorkflowType != 'DurableAgentWorkflow'" in query
+        assert "WorkflowType != 'ExecuteRegistryToolWorkflow'" in query
         assert "StartTime >=" in query
         assert "StartTime <=" in query
         assert "CloseTime >=" in query
