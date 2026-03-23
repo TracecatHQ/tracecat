@@ -3,12 +3,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_users import InvalidPasswordException
 from fastapi_users.db import SQLAlchemyUserDatabase
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.dex import api_pb2
@@ -26,7 +28,10 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.contexts import ctx_role
-from tracecat.db.models import User
+from tracecat.db.models import Organization, OrganizationInvitation, User
+from tracecat.db.models import Role as DBRole
+from tracecat.invitations.enums import InvitationStatus
+from tracecat.organization.service import accept_invitation_for_user
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -429,6 +434,180 @@ async def test_user_manager_on_after_reset_password_syncs_dex_local_auth(
     assert len(service.upserts) == 1
     assert service.upserts[0]["email"] == "reset@example.com"
     assert service.upserts[0]["password_hash"] == "$2b$12$local-auth-reset-hash"
+
+
+@pytest.mark.anyio
+async def test_user_manager_on_after_register_removes_dex_local_auth_when_policy_blocks_password_login(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RecordingProvisioningService()
+
+    async with user_manager_context(session) as (user_db, user_manager):
+        monkeypatch.setattr(
+            "tracecat.auth.users.get_dex_local_auth_service",
+            lambda: service,
+        )
+        monkeypatch.setattr(
+            user_manager,
+            "_is_local_password_login_allowed",
+            AsyncMock(return_value=False),
+        )
+        user = await user_db.create(
+            {
+                "email": "register-blocked@example.com",
+                "hashed_password": user_manager.password_helper.hash(
+                    "this-is-a-strong-password"
+                ),
+                "is_verified": True,
+            }
+        )
+
+        user_manager._pending_dex_password_hash = "$2b$12$post-commit-hash"
+        await user_manager.on_after_register(user)
+
+    assert service.upserts == []
+    assert service.deletes == ["register-blocked@example.com"]
+
+
+@pytest.mark.anyio
+async def test_user_manager_on_after_update_removes_dex_local_auth_aliases_when_policy_blocks_password_login(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RecordingProvisioningService()
+
+    async with user_manager_context(session) as (user_db, user_manager):
+        monkeypatch.setattr(
+            "tracecat.auth.users.get_dex_local_auth_service",
+            lambda: service,
+        )
+        monkeypatch.setattr(
+            user_manager,
+            "_is_local_password_login_allowed",
+            AsyncMock(return_value=False),
+        )
+        user = await user_db.create(
+            {
+                "email": "new@example.com",
+                "hashed_password": user_manager.password_helper.hash(
+                    "this-is-a-strong-password"
+                ),
+                "is_verified": True,
+            }
+        )
+
+        user_manager._pending_dex_password_hash = "$2b$12$post-commit-hash"
+        user_manager._pending_previous_email = "old@example.com"
+        await user_manager.on_after_update(
+            user,
+            {"email": "new@example.com", "password": "new-password"},
+        )
+
+    assert service.upserts == []
+    assert service.deletes == ["new@example.com", "old@example.com"]
+
+
+@pytest.mark.anyio
+async def test_user_manager_on_after_reset_password_removes_dex_local_auth_when_policy_blocks_password_login(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = RecordingProvisioningService()
+
+    async with user_manager_context(session) as (user_db, user_manager):
+        monkeypatch.setattr(
+            "tracecat.auth.users.get_dex_local_auth_service",
+            lambda: service,
+        )
+        monkeypatch.setattr(
+            user_manager,
+            "_is_local_password_login_allowed",
+            AsyncMock(return_value=False),
+        )
+        user = await user_db.create(
+            {
+                "email": "reset-blocked@example.com",
+                "hashed_password": user_manager.password_helper.hash(
+                    "this-is-a-strong-password"
+                ),
+                "is_verified": True,
+            }
+        )
+
+        user_manager._pending_dex_password_hash = "$2b$12$post-commit-hash"
+        await user_manager.on_after_reset_password(user)
+
+    assert service.upserts == []
+    assert service.deletes == ["reset-blocked@example.com"]
+
+
+@pytest.mark.anyio
+async def test_accept_invitation_reconciles_dex_local_auth_policy(
+    session: AsyncSession,
+) -> None:
+    org = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session.add(org)
+    await session.flush()
+
+    role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug=f"org-member-{uuid.uuid4().hex[:8]}",
+        organization_id=org.id,
+    )
+    session.add(role)
+
+    user = User(
+        id=uuid.uuid4(),
+        email="invited-saml@example.com",
+        hashed_password="hashed-password",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+        role="basic",
+    )
+    session.add(user)
+    await session.flush()
+
+    invitation = OrganizationInvitation(
+        organization_id=org.id,
+        email=user.email,
+        role_id=role.id,
+        status=InvitationStatus.PENDING,
+        invited_by=None,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add(invitation)
+    await session.commit()
+
+    with patch.object(
+        UserManager,
+        "reconcile_dex_local_auth_policy",
+        new=AsyncMock(return_value=True),
+    ) as reconcile_policy:
+        membership = await accept_invitation_for_user(
+            session,
+            user_id=user.id,
+            token=invitation.token,
+        )
+
+    invitation_result = await session.execute(
+        select(OrganizationInvitation).where(OrganizationInvitation.id == invitation.id)
+    )
+    updated_invitation = invitation_result.scalar_one()
+
+    assert membership.organization_id == org.id
+    assert updated_invitation.status == InvitationStatus.ACCEPTED
+    reconcile_policy.assert_awaited_once()
+    assert reconcile_policy.await_args is not None
+    assert reconcile_policy.await_args.kwargs == {"raise_on_error": False}
 
 
 @pytest.mark.anyio

@@ -600,6 +600,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         previous_email: str | None = None,
         raise_on_error: bool = True,
     ) -> None:
+        if await self.reconcile_dex_local_auth_policy(
+            user,
+            previous_email=previous_email,
+            raise_on_error=raise_on_error,
+        ):
+            return
         if not (service := get_dex_local_auth_service()):
             return
         if not dex_password_hash:
@@ -631,6 +637,30 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             if raise_on_error:
                 raise
 
+    async def reconcile_dex_local_auth_policy(
+        self,
+        user: User,
+        *,
+        previous_email: str | None = None,
+        raise_on_error: bool = True,
+    ) -> bool:
+        if not get_dex_local_auth_service():
+            return False
+        if await self._is_local_password_login_allowed(user):
+            return False
+        self.logger.info(
+            "Removing Dex local-auth because local password login is blocked by auth policy",
+            user_id=str(user.id),
+            email=user.email,
+            previous_email=previous_email,
+        )
+        await self._delete_dex_local_auth_aliases(
+            user.email,
+            previous_email=previous_email,
+            raise_on_error=raise_on_error,
+        )
+        return True
+
     async def _delete_dex_local_auth_user(
         self, email: str, *, raise_on_error: bool = True
     ) -> None:
@@ -647,6 +677,23 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             )
             if raise_on_error:
                 raise
+
+    async def _delete_dex_local_auth_aliases(
+        self,
+        email: str,
+        *,
+        previous_email: str | None = None,
+        raise_on_error: bool = True,
+    ) -> None:
+        emails = [email]
+        if previous_email and previous_email != email:
+            emails.append(previous_email)
+
+        for target_email in emails:
+            await self._delete_dex_local_auth_user(
+                target_email,
+                raise_on_error=raise_on_error,
+            )
 
 
 async def get_user_db(session: AsyncSession = Depends(get_async_session)):

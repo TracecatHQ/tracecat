@@ -160,6 +160,12 @@ async def accept_invitation_for_user(
 
         await session.commit()
         await session.refresh(membership)
+        async with get_user_db_context(session) as user_db:
+            async with get_user_manager_context(user_db) as user_manager:
+                await user_manager.reconcile_dex_local_auth_policy(
+                    user,
+                    raise_on_error=False,
+                )
     except TracecatAuthorizationError:
         # Re-raise auth errors without logging as failure (expected user errors)
         raise

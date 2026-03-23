@@ -8,7 +8,11 @@ import pytest
 
 from tracecat import config
 from tracecat.auth.enums import AuthType
-from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enabled
+from tracecat.auth.oidc import (
+    create_platform_oauth_client,
+    oidc_auth_type_enabled,
+    oidc_login_configured,
+)
 
 
 def test_oidc_auth_type_enabled(monkeypatch) -> None:
@@ -17,11 +21,24 @@ def test_oidc_auth_type_enabled(monkeypatch) -> None:
 
     monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC, AuthType.OIDC})
     monkeypatch.setattr(config, "OIDC_ISSUER", "")
-    assert oidc_auth_type_enabled() is False
+    assert oidc_auth_type_enabled() is True
 
     monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.OIDC})
     monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
     assert oidc_auth_type_enabled() is True
+
+
+def test_oidc_login_configured(monkeypatch) -> None:
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC})
+    monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
+    assert oidc_login_configured() is False
+
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC, AuthType.OIDC})
+    monkeypatch.setattr(config, "OIDC_ISSUER", "")
+    assert oidc_login_configured() is False
+
+    monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
+    assert oidc_login_configured() is True
 
 
 def test_create_platform_oauth_client_uses_openid_when_issuer_set(

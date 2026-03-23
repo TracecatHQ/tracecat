@@ -336,12 +336,10 @@ build_env() {
 show_ports() {
     local cluster_num=$1
     calculate_ports "$cluster_num"
-    local dex_host="${DEX_HOST:-dex.localhost}"
 
     cat <<EOF
 Cluster ${WORKTREE_ID}-${cluster_num} port mappings:
   UI (Caddy):      http://localhost:${PUBLIC_APP_PORT}
-  Dex:             http://${dex_host}:${PUBLIC_APP_PORT}
   API:             http://localhost:${PUBLIC_APP_PORT}/api (internal: ${API_PORT})
   PostgreSQL:      localhost:${PG_PORT}
   Redis:           localhost:${REDIS_PORT_HOST}
