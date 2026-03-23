@@ -399,6 +399,7 @@ class WorkflowExecutionsService:
             WorkflowExecutionStatusFilterMode.INCLUDE
         ),
         execution_types: set[ExecutionType] | None = None,
+        exclude_workflow_types: set[str] | None = None,
         start_time_from: datetime.datetime | None = None,
         start_time_to: datetime.datetime | None = None,
         close_time_from: datetime.datetime | None = None,
@@ -414,6 +415,7 @@ class WorkflowExecutionsService:
             statuses=statuses,
             status_mode=status_mode.value,
             execution_types=execution_types,
+            exclude_workflow_types=exclude_workflow_types,
             start_time_from=start_time_from,
             start_time_to=start_time_to,
             close_time_from=close_time_from,
@@ -548,6 +550,7 @@ class WorkflowExecutionsService:
         workflow_id: WorkflowID | None = None,
         trigger_types: set[TriggerType] | None = None,
         triggered_by_user_id: UserID | None = None,
+        exclude_workflow_types: set[str] | None = None,
         limit: int | None = None,
     ) -> list[WorkflowExecution]:
         """List all workflow executions."""
@@ -555,6 +558,7 @@ class WorkflowExecutionsService:
             workflow_id=workflow_id,
             trigger_types=trigger_types,
             triggered_by_user_id=triggered_by_user_id,
+            exclude_workflow_types=exclude_workflow_types,
             workspace_id=self.workspace_id,
         )
         return await self.query_executions(query=query, limit=limit)

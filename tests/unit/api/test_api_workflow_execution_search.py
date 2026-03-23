@@ -8,7 +8,10 @@ from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
 from tracecat.workflow.executions import router as executions_router
-from tracecat.workflow.executions.enums import ExecutionType
+from tracecat.workflow.executions.enums import (
+    WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES,
+    ExecutionType,
+)
 from tracecat.workflow.executions.service import WorkflowExecutionsPage
 
 
@@ -48,6 +51,33 @@ async def test_search_workflow_executions_accepts_limit_500(
     pagination = await_args.kwargs["pagination"]
     assert pagination.limit == 500
     assert await_args.kwargs["execution_types"] == {ExecutionType.PUBLISHED}
+    assert await_args.kwargs["exclude_workflow_types"] == set(
+        WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES
+    )
+
+
+@pytest.mark.anyio
+async def test_list_workflow_executions_excludes_agent_workflow_types(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    mock_service = AsyncMock()
+    mock_service.list_executions = AsyncMock(return_value=[])
+
+    with patch.object(
+        executions_router.WorkflowExecutionsService,
+        "connect",
+        AsyncMock(return_value=mock_service),
+    ):
+        response = client.get("/workflow-executions")
+
+    assert response.status_code == status.HTTP_200_OK
+
+    await_args = mock_service.list_executions.await_args
+    assert await_args is not None
+    assert await_args.kwargs["exclude_workflow_types"] == set(
+        WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES
+    )
 
 
 @pytest.mark.anyio
