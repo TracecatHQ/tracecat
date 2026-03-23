@@ -16,7 +16,12 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 from cryptography.fernet import Fernet
 from fastmcp.server.auth import AccessToken, AuthProvider
+from fastmcp.server.auth.cimd import CIMDDocument
+from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
 from fastmcp.server.auth.oidc_proxy import OIDCProxy
+from fastmcp.server.auth.redirect_validation import (
+    validate_redirect_uri as validate_client_redirect_uri,
+)
 from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
@@ -25,8 +30,8 @@ from mcp.server.auth.provider import (
     AuthorizationParams,
     TokenError,
 )
-from mcp.shared.auth import OAuthClientInformationFull
-from pydantic import BaseModel, Field
+from mcp.shared.auth import InvalidRedirectUriError, OAuthClientInformationFull
+from pydantic import AnyUrl, BaseModel, Field
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
 from starlette.datastructures import MutableHeaders
@@ -87,6 +92,7 @@ _MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret
 _MCP_AUTH_SOURCE_CLAIM = "tracecat_mcp_auth_source"
 _MCP_BYPASS_CLAIM = "tracecat_mcp_superuser_bypass"
 _MCP_NONE_CLIENT_ID = "tracecat-mcp-none"
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 def _normalize_auth_source(value: object) -> MCPAuthSource:
@@ -138,6 +144,15 @@ def merge_unique_scopes(scopes: list[str], extra_scopes: Sequence[str]) -> list[
     for scope in extra_scopes:
         merged = append_scope_if_missing(merged, scope)
     return merged
+
+
+def merge_scope_string(
+    scope: str | None,
+    extra_scopes: Sequence[str],
+) -> str:
+    """Return a space-separated scope string with required scopes appended."""
+    merged_scopes = merge_unique_scopes(scope.split() if scope else [], extra_scopes)
+    return " ".join(merged_scopes)
 
 
 def remove_scope(scopes: list[str], scope: str) -> list[str]:
@@ -197,6 +212,49 @@ def _patch_oauth_metadata_route(app: ASGIApp) -> ASGIApp:
         await send({"type": "http.response.body", "body": body, "more_body": False})
 
     return patched_app
+
+
+def _normalize_loopback_path(path: str) -> str:
+    normalized = path or "/"
+    return normalized.rstrip("/") or "/"
+
+
+def _parse_loopback_redirect_uri(value: str) -> tuple[str, str, str, str] | None:
+    parsed = urlparse(value)
+    host = parsed.hostname.lower() if parsed.hostname else None
+    if host not in _LOOPBACK_HOSTS:
+        return None
+    return (
+        parsed.scheme.lower(),
+        host,
+        _normalize_loopback_path(parsed.path),
+        parsed.query,
+    )
+
+
+def _matches_cimd_loopback_redirect_uri(
+    *,
+    redirect_uri: AnyUrl,
+    cimd_document: CIMDDocument,
+    allowed_redirect_uri_patterns: list[str] | None,
+) -> bool:
+    requested = _parse_loopback_redirect_uri(str(redirect_uri))
+    if requested is None:
+        return False
+
+    if allowed_redirect_uri_patterns is not None and not validate_client_redirect_uri(
+        redirect_uri=redirect_uri,
+        allowed_patterns=allowed_redirect_uri_patterns,
+    ):
+        return False
+
+    requested_signature = requested
+    for registered_uri in cimd_document.redirect_uris:
+        if "*" in registered_uri:
+            continue
+        if _parse_loopback_redirect_uri(registered_uri) == requested_signature:
+            return True
+    return False
 
 
 def _coerce_uuid(value: object) -> uuid.UUID | None:
@@ -655,8 +713,52 @@ def _create_oidc_auth() -> OIDCProxy:
         list(oidc_config.scopes), _MCP_REFRESH_SCOPE
     )
 
+    class TracecatProxyDCRClient(ProxyDCRClient):
+        """Relax CIMD loopback callback validation to allow ephemeral local ports."""
+
+        def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
+            try:
+                return super().validate_redirect_uri(redirect_uri)
+            except InvalidRedirectUriError:
+                if (
+                    redirect_uri is None
+                    or self.cimd_document is None
+                    or not _matches_cimd_loopback_redirect_uri(
+                        redirect_uri=redirect_uri,
+                        cimd_document=self.cimd_document,
+                        allowed_redirect_uri_patterns=self.allowed_redirect_uri_patterns,
+                    )
+                ):
+                    raise
+                return redirect_uri
+
     class TracecatOIDCProxy(OIDCProxy):
         """OIDC proxy with user-existence validation and a custom consent page."""
+
+        async def register_client(
+            self, client_info: OAuthClientInformationFull
+        ) -> None:
+            stored_client = client_info.model_copy(
+                update={
+                    "scope": merge_scope_string(client_info.scope, _required_scopes)
+                }
+            )
+            await super().register_client(stored_client)
+
+        async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
+            client = await super().get_client(client_id)
+            if client is None:
+                return None
+
+            client = client.model_copy(
+                update={"scope": merge_scope_string(client.scope, _required_scopes)}
+            )
+
+            if not isinstance(client, ProxyDCRClient) or client.cimd_document is None:
+                return client
+            if isinstance(client, TracecatProxyDCRClient):
+                return client
+            return TracecatProxyDCRClient.model_validate(client.model_dump())
 
         async def authorize(
             self,

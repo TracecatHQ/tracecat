@@ -9,9 +9,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken
+from fastmcp.server.auth.cimd import CIMDDocument
+from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
-from pydantic import AnyUrl
+from pydantic import AnyHttpUrl, AnyUrl
 from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
@@ -354,6 +356,13 @@ def test_merge_unique_scopes_preserves_order_and_uniqueness() -> None:
     ]
 
 
+def test_merge_scope_string_appends_required_scopes() -> None:
+    assert (
+        mcp_auth.merge_scope_string("openid", ["profile", "email", "openid"])
+        == "openid profile email"
+    )
+
+
 def test_remove_scope_removes_only_target_scope() -> None:
     scopes = ["openid", "offline_access", "email"]
     assert mcp_auth.remove_scope(scopes, "offline_access") == ["openid", "email"]
@@ -513,6 +522,128 @@ async def test_create_mcp_auth_authorize_keeps_offline_access_when_metadata_omit
     assert isinstance(forwarded, AuthorizationParams)
     assert forwarded.scopes is not None
     assert forwarded.scopes == ["custom:scope", "openid", "profile", "offline_access"]
+
+
+@pytest.mark.anyio
+async def test_create_mcp_auth_get_client_allows_cimd_loopback_port_variation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    client_id = "https://client.example.com/.well-known/oauth-client.json"
+    cimd_client = ProxyDCRClient(
+        client_id=client_id,
+        client_secret=None,
+        redirect_uris=None,
+        grant_types=["authorization_code", "refresh_token"],
+        scope="openid profile email offline_access",
+        token_endpoint_auth_method="none",
+        cimd_document=CIMDDocument(
+            client_id=AnyHttpUrl(client_id),
+            redirect_uris=["http://localhost/callback"],
+        ),
+    )
+
+    async def _get_client(self, incoming_client_id: str) -> ProxyDCRClient:
+        assert incoming_client_id == client_id
+        return cimd_client
+
+    monkeypatch.setattr(mcp_auth.OIDCProxy, "get_client", _get_client)
+
+    client = await auth.get_client(client_id)
+
+    assert client is not None
+    validated = client.validate_redirect_uri(AnyUrl("http://localhost:52175/callback"))
+    assert str(validated) == "http://localhost:52175/callback"
+
+
+@pytest.mark.anyio
+async def test_create_mcp_auth_get_client_merges_required_scopes_for_partial_dcr_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    client_id = "partial-scope-client"
+    dcr_client = ProxyDCRClient(
+        client_id=client_id,
+        client_secret=None,
+        redirect_uris=[AnyUrl("http://localhost:3333/callback")],
+        grant_types=["authorization_code", "refresh_token"],
+        scope="openid",
+        token_endpoint_auth_method="none",
+    )
+
+    async def _get_client(self, incoming_client_id: str) -> ProxyDCRClient:
+        assert incoming_client_id == client_id
+        return dcr_client
+
+    monkeypatch.setattr(mcp_auth.OIDCProxy, "get_client", _get_client)
+
+    client = await auth.get_client(client_id)
+
+    assert client is not None
+    assert client.scope == "openid profile email offline_access"
+    assert client.validate_scope("openid") == ["openid"]
+
+
+@pytest.mark.anyio
+async def test_create_mcp_auth_register_client_stores_required_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    captured: dict[str, object] = {}
+    client_info = OAuthClientInformationFull(
+        client_id="partial-scope-client",
+        redirect_uris=[AnyUrl("http://localhost:3333/callback")],
+        grant_types=["authorization_code", "refresh_token"],
+        response_types=["code"],
+        token_endpoint_auth_method="none",
+        scope="openid",
+    )
+
+    async def _register_client(
+        self, incoming_client_info: OAuthClientInformationFull
+    ) -> None:
+        captured["scope"] = incoming_client_info.scope
+
+    monkeypatch.setattr(mcp_auth.OIDCProxy, "register_client", _register_client)
+
+    await auth.register_client(client_info)
+
+    assert captured["scope"] == "openid profile email offline_access"
+
+
+@pytest.mark.anyio
+async def test_create_mcp_auth_get_client_keeps_cimd_path_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    client_id = "https://client.example.com/.well-known/oauth-client.json"
+    cimd_client = ProxyDCRClient(
+        client_id=client_id,
+        client_secret=None,
+        redirect_uris=None,
+        grant_types=["authorization_code", "refresh_token"],
+        scope="openid profile email offline_access",
+        token_endpoint_auth_method="none",
+        cimd_document=CIMDDocument(
+            client_id=AnyHttpUrl(client_id),
+            redirect_uris=["http://localhost/callback"],
+        ),
+    )
+
+    async def _get_client(self, incoming_client_id: str) -> ProxyDCRClient:
+        assert incoming_client_id == client_id
+        return cimd_client
+
+    monkeypatch.setattr(mcp_auth.OIDCProxy, "get_client", _get_client)
+
+    client = await auth.get_client(client_id)
+
+    assert client is not None
+    with pytest.raises(
+        mcp_auth.InvalidRedirectUriError,
+        match="does not match CIMD redirect_uris",
+    ):
+        client.validate_redirect_uri(AnyUrl("http://localhost:52175/other"))
 
 
 @pytest.mark.anyio
