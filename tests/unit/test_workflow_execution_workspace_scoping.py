@@ -415,6 +415,38 @@ class TestWorkflowExecutionWorkspaceFiltering:
         assert "ExecutionStatus != 'Running'" in exclude_query
         assert workspace_clause in exclude_query
 
+    async def test_list_executions_paginated_excludes_agent_workflow_type(
+        self,
+        mock_client: Mock,
+        mock_role: Role,
+    ) -> None:
+        service = WorkflowExecutionsService(client=mock_client, role=mock_role)
+
+        class Iterator:
+            def __init__(self) -> None:
+                self.current_page = []
+                self.next_page_token = None
+
+            async def fetch_next_page(self, *, page_size: int | None = None) -> None:
+                return None
+
+        mock_client.list_workflows = Mock(return_value=Iterator())
+
+        await service.list_executions_paginated(
+            pagination=CursorPaginationParams(limit=10),
+            execution_types={ExecutionType.PUBLISHED},
+            exclude_workflow_types={"DurableAgentWorkflow"},
+        )
+
+        query = mock_client.list_workflows.call_args.kwargs["query"]
+        assert "WorkflowType != 'DurableAgentWorkflow'" in query
+        assert (
+            f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{mock_role.workspace_id}'"
+            in query
+        )
+        assert f"{TemporalSearchAttr.EXECUTION_TYPE.value} = 'published'" in query
+        assert f"{TemporalSearchAttr.EXECUTION_TYPE.value} IS NULL" in query
+
     async def test_list_executions_paginated_requires_workspace_id(
         self,
         mock_client: Mock,
@@ -451,6 +483,16 @@ class TestWorkflowExecutionWorkspaceFiltering:
         assert query.startswith(workspace_clause)
         assert f"{workspace_clause} AND " in query
 
+    async def test_build_query_supports_workflow_type_exclusion(self) -> None:
+        workspace_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        query = build_query(
+            workspace_id=workspace_id,
+            exclude_workflow_types={"DurableAgentWorkflow"},
+        )
+        workspace_clause = f"{TemporalSearchAttr.WORKSPACE_ID.value} = '{workspace_id}'"
+        assert workspace_clause in query
+        assert "WorkflowType != 'DurableAgentWorkflow'" in query
+
     async def test_build_query_supports_time_duration_user_and_execution_type(
         self,
     ) -> None:
@@ -460,6 +502,7 @@ class TestWorkflowExecutionWorkspaceFiltering:
             workspace_id=workspace_id,
             triggered_by_user_id=user_id,
             execution_types={ExecutionType.PUBLISHED},
+            exclude_workflow_types={"DurableAgentWorkflow"},
             start_time_from=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
             start_time_to=datetime(2026, 1, 31, 23, 59, tzinfo=UTC),
             close_time_from=datetime(2026, 2, 1, 0, 0, tzinfo=UTC),
@@ -474,6 +517,7 @@ class TestWorkflowExecutionWorkspaceFiltering:
         assert f"TracecatTriggeredByUserId = '{str(user_id)}'" in query
         assert "TracecatExecutionType = 'published'" in query
         assert "TracecatExecutionType IS NULL" in query
+        assert "WorkflowType != 'DurableAgentWorkflow'" in query
         assert "StartTime >=" in query
         assert "StartTime <=" in query
         assert "CloseTime >=" in query

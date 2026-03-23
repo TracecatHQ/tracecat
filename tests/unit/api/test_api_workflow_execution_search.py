@@ -47,6 +47,7 @@ async def test_search_workflow_executions_accepts_limit_500(
     pagination = await_args.kwargs["pagination"]
     assert pagination.limit == 500
     assert await_args.kwargs["execution_types"] == {ExecutionType.PUBLISHED}
+    assert await_args.kwargs["exclude_workflow_types"] == {"DurableAgentWorkflow"}
 
 
 @pytest.mark.anyio

@@ -296,6 +296,7 @@ def build_query(
     statuses: Collection[str] | None = None,
     status_mode: Literal["include", "exclude"] = "include",
     execution_types: Collection[ExecutionType] | None = None,
+    exclude_workflow_types: Collection[str] | None = None,
     start_time_from: datetime | None = None,
     start_time_to: datetime | None = None,
     close_time_from: datetime | None = None,
@@ -370,6 +371,16 @@ def build_query(
         execution_type_query = " OR ".join(execution_type_clauses)
         if execution_type_query:
             query.append(f"({execution_type_query})")
+
+    if exclude_workflow_types:
+        workflow_type_query = " AND ".join(
+            [
+                f"WorkflowType != '{workflow_type}'"
+                for workflow_type in sorted(exclude_workflow_types)
+            ]
+        )
+        if workflow_type_query:
+            query.append(f"({workflow_type_query})")
 
     if start_time_from is not None:
         query.append(f"StartTime >= '{_format_temporal_datetime(start_time_from)}'")

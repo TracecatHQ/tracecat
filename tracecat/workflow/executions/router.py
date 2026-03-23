@@ -496,6 +496,7 @@ async def search_workflow_executions(
             statuses=statuses,
             status_mode=status_mode,
             execution_types={ExecutionType.PUBLISHED},
+            exclude_workflow_types={"DurableAgentWorkflow"},
             start_time_from=start_time_from,
             start_time_to=start_time_to,
             close_time_from=close_time_from,
