@@ -9,7 +9,6 @@ import time
 import uuid
 from base64 import urlsafe_b64decode
 from collections.abc import Mapping, Sequence
-from enum import StrEnum
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
@@ -62,20 +61,13 @@ from tracecat.logger import logger
 from tracecat.mcp import config as mcp_config
 
 
-class MCPAuthSource(StrEnum):
-    OIDC = "oidc"
-    NONE = "none"
-
-
 class MCPTokenIdentity(BaseModel):
     """Identity extracted from the active MCP access token."""
 
     client_id: str
-    auth_source: MCPAuthSource = MCPAuthSource.OIDC
     email: str | None = None
     organization_ids: frozenset[uuid.UUID] = Field(default_factory=frozenset)
     workspace_ids: frozenset[uuid.UUID] = Field(default_factory=frozenset)
-    is_superuser_bypass: bool = False
 
 
 _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
@@ -89,42 +81,7 @@ _MCP_REFRESH_SCOPE = "offline_access"
 _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 24 * 60 * 60
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
 _MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
-_MCP_AUTH_SOURCE_CLAIM = "tracecat_mcp_auth_source"
-_MCP_BYPASS_CLAIM = "tracecat_mcp_superuser_bypass"
-_MCP_NONE_CLIENT_ID = "tracecat-mcp-none"
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
-
-
-def _normalize_auth_source(value: object) -> MCPAuthSource:
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized:
-            try:
-                return MCPAuthSource(normalized)
-            except ValueError:
-                pass
-    return MCPAuthSource.OIDC
-
-
-def _is_trusted_bypass_identity(
-    auth_source: MCPAuthSource,
-    client_id: str,
-) -> bool:
-    return auth_source is MCPAuthSource.NONE and client_id == _MCP_NONE_CLIENT_ID
-
-
-def _build_none_access_token() -> AccessToken:
-    claims: dict[str, Any] = {
-        "client_id": _MCP_NONE_CLIENT_ID,
-        _MCP_AUTH_SOURCE_CLAIM: MCPAuthSource.NONE.value,
-        _MCP_BYPASS_CLAIM: True,
-    }
-    return AccessToken(
-        token=_MCP_NONE_CLIENT_ID,
-        client_id=_MCP_NONE_CLIENT_ID,
-        scopes=["*"],
-        claims=claims,
-    )
 
 
 class _UserinfoFetchError(RuntimeError):
@@ -420,10 +377,7 @@ def get_token_identity() -> MCPTokenIdentity:
     """Extract normalized caller identity from the current access token."""
     access_token = get_access_token()
     if access_token is None:
-        if mcp_config.TRACECAT_MCP__AUTH_MODE is mcp_config.MCPAuthMode.NONE:
-            access_token = _build_none_access_token()
-        else:
-            raise ValueError("Authentication required")
+        raise ValueError("Authentication required")
 
     claims = access_token.claims
     email = get_email_claim(claims)
@@ -445,18 +399,12 @@ def get_token_identity() -> MCPTokenIdentity:
     workspace_ids = _extract_claimed_uuids(claims, ("workspace_id", "workspace_ids"))
     organization_ids.update(_extract_scope_uuids(access_token.scopes, "organization"))
     workspace_ids.update(_extract_scope_uuids(access_token.scopes, "workspace"))
-    auth_source = _normalize_auth_source(claims.get(_MCP_AUTH_SOURCE_CLAIM))
-    is_superuser_bypass = claims.get(_MCP_BYPASS_CLAIM) is True and (
-        _is_trusted_bypass_identity(auth_source, client_id)
-    )
 
     return MCPTokenIdentity(
         client_id=client_id,
-        auth_source=auth_source,
         email=email,
         organization_ids=frozenset(organization_ids),
         workspace_ids=frozenset(workspace_ids),
-        is_superuser_bypass=is_superuser_bypass,
     )
 
 
@@ -1100,22 +1048,8 @@ def _create_oidc_auth() -> OIDCProxy:
     return auth
 
 
-def create_mcp_auth() -> AuthProvider | None:
-    """Build the configured auth provider for external MCP."""
-    base_url = mcp_config.TRACECAT_MCP__BASE_URL.strip().rstrip("/")
-    if not base_url:
-        raise ValueError(
-            "TRACECAT_MCP__BASE_URL must be configured for the MCP server. "
-            "Set it to the public URL where the MCP server is accessible."
-        )
-
-    if mcp_config.TRACECAT_MCP__AUTH_MODE is mcp_config.MCPAuthMode.NONE:
-        logger.warning(
-            "MCP none auth is enabled; unauthenticated requests will run with a superuser-equivalent bypass. This is highly unsafe and should only be used for development",
-            auth_mode=mcp_config.TRACECAT_MCP__AUTH_MODE.value,
-        )
-        return None
-
+def create_mcp_auth() -> AuthProvider:
+    """Build the auth provider for external MCP."""
     return _create_oidc_auth()
 
 
@@ -1177,38 +1111,6 @@ async def resolve_workspace_org(workspace_id: WorkspaceID) -> OrganizationID:
         if org_id is None:
             raise ValueError(f"Workspace {workspace_id} not found")
         return org_id
-
-
-async def resolve_bypass_role_for_workspace(workspace_id: WorkspaceID) -> Role:
-    """Construct a superuser-equivalent MCP role for unsafe authless access."""
-    org_id = await resolve_workspace_org(workspace_id)
-    role = Role(
-        type="service",
-        user_id=None,
-        workspace_id=workspace_id,
-        organization_id=org_id,
-        service_id="tracecat-mcp",
-        is_platform_superuser=True,
-        scopes=frozenset({"*"}),
-    )
-    ctx_role.set(role)
-    return role
-
-
-async def list_all_workspaces(
-    organization_ids: frozenset[OrganizationID] | None = None,
-) -> list[dict[str, str]]:
-    """List all workspaces, optionally narrowed to specific organizations."""
-    async with get_async_session_bypass_rls_context_manager() as session:
-        stmt = select(Workspace.id, Workspace.name)
-        if organization_ids:
-            stmt = stmt.where(Workspace.organization_id.in_(organization_ids))
-        stmt = stmt.order_by(Workspace.name.asc(), Workspace.id.asc())
-        result = await session.execute(stmt)
-        return [
-            {"id": str(workspace_id), "name": workspace_name}
-            for workspace_id, workspace_name in result.tuples().all()
-        ]
 
 
 async def resolve_workspace_membership(
@@ -1302,7 +1204,15 @@ async def list_user_workspaces(
             )
 
         if user.is_superuser:
-            return await list_all_workspaces(organization_ids)
+            stmt = select(Workspace.id, Workspace.name)
+            if organization_ids:
+                stmt = stmt.where(Workspace.organization_id.in_(organization_ids))
+            stmt = stmt.order_by(Workspace.name.asc(), Workspace.id.asc())
+            result = await session.execute(stmt)
+            return [
+                {"id": str(workspace_id), "name": workspace_name}
+                for workspace_id, workspace_name in result.tuples().all()
+            ]
 
         # Resolve the user's organization(s)
         org_stmt = select(OrganizationMembership.organization_id).where(
@@ -1376,9 +1286,6 @@ async def list_user_workspaces(
 
 async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
     """Resolve caller role for a workspace."""
-    identity = get_token_identity()
-    if identity.is_superuser_bypass:
-        return await resolve_bypass_role_for_workspace(workspace_id)
     email = get_email_from_token()
     return await resolve_role(email, workspace_id)
 
@@ -1386,8 +1293,6 @@ async def resolve_role_for_request(workspace_id: WorkspaceID) -> Role:
 async def list_workspaces_for_request() -> list[dict[str, str]]:
     """List workspaces accessible to the current MCP caller."""
     identity = get_token_identity()
-    if identity.is_superuser_bypass:
-        return await list_all_workspaces(identity.organization_ids or None)
     if identity.email is None:
         raise ValueError("Token does not contain an email claim")
     scoped_org_ids = identity.organization_ids or None
