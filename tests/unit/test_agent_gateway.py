@@ -9,6 +9,7 @@ from tracecat.agent.gateway import (
     TracecatCallbackHandler,
     _hook_request_ids,
     _inject_provider_credentials,
+    _sanitize_exception_message,
     user_api_key_auth,
 )
 from tracecat.agent.litellm_observability import LiteLLMLoadTracker
@@ -253,6 +254,18 @@ def test_verify_llm_token_rejects_invalid_token_type() -> None:
         verify_llm_token("")
 
 
+def test_sanitize_exception_message_redacts_api_key_and_bearer_token() -> None:
+    sanitized = _sanitize_exception_message(
+        RuntimeError(
+            "Incorrect API key provided: sk-test123 Authorization: Bearer secret-token"
+        )
+    )
+
+    assert "sk-test123" not in sanitized
+    assert "secret-token" not in sanitized
+    assert "[REDACTED]" in sanitized
+
+
 @pytest.mark.anyio
 async def test_pre_call_hook_tracks_active_gateway_requests(
     monkeypatch: pytest.MonkeyPatch,
@@ -416,3 +429,59 @@ async def test_failure_hook_does_not_require_internal_request_id_in_payload(
 
     assert tracker.snapshot().active_requests == 0
     assert id(request_data) not in _hook_request_ids
+
+
+@pytest.mark.anyio
+async def test_failure_hook_logs_sanitized_exception_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracker = LiteLLMLoadTracker()
+    logged_kwargs: dict[str, object] = {}
+
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {"OPENAI_API_KEY": "test-openai-key"}
+
+    def fake_error(message: str, **kwargs: object) -> None:
+        logged_kwargs.update(kwargs)
+
+    monkeypatch.setattr("tracecat.agent.gateway._gateway_load_tracker", tracker)
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+    monkeypatch.setattr("tracecat.agent.gateway.logger.error", fake_error)
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="llm-token",
+        metadata={
+            "workspace_id": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "session_id": "00000000-0000-0000-0000-000000000003",
+            "model": "gpt-5",
+            "provider": "openai",
+            "base_url": None,
+            "model_settings": {},
+            "use_workspace_credentials": True,
+        },
+    )
+
+    handler = TracecatCallbackHandler()
+    request_data = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cast(DualCache, object()),
+        data={},
+        call_type="completion",
+    )
+
+    await handler.async_post_call_failure_hook(
+        request_data=request_data,
+        original_exception=RuntimeError(
+            "Incorrect API key provided: sk-test123 Authorization: Bearer secret-token"
+        ),
+        user_api_key_dict=user_api_key_dict,
+    )
+
+    error_message = str(logged_kwargs["error"])
+    assert "sk-test123" not in error_message
+    assert "secret-token" not in error_message
+    assert "[REDACTED]" in error_message
