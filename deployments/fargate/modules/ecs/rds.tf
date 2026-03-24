@@ -60,6 +60,20 @@ resource "time_sleep" "wait_for_rds_dependencies" {
   create_duration = "30s"
 }
 
+resource "aws_db_parameter_group" "temporal_database_compatibility" {
+  count = var.disable_temporal_autosetup || var.temporal_db_force_ssl ? 0 : 1
+
+  name        = "temporal-db-compatibility"
+  family      = "postgres${split(".", var.db_engine_version)[0]}"
+  description = "Temporal PostgreSQL parameter group for Fargate auto-setup compatibility"
+
+  parameter {
+    name         = "rds.force_ssl"
+    value        = "0"
+    apply_method = "pending-reboot"
+  }
+}
+
 resource "aws_db_instance" "core_database" {
   identifier                  = "core-database"
   engine                      = "postgres"
@@ -111,8 +125,11 @@ resource "aws_db_instance" "temporal_database" {
   multi_az                    = var.rds_multi_az
   db_subnet_group_name        = aws_db_subnet_group.tracecat_db_subnet.name
   vpc_security_group_ids      = [aws_security_group.temporal_db.id]
-  skip_final_snapshot         = var.rds_skip_final_snapshot
-  final_snapshot_identifier   = "final-temporal-db-${local.snapshot_timestamp}-${random_string.temporal_snapshot_suffix[0].result}"
+  parameter_group_name = var.temporal_db_force_ssl ? (
+    "default.postgres${split(".", var.db_engine_version)[0]}"
+  ) : aws_db_parameter_group.temporal_database_compatibility[0].name
+  skip_final_snapshot       = var.rds_skip_final_snapshot
+  final_snapshot_identifier = "final-temporal-db-${local.snapshot_timestamp}-${random_string.temporal_snapshot_suffix[0].result}"
   snapshot_identifier = var.restore_from_snapshot ? (
     var.temporal_db_snapshot_name != null ?
     var.temporal_db_snapshot_name :

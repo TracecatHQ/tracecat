@@ -93,6 +93,17 @@ export TF_VAR_tracecat_image_tag=1.0.0-beta.33
 terraform apply
 ```
 
+## Temporal DB SSL enforcement
+
+If the bundled `temporalio/auto-setup` service is unable to connect to PostgreSQL with TLS in ECS Fargate, you can disable SSL enforcement on the Temporal RDS instance only:
+
+```bash
+export TF_VAR_temporal_db_force_ssl=false
+terraform apply
+```
+
+This setting applies only to the Temporal RDS instance. It requires a DB reboot and permits non-TLS connections to the Temporal database for compatibility with the current Fargate Temporal auto-setup flow.
+
 ## FAQ
 
 ### Is untrusted code execution safe on Fargate?

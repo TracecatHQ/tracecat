@@ -156,6 +156,7 @@ module "ecs" {
   temporal_num_history_shards              = var.temporal_num_history_shards
   temporal_db_tls_enabled                  = var.temporal_db_tls_enabled
   temporal_db_tls_enable_host_verification = var.temporal_db_tls_enable_host_verification
+  temporal_db_force_ssl                    = var.temporal_db_force_ssl
   caddy_cpu                                = var.caddy_cpu
   caddy_memory                             = var.caddy_memory
   tracecat_db_instance_class               = local.tracecat_db_instance_class
