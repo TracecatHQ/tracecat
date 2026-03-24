@@ -248,6 +248,10 @@ async def _spawn_direct_runtime(
         # Use host's HOME for Claude SDK session storage
         "HOME": os.environ.get("HOME", "/tmp"),
     }
+    if litellm_base_url := os.environ.get("TRACECAT__LITELLM_BASE_URL"):
+        env["TRACECAT__LITELLM_BASE_URL"] = litellm_base_url
+    if litellm_url := os.environ.get("TRACECAT__LITELLM_URL"):
+        env["TRACECAT__LITELLM_URL"] = litellm_url
     if llm_socket_path is not None:
         # If the runtime uses LLMBridge (internet access disabled), it must connect
         # to the orchestrator-side LLM socket.

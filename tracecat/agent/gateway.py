@@ -24,6 +24,14 @@ from tracecat.logger import logger
 # Apply monkeypatches for LiteLLM adapter compatibility fixes
 apply_patch()
 
+_UNAUTHENTICATED_PATHS = frozenset(
+    {
+        "/health",
+        "/health/liveliness",
+        "/health/readiness",
+    }
+)
+
 # -----------------------------------------------------------------------------
 # Credential Fetching via AgentManagementService
 # -----------------------------------------------------------------------------
@@ -53,9 +61,10 @@ async def get_provider_credentials(
     )
 
     async with AgentManagementService.with_session(role=role) as service:
-        if use_workspace_creds:
-            return await service.get_workspace_provider_credentials(provider)
-        return await service.get_provider_credentials(provider)
+        return await service.get_runtime_provider_credentials(
+            provider,
+            use_workspace_credentials=use_workspace_creds,
+        )
 
 
 # -----------------------------------------------------------------------------

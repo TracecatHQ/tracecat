@@ -383,6 +383,118 @@ services:
           condition: service_healthy
         minio:
           condition: service_healthy
+  litellm:
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.33}
+    restart: unless-stopped
+    networks:
+      - core
+      - core-db
+      - temporal
+    environment:
+      TRACECAT__LITELLM_PORT: ${TRACECAT__LITELLM_PORT}
+      TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL}
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__APP_ENV: production
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      PYTHONPATH: /app:/app/packages/tracecat-registry:/app/packages/tracecat-ee
+    command: ["python", "-m", "tracecat.agent.litellm"]
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import os, socket; port=int(os.environ['TRACECAT__LITELLM_PORT']); s=socket.create_connection(('127.0.0.1', port), timeout=5); s.close()\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  agent-executor:
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.33}
+    restart: unless-stopped
+    networks:
+      - core
+      - core-db
+      - temporal
+    # Required for nsjail sandbox (uncomment if using nsjail)
+    # cap_add:
+    #   - SYS_ADMIN
+    # security_opt:
+    #   - seccomp:unconfined
+    # # Required for pasta userspace networking (creates TAP device in sandbox netns)
+    # devices:
+    #   - /dev/net/tun:/dev/net/tun
+    environment:
+      # Common
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__APP_ENV: production
+      TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID: ${TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID:-}
+      TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN: ${TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN:-}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
+      TRACECAT__API_URL: ${TRACECAT__API_URL:-http://api:8000}
+      TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL}
+      # Compression (must match worker for codec compatibility)
+      TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
+      TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
+      TRACECAT__RESULT_EXTERNALIZATION_ENABLED: "true"
+      TRACECAT__COLLECTION_MANIFESTS_ENABLED: "true"
+      TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES: ${TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES}
+      # Registry
+      TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Sandbox
+      TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-direct}
+      TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-true}
+      TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
+      TRACECAT__SANDBOX_ROOTFS_PATH: /var/lib/tracecat/sandbox-rootfs
+      TRACECAT__SANDBOX_CACHE_DIR: /var/lib/tracecat/sandbox-cache
+      # Temporal
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
+      TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
+      TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+      # Agent Worker configuration
+      TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
+      TRACECAT__LLM_PROXY_READ_TIMEOUT: ${TRACECAT__LLM_PROXY_READ_TIMEOUT:-300}
+      # Pool size auto-scales based on available CPUs if not set
+      TRACECAT__EXECUTOR_WORKER_POOL_SIZE: ${TRACECAT__EXECUTOR_WORKER_POOL_SIZE:-}
+      # Redis
+      REDIS_URL: ${REDIS_URL}
+      # Blob storage (MinIO/S3)
+      TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW: ${TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW:-tracecat-workflow}
+      TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS: ${TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS:-tracecat-attachments}
+      TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY: ${TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY:-tracecat-registry}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
+      - sandbox-cache:/var/lib/tracecat/sandbox-cache
+    command: ["python", "-m", "tracecat.agent.worker"]
+    depends_on:
+      litellm:
+        condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
+      temporal:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
   mcp:
     image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.35}

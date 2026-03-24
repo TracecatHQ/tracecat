@@ -306,6 +306,8 @@ build_env() {
     export REDIS_PORT_HOST
     export TEMPORAL_PORT
     export API_PORT
+    export TRACECAT__LITELLM_PORT="${TRACECAT__LITELLM_PORT:-4000}"
+    export TRACECAT__LITELLM_BASE_URL="${TRACECAT__LITELLM_BASE_URL:-http://litellm:${TRACECAT__LITELLM_PORT}}"
     export TEMPORAL_UI_PORT
     export MINIO_PORT
     export MINIO_CONSOLE_PORT
@@ -317,7 +319,6 @@ build_env() {
     export TRACECAT__PUBLIC_API_URL="${PUBLIC_API_URL}"
     export NEXT_PUBLIC_APP_URL="${PUBLIC_APP_URL}"
     export NEXT_PUBLIC_API_URL="${PUBLIC_API_URL}"
-
     # Caddy configuration
     export BASE_DOMAIN=":${PUBLIC_APP_PORT}"
 
