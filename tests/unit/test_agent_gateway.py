@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from litellm.caching.dual_cache import DualCache
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
@@ -469,22 +471,18 @@ async def test_failure_hook_does_not_require_internal_request_id_in_payload(
 @pytest.mark.anyio
 async def test_failure_hook_logs_sanitized_exception_message(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     tracker = LiteLLMLoadTracker()
-    logged_kwargs: dict[str, object] = {}
 
     async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
         return {"OPENAI_API_KEY": "test-openai-key"}
-
-    def fake_error(message: str, **kwargs: object) -> None:
-        logged_kwargs.update(kwargs)
 
     monkeypatch.setattr("tracecat.agent.gateway._gateway_load_tracker", tracker)
     monkeypatch.setattr(
         "tracecat.agent.gateway.get_provider_credentials",
         mock_get_provider_credentials,
     )
-    monkeypatch.setattr("tracecat.agent.gateway.logger.error", fake_error)
 
     user_api_key_dict = UserAPIKeyAuth(
         api_key="llm-token",
@@ -508,15 +506,18 @@ async def test_failure_hook_logs_sanitized_exception_message(
         call_type="completion",
     )
 
-    await handler.async_post_call_failure_hook(
-        request_data=request_data,
-        original_exception=RuntimeError(
-            "Incorrect API key provided: sk-test123 Authorization: Bearer secret-token"
-        ),
-        user_api_key_dict=user_api_key_dict,
-    )
+    with caplog.at_level(logging.ERROR, logger="tracecat.agent.gateway"):
+        await handler.async_post_call_failure_hook(
+            request_data=request_data,
+            original_exception=RuntimeError(
+                "Incorrect API key provided: sk-test123 Authorization: Bearer secret-token"
+            ),
+            user_api_key_dict=user_api_key_dict,
+        )
 
-    error_message = str(logged_kwargs["error"])
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages
+    error_message = messages[-1]
     assert "sk-test123" not in error_message
     assert "secret-token" not in error_message
     assert "[REDACTED]" in error_message

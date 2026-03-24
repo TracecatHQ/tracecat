@@ -7,8 +7,10 @@ via JWT tokens minted by the agent executor.
 
 from __future__ import annotations
 
+import logging
 import re
 
+import orjson
 from fastapi import Request
 from litellm.caching.dual_cache import DualCache
 from litellm.integrations.custom_logger import CustomLogger
@@ -23,7 +25,6 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.config import TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS
 from tracecat.identifiers import OrganizationID, WorkspaceID
-from tracecat.logger import logger
 
 # Apply monkeypatches for LiteLLM adapter compatibility fixes
 apply_patch()
@@ -42,6 +43,7 @@ _hook_request_counters: dict[int, int] = {}
 _CREDENTIALS_CACHE_PREFIX = "tracecat:litellm:provider-creds"
 _SANITIZED_ERROR_MAX_LENGTH = 512
 _TRACE_REQUEST_ID_HEADER = "x-request-id"
+_gateway_logger = logging.getLogger(__name__)
 _SENSITIVE_ERROR_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+"),
@@ -109,6 +111,16 @@ def _sanitize_exception_message(exc: Exception) -> str:
     if len(sanitized) > _SANITIZED_ERROR_MAX_LENGTH:
         return f"{sanitized[:_SANITIZED_ERROR_MAX_LENGTH]}...[truncated]"
     return sanitized
+
+
+def _gateway_log(level: int, message: str, **fields: object) -> None:
+    if not _gateway_logger.isEnabledFor(level):
+        return
+    if not fields:
+        _gateway_logger.log(level, message)
+        return
+    serialized_fields = orjson.dumps(fields, default=str).decode("utf-8")
+    _gateway_logger.log(level, "%s | %s", message, serialized_fields)
 
 
 async def get_provider_credentials(
@@ -184,7 +196,8 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
     actually our JWT token minted by the agent executor.
     """
     if request.url.path in _UNAUTHENTICATED_HEALTH_ROUTES:
-        logger.debug(
+        _gateway_log(
+            logging.DEBUG,
             "Allowing unauthenticated LiteLLM health probe",
             path=request.url.path,
             **_load_fields(),
@@ -197,7 +210,7 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
     try:
         claims = verify_llm_token(api_key or "")
     except ValueError as e:
-        logger.warning("LLM token validation failed", **_load_fields())
+        _gateway_log(logging.WARNING, "LLM token validation failed", **_load_fields())
         raise ProxyException(
             message="Invalid or expired token",
             type="auth_error",
@@ -248,7 +261,8 @@ class TracecatCallbackHandler(CustomLogger):
         model = user_api_key_dict.metadata.get("model")
         provider = user_api_key_dict.metadata.get("provider")
         if not model or not provider:
-            logger.warning(
+            _gateway_log(
+                logging.WARNING,
                 "Model or provider not found in token metadata",
                 workspace_id=workspace_id,
                 model=model,
@@ -272,7 +286,8 @@ class TracecatCallbackHandler(CustomLogger):
         )
 
         if not creds:
-            logger.warning(
+            _gateway_log(
+                logging.WARNING,
                 "No credentials configured for provider",
                 workspace_id=workspace_id,
                 provider=provider,
@@ -336,7 +351,8 @@ class TracecatCallbackHandler(CustomLogger):
         load_snapshot = _gateway_load_tracker.end_request()
         request_counter = _pop_hook_request_counter(request_data)
         sanitized_error = _sanitize_exception_message(original_exception)
-        logger.error(
+        _gateway_log(
+            logging.ERROR,
             "LiteLLM call failed",
             request_counter=request_counter,
             trace_request_id=user_api_key_dict.metadata.get("trace_request_id"),
@@ -372,8 +388,10 @@ def _inject_provider_credentials(
         case "openai":
             api_key = creds.get("OPENAI_API_KEY")
             if not api_key:
-                logger.warning(
-                    "Required credential key missing for provider", provider=provider
+                _gateway_log(
+                    logging.WARNING,
+                    "Required credential key missing for provider",
+                    provider=provider,
                 )
                 raise ProxyException(
                     message="Provider credentials incomplete",
@@ -388,8 +406,10 @@ def _inject_provider_credentials(
         case "anthropic":
             api_key = creds.get("ANTHROPIC_API_KEY")
             if not api_key:
-                logger.warning(
-                    "Required credential key missing for provider", provider=provider
+                _gateway_log(
+                    logging.WARNING,
+                    "Required credential key missing for provider",
+                    provider=provider,
                 )
                 raise ProxyException(
                     message="Provider credentials incomplete",
@@ -404,8 +424,10 @@ def _inject_provider_credentials(
         case "gemini":
             api_key = creds.get("GEMINI_API_KEY")
             if not api_key:
-                logger.warning(
-                    "Required credential key missing for provider", provider=provider
+                _gateway_log(
+                    logging.WARNING,
+                    "Required credential key missing for provider",
+                    provider=provider,
                 )
                 raise ProxyException(
                     message="Provider credentials incomplete",
@@ -423,7 +445,8 @@ def _inject_provider_credentials(
             project = creds.get("GOOGLE_CLOUD_PROJECT")
             model_name = creds.get("VERTEX_AI_MODEL")
             if not credentials or not project or not model_name:
-                logger.warning(
+                _gateway_log(
+                    logging.WARNING,
                     "Required Vertex AI config keys missing",
                     provider=provider,
                     has_credentials=bool(credentials),
@@ -457,7 +480,8 @@ def _inject_provider_credentials(
                     if session_token:
                         data["aws_session_token"] = session_token
                 elif access_key or secret_key or session_token:
-                    logger.warning(
+                    _gateway_log(
+                        logging.WARNING,
                         "Partial static AWS credentials configured for Bedrock",
                         provider=provider,
                         has_access_key=bool(access_key),
@@ -471,7 +495,8 @@ def _inject_provider_credentials(
                         code=401,
                     )
                 else:
-                    logger.debug(
+                    _gateway_log(
+                        logging.DEBUG,
                         "No static Bedrock AWS credentials configured; using ambient IAM role credentials",
                         provider=provider,
                     )
@@ -500,7 +525,8 @@ def _inject_provider_credentials(
             base_url = creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL")
             model_name = creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")
 
-            logger.debug(
+            _gateway_log(
+                logging.DEBUG,
                 "Custom model provider credentials",
                 api_key_set=bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
                 base_url=base_url,
@@ -514,7 +540,8 @@ def _inject_provider_credentials(
                 # Prefix with openai/ for LiteLLM routing
                 data["model"] = f"openai/{model_name}"
 
-            logger.debug(
+            _gateway_log(
+                logging.DEBUG,
                 "Injected custom model provider config",
                 data_api_base=data.get("api_base"),
                 data_model=data.get("model"),
@@ -527,7 +554,8 @@ def _inject_provider_credentials(
             deployment = creds.get("AZURE_DEPLOYMENT_NAME")
 
             if not base or not version or not deployment:
-                logger.warning(
+                _gateway_log(
+                    logging.WARNING,
                     "Required Azure OpenAI config keys missing",
                     provider=provider,
                     has_base=bool(base),
@@ -550,7 +578,8 @@ def _inject_provider_credentials(
             elif ad_token:
                 data["azure_ad_token"] = ad_token
             else:
-                logger.warning(
+                _gateway_log(
+                    logging.WARNING,
                     "Azure OpenAI requires either AZURE_API_KEY or AZURE_AD_TOKEN",
                     provider=provider,
                 )
@@ -572,7 +601,8 @@ def _inject_provider_credentials(
             model_name = creds.get("AZURE_AI_MODEL_NAME")
 
             if not base or not api_key or not model_name:
-                logger.warning(
+                _gateway_log(
+                    logging.WARNING,
                     "Required Azure AI config keys missing",
                     provider=provider,
                     has_base=bool(base),
@@ -591,7 +621,11 @@ def _inject_provider_credentials(
             data["model"] = f"azure_ai/{model_name}"
 
         case _:
-            logger.warning("Unsupported provider requested", provider=provider)
+            _gateway_log(
+                logging.WARNING,
+                "Unsupported provider requested",
+                provider=provider,
+            )
             raise ProxyException(
                 message="Invalid provider configuration",
                 type="invalid_request_error",
