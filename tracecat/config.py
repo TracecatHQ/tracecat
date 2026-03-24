@@ -626,8 +626,10 @@ TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
 )
 """Read timeout for the LLM socket proxy in seconds (default: 5 minutes)."""
 
-TRACECAT__LITELLM_NUM_WORKERS = int(
-    os.environ.get("TRACECAT__LITELLM_NUM_WORKERS") or 4
+
+TRACECAT__LITELLM_NUM_WORKERS = max(
+    1,
+    int(os.environ.get("TRACECAT__LITELLM_NUM_WORKERS") or 4),
 )
 """Number of LiteLLM proxy workers to run per agent-executor sidecar."""
 
@@ -637,14 +639,38 @@ TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS = float(
 """TTL for process-local LiteLLM credential cache entries in seconds."""
 
 TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS = float(
-    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS") or 5.0
+    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS") or 30.0
 )
 """Interval between LiteLLM readiness checks in seconds."""
 
 TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS = float(
     os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS") or 2.0
 )
-"""Timeout for LiteLLM readiness checks in seconds."""
+"""Legacy default timeout for LiteLLM readiness checks in seconds."""
+
+TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS")
+    or TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS
+)
+"""Connect timeout for LiteLLM readiness checks in seconds."""
+
+TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS")
+    or TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS
+)
+"""Read timeout for LiteLLM readiness checks in seconds."""
+
+TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS")
+    or TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS
+)
+"""Write timeout for LiteLLM readiness checks in seconds."""
+
+TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS")
+    or TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS
+)
+"""Pool timeout for LiteLLM readiness checks in seconds."""
 
 TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD = int(
     os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD") or 3

@@ -12,7 +12,6 @@ class LiteLLMLoadSnapshot:
 
     active_connections: int
     active_requests: int
-    total_requests: int
     peak_active_connections: int
     peak_active_requests: int
 
@@ -25,7 +24,6 @@ class LiteLLMLoadTracker:
         self._request_counter = 0
         self._active_connections = 0
         self._active_requests = 0
-        self._total_requests = 0
         self._peak_active_connections = 0
         self._peak_active_requests = 0
 
@@ -48,7 +46,6 @@ class LiteLLMLoadTracker:
         """Record a new upstream LiteLLM request."""
         with self._lock:
             self._request_counter += 1
-            self._total_requests += 1
             self._active_requests += 1
             self._peak_active_requests = max(
                 self._peak_active_requests, self._active_requests
@@ -70,7 +67,6 @@ class LiteLLMLoadTracker:
         return LiteLLMLoadSnapshot(
             active_connections=self._active_connections,
             active_requests=self._active_requests,
-            total_requests=self._total_requests,
             peak_active_connections=self._peak_active_connections,
             peak_active_requests=self._peak_active_requests,
         )

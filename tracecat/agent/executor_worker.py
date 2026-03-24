@@ -101,8 +101,6 @@ async def main() -> None:
 
     try:
         client = await _start_runtime_services()
-        if runtime_failure_reason is not None:
-            raise RuntimeError(runtime_failure_reason)
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
             async with Worker(
                 client,

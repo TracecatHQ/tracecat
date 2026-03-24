@@ -535,13 +535,37 @@ variable "litellm_credential_cache_ttl_seconds" {
 variable "litellm_healthcheck_interval_seconds" {
   type        = string
   description = "LiteLLM readiness check interval in seconds"
-  default     = "5"
+  default     = "30"
 }
 
 variable "litellm_healthcheck_timeout_seconds" {
   type        = string
   description = "LiteLLM readiness check timeout in seconds"
   default     = "2"
+}
+
+variable "litellm_healthcheck_connect_timeout_seconds" {
+  type        = string
+  description = "LiteLLM readiness connect timeout in seconds"
+  default     = null
+}
+
+variable "litellm_healthcheck_read_timeout_seconds" {
+  type        = string
+  description = "LiteLLM readiness read timeout in seconds"
+  default     = null
+}
+
+variable "litellm_healthcheck_write_timeout_seconds" {
+  type        = string
+  description = "LiteLLM readiness write timeout in seconds"
+  default     = null
+}
+
+variable "litellm_healthcheck_pool_timeout_seconds" {
+  type        = string
+  description = "LiteLLM readiness pool timeout in seconds"
+  default     = null
 }
 
 variable "litellm_healthcheck_failure_threshold" {

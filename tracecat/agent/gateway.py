@@ -38,9 +38,10 @@ _UNAUTHENTICATED_HEALTH_ROUTES = {
     "/health/readiness",
 }
 _gateway_load_tracker = get_load_tracker("litellm_gateway")
-_hook_request_ids: dict[int, int] = {}
+_hook_request_counters: dict[int, int] = {}
 _CREDENTIALS_CACHE_PREFIX = "tracecat:litellm:provider-creds"
 _SANITIZED_ERROR_MAX_LENGTH = 512
+_TRACE_REQUEST_ID_HEADER = "x-request-id"
 _SENSITIVE_ERROR_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+"),
@@ -73,19 +74,18 @@ def _load_fields() -> dict[str, int]:
     snapshot = _gateway_load_tracker.snapshot()
     return {
         "active_gateway_requests": snapshot.active_requests,
-        "gateway_total_requests": snapshot.total_requests,
         "gateway_peak_active_requests": snapshot.peak_active_requests,
     }
 
 
-def _remember_hook_request_id(data: dict, request_id: int) -> None:
-    """Track hook request IDs out-of-band so they never leak upstream."""
-    _hook_request_ids[id(data)] = request_id
+def _remember_hook_request_counter(data: dict, request_counter: int) -> None:
+    """Track hook request counters out-of-band so they never leak upstream."""
+    _hook_request_counters[id(data)] = request_counter
 
 
-def _pop_hook_request_id(data: dict) -> int | None:
-    """Return and clear the tracked request ID for a LiteLLM request payload."""
-    return _hook_request_ids.pop(id(data), None)
+def _pop_hook_request_counter(data: dict) -> int | None:
+    """Return and clear the tracked request counter for a LiteLLM request payload."""
+    return _hook_request_counters.pop(id(data), None)
 
 
 def _credentials_cache_key(
@@ -142,15 +142,6 @@ async def _get_cached_provider_credentials(
     provider: str,
     use_workspace_creds: bool,
 ) -> tuple[dict[str, str] | None, bool]:
-    if not (hasattr(cache, "async_get_cache") and hasattr(cache, "async_set_cache")):
-        creds = await get_provider_credentials(
-            workspace_id=workspace_id,
-            organization_id=organization_id,
-            provider=provider,
-            use_workspace_creds=use_workspace_creds,
-        )
-        return creds, False
-
     cache_key = _credentials_cache_key(
         workspace_id=workspace_id,
         organization_id=organization_id,
@@ -214,22 +205,13 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
             code=401,
         ) from e
 
-    logger.info(
-        "LLM token authenticated",
-        session_id=str(claims.session_id),
-        workspace_id=str(claims.workspace_id),
-        organization_id=str(claims.organization_id),
-        provider=claims.provider,
-        model=claims.model,
-        **_load_fields(),
-    )
-
     return UserAPIKeyAuth(
         api_key="llm-token",
         metadata={
             "workspace_id": str(claims.workspace_id),
             "organization_id": str(claims.organization_id),
             "session_id": str(claims.session_id),
+            "trace_request_id": request.headers.get(_TRACE_REQUEST_ID_HEADER),
             "use_workspace_credentials": claims.use_workspace_credentials,
             "model": claims.model,
             "provider": claims.provider,
@@ -281,7 +263,7 @@ class TracecatCallbackHandler(CustomLogger):
             )
         data["model"] = model
 
-        creds, credential_cache_hit = await _get_cached_provider_credentials(
+        creds, _ = await _get_cached_provider_credentials(
             cache=cache,
             workspace_id=workspace,
             organization_id=organization,
@@ -329,21 +311,8 @@ class TracecatCallbackHandler(CustomLogger):
             }
             data.update(safe_settings)
 
-        request_id, load_snapshot = _gateway_load_tracker.begin_request()
-        _remember_hook_request_id(data, request_id)
-
-        logger.info(
-            "LiteLLM call starting",
-            request_id=request_id,
-            session_id=user_api_key_dict.metadata.get("session_id"),
-            workspace_id=workspace_id,
-            provider=provider,
-            model=model,
-            credential_cache_hit=credential_cache_hit,
-            active_gateway_requests=load_snapshot.active_requests,
-            gateway_total_requests=load_snapshot.total_requests,
-            gateway_peak_active_requests=load_snapshot.peak_active_requests,
-        )
+        request_counter, _ = _gateway_load_tracker.begin_request()
+        _remember_hook_request_counter(data, request_counter)
 
         return data
 
@@ -353,20 +322,8 @@ class TracecatCallbackHandler(CustomLogger):
         user_api_key_dict: UserAPIKeyAuth,
         response: object,
     ) -> object:
-        load_snapshot = _gateway_load_tracker.end_request()
-        request_id = _pop_hook_request_id(data)
-        logger.info(
-            "LiteLLM call completed",
-            request_id=request_id,
-            session_id=user_api_key_dict.metadata.get("session_id"),
-            workspace_id=user_api_key_dict.metadata.get("workspace_id"),
-            provider=user_api_key_dict.metadata.get("provider"),
-            model=user_api_key_dict.metadata.get("model"),
-            response_type=type(response).__name__,
-            active_gateway_requests=load_snapshot.active_requests,
-            gateway_total_requests=load_snapshot.total_requests,
-            gateway_peak_active_requests=load_snapshot.peak_active_requests,
-        )
+        _gateway_load_tracker.end_request()
+        _pop_hook_request_counter(data)
         return response
 
     async def async_post_call_failure_hook(
@@ -377,11 +334,12 @@ class TracecatCallbackHandler(CustomLogger):
         traceback_str: str | None = None,
     ) -> None:
         load_snapshot = _gateway_load_tracker.end_request()
-        request_id = _pop_hook_request_id(request_data)
+        request_counter = _pop_hook_request_counter(request_data)
         sanitized_error = _sanitize_exception_message(original_exception)
         logger.error(
             "LiteLLM call failed",
-            request_id=request_id,
+            request_counter=request_counter,
+            trace_request_id=user_api_key_dict.metadata.get("trace_request_id"),
             session_id=user_api_key_dict.metadata.get("session_id"),
             workspace_id=user_api_key_dict.metadata.get("workspace_id"),
             provider=user_api_key_dict.metadata.get("provider"),
@@ -390,7 +348,6 @@ class TracecatCallbackHandler(CustomLogger):
             error_type=type(original_exception).__name__,
             has_traceback=bool(traceback_str),
             active_gateway_requests=load_snapshot.active_requests,
-            gateway_total_requests=load_snapshot.total_requests,
             gateway_peak_active_requests=load_snapshot.peak_active_requests,
         )
         return None
@@ -514,7 +471,7 @@ def _inject_provider_credentials(
                         code=401,
                     )
                 else:
-                    logger.info(
+                    logger.debug(
                         "No static Bedrock AWS credentials configured; using ambient IAM role credentials",
                         provider=provider,
                     )
@@ -543,7 +500,7 @@ def _inject_provider_credentials(
             base_url = creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL")
             model_name = creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")
 
-            logger.info(
+            logger.debug(
                 "Custom model provider credentials",
                 api_key_set=bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
                 base_url=base_url,
@@ -557,7 +514,7 @@ def _inject_provider_credentials(
                 # Prefix with openai/ for LiteLLM routing
                 data["model"] = f"openai/{model_name}"
 
-            logger.info(
+            logger.debug(
                 "Injected custom model provider config",
                 data_api_base=data.get("api_base"),
                 data_model=data.get("model"),

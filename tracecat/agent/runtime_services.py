@@ -15,9 +15,12 @@ import httpx
 
 from tracecat.agent.litellm_observability import get_load_tracker
 from tracecat.config import (
+    TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS,
     TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD,
     TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS,
-    TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS,
+    TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS,
+    TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS,
+    TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS,
     TRACECAT__LITELLM_NUM_WORKERS,
     TRACECAT__LITELLM_STATUS_LOG_INTERVAL_SECONDS,
 )
@@ -63,10 +66,19 @@ def _proxy_load_fields() -> dict[str, int]:
     return {
         "active_proxy_connections": snapshot.active_connections,
         "active_proxy_requests": snapshot.active_requests,
-        "proxy_total_requests": snapshot.total_requests,
         "proxy_peak_active_connections": snapshot.peak_active_connections,
         "proxy_peak_active_requests": snapshot.peak_active_requests,
     }
+
+
+def _litellm_healthcheck_timeout() -> httpx.Timeout:
+    """Build the per-phase timeout used for LiteLLM readiness probes."""
+    return httpx.Timeout(
+        connect=TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS,
+        read=TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS,
+        write=TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS,
+        pool=TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS,
+    )
 
 
 def _build_litellm_command(runtime_config_path: Path) -> list[str]:
@@ -196,12 +208,7 @@ async def _monitor_litellm_health(
     url: str = _LITELLM_READINESS_URL,
 ) -> None:
     """Continuously poll LiteLLM readiness and fail fast on repeated probe failures."""
-    timeout = httpx.Timeout(
-        connect=TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS,
-        read=TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS,
-        write=TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS,
-        pool=TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS,
-    )
+    timeout = _litellm_healthcheck_timeout()
     async with httpx.AsyncClient(timeout=timeout) as client:
         while True:
             await asyncio.sleep(TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS)
@@ -392,12 +399,7 @@ async def _wait_for_litellm_ready(
     interval: float = 0.5,
 ) -> None:
     """Poll LiteLLM health endpoint until it responds 200."""
-    timeout = httpx.Timeout(
-        connect=TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS,
-        read=TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS,
-        write=TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS,
-        pool=TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS,
-    )
+    timeout = _litellm_healthcheck_timeout()
     async with httpx.AsyncClient(timeout=timeout) as client:
         for attempt in range(1, max_attempts + 1):
             if _litellm_process is not None and _litellm_process.returncode is not None:

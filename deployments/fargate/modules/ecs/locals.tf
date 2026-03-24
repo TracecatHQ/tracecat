@@ -167,6 +167,10 @@ locals {
         TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS     = var.litellm_credential_cache_ttl_seconds
         TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS     = var.litellm_healthcheck_interval_seconds
         TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS      = var.litellm_healthcheck_timeout_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS = var.litellm_healthcheck_connect_timeout_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS    = var.litellm_healthcheck_read_timeout_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS   = var.litellm_healthcheck_write_timeout_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS    = var.litellm_healthcheck_pool_timeout_seconds
         TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD    = var.litellm_healthcheck_failure_threshold
         TRACECAT__LITELLM_STATUS_LOG_INTERVAL_SECONDS      = var.litellm_status_log_interval_seconds
         TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"

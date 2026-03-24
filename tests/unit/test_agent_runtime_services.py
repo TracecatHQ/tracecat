@@ -164,7 +164,24 @@ async def test_monitor_litellm_health_marks_unhealthy_after_threshold(
         runtime_services, "TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS", 0.0
     )
     monkeypatch.setattr(
-        runtime_services, "TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS", 0.01
+        runtime_services,
+        "TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS",
+        0.01,
+    )
+    monkeypatch.setattr(
+        runtime_services,
+        "TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS",
+        0.02,
+    )
+    monkeypatch.setattr(
+        runtime_services,
+        "TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS",
+        0.03,
+    )
+    monkeypatch.setattr(
+        runtime_services,
+        "TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS",
+        0.04,
     )
     monkeypatch.setattr(
         runtime_services, "TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD", 2
@@ -180,6 +197,38 @@ async def test_monitor_litellm_health_marks_unhealthy_after_threshold(
     callback.assert_awaited_once()
     assert runtime_services.get_litellm_proxy_status().consecutive_probe_failures == 2
     assert runtime_services.get_litellm_proxy_status().state == "unhealthy"
+
+
+def test_litellm_healthcheck_timeout_uses_per_phase_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        runtime_services,
+        "TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS",
+        1.0,
+    )
+    monkeypatch.setattr(
+        runtime_services,
+        "TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS",
+        2.0,
+    )
+    monkeypatch.setattr(
+        runtime_services,
+        "TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS",
+        3.0,
+    )
+    monkeypatch.setattr(
+        runtime_services,
+        "TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS",
+        4.0,
+    )
+
+    timeout = runtime_services._litellm_healthcheck_timeout()
+
+    assert timeout.connect == 1.0
+    assert timeout.read == 2.0
+    assert timeout.write == 3.0
+    assert timeout.pool == 4.0
 
 
 def test_build_litellm_command_uses_gunicorn_for_multiple_workers(

@@ -107,6 +107,7 @@ async def test_forward_request_returns_explicit_http_error_response_for_529(
 
     response_text = writer.buffer.decode("utf-8")
     assert response_text.startswith("HTTP/1.1 529")
+    assert "X-Request-ID:" in response_text
     assert "LLM provider is overloaded - please try again shortly" in response_text
     assert errors == ["LLM provider is overloaded - please try again shortly"]
     assert tracker.snapshot().active_requests == 0
@@ -142,6 +143,69 @@ async def test_forward_request_maps_timeout_to_gateway_timeout_response(
 
     response_text = writer.buffer.decode("utf-8")
     assert response_text.startswith("HTTP/1.1 504")
+    assert "X-Request-ID:" in response_text
     assert "Gateway timeout" in response_text
     assert errors == ["Gateway timeout"]
     assert tracker.snapshot().active_requests == 0
+
+
+@pytest.mark.anyio
+async def test_forward_request_logs_fully_qualified_timeout_class(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    logged_kwargs: dict[str, object] = {}
+
+    def fake_error(message: str, **kwargs: object) -> None:
+        if message == "LiteLLM request timeout":
+            logged_kwargs.update(kwargs)
+
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger.error", fake_error)
+    proxy = LLMSocketProxy(socket_path=tmp_path / "llm.sock")
+    proxy._client = cast(
+        httpx.AsyncClient,
+        _FakeClient(exc=httpx.ReadTimeout("timed out")),
+    )
+    writer = _FakeWriter()
+
+    await proxy._forward_request(
+        {
+            "method": "POST",
+            "path": "/v1/chat/completions",
+            "headers": {"Content-Type": "application/json"},
+            "body": b"{}",
+        },
+        cast(asyncio.StreamWriter, writer),
+    )
+
+    assert logged_kwargs["error_class"] == "httpx.ReadTimeout"
+    assert logged_kwargs["error_category"] == "ReadTimeout"
+
+
+@pytest.mark.anyio
+async def test_forward_request_preserves_incoming_trace_request_id(
+    tmp_path: Path,
+) -> None:
+    proxy = LLMSocketProxy(socket_path=tmp_path / "llm.sock")
+    proxy._client = cast(
+        httpx.AsyncClient,
+        _FakeClient(response=_FakeResponse(status_code=200, reason_phrase="OK")),
+    )
+    writer = _FakeWriter()
+
+    await proxy._forward_request(
+        {
+            "method": "POST",
+            "path": "/v1/chat/completions",
+            "headers": {
+                "Content-Type": "application/json",
+                "X-Request-ID": "trace-123",
+            },
+            "body": b"{}",
+        },
+        cast(asyncio.StreamWriter, writer),
+    )
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert "X-Request-ID: trace-123" in response_text

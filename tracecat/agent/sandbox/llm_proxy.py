@@ -22,6 +22,7 @@ import os
 import time
 from collections.abc import Callable
 from pathlib import Path
+from uuid import uuid4
 
 import httpx
 import orjson
@@ -63,6 +64,7 @@ _ERROR_MESSAGES = {
     529: "LLM provider is overloaded - please try again shortly",
 }
 _proxy_load_tracker = get_load_tracker("llm_socket_proxy")
+_TRACE_REQUEST_ID_HEADER = "x-request-id"
 
 
 def _load_fields() -> dict[str, int]:
@@ -70,33 +72,22 @@ def _load_fields() -> dict[str, int]:
     return {
         "active_proxy_connections": snapshot.active_connections,
         "active_proxy_requests": snapshot.active_requests,
-        "proxy_total_requests": snapshot.total_requests,
         "proxy_peak_active_connections": snapshot.peak_active_connections,
         "proxy_peak_active_requests": snapshot.peak_active_requests,
     }
 
 
 def _classify_httpx_exception(exc: Exception) -> str:
-    """Map httpx exceptions to explicit failure classes."""
-    if isinstance(exc, httpx.ConnectTimeout):
-        return "connect_timeout"
-    if isinstance(exc, httpx.ReadTimeout):
-        return "read_timeout"
-    if isinstance(exc, httpx.WriteTimeout):
-        return "write_timeout"
-    if isinstance(exc, httpx.PoolTimeout):
-        return "pool_timeout"
-    if isinstance(exc, httpx.ConnectError):
-        return "connect_error"
-    if isinstance(exc, httpx.ReadError):
-        return "read_error"
-    if isinstance(exc, httpx.WriteError):
-        return "write_error"
-    if isinstance(exc, httpx.TimeoutException):
-        return "timeout"
-    if isinstance(exc, httpx.HTTPError):
-        return "http_error"
+    """Return the exception type name for logging and bucketing."""
     return type(exc).__name__
+
+
+def _get_or_create_trace_request_id(headers: dict[str, str]) -> str:
+    """Return the incoming trace ID header or generate a new one."""
+    for key, value in headers.items():
+        if key.lower() == _TRACE_REQUEST_ID_HEADER and value:
+            return value
+    return str(uuid4())
 
 
 class LLMSocketProxy:
@@ -335,7 +326,7 @@ class LLMSocketProxy:
         method = request["method"]
         headers = request["headers"]
         body = request["body"]
-        request_id, _ = _proxy_load_tracker.begin_request()
+        request_counter, _ = _proxy_load_tracker.begin_request()
         started_at = time.monotonic()
 
         # Remove hop-by-hop headers that shouldn't be forwarded
@@ -344,6 +335,8 @@ class LLMSocketProxy:
             for k, v in headers.items()
             if k.lower() not in ("host", "connection", "transfer-encoding")
         }
+        trace_request_id = _get_or_create_trace_request_id(headers)
+        forward_headers["X-Request-ID"] = trace_request_id
 
         try:
             # Make the request to LiteLLM with streaming
@@ -366,13 +359,14 @@ class LLMSocketProxy:
                         log_method = logger.warning if is_non_critical else logger.error
                         log_method(
                             "LiteLLM error response",
-                            request_id=request_id,
+                            request_counter=request_counter,
                             status_code=response.status_code,
                             method=method,
                             path=request["path"],
                             url=url,
                             response_length=len(error_body),
                             non_critical=is_non_critical,
+                            trace_request_id=trace_request_id,
                             elapsed_ms=(time.monotonic() - started_at) * 1000,
                             **_load_fields(),
                         )
@@ -399,7 +393,8 @@ class LLMSocketProxy:
                         writer,
                         status_code=response.status_code,
                         detail=error_msg,
-                        request_id=request_id,
+                        request_counter=request_counter,
+                        trace_request_id=trace_request_id,
                     )
                     if not is_non_critical:
                         self._emit_error(error_msg)
@@ -423,6 +418,7 @@ class LLMSocketProxy:
                             continue
                         header_line = f"{key}: {value}\r\n"
                         writer.write(header_line.encode())
+                    writer.write(f"X-Request-ID: {trace_request_id}\r\n".encode())
 
                     writer.write(b"\r\n")
                     await writer.drain()
@@ -462,14 +458,16 @@ class LLMSocketProxy:
                     return
 
         except httpx.ConnectError as e:
-            error_class = _classify_httpx_exception(e)
+            error_category = _classify_httpx_exception(e)
             logger.error(
                 "Failed to connect to LiteLLM",
-                request_id=request_id,
+                request_counter=request_counter,
                 method=method,
                 path=request["path"],
                 error=str(e),
-                error_class=error_class,
+                error_class=f"{type(e).__module__}.{type(e).__qualname__}",
+                error_category=error_category,
+                trace_request_id=trace_request_id,
                 elapsed_ms=(time.monotonic() - started_at) * 1000,
                 **_load_fields(),
             )
@@ -477,18 +475,21 @@ class LLMSocketProxy:
                 writer,
                 status_code=502,
                 detail="LiteLLM unavailable",
-                request_id=request_id,
+                request_counter=request_counter,
+                trace_request_id=trace_request_id,
             )
             self._emit_error("LiteLLM unavailable")
         except httpx.TimeoutException as e:
-            error_class = _classify_httpx_exception(e)
+            error_category = _classify_httpx_exception(e)
             logger.error(
                 "LiteLLM request timeout",
-                request_id=request_id,
+                request_counter=request_counter,
                 method=method,
                 path=request["path"],
-                error=str(e) or error_class,
-                error_class=error_class,
+                error=str(e) or error_category,
+                error_class=f"{type(e).__module__}.{type(e).__qualname__}",
+                error_category=error_category,
+                trace_request_id=trace_request_id,
                 elapsed_ms=(time.monotonic() - started_at) * 1000,
                 **_load_fields(),
             )
@@ -496,7 +497,8 @@ class LLMSocketProxy:
                 writer,
                 status_code=504,
                 detail="Gateway timeout",
-                request_id=request_id,
+                request_counter=request_counter,
+                trace_request_id=trace_request_id,
             )
             self._emit_error("Gateway timeout")
         except httpx.ReadError:
@@ -506,9 +508,10 @@ class LLMSocketProxy:
             else:
                 logger.warning(
                     "Upstream connection closed unexpectedly",
-                    request_id=request_id,
+                    request_counter=request_counter,
                     method=method,
                     path=request["path"],
+                    trace_request_id=trace_request_id,
                     elapsed_ms=(time.monotonic() - started_at) * 1000,
                     **_load_fields(),
                 )
@@ -516,7 +519,8 @@ class LLMSocketProxy:
                     writer,
                     status_code=502,
                     detail="LLM provider unavailable",
-                    request_id=request_id,
+                    request_counter=request_counter,
+                    trace_request_id=trace_request_id,
                 )
         except Exception as e:
             if not self._is_client_disconnect_error(e) and not writer.is_closing():
@@ -527,12 +531,12 @@ class LLMSocketProxy:
             end_snapshot = _proxy_load_tracker.end_request()
             logger.debug(
                 "LiteLLM proxy request finished",
-                request_id=request_id,
+                request_counter=request_counter,
                 method=method,
                 path=request["path"],
+                trace_request_id=trace_request_id,
                 elapsed_ms=(time.monotonic() - started_at) * 1000,
                 active_proxy_requests=end_snapshot.active_requests,
-                proxy_total_requests=end_snapshot.total_requests,
             )
 
     async def _write_error_response(
@@ -541,7 +545,8 @@ class LLMSocketProxy:
         *,
         status_code: int,
         detail: str,
-        request_id: int,
+        request_counter: int,
+        trace_request_id: str,
     ) -> None:
         """Write a synthetic JSON error response back to the sandbox client."""
         if writer.is_closing():
@@ -550,7 +555,8 @@ class LLMSocketProxy:
             {
                 "detail": detail,
                 "status_code": status_code,
-                "request_id": request_id,
+                "request_counter": request_counter,
+                "trace_request_id": trace_request_id,
             }
         )
         reason = _ERROR_MESSAGES.get(status_code, detail)
@@ -558,6 +564,7 @@ class LLMSocketProxy:
             f"HTTP/1.1 {status_code} {reason}\r\n"
             "Content-Type: application/json\r\n"
             f"Content-Length: {len(body)}\r\n"
+            f"X-Request-ID: {trace_request_id}\r\n"
             "Connection: close\r\n"
             "\r\n"
         )

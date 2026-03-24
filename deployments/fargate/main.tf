@@ -153,6 +153,10 @@ module "ecs" {
   litellm_credential_cache_ttl_seconds     = var.litellm_credential_cache_ttl_seconds
   litellm_healthcheck_interval_seconds     = var.litellm_healthcheck_interval_seconds
   litellm_healthcheck_timeout_seconds      = var.litellm_healthcheck_timeout_seconds
+  litellm_healthcheck_connect_timeout_seconds = var.litellm_healthcheck_connect_timeout_seconds
+  litellm_healthcheck_read_timeout_seconds    = var.litellm_healthcheck_read_timeout_seconds
+  litellm_healthcheck_write_timeout_seconds   = var.litellm_healthcheck_write_timeout_seconds
+  litellm_healthcheck_pool_timeout_seconds    = var.litellm_healthcheck_pool_timeout_seconds
   litellm_healthcheck_failure_threshold    = var.litellm_healthcheck_failure_threshold
   litellm_status_log_interval_seconds      = var.litellm_status_log_interval_seconds
   ui_cpu                                   = var.ui_cpu
