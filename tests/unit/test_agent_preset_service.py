@@ -33,6 +33,30 @@ from tracecat.registry.versions.schemas import (
 pytestmark = pytest.mark.usefixtures("db")
 
 
+def test_serialize_fallback_models_accepts_model_dumped_items() -> None:
+    """Dumped AgentPresetUpdate payloads should round-trip through serialization."""
+    params = AgentPresetUpdate(
+        fallback_models=[
+            AgentModelConfig(
+                model_name="claude-3-7-sonnet",
+                model_provider="anthropic",
+            )
+        ]
+    )
+
+    serialized = AgentPresetService._serialize_fallback_models(
+        params.model_dump(exclude_unset=True)["fallback_models"]
+    )
+
+    assert serialized == [
+        {
+            "model_name": "claude-3-7-sonnet",
+            "model_provider": "anthropic",
+            "base_url": None,
+        }
+    ]
+
+
 @pytest.fixture
 async def agent_preset_service(
     session: AsyncSession, svc_role: Role

@@ -44,6 +44,37 @@ _LIST_OUTPUT_TYPES: set[str] = {
 }
 
 
+def _merge_provider_credentials(
+    credential_sets: dict[str, dict[str, str]],
+) -> dict[str, str]:
+    """Merge provider credentials, rejecting conflicting flat secret keys."""
+    merged_credentials: dict[str, str] = {}
+    credential_sources: dict[str, str] = {}
+    collisions: dict[str, set[str]] = {}
+
+    for provider, credentials in credential_sets.items():
+        for key, value in credentials.items():
+            if key in merged_credentials and merged_credentials[key] != value:
+                collisions.setdefault(key, {credential_sources[key]}).add(provider)
+                continue
+            if key not in merged_credentials:
+                merged_credentials[key] = value
+                credential_sources[key] = provider
+
+    if collisions:
+        colliding_keys = ", ".join(
+            f"{key} ({', '.join(sorted(providers))})"
+            for key, providers in sorted(collisions.items())
+        )
+        raise ValueError(
+            "Agent config uses model providers with colliding credential keys: "
+            f"{colliding_keys}. Configure providers with disjoint credential names "
+            "or avoid combining them in one fallback chain."
+        )
+
+    return merged_credentials
+
+
 async def _resolve_run_config(
     params: InternalRunAgentRequest, agent_svc: AgentManagementService
 ) -> AgentConfig:
@@ -93,14 +124,20 @@ async def _provider_secrets_context_for_config(
     agent_svc: AgentManagementService, config: AgentConfig
 ):
     """Set merged provider credentials for every model candidate in a config."""
-    merged_credentials: dict[str, str] = {}
+    credential_sets: dict[str, dict[str, str]] = {}
+    seen_providers: set[str] = set()
     for candidate in get_model_candidates(config):
         provider = candidate.model_provider
         if provider in _PROVIDERS_WITH_OPTIONAL_WORKSPACE_CREDENTIALS:
             continue
+        if provider in seen_providers:
+            continue
+        seen_providers.add(provider)
         credentials = await agent_svc.get_runtime_provider_credentials(provider)
         if credentials:
-            merged_credentials.update(credentials)
+            credential_sets[provider] = credentials
+
+    merged_credentials = _merge_provider_credentials(credential_sets)
 
     secrets_token = registry_secrets.set_context(merged_credentials)
     try:

@@ -88,6 +88,18 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
+    @staticmethod
+    def _serialize_fallback_models(
+        fallback_models: Sequence[AgentModelConfig | dict[str, object]] | None,
+    ) -> list[dict[str, object]] | None:
+        """Normalize fallback model configs for JSONB persistence."""
+        if not fallback_models:
+            return None
+        return [
+            AgentModelConfig.model_validate(item).model_dump(mode="json")
+            for item in fallback_models
+        ]
+
     @require_scope("agent:create")
     @audit_log(resource_type="agent_preset", action="create")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
@@ -111,11 +123,7 @@ class AgentPresetService(BaseWorkspaceService):
             model_name=params.model_name,
             model_provider=params.model_provider,
             base_url=params.base_url,
-            fallback_models=(
-                [item.model_dump(mode="json") for item in params.fallback_models]
-                if params.fallback_models
-                else None
-            ),
+            fallback_models=self._serialize_fallback_models(params.fallback_models),
             output_type=params.output_type,
             actions=params.actions,
             namespaces=params.namespaces,
@@ -207,11 +215,7 @@ class AgentPresetService(BaseWorkspaceService):
 
         if "fallback_models" in set_fields:
             fallback_models = set_fields.pop("fallback_models")
-            fallback_model_values = (
-                [item.model_dump(mode="json") for item in fallback_models]
-                if fallback_models
-                else None
-            )
+            fallback_model_values = self._serialize_fallback_models(fallback_models)
             if preset.fallback_models != fallback_model_values:
                 preset.fallback_models = fallback_model_values
                 execution_changed = True

@@ -517,7 +517,7 @@ class TestRunAgentActivity:
         first_executor.run = AsyncMock(
             return_value=AgentExecutorResult(
                 success=False,
-                error="Primary provider unavailable",
+                error="LLM provider unavailable",
                 has_user_visible_output=False,
             )
         )
@@ -628,3 +628,124 @@ class TestRunAgentActivity:
             assert result.error is not None
             assert "openai/gpt-5.2" in result.error
             assert "Primary provider failed after first delta" in result.error
+
+    @pytest.mark.anyio
+    async def test_does_not_fall_back_on_platform_local_failure(
+        self, mock_executor_input: AgentExecutorInput
+    ) -> None:
+        """Test fallback does not replay the same turn for platform-local failures."""
+        mock_executor_input.config = AgentConfig(
+            model_name="gpt-5.2",
+            model_provider="openai",
+            fallback_models=[
+                AgentModelConfig(
+                    model_name="claude-3-7-sonnet",
+                    model_provider="anthropic",
+                )
+            ],
+        )
+
+        first_executor = MagicMock()
+        first_executor.run = AsyncMock(
+            return_value=AgentExecutorResult(
+                success=False,
+                error="Runtime disconnected during execution",
+                has_user_visible_output=False,
+            )
+        )
+
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.SandboxedAgentExecutor",
+                return_value=first_executor,
+            ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity._get_session_history_high_water_mark",
+                AsyncMock(return_value=12),
+            ),
+            patch(
+                "tracecat.agent.executor.activity._reset_session_state_for_fallback",
+                AsyncMock(),
+            ) as mock_reset_session_state,
+            patch(
+                "tracecat.agent.executor.activity.mint_llm_token",
+                return_value="token-primary",
+            ),
+        ):
+            mock_activity.heartbeat = MagicMock()
+
+            result = await run_agent_activity(mock_executor_input)
+
+            assert result.success is False
+            assert mock_executor_cls.call_count == 1
+            mock_reset_session_state.assert_not_awaited()
+            assert result.error is not None
+            assert "openai/gpt-5.2" in result.error
+            assert "Runtime disconnected during execution" in result.error
+
+    @pytest.mark.anyio
+    async def test_emits_terminal_stream_error_when_fallback_reset_fails(
+        self, mock_executor_input: AgentExecutorInput
+    ) -> None:
+        """Test a reset failure still terminates the client stream explicitly."""
+        mock_executor_input.config = AgentConfig(
+            model_name="gpt-5.2",
+            model_provider="openai",
+            fallback_models=[
+                AgentModelConfig(
+                    model_name="claude-3-7-sonnet",
+                    model_provider="anthropic",
+                )
+            ],
+        )
+
+        first_executor = MagicMock()
+        first_executor.run = AsyncMock(
+            return_value=AgentExecutorResult(
+                success=False,
+                error="LLM provider unavailable",
+                has_user_visible_output=False,
+            )
+        )
+
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.SandboxedAgentExecutor",
+                return_value=first_executor,
+            ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity._get_session_history_high_water_mark",
+                AsyncMock(return_value=12),
+            ),
+            patch(
+                "tracecat.agent.executor.activity._reset_session_state_for_fallback",
+                AsyncMock(side_effect=RuntimeError("db unavailable")),
+            ),
+            patch(
+                "tracecat.agent.executor.activity._emit_unsuppressed_terminal_stream_error",
+                AsyncMock(),
+            ) as mock_emit_terminal_error,
+            patch(
+                "tracecat.agent.executor.activity.mint_llm_token",
+                return_value="token-primary",
+            ),
+        ):
+            mock_activity.heartbeat = MagicMock()
+
+            result = await run_agent_activity(mock_executor_input)
+
+            assert result.success is False
+            assert mock_executor_cls.call_count == 1
+            assert (
+                result.error
+                == "Agent attempt failed before visible output, and fallback "
+                "recovery could not continue because the session state reset failed."
+            )
+            assert "db unavailable" not in result.error
+            mock_emit_terminal_error.assert_awaited_once_with(
+                session_id=mock_executor_input.session_id,
+                workspace_id=mock_executor_input.workspace_id,
+                error=result.error,
+            )
