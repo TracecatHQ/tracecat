@@ -26,9 +26,19 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
+from tracecat.agent.fallback import (
+    FallbackAttemptFailure,
+    classify_fallback_failure,
+    format_fallback_failure_message,
+    format_model_target,
+    get_fallback_configs,
+    should_retry_same_turn,
+)
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.stream.connector import AgentStream
+from tracecat.agent.tokens import mint_llm_token
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
@@ -36,6 +46,44 @@ from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 
 from .schemas import ApprovedToolCall, DeniedToolCall, ToolExecutionResult
+
+
+async def _get_session_history_high_water_mark(
+    *,
+    role: Role,
+    session_id: uuid.UUID,
+) -> int | None:
+    """Return the latest persisted session history boundary for this session."""
+    async with AgentSessionService.with_session(role=role) as svc:
+        return await svc.get_session_history_high_water_mark(session_id)
+
+
+async def _reset_session_state_for_fallback(
+    *,
+    role: Role,
+    session_id: uuid.UUID,
+    baseline_surrogate_id: int | None,
+    sdk_session_id: str | None,
+) -> None:
+    """Rewind persisted session state before retrying a fallback model."""
+    async with AgentSessionService.with_session(role=role) as svc:
+        await svc.reset_session_state_for_retry(
+            session_id,
+            baseline_surrogate_id=baseline_surrogate_id,
+            sdk_session_id=sdk_session_id,
+        )
+
+
+async def _emit_unsuppressed_terminal_stream_error(
+    *,
+    session_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    error: str,
+) -> None:
+    """Emit an explicit terminal error marker when fallback recovery cannot continue."""
+    stream = await AgentStream.new(session_id=session_id, workspace_id=workspace_id)
+    await stream.error(error)
+    await stream.done()
 
 
 class AgentExecutorInput(BaseModel):
@@ -57,6 +105,7 @@ class AgentExecutorInput(BaseModel):
     # Authentication tokens (minted by workflow before calling activity)
     mcp_auth_token: str
     litellm_auth_token: str
+    use_workspace_credentials: bool = True
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     # Session resume data (from previous run, includes tool_result for approval flow)
@@ -66,6 +115,8 @@ class AgentExecutorInput(BaseModel):
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False
+    # Internal execution flag for multi-model fallback attempts.
+    suppress_preoutput_terminal_events: bool = False
 
 
 class AgentExecutorResult(BaseModel):
@@ -83,6 +134,7 @@ class AgentExecutorResult(BaseModel):
     )
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+    has_user_visible_output: bool = False
 
 
 class ExecuteApprovedToolsInput(BaseModel):
@@ -165,6 +217,9 @@ class SandboxedAgentExecutor:
                 sdk_session_data=self.input.sdk_session_data,
                 is_approval_continuation=self.input.is_approval_continuation,
                 is_fork=self.input.is_fork,
+                suppress_preoutput_terminal_events=(
+                    self.input.suppress_preoutput_terminal_events
+                ),
             )
             handler = LoopbackHandler(input=loopback_input)
 
@@ -298,6 +353,9 @@ class SandboxedAgentExecutor:
                         result.output = loopback_result.output
                         result.result_usage = loopback_result.result_usage
                         result.result_num_turns = loopback_result.result_num_turns
+                        result.has_user_visible_output = (
+                            loopback_result.has_user_visible_output
+                        )
 
                     while elapsed < self.timeout_seconds:
                         # Wait for either loopback result, fatal error, or process exit
@@ -554,22 +612,110 @@ async def run_agent_activity(
         f"Starting agent execution ({sandbox_mode} mode): {input.session_id}"
     )
 
-    executor = SandboxedAgentExecutor(input=input)
-    result = await executor.run()
+    candidate_inputs = get_fallback_configs(input.config)
+    failures: list[FallbackAttemptFailure] = []
+    result = AgentExecutorResult(success=False)
+    organization_id = input.role.organization_id
+    if organization_id is None:
+        raise ValueError("Organization context required for agent execution")
 
-    if result.success:
-        activity.heartbeat(f"Agent execution completed: {input.session_id}")
-        # Fetch messages from database to include in result
-        try:
-            async with AgentSessionService.with_session(role=input.role) as svc:
-                result.messages = await svc.list_messages(input.session_id)
-        except Exception as e:
-            logger.warning(
-                "Failed to fetch session messages",
-                session_id=str(input.session_id),
-                error=str(e),
+    for index, (target, candidate_config) in enumerate(candidate_inputs):
+        baseline_surrogate_id = await _get_session_history_high_water_mark(
+            role=input.role,
+            session_id=input.session_id,
+        )
+        litellm_auth_token = mint_llm_token(
+            workspace_id=input.workspace_id,
+            organization_id=organization_id,
+            session_id=input.session_id,
+            model=candidate_config.model_name,
+            provider=candidate_config.model_provider,
+            base_url=candidate_config.base_url,
+            model_settings=candidate_config.model_settings,
+            use_workspace_credentials=input.use_workspace_credentials,
+        )
+        executor = SandboxedAgentExecutor(
+            input=input.model_copy(
+                update={
+                    "config": candidate_config,
+                    "litellm_auth_token": litellm_auth_token,
+                    "suppress_preoutput_terminal_events": (
+                        index < len(candidate_inputs) - 1
+                    ),
+                }
             )
-    else:
+        )
+        result = await executor.run()
+
+        if result.success:
+            activity.heartbeat(f"Agent execution completed: {input.session_id}")
+            try:
+                async with AgentSessionService.with_session(role=input.role) as svc:
+                    result.messages = await svc.list_messages(input.session_id)
+            except Exception as e:
+                logger.warning(
+                    "Failed to fetch session messages",
+                    session_id=str(input.session_id),
+                    error=str(e),
+                )
+            return result
+
+        failures.append(
+            FallbackAttemptFailure(
+                target=target,
+                error=result.error or "Unknown error",
+            )
+        )
+        failure_scope = classify_fallback_failure(result.error)
+        last_candidate = index == len(candidate_inputs) - 1
+        retry_same_turn = (
+            should_retry_same_turn(result.error)
+            and not result.has_user_visible_output
+            and not last_candidate
+        )
+        if retry_same_turn:
+            try:
+                await _reset_session_state_for_fallback(
+                    role=input.role,
+                    session_id=input.session_id,
+                    baseline_surrogate_id=baseline_surrogate_id,
+                    sdk_session_id=input.sdk_session_id,
+                )
+            except Exception as e:
+                result.error = (
+                    "Agent attempt failed before visible output, and the session "
+                    f"state could not be reset for fallback: {e}"
+                )
+                try:
+                    await _emit_unsuppressed_terminal_stream_error(
+                        session_id=input.session_id,
+                        workspace_id=input.workspace_id,
+                        error=result.error,
+                    )
+                except Exception as stream_exc:
+                    logger.warning(
+                        "Failed to emit unsuppressed terminal stream error after fallback reset failure",
+                        session_id=str(input.session_id),
+                        error=str(stream_exc),
+                    )
+                activity.heartbeat(f"Agent execution failed: {result.error}")
+                return result
+
+            logger.warning(
+                "Agent attempt failed before visible output; retrying the same turn with a fallback candidate",
+                session_id=str(input.session_id),
+                attempt=index + 1,
+                total_attempts=len(candidate_inputs),
+                candidate_model=format_model_target(target),
+                error=result.error,
+                failure_scope=failure_scope,
+                retry_same_turn=True,
+                baseline_surrogate_id=baseline_surrogate_id,
+            )
+            continue
+
+        result.error = format_fallback_failure_message(failures)
         activity.heartbeat(f"Agent execution failed: {result.error}")
+        return result
 
     return result

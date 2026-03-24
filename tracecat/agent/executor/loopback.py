@@ -79,6 +79,7 @@ class LoopbackInput:
     sdk_session_data: str | None = None
     is_approval_continuation: bool = False
     is_fork: bool = False  # True when forking from parent session
+    suppress_preoutput_terminal_events: bool = False
 
 
 @dataclass(kw_only=True, slots=True)
@@ -92,6 +93,7 @@ class LoopbackResult:
     output: Any = None
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+    has_user_visible_output: bool = False
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -261,12 +263,27 @@ class LoopbackHandler:
 
         return self._tool_output_contains_internal_interrupt(event.tool_output)
 
+    def _should_suppress_terminal_events(self) -> bool:
+        return (
+            self.input.suppress_preoutput_terminal_events
+            and not self._result.success
+            and not self._result.has_user_visible_output
+        )
+
+    async def _emit_stream_error(self, error: str) -> None:
+        """Emit a terminal stream error unless this attempt is being suppressed."""
+        if self._stream_sink is None or self._should_suppress_terminal_events():
+            return
+        await self._stream_sink.error(error)
+
     async def _emit_stream_done(self) -> None:
         """Emit stream.done() exactly once.
 
         This helper ensures the stream end marker is emitted exactly once,
         even if multiple code paths could trigger it (e.g., error + finally).
         """
+        if self._should_suppress_terminal_events():
+            return
         if self._stream_sink and not self._stream_done_emitted:
             self._stream_done_emitted = True
             try:
@@ -282,7 +299,9 @@ class LoopbackHandler:
         """
         if self._stream_sink is None:
             self._stream_sink = await self._initialize_stream_sink()
-        await self._stream_sink.error(error)
+        if self._result.error is None:
+            self._result.error = error
+        await self._emit_stream_error(error)
         await self._emit_stream_done()
 
     async def handle_connection(
@@ -325,16 +344,14 @@ class LoopbackHandler:
             # Connection closed during init payload send
             logger.warning("Runtime disconnected unexpectedly during init")
             self._result.error = "Runtime disconnected unexpectedly"
-            if self._stream_sink:
-                await self._stream_sink.error(self._result.error)
+            await self._emit_stream_error(self._result.error)
         except Exception as e:
             logger.exception("Error handling runtime connection", error=str(e))
             self._result.error = f"Connection error: {e}"
-            if self._stream_sink:
-                try:
-                    await asyncio.wait_for(self._stream_sink.error(str(e)), timeout=5.0)
-                except TimeoutError:
-                    logger.warning("Timeout emitting stream error")
+            try:
+                await asyncio.wait_for(self._emit_stream_error(str(e)), timeout=5.0)
+            except TimeoutError:
+                logger.warning("Timeout emitting stream error")
         finally:
             # ALWAYS emit done on any exit path to prevent SSE consumers from hanging
             await self._emit_stream_done()
@@ -534,10 +551,12 @@ class LoopbackHandler:
             except asyncio.IncompleteReadError:
                 # Connection closed unexpectedly - treat as error, not silent break
                 logger.warning(
-                    "Runtime connection closed unexpectedly during execution"
+                    "Runtime connection closed unexpectedly during execution",
+                    preserved_error=self._result.error,
                 )
-                self._result.error = "Runtime disconnected during execution"
-                await self._stream_sink.error(self._result.error)
+                if self._result.error is None:
+                    self._result.error = "Runtime disconnected during execution"
+                    await self._stream_sink.error(self._result.error)
                 break  # done() will be called in finally of handle_connection
 
             # Parse the envelope
@@ -581,6 +600,12 @@ class LoopbackHandler:
                             event_type=envelope.event.type,
                             session_id=self.input.session_id,
                         )
+                        if envelope.event.type not in {
+                            StreamEventType.DONE,
+                            StreamEventType.ERROR,
+                            StreamEventType.USER_MESSAGE,
+                        }:
+                            self._result.has_user_visible_output = True
                         await self._stream_sink.append(envelope.event)
 
                         # Check for error events (e.g., from LiteLLM/SDK)
@@ -591,8 +616,6 @@ class LoopbackHandler:
                                 session_id=self.input.session_id,
                                 error=error_msg,
                             )
-                            await self._stream_sink.error(error_msg)
-                            await self._emit_stream_done()
                             self._result.error = error_msg
                             break
 
@@ -620,9 +643,8 @@ class LoopbackHandler:
                     # Runtime error - stream error and close the stream
                     error_msg = envelope.error or "Unknown runtime error"
                     logger.error("Runtime error", error=error_msg)
-                    await self._stream_sink.error(error_msg)
-                    await self._emit_stream_done()  # Use helper (dedupes with finally)
                     self._result.error = error_msg
+                    await self._emit_stream_error(error_msg)
                     break
 
                 case "done":
@@ -631,7 +653,6 @@ class LoopbackHandler:
                         "Runtime completed",
                         session_id=self.input.session_id,
                     )
-                    await self._emit_stream_done()  # Use helper (dedupes with finally)
                     break
 
                 case "log":

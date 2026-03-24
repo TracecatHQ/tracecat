@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -13,7 +13,7 @@ from typing import (
 
 import pydantic
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
-from pydantic import Discriminator, TypeAdapter
+from pydantic import ConfigDict, Discriminator, Field, StringConstraints, TypeAdapter
 
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPServerConfig
@@ -108,6 +108,18 @@ type OutputType = (
 )
 
 
+class AgentModelConfig(pydantic.BaseModel):
+    """Single model/provider target for agent execution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    model_provider: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1)
+    ]
+    base_url: str | None = Field(default=None)
+
+
 @pydantic.dataclasses.dataclass(kw_only=True, slots=True)
 class AgentConfig:
     """Configuration for an agent."""
@@ -116,6 +128,7 @@ class AgentConfig:
     model_name: str
     model_provider: str
     base_url: str | None = None
+    fallback_models: list[AgentModelConfig] | None = None
     # Agent
     instructions: str | None = None
     output_type: str | dict[str, Any] | None = None
@@ -131,6 +144,32 @@ class AgentConfig:
     custom_tools: CustomToolList | None = None
     # Sandbox
     enable_internet_access: bool = False
+
+
+def get_model_candidates(config: AgentConfig) -> list[AgentModelConfig]:
+    """Return the primary model followed by any configured fallback models."""
+
+    primary = AgentModelConfig(
+        model_name=config.model_name,
+        model_provider=config.model_provider,
+        base_url=config.base_url,
+    )
+    fallback_models = config.fallback_models or []
+    return [primary, *fallback_models]
+
+
+def replace_model_target(
+    config: AgentConfig, target: AgentModelConfig, *, clear_fallbacks: bool = True
+) -> AgentConfig:
+    """Return a copy of config targeting a specific model/provider tuple."""
+
+    return replace(
+        config,
+        model_name=target.model_name,
+        model_provider=target.model_provider,
+        base_url=target.base_url,
+        fallback_models=None if clear_fallbacks else config.fallback_models,
+    )
 
 
 # --- Tool Types (Harness-Agnostic) ---

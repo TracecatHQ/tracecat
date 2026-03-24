@@ -23,6 +23,7 @@ from tracecat.agent.preset.schemas import (
 )
 from tracecat.agent.types import (
     AgentConfig,
+    AgentModelConfig,
     MCPServerConfig,
     OutputType,
 )
@@ -65,6 +66,7 @@ class AgentPresetService(BaseWorkspaceService):
         "model_name",
         "model_provider",
         "base_url",
+        "fallback_models",
         "output_type",
         "actions",
         "namespaces",
@@ -85,6 +87,18 @@ class AgentPresetService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()
+
+    @staticmethod
+    def _serialize_fallback_models(
+        fallback_models: Sequence[AgentModelConfig | dict[str, object]] | None,
+    ) -> list[dict[str, object]] | None:
+        """Normalize fallback model configs for JSONB persistence."""
+        if not fallback_models:
+            return None
+        return [
+            AgentModelConfig.model_validate(item).model_dump(mode="json")
+            for item in fallback_models
+        ]
 
     @require_scope("agent:create")
     @audit_log(resource_type="agent_preset", action="create")
@@ -109,6 +123,7 @@ class AgentPresetService(BaseWorkspaceService):
             model_name=params.model_name,
             model_provider=params.model_provider,
             base_url=params.base_url,
+            fallback_models=self._serialize_fallback_models(params.fallback_models),
             output_type=params.output_type,
             actions=params.actions,
             namespaces=params.namespaces,
@@ -127,6 +142,7 @@ class AgentPresetService(BaseWorkspaceService):
             model_name=preset.model_name,
             model_provider=preset.model_provider,
             base_url=preset.base_url,
+            fallback_models=preset.fallback_models,
             output_type=preset.output_type,
             actions=preset.actions,
             namespaces=preset.namespaces,
@@ -195,6 +211,13 @@ class AgentPresetService(BaseWorkspaceService):
                 await self._validate_mcp_integrations(mcp_integrations)
             if preset.mcp_integrations != mcp_integrations:
                 preset.mcp_integrations = mcp_integrations
+                execution_changed = True
+
+        if "fallback_models" in set_fields:
+            fallback_models = set_fields.pop("fallback_models")
+            fallback_model_values = self._serialize_fallback_models(fallback_models)
+            if preset.fallback_models != fallback_model_values:
+                preset.fallback_models = fallback_model_values
                 execution_changed = True
 
         # Update remaining fields
@@ -966,6 +989,7 @@ class AgentPresetService(BaseWorkspaceService):
             "model_name",
             "model_provider",
             "base_url",
+            "fallback_models",
             "output_type",
             "retries",
             "enable_internet_access",
@@ -1045,6 +1069,14 @@ class AgentPresetService(BaseWorkspaceService):
             model_name=version.model_name,
             model_provider=version.model_provider,
             base_url=version.base_url,
+            fallback_models=(
+                [
+                    AgentModelConfig.model_validate(item)
+                    for item in version.fallback_models
+                ]
+                if version.fallback_models
+                else None
+            ),
             instructions=version.instructions,
             output_type=cast(OutputType | None, version.output_type),
             actions=version.actions,
@@ -1082,6 +1114,7 @@ class AgentPresetService(BaseWorkspaceService):
             model_name=preset.model_name,
             model_provider=preset.model_provider,
             base_url=preset.base_url,
+            fallback_models=preset.fallback_models,
             output_type=preset.output_type,
             actions=preset.actions,
             namespaces=preset.namespaces,
@@ -1104,6 +1137,7 @@ class AgentPresetService(BaseWorkspaceService):
         preset.model_name = version.model_name
         preset.model_provider = version.model_provider
         preset.base_url = version.base_url
+        preset.fallback_models = version.fallback_models
         preset.output_type = version.output_type
         preset.actions = version.actions
         preset.namespaces = version.namespaces

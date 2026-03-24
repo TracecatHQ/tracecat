@@ -10,6 +10,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
+from tracecat.agent.types import AgentModelConfig
+
 _LEGACY_AGENT_CONFIG_KEYS = frozenset({"deps_type", "custom_tools"})
 
 
@@ -89,6 +91,7 @@ class AgentConfigPayload(BaseModel):
     model_name: str
     model_provider: str
     base_url: str | None = Field(default=None)
+    fallback_models: list[AgentModelConfig] | None = Field(default=None)
     instructions: str | None = Field(default=None)
     output_type: str | dict[str, Any] | None = Field(default=None)
     actions: list[str] | None = Field(default=None)

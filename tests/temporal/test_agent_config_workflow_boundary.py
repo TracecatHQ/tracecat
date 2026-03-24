@@ -30,7 +30,12 @@ from tracecat.dsl._converter import get_data_converter
 with workflow.unsafe.imports_passed_through():
     from tracecat_registry.sdk.agents import AgentConfig as RegistryAgentConfig
 
-    from tracecat.agent.types import AgentConfig as TracecatAgentConfig
+    from tracecat.agent.types import (
+        AgentConfig as TracecatAgentConfig,
+    )
+    from tracecat.agent.types import (
+        AgentModelConfig,
+    )
 
 pytestmark = [pytest.mark.temporal]
 
@@ -47,6 +52,12 @@ def _build_agent_config() -> TracecatAgentConfig:
     return TracecatAgentConfig(
         model_name="gpt-5.2",
         model_provider="openai",
+        fallback_models=[
+            AgentModelConfig(
+                model_name="claude-3-7-sonnet",
+                model_provider="anthropic",
+            )
+        ],
         instructions="You are a security analyst.",
         actions=["tools.datadog.change_signal_state"],
         namespaces=["tools.datadog"],
@@ -102,6 +113,13 @@ class AgentConfigDecodeWorkflow:
         config = agent_config_from_payload(payload)
         assert config.model_name == "gpt-5.2"
         assert config.model_provider == "openai"
+        assert config.fallback_models == [
+            {
+                "model_name": "claude-3-7-sonnet",
+                "model_provider": "anthropic",
+                "base_url": None,
+            }
+        ]
         assert config.instructions == "You are a security analyst."
         assert config.actions == ["tools.datadog.change_signal_state"]
         assert config.namespaces == ["tools.datadog"]

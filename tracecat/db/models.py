@@ -3035,6 +3035,11 @@ class AgentPreset(WorkspaceModel):
         nullable=True,
         doc="Optional model base URL override",
     )
+    fallback_models: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Optional ordered fallback model/provider targets",
+    )
     output_type: Mapped[dict[str, Any] | str | None] = mapped_column(
         JSONB,
         nullable=True,
@@ -3132,6 +3137,11 @@ class AgentPresetVersion(WorkspaceModel):
         String(500),
         nullable=True,
         doc="Optional model base URL override",
+    )
+    fallback_models: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Optional ordered fallback model/provider targets",
     )
     output_type: Mapped[dict[str, Any] | str | None] = mapped_column(
         JSONB,

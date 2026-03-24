@@ -13,6 +13,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetUpdate,
     AgentPresetVersionReadMinimal,
 )
+from tracecat.agent.types import AgentModelConfig
 
 
 def test_agent_preset_create_trims_required_fields() -> None:
@@ -24,6 +25,12 @@ def test_agent_preset_create_trims_required_fields() -> None:
         model_name="  gpt-4o-mini  ",
         model_provider="  openai  ",
         base_url=None,
+        fallback_models=[
+            AgentModelConfig(
+                model_name="  claude-3-7-sonnet  ",
+                model_provider="  anthropic  ",
+            )
+        ],
         output_type=None,
         actions=None,
         namespaces=None,
@@ -36,6 +43,9 @@ def test_agent_preset_create_trims_required_fields() -> None:
     assert payload.slug == "triage-preset"
     assert payload.model_name == "gpt-4o-mini"
     assert payload.model_provider == "openai"
+    assert payload.fallback_models is not None
+    assert payload.fallback_models[0].model_name == "claude-3-7-sonnet"
+    assert payload.fallback_models[0].model_provider == "anthropic"
 
 
 @pytest.mark.parametrize(

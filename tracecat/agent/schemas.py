@@ -16,7 +16,7 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import DeferredToolResults
 
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, AgentModelConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 
@@ -249,6 +249,7 @@ class AgentConfigSchema(BaseModel):
     model_name: str
     model_provider: str
     base_url: str | None = None
+    fallback_models: list[AgentModelConfig] | None = None
     instructions: str | None = None
     output_type: Any | None = None
     actions: list[str] | None = None
