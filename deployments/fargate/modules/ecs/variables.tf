@@ -590,8 +590,8 @@ variable "temporal_db_tls_enable_host_verification" {
 
 variable "temporal_db_force_ssl" {
   type        = bool
-  description = "Whether to enforce SSL-only PostgreSQL connections for the Temporal RDS instance. Set to false when the Fargate Temporal auto-setup service must connect without TLS."
-  default     = true
+  description = "Whether to enforce SSL-only PostgreSQL connections for the Temporal RDS instance. Defaults to false for the bundled Fargate Temporal auto-setup deployment."
+  default     = false
 }
 
 variable "temporal_num_history_shards" {

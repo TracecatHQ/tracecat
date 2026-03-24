@@ -47,9 +47,9 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 - `temporal_cpu=8192`
 - `temporal_memory=16384`
 
-Temporal PostgreSQL TLS is enabled by default for the Fargate auto-setup task because RDS for PostgreSQL 15 and later defaults `rds.force_ssl=1`. Host verification remains disabled in this stack until the task mounts the AWS RDS CA bundle; EKS and Helm already handle CA-backed verification explicitly.
+For the bundled Fargate `temporalio/auto-setup` deployment, `temporal_db_force_ssl` now defaults to `false`. This disables `rds.force_ssl` only on the Temporal RDS instance, requires a DB reboot when changed, and permits non-TLS connections for the bundled Temporal service.
 
-If the `temporalio/auto-setup` image cannot negotiate TLS correctly in your environment, you can set `temporal_db_force_ssl=false`. This disables `rds.force_ssl` only on the Temporal RDS instance, requires a DB reboot, and permits non-TLS connections for the Temporal service. Keep the default `true` value whenever your Temporal deployment supports TLS correctly.
+If you are connecting Tracecat to Temporal Cloud or another external Temporal cluster, this setting is typically irrelevant because you should also set `disable_temporal_autosetup=true` and not create the bundled Temporal RDS instance. If you do manage your own Temporal PostgreSQL outside the bundled Fargate auto-setup path and your deployment supports TLS correctly, set `temporal_db_force_ssl=true`.
 
 ## Quick start
 
