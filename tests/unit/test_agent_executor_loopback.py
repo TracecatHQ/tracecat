@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock
 from uuid import UUID
 
+import orjson
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
+from tracecat.agent.common.protocol import RuntimeEventEnvelope
+from tracecat.agent.common.socket_io import MessageType, build_message
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.executor.loopback import (
     AgentStreamSink,
@@ -30,6 +34,19 @@ class _FakeExternalSink:
         self.append = AsyncMock()
         self.error = AsyncMock()
         self.done = AsyncMock()
+
+
+def _reader_for_envelopes(*envelopes: RuntimeEventEnvelope) -> asyncio.StreamReader:
+    reader = asyncio.StreamReader()
+    for envelope in envelopes:
+        reader.feed_data(
+            build_message(
+                MessageType.EVENT,
+                orjson.dumps(envelope.to_dict()),
+            )
+        )
+    reader.feed_eof()
+    return reader
 
 
 @pytest.fixture
@@ -200,3 +217,46 @@ def test_should_not_suppress_normal_tool_result_error() -> None:
     )
 
     assert handler._should_suppress_stream_event(event) is False
+
+
+@pytest.mark.anyio
+async def test_process_runtime_events_fails_when_done_arrives_without_result() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(RuntimeEventEnvelope.done())
+
+    await handler._process_runtime_events(reader)
+
+    assert handler._result.error == "Runtime completed without final result"
+    stream.error.assert_awaited_once_with("Runtime completed without final result")
+    stream.done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_process_runtime_events_fails_zero_work_completion() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(
+        RuntimeEventEnvelope.from_result(
+            usage={
+                "requests": 0,
+                "tool_calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+            },
+            output=None,
+        ),
+        RuntimeEventEnvelope.done(),
+    )
+
+    await handler._process_runtime_events(reader)
+
+    assert (
+        handler._result.error
+        == "Runtime completed without assistant output or model usage"
+    )
+    stream.error.assert_awaited_once_with(
+        "Runtime completed without assistant output or model usage"
+    )

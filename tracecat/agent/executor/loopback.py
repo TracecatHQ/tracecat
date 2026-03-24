@@ -221,6 +221,8 @@ class LoopbackHandler:
         self._persisted_line_uuids: set[str] = set()
         # Track pending approval tool IDs to suppress synthetic interruption results.
         self._pending_approval_tool_call_ids: set[str] = set()
+        self._received_result: bool = False
+        self._received_assistant_content: bool = False
 
     @staticmethod
     def _tool_output_contains_internal_interrupt(value: Any) -> bool:
@@ -581,6 +583,8 @@ class LoopbackHandler:
                             event_type=envelope.event.type,
                             session_id=self.input.session_id,
                         )
+                        if envelope.event.type == StreamEventType.TEXT_DELTA:
+                            self._received_assistant_content = True
                         await self._stream_sink.append(envelope.event)
 
                         # Check for error events (e.g., from LiteLLM/SDK)
@@ -612,6 +616,7 @@ class LoopbackHandler:
 
                 case "result":
                     # Final result with usage data and structured output
+                    self._received_result = True
                     self._result.output = envelope.result_output
                     self._result.result_usage = envelope.result_usage
                     self._result.result_num_turns = envelope.result_num_turns
@@ -631,6 +636,11 @@ class LoopbackHandler:
                         "Runtime completed",
                         session_id=self.input.session_id,
                     )
+                    if validation_error := self._validate_runtime_completion():
+                        await self._stream_sink.error(validation_error)
+                        await self._emit_stream_done()
+                        self._result.error = validation_error
+                        break
                     await self._emit_stream_done()  # Use helper (dedupes with finally)
                     break
 
@@ -668,6 +678,8 @@ class LoopbackHandler:
         """
         # Parse and sanitize to prevent XSS from untrusted content (e.g., tool results)
         line_data = orjson.loads(session_line)
+        if not internal and line_data.get("type") == "assistant":
+            self._received_assistant_content = True
 
         # Deduplicate by UUID - each JSONL line has a unique uuid field
         line_uuid = line_data.get("uuid")
@@ -720,3 +732,40 @@ class LoopbackHandler:
         # Track as persisted after successful commit
         if line_uuid:
             self._persisted_line_uuids.add(line_uuid)
+
+    def _validate_runtime_completion(self) -> str | None:
+        """Return a terminal error when runtime completion is missing a usable result."""
+        if self._result.approval_requested or self._result.error is not None:
+            return None
+        if not self._received_result:
+            return "Runtime completed without final result"
+        if (
+            self._is_effectively_empty_output(self._result.output)
+            and self._is_zero_usage(self._result.result_usage)
+            and not self._received_assistant_content
+        ):
+            return "Runtime completed without assistant output or model usage"
+        return None
+
+    @staticmethod
+    def _is_effectively_empty_output(value: Any) -> bool:
+        """Return True when the result output carries no meaningful content."""
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return value.strip() == ""
+        if isinstance(value, (list, dict, tuple, set)):
+            return len(value) == 0
+        return False
+
+    @staticmethod
+    def _is_zero_usage(usage: dict[str, Any] | None) -> bool:
+        """Return True when usage is missing or contains no positive numeric values."""
+        if not usage:
+            return True
+        for value in usage.values():
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, (int, float)) and value > 0:
+                return False
+        return True

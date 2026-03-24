@@ -7,9 +7,11 @@ from starlette.requests import Request
 
 from tracecat.agent.gateway import (
     TracecatCallbackHandler,
+    _hook_request_ids,
     _inject_provider_credentials,
     user_api_key_auth,
 )
+from tracecat.agent.litellm_observability import LiteLLMLoadTracker
 from tracecat.agent.tokens import verify_llm_token
 
 
@@ -249,3 +251,168 @@ async def test_user_api_key_auth_allows_health_readiness_without_token() -> None
 def test_verify_llm_token_rejects_invalid_token_type() -> None:
     with pytest.raises(ValueError, match="Invalid LLM token"):
         verify_llm_token("")
+
+
+@pytest.mark.anyio
+async def test_pre_call_hook_tracks_active_gateway_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracker = LiteLLMLoadTracker()
+
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {"OPENAI_API_KEY": "test-openai-key"}
+
+    monkeypatch.setattr("tracecat.agent.gateway._gateway_load_tracker", tracker)
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="llm-token",
+        metadata={
+            "workspace_id": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "session_id": "00000000-0000-0000-0000-000000000003",
+            "model": "gpt-5",
+            "provider": "openai",
+            "base_url": None,
+            "model_settings": {},
+            "use_workspace_credentials": True,
+        },
+    )
+
+    handler = TracecatCallbackHandler()
+    request_data = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cast(DualCache, object()),
+        data={},
+        call_type="completion",
+    )
+
+    assert tracker.snapshot().active_requests == 1
+    assert "_tracecat_hook_request_id" not in request_data
+    assert _hook_request_ids[id(request_data)] == 1
+
+    await handler.async_post_call_success_hook(
+        request_data,
+        user_api_key_dict,
+        response=object(),
+    )
+
+    assert tracker.snapshot().active_requests == 0
+    assert id(request_data) not in _hook_request_ids
+
+
+@pytest.mark.anyio
+async def test_pre_call_hook_caches_provider_credentials_locally(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        return {"OPENAI_API_KEY": "test-openai-key"}
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS",
+        60.0,
+    )
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="llm-token",
+        metadata={
+            "workspace_id": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "session_id": "00000000-0000-0000-0000-000000000003",
+            "model": "gpt-5",
+            "provider": "openai",
+            "base_url": None,
+            "model_settings": {},
+            "use_workspace_credentials": True,
+        },
+    )
+
+    handler = TracecatCallbackHandler()
+    cache = DualCache()
+
+    first_request = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cache,
+        data={},
+        call_type="completion",
+    )
+    await handler.async_post_call_success_hook(
+        first_request,
+        user_api_key_dict,
+        response=object(),
+    )
+
+    second_request = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cache,
+        data={},
+        call_type="completion",
+    )
+
+    assert calls == 1
+    assert second_request["api_key"] == "test-openai-key"
+    await handler.async_post_call_success_hook(
+        second_request,
+        user_api_key_dict,
+        response=object(),
+    )
+
+
+@pytest.mark.anyio
+async def test_failure_hook_does_not_require_internal_request_id_in_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracker = LiteLLMLoadTracker()
+
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {"OPENAI_API_KEY": "test-openai-key"}
+
+    monkeypatch.setattr("tracecat.agent.gateway._gateway_load_tracker", tracker)
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="llm-token",
+        metadata={
+            "workspace_id": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "session_id": "00000000-0000-0000-0000-000000000003",
+            "model": "gpt-5",
+            "provider": "openai",
+            "base_url": None,
+            "model_settings": {},
+            "use_workspace_credentials": True,
+        },
+    )
+
+    handler = TracecatCallbackHandler()
+    request_data = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cast(DualCache, object()),
+        data={},
+        call_type="completion",
+    )
+
+    assert "_tracecat_hook_request_id" not in request_data
+
+    await handler.async_post_call_failure_hook(
+        request_data=request_data,
+        original_exception=RuntimeError("boom"),
+        user_api_key_dict=user_api_key_dict,
+    )
+
+    assert tracker.snapshot().active_requests == 0
+    assert id(request_data) not in _hook_request_ids

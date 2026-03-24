@@ -14,10 +14,12 @@ from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAut
 from litellm.types.utils import CallTypesLiteral
 
 from tracecat.agent.litellm_compat import apply_patch
+from tracecat.agent.litellm_observability import get_load_tracker
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.config import TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 
@@ -33,6 +35,42 @@ _UNAUTHENTICATED_HEALTH_ROUTES = {
     "/health/liveness",
     "/health/readiness",
 }
+_gateway_load_tracker = get_load_tracker("litellm_gateway")
+_hook_request_ids: dict[int, int] = {}
+_CREDENTIALS_CACHE_PREFIX = "tracecat:litellm:provider-creds"
+
+
+def _load_fields() -> dict[str, int]:
+    snapshot = _gateway_load_tracker.snapshot()
+    return {
+        "active_gateway_requests": snapshot.active_requests,
+        "gateway_total_requests": snapshot.total_requests,
+        "gateway_peak_active_requests": snapshot.peak_active_requests,
+    }
+
+
+def _remember_hook_request_id(data: dict, request_id: int) -> None:
+    """Track hook request IDs out-of-band so they never leak upstream."""
+    _hook_request_ids[id(data)] = request_id
+
+
+def _pop_hook_request_id(data: dict) -> int | None:
+    """Return and clear the tracked request ID for a LiteLLM request payload."""
+    return _hook_request_ids.pop(id(data), None)
+
+
+def _credentials_cache_key(
+    *,
+    workspace_id: WorkspaceID,
+    organization_id: OrganizationID,
+    provider: str,
+    use_workspace_creds: bool,
+) -> str:
+    scope = "workspace" if use_workspace_creds else "organization"
+    return (
+        f"{_CREDENTIALS_CACHE_PREFIX}:{organization_id}:{workspace_id}:"
+        f"{scope}:{provider}"
+    )
 
 
 async def get_provider_credentials(
@@ -58,6 +96,53 @@ async def get_provider_credentials(
         return await service.get_provider_credentials(provider)
 
 
+async def _get_cached_provider_credentials(
+    *,
+    cache: DualCache,
+    workspace_id: WorkspaceID,
+    organization_id: OrganizationID,
+    provider: str,
+    use_workspace_creds: bool,
+) -> tuple[dict[str, str] | None, bool]:
+    if not (hasattr(cache, "async_get_cache") and hasattr(cache, "async_set_cache")):
+        creds = await get_provider_credentials(
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            provider=provider,
+            use_workspace_creds=use_workspace_creds,
+        )
+        return creds, False
+
+    cache_key = _credentials_cache_key(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        provider=provider,
+        use_workspace_creds=use_workspace_creds,
+    )
+
+    cached_creds = await cache.async_get_cache(cache_key, local_only=True)
+    if isinstance(cached_creds, dict) and all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in cached_creds.items()
+    ):
+        return cached_creds.copy(), True
+
+    creds = await get_provider_credentials(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        provider=provider,
+        use_workspace_creds=use_workspace_creds,
+    )
+    if creds:
+        await cache.async_set_cache(
+            cache_key,
+            creds,
+            ttl=TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS,
+            local_only=True,
+        )
+    return creds, False
+
+
 # -----------------------------------------------------------------------------
 # LiteLLM Auth Hooks
 # -----------------------------------------------------------------------------
@@ -71,7 +156,9 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
     """
     if request.url.path in _UNAUTHENTICATED_HEALTH_ROUTES:
         logger.debug(
-            "Allowing unauthenticated LiteLLM health probe", path=request.url.path
+            "Allowing unauthenticated LiteLLM health probe",
+            path=request.url.path,
+            **_load_fields(),
         )
         return UserAPIKeyAuth(
             api_key="health-probe",
@@ -81,7 +168,7 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
     try:
         claims = verify_llm_token(api_key or "")
     except ValueError as e:
-        logger.warning("LLM token validation failed")
+        logger.warning("LLM token validation failed", **_load_fields())
         raise ProxyException(
             message="Invalid or expired token",
             type="auth_error",
@@ -89,7 +176,15 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
             code=401,
         ) from e
 
-    logger.debug("LLM token authenticated")
+    logger.info(
+        "LLM token authenticated",
+        session_id=str(claims.session_id),
+        workspace_id=str(claims.workspace_id),
+        organization_id=str(claims.organization_id),
+        provider=claims.provider,
+        model=claims.model,
+        **_load_fields(),
+    )
 
     return UserAPIKeyAuth(
         api_key="llm-token",
@@ -126,6 +221,8 @@ class TracecatCallbackHandler(CustomLogger):
         use_workspace_creds: bool = user_api_key_dict.metadata.get(
             "use_workspace_credentials", True
         )
+        workspace = WorkspaceID(workspace_id)
+        organization = OrganizationID(organization_id)
 
         # Use model and provider from token metadata (trusted, required claims)
         model = user_api_key_dict.metadata.get("model")
@@ -136,6 +233,7 @@ class TracecatCallbackHandler(CustomLogger):
                 workspace_id=workspace_id,
                 model=model,
                 provider=provider,
+                **_load_fields(),
             )
             raise ProxyException(
                 message="Model not specified. Please select a model in the chat settings.",
@@ -145,10 +243,10 @@ class TracecatCallbackHandler(CustomLogger):
             )
         data["model"] = model
 
-        # Fetch credentials via AgentManagementService
-        creds = await get_provider_credentials(
-            workspace_id=WorkspaceID(workspace_id),
-            organization_id=OrganizationID(organization_id),
+        creds, credential_cache_hit = await _get_cached_provider_credentials(
+            cache=cache,
+            workspace_id=workspace,
+            organization_id=organization,
             provider=provider,
             use_workspace_creds=use_workspace_creds,
         )
@@ -158,6 +256,7 @@ class TracecatCallbackHandler(CustomLogger):
                 "No credentials configured for provider",
                 workspace_id=workspace_id,
                 provider=provider,
+                **_load_fields(),
             )
             raise ProxyException(
                 message=f"No {provider} API credentials configured. Add them in workspace settings.",
@@ -192,14 +291,70 @@ class TracecatCallbackHandler(CustomLogger):
             }
             data.update(safe_settings)
 
+        request_id, load_snapshot = _gateway_load_tracker.begin_request()
+        _remember_hook_request_id(data, request_id)
+
         logger.info(
-            "Injected credentials for LLM call",
+            "LiteLLM call starting",
+            request_id=request_id,
+            session_id=user_api_key_dict.metadata.get("session_id"),
             workspace_id=workspace_id,
             provider=provider,
             model=model,
+            credential_cache_hit=credential_cache_hit,
+            active_gateway_requests=load_snapshot.active_requests,
+            gateway_total_requests=load_snapshot.total_requests,
+            gateway_peak_active_requests=load_snapshot.peak_active_requests,
         )
 
         return data
+
+    async def async_post_call_success_hook(
+        self,
+        data: dict,
+        user_api_key_dict: UserAPIKeyAuth,
+        response: object,
+    ) -> object:
+        load_snapshot = _gateway_load_tracker.end_request()
+        request_id = _pop_hook_request_id(data)
+        logger.info(
+            "LiteLLM call completed",
+            request_id=request_id,
+            session_id=user_api_key_dict.metadata.get("session_id"),
+            workspace_id=user_api_key_dict.metadata.get("workspace_id"),
+            provider=user_api_key_dict.metadata.get("provider"),
+            model=user_api_key_dict.metadata.get("model"),
+            response_type=type(response).__name__,
+            active_gateway_requests=load_snapshot.active_requests,
+            gateway_total_requests=load_snapshot.total_requests,
+            gateway_peak_active_requests=load_snapshot.peak_active_requests,
+        )
+        return response
+
+    async def async_post_call_failure_hook(
+        self,
+        request_data: dict,
+        original_exception: Exception,
+        user_api_key_dict: UserAPIKeyAuth,
+        traceback_str: str | None = None,
+    ) -> None:
+        load_snapshot = _gateway_load_tracker.end_request()
+        request_id = _pop_hook_request_id(request_data)
+        logger.error(
+            "LiteLLM call failed",
+            request_id=request_id,
+            session_id=user_api_key_dict.metadata.get("session_id"),
+            workspace_id=user_api_key_dict.metadata.get("workspace_id"),
+            provider=user_api_key_dict.metadata.get("provider"),
+            model=user_api_key_dict.metadata.get("model"),
+            error=str(original_exception),
+            error_type=type(original_exception).__name__,
+            has_traceback=bool(traceback_str),
+            active_gateway_requests=load_snapshot.active_requests,
+            gateway_total_requests=load_snapshot.total_requests,
+            gateway_peak_active_requests=load_snapshot.peak_active_requests,
+        )
+        return None
 
 
 # Callback handler instance for LiteLLM config
