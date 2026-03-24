@@ -640,6 +640,45 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_session_history_high_water_mark(
+        self,
+        session_id: uuid.UUID,
+    ) -> int | None:
+        """Get the latest persisted surrogate_id for a session, if any."""
+        stmt = (
+            select(AgentSessionHistory.surrogate_id)
+            .where(AgentSessionHistory.session_id == session_id)
+            .order_by(AgentSessionHistory.surrogate_id.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def reset_session_state_for_retry(
+        self,
+        session_id: uuid.UUID,
+        *,
+        baseline_surrogate_id: int | None,
+        sdk_session_id: str | None,
+    ) -> None:
+        """Rewind persisted session state to a known boundary before retry."""
+        agent_session = await self.get_session(session_id)
+        if agent_session is None:
+            raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+
+        delete_stmt = delete(AgentSessionHistory).where(
+            AgentSessionHistory.session_id == session_id
+        )
+        if baseline_surrogate_id is not None:
+            delete_stmt = delete_stmt.where(
+                AgentSessionHistory.surrogate_id > baseline_surrogate_id
+            )
+        await self.session.execute(delete_stmt)
+
+        agent_session.sdk_session_id = sdk_session_id
+        self.session.add(agent_session)
+        await self.session.commit()
+
     async def _is_first_prompt_for_session(self, session_id: uuid.UUID) -> bool:
         """Check whether this session has any persisted local history yet."""
         stmt = (

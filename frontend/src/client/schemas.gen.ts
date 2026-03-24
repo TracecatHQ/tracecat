@@ -1088,6 +1088,37 @@ export const $AgentChannelTokenUpdate = {
   description: "Request schema for updating an external channel token.",
 } as const
 
+export const $AgentModelConfig = {
+  properties: {
+    model_name: {
+      type: "string",
+      minLength: 1,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      minLength: 1,
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["model_name", "model_provider"],
+  title: "AgentModelConfig",
+  description: "Single model/provider target for agent execution.",
+} as const
+
 export const $AgentOutput = {
   properties: {
     output: {
@@ -1181,6 +1212,20 @@ export const $AgentPresetCreate = {
         },
       ],
       title: "Base Url",
+    },
+    fallback_models: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/AgentModelConfig",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fallback Models",
     },
     output_type: {
       anyOf: [
@@ -1331,6 +1376,20 @@ export const $AgentPresetRead = {
         },
       ],
       title: "Base Url",
+    },
+    fallback_models: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/AgentModelConfig",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fallback Models",
     },
     output_type: {
       anyOf: [
@@ -1634,6 +1693,20 @@ export const $AgentPresetUpdate = {
       ],
       title: "Base Url",
     },
+    fallback_models: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/AgentModelConfig",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fallback Models",
+    },
     output_type: {
       anyOf: [
         {
@@ -1849,6 +1922,20 @@ export const $AgentPresetVersionRead = {
       ],
       title: "Base Url",
     },
+    fallback_models: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/AgentModelConfig",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fallback Models",
+    },
     output_type: {
       anyOf: [
         {
@@ -2005,6 +2092,20 @@ export const $AgentPresetVersionReadMinimal = {
         },
       ],
       title: "Base Url",
+    },
+    fallback_models: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/AgentModelConfig",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Fallback Models",
     },
     output_type: {
       anyOf: [

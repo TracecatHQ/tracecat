@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from tests.database import TEST_DB_CONFIG
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, AgentModelConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentPreset,
@@ -234,6 +234,32 @@ class TestAgentPresetService:
             agent_preset_create_params
         )
         assert created_preset.actions == agent_preset_create_params.actions
+
+    async def test_create_preset_with_fallback_models(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        """Test creating a preset with fallback model targets."""
+        agent_preset_create_params.fallback_models = [
+            AgentModelConfig(
+                model_name="claude-3-7-sonnet",
+                model_provider="anthropic",
+            ),
+            AgentModelConfig(
+                model_name="grok-4",
+                model_provider="xai",
+                base_url="https://models.example.com/v1",
+            ),
+        ]
+
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+
+        assert (
+            created_preset.fallback_models == agent_preset_create_params.fallback_models
+        )
 
     async def test_create_preset_with_invalid_actions(
         self,
@@ -534,6 +560,12 @@ class TestAgentPresetService:
             created_preset,
             AgentPresetUpdate(
                 instructions="Updated instructions",
+                fallback_models=[
+                    AgentModelConfig(
+                        model_name="claude-3-7-sonnet",
+                        model_provider="anthropic",
+                    )
+                ],
                 actions=["tools.test.another_action", "core.http_request"],
                 tool_approvals={"tools.test.another_action": True},
                 retries=9,
@@ -552,6 +584,19 @@ class TestAgentPresetService:
             change.field == "retries"
             and change.old_value == 3
             and change.new_value == 9
+            for change in diff.scalar_changes
+        )
+        assert any(
+            change.field == "fallback_models"
+            and change.old_value is None
+            and change.new_value
+            == [
+                {
+                    "model_name": "claude-3-7-sonnet",
+                    "model_provider": "anthropic",
+                    "base_url": None,
+                }
+            ]
             for change in diff.scalar_changes
         )
         assert any(
@@ -975,6 +1020,12 @@ class TestAgentPresetService:
         agent_preset_create_params.namespaces = ["tools.test", "core"]
         agent_preset_create_params.output_type = "list[str]"
         agent_preset_create_params.tool_approvals = {"tools.test.test_action": False}
+        agent_preset_create_params.fallback_models = [
+            AgentModelConfig(
+                model_name="claude-3-7-sonnet",
+                model_provider="anthropic",
+            )
+        ]
 
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
         version = await agent_preset_service.get_current_version_for_preset(preset)
@@ -986,6 +1037,7 @@ class TestAgentPresetService:
         assert agent_config.model_name == preset.model_name
         assert agent_config.model_provider == preset.model_provider
         assert agent_config.base_url == preset.base_url
+        assert agent_config.fallback_models == preset.fallback_models
         assert agent_config.instructions == preset.instructions
         assert agent_config.output_type == preset.output_type
         assert agent_config.actions == preset.actions

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import AsyncMock
 from uuid import UUID
 
@@ -119,6 +120,32 @@ async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
     )
     fake_stream.error.assert_awaited_once_with("runtime exited before connect")
     fake_stream.done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_emit_terminal_error_suppressed_for_preoutput_fallback() -> None:
+    fake_stream = _FakeStream()
+    handler = LoopbackHandler(
+        input=LoopbackInput(
+            session_id=UUID("00000000-0000-0000-0000-000000000011"),
+            workspace_id=UUID("00000000-0000-0000-0000-000000000012"),
+            user_prompt="hi",
+            config=AgentConfig(
+                model_name="gpt-5.2",
+                model_provider="openai",
+            ),
+            mcp_auth_token="mcp-token",
+            litellm_auth_token="llm-token",
+            socket_dir=Path("/tmp"),
+            suppress_preoutput_terminal_events=True,
+        )
+    )
+    handler._stream_sink = AgentStreamSink(stream=cast(Any, fake_stream))
+
+    await handler.emit_terminal_error("primary failed before output")
+
+    fake_stream.error.assert_not_awaited()
+    fake_stream.done.assert_not_awaited()
 
 
 def _make_handler() -> LoopbackHandler:

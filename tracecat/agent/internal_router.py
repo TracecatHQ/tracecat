@@ -18,7 +18,7 @@ from tracecat.agent.schemas import (
     InternalRunAgentRequest,
 )
 from tracecat.agent.service import AgentManagementService
-from tracecat.agent.types import AgentConfig, OutputType
+from tracecat.agent.types import AgentConfig, OutputType, get_model_candidates
 from tracecat.ai.ranker import rank_items as ranker_rank_items
 from tracecat.ai.ranker import rank_items_pairwise as ranker_rank_items_pairwise
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
@@ -88,6 +88,27 @@ async def _provider_secrets_context(
         registry_secrets.reset_context(secrets_token)
 
 
+@asynccontextmanager
+async def _provider_secrets_context_for_config(
+    agent_svc: AgentManagementService, config: AgentConfig
+):
+    """Set merged provider credentials for every model candidate in a config."""
+    merged_credentials: dict[str, str] = {}
+    for candidate in get_model_candidates(config):
+        provider = candidate.model_provider
+        if provider in _PROVIDERS_WITH_OPTIONAL_WORKSPACE_CREDENTIALS:
+            continue
+        credentials = await agent_svc.get_runtime_provider_credentials(provider)
+        if credentials:
+            merged_credentials.update(credentials)
+
+    secrets_token = registry_secrets.set_context(merged_credentials)
+    try:
+        yield
+    finally:
+        registry_secrets.reset_context(secrets_token)
+
+
 def _normalize_output_type(
     output_type: str | dict[str, Any] | None,
 ) -> OutputType | None:
@@ -125,7 +146,7 @@ async def run_agent_endpoint(
         if config and config.tool_approvals:
             await check_entitlement(session, role, Entitlement.AGENT_ADDONS)
 
-        async with _provider_secrets_context(agent_svc, config.model_provider):
+        async with _provider_secrets_context_for_config(agent_svc, config):
             result: AgentOutput = await runtime_run_agent(
                 user_prompt=params.user_prompt,
                 model_name=config.model_name,
@@ -141,6 +162,7 @@ async def run_agent_endpoint(
                 max_requests=params.max_requests,
                 retries=config.retries,
                 base_url=config.base_url,
+                fallback_models=config.fallback_models,
             )
         return result.model_dump(mode="json")
     except AgentRunError as e:

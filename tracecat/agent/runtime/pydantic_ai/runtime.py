@@ -16,6 +16,7 @@ from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage
 from tracecat.agent.stream.common import PersistableStreamingAgentDeps
 from tracecat.agent.types import (
     AgentConfig,
+    AgentModelConfig,
     MCPServerConfig,
     OutputType,
 )
@@ -92,6 +93,7 @@ async def run_agent(
     max_requests: int = TRACECAT__AGENT_MAX_REQUESTS,
     retries: int = TRACECAT__AGENT_MAX_RETRIES,
     base_url: str | None = None,
+    fallback_models: list[AgentModelConfig] | None = None,
     deferred_tool_results: DeferredToolResults | None = None,
 ) -> AgentOutput:
     """Run an AI agent with specified configuration and actions.
@@ -190,6 +192,7 @@ async def run_agent(
                 model_name=model_name,
                 model_provider=model_provider,
                 base_url=base_url,
+                fallback_models=fallback_models,
                 instructions=instructions,
                 output_type=output_type,
                 model_settings=model_settings,

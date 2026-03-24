@@ -20,6 +20,8 @@ OutputTypeLiteral = Literal[
     "list[str]",
 ]
 
+_UNSET = object()
+
 
 @registry.register(
     default_title="Create agent preset",
@@ -67,6 +69,13 @@ async def create_preset(
             "Custom API endpoint URL for the model. Only needed if using a custom or self-hosted model endpoint. Leave empty for standard provider APIs."
         ),
     ] = None,
+    fallback_models: Annotated[
+        list[dict[str, str | None]] | None,
+        Doc(
+            "Optional ordered fallback model/provider targets. Each item should include 'model_provider', 'model_name', and optionally 'base_url'."
+        ),
+    ]
+    | object = _UNSET,
     output_type: Annotated[
         OutputTypeLiteral | dict[str, Any] | None,
         Doc(
@@ -80,7 +89,7 @@ async def create_preset(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    # Build kwargs, only including non-None values
+    # Build kwargs, only including provided values
     kwargs: dict[str, Any] = {
         "name": name,
         "model_name": model_name,
@@ -94,6 +103,8 @@ async def create_preset(
         kwargs["instructions"] = instructions
     if base_url is not None:
         kwargs["base_url"] = base_url
+    if fallback_models is not _UNSET:
+        kwargs["fallback_models"] = fallback_models
     if output_type is not None:
         kwargs["output_type"] = output_type
     if actions is not None:
@@ -177,6 +188,13 @@ async def update_preset(
             "The updated custom API endpoint URL for the model. Only needed for custom or self-hosted model endpoints."
         ),
     ] = None,
+    fallback_models: Annotated[
+        list[dict[str, str | None]] | None,
+        Doc(
+            "The updated ordered fallback model/provider targets. Each item should include 'model_provider', 'model_name', and optionally 'base_url'."
+        ),
+    ]
+    | object = _UNSET,
     output_type: Annotated[
         OutputTypeLiteral | dict[str, Any] | None,
         Doc(
@@ -190,7 +208,7 @@ async def update_preset(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    # Build kwargs, only including non-None values
+    # Build kwargs, only including provided values
     kwargs: dict[str, Any] = {}
     if name is not None:
         kwargs["name"] = name
@@ -206,6 +224,8 @@ async def update_preset(
         kwargs["instructions"] = instructions
     if base_url is not None:
         kwargs["base_url"] = base_url
+    if fallback_models is not _UNSET:
+        kwargs["fallback_models"] = fallback_models
     if output_type is not None:
         kwargs["output_type"] = output_type
     if actions is not None:

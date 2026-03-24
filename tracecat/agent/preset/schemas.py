@@ -8,7 +8,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from tracecat.agent.types import AgentConfig, OutputType
+from tracecat.agent.types import AgentConfig, AgentModelConfig, OutputType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
 
@@ -37,6 +37,7 @@ class AgentPresetExecutionConfig(Schema):
     model_name: PresetModelField
     model_provider: PresetModelField
     base_url: str | None = Field(default=None, max_length=500)
+    fallback_models: list[AgentModelConfig] | None = Field(default=None)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
@@ -53,6 +54,7 @@ class AgentPresetExecutionConfigWrite(Schema):
     model_name: PresetModelWriteField
     model_provider: PresetModelWriteField
     base_url: str | None = Field(default=None, max_length=500)
+    fallback_models: list[AgentModelConfig] | None = Field(default=None)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
@@ -85,6 +87,7 @@ class AgentPresetUpdate(BaseModel):
     model_name: PresetModelWriteField | None = None
     model_provider: PresetModelWriteField | None = None
     base_url: str | None = Field(default=None, max_length=500)
+    fallback_models: list[AgentModelConfig] | None = Field(default=None)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
     namespaces: list[str] | None = Field(default=None)
@@ -128,6 +131,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
             model_name=self.model_name,
             model_provider=self.model_provider,
             base_url=self.base_url,
+            fallback_models=self.fallback_models,
             instructions=self.instructions,
             output_type=self.output_type,
             actions=self.actions,

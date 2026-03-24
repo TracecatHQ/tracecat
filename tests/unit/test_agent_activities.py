@@ -28,7 +28,7 @@ from tracecat.agent.session.activities import (
     load_session_activity,
 )
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, AgentModelConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 
@@ -351,12 +351,28 @@ class TestRunAgentActivity:
     async def test_successful_execution(self, mock_executor_input: AgentExecutorInput):
         """Test successful agent execution."""
         expected_result = AgentExecutorResult(success=True)
+        mock_service = AsyncMock()
+        mock_service.list_messages = AsyncMock(return_value=[])
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
 
         with (
             patch("tracecat.agent.executor.activity.activity") as mock_activity,
             patch(
                 "tracecat.agent.executor.activity.SandboxedAgentExecutor"
             ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity._get_session_history_high_water_mark",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "tracecat.agent.executor.activity.mint_llm_token",
+                return_value="mock-llm-token",
+            ),
+            patch(
+                "tracecat.agent.executor.activity.AgentSessionService.with_session",
+                return_value=mock_ctx,
+            ),
         ):
             mock_activity.heartbeat = MagicMock()
             mock_executor = MagicMock()
@@ -378,12 +394,28 @@ class TestRunAgentActivity:
             approval_requested=True,
             approval_items=[],
         )
+        mock_service = AsyncMock()
+        mock_service.list_messages = AsyncMock(return_value=[])
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
 
         with (
             patch("tracecat.agent.executor.activity.activity") as mock_activity,
             patch(
                 "tracecat.agent.executor.activity.SandboxedAgentExecutor"
             ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity._get_session_history_high_water_mark",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "tracecat.agent.executor.activity.mint_llm_token",
+                return_value="mock-llm-token",
+            ),
+            patch(
+                "tracecat.agent.executor.activity.AgentSessionService.with_session",
+                return_value=mock_ctx,
+            ),
         ):
             mock_activity.heartbeat = MagicMock()
             mock_executor = MagicMock()
@@ -410,6 +442,14 @@ class TestRunAgentActivity:
             patch(
                 "tracecat.agent.executor.activity.SandboxedAgentExecutor"
             ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity._get_session_history_high_water_mark",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "tracecat.agent.executor.activity.mint_llm_token",
+                return_value="mock-llm-token",
+            ),
         ):
             mock_activity.heartbeat = MagicMock()
             mock_executor = MagicMock()
@@ -424,12 +464,28 @@ class TestRunAgentActivity:
     async def test_sends_heartbeats(self, mock_executor_input: AgentExecutorInput):
         """Test that heartbeats are sent during execution."""
         expected_result = AgentExecutorResult(success=True)
+        mock_service = AsyncMock()
+        mock_service.list_messages = AsyncMock(return_value=[])
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
 
         with (
             patch("tracecat.agent.executor.activity.activity") as mock_activity,
             patch(
                 "tracecat.agent.executor.activity.SandboxedAgentExecutor"
             ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity._get_session_history_high_water_mark",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "tracecat.agent.executor.activity.mint_llm_token",
+                return_value="mock-llm-token",
+            ),
+            patch(
+                "tracecat.agent.executor.activity.AgentSessionService.with_session",
+                return_value=mock_ctx,
+            ),
         ):
             mock_activity.heartbeat = MagicMock()
             mock_executor = MagicMock()
@@ -440,3 +496,135 @@ class TestRunAgentActivity:
 
             # Should send heartbeat at start and end
             assert mock_activity.heartbeat.call_count >= 2
+
+    @pytest.mark.anyio
+    async def test_falls_back_to_next_model_before_visible_output(
+        self, mock_executor_input: AgentExecutorInput
+    ) -> None:
+        """Test fallback proceeds to the next candidate before any visible output."""
+        mock_executor_input.config = AgentConfig(
+            model_name="gpt-5.2",
+            model_provider="openai",
+            fallback_models=[
+                AgentModelConfig(
+                    model_name="claude-3-7-sonnet",
+                    model_provider="anthropic",
+                )
+            ],
+        )
+
+        first_executor = MagicMock()
+        first_executor.run = AsyncMock(
+            return_value=AgentExecutorResult(
+                success=False,
+                error="Primary provider unavailable",
+                has_user_visible_output=False,
+            )
+        )
+        second_executor = MagicMock()
+        second_executor.run = AsyncMock(
+            return_value=AgentExecutorResult(
+                success=True,
+                has_user_visible_output=False,
+            )
+        )
+        mock_service = AsyncMock()
+        mock_service.list_messages = AsyncMock(return_value=[])
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.SandboxedAgentExecutor",
+                side_effect=[first_executor, second_executor],
+            ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity._get_session_history_high_water_mark",
+                AsyncMock(return_value=12),
+            ) as mock_get_history_mark,
+            patch(
+                "tracecat.agent.executor.activity._reset_session_state_for_fallback",
+                AsyncMock(),
+            ) as mock_reset_session_state,
+            patch(
+                "tracecat.agent.executor.activity.mint_llm_token",
+                side_effect=["token-primary", "token-fallback"],
+            ) as mock_mint_llm_token,
+            patch(
+                "tracecat.agent.executor.activity.AgentSessionService.with_session",
+                return_value=mock_ctx,
+            ),
+        ):
+            mock_activity.heartbeat = MagicMock()
+
+            result = await run_agent_activity(mock_executor_input)
+
+            assert result.success is True
+            assert mock_executor_cls.call_count == 2
+            first_input = mock_executor_cls.call_args_list[0].kwargs["input"]
+            second_input = mock_executor_cls.call_args_list[1].kwargs["input"]
+            assert first_input.config.model_provider == "openai"
+            assert first_input.litellm_auth_token == "token-primary"
+            assert first_input.suppress_preoutput_terminal_events is True
+            assert second_input.config.model_provider == "anthropic"
+            assert second_input.litellm_auth_token == "token-fallback"
+            assert second_input.suppress_preoutput_terminal_events is False
+            assert mock_mint_llm_token.call_count == 2
+            mock_get_history_mark.assert_awaited()
+            mock_reset_session_state.assert_awaited_once_with(
+                role=mock_executor_input.role,
+                session_id=mock_executor_input.session_id,
+                baseline_surrogate_id=12,
+                sdk_session_id=mock_executor_input.sdk_session_id,
+            )
+
+    @pytest.mark.anyio
+    async def test_does_not_fall_back_after_visible_output(
+        self, mock_executor_input: AgentExecutorInput
+    ) -> None:
+        """Test fallback stops once a candidate has emitted visible output."""
+        mock_executor_input.config = AgentConfig(
+            model_name="gpt-5.2",
+            model_provider="openai",
+            fallback_models=[
+                AgentModelConfig(
+                    model_name="claude-3-7-sonnet",
+                    model_provider="anthropic",
+                )
+            ],
+        )
+
+        first_executor = MagicMock()
+        first_executor.run = AsyncMock(
+            return_value=AgentExecutorResult(
+                success=False,
+                error="Primary provider failed after first delta",
+                has_user_visible_output=True,
+            )
+        )
+
+        with (
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch(
+                "tracecat.agent.executor.activity.SandboxedAgentExecutor",
+                return_value=first_executor,
+            ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity._get_session_history_high_water_mark",
+                AsyncMock(return_value=12),
+            ),
+            patch(
+                "tracecat.agent.executor.activity.mint_llm_token",
+                return_value="token-primary",
+            ),
+        ):
+            mock_activity.heartbeat = MagicMock()
+
+            result = await run_agent_activity(mock_executor_input)
+
+            assert result.success is False
+            assert mock_executor_cls.call_count == 1
+            assert result.error is not None
+            assert "openai/gpt-5.2" in result.error
+            assert "Primary provider failed after first delta" in result.error

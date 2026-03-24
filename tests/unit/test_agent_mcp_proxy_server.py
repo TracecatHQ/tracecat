@@ -10,8 +10,8 @@ from claude_agent_sdk.types import (
     PreToolUseHookSpecificOutput,
     SyncHookJSONOutput,
 )
-from mcp import types as mt
 
+from mcp import types as mt
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.mcp import proxy_server
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime

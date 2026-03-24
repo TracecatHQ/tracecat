@@ -17,7 +17,7 @@ from tracecat.agent.schemas import (
     ModelCredentialUpdate,
     ProviderCredentialConfig,
 )
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, get_model_candidates
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import OrganizationSecret, Secret
@@ -430,16 +430,27 @@ class AgentManagementService(BaseOrgService):
             preset_version=preset_version,
         )
 
-        # Get credentials from appropriate scope
-        credentials = await self.get_runtime_provider_credentials(
-            preset_config.model_provider,
-            use_workspace_credentials=use_workspace_credentials,
-        )
+        credentials = None
+        for candidate in get_model_candidates(preset_config):
+            credentials = await self.get_runtime_provider_credentials(
+                candidate.model_provider,
+                use_workspace_credentials=use_workspace_credentials,
+            )
+            if credentials:
+                break
 
         if not credentials:
+            providers = ", ".join(
+                sorted(
+                    {
+                        candidate.model_provider
+                        for candidate in get_model_candidates(preset_config)
+                    }
+                )
+            )
             raise TracecatNotFoundError(
-                f"No credentials found for provider '{preset_config.model_provider}'. "
-                "Please configure credentials for this provider first."
+                "No credentials found for any configured preset provider. "
+                f"Configure one of: {providers}."
             )
 
         with self._credentials_sandbox(credentials):

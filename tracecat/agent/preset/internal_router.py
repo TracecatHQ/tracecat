@@ -14,7 +14,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.types import OutputType
+from tracecat.agent.types import AgentModelConfig, OutputType
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -50,6 +50,7 @@ class PresetCreateRequest(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
     base_url: str | None = Field(default=None, max_length=500)
+    fallback_models: list[AgentModelConfig] | None = Field(default=None)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
 
@@ -64,6 +65,7 @@ class PresetUpdateRequest(BaseModel):
     model_name: PresetModelField | None = None
     model_provider: PresetModelField | None = None
     base_url: str | None = Field(default=None, max_length=500)
+    fallback_models: list[AgentModelConfig] | None = Field(default=None)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
 

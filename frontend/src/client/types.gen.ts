@@ -303,6 +303,15 @@ export type AgentChannelTokenUpdate = {
   is_active?: boolean | null
 }
 
+/**
+ * Single model/provider target for agent execution.
+ */
+export type AgentModelConfig = {
+  model_name: string
+  model_provider: string
+  base_url?: string | null
+}
+
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ChatMessage> | null
@@ -323,6 +332,7 @@ export type AgentPresetCreate = {
   model_name: string
   model_provider: string
   base_url?: string | null
+  fallback_models?: Array<AgentModelConfig> | null
   output_type?: OutputType | null
   actions?: Array<string> | null
   namespaces?: Array<string> | null
@@ -345,6 +355,7 @@ export type AgentPresetRead = {
   model_name: string
   model_provider: string
   base_url?: string | null
+  fallback_models?: Array<AgentModelConfig> | null
   output_type?: OutputType | null
   actions?: Array<string> | null
   namespaces?: Array<string> | null
@@ -389,6 +400,7 @@ export type AgentPresetUpdate = {
   model_name?: string | null
   model_provider?: string | null
   base_url?: string | null
+  fallback_models?: Array<AgentModelConfig> | null
   output_type?: OutputType | null
   actions?: Array<string> | null
   namespaces?: Array<string> | null
@@ -425,6 +437,7 @@ export type AgentPresetVersionRead = {
   model_name: string
   model_provider: string
   base_url?: string | null
+  fallback_models?: Array<AgentModelConfig> | null
   output_type?: OutputType | null
   actions?: Array<string> | null
   namespaces?: Array<string> | null
@@ -450,6 +463,7 @@ export type AgentPresetVersionReadMinimal = {
   model_name: string
   model_provider: string
   base_url?: string | null
+  fallback_models?: Array<AgentModelConfig> | null
   output_type?: OutputType | null
   actions?: Array<string> | null
   namespaces?: Array<string> | null

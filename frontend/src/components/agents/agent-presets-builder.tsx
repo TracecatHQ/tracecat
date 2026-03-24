@@ -3,6 +3,8 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
   Box,
   Braces,
   Brackets,
@@ -199,6 +201,21 @@ const agentPresetSchema = z
     model_provider: z.string().trim().min(1, "Model provider is required"),
     model_name: z.string().trim().min(1, "Model name is required"),
     base_url: z.union([z.string().url(), z.literal(""), z.undefined()]),
+    fallbackModels: z
+      .array(
+        z.object({
+          model_provider: z
+            .string()
+            .trim()
+            .min(1, "Fallback model provider is required"),
+          model_name: z
+            .string()
+            .trim()
+            .min(1, "Fallback model name is required"),
+          base_url: z.union([z.string().url(), z.literal(""), z.undefined()]),
+        })
+      )
+      .default([]),
     outputTypeKind: z.enum(["none", "data-type", "json"]),
     outputTypeDataType: z.string().optional(),
     outputTypeJson: z.string().optional(),
@@ -261,6 +278,7 @@ const agentPresetSchema = z
 
 type AgentPresetFormValues = z.infer<typeof agentPresetSchema>
 type ToolApprovalFormValue = AgentPresetFormValues["toolApprovals"][number]
+type FallbackModelFormValue = AgentPresetFormValues["fallbackModels"][number]
 
 const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   name: "",
@@ -270,6 +288,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   model_provider: "",
   model_name: "",
   base_url: "",
+  fallbackModels: [],
   outputTypeKind: "none",
   outputTypeDataType: "",
   outputTypeJson: "",
@@ -592,21 +611,34 @@ function AgentPresetChatPane({
     }
   }, [activeVersion, preset])
 
+  const activeProviders = useMemo(
+    () => getConfiguredModelProviders(activeVersion ?? preset),
+    [activeVersion, preset]
+  )
+  const newChatProviders = useMemo(
+    () => getConfiguredModelProviders(newChatVersion ?? preset),
+    [newChatVersion, preset]
+  )
+
   const providerReady = useMemo(() => {
-    if (!preset) {
-      return false
-    }
-    const provider = activeVersion?.model_provider ?? preset.model_provider
-    return providersStatus?.[provider] ?? false
-  }, [activeVersion, providersStatus, preset])
+    return activeProviders.some(
+      (provider) => providersStatus?.[provider] ?? false
+    )
+  }, [activeProviders, providersStatus])
 
   const newChatProviderReady = useMemo(() => {
-    if (!preset) {
-      return false
-    }
-    const provider = newChatVersion?.model_provider ?? preset.model_provider
-    return providersStatus?.[provider] ?? false
-  }, [newChatVersion, providersStatus, preset])
+    return newChatProviders.some(
+      (provider) => providersStatus?.[provider] ?? false
+    )
+  }, [newChatProviders, providersStatus])
+
+  const missingActiveProviders = useMemo(
+    () =>
+      activeProviders.filter(
+        (provider) => !(providersStatus?.[provider] ?? false)
+      ),
+    [activeProviders, providersStatus]
+  )
 
   const canStartChat = Boolean(preset && newChatProviderReady)
   const shouldAutoCreateChat =
@@ -691,11 +723,11 @@ function AgentPresetChatPane({
           <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
             <AlertCircle className="size-5 text-amber-500" />
             <p className="text-pretty">
-              This agent uses workspace credentials for{" "}
+              This agent needs workspace credentials for{" "}
               <span className="font-medium">
-                {activeVersion?.model_provider ?? preset.model_provider}
+                {formatProviderList(activeProviders)}
               </span>
-              . Configure them on the{" "}
+              . Configure at least one provider on the{" "}
               <Link
                 href={`/workspaces/${workspaceId}/credentials`}
                 className="font-medium text-primary hover:underline"
@@ -750,16 +782,33 @@ function AgentPresetChatPane({
     }
 
     return (
-      <ChatSessionPane
-        chat={chat}
-        workspaceId={workspaceId}
-        entityType={"agent_preset"}
-        entityId={preset.id}
-        className="flex-1 min-h-0"
-        placeholder={`Talk to ${preset.name}...`}
-        modelInfo={modelInfo}
-        toolsEnabled={false}
-      />
+      <div className="flex h-full flex-col">
+        {missingActiveProviders.length > 0 ? (
+          <div className="border-b px-3 py-2">
+            <Alert className="border-amber-200 bg-amber-50/50 text-amber-950">
+              <AlertCircle className="size-4" />
+              <AlertTitle>Fallback providers incomplete</AlertTitle>
+              <AlertDescription>
+                Missing workspace credentials for{" "}
+                <span className="font-medium">
+                  {formatProviderList(missingActiveProviders)}
+                </span>
+                . Chat can still run with the providers that are configured.
+              </AlertDescription>
+            </Alert>
+          </div>
+        ) : null}
+        <ChatSessionPane
+          chat={chat}
+          workspaceId={workspaceId}
+          entityType={"agent_preset"}
+          entityId={preset.id}
+          className="flex-1 min-h-0"
+          placeholder={`Talk to ${preset.name}...`}
+          modelInfo={modelInfo}
+          toolsEnabled={false}
+        />
+      </div>
     )
   }
 
@@ -889,6 +938,7 @@ function getAgentPresetErrorTab(
     errors.model_provider ||
     errors.model_name ||
     errors.base_url ||
+    errors.fallbackModels ||
     errors.retries ||
     errors.actions ||
     errors.namespaces ||
@@ -974,6 +1024,15 @@ function AgentPresetForm({
   } = useFieldArray({
     control: form.control,
     name: "toolApprovals",
+  })
+  const {
+    fields: fallbackModelFields,
+    append: appendFallbackModel,
+    move: moveFallbackModel,
+    remove: removeFallbackModel,
+  } = useFieldArray({
+    control: form.control,
+    name: "fallbackModels",
   })
 
   useEffect(() => {
@@ -1078,6 +1137,14 @@ function AgentPresetForm({
     })
   }, [appendToolApproval])
 
+  const handleAddFallbackModel = useCallback(() => {
+    appendFallbackModel({
+      model_provider: providerValue ?? "",
+      model_name: "",
+      base_url: "",
+    })
+  }, [appendFallbackModel, providerValue])
+
   return (
     <Form {...form}>
       <form
@@ -1127,6 +1194,10 @@ function AgentPresetForm({
               modelOptionsByProvider={modelOptionsByProvider}
               mcpIntegrations={mcpIntegrations}
               mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+              fallbackModelFields={fallbackModelFields}
+              onAddFallbackModel={handleAddFallbackModel}
+              onMoveFallbackModel={moveFallbackModel}
+              onRemoveFallbackModel={removeFallbackModel}
               toolApprovalFields={toolApprovalFields}
               onAddToolApproval={handleAddToolApproval}
               onRemoveToolApproval={removeToolApproval}
@@ -1330,6 +1401,10 @@ function AgentPresetRightPanel({
   modelOptionsByProvider,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
+  fallbackModelFields,
+  onAddFallbackModel,
+  onMoveFallbackModel,
+  onRemoveFallbackModel,
   toolApprovalFields,
   onAddToolApproval,
   onRemoveToolApproval,
@@ -1348,6 +1423,10 @@ function AgentPresetRightPanel({
   modelOptionsByProvider: Record<string, { label: string; value: string }[]>
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
+  fallbackModelFields: Array<{ id: string }>
+  onAddFallbackModel: () => void
+  onMoveFallbackModel: (from: number, to: number) => void
+  onRemoveFallbackModel: (index: number) => void
   toolApprovalFields: Array<{ id: string }>
   onAddToolApproval: () => void
   onRemoveToolApproval: (index: number) => void
@@ -1430,10 +1509,15 @@ function AgentPresetRightPanel({
               isSaving={isSaving}
               actionSuggestions={actionSuggestions}
               namespaceSuggestions={namespaceSuggestions}
+              workspaceId={workspaceId}
               modelProviderOptions={modelProviderOptions}
               modelOptionsByProvider={modelOptionsByProvider}
               mcpIntegrations={mcpIntegrations}
               mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+              fallbackModelFields={fallbackModelFields}
+              onAddFallbackModel={onAddFallbackModel}
+              onMoveFallbackModel={onMoveFallbackModel}
+              onRemoveFallbackModel={onRemoveFallbackModel}
               toolApprovalFields={toolApprovalFields}
               onAddToolApproval={onAddToolApproval}
               onRemoveToolApproval={onRemoveToolApproval}
@@ -1467,10 +1551,15 @@ function AgentPresetConfigurationPanel({
   isSaving,
   actionSuggestions,
   namespaceSuggestions,
+  workspaceId,
   modelProviderOptions,
   modelOptionsByProvider,
   mcpIntegrations,
   mcpIntegrationsIsLoading,
+  fallbackModelFields,
+  onAddFallbackModel,
+  onMoveFallbackModel,
+  onRemoveFallbackModel,
   toolApprovalFields,
   onAddToolApproval,
   onRemoveToolApproval,
@@ -1479,21 +1568,67 @@ function AgentPresetConfigurationPanel({
   isSaving: boolean
   actionSuggestions: Suggestion[]
   namespaceSuggestions: Suggestion[]
+  workspaceId: string
   modelProviderOptions: string[]
   modelOptionsByProvider: Record<string, { label: string; value: string }[]>
   mcpIntegrations: McpIntegrationOption[]
   mcpIntegrationsIsLoading: boolean
+  fallbackModelFields: Array<{ id: string }>
+  onAddFallbackModel: () => void
+  onMoveFallbackModel: (from: number, to: number) => void
+  onRemoveFallbackModel: (index: number) => void
   toolApprovalFields: Array<{ id: string }>
   onAddToolApproval: () => void
   onRemoveToolApproval: (index: number) => void
 }) {
   const providerValue = form.watch("model_provider")
+  const fallbackModels = form.watch("fallbackModels") ?? []
   const internetAccessEnabled = form.watch("enableInternetAccess")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
+  const { providersStatus, isLoading: providersStatusLoading } =
+    useWorkspaceModelProvidersStatus(workspaceId)
+  const configuredProviders = useMemo(
+    () =>
+      getConfiguredModelProviders({
+        model_provider: providerValue,
+        fallback_models: fallbackModels,
+      }),
+    [fallbackModels, providerValue]
+  )
+  const missingProviders = useMemo(
+    () =>
+      configuredProviders.filter(
+        (provider) => !(providersStatus?.[provider] ?? false)
+      ),
+    [configuredProviders, providersStatus]
+  )
 
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
+        {!providersStatusLoading && missingProviders.length > 0 ? (
+          <Alert className="border-amber-200 bg-amber-50/50 text-amber-950">
+            <AlertCircle className="size-4" />
+            <AlertTitle>Fallback providers need credentials</AlertTitle>
+            <AlertDescription>
+              Missing workspace credentials for{" "}
+              <span className="font-medium">
+                {formatProviderList(missingProviders)}
+              </span>
+              . The preset can still save, but only configured providers will be
+              available during fallback on the{" "}
+              <Link
+                href={`/workspaces/${workspaceId}/credentials`}
+                className="font-medium underline underline-offset-4"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                credentials page
+              </Link>
+              .
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <section className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <FormField
@@ -1624,6 +1759,53 @@ function AgentPresetConfigurationPanel({
               Enable internet access
             </label>
           </div>
+        </section>
+
+        <Separator />
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Fallback models</p>
+              <p className="text-xs text-muted-foreground">
+                Used in order if the primary model fails before producing
+                output.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onAddFallbackModel}
+              disabled={isSaving}
+            >
+              <Plus className="mr-2 size-4" />
+              Add fallback
+            </Button>
+          </div>
+          {fallbackModelFields.length === 0 ? (
+            <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+              No fallback models configured.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {fallbackModelFields.map((item, index) => (
+                <FallbackModelRow
+                  key={item.id}
+                  form={form}
+                  index={index}
+                  isSaving={isSaving}
+                  isFirst={index === 0}
+                  isLast={index === fallbackModelFields.length - 1}
+                  modelProviderOptions={modelProviderOptions}
+                  modelOptionsByProvider={modelOptionsByProvider}
+                  onMoveUp={() => onMoveFallbackModel(index, index - 1)}
+                  onMoveDown={() => onMoveFallbackModel(index, index + 1)}
+                  onRemove={() => onRemoveFallbackModel(index)}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
         <Separator />
@@ -1810,6 +1992,189 @@ function AgentPresetConfigurationPanel({
         </section>
       </div>
     </ScrollArea>
+  )
+}
+
+function FallbackModelRow({
+  form,
+  index,
+  isSaving,
+  isFirst,
+  isLast,
+  modelProviderOptions,
+  modelOptionsByProvider,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
+}: {
+  form: UseFormReturn<AgentPresetFormValues>
+  index: number
+  isSaving: boolean
+  isFirst: boolean
+  isLast: boolean
+  modelProviderOptions: string[]
+  modelOptionsByProvider: Record<string, { label: string; value: string }[]>
+  onMoveUp: () => void
+  onMoveDown: () => void
+  onRemove: () => void
+}) {
+  const providerFieldName = `fallbackModels.${index}.model_provider` as const
+  const modelFieldName = `fallbackModels.${index}.model_name` as const
+  const baseUrlFieldName = `fallbackModels.${index}.base_url` as const
+  const providerValue = form.watch(providerFieldName)
+  const modelOptions = modelOptionsByProvider[providerValue] ?? []
+
+  return (
+    <div className="space-y-4 rounded-md border p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">{`Fallback ${index + 1}`}</p>
+          <p className="text-xs text-muted-foreground">
+            Used after earlier candidates fail before output starts.
+          </p>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={onMoveUp}
+            disabled={isSaving || isFirst}
+            aria-label="Move fallback up"
+          >
+            <ArrowUp className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={onMoveDown}
+            disabled={isSaving || isLast}
+            aria-label="Move fallback down"
+          >
+            <ArrowDown className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={onRemove}
+            disabled={isSaving}
+            aria-label="Remove fallback model"
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <FormField
+          control={form.control}
+          name={providerFieldName}
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Model provider</FormLabel>
+              <FormControl>
+                {modelProviderOptions.length > 0 ? (
+                  <Select
+                    value={field.value}
+                    onValueChange={(nextProvider) => {
+                      field.onChange(nextProvider)
+                      const nextOptions =
+                        modelOptionsByProvider[nextProvider] ?? []
+                      const currentModel = form.getValues(modelFieldName)
+                      if (
+                        nextOptions.length > 0 &&
+                        !nextOptions.some(
+                          (option) => option.value === currentModel
+                        )
+                      ) {
+                        form.setValue(
+                          modelFieldName,
+                          nextOptions[0]?.value ?? "",
+                          { shouldDirty: true }
+                        )
+                      }
+                    }}
+                    disabled={isSaving}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select provider" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {modelProviderOptions.map((provider) => (
+                        <SelectItem
+                          key={`${provider}-${index}`}
+                          value={provider}
+                        >
+                          {provider}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input placeholder="openai" {...field} disabled={isSaving} />
+                )}
+              </FormControl>
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name={modelFieldName}
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Model name</FormLabel>
+              <FormControl>
+                {modelOptions.length > 0 ? (
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    disabled={isSaving}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {modelOptions.map((option) => (
+                        <SelectItem
+                          key={`${providerValue}-${option.value}-${index}`}
+                          value={option.value}
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    placeholder="gpt-4o-mini"
+                    {...field}
+                    disabled={isSaving}
+                  />
+                )}
+              </FormControl>
+            </FormItem>
+          )}
+        />
+      </div>
+      <FormField
+        control={form.control}
+        name={baseUrlFieldName}
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Custom model base URL</FormLabel>
+            <FormControl>
+              <Input
+                placeholder="https://api.openai.com/v1"
+                value={field.value ?? ""}
+                onChange={field.onChange}
+                disabled={isSaving}
+              />
+            </FormControl>
+          </FormItem>
+        )}
+      />
+    </div>
   )
 }
 
@@ -2185,6 +2550,14 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
     model_provider: preset.model_provider,
     model_name: preset.model_name,
     base_url: preset.base_url ?? "",
+    fallbackModels:
+      preset.fallback_models?.map(
+        (model): FallbackModelFormValue => ({
+          model_provider: model.model_provider,
+          model_name: model.model_name,
+          base_url: model.base_url ?? "",
+        })
+      ) ?? [],
     outputTypeKind: outputType
       ? typeof outputType === "string"
         ? "data-type"
@@ -2232,6 +2605,14 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
     model_name: values.model_name.trim(),
     model_provider: values.model_provider.trim(),
     base_url: normalizeOptional(values.base_url),
+    fallback_models:
+      values.fallbackModels.length > 0
+        ? values.fallbackModels.map((model) => ({
+            model_name: model.model_name.trim(),
+            model_provider: model.model_provider.trim(),
+            base_url: normalizeOptional(model.base_url),
+          }))
+        : null,
     output_type: outputType ?? null,
     actions: values.actions.length > 0 ? values.actions : null,
     namespaces: values.namespaces.length > 0 ? values.namespaces : null,
@@ -2266,4 +2647,29 @@ function toToolApprovalMap(
   }
 
   return Object.fromEntries(entries.map(({ tool, allow }) => [tool, allow]))
+}
+
+function formatProviderList(providers: string[]): string {
+  return providers.join(", ")
+}
+
+function getConfiguredModelProviders(
+  preset:
+    | {
+        model_provider: string
+        fallback_models?: Array<{ model_provider: string }> | null
+      }
+    | null
+    | undefined
+): string[] {
+  if (!preset) {
+    return []
+  }
+
+  const providers = [
+    preset.model_provider,
+    ...(preset.fallback_models?.map((model) => model.model_provider) ?? []),
+  ].filter((provider) => provider.trim().length > 0)
+
+  return Array.from(new Set(providers))
 }

@@ -40,6 +40,7 @@ export function buildDuplicateAgentPresetPayload(
     model_name: preset.model_name,
     model_provider: preset.model_provider,
     base_url: preset.base_url ?? null,
+    fallback_models: preset.fallback_models ?? null,
     output_type: preset.output_type ?? null,
     actions: preset.actions ?? null,
     namespaces: preset.namespaces ?? null,

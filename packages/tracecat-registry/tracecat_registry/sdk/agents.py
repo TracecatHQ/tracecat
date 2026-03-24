@@ -47,6 +47,14 @@ class MCPServerConfig(TypedDict):
     """Optional: Transport type. Defaults to 'http'."""
 
 
+class FallbackModelConfig(TypedDict):
+    """Fallback model/provider target for preset execution."""
+
+    model_name: str
+    model_provider: str
+    base_url: NotRequired[str | None]
+
+
 class RankableItem(TypedDict):
     id: str | int
     text: str
@@ -463,6 +471,7 @@ class AgentsClient:
         description: str | Unset = UNSET,
         instructions: str | Unset = UNSET,
         base_url: str | Unset = UNSET,
+        fallback_models: list[FallbackModelConfig] | None | Unset = UNSET,
         output_type: str | dict[str, Any] | Unset = UNSET,
         actions: list[str] | Unset = UNSET,
     ) -> dict[str, Any]:
@@ -476,6 +485,7 @@ class AgentsClient:
             description: Brief description of the preset's purpose.
             instructions: System instructions/prompt for the agent.
             base_url: Custom API endpoint URL for the model.
+            fallback_models: Ordered fallback model/provider targets.
             output_type: Expected output format (type string or JSON schema).
             actions: List of action identifiers the agent can use as tools.
 
@@ -495,6 +505,8 @@ class AgentsClient:
             data["instructions"] = instructions
         if is_set(base_url):
             data["base_url"] = base_url
+        if is_set(fallback_models):
+            data["fallback_models"] = fallback_models
         if is_set(output_type):
             data["output_type"] = output_type
         if is_set(actions):
@@ -526,6 +538,7 @@ class AgentsClient:
         model_name: str | Unset = UNSET,
         model_provider: str | Unset = UNSET,
         base_url: str | Unset = UNSET,
+        fallback_models: list[FallbackModelConfig] | None | Unset = UNSET,
         output_type: str | dict[str, Any] | Unset = UNSET,
         actions: list[str] | Unset = UNSET,
     ) -> dict[str, Any]:
@@ -540,6 +553,7 @@ class AgentsClient:
             model_name: Updated LLM model name.
             model_provider: Updated LLM provider.
             base_url: Updated custom API endpoint URL.
+            fallback_models: Updated ordered fallback model/provider targets.
             output_type: Updated output format.
             actions: Updated list of action identifiers.
 
@@ -564,6 +578,8 @@ class AgentsClient:
             data["model_provider"] = model_provider
         if is_set(base_url):
             data["base_url"] = base_url
+        if is_set(fallback_models):
+            data["fallback_models"] = fallback_models
         if is_set(output_type):
             data["output_type"] = output_type
         if is_set(actions):
