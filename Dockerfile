@@ -171,9 +171,6 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache && \
     chmod -R 755 /var/lib/tracecat/sandbox-cache
 
-COPY docker/scripts/auto-update.sh ./auto-update.sh
-RUN chmod +x auto-update.sh && ./auto-update.sh && rm auto-update.sh
-
 ENV PYTHONUSERBASE="/home/apiuser/.local"
 ENV UV_CACHE_DIR="/home/apiuser/.cache/uv"
 ENV PYTHONPATH="/home/apiuser/.local"
