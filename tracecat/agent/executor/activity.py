@@ -28,13 +28,16 @@ from tracecat.agent.executor.loopback import (
 )
 from tracecat.agent.fallback import (
     FallbackAttemptFailure,
+    classify_fallback_failure,
     format_fallback_failure_message,
     format_model_target,
     get_fallback_configs,
+    should_retry_same_turn,
 )
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.tokens import mint_llm_token
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -69,6 +72,18 @@ async def _reset_session_state_for_fallback(
             baseline_surrogate_id=baseline_surrogate_id,
             sdk_session_id=sdk_session_id,
         )
+
+
+async def _emit_unsuppressed_terminal_stream_error(
+    *,
+    session_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    error: str,
+) -> None:
+    """Emit an explicit terminal error marker when fallback recovery cannot continue."""
+    stream = await AgentStream.new(session_id=session_id, workspace_id=workspace_id)
+    await stream.error(error)
+    await stream.done()
 
 
 class AgentExecutorInput(BaseModel):
@@ -651,7 +666,14 @@ async def run_agent_activity(
                 error=result.error or "Unknown error",
             )
         )
-        if not result.has_user_visible_output and index < len(candidate_inputs) - 1:
+        failure_scope = classify_fallback_failure(result.error)
+        last_candidate = index == len(candidate_inputs) - 1
+        retry_same_turn = (
+            should_retry_same_turn(result.error)
+            and not result.has_user_visible_output
+            and not last_candidate
+        )
+        if retry_same_turn:
             try:
                 await _reset_session_state_for_fallback(
                     role=input.role,
@@ -664,14 +686,30 @@ async def run_agent_activity(
                     "Agent attempt failed before visible output, and the session "
                     f"state could not be reset for fallback: {e}"
                 )
+                try:
+                    await _emit_unsuppressed_terminal_stream_error(
+                        session_id=input.session_id,
+                        workspace_id=input.workspace_id,
+                        error=result.error,
+                    )
+                except Exception as stream_exc:
+                    logger.warning(
+                        "Failed to emit unsuppressed terminal stream error after fallback reset failure",
+                        session_id=str(input.session_id),
+                        error=str(stream_exc),
+                    )
                 activity.heartbeat(f"Agent execution failed: {result.error}")
                 return result
 
             logger.warning(
-                "Agent attempt failed before visible output; reset session state and trying fallback",
+                "Agent attempt failed before visible output; retrying the same turn with a fallback candidate",
                 session_id=str(input.session_id),
+                attempt=index + 1,
+                total_attempts=len(candidate_inputs),
                 candidate_model=format_model_target(target),
                 error=result.error,
+                failure_scope=failure_scope,
+                retry_same_turn=True,
                 baseline_surrogate_id=baseline_surrogate_id,
             )
             continue

@@ -1,6 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import * as AccordionPrimitive from "@radix-ui/react-accordion"
 import {
   AlertCircle,
   ArrowDown,
@@ -8,6 +9,7 @@ import {
   Box,
   Braces,
   Brackets,
+  ChevronRight,
   CopyPlus,
   Hash,
   History,
@@ -621,24 +623,16 @@ function AgentPresetChatPane({
   )
 
   const providerReady = useMemo(() => {
-    return activeProviders.some(
+    return activeProviders.every(
       (provider) => providersStatus?.[provider] ?? false
     )
   }, [activeProviders, providersStatus])
 
   const newChatProviderReady = useMemo(() => {
-    return newChatProviders.some(
+    return newChatProviders.every(
       (provider) => providersStatus?.[provider] ?? false
     )
   }, [newChatProviders, providersStatus])
-
-  const missingActiveProviders = useMemo(
-    () =>
-      activeProviders.filter(
-        (provider) => !(providersStatus?.[provider] ?? false)
-      ),
-    [activeProviders, providersStatus]
-  )
 
   const canStartChat = Boolean(preset && newChatProviderReady)
   const shouldAutoCreateChat =
@@ -727,7 +721,7 @@ function AgentPresetChatPane({
               <span className="font-medium">
                 {formatProviderList(activeProviders)}
               </span>
-              . Configure at least one provider on the{" "}
+              . Configure them on the{" "}
               <Link
                 href={`/workspaces/${workspaceId}/credentials`}
                 className="font-medium text-primary hover:underline"
@@ -736,7 +730,7 @@ function AgentPresetChatPane({
               >
                 credentials page
               </Link>{" "}
-              to enable chat.
+              to enable chat and fallback models.
             </p>
           </div>
         </div>
@@ -782,33 +776,16 @@ function AgentPresetChatPane({
     }
 
     return (
-      <div className="flex h-full flex-col">
-        {missingActiveProviders.length > 0 ? (
-          <div className="border-b px-3 py-2">
-            <Alert className="border-amber-200 bg-amber-50/50 text-amber-950">
-              <AlertCircle className="size-4" />
-              <AlertTitle>Fallback providers incomplete</AlertTitle>
-              <AlertDescription>
-                Missing workspace credentials for{" "}
-                <span className="font-medium">
-                  {formatProviderList(missingActiveProviders)}
-                </span>
-                . Chat can still run with the providers that are configured.
-              </AlertDescription>
-            </Alert>
-          </div>
-        ) : null}
-        <ChatSessionPane
-          chat={chat}
-          workspaceId={workspaceId}
-          entityType={"agent_preset"}
-          entityId={preset.id}
-          className="flex-1 min-h-0"
-          placeholder={`Talk to ${preset.name}...`}
-          modelInfo={modelInfo}
-          toolsEnabled={false}
-        />
-      </div>
+      <ChatSessionPane
+        chat={chat}
+        workspaceId={workspaceId}
+        entityType={"agent_preset"}
+        entityId={preset.id}
+        className="flex-1 min-h-0"
+        placeholder={`Talk to ${preset.name}...`}
+        modelInfo={modelInfo}
+        toolsEnabled={false}
+      />
     )
   }
 
@@ -1360,7 +1337,7 @@ function AgentPresetDocumentPanel({
           </div>
         </div>
         <Separator className="my-5" />
-        <section className="space-y-4">
+        <section className="space-y-3">
           <FormField
             control={form.control}
             name="instructions"
@@ -1509,7 +1486,6 @@ function AgentPresetRightPanel({
               isSaving={isSaving}
               actionSuggestions={actionSuggestions}
               namespaceSuggestions={namespaceSuggestions}
-              workspaceId={workspaceId}
               modelProviderOptions={modelProviderOptions}
               modelOptionsByProvider={modelOptionsByProvider}
               mcpIntegrations={mcpIntegrations}
@@ -1551,7 +1527,6 @@ function AgentPresetConfigurationPanel({
   isSaving,
   actionSuggestions,
   namespaceSuggestions,
-  workspaceId,
   modelProviderOptions,
   modelOptionsByProvider,
   mcpIntegrations,
@@ -1568,7 +1543,6 @@ function AgentPresetConfigurationPanel({
   isSaving: boolean
   actionSuggestions: Suggestion[]
   namespaceSuggestions: Suggestion[]
-  workspaceId: string
   modelProviderOptions: string[]
   modelOptionsByProvider: Record<string, { label: string; value: string }[]>
   mcpIntegrations: McpIntegrationOption[]
@@ -1582,53 +1556,12 @@ function AgentPresetConfigurationPanel({
   onRemoveToolApproval: (index: number) => void
 }) {
   const providerValue = form.watch("model_provider")
-  const fallbackModels = form.watch("fallbackModels") ?? []
   const internetAccessEnabled = form.watch("enableInternetAccess")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
-  const { providersStatus, isLoading: providersStatusLoading } =
-    useWorkspaceModelProvidersStatus(workspaceId)
-  const configuredProviders = useMemo(
-    () =>
-      getConfiguredModelProviders({
-        model_provider: providerValue,
-        fallback_models: fallbackModels,
-      }),
-    [fallbackModels, providerValue]
-  )
-  const missingProviders = useMemo(
-    () =>
-      configuredProviders.filter(
-        (provider) => !(providersStatus?.[provider] ?? false)
-      ),
-    [configuredProviders, providersStatus]
-  )
 
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
-        {!providersStatusLoading && missingProviders.length > 0 ? (
-          <Alert className="border-amber-200 bg-amber-50/50 text-amber-950">
-            <AlertCircle className="size-4" />
-            <AlertTitle>Fallback providers need credentials</AlertTitle>
-            <AlertDescription>
-              Missing workspace credentials for{" "}
-              <span className="font-medium">
-                {formatProviderList(missingProviders)}
-              </span>
-              . The preset can still save, but only configured providers will be
-              available during fallback on the{" "}
-              <Link
-                href={`/workspaces/${workspaceId}/credentials`}
-                className="font-medium underline underline-offset-4"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                credentials page
-              </Link>
-              .
-            </AlertDescription>
-          </Alert>
-        ) : null}
         <section className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <FormField
@@ -1761,51 +1694,68 @@ function AgentPresetConfigurationPanel({
           </div>
         </section>
 
-        <Separator />
-
         <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Fallback models</p>
-              <p className="text-xs text-muted-foreground">
-                Used in order if the primary model fails before producing
-                output.
-              </p>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onAddFallbackModel}
-              disabled={isSaving}
+          <AccordionPrimitive.Root
+            type="single"
+            collapsible
+            defaultValue={undefined}
+          >
+            <AccordionPrimitive.Item
+              value="fallback-models"
+              className="overflow-hidden"
             >
-              <Plus className="mr-2 size-4" />
-              Add fallback
-            </Button>
-          </div>
-          {fallbackModelFields.length === 0 ? (
-            <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
-              No fallback models configured.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {fallbackModelFields.map((item, index) => (
-                <FallbackModelRow
-                  key={item.id}
-                  form={form}
-                  index={index}
-                  isSaving={isSaving}
-                  isFirst={index === 0}
-                  isLast={index === fallbackModelFields.length - 1}
-                  modelProviderOptions={modelProviderOptions}
-                  modelOptionsByProvider={modelOptionsByProvider}
-                  onMoveUp={() => onMoveFallbackModel(index, index - 1)}
-                  onMoveDown={() => onMoveFallbackModel(index, index + 1)}
-                  onRemove={() => onRemoveFallbackModel(index)}
-                />
-              ))}
-            </div>
-          )}
+              <div className="flex items-center gap-3">
+                <AccordionPrimitive.Header className="min-w-0 flex-1">
+                  <AccordionPrimitive.Trigger className="group flex w-full items-center gap-3 text-left">
+                    <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-90" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">Fallback models</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {fallbackModelFields.length > 0
+                          ? `${fallbackModelFields.length} configured`
+                          : "Used in order if the primary model fails before producing output."}
+                      </p>
+                    </div>
+                  </AccordionPrimitive.Trigger>
+                </AccordionPrimitive.Header>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={onAddFallbackModel}
+                  disabled={isSaving}
+                >
+                  <Plus className="mr-2 size-4" />
+                  Add fallback
+                </Button>
+              </div>
+              <AccordionPrimitive.Content className="overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                <div className="space-y-3 pt-3 pl-7">
+                  {fallbackModelFields.length === 0 ? (
+                    <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
+                      No fallback models configured.
+                    </p>
+                  ) : (
+                    fallbackModelFields.map((item, index) => (
+                      <FallbackModelRow
+                        key={item.id}
+                        form={form}
+                        index={index}
+                        isSaving={isSaving}
+                        isFirst={index === 0}
+                        isLast={index === fallbackModelFields.length - 1}
+                        modelProviderOptions={modelProviderOptions}
+                        modelOptionsByProvider={modelOptionsByProvider}
+                        onMoveUp={() => onMoveFallbackModel(index, index - 1)}
+                        onMoveDown={() => onMoveFallbackModel(index, index + 1)}
+                        onRemove={() => onRemoveFallbackModel(index)}
+                      />
+                    ))
+                  )}
+                </div>
+              </AccordionPrimitive.Content>
+            </AccordionPrimitive.Item>
+          </AccordionPrimitive.Root>
         </section>
 
         <Separator />
@@ -2026,10 +1976,10 @@ function FallbackModelRow({
 
   return (
     <div className="space-y-4 rounded-md border p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">{`Fallback ${index + 1}`}</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="truncate text-xs text-muted-foreground">
             Used after earlier candidates fail before output starts.
           </p>
         </div>

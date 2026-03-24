@@ -299,6 +299,8 @@ class LoopbackHandler:
         """
         if self._stream_sink is None:
             self._stream_sink = await self._initialize_stream_sink()
+        if self._result.error is None:
+            self._result.error = error
         await self._emit_stream_error(error)
         await self._emit_stream_done()
 
@@ -549,10 +551,12 @@ class LoopbackHandler:
             except asyncio.IncompleteReadError:
                 # Connection closed unexpectedly - treat as error, not silent break
                 logger.warning(
-                    "Runtime connection closed unexpectedly during execution"
+                    "Runtime connection closed unexpectedly during execution",
+                    preserved_error=self._result.error,
                 )
-                self._result.error = "Runtime disconnected during execution"
-                await self._stream_sink.error(self._result.error)
+                if self._result.error is None:
+                    self._result.error = "Runtime disconnected during execution"
+                    await self._stream_sink.error(self._result.error)
                 break  # done() will be called in finally of handle_connection
 
             # Parse the envelope
@@ -640,6 +644,7 @@ class LoopbackHandler:
                     error_msg = envelope.error or "Unknown runtime error"
                     logger.error("Runtime error", error=error_msg)
                     self._result.error = error_msg
+                    await self._emit_stream_error(error_msg)
                     break
 
                 case "done":

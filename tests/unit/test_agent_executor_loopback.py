@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID
 
+import orjson
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -146,6 +148,59 @@ async def test_emit_terminal_error_suppressed_for_preoutput_fallback() -> None:
 
     fake_stream.error.assert_not_awaited()
     fake_stream.done.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_emit_terminal_error_preserves_root_cause_across_disconnect() -> None:
+    fake_stream = _FakeStream()
+    handler = _make_handler()
+    handler._stream_sink = AgentStreamSink(stream=cast(Any, fake_stream))
+
+    await handler.emit_terminal_error(
+        "Authentication failed - check your API credentials"
+    )
+
+    fake_stream.error.reset_mock()
+    fake_stream.done.reset_mock()
+
+    async def raise_incomplete_read(*args: Any, **kwargs: Any) -> tuple[Any, bytes]:
+        raise asyncio.IncompleteReadError(partial=b"", expected=1)
+
+    reader = MagicMock()
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            "tracecat.agent.executor.loopback.read_message",
+            raise_incomplete_read,
+        )
+        await handler._process_runtime_events(reader)
+
+    assert handler._result.error == "Authentication failed - check your API credentials"
+    fake_stream.error.assert_not_awaited()
+    fake_stream.done.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_runtime_error_envelope_emits_stream_error() -> None:
+    fake_stream = _FakeStream()
+    handler = _make_handler()
+    handler._stream_sink = AgentStreamSink(stream=cast(Any, fake_stream))
+
+    async def read_error_envelope(*args: Any, **kwargs: Any) -> tuple[Any, bytes]:
+        return (
+            object(),
+            orjson.dumps({"type": "error", "error": "runtime exploded"}),
+        )
+
+    reader = MagicMock()
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            "tracecat.agent.executor.loopback.read_message",
+            read_error_envelope,
+        )
+        await handler._process_runtime_events(reader)
+
+    assert handler._result.error == "runtime exploded"
+    fake_stream.error.assert_awaited_once_with("runtime exploded")
 
 
 def _make_handler() -> LoopbackHandler:

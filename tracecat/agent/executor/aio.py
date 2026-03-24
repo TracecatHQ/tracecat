@@ -26,9 +26,11 @@ from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
 from tracecat.agent.factory import AgentFactory, build_agent
 from tracecat.agent.fallback import (
     FallbackAttemptFailure,
+    classify_fallback_failure,
     format_fallback_failure_message,
     format_model_target,
     get_fallback_configs,
+    should_retry_same_turn,
 )
 from tracecat.agent.runtime.pydantic_ai.adapter import PydanticAIAdapter
 from tracecat.agent.schemas import RunAgentArgs
@@ -222,19 +224,30 @@ class AioStreamingAgentExecutor(BaseAgentExecutor[ExecutorResult]):
                                 )
                     break
                 except Exception as exc:
+                    error_message = str(exc)
                     failures.append(
                         FallbackAttemptFailure(
                             target=target,
-                            error=str(exc),
+                            error=error_message,
                         )
                     )
                     last_candidate = index == len(candidate_configs) - 1
-                    if not emitted_visible_output and not last_candidate:
+                    failure_scope = classify_fallback_failure(error_message)
+                    retry_same_turn = (
+                        should_retry_same_turn(error_message)
+                        and not emitted_visible_output
+                        and not last_candidate
+                    )
+                    if retry_same_turn:
                         logger.warning(
-                            "Streaming agent attempt failed before visible output; trying fallback",
+                            "Streaming agent attempt failed before visible output; retrying the same turn with a fallback candidate",
                             session_id=args.session_id,
+                            attempt=index + 1,
+                            total_attempts=len(candidate_configs),
                             candidate_model=format_model_target(target),
-                            error=str(exc),
+                            error=error_message,
+                            failure_scope=failure_scope,
+                            retry_same_turn=True,
                         )
                         continue
                     raise RuntimeError(
