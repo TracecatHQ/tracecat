@@ -225,6 +225,30 @@ class TestMCPIntegrationCRUD:
         assert headers.get("Authorization") == "Bearer test_access_token"
         assert headers.get("X-Wiz-Tenant") == "tenant-a"
 
+    async def test_resolve_http_mcp_uses_slug_as_server_identifier(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """HTTP MCP configs should use the integration slug as the server ID."""
+        params = MCPHttpIntegrationCreate(
+            name="Linear",
+            server_uri="https://api.example.com/mcp",
+            auth_type=MCPAuthType.NONE,
+        )
+        created = await integration_service.create_mcp_integration(params=params)
+
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+        resolved = await preset_service._resolve_mcp_integrations([str(created.id)])
+
+        assert resolved is not None
+        assert len(resolved) == 1
+        assert resolved[0]["name"] == "linear"
+        assert resolved[0].get("display_name") == "Linear"
+        assert created.slug == "linear"
+
     async def test_resolve_oauth2_mcp_filters_authorization_header_variants(
         self,
         integration_service: IntegrationService,

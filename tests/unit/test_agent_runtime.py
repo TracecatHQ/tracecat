@@ -322,6 +322,10 @@ class TestClaudeAgentRuntimeRun:
 
         assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "existing"
 
+
+class TestClaudeAgentRuntimeRunContinued:
+    """Additional tests for ClaudeAgentRuntime.run()."""
+
     @pytest.mark.anyio
     async def test_sends_error_on_exception(
         self,

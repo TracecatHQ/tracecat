@@ -45,7 +45,28 @@ def mcp_tool_name_to_action_name(tool_name: str) -> str:
     return tool_name.replace("__", ".")
 
 
-def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
+def _resolve_canonical_user_mcp_name(
+    canonical_tool_name: str,
+    *,
+    known_server_names: set[str] | None = None,
+) -> str:
+    """Preserve full configured MCP server names when they contain dots."""
+    if not canonical_tool_name.startswith("mcp.") or not known_server_names:
+        return canonical_tool_name
+
+    canonical_name = canonical_tool_name.removeprefix("mcp.")
+    for known_server_name in sorted(known_server_names, key=len, reverse=True):
+        if canonical_name.startswith(f"{known_server_name}."):
+            return canonical_tool_name
+
+    return canonical_tool_name
+
+
+def normalize_mcp_tool_name(
+    mcp_tool_name: str,
+    *,
+    known_server_names: set[str] | None = None,
+) -> str:
     """Convert MCP tool name to readable action name for display.
 
     MCP tool naming convention: mcp__{server_name}__{tool_name}
@@ -76,8 +97,12 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
         f"mcp.{REGISTRY_MCP_SERVER_NAME}.mcp."
     ) or mcp_tool_name.startswith(f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}.mcp."):
         # Extract mcp.{server}.{tool} part
-        return mcp_tool_name.replace(f"mcp.{REGISTRY_MCP_SERVER_NAME}.", "", 1).replace(
-            f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}.", "", 1
+        canonical_name = mcp_tool_name.replace(
+            f"mcp.{REGISTRY_MCP_SERVER_NAME}.", "", 1
+        ).replace(f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}.", "", 1)
+        return _resolve_canonical_user_mcp_name(
+            canonical_name,
+            known_server_names=known_server_names,
         )
 
     # Handle user MCP tools routed through proxy (underscore-separated, runtime)
@@ -89,7 +114,11 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
         tool_part = mcp_tool_name.replace(
             f"mcp__{REGISTRY_MCP_SERVER_NAME}__", ""
         ).replace(f"mcp__{LEGACY_REGISTRY_MCP_SERVER_NAME}__", "")
-        return mcp_tool_name_to_action_name(tool_part)
+        canonical_name = mcp_tool_name_to_action_name(tool_part)
+        return _resolve_canonical_user_mcp_name(
+            canonical_name,
+            known_server_names=known_server_names,
+        )
 
     # Handle dot-separated format (persisted messages) for registry tools
     if mcp_tool_name.startswith(
@@ -111,7 +140,10 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
     # Canonical user MCP names are already normalized. Keep the server segment
     # so approval/history flows remain unambiguous across integrations.
     if mcp_tool_name.startswith("mcp."):
-        return mcp_tool_name
+        return _resolve_canonical_user_mcp_name(
+            mcp_tool_name,
+            known_server_names=known_server_names,
+        )
 
     # Handle pattern: mcp__{server-name}__{tool_name}
     if mcp_tool_name.startswith("mcp__"):

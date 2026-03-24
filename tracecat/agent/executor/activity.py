@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import tempfile
 import uuid
@@ -636,6 +637,13 @@ async def _execute_user_mcp_tool_with_heartbeat(
     return await _await_with_heartbeat(mcp_task, tool_name=original_tool_name)
 
 
+def _encode_approved_mcp_result(result: Any) -> str:
+    """Preserve plain text tool output while stringifying structured values."""
+    if isinstance(result, str):
+        return result
+    return json.dumps(result, default=str)
+
+
 @activity.defn
 async def execute_approved_tools_activity(
     input: ExecuteApprovedToolsInput,
@@ -698,7 +706,7 @@ async def execute_approved_tools_activity(
             tool_result = ToolExecutionResult(
                 tool_call_id=tool_call.tool_call_id,
                 tool_name=tool_call.tool_name,
-                result=result,
+                result=_encode_approved_mcp_result(result),
                 is_error=False,
             )
             results.append(tool_result)

@@ -34,6 +34,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersion,
+    MCPIntegration,
     OAuthIntegration,
 )
 from tracecat.dsl.common import create_default_execution_context
@@ -77,6 +78,106 @@ class AgentPresetService(BaseWorkspaceService):
         "enable_internet_access",
     }
 
+    @staticmethod
+    def _canonicalize_mcp_tool_name(
+        tool_name: str,
+        *,
+        mcp_servers: Sequence[MCPServerConfig] | None = None,
+    ) -> str:
+        """Normalize legacy display-name MCP tool IDs to slug-based IDs."""
+        if not tool_name.startswith("mcp.") or not mcp_servers:
+            return tool_name
+
+        canonical_name = tool_name.removeprefix("mcp.")
+        servers_by_display_length = sorted(
+            mcp_servers,
+            key=lambda cfg: len(str(cfg.get("display_name", cfg["name"]))),
+            reverse=True,
+        )
+
+        for server in servers_by_display_length:
+            server_slug = server["name"]
+            display_name = server.get("display_name", server_slug)
+
+            if canonical_name.startswith(f"{server_slug}."):
+                return tool_name
+
+            if display_name != server_slug and canonical_name.startswith(
+                f"{display_name}."
+            ):
+                original_tool_name = canonical_name[len(display_name) + 1 :]
+                if original_tool_name:
+                    return f"mcp.{server_slug}.{original_tool_name}"
+
+        return tool_name
+
+    @classmethod
+    def _canonicalize_mcp_actions(
+        cls,
+        actions: list[str] | None,
+        *,
+        mcp_servers: Sequence[MCPServerConfig] | None = None,
+    ) -> list[str] | None:
+        """Normalize MCP action IDs while preserving registry actions."""
+        if not actions:
+            return actions
+        return [
+            cls._canonicalize_mcp_tool_name(action, mcp_servers=mcp_servers)
+            for action in actions
+        ]
+
+    @classmethod
+    def _canonicalize_mcp_tool_approvals(
+        cls,
+        tool_approvals: dict[str, bool] | None,
+        *,
+        mcp_servers: Sequence[MCPServerConfig] | None = None,
+    ) -> dict[str, bool] | None:
+        """Normalize MCP approval keys while preserving approval semantics."""
+        if not tool_approvals:
+            return tool_approvals
+        return {
+            cls._canonicalize_mcp_tool_name(tool_name, mcp_servers=mcp_servers): allow
+            for tool_name, allow in tool_approvals.items()
+        }
+
+    async def _resolve_mcp_integration_identities(
+        self, mcp_integration_ids: list[str] | None
+    ) -> list[MCPServerConfig]:
+        """Resolve MCP integration slugs and display names without auth details."""
+        if not mcp_integration_ids:
+            return []
+
+        try:
+            integration_ids = [uuid.UUID(mcp_id) for mcp_id in mcp_integration_ids]
+        except ValueError:
+            return []
+        stmt = select(MCPIntegration).where(
+            MCPIntegration.workspace_id == self.workspace_id,
+            MCPIntegration.id.in_(integration_ids),
+        )
+        result = await self.session.execute(stmt)
+        integrations = result.scalars().all()
+        servers: list[MCPServerConfig] = []
+        for integration in integrations:
+            server: MCPServerConfig
+            if integration.stdio_command:
+                server = {
+                    "type": "stdio",
+                    "name": integration.slug,
+                    "display_name": integration.name,
+                    "command": integration.stdio_command,
+                }
+            else:
+                server = {
+                    "type": "http",
+                    "name": integration.slug,
+                    "display_name": integration.name,
+                    "url": integration.server_uri or "",
+                }
+            servers.append(server)
+        return servers
+
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
         """Return all agent presets for the current workspace ordered by recency."""
@@ -98,6 +199,17 @@ class AgentPresetService(BaseWorkspaceService):
         slug = await self._normalize_and_validate_slug(
             proposed_slug=params.slug,
             fallback_name=params.name,
+        )
+        canonical_mcp_servers = await self._resolve_mcp_integration_identities(
+            params.mcp_integrations
+        )
+        canonical_actions = self._canonicalize_mcp_actions(
+            params.actions,
+            mcp_servers=canonical_mcp_servers,
+        )
+        canonical_tool_approvals = self._canonicalize_mcp_tool_approvals(
+            params.tool_approvals,
+            mcp_servers=canonical_mcp_servers,
         )
         if params.actions:
             await self._validate_actions(
@@ -126,9 +238,9 @@ class AgentPresetService(BaseWorkspaceService):
             model_provider=params.model_provider,
             base_url=params.base_url,
             output_type=params.output_type,
-            actions=params.actions,
+            actions=canonical_actions,
             namespaces=params.namespaces,
-            tool_approvals=params.tool_approvals,
+            tool_approvals=canonical_tool_approvals,
             mcp_integrations=params.mcp_integrations,
             enable_internet_access=params.enable_internet_access,
             retries=params.retries,
@@ -144,9 +256,9 @@ class AgentPresetService(BaseWorkspaceService):
             model_provider=preset.model_provider,
             base_url=preset.base_url,
             output_type=preset.output_type,
-            actions=preset.actions,
+            actions=canonical_actions,
             namespaces=preset.namespaces,
-            tool_approvals=preset.tool_approvals,
+            tool_approvals=canonical_tool_approvals,
             mcp_integrations=preset.mcp_integrations,
             retries=preset.retries,
             enable_internet_access=preset.enable_internet_access,
@@ -229,6 +341,13 @@ class AgentPresetService(BaseWorkspaceService):
                 "No matching MCP integrations found for this preset in the workspace"
             )
 
+        canonical_mcp_action_names = {
+            self._canonicalize_mcp_tool_name(
+                action_name,
+                mcp_servers=mcp_servers,
+            )
+            for action_name in mcp_action_names
+        }
         known_server_names = {cfg["name"] for cfg in mcp_servers}
         stdio_server_names = {
             cfg["name"] for cfg in mcp_servers if not is_http_server(cfg)
@@ -236,7 +355,7 @@ class AgentPresetService(BaseWorkspaceService):
         http_servers = [cfg for cfg in mcp_servers if is_http_server(cfg)]
         unsupported_stdio_tools = {
             action_name
-            for action_name in mcp_action_names
+            for action_name in canonical_mcp_action_names
             if (
                 parsed := UserMCPClient.parse_user_mcp_tool_name(
                     action_name,
@@ -264,7 +383,7 @@ class AgentPresetService(BaseWorkspaceService):
         available_mcp_tool_names = {
             mcp_tool_name_to_canonical(tool_name) for tool_name in discovered_mcp_tools
         }
-        if missing_mcp_tools := mcp_action_names - available_mcp_tool_names:
+        if missing_mcp_tools := canonical_mcp_action_names - available_mcp_tool_names:
             raise TracecatValidationError(
                 "Some MCP tools were not found in configured integrations: "
                 f"{sorted(missing_mcp_tools)}"
@@ -301,6 +420,13 @@ class AgentPresetService(BaseWorkspaceService):
                     "mcp_integrations", preset.mcp_integrations
                 )
                 await self._validate_actions(actions, mcp_integrations=effective_mcp)
+                canonical_mcp_servers = await self._resolve_mcp_integration_identities(
+                    effective_mcp
+                )
+                actions = self._canonicalize_mcp_actions(
+                    actions,
+                    mcp_servers=canonical_mcp_servers,
+                )
             # If we reach this point, all actions are valid or was empty
             if preset.actions != actions:
                 preset.actions = actions
@@ -328,11 +454,13 @@ class AgentPresetService(BaseWorkspaceService):
                     mcp_integrations=mcp_integrations,
                     mode="actions",
                 )
-            existing_tool_approvals = preset.tool_approvals or {}
-            if existing_tool_approvals:
+            effective_tool_approvals = (
+                set_fields.get("tool_approvals", preset.tool_approvals) or {}
+            )
+            if effective_tool_approvals:
                 mcp_approval_tools = {
                     tool_name
-                    for tool_name in existing_tool_approvals
+                    for tool_name in effective_tool_approvals
                     if UserMCPClient.parse_user_mcp_tool_name(tool_name)
                 }
                 await self._validate_mcp_tool_configuration(
@@ -359,6 +487,13 @@ class AgentPresetService(BaseWorkspaceService):
                     mcp_action_names=mcp_approval_tools,
                     mcp_integrations=effective_mcp,
                     mode="tool_approvals",
+                )
+                canonical_mcp_servers = await self._resolve_mcp_integration_identities(
+                    effective_mcp
+                )
+                set_fields["tool_approvals"] = self._canonicalize_mcp_tool_approvals(
+                    tool_approvals,
+                    mcp_servers=canonical_mcp_servers,
                 )
 
         # Update remaining fields
@@ -1213,9 +1348,15 @@ class AgentPresetService(BaseWorkspaceService):
             base_url=version.base_url,
             instructions=version.instructions,
             output_type=cast(OutputType | None, version.output_type),
-            actions=version.actions,
+            actions=self._canonicalize_mcp_actions(
+                version.actions,
+                mcp_servers=mcp_servers,
+            ),
             namespaces=version.namespaces,
-            tool_approvals=version.tool_approvals,
+            tool_approvals=self._canonicalize_mcp_tool_approvals(
+                version.tool_approvals,
+                mcp_servers=mcp_servers,
+            ),
             mcp_servers=mcp_servers,
             retries=version.retries,
             model_settings=model_settings,
