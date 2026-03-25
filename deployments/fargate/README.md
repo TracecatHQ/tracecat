@@ -71,6 +71,8 @@ export TF_VAR_tracecat_image_tag=1.0.0-beta.35
 terraform apply
 ```
 
+For Terraform Cloud direct OIDC runs, the target account and role come from `TFC_AWS_RUN_ROLE_ARN`. This stack now uses the ambient AWS credentials from the execution environment and no longer accepts `aws_account_id` / `aws_role_name` inputs for a second provider-side assume-role hop.
+
 ## Self-contained migrations
 
 - API task startup includes an internal migrations init container.
