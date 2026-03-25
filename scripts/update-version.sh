@@ -140,14 +140,32 @@ append_unique_file() {
     FILES+=("$candidate")
 }
 
-while IFS= read -r file; do
-    append_unique_file "${file#./}"
-done < <(
+append_matching_files() {
+    local file
+
+    while IFS= read -r file; do
+        [ -n "$file" ] || continue
+        append_unique_file "${file#./}"
+    done
+}
+
+# Capture Tracecat-specific version contexts, including files that only carry the
+# current version string rather than an image tag or raw GitHub URL.
+append_matching_files < <(
     rg -l \
         -g 'docker-compose*.yml' \
         -g 'docs/**/*' \
         -g 'deployments/**/*' \
         '\$\{TRACECAT__IMAGE_TAG:-[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\}|variable "tracecat_image_tag"|raw\.githubusercontent\.com/TracecatHQ/tracecat/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?/|TF_VAR_tracecat_image_tag=[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?' \
+        .
+)
+
+append_matching_files < <(
+    rg -l --fixed-strings \
+        -g 'docker-compose*.yml' \
+        -g 'docs/**/*' \
+        -g 'deployments/**/*' \
+        "$CURRENT_VERSION" \
         .
 )
 
