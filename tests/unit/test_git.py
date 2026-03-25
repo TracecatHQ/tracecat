@@ -44,10 +44,7 @@ class TestGitUrl:
             repo="myrepo",
             user="someuser",
         )
-        assert (
-            git_url.to_url()
-            == "git+ssh://someuser@git.example.com/myorg/myrepo.git"
-        )
+        assert git_url.to_url() == "git+ssh://someuser@git.example.com/myorg/myrepo.git"
 
     def test_git_url_to_url_with_ref(self):
         """Test GitUrl to_url method with ref."""
