@@ -50,17 +50,17 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.event.inputs.git-ref || github.ref }}
 
       - name: Install uv
-        uses: useblacksmith/setup-uv@v4
+        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
         with:
           version: "0.9.7"
 
       - name: Set up Python 3.12
-        uses: useblacksmith/setup-python@v6
+        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
         with:
           python-version: "3.12"
 
@@ -83,24 +83,24 @@ jobs:
           - temporal
           # - ee # TODO: re-enable this when we have tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.event.inputs.git-ref || github.ref }}
 
       - name: Install uv
-        uses: useblacksmith/setup-uv@v4
+        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
         with:
           version: "0.9.7"
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
       - name: Set up Python 3.12
-        uses: useblacksmith/setup-python@v6
+        uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
         with:
           python-version: "3.12"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Run environment setup script
         run: |

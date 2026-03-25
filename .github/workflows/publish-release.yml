@@ -31,7 +31,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: main
           fetch-depth: 0
@@ -111,7 +111,7 @@ jobs:
           done
 
       - name: Publish draft release
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           VERSION: ${{ steps.version.outputs.version }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
@@ -146,7 +146,7 @@ jobs:
 
       - name: Create cross-repo automation token
         id: cross-repo-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3
         with:
           app-id: ${{ vars.CROSS_REPO_AUTOMATION_APP_ID }}
           private-key: ${{ secrets.CROSS_REPO_AUTOMATION_APP_PRIVATE_KEY }}
