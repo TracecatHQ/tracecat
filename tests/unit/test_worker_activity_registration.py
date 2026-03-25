@@ -138,3 +138,42 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
         "max_concurrent_activities": 1,
         "threadpool_max_workers": 100,
     }
+
+
+@pytest.mark.anyio
+async def test_agent_executor_worker_raises_when_runtime_service_reports_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.agent import executor_worker
+
+    class _FakeWorker:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
+
+        async def __aenter__(self) -> _FakeWorker:
+            return self
+
+        async def __aexit__(
+            self,
+            exc_type: object,
+            exc: object,
+            tb: object,
+        ) -> None:
+            del exc_type, exc, tb
+
+    async def fake_start_runtime_services() -> object:
+        executor_worker.runtime_failure_reason = "LiteLLM sidecar became unhealthy"
+        executor_worker.interrupt_event.set()
+        return object()
+
+    monkeypatch.setattr(
+        executor_worker, "_start_runtime_services", fake_start_runtime_services
+    )
+    monkeypatch.setattr(executor_worker, "_stop_runtime_services", AsyncMock())
+    monkeypatch.setattr(executor_worker, "Worker", _FakeWorker)
+    monkeypatch.setattr(executor_worker, "new_sandbox_runner", lambda: object())
+    executor_worker.interrupt_event.clear()
+    executor_worker.runtime_failure_reason = None
+
+    with pytest.raises(RuntimeError, match="LiteLLM sidecar became unhealthy"):
+        await executor_worker.main()

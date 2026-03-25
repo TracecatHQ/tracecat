@@ -163,6 +163,16 @@ locals {
         TRACECAT__EXECUTOR_WORKER_POOL_SIZE                = var.agent_executor_worker_pool_size
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT                  = var.executor_client_timeout
         TRACECAT__LLM_PROXY_READ_TIMEOUT                   = var.llm_proxy_read_timeout
+        TRACECAT__LITELLM_NUM_WORKERS                      = var.litellm_num_workers
+        TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS     = var.litellm_credential_cache_ttl_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS     = var.litellm_healthcheck_interval_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS      = var.litellm_healthcheck_timeout_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS = var.litellm_healthcheck_connect_timeout_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS    = var.litellm_healthcheck_read_timeout_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS   = var.litellm_healthcheck_write_timeout_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS    = var.litellm_healthcheck_pool_timeout_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD    = var.litellm_healthcheck_failure_threshold
+        TRACECAT__LITELLM_STATUS_LOG_INTERVAL_SECONDS      = var.litellm_status_log_interval_seconds
         TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"
         TRACECAT__DISABLE_NSJAIL                           = "true"
         TRACECAT__SANDBOX_NSJAIL_PATH                      = "/usr/local/bin/nsjail"
