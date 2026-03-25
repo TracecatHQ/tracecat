@@ -153,31 +153,31 @@ locals {
       local.tracecat_db_configs,
       local.tracecat_db_configs_executor,
       {
-        TRACECAT__API_URL                                  = local.internal_api_url
-        TRACECAT__DB_ENDPOINT                              = local.core_db_hostname
-        TRACECAT__EXECUTOR_BACKEND                         = "direct"
-        TRACECAT__AGENT_QUEUE                              = var.agent_queue
-        TRACECAT__AGENT_EXECUTOR_QUEUE                     = var.agent_executor_queue
-        TRACECAT__EXECUTOR_QUEUE                           = var.executor_queue
-        TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES = var.agent_executor_max_concurrent_activities
-        TRACECAT__EXECUTOR_WORKER_POOL_SIZE                = var.agent_executor_worker_pool_size
-        TRACECAT__EXECUTOR_CLIENT_TIMEOUT                  = var.executor_client_timeout
-        TRACECAT__LLM_PROXY_READ_TIMEOUT                   = var.llm_proxy_read_timeout
-        TRACECAT__LITELLM_NUM_WORKERS                      = var.litellm_num_workers
-        TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS     = var.litellm_credential_cache_ttl_seconds
-        TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS     = var.litellm_healthcheck_interval_seconds
-        TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS      = var.litellm_healthcheck_timeout_seconds
+        TRACECAT__API_URL                                     = local.internal_api_url
+        TRACECAT__DB_ENDPOINT                                 = local.core_db_hostname
+        TRACECAT__EXECUTOR_BACKEND                            = "direct"
+        TRACECAT__AGENT_QUEUE                                 = var.agent_queue
+        TRACECAT__AGENT_EXECUTOR_QUEUE                        = var.agent_executor_queue
+        TRACECAT__EXECUTOR_QUEUE                              = var.executor_queue
+        TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES    = var.agent_executor_max_concurrent_activities
+        TRACECAT__EXECUTOR_WORKER_POOL_SIZE                   = var.agent_executor_worker_pool_size
+        TRACECAT__EXECUTOR_CLIENT_TIMEOUT                     = var.executor_client_timeout
+        TRACECAT__LLM_PROXY_READ_TIMEOUT                      = var.llm_proxy_read_timeout
+        TRACECAT__LITELLM_NUM_WORKERS                         = var.litellm_num_workers
+        TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS        = var.litellm_credential_cache_ttl_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS        = var.litellm_healthcheck_interval_seconds
+        TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS         = var.litellm_healthcheck_timeout_seconds
         TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS = var.litellm_healthcheck_connect_timeout_seconds
         TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS    = var.litellm_healthcheck_read_timeout_seconds
         TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS   = var.litellm_healthcheck_write_timeout_seconds
         TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS    = var.litellm_healthcheck_pool_timeout_seconds
-        TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD    = var.litellm_healthcheck_failure_threshold
-        TRACECAT__LITELLM_STATUS_LOG_INTERVAL_SECONDS      = var.litellm_status_log_interval_seconds
-        TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"
-        TRACECAT__DISABLE_NSJAIL                           = "true"
-        TRACECAT__SANDBOX_NSJAIL_PATH                      = "/usr/local/bin/nsjail"
-        TRACECAT__SANDBOX_ROOTFS_PATH                      = "/var/lib/tracecat/sandbox-rootfs"
-        TRACECAT__SANDBOX_CACHE_DIR                        = "/var/lib/tracecat/sandbox-cache"
+        TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD       = var.litellm_healthcheck_failure_threshold
+        TRACECAT__LITELLM_STATUS_LOG_INTERVAL_SECONDS         = var.litellm_status_log_interval_seconds
+        TRACECAT__UNSAFE_DISABLE_SM_MASKING                   = "false"
+        TRACECAT__DISABLE_NSJAIL                              = "true"
+        TRACECAT__SANDBOX_NSJAIL_PATH                         = "/usr/local/bin/nsjail"
+        TRACECAT__SANDBOX_ROOTFS_PATH                         = "/var/lib/tracecat/sandbox-rootfs"
+        TRACECAT__SANDBOX_CACHE_DIR                           = "/var/lib/tracecat/sandbox-cache"
       }
     ) :
     { name = k, value = tostring(v) } if v != null

@@ -5,12 +5,6 @@ variable "aws_region" {
   description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
-variable "aws_role_arn" {
-  type        = string
-  description = "The ARN of the AWS role to assume"
-  default     = null
-}
-
 ### Networking
 
 variable "is_internal" {
