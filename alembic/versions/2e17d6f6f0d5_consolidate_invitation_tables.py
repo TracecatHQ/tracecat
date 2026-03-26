@@ -12,6 +12,11 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
+from tracecat.db.tenant_rls import (
+    enable_org_optional_workspace_table_rls,
+    enable_workspace_table_rls,
+    policy_name,
+)
 
 # revision identifiers, used by Alembic.
 revision: str = "2e17d6f6f0d5"
@@ -154,6 +159,8 @@ def upgrade() -> None:
 
     # 5. Make organization_id required now that all rows are backfilled.
     op.alter_column("invitation", "organization_id", nullable=False)
+    op.execute(f'DROP POLICY IF EXISTS {policy_name("invitation")} ON "invitation"')
+    op.execute(enable_org_optional_workspace_table_rls("invitation"))
 
     # 6. Replace the old workspace unique constraint with partial unique indexes.
     op.drop_constraint("uq_invitation_workspace_id_email", "invitation", type_="unique")
@@ -291,6 +298,8 @@ def downgrade() -> None:
     op.execute("DELETE FROM invitation WHERE workspace_id IS NULL")
     op.execute("DROP INDEX IF EXISTS uq_invitation_workspace_email")
     op.execute("DROP INDEX IF EXISTS uq_invitation_org_email")
+    op.execute(f'DROP POLICY IF EXISTS {policy_name("invitation")} ON "invitation"')
+    op.execute(enable_workspace_table_rls("invitation"))
     op.create_unique_constraint(
         "uq_invitation_workspace_id_email",
         "invitation",

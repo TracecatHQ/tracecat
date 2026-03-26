@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import secrets
-import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime
 
 from pydantic import UUID4
 from sqlalchemy import bindparam, cast, func, select, update
@@ -16,36 +13,15 @@ from tracecat.authz.controls import require_scope
 from tracecat.authz.enums import OwnerType
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.service import CaseFieldsService
-from tracecat.db.models import (
-    Invitation,
-    Membership,
-    Ownership,
-    User,
-    Workspace,
-)
+from tracecat.db.models import Membership, Ownership, User, Workspace
 from tracecat.exceptions import (
-    TracecatAuthorizationError,
     TracecatException,
     TracecatManagementError,
-    TracecatNotFoundError,
-    TracecatValidationError,
 )
-from tracecat.identifiers import InvitationID, UserID, WorkspaceID
-from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.schemas import InvitationCreate
-from tracecat.invitations.service import (
-    InvitationService,
-)
-from tracecat.invitations.service import (
-    accept_invitation_for_user as accept_unified_invitation_for_user,
-)
+from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.service import BaseOrgService
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
-from tracecat.workspaces.schemas import (
-    WorkspaceInvitationCreate,
-    WorkspaceSearch,
-    WorkspaceUpdate,
-)
+from tracecat.workspaces.schemas import WorkspaceSearch, WorkspaceUpdate
 
 
 class WorkspaceService(BaseOrgService):
@@ -247,170 +223,3 @@ class WorkspaceService(BaseOrgService):
             statement = statement.where(Workspace.name == params.name)
         result = await self.session.execute(statement)
         return result.scalars().all()
-
-    # === Invitation Management === #
-
-    @staticmethod
-    def _generate_invitation_token() -> str:
-        """Generate a unique 64-character token for invitation magic links."""
-        return secrets.token_urlsafe(48)[:64]
-
-    @require_scope("workspace:member:invite")
-    @audit_log(resource_type="workspace_invitation", action="create")
-    async def create_invitation(
-        self,
-        workspace_id: WorkspaceID,
-        params: WorkspaceInvitationCreate,
-    ) -> Invitation | None:
-        """Create a new workspace invitation.
-
-        Args:
-            workspace_id: The workspace to invite the user to.
-            params: The invitation parameters (email, role_id).
-
-        Returns:
-            The created invitation, or `None` when an existing organization
-            member was added to the workspace directly.
-
-        Raises:
-            TracecatValidationError: If there is already a pending invitation
-                for this email in this workspace.
-        """
-
-        try:
-            role_id = uuid.UUID(params.role_id)
-        except ValueError as e:
-            raise TracecatValidationError("Invalid role ID format") from e
-
-        service = InvitationService(self.session, role=self.role)
-        invitation = await service.create_workspace_invitation(
-            workspace_id,
-            InvitationCreate(
-                email=params.email,
-                role_id=role_id,
-                workspace_id=workspace_id,
-            ),
-        )
-        return invitation
-
-    async def list_invitations(
-        self,
-        workspace_id: WorkspaceID,
-        status: InvitationStatus | None = None,
-    ) -> Sequence[Invitation]:
-        """List invitations for a workspace.
-
-        Args:
-            workspace_id: The workspace to list invitations for.
-            status: Optional filter by invitation status.
-
-        Returns:
-            List of invitations matching the criteria.
-        """
-        service = InvitationService(self.session, role=self.role)
-        return await service.list_workspace_invitations(
-            workspace_id,
-            status=status,
-        )
-
-    async def get_invitation_by_token(self, token: str) -> Invitation | None:
-        """Retrieve an invitation by its unique token.
-
-        This method does not require workspace role checks as it's used
-        during the public invitation acceptance flow.
-
-        Args:
-            token: The invitation token.
-
-        Returns:
-            The invitation if found, None otherwise.
-        """
-        statement = select(Invitation).where(Invitation.token == token)
-        result = await self.session.execute(statement)
-        return result.scalar_one_or_none()
-
-    @audit_log(resource_type="workspace_invitation", action="accept")
-    async def accept_invitation(
-        self,
-        token: str,
-        user_id: UserID,
-    ) -> Membership:
-        """Accept a workspace invitation.
-
-        This method validates the invitation, creates org membership if needed,
-        creates the workspace membership, and updates the invitation status.
-
-        Uses optimistic locking via conditional UPDATE to prevent TOCTOU race
-        conditions - the status check and update happen atomically in a single
-        database operation.
-
-        Note: This method does not require workspace role checks as it's called
-        by the user accepting their own invitation.
-
-        Args:
-            token: The invitation token.
-            user_id: The user accepting the invitation.
-
-        Returns:
-            The created workspace membership.
-
-        Raises:
-            TracecatNotFoundError: If the invitation is not found.
-            TracecatValidationError: If the invitation is expired, already
-                accepted, or revoked.
-        """
-        invitation = await self.get_invitation_by_token(token)
-        if invitation is None:
-            raise TracecatNotFoundError("Invitation not found")
-        if invitation.status == InvitationStatus.ACCEPTED:
-            raise TracecatValidationError("Invitation has already been accepted")
-        if invitation.status == InvitationStatus.REVOKED:
-            raise TracecatValidationError("Invitation has been revoked")
-        if invitation.expires_at < datetime.now(UTC):
-            raise TracecatValidationError("Invitation has expired")
-        existing_membership = await self.session.execute(
-            select(Membership).where(
-                Membership.user_id == user_id,
-                Membership.workspace_id == invitation.workspace_id,
-            )
-        )
-        if existing_membership.scalar_one_or_none() is not None:
-            raise TracecatValidationError("User is already a member of this workspace")
-
-        try:
-            membership = await accept_unified_invitation_for_user(
-                self.session,
-                user_id=user_id,
-                token=token,
-            )
-        except TracecatAuthorizationError as e:
-            raise TracecatValidationError(str(e)) from e
-
-        if not isinstance(membership, Membership):
-            raise TracecatValidationError(
-                "Invitation token does not target a workspace"
-            )
-        return membership
-
-    @require_scope("workspace:member:remove")
-    @audit_log(resource_type="workspace_invitation", action="revoke")
-    async def revoke_invitation(
-        self,
-        workspace_id: WorkspaceID,
-        invitation_id: InvitationID,
-    ) -> None:
-        """Revoke a pending workspace invitation.
-
-        Args:
-            workspace_id: The workspace the invitation belongs to.
-            invitation_id: The invitation to revoke.
-
-        Raises:
-            TracecatNotFoundError: If the invitation is not found.
-            TracecatValidationError: If the invitation is not pending.
-        """
-        service = InvitationService(self.session, role=self.role)
-        invitation = await service.get_invitation(invitation_id)
-        if invitation.workspace_id != workspace_id:
-            raise TracecatNotFoundError("Invitation not found")
-        await service.revoke_invitation(invitation_id)

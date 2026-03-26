@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,6 +18,7 @@ from tracecat.api.common import bootstrap_role
 from tracecat.auth.enums import AuthType
 from tracecat.auth.users import UserManager
 from tracecat.db.models import (
+    Membership,
     OAuthAccount,
     Organization,
     OrganizationDomain,
@@ -272,13 +274,104 @@ async def test_register_swallows_invitation_validation_error(
         side_effect=TracecatValidationError("workspace selection required")
     )
     monkeypatch.setattr(
-        "tracecat.organization.service.accept_invitation_for_user",
+        "tracecat.auth.users.get_invitation_group_by_token",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                invitation=SimpleNamespace(
+                    workspace_id=uuid.uuid4(),
+                    organization_id=uuid.uuid4(),
+                )
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "tracecat.auth.users.accept_invitation_for_user",
         accept_invitation,
     )
 
     await user_manager._accept_invitation_atomically(user)
 
     accept_invitation.assert_awaited_once()
+    assert user_manager._pending_invitation_token is None
+
+
+@pytest.mark.anyio
+async def test_register_accepts_workspace_invitation_with_unified_service(
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_manager._pending_invitation_token = "workspace-token"
+    user = User(
+        id=uuid.uuid4(),
+        email="invitee@gmail.com",
+        hashed_password="",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+    )
+
+    workspace_membership = Membership(
+        user_id=user.id,
+        workspace_id=uuid.uuid4(),
+    )
+    accept_invitation = AsyncMock(return_value=workspace_membership)
+    monkeypatch.setattr(
+        "tracecat.auth.users.get_invitation_group_by_token",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                invitation=SimpleNamespace(
+                    workspace_id=workspace_membership.workspace_id,
+                    organization_id=uuid.uuid4(),
+                )
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "tracecat.auth.users.accept_invitation_for_user",
+        accept_invitation,
+    )
+
+    await user_manager._accept_invitation_atomically(user)
+
+    accept_invitation.assert_awaited_once()
+    assert user_manager._pending_invitation_token is None
+
+
+@pytest.mark.anyio
+async def test_register_does_not_auto_accept_org_invitation(
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_manager._pending_invitation_token = "org-token"
+    user = User(
+        id=uuid.uuid4(),
+        email="invitee@gmail.com",
+        hashed_password="",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+    )
+
+    monkeypatch.setattr(
+        "tracecat.auth.users.get_invitation_group_by_token",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                invitation=SimpleNamespace(
+                    workspace_id=None,
+                    organization_id=uuid.uuid4(),
+                )
+            )
+        ),
+    )
+    accept_invitation = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.auth.users.accept_invitation_for_user",
+        accept_invitation,
+    )
+
+    await user_manager._accept_invitation_atomically(user)
+
+    accept_invitation.assert_not_awaited()
     assert user_manager._pending_invitation_token is None
 
 

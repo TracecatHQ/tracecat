@@ -38,6 +38,7 @@ from tracecat.invitations.service import (
     InvitationGroup,
     InvitationService,
     accept_invitation_for_user,
+    build_grouped_invitation,
     decline_invitation_for_user,
     get_invitation_group_by_token,
     list_pending_invitation_groups_for_email,
@@ -278,7 +279,7 @@ async def create_invitation(
 
     invitation_read: InvitationRead | None = None
     if invitation is not None:
-        group = await service.build_grouped_invitation(invitation)
+        group = await build_grouped_invitation(session, invitation=invitation)
         invitation_read = _group_to_read(group, include_token=True)
 
     return InvitationCreateResponse(

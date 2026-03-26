@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
 
 from sqlalchemy import and_, cast, select
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.exc import NoResultFound
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager, selectinload
+from sqlalchemy.orm import contains_eager
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.schemas import SessionRead, UserUpdate
@@ -18,51 +14,23 @@ from tracecat.auth.users import (
     get_user_db_context,
     get_user_manager_context,
 )
-from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AccessToken,
-    Invitation,
     Organization,
     OrganizationMembership,
     User,
 )
-from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
-    TracecatValidationError,
 )
 from tracecat.identifiers import OrganizationID, SessionID, UserID
-from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.schemas import InvitationCreate
-from tracecat.invitations.service import InvitationService
-from tracecat.invitations.service import (
-    accept_invitation_for_user as accept_unified_invitation_for_user,
-)
 from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
 )
 from tracecat.service import BaseOrgService
-
-
-async def accept_invitation_for_user(
-    session: AsyncSession,
-    *,
-    user_id: UserID,
-    token: str,
-) -> OrganizationMembership:
-    """Backward-compatible wrapper around the unified invitation acceptance flow."""
-    membership = await accept_unified_invitation_for_user(
-        session,
-        user_id=user_id,
-        token=token,
-    )
-    if not isinstance(membership, OrganizationMembership):
-        raise TracecatValidationError(
-            "Invitation token does not target an organization"
-        )
-    return membership
 
 
 class OrgService(BaseOrgService):
@@ -278,124 +246,3 @@ class OrgService(BaseOrgService):
         db_token = result.scalar_one()
         await self.session.delete(db_token)
         await self.session.commit()
-
-    # === Manage invitations ===
-
-    @require_scope("org:member:invite")
-    @audit_log(resource_type="organization_invitation", action="create")
-    async def create_invitation(
-        self,
-        *,
-        email: str,
-        role_id: uuid.UUID,
-    ) -> Invitation:
-        """Backward-compatible org invite creation via the unified invitation service."""
-        role_result = await self.session.execute(
-            select(DBRole).where(
-                DBRole.id == role_id,
-                DBRole.organization_id == self.organization_id,
-            )
-        )
-        role_obj = role_result.scalar_one_or_none()
-        if role_obj is None:
-            raise TracecatValidationError("Invalid role ID for this organization")
-        if role_obj.slug == "organization-owner" and not (
-            self.role.is_superuser
-            or has_scope(self.role.scopes or frozenset(), "org:owner:assign")
-        ):
-            raise TracecatAuthorizationError(
-                "Only organization owners can create owner invitations"
-            )
-
-        service = InvitationService(self.session, role=self.role)
-        invitation = await service.create_invitation(
-            params=InvitationCreate(
-                email=email,
-                role_id=role_id,
-                workspace_id=None,
-            )
-        )
-        if invitation is None:
-            raise TracecatValidationError(
-                f"{email} is already a member of this organization"
-            )
-        return invitation
-
-    async def list_invitations(
-        self,
-        *,
-        status: InvitationStatus | None = None,
-    ) -> Sequence[Invitation]:
-        """List org-scoped invitation rows for the organization."""
-        service = InvitationService(self.session, role=self.role)
-        invitations = await service.list_invitations(status=status)
-        return [
-            invitation for invitation in invitations if invitation.workspace_id is None
-        ]
-
-    async def get_invitation(self, invitation_id: uuid.UUID) -> Invitation:
-        """Get an org-scoped invitation by ID."""
-        service = InvitationService(self.session, role=self.role)
-        try:
-            invitation = await service.get_invitation(invitation_id)
-        except TracecatNotFoundError as e:
-            raise NoResultFound from e
-        if invitation.workspace_id is not None:
-            raise NoResultFound
-        return invitation
-
-    async def get_invitation_by_token(self, token: str) -> Invitation:
-        """Get an org-scoped invitation by token."""
-        result = await self.session.execute(
-            select(Invitation)
-            .where(
-                Invitation.token == token,
-                Invitation.workspace_id.is_(None),
-            )
-            .options(selectinload(Invitation.role_obj))
-        )
-        invitation = result.scalar_one_or_none()
-        if invitation is None:
-            raise TracecatNotFoundError("Invitation not found")
-        return invitation
-
-    async def accept_invitation(self, token: str) -> OrganizationMembership:
-        if self.role is None or self.role.user_id is None:
-            raise TracecatAuthorizationError(
-                "User must be authenticated to accept invitation"
-            )
-        invitation = await self.get_invitation_by_token(token)
-        if invitation.status == InvitationStatus.ACCEPTED:
-            raise TracecatAuthorizationError("Invitation has already been accepted")
-        if invitation.status == InvitationStatus.REVOKED:
-            raise TracecatAuthorizationError("Invitation has been revoked")
-        if invitation.expires_at < datetime.now(UTC):
-            raise TracecatAuthorizationError("Invitation has expired")
-
-        membership = await accept_unified_invitation_for_user(
-            self.session,
-            user_id=self.role.user_id,
-            token=token,
-        )
-        if not isinstance(membership, OrganizationMembership):
-            raise TracecatValidationError(
-                "Invitation token does not target an organization"
-            )
-        return membership
-
-    @require_scope("org:member:invite")
-    @audit_log(resource_type="organization_invitation", action="revoke")
-    async def revoke_invitation(self, invitation_id: uuid.UUID) -> Invitation:
-        """Revoke an org-scoped invitation through the unified invitation service."""
-        service = InvitationService(self.session, role=self.role)
-        try:
-            invitation = await service.get_invitation(invitation_id)
-        except TracecatNotFoundError as e:
-            raise NoResultFound from e
-        if invitation.workspace_id is not None:
-            raise NoResultFound
-        if invitation.status != InvitationStatus.PENDING:
-            raise TracecatAuthorizationError(
-                f"Cannot revoke invitation with status '{invitation.status}'"
-            )
-        return await service.revoke_invitation(invitation_id)
