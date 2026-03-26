@@ -417,6 +417,17 @@ Available predefined roles:
 - **Pre-commit**: Automated hooks for Ruff, Gitleaks, YAML/TOML validation
 - All tests must pass before commits
 
+### Readability and Code Review
+All code should be optimized for the reviewer, not the writer. Assume every change will be read by someone unfamiliar with the context.
+
+- **Keep diffs focused**: One logical concern per change. Do not mix refactors, formatting fixes, or unrelated cleanups with feature or bug-fix logic — split them into separate commits.
+- **Name for intent**: Choose variable, function, and class names that convey *why* something exists, not just *what* it holds. Prefer `remaining_retries` over `n`, `is_workflow_paused` over `flag`.
+- **Prefer explicit over clever**: Avoid dense one-liners, nested comprehensions, or chained ternaries that require mental unpacking. Break complex expressions into named intermediate variables so each step is self-documenting.
+- **Keep functions short and single-purpose**: If a function does more than one thing, split it. A reviewer should be able to understand a function's behavior without scrolling.
+- **Order for scannability**: Within a class or module, group related methods/functions together. Place public API surface before private helpers. Keep parameter order consistent across similar functions.
+- **Limit nesting depth**: Prefer early returns and guard clauses over deeply nested `if`/`else` blocks. Two levels of indentation inside a function body is a good upper bound; three or more is a signal to extract a helper.
+- **Make control flow obvious**: Avoid `bool` tricks (`x and y or z`), implicit falsy checks on non-boolean types, or relying on side effects in expressions. Spell out the logic so a reviewer can verify correctness at a glance.
+
 ## Key Files and Patterns
 
 ### Configuration Files
