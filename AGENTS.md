@@ -285,6 +285,7 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 ### Python Standards
 - Use Python 3.12+ type hints with builtin types (`list`, `dict`, `set`)
 - Follow Google Python style guide
+- **Always write Google-style docstrings** for public functions, methods, and classes. Docstrings improve readability and skimmability, and help catch mismatches between intent and actual implementation during code review. Use the [Google docstring format](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings) with `Args:`, `Returns:`, `Raises:` sections as appropriate. Private/internal helpers (`_`-prefixed) may omit docstrings when the name and signature are self-explanatory.
 - Import statements at top of file only
 - Use `uv run` for executing Python/pytest commands
 - Use `uv pip install` for package installation
@@ -385,6 +386,7 @@ Available predefined roles:
 - Use "Title case example" over "Title Case Example" for UI text
 - Always use proper TypeScript type hints and avoid using `any` - use `unknown` if necessary
 - Avoid nested ternary statements - use `if/else` or `switch/case` instead
+- **Always write JSDoc comments** (`/** ... */`) for exported functions, components, hooks, and types. Include `@param`, `@returns`, and `@example` tags as appropriate. This improves readability, skimmability, and helps catch mismatches between intent and implementation during review.
 - Place React hooks in `frontend/src/hooks/` directory (e.g., `use-inbox.ts`, `use-auth.ts`)
 - For keyboard shortcut UI, render each key with the `Kbd` component and prefer `parseShortcutKeys` from `frontend/src/lib/tiptap-utils.ts` to ensure consistent macOS symbols (`⌘`, `⇧`) and non-mac labels (`Ctrl`, `Shift`).
 
