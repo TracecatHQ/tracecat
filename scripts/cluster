@@ -318,6 +318,16 @@ build_env() {
     export NEXT_PUBLIC_APP_URL="${PUBLIC_APP_URL}"
     export NEXT_PUBLIC_API_URL="${PUBLIC_API_URL}"
 
+    # Recompute Dex/MCP URL defaults after sourcing `.env`. Otherwise shell
+    # expansions like `TRACECAT_MCP__BASE_URL=${PUBLIC_APP_URL}` get frozen to
+    # the generic `.env` value instead of the active cluster URL.
+    export TRACECAT_MCP__BASE_URL="${CLUSTER_TRACECAT_MCP_BASE_URL_OVERRIDE:-${PUBLIC_APP_URL}}"
+    export DEX_ISSUER="${CLUSTER_DEX_ISSUER_OVERRIDE:-${PUBLIC_APP_URL}/auth}"
+    export DEX_UPSTREAM_REDIRECT_URI="${CLUSTER_DEX_UPSTREAM_REDIRECT_URI_OVERRIDE:-${PUBLIC_APP_URL}/auth/callback}"
+    export DEX_INTERNAL_ISSUER="${CLUSTER_DEX_INTERNAL_ISSUER_OVERRIDE:-http://dex:5556/auth}"
+    export DEX_HOST="${CLUSTER_DEX_HOST_OVERRIDE:-dex.localhost}"
+    export DEX_BASE_DOMAIN="${CLUSTER_DEX_BASE_DOMAIN_OVERRIDE:-http://${DEX_HOST}:${PUBLIC_APP_PORT}}"
+
     # Caddy configuration
     export BASE_DOMAIN=":${PUBLIC_APP_PORT}"
 

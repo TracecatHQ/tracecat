@@ -1,0 +1,66 @@
+issuer: {{ .Env.DEX_ISSUER | quote }}
+{{- $mode := .Env.MCP_DEX_MODE }}
+{{- if not $mode }}
+  {{- $mode = "" }}
+{{- end }}
+{{- $bootstrapEmail := .Env.TRACECAT__AUTH_SUPERADMIN_EMAIL }}
+{{- $bootstrapHash := .Env.MCP_DEX_BOOTSTRAP_PASSWORD_HASH }}
+
+storage:
+  type: sqlite3
+  config:
+    file: {{ .Env.DEX_STORAGE_PATH | quote }}
+
+web:
+  http: {{ .Env.DEX_HTTP_ADDR | quote }}
+
+grpc:
+  addr: {{ .Env.DEX_GRPC_ADDR | quote }}
+
+oauth2:
+  skipApprovalScreen: true
+{{- if eq $mode "basic" }}
+
+enablePasswordDB: true
+{{- if and $bootstrapEmail $bootstrapHash }}
+staticPasswords:
+  - email: {{ $bootstrapEmail | quote }}
+    hash: {{ $bootstrapHash | quote }}
+    username: {{ $bootstrapEmail | quote }}
+    userID: {{ $bootstrapEmail | quote }}
+{{- end }}
+{{- end }}
+
+expiry:
+  idTokens: {{ .Env.DEX_ID_TOKEN_TTL | quote }}
+  refreshTokens:
+    validIfNotUsedFor: {{ .Env.DEX_REFRESH_IDLE_TTL | quote }}
+    absoluteLifetime: {{ .Env.DEX_REFRESH_ABSOLUTE_TTL | quote }}
+    reuseInterval: {{ .Env.DEX_REFRESH_REUSE_INTERVAL | quote }}
+
+staticClients:
+  - id: {{ .Env.DEX_TRACECAT_CLIENT_ID | quote }}
+    name: Tracecat
+    secret: {{ .Env.DEX_TRACECAT_CLIENT_SECRET | quote }}
+    redirectURIs:
+      - {{ .Env.DEX_TRACECAT_MCP_REDIRECT_URI | quote }}
+      {{- if (index .Env "DEX_TRACECAT_MCP_REDIRECT_URI_ALT") }}
+      - {{ index .Env "DEX_TRACECAT_MCP_REDIRECT_URI_ALT" | quote }}
+      {{- end }}
+
+{{- if eq $mode "oidc" }}
+connectors:
+  - type: oidc
+    id: propelauth
+    name: PropelAuth
+    config:
+      issuer: {{ .Env.OIDC_ISSUER | quote }}
+      clientID: {{ .Env.OIDC_CLIENT_ID | quote }}
+      clientSecret: {{ .Env.OIDC_CLIENT_SECRET | quote }}
+      redirectURI: {{ .Env.DEX_UPSTREAM_REDIRECT_URI | quote }}
+      promptType: "login"
+      getUserInfo: true
+      userNameKey: email
+      scopes:
+{{ .Env.DEX_UPSTREAM_OIDC_SCOPES_YAML }}
+{{- end }}

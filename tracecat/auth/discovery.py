@@ -13,6 +13,7 @@ from sqlalchemy import select
 from tracecat import config
 from tracecat.api.common import bootstrap_role, get_default_organization_id
 from tracecat.auth.enums import AuthType
+from tracecat.auth.oidc import oidc_login_configured
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.models import Organization, OrganizationDomain
@@ -147,7 +148,7 @@ class AuthDiscoveryService(BaseService):
         return bool(value)
 
     async def _org_oidc_enabled(self, _org_id: OrganizationID) -> bool:
-        return AuthType.OIDC in config.TRACECAT__AUTH_TYPES
+        return oidc_login_configured()
 
     async def _org_basic_enabled(self, _org_id: OrganizationID) -> bool:
         return AuthType.BASIC in config.TRACECAT__AUTH_TYPES
@@ -169,7 +170,7 @@ class AuthDiscoveryService(BaseService):
 
     @staticmethod
     def _platform_fallback_method() -> AuthDiscoveryMethod:
-        if AuthType.OIDC in config.TRACECAT__AUTH_TYPES:
+        if oidc_login_configured():
             return AuthDiscoveryMethod.OIDC
         if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
             return AuthDiscoveryMethod.BASIC

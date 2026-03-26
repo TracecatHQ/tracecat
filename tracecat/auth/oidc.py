@@ -31,8 +31,13 @@ class OIDCProviderConfig:
 
 
 def oidc_auth_type_enabled() -> bool:
-    """Whether platform auth policy allows OIDC-style login."""
+    """Whether platform auth policy allows OIDC."""
     return AuthType.OIDC in config.TRACECAT__AUTH_TYPES
+
+
+def oidc_login_configured() -> bool:
+    """Whether platform OIDC login can be served with current config."""
+    return oidc_auth_type_enabled() and bool(config.OIDC_ISSUER.strip())
 
 
 def get_platform_oidc_config() -> OIDCProviderConfig:
@@ -44,6 +49,17 @@ def get_platform_oidc_config() -> OIDCProviderConfig:
         client_id=config.OIDC_CLIENT_ID,
         client_secret=config.OIDC_CLIENT_SECRET,
         scopes=scopes,
+    )
+
+
+def get_mcp_oidc_config() -> OIDCProviderConfig:
+    """Return normalized Dex-backed OIDC config for the MCP server."""
+    platform_config = get_platform_oidc_config()
+    return OIDCProviderConfig(
+        issuer=config.DEX_ISSUER.strip().rstrip("/") or None,
+        client_id=config.DEX_TRACECAT_CLIENT_ID,
+        client_secret=config.DEX_TRACECAT_CLIENT_SECRET,
+        scopes=platform_config.scopes,
     )
 
 

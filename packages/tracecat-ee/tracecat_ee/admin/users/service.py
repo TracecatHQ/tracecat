@@ -9,8 +9,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped
 
 from tracecat.audit.service import AuditService
+from tracecat.auth.dex.service import (
+    DexLocalAuthProvisioningError,
+    hash_password_for_dex,
+)
 from tracecat.auth.schemas import UserCreate, UserRole
-from tracecat.auth.users import get_user_db_context, get_user_manager_context
+from tracecat.auth.users import (
+    delete_dex_local_auth_user,
+    get_user_db_context,
+    get_user_manager_context,
+)
 from tracecat.db.models import User
 from tracecat.service import BasePlatformService
 
@@ -29,25 +37,50 @@ class AdminUserService(BasePlatformService):
                 user_create = UserCreate(email=params.email, password=params.password)
                 await user_manager.validate_password(params.password, user_create)
                 hashed_password = user_manager.password_helper.hash(params.password)
+                dex_password_hash = hash_password_for_dex(params.password)
+                user = User(
+                    email=params.email,
+                    hashed_password=hashed_password,
+                    is_active=True,
+                    is_superuser=params.is_superuser,
+                    is_verified=True,
+                    first_name=params.first_name,
+                    last_name=params.last_name,
+                    role=UserRole.BASIC,
+                )
+                self.session.add(user)
+                dex_synced = False
+                try:
+                    await self.session.flush()
+                    await user_manager._sync_dex_local_auth_user(
+                        user,
+                        dex_password_hash=dex_password_hash,
+                    )
+                    dex_synced = True
+                    await self.session.commit()
+                except IntegrityError as e:
+                    await self.session.rollback()
+                    if dex_synced:
+                        await delete_dex_local_auth_user(
+                            params.email,
+                            raise_on_error=False,
+                        )
+                    raise ValueError(
+                        f"User with email {params.email} already exists"
+                    ) from e
+                except DexLocalAuthProvisioningError:
+                    await self.session.rollback()
+                    raise
+                except Exception:
+                    await self.session.rollback()
+                    if dex_synced:
+                        await delete_dex_local_auth_user(
+                            params.email,
+                            raise_on_error=False,
+                        )
+                    raise
 
-        user = User(
-            email=params.email,
-            hashed_password=hashed_password,
-            is_active=True,
-            is_superuser=params.is_superuser,
-            is_verified=True,
-            first_name=params.first_name,
-            last_name=params.last_name,
-            role=UserRole.BASIC,
-        )
-        self.session.add(user)
-        try:
-            await self.session.commit()
-        except IntegrityError as e:
-            await self.session.rollback()
-            raise ValueError(f"User with email {params.email} already exists") from e
-
-        await self.session.refresh(user)
+                await self.session.refresh(user)
 
         async with AuditService.with_session(
             role=self.role, session=self.session
