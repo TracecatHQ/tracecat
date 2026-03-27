@@ -136,7 +136,7 @@ async def spawn_jailed_runtime(
 
     Args:
         socket_dir: Directory containing the per-job control socket (control.sock).
-        llm_socket_path: Path to the LLM socket for proxied LiteLLM access.
+        llm_socket_path: Path to the LLM socket for proxied LLM gateway access.
             Required in production mode (NSJail), optional in direct mode.
         config: Optional sandbox configuration. Defaults to standard agent config.
         nsjail_path: Path to the nsjail binary.

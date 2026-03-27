@@ -39,7 +39,7 @@ JAILED_CONTROL_SOCKET_PATH = Path("/var/run/tracecat/control.sock")
 """Path to the control socket inside the jail."""
 
 LLM_SOCKET_NAME = "llm.sock"
-"""Name of the LLM socket for proxied LiteLLM access."""
+"""Name of the LLM socket for proxied LLM gateway access."""
 
 JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
 """Path to the LLM socket inside the jail."""

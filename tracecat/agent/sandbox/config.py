@@ -5,7 +5,7 @@ for running the agent runtime in an isolated sandbox.
 
 Security model:
 - Network enabled (clone_newnet: false) - direct internet access for API calls
-- LLM access via internal bridge (localhost:4100) proxied through Unix socket to host LiteLLM
+- LLM access via internal bridge (localhost:4100) proxied through Unix socket to host LLM gateway
 - Namespace isolation (PID, user, mount, IPC, UTS namespaces)
 - /proc read-only, PID namespace isolated (process only sees itself)
 - All tool execution via MCP socket to trusted server outside sandbox
@@ -16,7 +16,7 @@ Key design:
 - Runtime executed via `python -m tracecat.agent.sandbox.entrypoint`
 - Mount site-packages read-only for deps (includes tracecat package)
 - Control socket at /var/run/tracecat/control.sock
-- LLM socket at /var/run/tracecat/llm.sock (proxied to LiteLLM)
+- LLM socket at /var/run/tracecat/llm.sock (proxied to LLM gateway)
 """
 
 from __future__ import annotations
@@ -235,7 +235,7 @@ def build_agent_nsjail_config(
         site_packages_dir: Path to site-packages with Claude SDK deps.
         tracecat_pkg_dir: Path to the tracecat package directory.
             Only specific subdirectories are mounted for minimal cold start.
-        llm_socket_path: Path to the LLM socket for proxied LiteLLM access.
+        llm_socket_path: Path to the LLM socket for proxied LLM gateway access.
         enable_internet_access: If True, disables network isolation to allow
             direct internet access. Required for MCP stdio servers that need
             to call external APIs. Default is False (network isolated).
@@ -363,7 +363,7 @@ def build_agent_nsjail_config(
             "# Per-job control socket",
             f'mount {{ src: "{control_socket_path}" dst: "{JAILED_CONTROL_SOCKET_PATH}" is_bind: true rw: false }}',
             "",
-            "# Per-job LLM socket (proxied to LiteLLM on host)",
+            "# Per-job LLM socket (proxied to LLM gateway on host)",
             f'mount {{ src: "{llm_socket_path}" dst: "{JAILED_LLM_SOCKET_PATH}" is_bind: true rw: false }}',
             "",
             "# Agent home directory with Claude SDK session storage",

@@ -9,7 +9,6 @@ from typing import Any
 import orjson
 from pydantic_core import to_jsonable_python
 
-from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.stream.events import (
     AgentStreamEventTA,
@@ -62,17 +61,14 @@ class AgentStream:
 
     async def error(self, error: str) -> None:
         """Emit an error marker."""
-        logger.debug("Adding error marker", stream_key=self._stream_key)
         await self.append({"kind": "error", "error": error})
 
     async def done(self) -> None:
         """Emit an end-of-turn marker."""
-        logger.debug("Adding end-of-turn marker", stream_key=self._stream_key)
         await self.append({tokens.END_TOKEN: tokens.END_TOKEN_VALUE})
 
     async def reset_for_new_turn(self) -> None:
         """Delete the persisted stream buffer and reset the saved cursor."""
-        logger.debug("Resetting agent stream buffer", stream_key=self._stream_key)
         await self.client.delete(self._stream_key)
         await self._set_last_stream_id(None)
 
@@ -83,11 +79,6 @@ class AgentStream:
             await redis_client.expire(
                 name=self._stream_key,
                 time=self.COMPLETED_STREAM_TTL_SECONDS,
-            )
-            logger.debug(
-                "Shortened completed stream TTL",
-                stream_key=self._stream_key,
-                expire_seconds=self.COMPLETED_STREAM_TTL_SECONDS,
             )
         except Exception as exc:
             logger.warning(
@@ -102,11 +93,6 @@ class AgentStream:
         async with AgentSessionService.with_session() as session_svc:
             if agent_session := await session_svc.get_session(self.session_id):
                 await session_svc.update_last_stream_id(agent_session, last_stream_id)
-                logger.debug(
-                    "Updated agent session with last stream id",
-                    session_id=agent_session.id,
-                    last_stream_id=last_stream_id,
-                )
 
     async def _stream_events(
         self, stop_condition: Callable[[], Awaitable[bool]], last_id: str
@@ -151,27 +137,16 @@ class AgentStream:
                                 current_id = msg_id
                                 match data:
                                     case {tokens.END_TOKEN: tokens.END_TOKEN_VALUE}:
-                                        logger.debug("End-of-stream marker")
                                         stream_completed = True
                                         yield StreamEnd(id=msg_id)
-                                    case {"event_kind": event_kind}:
+                                    case {"event_kind": _}:
                                         legacy_event = (
                                             AgentStreamEventTA.validate_python(data)
                                         )
-                                        logger.debug(
-                                            "Stream legacy event",
-                                            kind=event_kind,
-                                            event=legacy_event,
-                                        )
                                         yield StreamDelta(id=msg_id, event=legacy_event)
-                                    case {"type": event_type}:
+                                    case {"type": _}:
                                         unified_event = (
                                             UnifiedStreamEventTA.validate_python(data)
-                                        )
-                                        logger.debug(
-                                            "Stream event",
-                                            type=event_type,
-                                            event=unified_event,
                                         )
                                         yield StreamDelta(
                                             id=msg_id, event=unified_event
@@ -183,8 +158,7 @@ class AgentStream:
                                             message_id=msg_id,
                                         )
                                         yield StreamError(error=error_message)
-                                    case {"kind": kind}:
-                                        logger.debug("Model message", kind=kind)
+                                    case {"kind": _}:
                                         message = ModelMessageTA.validate_python(data)
                                         yield StreamMessage(id=msg_id, message=message)
                                     case _:
@@ -199,10 +173,6 @@ class AgentStream:
 
                     now = monotonic()
                     if now - last_keepalive >= self.KEEPALIVE_INTERVAL_SECONDS:
-                        logger.debug(
-                            "Emitting keep-alive event",
-                            stream_key=self._stream_key,
-                        )
                         yield StreamKeepAlive()
                         last_keepalive = now
 
@@ -262,19 +232,11 @@ class AgentStream:
                             break
                         continue
                     case StreamEnd():
-                        logger.debug("End-of-stream marker")
                         yield event.sse()
                         break
-                    case StreamDelta(event=delta):
-                        if isinstance(delta, UnifiedStreamEvent):
-                            logger.debug("Stream event", event_type=delta.type)
-                        else:
-                            logger.debug(
-                                "Legacy stream event", event_kind=delta.event_kind
-                            )
+                    case StreamDelta():
                         yield event.sse()
-                    case StreamMessage(message=message):
-                        logger.debug("Model message", kind=message.kind)
+                    case StreamMessage():
                         yield event.sse()
                     case _:
                         logger.warning(

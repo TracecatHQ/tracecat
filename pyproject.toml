@@ -44,7 +44,6 @@ dependencies = [
     "httpx==0.28.1",
     "jsonpath_ng==1.7.0",
     "lark==1.1.9",
-    "litellm[proxy]==1.81.13",
     "loguru==0.7.3",
     "minio==7.2.18",
     "orjson==3.11.7",
@@ -69,6 +68,7 @@ dependencies = [
     "tracecat-registry",
     "uv==0.9.15",
     "uvicorn==0.35.0",
+    "uvloop==0.21.0",
 ]
 dynamic = ["version"]
 
@@ -87,13 +87,7 @@ tracecat-ee = { workspace = true }
 members = ["packages/*"]
 
 [tool.uv]
-# litellm[proxy] has overly restrictive dependency pins that conflict with other packages:
-# - uvicorn>=0.31.1,<0.32.0 conflicts with fastmcp which requires uvicorn>=0.35
-# - boto3==1.36.0 conflicts with tracecat-registry which requires boto3>=1.39.0
-# - python-multipart>=0.0.18,<0.0.19 conflicts with fastapi-users which requires 0.0.21
-# - rich==13.7.1 conflicts with fastmcp which requires rich>=13.9.4
-# - grpcio>=1.62.3,<1.68.0 conflicts with tracecat-registry which requires grpcio==1.75.1
-# - grpcio-tools pinned in tracecat-registry
+# Override dependency pins to resolve conflicts between packages:
 # - chardet 7.0 removed chardet.universaldetector, breaking polyfile 0.5.6
 override-dependencies = [
     "pyasn1==0.6.3",
