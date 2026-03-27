@@ -1,7 +1,7 @@
 """Internal router for workspace-scoped deduplication.
 
 Provides a trusted-side API for persistent deduplication so that sandboxed
-registry actions can check-and-set dedup state without direct Redis access.
+registry actions can create dedup entries without direct Redis access.
 """
 
 from __future__ import annotations
@@ -16,17 +16,17 @@ from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 
 
-class CheckAndSetRequest(BaseModel):
-    """Batch check-and-set request for deduplication digests."""
+class CreateDigestsRequest(BaseModel):
+    """Request to create deduplication digest entries."""
 
     digests: list[str] = Field(min_length=1, max_length=1000)
     expire_seconds: int = Field(ge=1, le=2592000)
 
 
-class CheckAndSetResponse(BaseModel):
-    """Response indicating which digests were newly inserted."""
+class CreateDigestsResponse(BaseModel):
+    """Response indicating which digests were newly created."""
 
-    inserted: list[bool]
+    created: list[bool]
 
 
 router = APIRouter(
@@ -36,17 +36,17 @@ router = APIRouter(
 )
 
 
-@router.post("/check-and-set")
-@require_scope("action:*:execute")
-async def check_and_set(
+@router.post("/digests", status_code=status.HTTP_201_CREATED)
+@require_scope("deduplicate:create")
+async def create_digests(
     *,
     role: ExecutorWorkspaceRole,
-    request: CheckAndSetRequest,
-) -> CheckAndSetResponse:
-    """Atomically check and set deduplication digests.
+    request: CreateDigestsRequest,
+) -> CreateDigestsResponse:
+    """Create deduplication digest entries.
 
-    For each digest, sets a Redis key with NX (set-if-not-exists) semantics.
-    Returns a list of booleans indicating which digests were newly inserted.
+    For each digest, atomically creates a Redis key if it does not already exist.
+    Returns a list of booleans indicating which digests were newly created.
     Workspace scope is derived from the executor token, never from the request.
 
     Args:
@@ -54,7 +54,7 @@ async def check_and_set(
         request: Batch of digests and TTL.
 
     Returns:
-        CheckAndSetResponse with inserted flags aligned to input order.
+        CreateDigestsResponse with created flags aligned to input order.
     """
     workspace_id = role.workspace_id
     redis_client = await get_redis_client()
@@ -68,19 +68,19 @@ async def check_and_set(
                 key = f"dedup:{workspace_id}:{digest}"
                 pipe.set(key, "1", ex=request.expire_seconds, nx=True)
             results = await pipe.execute()
-            inserted = [bool(r) for r in results]
+            created = [bool(r) for r in results]
         else:
             # Sequential path: negligible RTT for small batches
-            inserted = []
+            created = []
             for digest in request.digests:
                 key = f"dedup:{workspace_id}:{digest}"
                 was_set = await redis_client.set_if_not_exists(
                     key, "1", expire_seconds=request.expire_seconds
                 )
-                inserted.append(was_set)
+                created.append(was_set)
     except RedisError as e:
         logger.error(
-            "Deduplication check-and-set failed",
+            "Deduplication create_digests failed",
             workspace_id=str(workspace_id),
             error=str(e),
         )
@@ -89,4 +89,4 @@ async def check_and_set(
             detail="Deduplication service temporarily unavailable",
         ) from e
 
-    return CheckAndSetResponse(inserted=inserted)
+    return CreateDigestsResponse(created=created)

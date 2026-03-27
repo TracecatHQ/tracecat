@@ -32,18 +32,18 @@ class _RedisDedupClient:
     def __init__(self, workspace_id: str) -> None:
         self._workspace_id = workspace_id
 
-    async def check_and_set(
+    async def create_digests(
         self, digests: list[str], expire_seconds: int
     ) -> list[bool]:
         redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
         client = aioredis.from_url(redis_url, decode_responses=True)
         try:
-            inserted: list[bool] = []
+            created: list[bool] = []
             for digest in digests:
                 key = f"dedup:{self._workspace_id}:{digest}"
                 was_set = await client.set(key, "1", ex=expire_seconds, nx=True)
-                inserted.append(bool(was_set))
-            return inserted
+                created.append(bool(was_set))
+            return created
         finally:
             await client.aclose()
 
@@ -54,7 +54,7 @@ async def dedup_registry_context(deduplicate_workspace_scope: None) -> Any:
 
     Must be async so the contextvar is set in the same async task context
     as the test (pytest-anyio runs async fixtures and tests in the same task).
-    The Redis connection is made lazily when check_and_set is called,
+    The Redis connection is made lazily when create_digests is called,
     so non-dedup tests don't require a running Redis instance.
     """
     workspace_id = os.environ.get("TRACECAT__WORKSPACE_ID", "test-workspace")
@@ -819,7 +819,7 @@ async def test_deduplicate_sdk_error_propagates() -> None:
     """Test that errors from the dedup SDK client propagate to the caller."""
 
     class _FailingDedupClient:
-        async def check_and_set(
+        async def create_digests(
             self, digests: list[str], expire_seconds: int
         ) -> list[bool]:
             raise ConnectionError("Deduplication service temporarily unavailable")

@@ -134,20 +134,20 @@ async def _deduplicate_persistent(
 ) -> list[dict[str, Any]]:
     """Deduplicate items via the trusted internal API.
 
-    Computes SHA256 digests for each key and delegates the atomic
-    check-and-set to the platform API (which owns the Redis connection).
+    Computes SHA256 digests for each key and delegates to the platform API
+    (which owns the Redis connection) to create digest entries atomically.
 
     Args:
         seen: Mapping of composite key tuples to their merged items.
         expire_seconds: TTL for each dedup key.
 
     Returns:
-        Items whose digests were newly inserted (not previously seen).
+        Items whose digests were newly created (not previously seen).
     """
     digests = _compute_digests(seen)
     ctx = get_context()
-    inserted = await ctx.deduplicate.check_and_set(digests, expire_seconds)
-    return [item for item, is_new in zip(seen.values(), inserted) if is_new]
+    created = await ctx.deduplicate.create_digests(digests, expire_seconds)
+    return [item for item, is_new in zip(seen.values(), created) if is_new]
 
 
 @registry.register(

@@ -66,18 +66,18 @@ class TestDeduplicateClientPath:
     """Regression test: SDK client calls the correct API path."""
 
     @pytest.mark.anyio
-    async def test_check_and_set_path(self) -> None:
-        """SDK posts to /deduplicate/check-and-set with correct payload."""
+    async def test_create_digests_path(self) -> None:
+        """SDK posts to /deduplicate/digests with correct payload."""
         from tracecat_registry.sdk.deduplicate import DeduplicateClient
 
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value={"inserted": [True, False]})
+        mock_client.post = AsyncMock(return_value={"created": [True, False]})
 
         client = DeduplicateClient(mock_client)
-        result = await client.check_and_set(["abc123", "def456"], 3600)
+        result = await client.create_digests(["abc123", "def456"], 3600)
 
         mock_client.post.assert_called_once_with(
-            "/deduplicate/check-and-set",
+            "/deduplicate/digests",
             json={"digests": ["abc123", "def456"], "expire_seconds": 3600},
         )
         assert result == [True, False]
@@ -95,7 +95,7 @@ class TestDeduplicateTransform:
     async def test_persist_true_calls_sdk(self) -> None:
         """persist=True delegates to the deduplicate SDK client."""
         mock_dedup_client = AsyncMock()
-        mock_dedup_client.check_and_set = AsyncMock(return_value=[True, False])
+        mock_dedup_client.create_digests = AsyncMock(return_value=[True, False])
 
         mock_ctx = MagicMock()
         mock_ctx.deduplicate = mock_dedup_client
@@ -107,7 +107,7 @@ class TestDeduplicateTransform:
         ):
             result = await deduplicate(items, keys=["id"], persist=True)
 
-        mock_dedup_client.check_and_set.assert_called_once()
+        mock_dedup_client.create_digests.assert_called_once()
         # First item inserted (True), second not (False)
         assert result == [{"id": 1, "v": "a"}]
 
@@ -126,7 +126,7 @@ class TestDeduplicateTransform:
             )
 
         # SDK should not be touched
-        mock_ctx.deduplicate.check_and_set.assert_not_called()
+        mock_ctx.deduplicate.create_digests.assert_not_called()
         # Within-call dedup: two unique items
         assert len(result) == 2
 
@@ -135,7 +135,7 @@ class TestDeduplicateTransform:
         """is_duplicate delegates to deduplicate(persist=True)."""
         mock_dedup_client = AsyncMock()
         # Return empty list = item was already seen = duplicate
-        mock_dedup_client.check_and_set = AsyncMock(return_value=[False])
+        mock_dedup_client.create_digests = AsyncMock(return_value=[False])
 
         mock_ctx = MagicMock()
         mock_ctx.deduplicate = mock_dedup_client
@@ -146,13 +146,13 @@ class TestDeduplicateTransform:
             result = await is_duplicate({"id": 1}, keys=["id"])
 
         assert result is True
-        mock_dedup_client.check_and_set.assert_called_once()
+        mock_dedup_client.create_digests.assert_called_once()
 
     @pytest.mark.anyio
     async def test_is_duplicate_new_item(self) -> None:
         """is_duplicate returns False for a newly inserted item."""
         mock_dedup_client = AsyncMock()
-        mock_dedup_client.check_and_set = AsyncMock(return_value=[True])
+        mock_dedup_client.create_digests = AsyncMock(return_value=[True])
 
         mock_ctx = MagicMock()
         mock_ctx.deduplicate = mock_dedup_client
@@ -175,7 +175,7 @@ class TestDeduplicateTransform:
             result = await deduplicate([], keys=["id"], persist=True)
 
         assert result == []
-        mock_ctx.deduplicate.check_and_set.assert_not_called()
+        mock_ctx.deduplicate.create_digests.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -191,23 +191,25 @@ class TestCheckAndSetRouter:
         """Create a mock role with executor scopes for require_scope."""
         role = MagicMock()
         role.workspace_id = workspace_id
-        role.scopes = frozenset({"action:*:execute"})
+        role.scopes = frozenset({"deduplicate:create"})
         return role
 
     @pytest.mark.anyio
-    async def test_check_and_set_sequential(self) -> None:
+    async def test_create_digests_sequential(self) -> None:
         """Small batch uses sequential set_if_not_exists calls."""
         from tracecat.contexts import ctx_role
         from tracecat.deduplicate.internal_router import (
-            CheckAndSetRequest,
-            check_and_set,
+            CreateDigestsRequest,
+            create_digests,
         )
 
         mock_redis = AsyncMock()
         mock_redis.set_if_not_exists = AsyncMock(side_effect=[True, False, True])
 
         role = self._make_role("ws-123")
-        request = CheckAndSetRequest(digests=["aaa", "bbb", "ccc"], expire_seconds=3600)
+        request = CreateDigestsRequest(
+            digests=["aaa", "bbb", "ccc"], expire_seconds=3600
+        )
 
         token = ctx_role.set(role)
         try:
@@ -215,11 +217,11 @@ class TestCheckAndSetRouter:
                 "tracecat.deduplicate.internal_router.get_redis_client",
                 return_value=mock_redis,
             ):
-                response = await check_and_set(role=role, request=request)
+                response = await create_digests(role=role, request=request)
         finally:
             ctx_role.reset(token)
 
-        assert response.inserted == [True, False, True]
+        assert response.created == [True, False, True]
         assert mock_redis.set_if_not_exists.call_count == 3
 
         # Verify workspace-scoped key format
@@ -229,12 +231,12 @@ class TestCheckAndSetRouter:
         assert calls[2].args[0] == "dedup:ws-123:ccc"
 
     @pytest.mark.anyio
-    async def test_check_and_set_pipeline(self) -> None:
+    async def test_create_digests_pipeline(self) -> None:
         """Large batch (>10) uses pipeline path."""
         from tracecat.contexts import ctx_role
         from tracecat.deduplicate.internal_router import (
-            CheckAndSetRequest,
-            check_and_set,
+            CreateDigestsRequest,
+            create_digests,
         )
 
         mock_pipe = AsyncMock()
@@ -249,7 +251,7 @@ class TestCheckAndSetRouter:
 
         role = self._make_role("ws-456")
         digests = [f"digest_{i:03d}" for i in range(11)]
-        request = CheckAndSetRequest(digests=digests, expire_seconds=7200)
+        request = CreateDigestsRequest(digests=digests, expire_seconds=7200)
 
         token = ctx_role.set(role)
         try:
@@ -257,11 +259,11 @@ class TestCheckAndSetRouter:
                 "tracecat.deduplicate.internal_router.get_redis_client",
                 return_value=mock_redis,
             ):
-                response = await check_and_set(role=role, request=request)
+                response = await create_digests(role=role, request=request)
         finally:
             ctx_role.reset(token)
 
-        assert response.inserted == [True] * 5 + [False] * 6
+        assert response.created == [True] * 5 + [False] * 6
         mock_raw_client.pipeline.assert_called_once_with(transaction=False)
         assert mock_pipe.set.call_count == 11
 
@@ -270,8 +272,8 @@ class TestCheckAndSetRouter:
         """Different workspaces get different Redis key prefixes."""
         from tracecat.contexts import ctx_role
         from tracecat.deduplicate.internal_router import (
-            CheckAndSetRequest,
-            check_and_set,
+            CreateDigestsRequest,
+            create_digests,
         )
 
         captured_keys: list[str] = []
@@ -283,7 +285,7 @@ class TestCheckAndSetRouter:
         mock_redis = AsyncMock()
         mock_redis.set_if_not_exists = AsyncMock(side_effect=capture_set)
 
-        request = CheckAndSetRequest(digests=["same_digest"], expire_seconds=60)
+        request = CreateDigestsRequest(digests=["same_digest"], expire_seconds=60)
 
         for ws_id in ["ws-aaa", "ws-bbb"]:
             role = self._make_role(ws_id)
@@ -293,7 +295,7 @@ class TestCheckAndSetRouter:
                     "tracecat.deduplicate.internal_router.get_redis_client",
                     return_value=mock_redis,
                 ):
-                    await check_and_set(role=role, request=request)
+                    await create_digests(role=role, request=request)
             finally:
                 ctx_role.reset(token)
 
@@ -306,19 +308,19 @@ class TestCheckAndSetRouter:
         """Empty digests list is rejected by Pydantic validation."""
         from pydantic import ValidationError
 
-        from tracecat.deduplicate.internal_router import CheckAndSetRequest
+        from tracecat.deduplicate.internal_router import CreateDigestsRequest
 
         with pytest.raises(ValidationError):
-            CheckAndSetRequest(digests=[], expire_seconds=3600)
+            CreateDigestsRequest(digests=[], expire_seconds=3600)
 
     def test_request_validation_ttl_bounds(self) -> None:
         """TTL must be between 1 and 2592000."""
         from pydantic import ValidationError
 
-        from tracecat.deduplicate.internal_router import CheckAndSetRequest
+        from tracecat.deduplicate.internal_router import CreateDigestsRequest
 
         with pytest.raises(ValidationError):
-            CheckAndSetRequest(digests=["abc"], expire_seconds=0)
+            CreateDigestsRequest(digests=["abc"], expire_seconds=0)
 
         with pytest.raises(ValidationError):
-            CheckAndSetRequest(digests=["abc"], expire_seconds=2592001)
+            CreateDigestsRequest(digests=["abc"], expire_seconds=2592001)

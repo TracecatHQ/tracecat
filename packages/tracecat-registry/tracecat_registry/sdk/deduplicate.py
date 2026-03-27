@@ -14,23 +14,23 @@ class DeduplicateClient:
     def __init__(self, client: TracecatClient) -> None:
         self._client = client
 
-    async def check_and_set(
+    async def create_digests(
         self,
         digests: list[str],
         expire_seconds: int,
     ) -> list[bool]:
-        """Atomically check and set deduplication digests.
+        """Create deduplication digest entries.
 
         Args:
-            digests: SHA256 hex digests to check.
+            digests: SHA256 hex digests to create.
             expire_seconds: TTL for each digest key.
 
         Returns:
             List of booleans aligned to input order. True means the digest
-            was newly inserted; False means it already existed.
+            was newly created; False means it already existed.
         """
         resp = await self._client.post(
-            "/deduplicate/check-and-set",
+            "/deduplicate/digests",
             json={"digests": digests, "expire_seconds": expire_seconds},
         )
-        return resp["inserted"]
+        return resp["created"]
