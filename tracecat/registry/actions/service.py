@@ -1033,21 +1033,10 @@ class RegistryActionsService(BaseOrgService):
                     ):
                         continue
 
-                    # Read declared secret_type directly (already snake_case).
-                    # Only infer from key shape when the field was absent
-                    # in the stored manifest (old data before secret_type existed).
-                    # When secret_type is explicitly "custom", trust it.
-                    has_explicit_type = "secret_type" in (
-                        secret.model_fields_set
-                        if hasattr(secret, "model_fields_set")
-                        else set()
-                    )
-                    declared_type = getattr(secret, "secret_type", "custom") or "custom"
-                    if (
-                        not has_explicit_type
-                        and declared_type == "custom"
-                        and secret.keys
-                    ):
+                    # Use the declared secret_type, but infer from key shape
+                    # when it wasn't explicitly set (old manifests).
+                    declared_type = secret.secret_type
+                    if "secret_type" not in secret.model_fields_set and secret.keys:
                         declared_type = _infer_secret_type_from_keys(secret.keys)
 
                     entry = aggregated.setdefault(
