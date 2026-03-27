@@ -74,6 +74,7 @@ from tracecat.registry.loaders import (
 from tracecat.registry.repository import Repository
 from tracecat.registry.sync.service import RegistrySyncService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
+from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretDefinition
 from tracecat.service import BaseOrgService
 from tracecat.tiers.enums import Entitlement
@@ -163,6 +164,22 @@ class SecretAggregate(TypedDict):
     optional_keys: set[str]
     optional: bool
     actions: set[str]
+    secret_type: str | None
+
+
+def _infer_secret_type_from_keys(keys: list[str]) -> str:
+    """Infer registry secret_type from key shape.
+
+    Handles manifests stored before the secret_type field was added.
+    """
+    key_set = set(keys)
+    if key_set == {"PRIVATE_KEY"}:
+        return "ssh_key"
+    if key_set == {"TLS_CERTIFICATE", "TLS_PRIVATE_KEY"}:
+        return "mtls"
+    if key_set == {"CA_CERTIFICATE"}:
+        return "ca_cert"
+    return "custom"
 
 
 class RegistryActionsService(BaseOrgService):
@@ -1016,6 +1033,13 @@ class RegistryActionsService(BaseOrgService):
                     ):
                         continue
 
+                    # Read declared secret_type directly (already snake_case).
+                    # Fall back to inferring from key shape for manifests
+                    # stored before secret_type was added.
+                    declared_type = getattr(secret, "secret_type", "custom") or "custom"
+                    if declared_type == "custom" and secret.keys:
+                        declared_type = _infer_secret_type_from_keys(secret.keys)
+
                     entry = aggregated.setdefault(
                         secret.name,
                         {
@@ -1023,6 +1047,7 @@ class RegistryActionsService(BaseOrgService):
                             "optional_keys": set(),
                             "optional": False,
                             "actions": set(),
+                            "secret_type": None,
                         },
                     )
                     if secret.keys:
@@ -1031,6 +1056,15 @@ class RegistryActionsService(BaseOrgService):
                         entry["optional_keys"].update(secret.optional_keys)
                     entry["optional"] = entry["optional"] or secret.optional
                     entry["actions"].add(action_name)
+
+                    # Track declared secret_type; conflict → validation error
+                    if entry["secret_type"] is None:
+                        entry["secret_type"] = declared_type
+                    elif entry["secret_type"] != declared_type:
+                        raise RegistryValidationError(
+                            f"Conflicting secret_type for secret {secret.name!r}: "
+                            f"{entry['secret_type']!r} vs {declared_type!r}"
+                        )
 
         definitions: list[SecretDefinition] = []
         for name, data in aggregated.items():
@@ -1043,6 +1077,7 @@ class RegistryActionsService(BaseOrgService):
                     keys=required_keys,
                     optional_keys=optional_keys or None,
                     optional=data["optional"],
+                    secret_type=SecretType(data["secret_type"] or SecretType.CUSTOM),
                     actions=actions,
                     action_count=len(actions),
                 )

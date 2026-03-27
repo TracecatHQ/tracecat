@@ -1354,7 +1354,7 @@ export function useWorkspaceSecrets(
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
-        type: ["custom", "ssh-key", "mtls", "ca-cert", "github-app"],
+        type: ["custom", "ssh_key", "mtls", "ca_cert"],
       }),
     enabled: !!workspaceId && listEnabled,
     staleTime: 5 * 60 * 1000,
@@ -1692,7 +1692,7 @@ export function useOrgSecrets() {
     queryKey: ["org-ssh-keys"],
     queryFn: async () =>
       await organizationSecretsListOrgSecrets({
-        type: ["ssh-key"],
+        type: ["ssh_key"],
       }),
   })
 
@@ -1702,7 +1702,7 @@ export function useOrgSecrets() {
       await organizationSecretsCreateOrgSecret({ requestBody: params }),
     onSuccess: (_, variables) => {
       switch (variables.type) {
-        case "ssh-key":
+        case "ssh_key":
           queryClient.invalidateQueries({ queryKey: ["org-ssh-keys"] })
           toast({
             title: "Created secret",
@@ -1734,7 +1734,7 @@ export function useOrgSecrets() {
       }),
     onSuccess: (_, variables) => {
       switch (variables.params.type) {
-        case "ssh-key":
+        case "ssh_key":
           queryClient.invalidateQueries({ queryKey: ["org-ssh-keys"] })
           toast({
             title: "Updated secret",
@@ -1757,7 +1757,7 @@ export function useOrgSecrets() {
       await organizationSecretsDeleteOrgSecretById({ secretId: secret.id }),
     onSuccess: (_, variables) => {
       switch (variables.type) {
-        case "ssh-key":
+        case "ssh_key":
           queryClient.invalidateQueries({ queryKey: ["org-ssh-keys"] })
           toast({
             title: "Deleted secret",

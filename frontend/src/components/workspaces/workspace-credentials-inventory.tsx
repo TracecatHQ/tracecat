@@ -43,8 +43,8 @@ import {
   type CredentialConnectionFilter,
   type CredentialSecretTypeFilter,
   credentialSecretTypeLabels,
-  getCredentialSecretTypeSummary,
   normalizeSecretEnvironment,
+  workspaceSecretTypeLabels,
 } from "@/components/workspaces/credentials-utils"
 import {
   DeleteSecretAlertDialog,
@@ -67,11 +67,10 @@ const SECRET_TYPE_OPTIONS: Array<{
   label: string
 }> = [
   { value: "all", label: "All types" },
-  { value: "custom", label: "Custom" },
-  { value: "ssh-key", label: "SSH key" },
-  { value: "mtls", label: "mTLS" },
-  { value: "ca-cert", label: "CA certificate" },
-  { value: "github-app", label: "GitHub app" },
+  ...Object.entries(workspaceSecretTypeLabels).map(([value, label]) => ({
+    value: value as CredentialSecretTypeFilter,
+    label,
+  })),
 ]
 
 export function WorkspaceCredentialsInventory() {
@@ -291,17 +290,19 @@ export function WorkspaceCredentialsInventory() {
                                 <CredentialGroupContent
                                   name={group.name}
                                   label={
-                                    group.isPrebuilt
-                                      ? "Credential"
-                                      : credentialSecretTypeLabels[
-                                          group.secretType
-                                        ]
+                                    credentialSecretTypeLabels[
+                                      group.secretType
+                                    ] ?? "Credential"
                                   }
                                   environments={group.environments}
                                   isConnected={group.isConnected}
-                                  secretTypeSummary={getCredentialSecretTypeSummary(
-                                    group
-                                  )}
+                                  connectedHoverCard={
+                                    <ConnectedEnvironmentsHoverCard
+                                      groupName={group.name}
+                                      environments={group.environments}
+                                      isConnected={group.isConnected}
+                                    />
+                                  }
                                 />
                               </button>
                             </CollapsibleTrigger>
@@ -311,12 +312,20 @@ export function WorkspaceCredentialsInventory() {
                               <div className="min-w-0 flex-1">
                                 <CredentialGroupContent
                                   name={group.name}
-                                  label="Credential"
+                                  label={
+                                    credentialSecretTypeLabels[
+                                      group.secretType
+                                    ] ?? "Credential"
+                                  }
                                   environments={group.environments}
                                   isConnected={group.isConnected}
-                                  secretTypeSummary={getCredentialSecretTypeSummary(
-                                    group
-                                  )}
+                                  connectedHoverCard={
+                                    <ConnectedEnvironmentsHoverCard
+                                      groupName={group.name}
+                                      environments={group.environments}
+                                      isConnected={group.isConnected}
+                                    />
+                                  }
                                 />
                               </div>
                             </>
@@ -335,43 +344,6 @@ export function WorkspaceCredentialsInventory() {
                               >
                                 Configure
                               </Button>
-                            ) : null}
-
-                            {group.isConnected ? (
-                              <HoverCard openDelay={100} closeDelay={100}>
-                                <HoverCardTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="flex h-6 w-6 items-center justify-center"
-                                    aria-label={`View configured environments for ${group.name}`}
-                                  >
-                                    <SquareAsterisk className="icon-success size-3.5" />
-                                  </button>
-                                </HoverCardTrigger>
-                                <HoverCardContent
-                                  className="w-auto max-w-[240px] p-3"
-                                  align="end"
-                                  side="top"
-                                  sideOffset={6}
-                                >
-                                  <div className="space-y-2 text-xs">
-                                    <div className="font-medium text-foreground">
-                                      Configured environments
-                                    </div>
-                                    <div className="flex flex-wrap gap-1">
-                                      {group.environments.map((environment) => (
-                                        <Badge
-                                          key={environment}
-                                          variant="secondary"
-                                          className="text-[10px]"
-                                        >
-                                          {environment}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                </HoverCardContent>
-                              </HoverCard>
                             ) : null}
                           </ItemActions>
                         </div>
@@ -490,18 +462,70 @@ export function WorkspaceCredentialsInventory() {
   )
 }
 
+function ConnectedEnvironmentsHoverCard({
+  groupName,
+  environments,
+  isConnected,
+}: {
+  groupName: string
+  environments: string[]
+  isConnected: boolean
+}) {
+  if (!isConnected) {
+    return null
+  }
+
+  return (
+    <HoverCard openDelay={100} closeDelay={100}>
+      <HoverCardTrigger asChild>
+        <button
+          type="button"
+          className="flex items-center justify-center"
+          aria-label={`View configured environments for ${groupName}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <SquareAsterisk className="icon-success size-3.5" />
+        </button>
+      </HoverCardTrigger>
+      <HoverCardContent
+        className="w-auto max-w-[240px] p-3"
+        align="start"
+        side="top"
+        sideOffset={6}
+      >
+        <div className="space-y-2 text-xs">
+          <div className="font-medium text-foreground">
+            Configured environments
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {environments.map((environment) => (
+              <Badge
+                key={environment}
+                variant="secondary"
+                className="text-[10px]"
+              >
+                {environment}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
+
 function CredentialGroupContent({
   name,
   label,
   environments,
   isConnected,
-  secretTypeSummary,
+  connectedHoverCard,
 }: {
   name: string
   label: string
   environments: string[]
   isConnected: boolean
-  secretTypeSummary: string
+  connectedHoverCard?: React.ReactNode
 }) {
   return (
     <Item className="w-full flex-nowrap rounded-none border-none px-0 py-0">
@@ -511,6 +535,7 @@ function CredentialGroupContent({
       <ItemContent className="min-w-0 gap-0">
         <ItemTitle className="flex w-full min-w-0 items-center gap-2 text-xs">
           <span className="min-w-0 truncate">{name}</span>
+          {connectedHoverCard}
           <span className="text-xs text-muted-foreground">{label}</span>
         </ItemTitle>
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
@@ -518,7 +543,6 @@ function CredentialGroupContent({
           {environments.length > 0 ? (
             <span>{environments.length} environment(s)</span>
           ) : null}
-          <span>{secretTypeSummary}</span>
         </div>
       </ItemContent>
     </Item>
