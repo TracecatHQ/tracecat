@@ -32,7 +32,7 @@ from temporalio.service import RPCError
 from tracecat import config
 from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_role, with_temporal_workspace_id
 from tracecat.db.models import Interaction
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
@@ -1506,23 +1506,24 @@ class WorkflowExecutionsService:
         pairs.append(execution_type.to_temporal_search_attr_pair())
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
         try:
-            result = await self._client.execute_workflow(
-                DSLWorkflow.run,
-                DSLRunArgs(
-                    dsl=dsl,
-                    role=self.role,
-                    wf_id=wf_id,
-                    trigger_inputs=trigger_inputs_ref,
-                    execution_type=execution_type,
-                    time_anchor=time_anchor,
-                    registry_lock=registry_lock,
-                ),
-                id=wf_exec_id,
-                task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                search_attributes=search_attrs,
-                **kwargs,
-            )
+            with with_temporal_workspace_id(self.role.workspace_id):
+                result = await self._client.execute_workflow(
+                    DSLWorkflow.run,
+                    DSLRunArgs(
+                        dsl=dsl,
+                        role=self.role,
+                        wf_id=wf_id,
+                        trigger_inputs=trigger_inputs_ref,
+                        execution_type=execution_type,
+                        time_anchor=time_anchor,
+                        registry_lock=registry_lock,
+                    ),
+                    id=wf_exec_id,
+                    task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                    search_attributes=search_attrs,
+                    **kwargs,
+                )
         except WorkflowFailureError as e:
             if isinstance(e.cause, TerminatedError):
                 self.logger.info(
@@ -1658,29 +1659,30 @@ class WorkflowExecutionsService:
         search_attrs = TypedSearchAttributes(search_attributes=pairs)
 
         try:
-            await asyncio.wait_for(
-                self._client.start_workflow(
-                    DSLWorkflow.run,
-                    DSLRunArgs(
-                        dsl=dsl,
-                        role=self.role,
-                        wf_id=wf_id,
-                        trigger_inputs=trigger_inputs_ref,
-                        execution_type=execution_type,
-                        time_anchor=time_anchor,
-                        registry_lock=registry_lock,
+            with with_temporal_workspace_id(self.role.workspace_id):
+                await asyncio.wait_for(
+                    self._client.start_workflow(
+                        DSLWorkflow.run,
+                        DSLRunArgs(
+                            dsl=dsl,
+                            role=self.role,
+                            wf_id=wf_id,
+                            trigger_inputs=trigger_inputs_ref,
+                            execution_type=execution_type,
+                            time_anchor=time_anchor,
+                            registry_lock=registry_lock,
+                        ),
+                        id=wf_exec_id,
+                        task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+                        # Workflow execution IDs are immutable correlation keys.
+                        # Retrying the same dispatch must not start a second run.
+                        id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+                        retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                        search_attributes=search_attrs,
+                        **kwargs,
                     ),
-                    id=wf_exec_id,
-                    task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-                    # Workflow execution IDs are immutable correlation keys.
-                    # Retrying the same dispatch must not start a second run.
-                    id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
-                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                    search_attributes=search_attrs,
-                    **kwargs,
-                ),
-                timeout=start_timeout,
-            )
+                    timeout=start_timeout,
+                )
         except TimeoutError as e:
             self.logger.error(
                 "Timed out while dispatching workflow start",

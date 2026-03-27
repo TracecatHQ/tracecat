@@ -55,6 +55,7 @@ from tracecat.chat.schemas import (
 )
 from tracecat.chat.service import ChatService
 from tracecat.chat.tools import get_default_tools
+from tracecat.contexts import with_temporal_workspace_id
 from tracecat.db.models import AgentSession, AgentSessionHistory, Approval, Chat
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
@@ -1027,17 +1028,18 @@ class AgentSessionService(BaseWorkspaceService):
                 task_queue=config.TRACECAT__AGENT_QUEUE,
             )
 
-            await client.start_workflow(
-                DurableAgentWorkflow.run,
-                workflow_args,
-                id=str(workflow_id),
-                task_queue=config.TRACECAT__AGENT_QUEUE,
-                execution_timeout=timedelta(hours=1),
-                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                search_attributes=self._build_direct_agent_search_attributes(
-                    session_id
-                ),
-            )
+            with with_temporal_workspace_id(self.role.workspace_id):
+                await client.start_workflow(
+                    DurableAgentWorkflow.run,
+                    workflow_args,
+                    id=str(workflow_id),
+                    task_queue=config.TRACECAT__AGENT_QUEUE,
+                    execution_timeout=timedelta(hours=1),
+                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                    search_attributes=self._build_direct_agent_search_attributes(
+                        session_id
+                    ),
+                )
 
         # Return ChatResponse with session_id for streaming
         stream_url = f"/api/agent/sessions/{session_id}/stream"
@@ -1194,14 +1196,15 @@ class AgentSessionService(BaseWorkspaceService):
         )
 
         try:
-            await handle.execute_update(
-                DurableAgentWorkflow.set_approvals,
-                WorkflowApprovalSubmission(
-                    approvals=approval_map,
-                    approved_by=self.role.user_id,
-                    decision_metadata=decision_metadata or None,
-                ),
-            )
+            with with_temporal_workspace_id(self.role.workspace_id):
+                await handle.execute_update(
+                    DurableAgentWorkflow.set_approvals,
+                    WorkflowApprovalSubmission(
+                        approvals=approval_map,
+                        approved_by=self.role.user_id,
+                        decision_metadata=decision_metadata or None,
+                    ),
+                )
         except Exception:
             # Allow retriable failures to be resubmitted by clearing dedup marker.
             if dedup_client is not None and dedup_key is not None:
