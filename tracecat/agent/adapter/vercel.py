@@ -1762,8 +1762,7 @@ async def sse_vercel(events: AsyncIterable[StreamEvent]) -> AsyncIterable[str]:
                     error_part_id = f"msg_{uuid.uuid4().hex}"
                     msg = StreamError.format(error)
                     yield format_sse(TextStartEventPayload(id=error_part_id))
-                    error_delta = TextDeltaEventPayload(id=error_part_id, delta=msg)
-                    yield format_sse(error_delta)
+                    yield format_sse(TextDeltaEventPayload(id=error_part_id, delta=msg))
                     yield format_sse(TextEndEventPayload(id=error_part_id))
                     yield format_sse(ErrorEventPayload(errorText=msg))
                 case StreamEnd():
