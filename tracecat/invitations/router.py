@@ -417,7 +417,7 @@ async def decline_invitation(
 async def revoke_invitation(
     *,
     role: AuthenticatedUserOnly,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     invitation_id: InvitationID,
 ) -> None:
     """Revoke a pending invitation."""
@@ -464,7 +464,7 @@ async def revoke_invitation(
 async def get_invitation_token(
     *,
     role: AuthenticatedUserOnly,
-    session: AsyncDBSession,
+    session: AsyncDBSessionBypass,
     invitation_id: InvitationID,
 ) -> dict[str, str]:
     """Get the token for an invitation row."""

@@ -15,7 +15,7 @@ from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
-from tracecat.authz.service import invalidate_authz_caches
+from tracecat.authz.service import MembershipService, invalidate_authz_caches
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
@@ -71,6 +71,30 @@ def _is_pending_and_unexpired(
     return (
         invitation.status == InvitationStatus.PENDING
         and invitation.expires_at > effective_now
+    )
+
+
+def _is_attached_workspace_invitation(
+    *,
+    org_invitation: Invitation,
+    workspace_invitation: Invitation,
+    now: datetime | None = None,
+) -> bool:
+    """Return True when a workspace row was created alongside an org invite."""
+    effective_now = now or datetime.now(UTC)
+    if (
+        not _is_pending_and_unexpired(org_invitation, now=effective_now)
+        or not _is_pending_and_unexpired(workspace_invitation, now=effective_now)
+        or org_invitation.workspace_id is not None
+        or workspace_invitation.workspace_id is None
+    ):
+        return False
+    return (
+        workspace_invitation.organization_id == org_invitation.organization_id
+        and workspace_invitation.email.lower() == org_invitation.email.lower()
+        and workspace_invitation.invited_by == org_invitation.invited_by
+        and workspace_invitation.expires_at == org_invitation.expires_at
+        and workspace_invitation.created_at >= org_invitation.created_at
     )
 
 
@@ -341,18 +365,19 @@ async def _create_invitation_row(
 async def _load_pending_workspace_options(
     session: AsyncSession,
     *,
-    organization_id: uuid.UUID,
-    email: str,
+    org_invitation: Invitation,
 ) -> list[Invitation]:
     now = datetime.now(UTC)
-    result = await session.execute(
+    statement = (
         select(Invitation)
         .where(
-            Invitation.organization_id == organization_id,
+            Invitation.organization_id == org_invitation.organization_id,
             Invitation.workspace_id.is_not(None),
-            func.lower(Invitation.email) == email.lower(),
+            func.lower(Invitation.email) == org_invitation.email.lower(),
             Invitation.status == InvitationStatus.PENDING,
+            Invitation.expires_at == org_invitation.expires_at,
             Invitation.expires_at > now,
+            Invitation.created_at >= org_invitation.created_at,
         )
         .options(
             selectinload(Invitation.role_obj),
@@ -360,6 +385,12 @@ async def _load_pending_workspace_options(
         )
         .order_by(Invitation.created_at.asc())
     )
+    if org_invitation.invited_by is None:
+        statement = statement.where(Invitation.invited_by.is_(None))
+    else:
+        statement = statement.where(Invitation.invited_by == org_invitation.invited_by)
+
+    result = await session.execute(statement)
     return list(result.scalars().all())
 
 
@@ -372,8 +403,7 @@ async def _build_group_from_org_invitation(
 ) -> InvitationGroup:
     workspace_invitations = await _load_pending_workspace_options(
         session,
-        organization_id=invitation.organization_id,
-        email=invitation.email,
+        org_invitation=invitation,
     )
     return InvitationGroup(
         invitation=invitation,
@@ -417,8 +447,11 @@ async def _resolve_group_by_token(
                 Invitation.organization_id == invitation.organization_id,
                 Invitation.workspace_id.is_(None),
                 func.lower(Invitation.email) == invitation.email.lower(),
+                Invitation.invited_by == invitation.invited_by,
                 Invitation.status == InvitationStatus.PENDING,
+                Invitation.expires_at == invitation.expires_at,
                 Invitation.expires_at > now,
+                Invitation.created_at <= invitation.created_at,
             )
             .options(
                 selectinload(Invitation.organization),
@@ -429,7 +462,11 @@ async def _resolve_group_by_token(
             .order_by(Invitation.created_at.desc())
         )
         org_invitation = org_result.scalars().first()
-        if org_invitation is not None:
+        if org_invitation is not None and _is_attached_workspace_invitation(
+            org_invitation=org_invitation,
+            workspace_invitation=invitation,
+            now=now,
+        ):
             return await _build_group_from_org_invitation(
                 session,
                 invitation=org_invitation,
@@ -448,36 +485,51 @@ def _group_invitations(
     invitations: Sequence[Invitation],
 ) -> list[InvitationGroup]:
     now = datetime.now(UTC)
-    pending_orgs_by_key: dict[tuple[uuid.UUID, str], Invitation] = {}
+    pending_orgs_by_batch: dict[
+        tuple[uuid.UUID, str, uuid.UUID | None, datetime], Invitation
+    ] = {}
     for invitation in invitations:
         if invitation.workspace_id is None and _is_pending_and_unexpired(
             invitation, now=now
         ):
-            pending_orgs_by_key[
-                (invitation.organization_id, invitation.email.lower())
+            pending_orgs_by_batch[
+                (
+                    invitation.organization_id,
+                    invitation.email.lower(),
+                    invitation.invited_by,
+                    invitation.expires_at,
+                )
             ] = invitation
 
-    workspace_rows_by_key: dict[tuple[uuid.UUID, str], list[Invitation]] = {}
+    workspace_rows_by_org_id: dict[InvitationID, list[Invitation]] = {}
+    attached_pending_workspace_ids: set[InvitationID] = set()
     for invitation in invitations:
         if invitation.workspace_id is None or not _is_pending_and_unexpired(
             invitation, now=now
         ):
             continue
-        key = (invitation.organization_id, invitation.email.lower())
-        workspace_rows_by_key.setdefault(key, []).append(invitation)
+        batch_key = (
+            invitation.organization_id,
+            invitation.email.lower(),
+            invitation.invited_by,
+            invitation.expires_at,
+        )
+        org_invitation = pending_orgs_by_batch.get(batch_key)
+        if org_invitation is None or not _is_attached_workspace_invitation(
+            org_invitation=org_invitation,
+            workspace_invitation=invitation,
+            now=now,
+        ):
+            continue
+        workspace_rows_by_org_id.setdefault(org_invitation.id, []).append(invitation)
+        attached_pending_workspace_ids.add(invitation.id)
 
     groups: list[InvitationGroup] = []
-    handled_pending_workspace_ids: set[InvitationID] = set()
     for invitation in invitations:
-        key = (invitation.organization_id, invitation.email.lower())
         if invitation.workspace_id is None and _is_pending_and_unexpired(
             invitation, now=now
         ):
-            workspace_invitations = workspace_rows_by_key.get(key, [])
-            handled_pending_workspace_ids.update(
-                workspace_invitation.id
-                for workspace_invitation in workspace_invitations
-            )
+            workspace_invitations = workspace_rows_by_org_id.get(invitation.id, [])
             groups.append(
                 InvitationGroup(
                     invitation=invitation,
@@ -490,8 +542,7 @@ def _group_invitations(
         if (
             invitation.workspace_id is not None
             and _is_pending_and_unexpired(invitation, now=now)
-            and key in pending_orgs_by_key
-            and invitation.id in handled_pending_workspace_ids
+            and invitation.id in attached_pending_workspace_ids
         ):
             continue
 
@@ -703,14 +754,22 @@ async def _accept_org_group_for_user(
             user_id=user_id,
         )
 
-    await _upsert_user_role_assignment(
-        session,
-        organization_id=invitation.organization_id,
-        user_id=user_id,
-        workspace_id=None,
-        role_id=invitation.role_id,
-        replace_existing=True,
+    existing_org_assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.organization_id == invitation.organization_id,
+            UserRoleAssignment.user_id == user_id,
+            UserRoleAssignment.workspace_id.is_(None),
+        )
     )
+    if existing_org_assignment is None:
+        await _upsert_user_role_assignment(
+            session,
+            organization_id=invitation.organization_id,
+            user_id=user_id,
+            workspace_id=None,
+            role_id=invitation.role_id,
+            replace_existing=False,
+        )
 
     now = datetime.now(UTC)
     await _set_invitation_status_if_pending(
@@ -751,7 +810,7 @@ async def _ensure_org_member_role_assignment(
     *,
     organization_id: uuid.UUID,
     user_id: UserID,
-) -> UserRoleAssignment:
+) -> UserRoleAssignment | None:
     role_id = await session.scalar(
         select(DBRole.id).where(
             DBRole.organization_id == organization_id,
@@ -759,7 +818,7 @@ async def _ensure_org_member_role_assignment(
         )
     )
     if role_id is None:
-        raise TracecatValidationError("Organization member role not found")
+        return None
 
     return await _upsert_user_role_assignment(
         session,
@@ -1016,13 +1075,13 @@ class InvitationService(BaseOrgService):
         ):
             raise TracecatValidationError("User is already a member of this workspace")
 
-        await _upsert_user_role_assignment(
-            self.session,
-            organization_id=organization_id,
-            user_id=user_id,
+        membership_service = MembershipService(self.session, role=self.role)
+        await membership_service.grant_workspace_access(
             workspace_id=workspace_id,
+            user_id=user_id,
             role_id=role_id,
-            replace_existing=True,
+            require_existing_org_membership=True,
+            commit=False,
         )
         await _clear_pending_workspace_invitation_for_email(
             self.session,
@@ -1227,8 +1286,7 @@ class InvitationService(BaseOrgService):
         if invitation.workspace_id is None:
             rows = await _load_pending_workspace_options(
                 self.session,
-                organization_id=invitation.organization_id,
-                email=invitation.email,
+                org_invitation=invitation,
             )
             for row in rows:
                 row.status = InvitationStatus.REVOKED

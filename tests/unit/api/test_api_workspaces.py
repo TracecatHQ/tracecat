@@ -142,6 +142,59 @@ async def test_create_workspace_conflict(
 
 
 @pytest.mark.anyio
+async def test_create_workspace_memberships_bulk_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workspaces/{workspace_id}/memberships/bulk succeeds."""
+    with patch.object(workspaces_router, "MembershipService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_memberships_bulk.return_value = 2
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/workspaces/{uuid.uuid4()}/memberships/bulk",
+            json={
+                "user_ids": [str(uuid.uuid4()), str(uuid.uuid4())],
+                "role_id": str(uuid.uuid4()),
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json() == {"processed_count": 2}
+
+
+@pytest.mark.anyio
+async def test_create_workspace_memberships_bulk_validation_error(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test POST /workspaces/{workspace_id}/memberships/bulk returns 400 on validation errors."""
+    with patch.object(workspaces_router, "MembershipService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_memberships_bulk.side_effect = (
+            workspaces_router.TracecatValidationError(
+                "Selected users must already be members of this organization."
+            )
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/workspaces/{uuid.uuid4()}/memberships/bulk",
+            json={
+                "user_ids": [str(uuid.uuid4())],
+                "role_id": str(uuid.uuid4()),
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            response.json()["detail"]
+            == "Selected users must already be members of this organization."
+        )
+
+
+@pytest.mark.anyio
 async def test_create_workspace_membership_conflict(
     client: TestClient,
     test_admin_role: Role,

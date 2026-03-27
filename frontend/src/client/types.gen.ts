@@ -7687,6 +7687,15 @@ export type WorkspaceMember = {
   role_name: string
 }
 
+export type WorkspaceMembershipBulkCreate = {
+  user_ids: Array<string>
+  role_id: string
+}
+
+export type WorkspaceMembershipBulkCreateResponse = {
+  processed_count: number
+}
+
 export type WorkspaceMembershipCreate = {
   user_id: string
 }
@@ -8060,6 +8069,14 @@ export type WorkspacesCreateWorkspaceMembershipData = {
 }
 
 export type WorkspacesCreateWorkspaceMembershipResponse = unknown
+
+export type WorkspacesCreateWorkspaceMembershipsBulkData = {
+  requestBody: WorkspaceMembershipBulkCreate
+  workspaceId: string
+}
+
+export type WorkspacesCreateWorkspaceMembershipsBulkResponse =
+  WorkspaceMembershipBulkCreateResponse
 
 export type WorkspacesGetWorkspaceMembershipData = {
   userId: string
@@ -11167,6 +11184,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/memberships/bulk": {
+    post: {
+      req: WorkspacesCreateWorkspaceMembershipsBulkData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WorkspaceMembershipBulkCreateResponse
         /**
          * Validation Error
          */

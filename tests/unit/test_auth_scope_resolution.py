@@ -7,6 +7,7 @@ import pytest
 
 from tracecat.auth import credentials
 from tracecat.auth.types import Role
+from tracecat.authz import service as authz_service
 
 
 @pytest.mark.anyio
@@ -114,3 +115,11 @@ async def test_compute_effective_scopes_returns_empty_when_no_assignments(
 
     assert scopes == frozenset()
     cached_scopes.assert_awaited_once_with(user_id, organization_id, None)
+
+
+def test_effective_scope_cache_clearer_is_registered() -> None:
+    assert authz_service._clear_effective_scopes_cache is not None
+    assert (
+        authz_service._clear_effective_scopes_cache
+        == credentials._compute_effective_scopes_cached.cache_clear
+    )

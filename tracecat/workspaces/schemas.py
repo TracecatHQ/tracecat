@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import NotRequired, TypedDict
+from uuid import UUID
 
 from pydantic import EmailStr, Field, computed_field, field_validator
 
@@ -131,6 +132,20 @@ WorkspaceSettingsUpdate.model_rebuild()
 # === Membership === #
 class WorkspaceMembershipCreate(Schema):
     user_id: UserID
+
+
+class WorkspaceMembershipBulkCreate(Schema):
+    user_ids: list[UserID] = Field(min_length=1)
+    role_id: UUID
+
+    @field_validator("user_ids")
+    @classmethod
+    def dedupe_user_ids(cls, value: list[UserID]) -> list[UserID]:
+        return list(dict.fromkeys(value))
+
+
+class WorkspaceMembershipBulkCreateResponse(Schema):
+    processed_count: int
 
 
 class WorkspaceMembershipRead(Schema):

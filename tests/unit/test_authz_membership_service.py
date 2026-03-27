@@ -13,13 +13,17 @@ from tracecat.authz.service import MembershipService
 from tracecat.db.models import (
     Membership,
     Organization,
+    OrganizationMembership,
     User,
     UserRoleAssignment,
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatValidationError
-from tracecat.workspaces.schemas import WorkspaceMembershipCreate
+from tracecat.workspaces.schemas import (
+    WorkspaceMembershipBulkCreate,
+    WorkspaceMembershipCreate,
+)
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
 
@@ -342,4 +346,173 @@ async def test_create_membership_duplicate_raises_validation_error(
         await membership_service.create_membership(
             workspace_id=workspace.id,
             params=WorkspaceMembershipCreate(user_id=member_user.id),
+        )
+
+
+async def test_create_memberships_bulk_creates_memberships_and_assignments(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Bulk create should grant workspace access to existing org members."""
+    user_one = User(
+        id=uuid.uuid4(),
+        email=f"bulk-one-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="hashed",
+        role=UserRole.BASIC,
+        is_active=True,
+        is_superuser=False,
+        is_verified=True,
+    )
+    user_two = User(
+        id=uuid.uuid4(),
+        email=f"bulk-two-{uuid.uuid4().hex[:8]}@example.com",
+        hashed_password="hashed",
+        role=UserRole.BASIC,
+        is_active=False,
+        is_superuser=False,
+        is_verified=True,
+    )
+    session.add_all([user_one, user_two])
+    await session.flush()
+    session.add_all(
+        [
+            OrganizationMembership(
+                organization_id=organization.id, user_id=user_one.id
+            ),
+            OrganizationMembership(
+                organization_id=organization.id, user_id=user_two.id
+            ),
+        ]
+    )
+    await session.commit()
+
+    processed_count = await membership_service.create_memberships_bulk(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipBulkCreate(
+            user_ids=[user_one.id, user_two.id],
+            role_id=workspace_editor_role.id,
+        ),
+    )
+
+    memberships = (
+        (
+            await session.execute(
+                select(Membership).where(Membership.workspace_id == workspace.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assignments = (
+        (
+            await session.execute(
+                select(UserRoleAssignment).where(
+                    UserRoleAssignment.workspace_id == workspace.id,
+                    UserRoleAssignment.role_id == workspace_editor_role.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    assert processed_count == 2
+    assert {membership.user_id for membership in memberships} == {
+        user_one.id,
+        user_two.id,
+    }
+    assert {assignment.user_id for assignment in assignments} == {
+        user_one.id,
+        user_two.id,
+    }
+    assert all(assignment.assigned_by == actor_user.id for assignment in assignments)
+
+
+async def test_create_memberships_bulk_updates_existing_member_role(
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Bulk create should update direct workspace role assignments idempotently."""
+    workspace_admin_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Admin",
+        slug="workspace-admin",
+        description="Admin role",
+        organization_id=organization.id,
+    )
+    session.add(workspace_admin_role)
+    session.add(
+        OrganizationMembership(organization_id=organization.id, user_id=member_user.id)
+    )
+    session.add(Membership(user_id=member_user.id, workspace_id=workspace.id))
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+            assigned_by=actor_user.id,
+        )
+    )
+    await session.commit()
+
+    processed_count = await membership_service.create_memberships_bulk(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipBulkCreate(
+            user_ids=[member_user.id],
+            role_id=workspace_admin_role.id,
+        ),
+    )
+
+    memberships = (
+        (
+            await session.execute(
+                select(Membership).where(
+                    Membership.workspace_id == workspace.id,
+                    Membership.user_id == member_user.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.workspace_id == workspace.id,
+            UserRoleAssignment.user_id == member_user.id,
+        )
+    )
+
+    assert processed_count == 1
+    assert len(memberships) == 1
+    assert assignment is not None
+    assert assignment.role_id == workspace_admin_role.id
+
+
+async def test_create_memberships_bulk_rejects_non_org_members(
+    membership_service: MembershipService,
+    workspace: Workspace,
+    member_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """Bulk create should reject users who are not already org members."""
+    with pytest.raises(
+        TracecatValidationError,
+        match="Selected users must already be members of this organization",
+    ):
+        await membership_service.create_memberships_bulk(
+            workspace_id=workspace.id,
+            params=WorkspaceMembershipBulkCreate(
+                user_ids=[member_user.id],
+                role_id=workspace_editor_role.id,
+            ),
         )

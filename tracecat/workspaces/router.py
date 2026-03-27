@@ -24,6 +24,8 @@ from tracecat.logger import logger
 from tracecat.workspaces.schemas import (
     WorkspaceCreate,
     WorkspaceMember,
+    WorkspaceMembershipBulkCreate,
+    WorkspaceMembershipBulkCreateResponse,
     WorkspaceMembershipCreate,
     WorkspaceMembershipRead,
     WorkspaceRead,
@@ -232,6 +234,33 @@ async def list_workspace_memberships(
         )
         for membership in memberships
     ]
+
+
+@router.post(
+    "/{workspace_id}/memberships/bulk",
+    status_code=status.HTTP_201_CREATED,
+    response_model=WorkspaceMembershipBulkCreateResponse,
+)
+@require_scope("workspace:member:invite")
+async def create_workspace_memberships_bulk(
+    *,
+    role: WorkspaceUserInPath,
+    workspace_id: WorkspaceID,
+    params: WorkspaceMembershipBulkCreate,
+    session: AsyncDBSession,
+) -> WorkspaceMembershipBulkCreateResponse:
+    """Create or update workspace access for multiple organization users."""
+    service = MembershipService(session, role=role)
+    try:
+        processed_count = await service.create_memberships_bulk(
+            workspace_id,
+            params=params,
+        )
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    return WorkspaceMembershipBulkCreateResponse(processed_count=processed_count)
 
 
 @router.post("/{workspace_id}/memberships", status_code=status.HTTP_201_CREATED)

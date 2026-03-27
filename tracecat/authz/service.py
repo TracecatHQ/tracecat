@@ -25,6 +25,7 @@ from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
     WorkspaceMember,
+    WorkspaceMembershipBulkCreate,
     WorkspaceMembershipCreate,
 )
 
@@ -422,6 +423,64 @@ class MembershipService(BaseService):
             for membership, org_id in result.all()
         ]
 
+    async def grant_workspace_access(
+        self,
+        *,
+        workspace_id: WorkspaceID,
+        user_id: UserID,
+        role_id: uuid.UUID | None = None,
+        require_existing_org_membership: bool = False,
+        commit: bool = False,
+    ) -> None:
+        """Ensure workspace membership exists and apply the direct workspace role."""
+        target = await _resolve_workspace_membership_target(
+            self.session,
+            workspace_id=workspace_id,
+            role_id=role_id,
+        )
+
+        if require_existing_org_membership:
+            org_membership_stmt = select(
+                exists().where(
+                    OrganizationMembership.organization_id == target.organization_id,
+                    OrganizationMembership.user_id == user_id,
+                )
+            )
+            if not (await self.session.execute(org_membership_stmt)).scalar():
+                raise TracecatValidationError(
+                    "Selected users must already be members of this organization."
+                )
+        else:
+            await _ensure_org_membership(
+                self.session,
+                organization_id=target.organization_id,
+                user_id=user_id,
+            )
+
+        membership_stmt = select(Membership).where(
+            Membership.workspace_id == workspace_id,
+            Membership.user_id == user_id,
+        )
+        if (await self.session.execute(membership_stmt)).scalar_one_or_none() is None:
+            self.session.add(
+                Membership(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                )
+            )
+
+        await _upsert_workspace_assignment(
+            self.session,
+            organization_id=target.organization_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            role_id=target.role_id,
+            assigned_by=self.role.user_id if self.role else None,
+        )
+        if commit:
+            await self.session.commit()
+            invalidate_authz_caches()
+
     @require_scope("workspace:member:invite")
     async def create_membership(
         self,
@@ -433,10 +492,6 @@ class MembershipService(BaseService):
         Note: The authorization cache is request-scoped, so changes will be
         reflected in subsequent requests automatically.
         """
-        target = await _resolve_workspace_membership_target(
-            self.session,
-            workspace_id=workspace_id,
-        )
         existing_membership_result = await self.session.execute(
             select(Membership).where(
                 Membership.workspace_id == workspace_id,
@@ -446,27 +501,61 @@ class MembershipService(BaseService):
         if existing_membership_result.scalar_one_or_none() is not None:
             raise TracecatValidationError("User is already a member of workspace.")
 
-        await _ensure_org_membership(
-            self.session,
-            organization_id=target.organization_id,
-            user_id=params.user_id,
-        )
-        self.session.add(
-            Membership(
-                user_id=params.user_id,
-                workspace_id=workspace_id,
-            )
-        )
-        await _upsert_workspace_assignment(
-            self.session,
-            organization_id=target.organization_id,
+        await self.grant_workspace_access(
             workspace_id=workspace_id,
             user_id=params.user_id,
-            role_id=target.role_id,
-            assigned_by=self.role.user_id if self.role else None,
+            commit=True,
         )
+
+    @require_scope("workspace:member:invite")
+    async def create_memberships_bulk(
+        self,
+        workspace_id: WorkspaceID,
+        params: WorkspaceMembershipBulkCreate,
+    ) -> int:
+        """Create or update workspace access for multiple existing org members."""
+        target = await _resolve_workspace_membership_target(
+            self.session,
+            workspace_id=workspace_id,
+            role_id=params.role_id,
+        )
+        requested_user_ids = params.user_ids
+        org_member_rows = (
+            (
+                await self.session.execute(
+                    select(OrganizationMembership.user_id).where(
+                        OrganizationMembership.organization_id
+                        == target.organization_id,
+                        OrganizationMembership.user_id.in_(requested_user_ids),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        org_member_ids = set(org_member_rows)
+        if missing_user_ids := [
+            str(user_id)
+            for user_id in requested_user_ids
+            if user_id not in org_member_ids
+        ]:
+            raise TracecatValidationError(
+                "Selected users must already be members of this organization: "
+                f"{', '.join(missing_user_ids)}"
+            )
+
+        for user_id in requested_user_ids:
+            await self.grant_workspace_access(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                role_id=params.role_id,
+                require_existing_org_membership=True,
+                commit=False,
+            )
+
         await self.session.commit()
         invalidate_authz_caches()
+        return len(requested_user_ids)
 
     @require_scope("workspace:member:remove")
     async def delete_membership(

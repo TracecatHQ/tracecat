@@ -25267,6 +25267,40 @@ export const $WorkspaceMember = {
   title: "WorkspaceMember",
 } as const
 
+export const $WorkspaceMembershipBulkCreate = {
+  properties: {
+    user_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      minItems: 1,
+      title: "User Ids",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+  },
+  type: "object",
+  required: ["user_ids", "role_id"],
+  title: "WorkspaceMembershipBulkCreate",
+} as const
+
+export const $WorkspaceMembershipBulkCreateResponse = {
+  properties: {
+    processed_count: {
+      type: "integer",
+      title: "Processed Count",
+    },
+  },
+  type: "object",
+  required: ["processed_count"],
+  title: "WorkspaceMembershipBulkCreateResponse",
+} as const
+
 export const $WorkspaceMembershipCreate = {
   properties: {
     user_id: {

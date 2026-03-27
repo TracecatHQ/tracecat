@@ -702,6 +702,8 @@ import type {
   WorkspacesCreateWorkspaceData,
   WorkspacesCreateWorkspaceMembershipData,
   WorkspacesCreateWorkspaceMembershipResponse,
+  WorkspacesCreateWorkspaceMembershipsBulkData,
+  WorkspacesCreateWorkspaceMembershipsBulkResponse,
   WorkspacesCreateWorkspaceResponse,
   WorkspacesDeleteWorkspaceData,
   WorkspacesDeleteWorkspaceMembershipData,
@@ -1342,6 +1344,32 @@ export const workspacesCreateWorkspaceMembership = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workspaces/{workspace_id}/memberships",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Workspace Memberships Bulk
+ * Create or update workspace access for multiple organization users.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceMembershipBulkCreateResponse Successful Response
+ * @throws ApiError
+ */
+export const workspacesCreateWorkspaceMembershipsBulk = (
+  data: WorkspacesCreateWorkspaceMembershipsBulkData
+): CancelablePromise<WorkspacesCreateWorkspaceMembershipsBulkResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/memberships/bulk",
     path: {
       workspace_id: data.workspaceId,
     },
