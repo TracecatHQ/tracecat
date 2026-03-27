@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 
+from tracecat import config
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
@@ -26,6 +27,7 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
+from tracecat.agent.llm_proxy.core import TracecatLLMProxy
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
 from tracecat.agent.session.service import AgentSessionService
@@ -138,6 +140,27 @@ class SandboxedAgentExecutor:
         default_factory=asyncio.Event, init=False, repr=False
     )
 
+    def _create_llm_socket_proxy(self, socket_path: Path) -> LLMSocketProxy:
+        """Create the host-side LLM socket proxy for this execution."""
+
+        def on_error(error_msg: str) -> None:
+            self._fatal_error = error_msg
+            self._fatal_error_event.set()
+
+        if (
+            config.TRACECAT__LLM_EXECUTION_BACKEND
+            is config.LLMExecutionBackend.TRACECAT_PROXY
+        ):
+            return LLMSocketProxy(
+                socket_path=socket_path,
+                tracecat_proxy=TracecatLLMProxy.build(),
+                on_error=on_error,
+            )
+        return LLMSocketProxy(
+            socket_path=socket_path,
+            on_error=on_error,
+        )
+
     async def run(self) -> AgentExecutorResult:
         """Execute the agent in an NSJail sandbox.
 
@@ -217,22 +240,14 @@ class SandboxedAgentExecutor:
                 socket_path=str(control_socket_path),
             )
 
-            # Start LLM socket proxy (proxies HTTP to LiteLLM via Unix socket)
+            # Start the host-side LLM socket proxy for this execution.
             llm_socket_path = socket_dir / LLM_SOCKET_NAME
-
-            def on_llm_error(error_msg: str) -> None:
-                """Callback invoked when LLM proxy detects an error."""
-                self._fatal_error = error_msg
-                self._fatal_error_event.set()
-
-            self._llm_proxy = LLMSocketProxy(
-                socket_path=llm_socket_path,
-                on_error=on_llm_error,
-            )
+            self._llm_proxy = self._create_llm_socket_proxy(llm_socket_path)
             await self._llm_proxy.start()
             logger.info(
                 "Started LLM socket proxy",
                 socket_path=str(llm_socket_path),
+                llm_execution_backend=config.TRACECAT__LLM_EXECUTION_BACKEND.value,
             )
 
             # Set umask before socket creation to ensure 0o600 permissions from the start

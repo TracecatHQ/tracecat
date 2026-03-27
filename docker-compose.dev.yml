@@ -290,14 +290,14 @@ services:
       dockerfile: Dockerfile
       target: development
     restart: unless-stopped
-    # Required for nsjail sandbox (agent runtime isolation)
-    # cap_add:
-    #   - SYS_ADMIN
-    # security_opt:
-    #   - seccomp:unconfined
-    # # Required for pasta userspace networking (creates TAP device in sandbox netns)
-    # devices:
-    #   - /dev/net/tun:/dev/net/tun
+    #Required for nsjail sandbox (agent runtime isolation)
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    # Required for pasta userspace networking (creates TAP device in sandbox netns)
+    devices:
+      - /dev/net/tun:/dev/net/tun
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
@@ -340,6 +340,7 @@ services:
       TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
       TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-1}
       TRACECAT__LLM_PROXY_READ_TIMEOUT: ${TRACECAT__LLM_PROXY_READ_TIMEOUT:-300}
+      TRACECAT__LLM_EXECUTION_BACKEND: ${TRACECAT__LLM_EXECUTION_BACKEND:-litellm}
       TRACECAT__LITELLM_NUM_WORKERS: ${TRACECAT__LITELLM_NUM_WORKERS:-1}
       TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS: ${TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS:-60}
       TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS: ${TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS:-30}

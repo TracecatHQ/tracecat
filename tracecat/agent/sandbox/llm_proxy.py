@@ -1,18 +1,9 @@
 """LLM socket proxy for agent executor.
 
 This module provides a Unix socket server that runs on the host side and
-proxies HTTP traffic to the LiteLLM proxy at localhost:4000. The socket
-is mounted into the NSJail sandbox, allowing the sandboxed agent runtime
-to communicate with LiteLLM without direct network access.
-
-The proxy handles:
-- HTTP/1.1 request parsing from the Unix socket
-- Forwarding requests to LiteLLM via HTTP
-- Streaming responses (SSE for LLM completions) back through the socket
-
-Security:
-- Socket permissions are set to 0o600 (owner only)
-- No authentication at this layer (JWT auth happens at LiteLLM gateway)
+proxies HTTP traffic from the sandboxed runtime to the selected LLM backend.
+The socket is mounted into NSJail so the runtime can reach the host-side
+backend without direct network access.
 """
 
 from __future__ import annotations
@@ -20,29 +11,33 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterable, Callable
 from pathlib import Path
+from typing import Any, cast
 from uuid import uuid4
 
 import httpx
 import orjson
+from fastapi import HTTPException
 
 from tracecat.agent.litellm_observability import get_load_tracker
+from tracecat.agent.llm_proxy.auth import verify_claims_from_headers
+from tracecat.agent.llm_proxy.core import TracecatLLMProxy
 from tracecat.config import TRACECAT__LLM_PROXY_READ_TIMEOUT
 from tracecat.logger import logger
 
-# LiteLLM proxy runs on localhost:4000
 LITELLM_URL = "http://127.0.0.1:4000"
+TRACECAT_PROXY_BASE_URL = "http://tracecat-llm-proxy"
 
 # Socket filename (created in job's socket directory)
 LLM_SOCKET_NAME = "llm.sock"
 
 # Maximum request body size (10 MB) - prevents memory exhaustion DoS
 MAX_BODY_SIZE = 10 * 1024 * 1024
+_TRACECAT_PROXY_SHUTDOWN_GRACE_SECONDS = 5.0
+_TRACECAT_PROXY_SHUTDOWN_POLL_SECONDS = 0.05
 
 # Non-critical endpoints that should not trigger fatal errors on failure.
-# These are internal LiteLLM endpoints for telemetry, health checks, token
-# counting, etc. Errors on these endpoints are logged but don't fail the agent.
 _NON_CRITICAL_PATHS = frozenset(
     {
         "/api/event_logging/batch",
@@ -91,7 +86,7 @@ def _get_or_create_trace_request_id(headers: dict[str, str]) -> str:
 
 
 class LLMSocketProxy:
-    """Unix socket proxy that forwards HTTP traffic to LiteLLM.
+    """Unix socket proxy that forwards HTTP traffic to the selected LLM backend.
 
     Runs on the host side as part of the agent executor. The socket is
     mounted into the NSJail sandbox where the LLMBridge connects to it.
@@ -101,19 +96,23 @@ class LLMSocketProxy:
         self,
         socket_path: Path,
         litellm_url: str = LITELLM_URL,
+        tracecat_proxy: TracecatLLMProxy | None = None,
         on_error: Callable[[str], None] | None = None,
     ):
         """Initialize the LLM socket proxy.
 
         Args:
             socket_path: Path where the Unix socket will be created.
-            litellm_url: URL of the LiteLLM proxy (default: http://127.0.0.1:4000).
+            litellm_url: URL of the worker-global LiteLLM proxy.
+            tracecat_proxy: In-process Tracecat proxy for execution-scoped runs.
             on_error: Callback invoked when an error (e.g., auth failure) is detected.
         """
         self.socket_path = socket_path
         self.litellm_url = litellm_url
+        self.tracecat_proxy = tracecat_proxy
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
+        self._client_base_url = litellm_url
         self._on_error = on_error
         self._error_emitted = False  # Only call callback once
 
@@ -129,14 +128,18 @@ class LLMSocketProxy:
         # Remove existing socket file if present
         if self.socket_path.exists():
             self.socket_path.unlink()
-        self._client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=20.0,
-                read=TRACECAT__LLM_PROXY_READ_TIMEOUT,
-                write=30.0,
-                pool=10.0,
-            )
+        timeout = httpx.Timeout(
+            connect=20.0,
+            read=TRACECAT__LLM_PROXY_READ_TIMEOUT,
+            write=30.0,
+            pool=10.0,
         )
+        if self.tracecat_proxy is None:
+            self._client_base_url = self.litellm_url
+            self._client = httpx.AsyncClient(timeout=timeout)
+        else:
+            self._client_base_url = TRACECAT_PROXY_BASE_URL
+            self._client = None
 
         # Start Unix socket server
         self._server = await asyncio.start_unix_server(
@@ -150,7 +153,8 @@ class LLMSocketProxy:
         logger.info(
             "LLM socket proxy started",
             socket_path=str(self.socket_path),
-            litellm_url=self.litellm_url,
+            backend=self._backend_name,
+            backend_target=self._client_base_url,
             **_load_fields(),
         )
 
@@ -161,9 +165,13 @@ class LLMSocketProxy:
             await self._server.wait_closed()
             self._server = None
 
+        await self._wait_for_tracecat_proxy_requests()
+
         if self._client:
             await self._client.aclose()
             self._client = None
+        if self.tracecat_proxy is not None:
+            await self.tracecat_proxy.close()
 
         # Remove socket file
         if self.socket_path.exists():
@@ -172,7 +180,42 @@ class LLMSocketProxy:
             except OSError:
                 pass
 
-        logger.info("LLM socket proxy stopped")
+        logger.info("LLM socket proxy stopped", backend=self._backend_name)
+
+    @property
+    def _backend_name(self) -> str:
+        return "tracecat_proxy" if self.tracecat_proxy is not None else "litellm"
+
+    async def _wait_for_tracecat_proxy_requests(self) -> None:
+        if self.tracecat_proxy is None:
+            return
+        if self.tracecat_proxy.state.active_requests == 0:
+            return
+
+        logger.info(
+            "Waiting for Tracecat proxy requests to finish before shutdown",
+            active_requests=self.tracecat_proxy.state.active_requests,
+        )
+        deadline = time.monotonic() + _TRACECAT_PROXY_SHUTDOWN_GRACE_SECONDS
+        while self.tracecat_proxy.state.active_requests > 0:
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "Timed out waiting for Tracecat proxy requests to finish",
+                    active_requests=self.tracecat_proxy.state.active_requests,
+                )
+                return
+            await asyncio.sleep(_TRACECAT_PROXY_SHUTDOWN_POLL_SECONDS)
+
+    async def _iter_body_chunks(
+        self,
+        chunks: AsyncIterable[bytes] | list[bytes],
+    ) -> AsyncIterable[bytes]:
+        if isinstance(chunks, list):
+            for chunk in chunks:
+                yield chunk
+            return
+        async for chunk in chunks:
+            yield chunk
 
     def _emit_error(self, message: str) -> None:
         """Emit error via callback (only once)."""
@@ -199,10 +242,9 @@ class LLMSocketProxy:
     ) -> None:
         """Handle an incoming connection from the sandbox LLM bridge.
 
-        Reads HTTP requests and forwards them to LiteLLM, streaming
+        Reads HTTP requests and forwards them to the selected backend, streaming
         responses back through the socket.
         """
-        logger.debug("LLM proxy connection received")
         _proxy_load_tracker.begin_connection()
 
         try:
@@ -211,7 +253,7 @@ class LLMSocketProxy:
             if not request:
                 return
 
-            # Forward to LiteLLM and stream response back
+            # Forward to the selected backend and stream response back
             await self._forward_request(request, writer)
 
         except asyncio.IncompleteReadError:
@@ -230,12 +272,7 @@ class LLMSocketProxy:
                 logger.exception("LLM proxy error", error=str(e))
                 self._emit_error(f"Proxy error: {e}")
         finally:
-            closed_snapshot = _proxy_load_tracker.end_connection()
-            logger.debug(
-                "LLM proxy connection closed",
-                active_proxy_connections=closed_snapshot.active_connections,
-                active_proxy_requests=closed_snapshot.active_requests,
-            )
+            _proxy_load_tracker.end_connection()
             try:
                 writer.close()
                 await writer.wait_closed()
@@ -314,15 +351,15 @@ class LLMSocketProxy:
         request: dict,
         writer: asyncio.StreamWriter,
     ) -> None:
-        """Forward an HTTP request to LiteLLM and stream the response back.
+        """Forward an HTTP request to the selected backend and stream the response back.
 
         Handles both regular responses and streaming responses (SSE).
         """
-        if not self._client:
+        if self.tracecat_proxy is None and not self._client:
             self._emit_error("Proxy not initialized")
             return
 
-        url = f"{self.litellm_url}{request['path']}"
+        url = f"{self._client_base_url}{request['path']}"
         method = request["method"]
         headers = request["headers"]
         body = request["body"]
@@ -339,27 +376,53 @@ class LLMSocketProxy:
         forward_headers["X-Request-ID"] = trace_request_id
 
         try:
-            # Make the request to LiteLLM with streaming
-            async with self._client.stream(
+            path_without_query = request["path"].split("?", 1)[0]
+            if (
+                self.tracecat_proxy is not None
+                and path_without_query == "/api/event_logging/batch"
+            ):
+                await self._write_response(
+                    writer,
+                    status_code=204,
+                    reason_phrase="No Content",
+                    headers={"X-Request-ID": trace_request_id},
+                    body_chunks=[],
+                )
+                return
+
+            if self.tracecat_proxy is not None:
+                await self._forward_tracecat_proxy_request(
+                    writer=writer,
+                    request=request,
+                    trace_request_id=trace_request_id,
+                    request_counter=request_counter,
+                    started_at=started_at,
+                )
+                return
+
+            client = self._client
+            if client is None:
+                self._emit_error("Proxy not initialized")
+                return
+
+            # Make the request to the backend with streaming
+            async with client.stream(
                 method=method,
                 url=url,
                 headers=forward_headers,
                 content=body if body else None,
             ) as response:
-                # Detect error responses from LiteLLM
+                # Detect backend error responses
                 if response.status_code >= 400:
-                    # Check if this is a non-critical endpoint (telemetry, health checks, etc.)
-                    # Strip query string before matching (path may include ?beta=true etc.)
-                    path_without_query = request["path"].split("?", 1)[0]
                     is_non_critical = path_without_query in _NON_CRITICAL_PATHS
 
-                    # Read error body but only log metadata to avoid sensitive data leakage
                     try:
                         error_body = await response.aread()
                         log_method = logger.warning if is_non_critical else logger.error
                         log_method(
-                            "LiteLLM error response",
+                            "LLM backend error response",
                             request_counter=request_counter,
+                            backend=self._backend_name,
                             status_code=response.status_code,
                             method=method,
                             path=request["path"],
@@ -370,9 +433,8 @@ class LLMSocketProxy:
                             elapsed_ms=(time.monotonic() - started_at) * 1000,
                             **_load_fields(),
                         )
-                        # Log full body only at debug level
                         logger.debug(
-                            "LiteLLM error body",
+                            "LLM backend error body",
                             response_body=error_body.decode("utf-8", errors="replace")[
                                 :1000
                             ],
@@ -384,7 +446,6 @@ class LLMSocketProxy:
                             error=str(e),
                         )
 
-                    # Only emit fatal error for critical endpoints
                     error_msg = _ERROR_MESSAGES.get(
                         response.status_code,
                         f"LLM request failed ({response.status_code})",
@@ -396,72 +457,30 @@ class LLMSocketProxy:
                         request_counter=request_counter,
                         trace_request_id=trace_request_id,
                     )
-                    if not is_non_critical:
+                    if not is_non_critical and self.tracecat_proxy is None:
                         self._emit_error(error_msg)
                     return
 
-                # Build response headers
-                response_line = (
-                    f"HTTP/1.1 {response.status_code} {response.reason_phrase}\r\n"
+                await self._write_response(
+                    writer,
+                    status_code=response.status_code,
+                    reason_phrase=response.reason_phrase,
+                    headers=dict(response.headers),
+                    body_chunks=response.aiter_bytes(),
+                    trace_request_id=trace_request_id,
+                    started_at=started_at,
+                    request_counter=request_counter,
+                    backend=self._backend_name,
+                    method=method,
+                    path=request["path"],
                 )
-                try:
-                    writer.write(response_line.encode())
-
-                    # Forward response headers
-                    for key, value in response.headers.items():
-                        # Skip hop-by-hop headers
-                        if key.lower() in (
-                            "connection",
-                            "keep-alive",
-                            "transfer-encoding",
-                        ):
-                            continue
-                        header_line = f"{key}: {value}\r\n"
-                        writer.write(header_line.encode())
-                    writer.write(f"X-Request-ID: {trace_request_id}\r\n".encode())
-
-                    writer.write(b"\r\n")
-                    await writer.drain()
-                except Exception as e:
-                    if self._is_client_disconnect_error(e) or writer.is_closing():
-                        logger.debug("Client disconnected before response headers")
-                        return
-                    raise
-
-                # Stream response body
-                try:
-                    async for chunk in response.aiter_bytes():
-                        try:
-                            writer.write(chunk)
-                            await writer.drain()
-                        except Exception as e:
-                            if (
-                                not self._is_client_disconnect_error(e)
-                                and not writer.is_closing()
-                            ):
-                                raise
-                            # Client disconnected - this is normal when sandbox exits
-                            logger.debug(
-                                "Client disconnected during response streaming"
-                            )
-                            return
-                except httpx.ReadError:
-                    # Upstream closed - only expected if client also disconnected
-                    if writer.is_closing():
-                        logger.debug(
-                            "Upstream connection closed after client disconnect"
-                        )
-                    else:
-                        logger.warning(
-                            "Upstream connection closed unexpectedly during streaming"
-                        )
-                    return
 
         except httpx.ConnectError as e:
             error_category = _classify_httpx_exception(e)
             logger.error(
-                "Failed to connect to LiteLLM",
+                "Failed to connect to LLM backend",
                 request_counter=request_counter,
+                backend=self._backend_name,
                 method=method,
                 path=request["path"],
                 error=str(e),
@@ -474,16 +493,18 @@ class LLMSocketProxy:
             await self._write_error_response(
                 writer,
                 status_code=502,
-                detail="LiteLLM unavailable",
+                detail="LLM backend unavailable",
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
-            self._emit_error("LiteLLM unavailable")
+            if self.tracecat_proxy is None:
+                self._emit_error("LLM backend unavailable")
         except httpx.TimeoutException as e:
             error_category = _classify_httpx_exception(e)
             logger.error(
-                "LiteLLM request timeout",
+                "LLM backend request timeout",
                 request_counter=request_counter,
+                backend=self._backend_name,
                 method=method,
                 path=request["path"],
                 error=str(e) or error_category,
@@ -500,15 +521,17 @@ class LLMSocketProxy:
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
-            self._emit_error("Gateway timeout")
+            if self.tracecat_proxy is None:
+                self._emit_error("Gateway timeout")
         except httpx.ReadError:
             # Connection closed during request setup - check if client triggered it
             if writer.is_closing():
                 logger.debug("Connection closed after client disconnect")
             else:
                 logger.warning(
-                    "Upstream connection closed unexpectedly",
+                    "LLM backend connection closed unexpectedly",
                     request_counter=request_counter,
+                    backend=self._backend_name,
                     method=method,
                     path=request["path"],
                     trace_request_id=trace_request_id,
@@ -530,14 +553,188 @@ class LLMSocketProxy:
         finally:
             end_snapshot = _proxy_load_tracker.end_request()
             logger.debug(
-                "LiteLLM proxy request finished",
+                "LLM proxy request finished",
                 request_counter=request_counter,
+                backend=self._backend_name,
                 method=method,
                 path=request["path"],
                 trace_request_id=trace_request_id,
                 elapsed_ms=(time.monotonic() - started_at) * 1000,
                 active_proxy_requests=end_snapshot.active_requests,
             )
+
+    async def _forward_tracecat_proxy_request(
+        self,
+        *,
+        writer: asyncio.StreamWriter,
+        request: dict[str, Any],
+        trace_request_id: str,
+        request_counter: int,
+        started_at: float,
+    ) -> None:
+        if self.tracecat_proxy is None:
+            raise RuntimeError("Tracecat proxy backend is not configured")
+
+        path = str(request["path"])
+        path_without_query = path.split("?", 1)[0]
+        method = str(request["method"])
+        headers = cast(dict[str, str], request["headers"])
+        body = cast(bytes, request["body"])
+
+        if method != "POST":
+            await self._write_error_response(
+                writer,
+                status_code=405,
+                detail="Method not allowed",
+                request_counter=request_counter,
+                trace_request_id=trace_request_id,
+            )
+            return
+
+        try:
+            claims = verify_claims_from_headers(headers)
+        except ValueError as exc:
+            await self._write_error_response(
+                writer,
+                status_code=401,
+                detail=str(exc),
+                request_counter=request_counter,
+                trace_request_id=trace_request_id,
+            )
+            return
+
+        payload = orjson.loads(body) if body else {}
+
+        try:
+            match path_without_query:
+                case "/v1/messages":
+                    events = await self.tracecat_proxy.stream_messages(
+                        payload=payload,
+                        claims=claims,
+                        trace_request_id=trace_request_id,
+                    )
+                    await self._write_response(
+                        writer,
+                        status_code=200,
+                        reason_phrase="OK",
+                        headers={"Content-Type": "text/event-stream"},
+                        body_chunks=events,
+                        trace_request_id=trace_request_id,
+                        started_at=started_at,
+                        request_counter=request_counter,
+                        backend=self._backend_name,
+                        method=method,
+                        path=path,
+                    )
+                case "/v1/messages/count_tokens":
+                    count_response = {
+                        "type": "count_tokens",
+                        "provider": claims.provider,
+                        "model": claims.model,
+                        "input_tokens": max(1, len(payload.get("messages", []))),
+                    }
+                    await self._write_response(
+                        writer,
+                        status_code=200,
+                        reason_phrase="OK",
+                        headers={"Content-Type": "application/json"},
+                        body_chunks=[orjson.dumps(count_response)],
+                        trace_request_id=trace_request_id,
+                    )
+                case _:
+                    await self._write_error_response(
+                        writer,
+                        status_code=404,
+                        detail="Not found",
+                        request_counter=request_counter,
+                        trace_request_id=trace_request_id,
+                    )
+        except HTTPException as exc:
+            await self._write_error_response(
+                writer,
+                status_code=exc.status_code,
+                detail=str(exc.detail),
+                request_counter=request_counter,
+                trace_request_id=trace_request_id,
+            )
+
+    async def _write_response(
+        self,
+        writer: asyncio.StreamWriter,
+        *,
+        status_code: int,
+        reason_phrase: str,
+        headers: dict[str, str],
+        body_chunks: AsyncIterable[bytes] | list[bytes],
+        trace_request_id: str | None = None,
+        started_at: float | None = None,
+        request_counter: int | None = None,
+        backend: str | None = None,
+        method: str | None = None,
+        path: str | None = None,
+    ) -> None:
+        """Write an HTTP response head and stream the response body."""
+        content_type = next(
+            (value for key, value in headers.items() if key.lower() == "content-type"),
+            None,
+        )
+        is_streaming_response = (
+            content_type is not None and "text/event-stream" in content_type.lower()
+        )
+        ttft_logged = False
+        response_line = f"HTTP/1.1 {status_code} {reason_phrase}\r\n"
+        try:
+            writer.write(response_line.encode())
+            for key, value in headers.items():
+                if key.lower() in ("connection", "keep-alive", "transfer-encoding"):
+                    continue
+                writer.write(f"{key}: {value}\r\n".encode())
+            if trace_request_id is not None:
+                writer.write(f"X-Request-ID: {trace_request_id}\r\n".encode())
+            writer.write(b"\r\n")
+            await writer.drain()
+        except Exception as exc:
+            if self._is_client_disconnect_error(exc) or writer.is_closing():
+                logger.debug("Client disconnected before response headers")
+                return
+            raise
+
+        try:
+            async for chunk in self._iter_body_chunks(body_chunks):
+                try:
+                    if (
+                        is_streaming_response
+                        and not ttft_logged
+                        and chunk
+                        and started_at is not None
+                    ):
+                        ttft_logged = True
+                        logger.info(
+                            "LLM proxy first response chunk",
+                            request_counter=request_counter,
+                            backend=backend or self._backend_name,
+                            method=method,
+                            path=path,
+                            trace_request_id=trace_request_id,
+                            ttft_ms=(time.monotonic() - started_at) * 1000,
+                        )
+                    writer.write(chunk)
+                    await writer.drain()
+                except Exception as exc:
+                    if (
+                        not self._is_client_disconnect_error(exc)
+                        and not writer.is_closing()
+                    ):
+                        raise
+                    logger.debug("Client disconnected during response streaming")
+                    return
+        except httpx.ReadError:
+            if writer.is_closing():
+                logger.debug("Backend connection closed after client disconnect")
+            else:
+                logger.warning(
+                    "Backend connection closed unexpectedly during streaming"
+                )
 
     async def _write_error_response(
         self,

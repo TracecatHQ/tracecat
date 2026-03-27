@@ -4115,9 +4115,9 @@ async def test_update_agent_preset_resolves_explicit_model(
         model_provider: str | None,
     ) -> tuple[str, str]:
         assert resolved_role is role
-        assert model_name == "o3-mini"
+        assert model_name == "gpt-5-mini"
         assert model_provider == "openai"
-        return "o3-mini", "openai"
+        return "gpt-5-mini", "openai"
 
     class _PresetService:
         async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
@@ -4148,15 +4148,15 @@ async def test_update_agent_preset_resolves_explicit_model(
     result = await _tool(mcp_server.update_agent_preset)(
         workspace_id=str(workspace_id),
         preset_slug="security-triage",
-        model_name="o3-mini",
+        model_name="gpt-5-mini",
         model_provider="openai",
     )
 
     payload = _payload(result)
     params = captured["params"]
-    assert params.model_name == "o3-mini"
+    assert params.model_name == "gpt-5-mini"
     assert params.model_provider == "openai"
-    assert payload["model_name"] == "o3-mini"
+    assert payload["model_name"] == "gpt-5-mini"
     assert payload["model_provider"] == "openai"
 
 
