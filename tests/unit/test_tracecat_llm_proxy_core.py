@@ -7,6 +7,7 @@ import pytest
 
 from tracecat.agent.llm_proxy.providers import ProviderRetryAdapter
 from tracecat.agent.llm_proxy.types import (
+    AnthropicStreamEvent,
     IngressFormat,
     NormalizedMessagesRequest,
     NormalizedResponse,
@@ -183,6 +184,78 @@ async def test_proxy_retries_once_with_provider_mutation(
 
 
 @pytest.mark.anyio
+async def test_proxy_preserves_provider_specific_payload_settings_for_bedrock(
+    monkeypatch: pytest.MonkeyPatch,
+    static_llm_proxy_factory,
+) -> None:
+    claims = LLMTokenClaims(
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+        model="anthropic.claude-3-7-sonnet",
+        provider="bedrock",
+        use_workspace_credentials=False,
+    )
+    proxy = static_llm_proxy_factory(
+        {
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+            "AWS_REGION": "us-east-1",
+            "AWS_MODEL_ID": "anthropic.claude-3-7-sonnet",
+        }
+    )
+    captured: dict[str, object] = {}
+
+    class _Adapter:
+        provider = "bedrock"
+
+        def prepare_request(
+            self,
+            request: NormalizedMessagesRequest,
+            credentials: dict[str, str],
+        ) -> ProviderHTTPRequest:
+            del credentials
+            captured["model_settings"] = request.model_settings
+            return ProviderHTTPRequest(
+                method="POST",
+                url="https://bedrock.invalid/converse",
+                headers={"Content-Type": "application/json"},
+                body=b"{}",
+            )
+
+        async def parse_response(
+            self,
+            response: httpx.Response,
+            request: NormalizedMessagesRequest,
+        ) -> NormalizedResponse:
+            del response
+            return NormalizedResponse(provider="bedrock", model=request.model, raw={})
+
+    proxy.provider_registry.adapters["bedrock"] = _Adapter()
+
+    async def _request(*args: object, **kwargs: object) -> httpx.Response:
+        del args, kwargs
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(proxy.http_client, "request", _request)
+
+    event_stream = await proxy.stream_messages(
+        payload={
+            "messages": [{"role": "user", "content": "hello"}],
+            "top_k": 64,
+            "thinking": {"type": "enabled", "budget_tokens": 2048},
+        },
+        claims=claims,
+    )
+    async for _ in event_stream:
+        pass
+
+    assert captured["model_settings"] == {
+        "top_k": 64,
+        "thinking": {"type": "enabled", "budget_tokens": 2048},
+    }
+
+
+@pytest.mark.anyio
 async def test_proxy_passes_authorized_model_to_anthropic_passthrough(
     static_llm_proxy_factory,
 ) -> None:
@@ -255,3 +328,88 @@ async def test_proxy_passes_authorized_model_to_anthropic_passthrough(
         "base_url": "https://anthropic.example",
     }
     assert payload["model"] == "user-overrode-model"
+
+
+@pytest.mark.anyio
+async def test_proxy_buffers_non_stream_requests_for_streaming_adapters(
+    monkeypatch: pytest.MonkeyPatch,
+    static_llm_proxy_factory,
+) -> None:
+    claims = LLMTokenClaims(
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+        model="gpt-5-mini",
+        provider="openai",
+        use_workspace_credentials=False,
+    )
+    proxy = static_llm_proxy_factory({"OPENAI_API_KEY": "sk-test"})
+    captured: dict[str, object] = {}
+
+    class _StreamingAdapter:
+        provider = "openai"
+
+        def prepare_request(
+            self,
+            request: NormalizedMessagesRequest,
+            credentials: dict[str, str],
+        ) -> ProviderHTTPRequest:
+            del request, credentials
+            return ProviderHTTPRequest(
+                method="POST",
+                url="https://proxy.example/v1/chat/completions",
+                headers={"Content-Type": "application/json"},
+                json_body={"messages": []},
+            )
+
+        async def parse_response(
+            self,
+            response: httpx.Response,
+            request: NormalizedMessagesRequest,
+        ) -> NormalizedResponse:
+            del response, request
+            raise AssertionError(
+                "non-stream requests should use the buffered execute path"
+            )
+
+        async def stream_anthropic(
+            self,
+            client: httpx.AsyncClient,
+            request: NormalizedMessagesRequest,
+            credentials: dict[str, str],
+        ):
+            del client, request, credentials
+            raise AssertionError("non-stream requests should not use the live SSE path")
+            yield AnthropicStreamEvent("message_stop", {"type": "message_stop"})
+
+    async def fake_execute_request(
+        self,
+        *,
+        request: NormalizedMessagesRequest,
+        adapter: object,
+        credentials: dict[str, str],
+    ) -> NormalizedResponse:
+        del self, adapter
+        captured["stream"] = request.stream
+        captured["credentials"] = credentials
+        return NormalizedResponse(
+            provider="openai",
+            model=request.model,
+            content="hello",
+            raw={"id": "chatcmpl-1"},
+        )
+
+    proxy.provider_registry.adapters["openai"] = _StreamingAdapter()
+    monkeypatch.setattr(type(proxy), "_execute_request", fake_execute_request)
+
+    events = await proxy.stream_messages(
+        payload={"messages": [{"role": "user", "content": "hello"}]},
+        claims=claims,
+    )
+    rendered = [chunk async for chunk in events]
+
+    assert any(b"hello" in chunk for chunk in rendered)
+    assert captured == {
+        "stream": False,
+        "credentials": {"OPENAI_API_KEY": "sk-test"},
+    }

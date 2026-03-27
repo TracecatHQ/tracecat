@@ -236,7 +236,7 @@ just gen-functions
 - **Registry** (`packages/tracecat-registry/`): Independent package for integrations and templates
 
 ### Key Technologies
-- **Backend**: FastAPI, SQLAlchemy, Pydantic, Temporal, Ray, PostgreSQL, Alembic, PydanticAI, LiteLLM, FastMCP
+- **Backend**: FastAPI, SQLAlchemy, Pydantic, Temporal, Ray, PostgreSQL, Alembic, PydanticAI, FastMCP
 - **Frontend**: Next.js 15, TypeScript, React Query, Tailwind CSS, Radix UI
 - **Infrastructure**: Docker, PostgreSQL, MinIO, Temporal Server
 - **Package Management**: `uv` for Python, `pnpm` for JavaScript

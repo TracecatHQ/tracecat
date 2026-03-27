@@ -16,18 +16,13 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
-import httpx
 import orjson
 from fastapi import HTTPException
 
-from tracecat.agent.litellm_observability import get_load_tracker
 from tracecat.agent.llm_proxy.auth import verify_claims_from_headers
 from tracecat.agent.llm_proxy.core import TracecatLLMProxy
-from tracecat.config import TRACECAT__LLM_PROXY_READ_TIMEOUT
+from tracecat.agent.observability import get_load_tracker
 from tracecat.logger import logger
-
-LITELLM_URL = "http://127.0.0.1:4000"
-TRACECAT_PROXY_BASE_URL = "http://tracecat-llm-proxy"
 
 # Socket filename (created in job's socket directory)
 LLM_SOCKET_NAME = "llm.sock"
@@ -72,11 +67,6 @@ def _load_fields() -> dict[str, int]:
     }
 
 
-def _classify_httpx_exception(exc: Exception) -> str:
-    """Return the exception type name for logging and bucketing."""
-    return type(exc).__name__
-
-
 def _get_or_create_trace_request_id(headers: dict[str, str]) -> str:
     """Return the incoming trace ID header or generate a new one."""
     for key, value in headers.items():
@@ -86,7 +76,7 @@ def _get_or_create_trace_request_id(headers: dict[str, str]) -> str:
 
 
 class LLMSocketProxy:
-    """Unix socket proxy that forwards HTTP traffic to the selected LLM backend.
+    """Unix socket proxy that forwards HTTP traffic to the LLM gateway.
 
     Runs on the host side as part of the agent executor. The socket is
     mounted into the NSJail sandbox where the LLMBridge connects to it.
@@ -95,24 +85,19 @@ class LLMSocketProxy:
     def __init__(
         self,
         socket_path: Path,
-        litellm_url: str = LITELLM_URL,
-        tracecat_proxy: TracecatLLMProxy | None = None,
+        tracecat_proxy: TracecatLLMProxy,
         on_error: Callable[[str], None] | None = None,
     ):
         """Initialize the LLM socket proxy.
 
         Args:
             socket_path: Path where the Unix socket will be created.
-            litellm_url: URL of the worker-global LiteLLM proxy.
             tracecat_proxy: In-process Tracecat proxy for execution-scoped runs.
             on_error: Callback invoked when an error (e.g., auth failure) is detected.
         """
         self.socket_path = socket_path
-        self.litellm_url = litellm_url
         self.tracecat_proxy = tracecat_proxy
         self._server: asyncio.Server | None = None
-        self._client: httpx.AsyncClient | None = None
-        self._client_base_url = litellm_url
         self._on_error = on_error
         self._error_emitted = False  # Only call callback once
 
@@ -128,18 +113,6 @@ class LLMSocketProxy:
         # Remove existing socket file if present
         if self.socket_path.exists():
             self.socket_path.unlink()
-        timeout = httpx.Timeout(
-            connect=20.0,
-            read=TRACECAT__LLM_PROXY_READ_TIMEOUT,
-            write=30.0,
-            pool=10.0,
-        )
-        if self.tracecat_proxy is None:
-            self._client_base_url = self.litellm_url
-            self._client = httpx.AsyncClient(timeout=timeout)
-        else:
-            self._client_base_url = TRACECAT_PROXY_BASE_URL
-            self._client = None
 
         # Start Unix socket server
         self._server = await asyncio.start_unix_server(
@@ -153,8 +126,7 @@ class LLMSocketProxy:
         logger.info(
             "LLM socket proxy started",
             socket_path=str(self.socket_path),
-            backend=self._backend_name,
-            backend_target=self._client_base_url,
+            backend="tracecat_proxy",
             **_load_fields(),
         )
 
@@ -166,12 +138,7 @@ class LLMSocketProxy:
             self._server = None
 
         await self._wait_for_tracecat_proxy_requests()
-
-        if self._client:
-            await self._client.aclose()
-            self._client = None
-        if self.tracecat_proxy is not None:
-            await self.tracecat_proxy.close()
+        await self.tracecat_proxy.close()
 
         # Remove socket file
         if self.socket_path.exists():
@@ -180,15 +147,9 @@ class LLMSocketProxy:
             except OSError:
                 pass
 
-        logger.info("LLM socket proxy stopped", backend=self._backend_name)
-
-    @property
-    def _backend_name(self) -> str:
-        return "tracecat_proxy" if self.tracecat_proxy is not None else "litellm"
+        logger.info("LLM socket proxy stopped", backend="tracecat_proxy")
 
     async def _wait_for_tracecat_proxy_requests(self) -> None:
-        if self.tracecat_proxy is None:
-            return
         if self.tracecat_proxy.state.active_requests == 0:
             return
 
@@ -351,36 +312,17 @@ class LLMSocketProxy:
         request: dict,
         writer: asyncio.StreamWriter,
     ) -> None:
-        """Forward an HTTP request to the selected backend and stream the response back.
-
-        Handles both regular responses and streaming responses (SSE).
-        """
-        if self.tracecat_proxy is None and not self._client:
-            self._emit_error("Proxy not initialized")
-            return
-
-        url = f"{self._client_base_url}{request['path']}"
+        """Forward an HTTP request to the LLM gateway and stream the response back."""
         method = request["method"]
         headers = request["headers"]
-        body = request["body"]
         request_counter, _ = _proxy_load_tracker.begin_request()
         started_at = time.monotonic()
 
-        # Remove hop-by-hop headers that shouldn't be forwarded
-        forward_headers = {
-            k: v
-            for k, v in headers.items()
-            if k.lower() not in ("host", "connection", "transfer-encoding")
-        }
         trace_request_id = _get_or_create_trace_request_id(headers)
-        forward_headers["X-Request-ID"] = trace_request_id
 
         try:
             path_without_query = request["path"].split("?", 1)[0]
-            if (
-                self.tracecat_proxy is not None
-                and path_without_query == "/api/event_logging/batch"
-            ):
+            if path_without_query == "/api/event_logging/batch":
                 await self._write_response(
                     writer,
                     status_code=204,
@@ -390,161 +332,13 @@ class LLMSocketProxy:
                 )
                 return
 
-            if self.tracecat_proxy is not None:
-                await self._forward_tracecat_proxy_request(
-                    writer=writer,
-                    request=request,
-                    trace_request_id=trace_request_id,
-                    request_counter=request_counter,
-                    started_at=started_at,
-                )
-                return
-
-            client = self._client
-            if client is None:
-                self._emit_error("Proxy not initialized")
-                return
-
-            # Make the request to the backend with streaming
-            async with client.stream(
-                method=method,
-                url=url,
-                headers=forward_headers,
-                content=body if body else None,
-            ) as response:
-                # Detect backend error responses
-                if response.status_code >= 400:
-                    is_non_critical = path_without_query in _NON_CRITICAL_PATHS
-
-                    try:
-                        error_body = await response.aread()
-                        log_method = logger.warning if is_non_critical else logger.error
-                        log_method(
-                            "LLM backend error response",
-                            request_counter=request_counter,
-                            backend=self._backend_name,
-                            status_code=response.status_code,
-                            method=method,
-                            path=request["path"],
-                            url=url,
-                            response_length=len(error_body),
-                            non_critical=is_non_critical,
-                            trace_request_id=trace_request_id,
-                            elapsed_ms=(time.monotonic() - started_at) * 1000,
-                            **_load_fields(),
-                        )
-                        logger.debug(
-                            "LLM backend error body",
-                            response_body=error_body.decode("utf-8", errors="replace")[
-                                :1000
-                            ],
-                        )
-                    except Exception as e:
-                        logger.error(
-                            "Failed to read error body",
-                            status_code=response.status_code,
-                            error=str(e),
-                        )
-
-                    error_msg = _ERROR_MESSAGES.get(
-                        response.status_code,
-                        f"LLM request failed ({response.status_code})",
-                    )
-                    await self._write_error_response(
-                        writer,
-                        status_code=response.status_code,
-                        detail=error_msg,
-                        request_counter=request_counter,
-                        trace_request_id=trace_request_id,
-                    )
-                    if not is_non_critical and self.tracecat_proxy is None:
-                        self._emit_error(error_msg)
-                    return
-
-                await self._write_response(
-                    writer,
-                    status_code=response.status_code,
-                    reason_phrase=response.reason_phrase,
-                    headers=dict(response.headers),
-                    body_chunks=response.aiter_bytes(),
-                    trace_request_id=trace_request_id,
-                    started_at=started_at,
-                    request_counter=request_counter,
-                    backend=self._backend_name,
-                    method=method,
-                    path=request["path"],
-                )
-
-        except httpx.ConnectError as e:
-            error_category = _classify_httpx_exception(e)
-            logger.error(
-                "Failed to connect to LLM backend",
-                request_counter=request_counter,
-                backend=self._backend_name,
-                method=method,
-                path=request["path"],
-                error=str(e),
-                error_class=f"{type(e).__module__}.{type(e).__qualname__}",
-                error_category=error_category,
+            await self._forward_tracecat_proxy_request(
+                writer=writer,
+                request=request,
                 trace_request_id=trace_request_id,
-                elapsed_ms=(time.monotonic() - started_at) * 1000,
-                **_load_fields(),
-            )
-            await self._write_error_response(
-                writer,
-                status_code=502,
-                detail="LLM backend unavailable",
                 request_counter=request_counter,
-                trace_request_id=trace_request_id,
+                started_at=started_at,
             )
-            if self.tracecat_proxy is None:
-                self._emit_error("LLM backend unavailable")
-        except httpx.TimeoutException as e:
-            error_category = _classify_httpx_exception(e)
-            logger.error(
-                "LLM backend request timeout",
-                request_counter=request_counter,
-                backend=self._backend_name,
-                method=method,
-                path=request["path"],
-                error=str(e) or error_category,
-                error_class=f"{type(e).__module__}.{type(e).__qualname__}",
-                error_category=error_category,
-                trace_request_id=trace_request_id,
-                elapsed_ms=(time.monotonic() - started_at) * 1000,
-                **_load_fields(),
-            )
-            await self._write_error_response(
-                writer,
-                status_code=504,
-                detail="Gateway timeout",
-                request_counter=request_counter,
-                trace_request_id=trace_request_id,
-            )
-            if self.tracecat_proxy is None:
-                self._emit_error("Gateway timeout")
-        except httpx.ReadError:
-            # Connection closed during request setup - check if client triggered it
-            if writer.is_closing():
-                logger.debug("Connection closed after client disconnect")
-            else:
-                logger.warning(
-                    "LLM backend connection closed unexpectedly",
-                    request_counter=request_counter,
-                    backend=self._backend_name,
-                    method=method,
-                    path=request["path"],
-                    trace_request_id=trace_request_id,
-                    elapsed_ms=(time.monotonic() - started_at) * 1000,
-                    **_load_fields(),
-                )
-                await self._write_error_response(
-                    writer,
-                    status_code=502,
-                    detail="LLM provider unavailable",
-                    request_counter=request_counter,
-                    trace_request_id=trace_request_id,
-                )
         except Exception as e:
             if not self._is_client_disconnect_error(e) and not writer.is_closing():
                 raise
@@ -555,7 +349,7 @@ class LLMSocketProxy:
             logger.debug(
                 "LLM proxy request finished",
                 request_counter=request_counter,
-                backend=self._backend_name,
+                backend="tracecat_proxy",
                 method=method,
                 path=request["path"],
                 trace_request_id=trace_request_id,
@@ -572,9 +366,6 @@ class LLMSocketProxy:
         request_counter: int,
         started_at: float,
     ) -> None:
-        if self.tracecat_proxy is None:
-            raise RuntimeError("Tracecat proxy backend is not configured")
-
         path = str(request["path"])
         path_without_query = path.split("?", 1)[0]
         method = str(request["method"])
@@ -647,7 +438,7 @@ class LLMSocketProxy:
                         trace_request_id=trace_request_id,
                         started_at=started_at,
                         request_counter=request_counter,
-                        backend=self._backend_name,
+                        backend="tracecat_proxy",
                         method=method,
                         path=path,
                     )
@@ -737,7 +528,7 @@ class LLMSocketProxy:
                         logger.info(
                             "LLM proxy first response chunk",
                             request_counter=request_counter,
-                            backend=backend or self._backend_name,
+                            backend=backend or "tracecat_proxy",
                             method=method,
                             path=path,
                             trace_request_id=trace_request_id,

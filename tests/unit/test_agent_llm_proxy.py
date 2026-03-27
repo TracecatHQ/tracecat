@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
-import httpx
 import pytest
 
-from tracecat.agent.litellm_observability import LiteLLMLoadTracker
 from tracecat.agent.llm_proxy.core import TracecatLLMProxy
+from tracecat.agent.observability import LLMGatewayLoadTracker
 from tracecat.agent.sandbox.llm_proxy import LLMSocketProxy
 from tracecat.agent.tokens import LLMTokenClaims
 
@@ -37,187 +35,6 @@ class _FakeWriter:
         return None
 
 
-class _FakeResponse:
-    def __init__(
-        self,
-        *,
-        status_code: int,
-        reason_phrase: str = "Error",
-        body: bytes = b"{}",
-        chunks: list[bytes] | None = None,
-    ) -> None:
-        self.status_code = status_code
-        self.reason_phrase = reason_phrase
-        self.headers = {"content-type": "application/json"}
-        self._body = body
-        self._chunks = chunks or []
-
-    async def aread(self) -> bytes:
-        return self._body
-
-    async def aiter_bytes(self):  # type: ignore[override]
-        for chunk in self._chunks:
-            yield chunk
-
-
-class _FakeClient:
-    def __init__(
-        self,
-        *,
-        response: _FakeResponse | None = None,
-        exc: Exception | None = None,
-    ) -> None:
-        self._response = response
-        self._exc = exc
-
-    @asynccontextmanager
-    async def stream(self, **_: object):
-        if self._exc is not None:
-            raise self._exc
-        if self._response is None:
-            raise RuntimeError("Missing fake response")
-        yield self._response
-
-    async def aclose(self) -> None:
-        return None
-
-
-@pytest.mark.anyio
-async def test_forward_request_returns_explicit_http_error_response_for_529(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    tracker = LiteLLMLoadTracker()
-    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy._proxy_load_tracker", tracker)
-    errors: list[str] = []
-    proxy = LLMSocketProxy(
-        socket_path=tmp_path / "llm.sock",
-        on_error=errors.append,
-    )
-    proxy._client = cast(
-        httpx.AsyncClient,
-        _FakeClient(
-            response=_FakeResponse(status_code=529, reason_phrase="Overloaded"),
-        ),
-    )
-    writer = _FakeWriter()
-
-    await proxy._forward_request(
-        {
-            "method": "POST",
-            "path": "/v1/chat/completions",
-            "headers": {"Content-Type": "application/json"},
-            "body": b"{}",
-        },
-        cast(asyncio.StreamWriter, writer),
-    )
-
-    response_text = writer.buffer.decode("utf-8")
-    assert response_text.startswith("HTTP/1.1 529")
-    assert "X-Request-ID:" in response_text
-    assert "LLM provider is overloaded - please try again shortly" in response_text
-    assert errors == ["LLM provider is overloaded - please try again shortly"]
-    assert tracker.snapshot().active_requests == 0
-
-
-@pytest.mark.anyio
-async def test_forward_request_maps_timeout_to_gateway_timeout_response(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    tracker = LiteLLMLoadTracker()
-    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy._proxy_load_tracker", tracker)
-    errors: list[str] = []
-    proxy = LLMSocketProxy(
-        socket_path=tmp_path / "llm.sock",
-        on_error=errors.append,
-    )
-    proxy._client = cast(
-        httpx.AsyncClient,
-        _FakeClient(exc=httpx.ReadTimeout("timed out")),
-    )
-    writer = _FakeWriter()
-
-    await proxy._forward_request(
-        {
-            "method": "POST",
-            "path": "/v1/chat/completions",
-            "headers": {"Content-Type": "application/json"},
-            "body": b"{}",
-        },
-        cast(asyncio.StreamWriter, writer),
-    )
-
-    response_text = writer.buffer.decode("utf-8")
-    assert response_text.startswith("HTTP/1.1 504")
-    assert "X-Request-ID:" in response_text
-    assert "Gateway timeout" in response_text
-    assert errors == ["Gateway timeout"]
-    assert tracker.snapshot().active_requests == 0
-
-
-@pytest.mark.anyio
-async def test_forward_request_logs_fully_qualified_timeout_class(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    logged_kwargs: dict[str, object] = {}
-
-    def fake_error(message: str, **kwargs: object) -> None:
-        if message == "LLM backend request timeout":
-            logged_kwargs.update(kwargs)
-
-    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger.error", fake_error)
-    proxy = LLMSocketProxy(socket_path=tmp_path / "llm.sock")
-    proxy._client = cast(
-        httpx.AsyncClient,
-        _FakeClient(exc=httpx.ReadTimeout("timed out")),
-    )
-    writer = _FakeWriter()
-
-    await proxy._forward_request(
-        {
-            "method": "POST",
-            "path": "/v1/chat/completions",
-            "headers": {"Content-Type": "application/json"},
-            "body": b"{}",
-        },
-        cast(asyncio.StreamWriter, writer),
-    )
-
-    assert logged_kwargs["error_class"] == "httpx.ReadTimeout"
-    assert logged_kwargs["error_category"] == "ReadTimeout"
-
-
-@pytest.mark.anyio
-async def test_forward_request_preserves_incoming_trace_request_id(
-    tmp_path: Path,
-) -> None:
-    proxy = LLMSocketProxy(socket_path=tmp_path / "llm.sock")
-    proxy._client = cast(
-        httpx.AsyncClient,
-        _FakeClient(response=_FakeResponse(status_code=200, reason_phrase="OK")),
-    )
-    writer = _FakeWriter()
-
-    await proxy._forward_request(
-        {
-            "method": "POST",
-            "path": "/v1/chat/completions",
-            "headers": {
-                "Content-Type": "application/json",
-                "X-Request-ID": "trace-123",
-            },
-            "body": b"{}",
-        },
-        cast(asyncio.StreamWriter, writer),
-    )
-
-    response_text = writer.buffer.decode("utf-8")
-    assert response_text.startswith("HTTP/1.1 200 OK")
-    assert "X-Request-ID: trace-123" in response_text
-
-
 @pytest.mark.anyio
 async def test_forward_request_streams_tracecat_proxy_response(
     monkeypatch: pytest.MonkeyPatch,
@@ -225,7 +42,7 @@ async def test_forward_request_streams_tracecat_proxy_response(
     static_llm_proxy_factory,
 ) -> None:
     ttft_logs: list[dict[str, object]] = []
-    tracker = LiteLLMLoadTracker()
+    tracker = LLMGatewayLoadTracker()
     monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy._proxy_load_tracker", tracker)
     proxy = static_llm_proxy_factory({"OPENAI_API_KEY": "sk-test"})
     socket_proxy = LLMSocketProxy(
@@ -387,14 +204,9 @@ async def test_stop_waits_for_tracecat_proxy_requests_to_finish(
         tracecat_proxy=proxy,
     )
 
-    class _ClosableClient:
-        async def aclose(self) -> None:
-            events.append("client_closed")
-
     async def fake_close() -> None:
         events.append("proxy_closed")
 
-    socket_proxy._client = cast(httpx.AsyncClient, _ClosableClient())
     monkeypatch.setattr(
         TracecatLLMProxy,
         "close",
@@ -413,4 +225,4 @@ async def test_stop_waits_for_tracecat_proxy_requests_to_finish(
     finally:
         await task
 
-    assert events == ["request_finished", "client_closed", "proxy_closed"]
+    assert events == ["request_finished", "proxy_closed"]

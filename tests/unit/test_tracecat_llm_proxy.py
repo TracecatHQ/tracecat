@@ -342,6 +342,45 @@ def test_filter_allowed_model_settings_discards_unknown_keys() -> None:
         }
     ) == {"temperature": 0.1, "seed": 42, "max_completion_tokens": 128}
 
+    assert (
+        filter_allowed_model_settings(
+            {
+                "top_k": 32,
+                "candidate_count": 2,
+                "thinking": {"type": "enabled", "budget_tokens": 2048},
+            }
+        )
+        == {}
+    )
+
+    assert filter_allowed_model_settings(
+        {
+            "top_k": 32,
+            "candidate_count": 2,
+            "response_mime_type": "application/json",
+            "response_schema": {"type": "object"},
+            "api_key": "secret",
+        },
+        provider="gemini",
+    ) == {
+        "top_k": 32,
+        "candidate_count": 2,
+        "response_mime_type": "application/json",
+        "response_schema": {"type": "object"},
+    }
+
+    assert filter_allowed_model_settings(
+        {
+            "top_k": 24,
+            "thinking": {"type": "enabled", "budget_tokens": 2048},
+            "candidate_count": 2,
+        },
+        provider="bedrock",
+    ) == {
+        "top_k": 24,
+        "thinking": {"type": "enabled", "budget_tokens": 2048},
+    }
+
 
 def test_anthropic_tools_render_as_openai_function_tools() -> None:
     request = NormalizedMessagesRequest(
@@ -415,6 +454,27 @@ def test_openai_tools_render_as_anthropic_tools() -> None:
             },
         }
     ]
+
+
+def test_anthropic_payload_preserves_structured_system_blocks() -> None:
+    system_block = {
+        "type": "text",
+        "text": "Follow the policy exactly.",
+        "cache_control": {"type": "ephemeral"},
+    }
+    request = NormalizedMessagesRequest(
+        provider="anthropic",
+        model="claude-sonnet-4-5-20250929",
+        messages=(
+            NormalizedMessage(role="system", content=system_block),
+            NormalizedMessage(role="user", content="hello"),
+        ),
+        output_format=IngressFormat.ANTHROPIC,
+    )
+
+    payload = messages_request_to_anthropic_payload(request)
+
+    assert payload["system"] == [system_block]
 
 
 def test_stream_anthropic_response_emits_message_stop() -> None:
@@ -1069,7 +1129,12 @@ async def test_proxy_uses_token_model_settings_and_restricts_base_url(
         model="gpt-5-mini",
         provider="gemini",
         base_url="https://should-not-be-used.invalid",
-        model_settings={"temperature": 0.3, "api_key": "nope"},
+        model_settings={
+            "temperature": 0.3,
+            "top_k": 32,
+            "candidate_count": 2,
+            "api_key": "nope",
+        },
         use_workspace_credentials=False,
     )
     proxy = static_llm_proxy_factory({"GEMINI_API_KEY": "gem-key"})
@@ -1124,7 +1189,7 @@ async def test_proxy_uses_token_model_settings_and_restricts_base_url(
     assert captured == {
         "model": "gpt-5-mini",
         "base_url": None,
-        "model_settings": {"temperature": 0.3},
+        "model_settings": {"temperature": 0.3, "top_k": 32, "candidate_count": 2},
     }
 
 

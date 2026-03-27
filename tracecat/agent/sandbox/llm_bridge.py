@@ -2,7 +2,7 @@
 
 This module provides a pure Python HTTP bridge that runs inside the NSJail sandbox.
 It binds to localhost and forwards all HTTP traffic to a Unix socket,
-enabling the Claude SDK to communicate with LiteLLM without network access.
+enabling the Claude SDK to communicate with the LLM gateway without network access.
 
 The bridge handles:
 - HTTP/1.1 request parsing and forwarding
@@ -51,7 +51,7 @@ class LLMBridge:
     """HTTP bridge that forwards localhost to Unix socket.
 
     Runs inside the NSJail sandbox to enable HTTP communication with
-    the LiteLLM proxy on the host via a mounted Unix socket.
+    the LLM gateway on the host via a mounted Unix socket.
 
     Supports dynamic port allocation for direct mode to avoid port
     clashes between concurrent agent runs.
@@ -199,7 +199,7 @@ class LLMBridge:
         """Read a complete HTTP request including headers and body.
 
         Handles Content-Length for request bodies (used in POST requests
-        to LiteLLM for chat completions).
+        to the LLM gateway for chat completions).
 
         Returns:
             Complete HTTP request as bytes, or None if connection closed.

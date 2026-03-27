@@ -62,7 +62,7 @@ def _credential_cache_key_builder(
 
 
 @cached(
-    ttl=int(config.TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS),
+    ttl=int(config.TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS),
     cache=Cache.MEMORY,
     key_builder=_credential_cache_key_builder,
 )

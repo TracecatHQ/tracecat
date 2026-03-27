@@ -252,6 +252,43 @@ def test_gemini_request_normalizes_system_instruction_tools_and_response_format(
     ]
 
 
+def test_gemini_request_preserves_assistant_text_with_tool_calls() -> None:
+    request = _base_request(
+        provider="gemini",
+        model="gemini-2.5-pro",
+        messages=(
+            NormalizedMessage(role="user", content="hello"),
+            NormalizedMessage(
+                role="assistant",
+                content="I will look that up.",
+                tool_calls=(
+                    NormalizedToolCall(
+                        id="call_1",
+                        name="lookup",
+                        arguments={"query": "status"},
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    request_http = GeminiAdapter().prepare_request(
+        request,
+        {"GEMINI_API_KEY": "gem-key"},
+    )
+
+    assert request_http.json_body is not None
+    assert request_http.json_body["contents"][1]["parts"] == [
+        {"text": "I will look that up."},
+        {
+            "functionCall": {
+                "name": "lookup",
+                "args": {"query": "status"},
+            }
+        },
+    ]
+
+
 def test_gemini_request_sanitizes_unsupported_schema_keywords() -> None:
     request = _base_request(
         provider="gemini",
@@ -432,6 +469,51 @@ def test_gemini_request_from_anthropic_payload_preserves_tool_response_name() ->
                 }
             ],
         },
+    ]
+
+
+def test_gemini_request_from_anthropic_payload_preserves_mixed_block_order() -> None:
+    request = normalize_anthropic_request(
+        {
+            "model": "claude-sonnet-4-5-20250929",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "I will look that up."},
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_123",
+                            "name": "lookup",
+                            "input": {"query": "status"},
+                        },
+                        {"type": "text", "text": "Then I will summarize it."},
+                    ],
+                }
+            ],
+        },
+        provider="gemini",
+        model="gemini-2.5-pro",
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+    )
+
+    request_http = GeminiAdapter().prepare_request(
+        request,
+        {"GEMINI_API_KEY": "gem-key"},
+    )
+
+    assert request_http.json_body is not None
+    assert request_http.json_body["contents"][0]["parts"] == [
+        {"text": "I will look that up."},
+        {
+            "functionCall": {
+                "name": "lookup",
+                "args": {"query": "status"},
+            }
+        },
+        {"text": "Then I will summarize it."},
     ]
 
 
@@ -797,6 +879,139 @@ def test_bedrock_request_normalizes_system_tools_and_inference_config() -> None:
     }
 
 
+def test_bedrock_request_preserves_assistant_text_with_tool_calls() -> None:
+    request = _base_request(
+        provider="bedrock",
+        model="anthropic.claude-3-7-sonnet",
+        messages=(
+            NormalizedMessage(role="user", content="hello"),
+            NormalizedMessage(
+                role="assistant",
+                content="I will look that up.",
+                tool_calls=(
+                    NormalizedToolCall(
+                        id="call_1",
+                        name="lookup",
+                        arguments={"query": "status"},
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    request_http = BedrockAdapter().prepare_request(
+        request,
+        {
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+            "AWS_REGION": "us-east-1",
+            "AWS_MODEL_ID": "anthropic.claude-3-7-sonnet",
+        },
+    )
+
+    assert request_http.body is not None
+    payload = orjson.loads(request_http.body)
+    assert payload["messages"][1]["content"] == [
+        {"text": "I will look that up."},
+        {
+            "toolUse": {
+                "toolUseId": "call_1",
+                "name": "lookup",
+                "input": {"query": "status"},
+            }
+        },
+    ]
+
+
+def test_bedrock_request_from_anthropic_payload_preserves_mixed_block_order() -> None:
+    request = normalize_anthropic_request(
+        {
+            "model": "claude-sonnet-4-5-20250929",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "I will look that up."},
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_123",
+                            "name": "lookup",
+                            "input": {"query": "status"},
+                        },
+                        {"type": "text", "text": "Then I will summarize it."},
+                    ],
+                }
+            ],
+        },
+        provider="bedrock",
+        model="anthropic.claude-3-7-sonnet",
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+    )
+
+    request_http = BedrockAdapter().prepare_request(
+        request,
+        {
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+            "AWS_REGION": "us-east-1",
+            "AWS_MODEL_ID": "anthropic.claude-3-7-sonnet",
+        },
+    )
+
+    assert request_http.body is not None
+    payload = orjson.loads(request_http.body)
+    assert payload["messages"][0]["content"] == [
+        {"text": "I will look that up."},
+        {
+            "toolUse": {
+                "toolUseId": "toolu_123",
+                "name": "lookup",
+                "input": {"query": "status"},
+            }
+        },
+        {"text": "Then I will summarize it."},
+    ]
+
+
+def test_bedrock_request_uses_data_uri_payload_for_inline_images() -> None:
+    request = _base_request(
+        provider="bedrock",
+        model="amazon.nova-2-lite-v1:0",
+        messages=(
+            NormalizedMessage(
+                role="user",
+                content=[
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "data:image/png;base64,aGVsbG8=",
+                            "format": "image/png",
+                        },
+                    }
+                ],
+            ),
+        ),
+    )
+
+    request_http = BedrockAdapter().prepare_request(
+        request,
+        {
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+            "AWS_REGION": "us-east-1",
+            "AWS_MODEL_ID": "amazon.nova-2-lite-v1:0",
+        },
+    )
+
+    assert request_http.body is not None
+    payload = orjson.loads(request_http.body)
+    image_block = payload["messages"][0]["content"][0]["image"]
+
+    assert image_block == {
+        "format": "png",
+        "source": {"bytes": "aGVsbG8="},
+    }
+
+
 @pytest.mark.anyio
 async def test_bedrock_response_parses_text_and_tool_calls() -> None:
     response = httpx.Response(
@@ -873,6 +1088,36 @@ def test_bedrock_request_downgrades_forced_tool_choice_when_reasoning_enabled() 
     assert payload["additionalModelRequestFields"]["thinking"] == {
         "type": "enabled",
         "budget_tokens": 4096,
+    }
+
+
+def test_bedrock_request_preserves_direct_thinking_and_top_k_settings() -> None:
+    request = _base_request(
+        provider="bedrock",
+        model="anthropic.claude-3-7-sonnet",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        model_settings={
+            "top_k": 24,
+            "thinking": {"type": "enabled", "budget_tokens": 2048},
+        },
+    )
+
+    request_http = BedrockAdapter().prepare_request(
+        request,
+        {
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+            "AWS_REGION": "us-east-1",
+            "AWS_MODEL_ID": "anthropic.claude-3-7-sonnet",
+        },
+    )
+
+    assert request_http.body is not None
+    payload = orjson.loads(request_http.body)
+
+    assert payload["inferenceConfig"]["topK"] == 24
+    assert payload["additionalModelRequestFields"]["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 2048,
     }
 
 

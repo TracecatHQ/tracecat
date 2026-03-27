@@ -42,6 +42,7 @@ from tracecat.agent.llm_proxy.provider_common import (
     anthropic_tool_delta_event,
     raise_stream_http_error,
 )
+from tracecat.agent.llm_proxy.requests import ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY
 from tracecat.agent.llm_proxy.types import (
     AnthropicStreamEvent,
     NormalizedMessage,
@@ -133,6 +134,16 @@ def _text_block(text: Any) -> dict[str, Any]:
     return {"text": str(text)}
 
 
+def _data_uri_payload(url: str) -> str:
+    """Extract the encoded payload segment from a data URI."""
+    header, separator, payload = url.partition(",")
+    if not separator or not header.startswith("data:"):
+        raise ValueError(
+            f"Expected a data URI for Bedrock inline content, got: {url!r}"
+        )
+    return payload
+
+
 def _tool_result_content_block(content: Any) -> dict[str, Any]:
     if isinstance(content, str):
         try:
@@ -170,21 +181,79 @@ def _tool_result_content_block(content: Any) -> dict[str, Any]:
     return {"text": str(content)}
 
 
-def _message_to_content_blocks(message: NormalizedMessage) -> list[dict[str, Any]]:
-    if message.tool_calls:
-        return [
-            {
+def _content_item_to_block(item: Any) -> dict[str, Any]:
+    match item:
+        case {"type": "text", "text": str(text)}:
+            return {"text": text}
+        case {
+            "type": "tool_use",
+            "id": str(tool_call_id),
+            "name": str(name),
+            "input": arguments,
+        }:
+            return {
                 "toolUse": {
-                    "toolUseId": tool_call.id,
-                    "name": tool_call.name,
-                    "input": tool_call.arguments
-                    if isinstance(tool_call.arguments, dict)
-                    else {},
+                    "toolUseId": tool_call_id,
+                    "name": name,
+                    "input": arguments if isinstance(arguments, dict) else {},
                 }
             }
-            for tool_call in message.tool_calls
-        ]
+        case {
+            "type": "image_url",
+            "image_url": {"url": str(url), **image_info},
+        }:
+            mime_type = image_info.get("format") or "image/png"
+            fmt = str(mime_type).removeprefix("image/")
+            if not url.startswith("data:"):
+                raise ValueError(
+                    "Bedrock Converse only supports data: URIs for inline images. "
+                    f"HTTP(S) image URLs are not supported: {url!r}"
+                )
+            return {
+                "image": {
+                    "format": fmt,
+                    "source": {"bytes": _data_uri_payload(url)},
+                }
+            }
+        case {"type": "image_url", "image_url": str(url)}:
+            if not url.startswith("data:"):
+                raise ValueError(
+                    "Bedrock Converse only supports data: URIs for inline images. "
+                    f"HTTP(S) image URLs are not supported: {url!r}"
+                )
+            return {
+                "image": {
+                    "format": "png",
+                    "source": {"bytes": _data_uri_payload(url)},
+                }
+            }
+        case {
+            "type": "file",
+            "file": {"file_data": str(file_data), **file_info},
+        }:
+            return {
+                "document": {
+                    "format": str(file_info.get("format", "pdf")),
+                    "name": str(file_info.get("name", "attachment")),
+                    "source": {"bytes": file_data},
+                }
+            }
+        case _ if isinstance(item, dict):
+            return {"json": item}
+        case _:
+            return _text_block(item)
 
+
+def _anthropic_content_blocks_from_message(
+    message: NormalizedMessage,
+) -> list[Any] | None:
+    blocks = message.metadata.get(ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY)
+    if isinstance(blocks, list):
+        return blocks
+    return None
+
+
+def _message_to_content_blocks(message: NormalizedMessage) -> list[dict[str, Any]]:
     if message.role == "tool":
         return [
             {
@@ -195,70 +264,34 @@ def _message_to_content_blocks(message: NormalizedMessage) -> list[dict[str, Any
             }
         ]
 
+    if anthropic_blocks := _anthropic_content_blocks_from_message(message):
+        return [_content_item_to_block(item) for item in anthropic_blocks]
+
     content = message.content
+    blocks: list[dict[str, Any]] = []
     if content is None:
-        return []
-    if isinstance(content, list):
-        blocks: list[dict[str, Any]] = []
+        blocks = []
+    elif isinstance(content, list):
         for item in content:
-            match item:
-                case {"type": "text", "text": str(text)}:
-                    blocks.append({"text": text})
-                case {
-                    "type": "image_url",
-                    "image_url": {"url": str(url), **image_info},
-                }:
-                    mime_type = image_info.get("format") or "image/png"
-                    # Bedrock expects short format like "png", not MIME "image/png"
-                    fmt = str(mime_type).removeprefix("image/")
-                    if not url.startswith("data:"):
-                        raise ValueError(
-                            "Bedrock Converse only supports data: URIs for inline images. "
-                            f"HTTP(S) image URLs are not supported: {url!r}"
-                        )
-                    blocks.append(
-                        {
-                            "image": {
-                                "format": fmt,
-                                "source": {"bytes": url},
-                            }
-                        }
-                    )
-                case {"type": "image_url", "image_url": str(url)}:
-                    if not url.startswith("data:"):
-                        raise ValueError(
-                            "Bedrock Converse only supports data: URIs for inline images. "
-                            f"HTTP(S) image URLs are not supported: {url!r}"
-                        )
-                    blocks.append(
-                        {
-                            "image": {
-                                "format": "png",
-                                "source": {"bytes": url},
-                            }
-                        }
-                    )
-                case {
-                    "type": "file",
-                    "file": {"file_data": str(file_data), **file_info},
-                }:
-                    blocks.append(
-                        {
-                            "document": {
-                                "format": str(file_info.get("format", "pdf")),
-                                "name": str(file_info.get("name", "attachment")),
-                                "source": {"bytes": file_data},
-                            }
-                        }
-                    )
-                case _ if isinstance(item, dict):
-                    blocks.append({"json": item})
-                case _:
-                    blocks.append(_text_block(item))
-        return blocks
-    if isinstance(content, dict):
-        return [{"json": content}]
-    return [_text_block(content)]
+            blocks.append(_content_item_to_block(item))
+    elif isinstance(content, dict):
+        blocks = [_content_item_to_block(content)]
+    else:
+        blocks = [_text_block(content)]
+
+    blocks.extend(
+        {
+            "toolUse": {
+                "toolUseId": tool_call.id,
+                "name": tool_call.name,
+                "input": tool_call.arguments
+                if isinstance(tool_call.arguments, dict)
+                else {},
+            }
+        }
+        for tool_call in message.tool_calls
+    )
+    return blocks
 
 
 def _system_blocks(messages: Sequence[NormalizedMessage]) -> list[dict[str, Any]]:

@@ -12,7 +12,6 @@ from tracecat.identifiers import OrganizationID, SessionID, WorkspaceID
 class ExecutionBackend(StrEnum):
     """Runtime execution backend."""
 
-    LITELLM = "litellm"
     TRACECAT_PROXY = "tracecat_proxy"
 
 

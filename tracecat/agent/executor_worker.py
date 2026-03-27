@@ -14,8 +14,6 @@ from temporalio.worker import Worker
 from tracecat import config
 from tracecat.agent.executor.activity import run_agent_activity
 from tracecat.agent.runtime_services import (
-    LiteLLMProxyStatus,
-    get_configured_llm_proxy_backend,
     start_configured_llm_proxy,
     start_mcp_server,
     stop_configured_llm_proxy,
@@ -39,28 +37,9 @@ def get_activities() -> list:
 
 async def _start_runtime_services() -> Client:
     """Start shared runtime services needed by the agent executor worker."""
-    llm_backend = get_configured_llm_proxy_backend()
-    logger.info("Starting runtime services", llm_execution_backend=llm_backend.value)
-
-    def on_litellm_unhealthy(status: LiteLLMProxyStatus) -> None:
-        global runtime_failure_reason
-        if runtime_failure_reason is not None:
-            return
-        runtime_failure_reason = status.reason or (
-            f"{llm_backend.value} LLM backend became unhealthy"
-        )
-        logger.error(
-            "LLM backend reported fatal health failure",
-            llm_execution_backend=llm_backend.value,
-            reason=runtime_failure_reason,
-            pid=status.pid,
-            exit_code=status.exit_code,
-            consecutive_probe_failures=status.consecutive_probe_failures,
-        )
-        interrupt_event.set()
-
+    logger.info("Starting runtime services")
     _, _, client = await asyncio.gather(
-        start_configured_llm_proxy(on_unhealthy=on_litellm_unhealthy),
+        start_configured_llm_proxy(),
         start_mcp_server(),
         get_temporal_client(),
     )
@@ -70,15 +49,12 @@ async def _start_runtime_services() -> Client:
 async def _stop_runtime_services() -> None:
     """Stop runtime services without letting one failure skip the others."""
     logger.info("Shutting down runtime services")
-    llm_backend = get_configured_llm_proxy_backend()
     results = await asyncio.gather(
         stop_mcp_server(),
         stop_configured_llm_proxy(),
         return_exceptions=True,
     )
-    for service_name, result in zip(
-        ("MCP server", f"{llm_backend.value} LLM backend"), results, strict=True
-    ):
+    for service_name, result in zip(("MCP server", "LLM proxy"), results, strict=True):
         if isinstance(result, Exception):
             logger.warning(
                 "Runtime service shutdown failed",

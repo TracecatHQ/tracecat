@@ -164,7 +164,10 @@ class AnthropicAdapter:
         outbound_payload = dict(payload)
 
         # Inject token-level model settings into the raw payload
-        if allowed := filter_allowed_model_settings(model_settings):
+        if allowed := filter_allowed_model_settings(
+            model_settings,
+            provider=self.provider,
+        ):
             outbound_payload.update(allowed)
         outbound_payload["stream"] = True
         outbound_payload["model"] = model
