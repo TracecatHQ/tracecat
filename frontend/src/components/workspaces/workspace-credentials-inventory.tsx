@@ -478,14 +478,13 @@ function ConnectedEnvironmentsHoverCard({
   return (
     <HoverCard openDelay={100} closeDelay={100}>
       <HoverCardTrigger asChild>
-        <button
-          type="button"
+        <span
+          role="img"
           className="flex items-center justify-center"
           aria-label={`View configured environments for ${groupName}`}
-          onClick={(event) => event.stopPropagation()}
         >
           <SquareAsterisk className="icon-success size-3.5" />
-        </button>
+        </span>
       </HoverCardTrigger>
       <HoverCardContent
         className="w-auto max-w-[240px] p-3"
