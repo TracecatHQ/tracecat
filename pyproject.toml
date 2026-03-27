@@ -182,6 +182,7 @@ markers = [
     "disable_fixture: marks tests that disable fixtures",
     "integration: marks tests that perform live network calls and container operations",
     "llm: marks tests that perform LLM calls",
+    "live_secret: marks tests that require real environment-backed third-party secrets",
     "ollama: mark tests that require Ollama",
     "temporal: marks tests that require Temporal server",
     "regression: marks regression tests",

@@ -21,10 +21,16 @@ env:
 permissions:
   contents: read
   packages: write
-  id-token: write
 
 jobs:
   build-and-push-api:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.actor == 'github-actions[bot]' ||
+      contains(
+        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
+        github.triggering_actor || github.actor
+      )
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -92,6 +98,13 @@ jobs:
           retention-days: 1
 
   merge-api:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.actor == 'github-actions[bot]' ||
+      contains(
+        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
+        github.triggering_actor || github.actor
+      )
     needs: build-and-push-api
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
@@ -140,6 +153,13 @@ jobs:
           docker buildx imagetools inspect ghcr.io/tracecathq/tracecat:${{ steps.meta.outputs.version }}
 
   build-and-push-ui:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.actor == 'github-actions[bot]' ||
+      contains(
+        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
+        github.triggering_actor || github.actor
+      )
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:
@@ -220,6 +240,13 @@ jobs:
           retention-days: 1
 
   merge-ui:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.actor == 'github-actions[bot]' ||
+      contains(
+        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
+        github.triggering_actor || github.actor
+      )
     needs: build-and-push-ui
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:

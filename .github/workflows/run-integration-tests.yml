@@ -27,21 +27,22 @@ on:
       - docker-compose.dev.yml
       - docker-compose.local.yml
       - .github/workflows/run-integration-tests.yml
-  workflow_dispatch:
-    inputs:
-      git-ref:
-        description: "Git Ref (Optional)"
-        required: false
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   # ──────────────────────────────────────────────────────────────────
   # 1.  LIGHTWEIGHT SSH / INSTALL SMOKE-TEST
   # ──────────────────────────────────────────────────────────────────
   ssh-sanity:
+    if: >-
+      github.event_name == 'push' ||
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
+    environment: internal-registry-ci
     runs-on: ubuntu-latest
     timeout-minutes: 5 # short fail-fast window
     steps:
@@ -81,13 +82,18 @@ jobs:
   #     Uses worker-specific task queues from conftest.py for isolation
   # ──────────────────────────────────────────────────────────────────
   test-integration:
+    if: >-
+      github.event_name == 'push' ||
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
     needs: ssh-sanity # only start if key check passed
+    environment: internal-registry-ci
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          ref: ${{ github.event.inputs.git-ref }}
 
       - name: Install uv
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
@@ -169,11 +175,11 @@ jobs:
         run: |
           # Run pool tests sequentially (subprocess spawning doesn't parallelize well)
           # faulthandler_timeout=300: dump thread state after 5min for extra debugging
-          uv run pytest tests/integration/test_pool_integration.py -ra -v -o faulthandler_timeout=300
+          uv run pytest tests/integration/test_pool_integration.py -m "not live_secret" -ra -v -o faulthandler_timeout=300
 
           # Run other integration tests in parallel with pytest-xdist
           # Worker-specific task queues in conftest.py ensure isolation
-          uv run pytest tests/integration --ignore=tests/integration/test_pool_integration.py -n auto -ra -v -o faulthandler_timeout=300
+          uv run pytest tests/integration --ignore=tests/integration/test_pool_integration.py -m "not live_secret" -n auto -ra -v -o faulthandler_timeout=300
 
       - name: Show Docker logs on failure
         if: failure()

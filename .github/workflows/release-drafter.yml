@@ -1,16 +1,9 @@
 name: Update draft release
 
 on:
-  pull_request_target:
+  push:
     branches:
       - main
-    types:
-      - opened
-      - reopened
-      - synchronize
-      - labeled
-      - unlabeled
-  workflow_dispatch:
 
 permissions:
   contents: write
