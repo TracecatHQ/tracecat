@@ -84,7 +84,7 @@ POST_RLS_ORG_SCOPED_TABLES = (
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "watchtower_agent_session",
     "watchtower_agent_tool_call",
-    "agent_enabled_models",
+    "agent_model_selection_links",
 )
 
 # Workspace, scope, and agent_catalog carry custom policy SQL. `scope` and

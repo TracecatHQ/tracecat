@@ -66,7 +66,6 @@ class CustomModelSourceFlavor(StrEnum):
     GENERIC_OPENAI_COMPATIBLE = "generic_openai_compatible"
     OLLAMA = "ollama"
     VLLM = "vllm"
-    LITELLM = "litellm"
     MANUAL = "manual"
 
 
@@ -74,6 +73,17 @@ class ModelDiscoveryStatus(StrEnum):
     NEVER = "never"
     READY = "ready"
     FAILED = "failed"
+
+
+def parse_custom_source_flavor(value: str | None) -> CustomModelSourceFlavor | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized == "litellm":
+        return CustomModelSourceFlavor.GENERIC_OPENAI_COMPATIBLE
+    return CustomModelSourceFlavor(normalized)
 
 
 # TypeAdapters for pydantic-ai message types - created lazily to avoid import overhead

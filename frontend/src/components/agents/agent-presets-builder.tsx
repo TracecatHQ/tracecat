@@ -1022,9 +1022,6 @@ function getCustomSourceIconId(sourceType: string, sourceName: string): string {
   if (normalizedSourceName.includes("vllm")) {
     return "vllm"
   }
-  if (normalizedSourceName.includes("litellm")) {
-    return "litellm"
-  }
   if (sourceType === "manual_custom") {
     return "manual-custom-source"
   }

@@ -1,28 +1,28 @@
-"""Tests for platform-level admin agent catalog refresh behavior."""
+"""Tests for platform and admin agent catalog services."""
 
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock
 
 import orjson
 import pytest
-from sqlalchemy import insert, null, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.admin.agent.service import AdminAgentService
 from tracecat.agent.builtin_catalog import BuiltInCatalogModel
-from tracecat.agent.types import ModelDiscoveryStatus, ModelSourceType
-from tracecat.auth.types import PlatformRole
+from tracecat.agent.catalog.service import (
+    AgentCatalogService,
+    parse_catalog_offset,
+)
+from tracecat.agent.types import ModelSourceType
+from tracecat.auth.types import PlatformRole, Role
 from tracecat.db.models import (
     AgentCatalog,
-    AgentEnabledModel,
+    AgentModelSelectionLink,
     AgentPreset,
     AgentPresetVersion,
     AgentSession,
-    Organization,
     OrganizationSetting,
-    Workspace,
 )
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -40,30 +40,20 @@ def platform_role() -> PlatformRole:
 @pytest.mark.anyio
 async def test_upsert_platform_catalog_rows_prunes_stale_org_state(
     session: AsyncSession,
-    platform_role: PlatformRole,
+    svc_admin_role: Role,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = AdminAgentService(session, role=platform_role)
-    org_id = uuid.uuid4()
-    workspace_id = uuid.uuid4()
+    """When builtin catalog rows are replaced, stale selection links, default
+    model settings, presets, versions, and sessions should be invalidated."""
+    # Use the org-scoped catalog service which handles full cascade.
+    service = AgentCatalogService(session, role=svc_admin_role)
+    org_id = svc_admin_role.organization_id
+    workspace_id = svc_admin_role.workspace_id
+    assert org_id is not None
+    assert workspace_id is not None
+
     stale_catalog_id = uuid.uuid4()
     fresh_catalog_id = uuid.uuid4()
-    session.add(
-        Organization(
-            id=org_id,
-            name="Test Organization",
-            slug=f"test-org-{org_id.hex[:8]}",
-            is_active=True,
-        )
-    )
-    session.add(
-        Workspace(
-            id=workspace_id,
-            organization_id=org_id,
-            name="Test Workspace",
-        )
-    )
-    await session.commit()
 
     session.add(
         AgentCatalog(
@@ -76,12 +66,10 @@ async def test_upsert_platform_catalog_rows_prunes_stale_org_state(
     )
     session.add_all(
         [
-            AgentEnabledModel(
+            AgentModelSelectionLink(
                 organization_id=org_id,
                 workspace_id=None,
-                source_id=None,
-                model_provider="openai",
-                model_name="gpt-stale",
+                catalog_id=stale_catalog_id,
                 enabled_config=None,
             ),
             OrganizationSetting(
@@ -129,12 +117,12 @@ async def test_upsert_platform_catalog_rows_prunes_stale_org_state(
         preset_id=preset.id,
         version=1,
         instructions=preset.instructions,
-        model_name=preset.model_name,
-        model_provider=preset.model_provider,
+        model_name="gpt-stale",
+        model_provider="openai",
         source_id=None,
-        base_url=preset.base_url,
-        retries=preset.retries,
-        enable_internet_access=preset.enable_internet_access,
+        base_url="https://stale.example/v1",
+        retries=3,
+        enable_internet_access=False,
     )
     agent_session = AgentSession(
         workspace_id=workspace_id,
@@ -150,20 +138,10 @@ async def test_upsert_platform_catalog_rows_prunes_stale_org_state(
     await session.flush()
     preset.current_version_id = version.id
     session.add(preset)
-    await session.execute(
-        insert(AgentEnabledModel).values(
-            organization_id=org_id,
-            workspace_id=workspace_id,
-            source_id=None,
-            model_provider="openai",
-            model_name="gpt-stale",
-            enabled_config=null(),
-        )
-    )
     await session.commit()
 
     monkeypatch.setattr(
-        "tracecat.admin.agent.service.get_builtin_catalog_models",
+        "tracecat.agent.catalog.service.get_builtin_catalog_models",
         lambda: [
             BuiltInCatalogModel(
                 agent_catalog_id=fresh_catalog_id,
@@ -179,7 +157,7 @@ async def test_upsert_platform_catalog_rows_prunes_stale_org_state(
         ],
     )
 
-    await service._upsert_platform_catalog_rows()
+    await service._upsert_builtin_catalog_rows()
     await session.commit()
 
     catalog_rows = (
@@ -198,8 +176,8 @@ async def test_upsert_platform_catalog_rows_prunes_stale_org_state(
     enabled_rows = (
         (
             await session.execute(
-                select(AgentEnabledModel).where(
-                    AgentEnabledModel.organization_id == org_id
+                select(AgentModelSelectionLink).where(
+                    AgentModelSelectionLink.organization_id == org_id
                 )
             )
         )
@@ -238,22 +216,17 @@ async def test_upsert_platform_catalog_rows_prunes_stale_org_state(
 @pytest.mark.anyio
 async def test_upsert_platform_catalog_rows_clears_legacy_string_default(
     session: AsyncSession,
-    platform_role: PlatformRole,
+    svc_admin_role: Role,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = AdminAgentService(session, role=platform_role)
-    org_id = uuid.uuid4()
+    """Legacy string-format default model settings should be cleared when the
+    referenced builtin model is removed from the catalog."""
+    service = AgentCatalogService(session, role=svc_admin_role)
+    org_id = svc_admin_role.organization_id
+    assert org_id is not None
+
     stale_catalog_id = uuid.uuid4()
     fresh_catalog_id = uuid.uuid4()
-    session.add(
-        Organization(
-            id=org_id,
-            name="Test Organization",
-            slug=f"test-org-{org_id.hex[:8]}",
-            is_active=True,
-        )
-    )
-    await session.commit()
 
     session.add(
         AgentCatalog(
@@ -266,12 +239,10 @@ async def test_upsert_platform_catalog_rows_clears_legacy_string_default(
     )
     session.add_all(
         [
-            AgentEnabledModel(
+            AgentModelSelectionLink(
                 organization_id=org_id,
                 workspace_id=None,
-                source_id=None,
-                model_provider="openai",
-                model_name="gpt-stale",
+                catalog_id=stale_catalog_id,
                 enabled_config=None,
             ),
             OrganizationSetting(
@@ -286,7 +257,7 @@ async def test_upsert_platform_catalog_rows_clears_legacy_string_default(
     await session.commit()
 
     monkeypatch.setattr(
-        "tracecat.admin.agent.service.get_builtin_catalog_models",
+        "tracecat.agent.catalog.service.get_builtin_catalog_models",
         lambda: [
             BuiltInCatalogModel(
                 agent_catalog_id=fresh_catalog_id,
@@ -302,7 +273,7 @@ async def test_upsert_platform_catalog_rows_clears_legacy_string_default(
         ],
     )
 
-    await service._upsert_platform_catalog_rows()
+    await service._upsert_builtin_catalog_rows()
     await session.commit()
 
     settings = (
@@ -327,12 +298,7 @@ async def test_list_platform_catalog_rejects_invalid_cursor(
     cursor: str,
     platform_role: PlatformRole,
 ) -> None:
-    service = AdminAgentService(AsyncMock(), role=platform_role)
-    service._get_catalog_state = AsyncMock(
-        return_value=(ModelDiscoveryStatus.READY, None, None)
-    )
-
     with pytest.raises(
         ValueError, match="Invalid cursor. Expected a non-negative integer offset."
     ):
-        await service.list_platform_catalog(cursor=cursor)
+        parse_catalog_offset(cursor)

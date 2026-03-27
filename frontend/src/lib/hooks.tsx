@@ -27,7 +27,9 @@ import {
   actionsUpdateAction,
   agentClearWorkspaceModelSubset,
   agentCreateProviderCredentials,
+  agentCreateSource,
   agentDeleteProviderCredentials,
+  agentDeleteSource,
   agentDisableModel,
   agentDisableModels,
   agentEnableModel,
@@ -37,12 +39,17 @@ import {
   agentGetProvidersStatus,
   agentGetWorkspaceModelSubset,
   agentListModels,
+  agentListPlatformCatalog,
   agentListProviderCredentialConfigs,
+  agentListProviders,
+  agentListSources,
+  agentRefreshSource,
   agentReplaceWorkspaceModelSubset,
   agentSessionsListSessions,
   agentSetDefaultModel,
   agentUpdateEnabledModelConfig,
   agentUpdateProviderCredentials,
+  agentUpdateSource,
   type CaseCommentCreate,
   type CaseCommentRead,
   type CaseCommentThreadRead,
@@ -119,6 +126,9 @@ import {
   foldersListFolders,
   foldersMoveFolder,
   foldersUpdateFolder,
+  type AgentModelSourceCreate as GeneratedAgentModelSourceCreate,
+  type AgentModelSourceRead as GeneratedAgentModelSourceRead,
+  type AgentModelSourceUpdate as GeneratedAgentModelSourceUpdate,
   type DefaultModelSelection as GeneratedDefaultModelSelection,
   type ModelCatalogEntry as GeneratedModelCatalogEntry,
   type GitCommitInfo,
@@ -5270,40 +5280,66 @@ interface AgentModelSourceUpdateInput {
   declared_models?: AgentManualDiscoveredModel[] | null
 }
 
-export function getAgentJsonErrorMessage(text: string, status: number): string {
-  let detail: string | null = null
-  try {
-    const parsed = JSON.parse(text) as unknown
-    if (parsed && typeof parsed === "object") {
-      const parsedDetail = (parsed as { detail?: unknown }).detail
-      if (typeof parsedDetail === "string" && parsedDetail.trim()) {
-        detail = parsedDetail
-      }
-    }
-  } catch {}
-  return detail ?? (text || `Request failed with status ${status}`)
+function normalizeAgentModelSource(
+  source: GeneratedAgentModelSourceRead
+): AgentModelSourceRead {
+  return {
+    id: source.id,
+    type: source.type,
+    flavor: source.flavor ?? null,
+    display_name: source.display_name,
+    base_url: source.base_url ?? null,
+    api_key_configured: source.api_key_configured ?? false,
+    api_key_header: source.api_key_header ?? null,
+    api_version: source.api_version ?? null,
+    discovery_status: source.discovery_status,
+    last_refreshed_at: source.last_refreshed_at ?? null,
+    last_error: source.last_error ?? null,
+    declared_models: source.declared_models ?? null,
+  }
 }
 
-async function fetchAgentJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const { headers, ...rest } = init ?? {}
-  const response = await fetch(`/api${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(headers ?? {}),
-    },
-    ...rest,
-  })
-
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(getAgentJsonErrorMessage(text, response.status))
+function normalizeBuiltInProvider(
+  provider: import("@/client").BuiltInProviderRead
+): BuiltInProviderRead {
+  return {
+    provider: provider.provider,
+    label: provider.label,
+    source_type: provider.source_type,
+    credentials_configured: provider.credentials_configured ?? false,
+    base_url: provider.base_url ?? null,
+    runtime_target: provider.runtime_target ?? null,
+    discovery_status: provider.discovery_status,
+    last_refreshed_at: provider.last_refreshed_at ?? null,
+    last_error: provider.last_error ?? null,
+    discovered_models: (provider.discovered_models ?? []).map(
+      normalizeAgentCatalogEntry
+    ),
   }
+}
 
-  if (response.status === 204) {
-    return undefined as T
+function toAgentModelSourceCreateInput(
+  data: AgentModelSourceCreateInput
+): GeneratedAgentModelSourceCreate {
+  return {
+    ...data,
+    type: data.type as GeneratedAgentModelSourceCreate["type"],
+    flavor: data.flavor as GeneratedAgentModelSourceCreate["flavor"],
   }
+}
 
-  return (await response.json()) as T
+function toAgentModelSourceUpdateInput(
+  data: AgentModelSourceUpdateInput
+): GeneratedAgentModelSourceUpdate {
+  return {
+    display_name: data.display_name,
+    flavor: data.flavor as GeneratedAgentModelSourceUpdate["flavor"],
+    base_url: data.base_url,
+    api_key: data.api_key,
+    api_key_header: data.api_key_header,
+    api_version: data.api_version,
+    declared_models: data.declared_models,
+  }
 }
 
 function normalizeBuiltInCatalog(
@@ -5381,29 +5417,14 @@ async function fetchBuiltInCatalogPage({
 }: BuiltInCatalogQuery & {
   cursor?: string | null
 }): Promise<BuiltInCatalogRead> {
-  const searchParams = new URLSearchParams()
-  searchParams.set("limit", String(limit))
-  if (cursor) {
-    searchParams.set("cursor", cursor)
-  }
-  if (provider) {
-    searchParams.set("provider", provider)
-  }
-  if (query?.trim()) {
-    searchParams.set("query", query.trim())
-  }
-  const response = await fetch(`/api/agent/catalog/platform?${searchParams}`, {
-    headers: {
-      "Content-Type": "application/json",
-    },
-  })
-
-  if (response.ok) {
-    return normalizeBuiltInCatalog(
-      (await response.json()) as BuiltInCatalogApiRead
-    )
-  }
-  throw new Error(await response.text())
+  return normalizeBuiltInCatalog(
+    (await agentListPlatformCatalog({
+      limit,
+      cursor: cursor ?? undefined,
+      provider: provider ?? undefined,
+      query: query?.trim() || undefined,
+    })) as BuiltInCatalogApiRead
+  )
 }
 
 export function useAgentModels(workspaceId?: string | null) {
@@ -5498,7 +5519,7 @@ export function useAgentModelSources() {
   } = useQuery<AgentModelSourceRead[], Error>({
     queryKey: ["agent-sources"],
     queryFn: async () =>
-      await fetchAgentJson<AgentModelSourceRead[]>("/agent/sources"),
+      (await agentListSources()).map(normalizeAgentModelSource),
   })
 
   return {
@@ -5602,46 +5623,35 @@ export function useAgentCatalogMutations() {
 
   const createSource = useMutation({
     mutationFn: async (data: AgentModelSourceCreateInput) =>
-      await fetchAgentJson<AgentModelSourceRead>("/agent/sources", {
-        method: "POST",
-        body: JSON.stringify(data),
+      await agentCreateSource({
+        requestBody: toAgentModelSourceCreateInput(data),
       }),
     onSuccess: invalidate,
   })
 
   const updateSource = useMutation({
     mutationFn: async (data: AgentModelSourceUpdateInput) =>
-      await fetchAgentJson<AgentModelSourceRead>(
-        `/agent/sources/${data.sourceId}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            display_name: data.display_name,
-            flavor: data.flavor,
-            base_url: data.base_url,
-            api_key: data.api_key,
-            api_key_header: data.api_key_header,
-            api_version: data.api_version,
-            declared_models: data.declared_models,
-          }),
-        }
-      ),
+      await agentUpdateSource({
+        sourceId: data.sourceId,
+        requestBody: toAgentModelSourceUpdateInput(data),
+      }),
     onSuccess: invalidate,
   })
 
   const refreshSource = useMutation({
     mutationFn: async (sourceId: string) =>
-      await fetchAgentJson<AgentCatalogEntry[]>(
-        `/agent/sources/${sourceId}/refresh`,
-        { method: "POST" }
-      ),
+      (
+        await agentRefreshSource({
+          sourceId,
+        })
+      ).map(normalizeAgentCatalogEntry),
     onSuccess: invalidate,
   })
 
   const deleteSource = useMutation({
     mutationFn: async (sourceId: string) =>
-      await fetchAgentJson<void>(`/agent/sources/${sourceId}`, {
-        method: "DELETE",
+      await agentDeleteSource({
+        sourceId,
       }),
     onSuccess: invalidate,
   })
@@ -5669,16 +5679,30 @@ export function useAgentCatalogMutations() {
   }
 }
 
-export function useModelProviders() {
+interface ModelProvidersQuery {
+  configuredOnly?: boolean
+  includeDiscoveredModels?: boolean
+}
+
+export function useModelProviders(params?: ModelProvidersQuery) {
   const {
     data: providers,
     isLoading,
     error,
     refetch,
   } = useQuery<BuiltInProviderRead[], Error>({
-    queryKey: ["agent-providers"],
+    queryKey: [
+      "agent-providers",
+      params?.configuredOnly ?? true,
+      params?.includeDiscoveredModels ?? false,
+    ],
     queryFn: async () =>
-      await fetchAgentJson<BuiltInProviderRead[]>("/agent/providers"),
+      (
+        await agentListProviders({
+          configuredOnly: params?.configuredOnly,
+          includeDiscoveredModels: params?.includeDiscoveredModels,
+        })
+      ).map(normalizeBuiltInProvider),
   })
 
   return {
@@ -6012,8 +6036,6 @@ function getCustomSourceIconId(
   switch (sourceFlavor) {
     case "ollama":
       return "ollama"
-    case "litellm":
-      return "litellm"
     case "vllm":
       return "vllm"
     case "manual":
@@ -6030,9 +6052,6 @@ function getCustomSourceIconId(
   }
   if (normalizedSourceName.includes("vllm")) {
     return "vllm"
-  }
-  if (normalizedSourceName.includes("litellm")) {
-    return "litellm"
   }
   if (sourceType === "manual_custom") {
     return "manual-custom-source"

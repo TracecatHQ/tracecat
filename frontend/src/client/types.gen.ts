@@ -2640,7 +2640,6 @@ export type CustomModelSourceFlavor =
   | "generic_openai_compatible"
   | "ollama"
   | "vllm"
-  | "litellm"
   | "manual"
 
 export type CustomModelSourceType =
@@ -9045,31 +9044,6 @@ export type OrganizationGetInvitationByTokenData = {
 
 export type OrganizationGetInvitationByTokenResponse = OrgInvitationReadMinimal
 
-export type AgentListModelsData = {
-  workspaceId?: string | null
-}
-
-export type AgentListModelsResponse = Array<ModelCatalogEntry>
-
-export type AgentGetWorkspaceModelSubsetData = {
-  workspaceId: string
-}
-
-export type AgentGetWorkspaceModelSubsetResponse = WorkspaceModelSubsetRead
-
-export type AgentReplaceWorkspaceModelSubsetData = {
-  requestBody: WorkspaceModelSubsetUpdate
-  workspaceId: string
-}
-
-export type AgentReplaceWorkspaceModelSubsetResponse = WorkspaceModelSubsetRead
-
-export type AgentClearWorkspaceModelSubsetData = {
-  workspaceId: string
-}
-
-export type AgentClearWorkspaceModelSubsetResponse = void
-
 export type AgentListPlatformCatalogData = {
   /**
    * Opaque cursor for the next built-in catalog page.
@@ -9087,6 +9061,17 @@ export type AgentListPlatformCatalogData = {
 }
 
 export type AgentListPlatformCatalogResponse = BuiltInCatalogRead
+
+export type AgentListProvidersData = {
+  /**
+   * Return only providers with configured credentials.
+   */
+  configuredOnly?: boolean
+  /**
+   * Include discovered built-in catalog models for each provider.
+   */
+  includeDiscoveredModels?: boolean
+}
 
 export type AgentListProvidersResponse = Array<BuiltInProviderRead>
 
@@ -9128,6 +9113,31 @@ export type AgentDeleteProviderCredentialsResponse = {
   [key: string]: string
 }
 
+export type AgentListModelsData = {
+  workspaceId?: string | null
+}
+
+export type AgentListModelsResponse = Array<ModelCatalogEntry>
+
+export type AgentGetWorkspaceModelSubsetData = {
+  workspaceId: string
+}
+
+export type AgentGetWorkspaceModelSubsetResponse = WorkspaceModelSubsetRead
+
+export type AgentReplaceWorkspaceModelSubsetData = {
+  requestBody: WorkspaceModelSubsetUpdate
+  workspaceId: string
+}
+
+export type AgentReplaceWorkspaceModelSubsetResponse = WorkspaceModelSubsetRead
+
+export type AgentClearWorkspaceModelSubsetData = {
+  workspaceId: string
+}
+
+export type AgentClearWorkspaceModelSubsetResponse = void
+
 export type AgentGetDefaultModelResponse = DefaultModelSelection | null
 
 export type AgentSetDefaultModelData = {
@@ -9135,33 +9145,6 @@ export type AgentSetDefaultModelData = {
 }
 
 export type AgentSetDefaultModelResponse = DefaultModelSelection
-
-export type AgentListSourcesResponse = Array<AgentModelSourceRead>
-
-export type AgentCreateSourceData = {
-  requestBody: AgentModelSourceCreate
-}
-
-export type AgentCreateSourceResponse = AgentModelSourceRead
-
-export type AgentUpdateSourceData = {
-  requestBody: AgentModelSourceUpdate
-  sourceId: string
-}
-
-export type AgentUpdateSourceResponse = AgentModelSourceRead
-
-export type AgentDeleteSourceData = {
-  sourceId: string
-}
-
-export type AgentDeleteSourceResponse = void
-
-export type AgentRefreshSourceData = {
-  sourceId: string
-}
-
-export type AgentRefreshSourceResponse = Array<ModelCatalogEntry>
 
 export type AgentEnableModelData = {
   requestBody: EnabledModelOperation
@@ -9200,6 +9183,33 @@ export type AgentDisableModelsData = {
 }
 
 export type AgentDisableModelsResponse = void
+
+export type AgentListSourcesResponse = Array<AgentModelSourceRead>
+
+export type AgentCreateSourceData = {
+  requestBody: AgentModelSourceCreate
+}
+
+export type AgentCreateSourceResponse = AgentModelSourceRead
+
+export type AgentUpdateSourceData = {
+  requestBody: AgentModelSourceUpdate
+  sourceId: string
+}
+
+export type AgentUpdateSourceResponse = AgentModelSourceRead
+
+export type AgentDeleteSourceData = {
+  sourceId: string
+}
+
+export type AgentDeleteSourceResponse = void
+
+export type AgentRefreshSourceData = {
+  sourceId: string
+}
+
+export type AgentRefreshSourceResponse = Array<ModelCatalogEntry>
 
 export type AgentChannelsCreateChannelTokenData = {
   requestBody: AgentChannelTokenCreate
@@ -9682,8 +9692,6 @@ export type AdminAgentListPlatformCatalogData = {
 }
 
 export type AdminAgentListPlatformCatalogResponse = PlatformCatalogRead
-
-export type AdminAgentRefreshPlatformCatalogResponse = PlatformCatalogRead
 
 export type AdminRegistryListPlatformRepositoriesResponse =
   Array<RegistryRepositoryReadMinimal>
@@ -12814,62 +12822,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/agent/models": {
-    get: {
-      req: AgentListModelsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<ModelCatalogEntry>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/agent/workspaces/{workspace_id}/model-subset": {
-    get: {
-      req: AgentGetWorkspaceModelSubsetData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: WorkspaceModelSubsetRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    put: {
-      req: AgentReplaceWorkspaceModelSubsetData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: WorkspaceModelSubsetRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: AgentClearWorkspaceModelSubsetData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/agent/catalog/platform": {
     get: {
       req: AgentListPlatformCatalogData
@@ -12887,11 +12839,16 @@ export type $OpenApiTs = {
   }
   "/agent/providers": {
     get: {
+      req: AgentListProvidersData
       res: {
         /**
          * Successful Response
          */
         200: Array<BuiltInProviderRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }
@@ -12981,6 +12938,62 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/models": {
+    get: {
+      req: AgentListModelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ModelCatalogEntry>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/workspaces/{workspace_id}/model-subset": {
+    get: {
+      req: AgentGetWorkspaceModelSubsetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceModelSubsetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: AgentReplaceWorkspaceModelSubsetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceModelSubsetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentClearWorkspaceModelSubsetData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/agent/default-model": {
     get: {
       res: {
@@ -12997,72 +13010,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: DefaultModelSelection
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/agent/sources": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<AgentModelSourceRead>
-      }
-    }
-    post: {
-      req: AgentCreateSourceData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: AgentModelSourceRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/agent/sources/{source_id}": {
-    patch: {
-      req: AgentUpdateSourceData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: AgentModelSourceRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: AgentDeleteSourceData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/agent/sources/{source_id}/refresh": {
-    post: {
-      req: AgentRefreshSourceData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<ModelCatalogEntry>
         /**
          * Validation Error
          */
@@ -13147,6 +13094,72 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sources": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentModelSourceRead>
+      }
+    }
+    post: {
+      req: AgentCreateSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentModelSourceRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sources/{source_id}": {
+    patch: {
+      req: AgentUpdateSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentModelSourceRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentDeleteSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/sources/{source_id}/refresh": {
+    post: {
+      req: AgentRefreshSourceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ModelCatalogEntry>
         /**
          * Validation Error
          */
@@ -14013,16 +14026,6 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
-      }
-    }
-  }
-  "/admin/agent/catalog/platform/refresh": {
-    post: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: PlatformCatalogRead
       }
     }
   }

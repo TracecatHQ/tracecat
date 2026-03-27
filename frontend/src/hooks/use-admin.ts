@@ -752,28 +752,3 @@ export function useAdminPlatformCatalog({
     refetch,
   }
 }
-
-export function useAdminPlatformCatalogRefresh() {
-  const queryClient = useQueryClient()
-
-  const { mutateAsync: refreshCatalog, isPending: refreshPending } =
-    useMutation({
-      mutationFn: () =>
-        fetchAdminAgentJson<AdminPlatformCatalogRead>(
-          "/catalog/platform/refresh",
-          {
-            method: "POST",
-          }
-        ),
-      onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey: ["admin", "agent", "platform-catalog"],
-        })
-      },
-    })
-
-  return {
-    refreshCatalog,
-    refreshPending,
-  }
-}

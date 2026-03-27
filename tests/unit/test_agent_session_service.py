@@ -44,7 +44,7 @@ async def test_build_agent_config_uses_session_model_selection(role: Role) -> No
         tools=["core.http_request"],
     )
 
-    class _FakeAgentManagementService:
+    class _FakeAgentService:
         def __init__(self, *_args, **_kwargs):
             pass
 
@@ -63,8 +63,8 @@ async def test_build_agent_config_uses_session_model_selection(role: Role) -> No
             )
 
     with patch(
-        "tracecat.agent.session.service.AgentManagementService",
-        _FakeAgentManagementService,
+        "tracecat.agent.session.service.AgentRuntimeService",
+        _FakeAgentService,
     ):
         async with service._build_agent_config(agent_session) as config:
             assert config.model_name == "gpt-5"
@@ -186,7 +186,7 @@ async def test_update_session_merges_partial_model_selection(role: Role) -> None
         model_provider="openai_compatible_gateway",
     )
 
-    class _FakeAgentManagementService:
+    class _FakeAgentService:
         def __init__(self, *_args, **_kwargs):
             pass
 
@@ -196,8 +196,8 @@ async def test_update_session_merges_partial_model_selection(role: Role) -> None
             assert selection.model_provider == "openai_compatible_gateway"
 
     with patch(
-        "tracecat.agent.session.service.AgentManagementService",
-        _FakeAgentManagementService,
+        "tracecat.agent.session.service.AgentSelectionsService",
+        _FakeAgentService,
     ):
         updated = await service.update_session(
             agent_session,
@@ -276,7 +276,7 @@ async def test_build_agent_config_preserves_preset_source_routing_for_forks(
         return_value=parent_session.agent_preset_version_id
     )
 
-    class _FakeAgentManagementService:
+    class _FakeAgentService:
         def __init__(self, *_args, **_kwargs):
             pass
 
@@ -294,8 +294,8 @@ async def test_build_agent_config_preserves_preset_source_routing_for_forks(
             )
 
     with patch(
-        "tracecat.agent.session.service.AgentManagementService",
-        _FakeAgentManagementService,
+        "tracecat.agent.session.service.AgentRuntimeService",
+        _FakeAgentService,
     ):
         async with service._build_agent_config(agent_session) as config:
             assert config.source_id == source_id

@@ -1,8 +1,8 @@
 """llm provider v2
 
-Revision ID: 3fbfa9cc5a08
+Revision ID: ac9577c5a622
 Revises: 0a1e3100a432
-Create Date: 2026-03-12 13:24:48.559701
+Create Date: 2026-03-27 11:34:31.984799
 
 """
 
@@ -23,7 +23,7 @@ from tracecat.db.tenant_rls import (
 )
 
 # revision identifiers, used by Alembic.
-revision: str = "3fbfa9cc5a08"
+revision: str = "ac9577c5a622"
 down_revision: str | None = "0a1e3100a432"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -149,13 +149,11 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "agent_enabled_models",
+        "agent_model_selection_links",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("organization_id", sa.UUID(), nullable=False),
         sa.Column("workspace_id", sa.UUID(), nullable=True),
-        sa.Column("source_id", sa.UUID(), nullable=True),
-        sa.Column("model_provider", sa.String(length=120), nullable=False),
-        sa.Column("model_name", sa.String(length=500), nullable=False),
+        sa.Column("catalog_id", sa.UUID(), nullable=False),
         sa.Column(
             "enabled_config", postgresql.JSONB(astext_type=sa.Text()), nullable=True
         ),
@@ -175,57 +173,53 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "workspace_id IS NULL OR enabled_config IS NULL",
             name=op.f(
-                "ck_agent_enabled_models_ck_agent_enabled_models_workspace_config"
+                "ck_agent_model_selection_links_ck_agent_model_selection_links_workspace_config"
             ),
+        ),
+        sa.ForeignKeyConstraint(
+            ["catalog_id"],
+            ["agent_catalog.id"],
+            name=op.f("fk_agent_model_selection_links_catalog_id_agent_catalog"),
+            ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["organization_id"],
             ["organization.id"],
-            name=op.f("fk_agent_enabled_models_organization_id_organization"),
-            ondelete="CASCADE",
-        ),
-        sa.ForeignKeyConstraint(
-            ["source_id"],
-            ["agent_custom_sources.id"],
-            name=op.f("fk_agent_enabled_models_source_id_agent_custom_sources"),
+            name=op.f("fk_agent_model_selection_links_organization_id_organization"),
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
             ["workspace_id"],
             ["workspace.id"],
-            name=op.f("fk_agent_enabled_models_workspace_id_workspace"),
+            name=op.f("fk_agent_model_selection_links_workspace_id_workspace"),
             ondelete="CASCADE",
         ),
-        sa.PrimaryKeyConstraint("surrogate_id", name=op.f("pk_agent_enabled_models")),
+        sa.PrimaryKeyConstraint(
+            "surrogate_id", name=op.f("pk_agent_model_selection_links")
+        ),
     )
     op.create_index(
-        op.f("ix_agent_enabled_models_id"),
-        "agent_enabled_models",
+        "ix_agent_model_selection_links_catalog_id",
+        "agent_model_selection_links",
+        ["catalog_id"],
+        unique=False,
+    )
+    op.create_index(
+        op.f("ix_agent_model_selection_links_id"),
+        "agent_model_selection_links",
         ["id"],
         unique=True,
     )
     op.create_index(
-        op.f("ix_agent_enabled_models_source_id"),
-        "agent_enabled_models",
-        ["source_id"],
-        unique=False,
-    )
-    op.create_index(
-        "ix_agent_enabled_models_workspace_id",
-        "agent_enabled_models",
+        "ix_agent_model_selection_links_workspace_id",
+        "agent_model_selection_links",
         ["workspace_id"],
         unique=False,
     )
     op.create_index(
-        "uq_agent_enabled_models_identity",
-        "agent_enabled_models",
-        [
-            "organization_id",
-            "workspace_id",
-            "source_id",
-            "model_provider",
-            "model_name",
-        ],
+        "uq_agent_model_selection_links_identity",
+        "agent_model_selection_links",
+        ["organization_id", "workspace_id", "catalog_id"],
         unique=True,
         postgresql_nulls_not_distinct=True,
     )
@@ -239,7 +233,10 @@ def upgrade() -> None:
         existing_nullable=False,
     )
     op.create_index(
-        op.f("ix_agent_preset_source_id"), "agent_preset", ["source_id"], unique=False
+        op.f("ix_agent_preset_source_id"),
+        "agent_preset",
+        ["source_id"],
+        unique=False,
     )
     op.create_foreign_key(
         op.f("fk_agent_preset_source_id_agent_custom_sources"),
@@ -284,7 +281,10 @@ def upgrade() -> None:
         sa.Column("model_provider", sa.String(length=120), nullable=True),
     )
     op.create_index(
-        op.f("ix_agent_session_source_id"), "agent_session", ["source_id"], unique=False
+        op.f("ix_agent_session_source_id"),
+        "agent_session",
+        ["source_id"],
+        unique=False,
     )
     op.create_foreign_key(
         op.f("fk_agent_session_source_id_agent_custom_sources"),
@@ -297,7 +297,7 @@ def upgrade() -> None:
 
     op.execute(enable_org_table_rls("agent_custom_sources"))
     op.execute(enable_org_shared_table_rls("agent_catalog"))
-    op.execute(enable_org_optional_workspace_table_rls("agent_enabled_models"))
+    op.execute(enable_org_optional_workspace_table_rls("agent_model_selection_links"))
 
     bind = op.get_bind()
     organization_ids = [
@@ -331,9 +331,7 @@ def upgrade() -> None:
                     for organization_id in organization_ids
                 ]
             )
-            .on_conflict_do_nothing(
-                index_elements=["organization_id", "key"],
-            )
+            .on_conflict_do_nothing(index_elements=["organization_id", "key"])
         )
 
 
@@ -343,7 +341,7 @@ def downgrade() -> None:
             key=ENABLE_ALL_MODELS_ON_UPGRADE_SETTING
         )
     )
-    op.execute(disable_org_optional_workspace_table_rls("agent_enabled_models"))
+    op.execute(disable_org_optional_workspace_table_rls("agent_model_selection_links"))
     op.execute(disable_org_shared_table_rls("agent_catalog"))
     op.execute(disable_org_table_rls("agent_custom_sources"))
 
@@ -408,18 +406,23 @@ def downgrade() -> None:
     op.drop_column("agent_preset", "source_id")
 
     op.drop_index(
-        "uq_agent_enabled_models_identity",
-        table_name="agent_enabled_models",
+        "uq_agent_model_selection_links_identity",
+        table_name="agent_model_selection_links",
         postgresql_nulls_not_distinct=True,
     )
     op.drop_index(
-        "ix_agent_enabled_models_workspace_id", table_name="agent_enabled_models"
+        "ix_agent_model_selection_links_workspace_id",
+        table_name="agent_model_selection_links",
     )
     op.drop_index(
-        op.f("ix_agent_enabled_models_source_id"), table_name="agent_enabled_models"
+        op.f("ix_agent_model_selection_links_id"),
+        table_name="agent_model_selection_links",
     )
-    op.drop_index(op.f("ix_agent_enabled_models_id"), table_name="agent_enabled_models")
-    op.drop_table("agent_enabled_models")
+    op.drop_index(
+        "ix_agent_model_selection_links_catalog_id",
+        table_name="agent_model_selection_links",
+    )
+    op.drop_table("agent_model_selection_links")
 
     op.drop_index(
         "uq_agent_catalog_source_id_model_provider_model_name",
@@ -432,8 +435,5 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_agent_catalog_organization_id"), table_name="agent_catalog")
     op.drop_table("agent_catalog")
 
-    op.drop_index(
-        op.f("ix_agent_custom_sources_id"),
-        table_name="agent_custom_sources",
-    )
+    op.drop_index(op.f("ix_agent_custom_sources_id"), table_name="agent_custom_sources")
     op.drop_table("agent_custom_sources")

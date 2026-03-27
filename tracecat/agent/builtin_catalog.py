@@ -5,29 +5,28 @@ import re
 import uuid
 from dataclasses import dataclass
 from functools import lru_cache
-from importlib.metadata import version
+from pathlib import Path
 from typing import Any
+
+import orjson
 
 from tracecat.agent.types import ModelSourceType
 
+PLATFORM_CATALOG_SCHEMA_VERSION = 1
+PLATFORM_CATALOG_PATH = Path(__file__).with_name("platform_catalog.json")
+PLATFORM_CATALOG_RELATIVE_PATH = Path("tracecat/agent/platform_catalog.json")
 
-def _load_litellm_model_payload() -> dict[str, Any]:
-    import litellm  # lazy: litellm calls load_dotenv() at import time
-
-    return dict(litellm.model_cost)
-
-
-LITELLM_PINNED_VERSION = version("litellm")
-
-_UPSTREAM_TO_SOURCE_TYPE: dict[str, ModelSourceType] = {
+_PROVIDER_TO_SOURCE_TYPE: dict[str, ModelSourceType] = {
     "openai": ModelSourceType.OPENAI,
     "anthropic": ModelSourceType.ANTHROPIC,
     "gemini": ModelSourceType.GEMINI,
     "bedrock": ModelSourceType.BEDROCK,
-    "bedrock_converse": ModelSourceType.BEDROCK,
     "vertex_ai": ModelSourceType.VERTEX_AI,
-    "azure": ModelSourceType.AZURE_OPENAI,
+    "azure_openai": ModelSourceType.AZURE_OPENAI,
     "azure_ai": ModelSourceType.AZURE_AI,
+}
+_PROVIDER_PREFIX_HINTS = {
+    "azure_openai": "azure",
 }
 _AGENT_SUPPORTED_MODES = {
     "chat",
@@ -92,6 +91,13 @@ class BuiltInCatalogModel:
     metadata: dict[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class BuiltInCatalogSnapshot:
+    version: int
+    content_hash: str
+    models: dict[str, dict[str, Any]]
+
+
 def _strip_provider_prefix(raw_model_id: str, upstream_provider: str) -> str:
     prefix = f"{upstream_provider}/"
     if raw_model_id.startswith(prefix):
@@ -136,21 +142,136 @@ def _is_builtin_catalog_model_blocked(*, raw_model_id: str, model_name: str) -> 
 
 
 @lru_cache(maxsize=1)
+def _load_platform_catalog_snapshot() -> BuiltInCatalogSnapshot:
+    try:
+        raw_payload = PLATFORM_CATALOG_PATH.read_bytes()
+    except FileNotFoundError as exc:
+        raise ValueError(
+            f"Platform catalog snapshot not found at {PLATFORM_CATALOG_PATH}"
+        ) from exc
+    try:
+        payload = orjson.loads(raw_payload)
+    except orjson.JSONDecodeError as exc:
+        raise ValueError(
+            f"Platform catalog snapshot at {PLATFORM_CATALOG_PATH} is not valid JSON"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Platform catalog snapshot must be a JSON object")
+    if payload.get("version") != PLATFORM_CATALOG_SCHEMA_VERSION:
+        raise ValueError(
+            "Platform catalog snapshot version mismatch: "
+            f"expected {PLATFORM_CATALOG_SCHEMA_VERSION}, got {payload.get('version')}"
+        )
+    models = payload.get("models")
+    if not isinstance(models, dict):
+        raise ValueError("Platform catalog snapshot must define a 'models' object")
+    normalized_models: dict[str, dict[str, Any]] = {}
+    for raw_model_id, item in models.items():
+        if not isinstance(raw_model_id, str):
+            raise ValueError("Platform catalog model IDs must be strings")
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"Platform catalog entry for {raw_model_id!r} must be an object"
+            )
+        normalized_models[raw_model_id] = dict(item)
+    return BuiltInCatalogSnapshot(
+        version=PLATFORM_CATALOG_SCHEMA_VERSION,
+        content_hash=hashlib.sha256(raw_payload).hexdigest(),
+        models=normalized_models,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_builtin_catalog_metadata() -> dict[str, Any]:
+    snapshot = _load_platform_catalog_snapshot()
+    return {
+        "catalog_version": snapshot.version,
+        "catalog_sha256": snapshot.content_hash,
+        "catalog_path": str(PLATFORM_CATALOG_RELATIVE_PATH),
+    }
+
+
+def _resolve_snapshot_provider(
+    *,
+    raw_model_id: str,
+    item: dict[str, Any],
+) -> tuple[str, str, ModelSourceType]:
+    provider = item.get("provider")
+    if not isinstance(provider, str) or not provider.strip():
+        raise ValueError(
+            f"Platform catalog entry {raw_model_id!r} is missing a valid provider"
+        )
+    canonical_provider = provider.strip()
+    if not (source_type := _PROVIDER_TO_SOURCE_TYPE.get(canonical_provider)):
+        raise ValueError(
+            f"Platform catalog entry {raw_model_id!r} has unsupported provider "
+            f"{canonical_provider!r}"
+        )
+    upstream_provider_value = item.get("litellm_provider")
+    if upstream_provider_value is None:
+        upstream_provider = _PROVIDER_PREFIX_HINTS.get(
+            canonical_provider, canonical_provider
+        )
+    elif isinstance(upstream_provider_value, str) and upstream_provider_value.strip():
+        upstream_provider = upstream_provider_value.strip()
+    else:
+        raise ValueError(
+            f"Platform catalog entry {raw_model_id!r} has invalid litellm_provider"
+        )
+    return canonical_provider, upstream_provider, source_type
+
+
+def _resolve_display_name(
+    *,
+    item: dict[str, Any],
+    model_id: str,
+) -> str:
+    if isinstance(display_name := item.get("display_name"), str):
+        if normalized_display_name := display_name.strip():
+            return normalized_display_name
+    return model_id
+
+
+def _resolve_model_id(
+    *,
+    raw_model_id: str,
+    item: dict[str, Any],
+    upstream_provider: str,
+) -> str:
+    if isinstance(model_name := item.get("model_name"), str):
+        if normalized_model_name := model_name.strip():
+            return normalized_model_name
+    return _strip_provider_prefix(raw_model_id, upstream_provider)
+
+
+@lru_cache(maxsize=1)
 def get_builtin_catalog_models() -> tuple[BuiltInCatalogModel, ...]:
-    model_payload = _load_litellm_model_payload()
+    snapshot = _load_platform_catalog_snapshot()
+    snapshot_metadata = get_builtin_catalog_metadata()
 
     rows: list[BuiltInCatalogModel] = []
-    for raw_model_id, item in model_payload.items():
-        if not isinstance(raw_model_id, str) or not isinstance(item, dict):
-            continue
-        upstream_provider = item.get("litellm_provider")
-        if not isinstance(upstream_provider, str):
-            continue
-        if not (source_type := _UPSTREAM_TO_SOURCE_TYPE.get(upstream_provider)):
-            continue
-
-        model_provider = source_type.value
-        model_name = _strip_provider_prefix(raw_model_id, upstream_provider)
+    seen_identities: set[tuple[str, str]] = set()
+    for raw_model_id, item in snapshot.models.items():
+        model_provider, upstream_provider, source_type = _resolve_snapshot_provider(
+            raw_model_id=raw_model_id,
+            item=item,
+        )
+        model_id = _resolve_model_id(
+            raw_model_id=raw_model_id,
+            item=item,
+            upstream_provider=upstream_provider,
+        )
+        identity = (model_provider, model_id)
+        if identity in seen_identities:
+            raise ValueError(
+                "Platform catalog snapshot contains duplicate provider/model_name "
+                f"identity {identity!r}"
+            )
+        seen_identities.add(identity)
+        model_name = _resolve_display_name(
+            item=item,
+            model_id=model_id,
+        )
         if _is_builtin_catalog_model_blocked(
             raw_model_id=raw_model_id,
             model_name=model_name,
@@ -162,15 +283,15 @@ def get_builtin_catalog_models() -> tuple[BuiltInCatalogModel, ...]:
             **item,
             "upstream_provider": upstream_provider,
             "upstream_model_id": raw_model_id,
-            "litellm_version": LITELLM_PINNED_VERSION,
+            **snapshot_metadata,
         }
 
         rows.append(
             BuiltInCatalogModel(
-                agent_catalog_id=_catalog_uuid(model_provider, raw_model_id),
+                agent_catalog_id=_catalog_uuid(model_provider, model_id),
                 source_type=source_type,
                 model_provider=model_provider,
-                model_id=raw_model_id,
+                model_id=model_id,
                 display_name=model_name,
                 mode=mode if isinstance(mode, str) else None,
                 enableable=enableable,

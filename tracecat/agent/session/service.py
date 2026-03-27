@@ -27,8 +27,9 @@ from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.runtime.service import AgentRuntimeService
 from tracecat.agent.schemas import ModelSelection, RunAgentArgs
-from tracecat.agent.service import AgentManagementService
+from tracecat.agent.selections.service import AgentSelectionsService
 from tracecat.agent.session.schemas import (
     AgentSessionCreate,
     AgentSessionRead,
@@ -149,7 +150,7 @@ class AgentSessionService(BaseWorkspaceService):
                 "explicit model selection cannot be set when the session resolves to a preset"
             )
         if args.model_provider is not None and args.model_name is not None:
-            agent_svc = AgentManagementService(self.session, self.role)
+            agent_svc = AgentSelectionsService(self.session, self.role)
             await agent_svc.require_enabled_model_selection(
                 selection=ModelSelection(
                     source_id=args.source_id,
@@ -540,7 +541,7 @@ class AgentSessionService(BaseWorkspaceService):
                     "model_name and model_provider must be set together when selecting a model"
                 )
             if model_name is not None and model_provider is not None:
-                agent_svc = AgentManagementService(self.session, self.role)
+                agent_svc = AgentSelectionsService(self.session, self.role)
                 await agent_svc.require_enabled_model_selection(
                     selection=ModelSelection(
                         source_id=source_id,
@@ -853,7 +854,7 @@ class AgentSessionService(BaseWorkspaceService):
                     ),
                 }
             )
-            agent_service = AgentManagementService(self.session, service_role)
+            agent_service = AgentRuntimeService(self.session, service_role)
             async with agent_service.with_model_config() as model_config:
                 new_title = await generate_session_title(
                     user_prompt=prompt,
@@ -1301,7 +1302,7 @@ class AgentSessionService(BaseWorkspaceService):
             ValueError: If the session entity type is unsupported.
             TracecatNotFoundError: If required resources are not found.
         """
-        agent_svc = AgentManagementService(self.session, self.role)
+        agent_svc = AgentRuntimeService(self.session, self.role)
         session_selection = self._session_model_selection(agent_session)
 
         if agent_session.entity_type is None:

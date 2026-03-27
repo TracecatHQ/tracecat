@@ -1689,25 +1689,29 @@ class AgentCatalog(Base, TimestampMixin):
     source: Mapped[AgentSource | None] = relationship(
         "AgentSource", back_populates="catalog_rows"
     )
+    selection_links: Mapped[list[AgentModelSelectionLink]] = relationship(
+        "AgentModelSelectionLink",
+        back_populates="catalog",
+        cascade="all, delete-orphan",
+    )
 
 
-class AgentEnabledModel(OrganizationModel):
-    """Organization- and workspace-scoped enabled subset of the agent catalog."""
+class AgentModelSelectionLink(OrganizationModel):
+    """Organization- and workspace-scoped links to accessible catalog entries."""
 
-    __tablename__ = "agent_enabled_models"
+    __tablename__ = "agent_model_selection_links"
     __table_args__ = (
         CheckConstraint(
             "workspace_id IS NULL OR enabled_config IS NULL",
-            name="ck_agent_enabled_models_workspace_config",
+            name="ck_agent_model_selection_links_workspace_config",
         ),
-        Index("ix_agent_enabled_models_workspace_id", "workspace_id"),
+        Index("ix_agent_model_selection_links_workspace_id", "workspace_id"),
+        Index("ix_agent_model_selection_links_catalog_id", "catalog_id"),
         Index(
-            "uq_agent_enabled_models_identity",
+            "uq_agent_model_selection_links_identity",
             "organization_id",
             "workspace_id",
-            "source_id",
-            "model_provider",
-            "model_name",
+            "catalog_id",
             unique=True,
             postgresql_nulls_not_distinct=True,
         ),
@@ -1729,15 +1733,16 @@ class AgentEnabledModel(OrganizationModel):
         ForeignKey("workspace.id", ondelete="CASCADE"),
         nullable=True,
     )
-    source_id: Mapped[uuid.UUID | None] = mapped_column(
+    catalog_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
-        ForeignKey("agent_custom_sources.id", ondelete="CASCADE"),
-        nullable=True,
-        index=True,
+        ForeignKey("agent_catalog.id", ondelete="CASCADE"),
+        nullable=False,
     )
-    model_provider: Mapped[str] = mapped_column(String(120), nullable=False)
-    model_name: Mapped[str] = mapped_column(String(500), nullable=False)
     enabled_config: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    catalog: Mapped[AgentCatalog] = relationship(
+        "AgentCatalog",
+        back_populates="selection_links",
+    )
 
 
 AgentModelSource = AgentSource

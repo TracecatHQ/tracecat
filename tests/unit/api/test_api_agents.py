@@ -7,8 +7,10 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
-from tracecat.agent import router as agent_router
+from tracecat.agent.catalog import router as catalog_router
+from tracecat.agent.credentials import router as credentials_router
 from tracecat.agent.schemas import ModelSelection, WorkspaceModelSubsetRead
+from tracecat.agent.selections import router as selections_router
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import TracecatNotFoundError
@@ -29,7 +31,9 @@ async def test_get_provider_credential_config_not_found(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+    with patch.object(
+        credentials_router, "AgentCredentialsService"
+    ) as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.get_provider_credential_config.side_effect = TracecatNotFoundError(
             "Provider not found"
@@ -39,6 +43,139 @@ async def test_get_provider_credential_config_not_found(
         response = client.get("/agent/providers/invalid/config")
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_get_providers_status_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(
+        credentials_router, "AgentCredentialsService"
+    ) as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.get_providers_status.return_value = {
+            "openai": True,
+            "anthropic": False,
+        }
+        mock_service_cls.return_value = mock_svc
+
+        response = client.get("/agent/providers/status")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"openai": True, "anthropic": False}
+
+
+@pytest.mark.anyio
+async def test_list_providers_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(catalog_router, "AgentCatalogService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_providers.return_value = []
+        mock_service_cls.return_value = mock_svc
+
+        response = client.get("/agent/providers")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == []
+    mock_svc.list_providers.assert_awaited_once_with(
+        configured_only=True,
+        include_discovered_models=False,
+    )
+
+
+@pytest.mark.anyio
+async def test_list_providers_accepts_explicit_query_flags(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(catalog_router, "AgentCatalogService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_providers.return_value = []
+        mock_service_cls.return_value = mock_svc
+
+        response = client.get(
+            "/agent/providers",
+            params={
+                "configured_only": "false",
+                "include_discovered_models": "true",
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == []
+    mock_svc.list_providers.assert_awaited_once_with(
+        configured_only=False,
+        include_discovered_models=True,
+    )
+
+
+@pytest.mark.anyio
+async def test_create_provider_credentials_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(
+        credentials_router, "AgentCredentialsService"
+    ) as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.create_provider_credentials.return_value = None
+        mock_service_cls.return_value = mock_svc
+
+        response = client.post(
+            "/agent/credentials",
+            json={
+                "provider": "openai",
+                "credentials": {"OPENAI_API_KEY": "sk-test"},
+            },
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.json() == {"message": "Credentials for openai created successfully"}
+    mock_svc.create_provider_credentials.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_update_provider_credentials_not_found(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(
+        credentials_router, "AgentCredentialsService"
+    ) as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.update_provider_credentials.side_effect = TracecatNotFoundError(
+            "missing"
+        )
+        mock_service_cls.return_value = mock_svc
+
+        response = client.put(
+            "/agent/credentials/openai",
+            json={"credentials": {"OPENAI_API_KEY": "sk-test"}},
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json() == {"detail": "Credentials for provider openai not found"}
+
+
+@pytest.mark.anyio
+async def test_delete_provider_credentials_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(
+        credentials_router, "AgentCredentialsService"
+    ) as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.delete_provider_credentials.return_value = None
+        mock_service_cls.return_value = mock_svc
+
+        response = client.delete("/agent/credentials/openai")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"message": "Credentials for openai deleted successfully"}
 
 
 @pytest.mark.anyio
@@ -56,7 +193,7 @@ async def test_set_default_model_not_found(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.set_default_model_selection.side_effect = TracecatNotFoundError(
             "Model not found"
@@ -80,7 +217,7 @@ async def test_disable_models_uses_post_batch_endpoint(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
         mock_svc = AsyncMock()
         mock_service_cls.return_value = mock_svc
 
@@ -109,7 +246,7 @@ async def test_get_workspace_model_subset_success(
     workspace_id = test_admin_role.workspace_id
     assert workspace_id is not None
 
-    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.get_workspace_model_subset.return_value = WorkspaceModelSubsetRead(
             inherit_all=False,
@@ -145,7 +282,7 @@ async def test_replace_workspace_model_subset_rejects_explicit_empty(
     workspace_id = test_admin_role.workspace_id
     assert workspace_id is not None
 
-    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.replace_workspace_model_subset.side_effect = ValueError(
             "Workspace subsets must include at least one model when inherit_all is false."
@@ -170,7 +307,7 @@ async def test_replace_workspace_model_subset_not_found(
 ) -> None:
     workspace_id = uuid.uuid4()
 
-    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.replace_workspace_model_subset.side_effect = TracecatNotFoundError(
             f"Workspace {workspace_id} not found"
@@ -203,7 +340,7 @@ async def test_replace_workspace_model_subset_bad_request(
     workspace_id = test_admin_role.workspace_id
     assert workspace_id is not None
 
-    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.replace_workspace_model_subset.side_effect = ValueError(
             "Model openai/gpt-5.2 is not enabled for the organization"
@@ -238,7 +375,7 @@ async def test_clear_workspace_model_subset_success(
     workspace_id = test_admin_role.workspace_id
     assert workspace_id is not None
 
-    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.clear_workspace_model_subset.return_value = None
         mock_service_cls.return_value = mock_svc
@@ -256,7 +393,7 @@ async def test_clear_workspace_model_subset_not_found(
 ) -> None:
     workspace_id = uuid.uuid4()
 
-    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.clear_workspace_model_subset.side_effect = TracecatNotFoundError(
             f"Workspace {workspace_id} not found"
@@ -286,7 +423,9 @@ async def test_list_models_allows_workspace_filter_with_workspace_access(
     )
     token = ctx_role.set(restricted_role)
     try:
-        with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+        with patch.object(
+            selections_router, "AgentSelectionsService"
+        ) as mock_service_cls:
             mock_svc = AsyncMock()
             mock_svc.list_models.return_value = []
             mock_service_cls.return_value = mock_svc
@@ -307,7 +446,9 @@ async def test_list_models_rejects_workspace_filter_outside_role_workspace(
     workspace_id = uuid.uuid4()
     token = ctx_role.set(test_admin_role)
     try:
-        with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+        with patch.object(
+            selections_router, "AgentSelectionsService"
+        ) as mock_service_cls:
             response = client.get(f"/agent/models?workspace_id={workspace_id}")
     finally:
         ctx_role.reset(token)
@@ -321,7 +462,7 @@ async def test_list_platform_catalog_invalid_cursor_returns_bad_request(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+    with patch.object(catalog_router, "AgentCatalogService") as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.list_builtin_catalog.side_effect = ValueError(
             "Invalid cursor. Expected a non-negative integer offset."
@@ -354,7 +495,9 @@ async def test_get_workspace_model_subset_allows_workspace_member_without_org_wo
     )
     token = ctx_role.set(restricted_role)
     try:
-        with patch.object(agent_router, "AgentManagementService") as mock_service_cls:
+        with patch.object(
+            selections_router, "AgentSelectionsService"
+        ) as mock_service_cls:
             mock_svc = AsyncMock()
             mock_svc.get_workspace_model_subset.return_value = WorkspaceModelSubsetRead(
                 inherit_all=True,

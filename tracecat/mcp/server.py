@@ -47,6 +47,7 @@ from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat import config
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.credentials.service import AgentCredentialsService
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
@@ -54,7 +55,7 @@ from tracecat.agent.preset.schemas import (
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import ModelSelection
-from tracecat.agent.service import AgentManagementService
+from tracecat.agent.selections.service import AgentSelectionsService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
@@ -493,11 +494,14 @@ async def _resolve_agent_preset_model(
     model_provider: str | None,
 ) -> ModelSelection:
     """Resolve explicit or default model inputs for preset creation."""
-    async with AgentManagementService.with_session(role=role) as svc:
-        list_models = getattr(svc, "list_models", None)
+    async with AgentSelectionsService.with_session(role=role) as selections_svc:
         provider_status_org: dict[str, bool] | None = None
-        if get_provider_status := getattr(svc, "get_providers_status", None):
-            provider_status_org = await get_provider_status()
+        async with AgentCredentialsService.with_session(role=role) as credentials_svc:
+            provider_status_org = await credentials_svc.get_providers_status()
+        models = await _list_authoring_models(
+            selections_svc,
+            workspace_id=role.workspace_id,
+        )
         if (
             source_id is not None
             or model_name is not None
@@ -513,80 +517,44 @@ async def _resolve_agent_preset_model(
                     parsed_source_id = uuid.UUID(source_id)
                 except ValueError as exc:
                     raise ToolError("Invalid source_id") from exc
-            if callable(list_models):
-                models = await _list_authoring_models(
-                    svc, workspace_id=role.workspace_id
+            matches = [
+                item
+                for item in models
+                if item["model_name"] == model_name
+                and item["model_provider"] == model_provider
+                and (
+                    parsed_source_id is None
+                    or item.get("source_id") == str(parsed_source_id)
                 )
-                matches = [
-                    item
-                    for item in models
-                    if item["model_name"] == model_name
-                    and item["model_provider"] == model_provider
-                    and (
-                        parsed_source_id is None
-                        or item.get("source_id") == str(parsed_source_id)
-                    )
-                ]
-                if not matches:
-                    source_hint = f" for source_id '{source_id}'" if source_id else ""
-                    raise ToolError(f"Model '{model_name}' not found{source_hint}")
-                if len(matches) > 1:
-                    raise ToolError(
-                        f"Model '{model_provider}/{model_name}' is ambiguous across multiple sources. "
-                        "Pass source_id to select the desired source-backed model."
-                    )
-                selection = ModelSelection.model_validate(matches[0])
-            else:
-                model_config = await svc.get_model_config(model_name)
-                actual_provider = str(model_config.provider)
-                if actual_provider != model_provider:
-                    raise ToolError(
-                        f"Model '{model_name}' belongs to provider '{actual_provider}', not '{model_provider}'"
-                    )
-                selection = ModelSelection(
-                    source_id=parsed_source_id,
-                    model_provider=model_provider,
-                    model_name=model_name,
+            ]
+            if not matches:
+                source_hint = f" for source_id '{source_id}'" if source_id else ""
+                raise ToolError(f"Model '{model_name}' not found{source_hint}")
+            if len(matches) > 1:
+                raise ToolError(
+                    f"Model '{model_provider}/{model_name}' is ambiguous across multiple sources. "
+                    "Pass source_id to select the desired source-backed model."
                 )
+            selection = ModelSelection.model_validate(matches[0])
         else:
-            if not (default_model := await svc.get_default_model()):
+            if not (default_model := await selections_svc.get_default_model()):
                 raise ToolError(
                     "No default model configured for this organization. Set one before creating a preset without explicit model fields."
                 )
-            if isinstance(default_model, str):
-                selection = ModelSelection(
-                    source_id=None,
-                    model_provider=str(
-                        (await svc.get_model_config(default_model)).provider
-                    ),
-                    model_name=default_model,
+            selection = ModelSelection(
+                source_id=default_model.source_id,
+                model_provider=default_model.model_provider,
+                model_name=default_model.model_name,
+            )
+            matches = [
+                item
+                for item in models
+                if _authoring_model_matches_selection(item, selection)
+            ]
+            if not matches:
+                raise ToolError(
+                    f"Model {selection.model_provider}/{selection.model_name} is not enabled"
                 )
-            else:
-                selection = ModelSelection(
-                    source_id=default_model.source_id,
-                    model_provider=default_model.model_provider,
-                    model_name=default_model.model_name,
-                )
-            if callable(list_models) and role.workspace_id is not None:
-                models = await _list_authoring_models(
-                    svc, workspace_id=role.workspace_id
-                )
-                matches = [
-                    item
-                    for item in models
-                    if _authoring_model_matches_selection(item, selection)
-                ]
-                if not matches:
-                    raise ToolError(
-                        f"Model {selection.model_provider}/{selection.model_name} is not enabled"
-                    )
-            elif require_enabled := getattr(
-                svc, "require_enabled_model_selection", None
-            ):
-                try:
-                    await require_enabled(selection, workspace_id=role.workspace_id)
-                except TracecatNotFoundError as exc:
-                    raise ToolError(str(exc)) from exc
         if selection.source_id is not None:
             return selection
         if (
@@ -6006,10 +5974,16 @@ async def get_secret_metadata(
 
 async def _build_agent_preset_authoring_context(role: Any) -> dict[str, Any]:
     """Build authoring context for MCP preset creation."""
-    async with AgentManagementService.with_session(role=role) as svc:
-        raw_models = await _list_authoring_models(svc, workspace_id=role.workspace_id)
-        default_model = await svc.get_default_model()
-        provider_status_org = await svc.get_providers_status()
+    async with (
+        AgentSelectionsService.with_session(role=role) as selections_svc,
+        AgentCredentialsService.with_session(role=role) as credentials_svc,
+    ):
+        raw_models = await _list_authoring_models(
+            selections_svc,
+            workspace_id=role.workspace_id,
+        )
+        default_model = await selections_svc.get_default_model()
+        provider_status_org = await credentials_svc.get_providers_status()
 
     async with VariablesService.with_session(role=role) as svc:
         variables = await svc.list_variables(environment=DEFAULT_SECRETS_ENVIRONMENT)

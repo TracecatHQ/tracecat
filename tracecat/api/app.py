@@ -19,18 +19,21 @@ from tracecat import __version__ as APP_VERSION
 from tracecat import config
 from tracecat.admin.agent.router import router as admin_agent_router
 from tracecat.admin.registry.router import router as admin_registry_router
+from tracecat.agent.catalog.router import router as agent_catalog_router
+from tracecat.agent.catalog.startup import sync_model_catalogs_on_startup
 from tracecat.agent.channels.management_router import (
     router as agent_channels_management_router,
 )
 from tracecat.agent.channels.router import router as agent_channels_router
+from tracecat.agent.credentials.router import router as agent_credentials_router
 from tracecat.agent.internal_router import router as internal_agent_router
 from tracecat.agent.preset.internal_router import (
     router as internal_agent_preset_router,
 )
 from tracecat.agent.preset.router import router as agent_preset_router
-from tracecat.agent.router import router as agent_router
-from tracecat.agent.service import sync_model_catalogs_on_startup
+from tracecat.agent.selections.router import router as agent_selections_router
 from tracecat.agent.session.router import router as agent_session_router
+from tracecat.agent.sources.router import router as agent_sources_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
     bootstrap_role,
@@ -458,7 +461,10 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(tags_router)
     app.include_router(users_router)
     app.include_router(org_router)
-    app.include_router(agent_router)
+    app.include_router(agent_catalog_router, prefix="/agent")
+    app.include_router(agent_credentials_router, prefix="/agent")
+    app.include_router(agent_selections_router, prefix="/agent")
+    app.include_router(agent_sources_router, prefix="/agent")
     app.include_router(agent_channels_management_router)
     app.include_router(agent_preset_router)
     app.include_router(agent_session_router)

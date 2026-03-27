@@ -57,6 +57,33 @@ OrgUserRole = Annotated[
 Sets the `ctx_role` context variable.
 """
 
+OrgUserOptionalWorkspaceRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="optional",
+    ),
+]
+"""Dependency for a user role where workspace context is optional.
+
+Sets the `ctx_role` context variable.
+"""
+
+WorkspaceUserInPathRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+        workspace_id_in_path=True,
+    ),
+]
+"""Dependency for a user role where workspace_id comes from the URL path.
+
+Sets the `ctx_role` context variable.
+"""
+
 
 async def verify_auth_type(
     auth_type: AuthType,

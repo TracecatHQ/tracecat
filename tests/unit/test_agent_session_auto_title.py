@@ -37,7 +37,7 @@ def user_role() -> Role:
     )
 
 
-class _DummyAgentManagementService:
+class _DummyAgentRuntimeService:
     def __init__(self, *args, **kwargs):
         pass
 
@@ -71,8 +71,8 @@ async def test_auto_title_updates_session_on_first_prompt(role: Role) -> None:
 
     with (
         patch(
-            "tracecat.agent.session.service.AgentManagementService",
-            _DummyAgentManagementService,
+            "tracecat.agent.session.service.AgentRuntimeService",
+            _DummyAgentRuntimeService,
         ),
         patch(
             "tracecat.agent.session.service.generate_session_title",
@@ -113,7 +113,7 @@ async def test_auto_title_uses_service_role_for_model_config(user_role: Role) ->
 
     captured_roles: list[Role] = []
 
-    class _CapturingAgentManagementService:
+    class _CapturingAgentRuntimeService:
         def __init__(self, *args, **kwargs):
             role = kwargs.get("role", args[1] if len(args) > 1 else None)
             assert role is not None
@@ -130,8 +130,8 @@ async def test_auto_title_uses_service_role_for_model_config(user_role: Role) ->
 
     with (
         patch(
-            "tracecat.agent.session.service.AgentManagementService",
-            _CapturingAgentManagementService,
+            "tracecat.agent.session.service.AgentRuntimeService",
+            _CapturingAgentRuntimeService,
         ),
         patch(
             "tracecat.agent.session.service.generate_session_title",
@@ -189,8 +189,8 @@ async def test_auto_title_does_not_raise_on_expected_generation_error(
 
     with (
         patch(
-            "tracecat.agent.session.service.AgentManagementService",
-            _DummyAgentManagementService,
+            "tracecat.agent.session.service.AgentRuntimeService",
+            _DummyAgentRuntimeService,
         ),
         patch(
             "tracecat.agent.session.service.generate_session_title",
@@ -222,8 +222,8 @@ async def test_auto_title_raises_on_unexpected_generation_error(role: Role) -> N
 
     with (
         patch(
-            "tracecat.agent.session.service.AgentManagementService",
-            _DummyAgentManagementService,
+            "tracecat.agent.session.service.AgentRuntimeService",
+            _DummyAgentRuntimeService,
         ),
         patch(
             "tracecat.agent.session.service.generate_session_title",
@@ -272,8 +272,8 @@ async def test_auto_title_skips_when_compare_and_set_guard_fails(role: Role) -> 
 
     with (
         patch(
-            "tracecat.agent.session.service.AgentManagementService",
-            _DummyAgentManagementService,
+            "tracecat.agent.session.service.AgentRuntimeService",
+            _DummyAgentRuntimeService,
         ),
         patch(
             "tracecat.agent.session.service.generate_session_title",

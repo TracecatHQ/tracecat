@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat.admin.agent.schemas import PlatformCatalogRead
-from tracecat.admin.agent.service import AdminAgentService
+from tracecat.agent.catalog.service import AdminAgentCatalogService
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
 
@@ -21,7 +21,7 @@ async def list_platform_catalog(
     cursor: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=200),
 ) -> PlatformCatalogRead:
-    service = AdminAgentService(session, role)
+    service = AdminAgentCatalogService(session, role)
     try:
         return await service.list_platform_catalog(
             query=query,
@@ -34,12 +34,3 @@ async def list_platform_catalog(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
-
-
-@router.post("/catalog/platform/refresh", response_model=PlatformCatalogRead)
-async def refresh_platform_catalog(
-    role: SuperuserRole,
-    session: AsyncDBSessionBypass,
-) -> PlatformCatalogRead:
-    service = AdminAgentService(session, role)
-    return await service.refresh_platform_catalog()

@@ -9567,7 +9567,7 @@ export const $CursorPaginatedResponse_WorkflowRunReadMinimal_ = {
 
 export const $CustomModelSourceFlavor = {
   type: "string",
-  enum: ["generic_openai_compatible", "ollama", "vllm", "litellm", "manual"],
+  enum: ["generic_openai_compatible", "ollama", "vllm", "manual"],
   title: "CustomModelSourceFlavor",
 } as const
 

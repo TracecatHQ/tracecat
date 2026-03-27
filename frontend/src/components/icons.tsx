@@ -525,11 +525,6 @@ export const providerIcons: Record<
       <OllamaIcon {...rest} />
     </div>
   ),
-  litellm: ({ className, ...rest }) => (
-    <div className={className}>
-      <WandSparkles {...rest} />
-    </div>
-  ),
   vllm: ({ className, ...rest }) => (
     <div className={className}>
       <VllmIcon {...rest} />

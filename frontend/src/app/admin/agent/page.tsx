@@ -1,6 +1,5 @@
 "use client"
 
-import { RefreshCwIcon } from "lucide-react"
 import { useMemo, useState } from "react"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -10,13 +9,8 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { toast } from "@/components/ui/use-toast"
-import {
-  useAdminPlatformCatalog,
-  useAdminPlatformCatalogRefresh,
-} from "@/hooks/use-admin"
+import { useAdminPlatformCatalog } from "@/hooks/use-admin"
 
 function getProviderIconId(provider?: string | null): string {
   switch (provider) {
@@ -126,10 +120,7 @@ function formatStatus(value?: string | null): string {
 
 export default function AdminAgentPage() {
   const [query, setQuery] = useState("")
-  const { catalog, isLoading, error, refetch } = useAdminPlatformCatalog({
-    query,
-  })
-  const { refreshCatalog, refreshPending } = useAdminPlatformCatalogRefresh()
+  const { catalog, isLoading, error } = useAdminPlatformCatalog({ query })
   const providerSections = useMemo(() => {
     const grouped = new Map<
       string,
@@ -165,24 +156,6 @@ export default function AdminAgentPage() {
   }, [catalog?.models])
   const loadedModelCount = catalog?.models.length ?? 0
 
-  async function handleRefresh() {
-    try {
-      await refreshCatalog()
-      toast({
-        title: "Platform catalog refreshed",
-        description: "The shared platform model library has been refreshed.",
-      })
-      refetch()
-    } catch (refreshError) {
-      console.error("Failed to refresh platform catalog", refreshError)
-      toast({
-        title: "Refresh failed",
-        description: "Failed to refresh the shared platform model library.",
-        variant: "destructive",
-      })
-    }
-  }
-
   if (isLoading) {
     return <CenteredSpinner />
   }
@@ -204,24 +177,9 @@ export default function AdminAgentPage() {
               Agent models
             </h2>
             <p className="text-base text-muted-foreground">
-              Manage the shared platform model library and refresh the vendored
-              platform catalog.
+              Review the shared platform model library loaded from the committed
+              catalog snapshot during startup.
             </p>
-          </div>
-          <div className="ml-auto flex items-center space-x-2">
-            <Button
-              size="sm"
-              onClick={() => {
-                void handleRefresh()
-              }}
-              disabled={refreshPending}
-              variant="outline"
-            >
-              <RefreshCwIcon
-                className={`mr-2 size-4 ${refreshPending ? "animate-spin" : ""}`}
-              />
-              {refreshPending ? "Refreshing..." : "Refresh catalog"}
-            </Button>
           </div>
         </div>
 

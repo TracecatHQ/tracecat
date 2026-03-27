@@ -100,8 +100,7 @@ import { cn } from "@/lib/utils"
 
 const CUSTOM_SOURCE_TYPE_OPTIONS = [
   {
-    description:
-      "Use this for Ollama, vLLM, LiteLLM, or another OpenAI-style endpoint.",
+    description: "Use this for Ollama, vLLM, or another OpenAI-style endpoint.",
     label: "OpenAI-compatible gateway",
     value: "openai_compatible_gateway",
   },
@@ -119,7 +118,6 @@ const CUSTOM_SOURCE_FLAVOR_OPTIONS = {
     { label: "Generic OpenAI-compatible", value: "generic_openai_compatible" },
     { label: "Ollama", value: "ollama" },
     { label: "vLLM", value: "vllm" },
-    { label: "LiteLLM", value: "litellm" },
   ],
 } as const
 
@@ -240,8 +238,6 @@ function getCustomSourceFlavorLabel(flavor?: string | null): string | null {
   switch (flavor) {
     case "generic_openai_compatible":
       return "Generic OpenAI-compatible"
-    case "litellm":
-      return "LiteLLM"
     case "ollama":
       return "Ollama"
     case "vllm":
@@ -259,8 +255,6 @@ function getCustomSourceIconId(
   switch (source.flavor) {
     case "ollama":
       return "ollama"
-    case "litellm":
-      return "litellm"
     case "vllm":
       return "vllm"
     case "manual":
@@ -292,8 +286,6 @@ function getCustomModelIconId(
   switch (sourceFlavor) {
     case "ollama":
       return "ollama"
-    case "litellm":
-      return "litellm"
     case "vllm":
       return "vllm"
     case "manual":
@@ -312,9 +304,6 @@ function getCustomModelIconId(
   }
   if (normalizedSourceName.includes("vllm")) {
     return "vllm"
-  }
-  if (normalizedSourceName.includes("litellm")) {
-    return "litellm"
   }
   if (model.source_type === "manual_custom") {
     return "manual-custom-source"
@@ -1146,8 +1135,8 @@ function CustomSourceDialog({
             {initialSource ? "Edit custom source" : "Add custom source"}
           </DialogTitle>
           <DialogDescription>
-            Add a genuinely user-defined endpoint such as Ollama, vLLM, a
-            customer-run LiteLLM, or a small manual model catalog.
+            Add a genuinely user-defined endpoint such as Ollama, vLLM, another
+            OpenAI-compatible gateway, or a small manual model catalog.
           </DialogDescription>
         </DialogHeader>
 
@@ -1391,7 +1380,9 @@ export function OrgSettingsAgentForm() {
     error: providersError,
     isLoading: providersLoading,
     providers,
-  } = useModelProviders()
+  } = useModelProviders({
+    configuredOnly: false,
+  })
   const {
     error: sourcesError,
     isLoading: sourcesLoading,
@@ -1577,7 +1568,6 @@ export function OrgSettingsAgentForm() {
       toast({
         description: getErrorMessage(error),
         title: `Failed to refresh ${source.display_name}`,
-        variant: "destructive",
       })
     }
   }
@@ -1733,6 +1723,10 @@ export function OrgSettingsAgentForm() {
   ) {
     return <CenteredSpinner />
   }
+
+  const selectedCredentialsProvider =
+    providers?.find((provider) => provider.provider === credentialsProvider) ??
+    null
 
   return (
     <div className="space-y-12">
@@ -1921,8 +1915,8 @@ export function OrgSettingsAgentForm() {
               Custom sources
             </h3>
             <p className="text-sm text-muted-foreground">
-              Add custom sources like Ollama, vLLM, self-hosted LiteLLM, or
-              curated manual model lists.
+              Add custom sources like Ollama, vLLM, other OpenAI-compatible
+              gateways, or curated manual model lists.
             </p>
           </div>
           <Button onClick={() => setIsCreateSourceOpen(true)} variant="outline">
@@ -2092,6 +2086,9 @@ export function OrgSettingsAgentForm() {
         onClose={() => setCredentialsProvider(null)}
         onSuccess={handleProviderCredentialsSaved}
         provider={credentialsProvider}
+        providerConfigured={
+          selectedCredentialsProvider?.credentials_configured ?? false
+        }
       />
 
       <CustomSourceDialog

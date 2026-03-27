@@ -3914,7 +3914,7 @@ async def test_get_agent_preset_authoring_context_includes_output_type_guidance(
             assert mode == "json"
             return self._payload
 
-    class _AgentManagementService:
+    class _AgentService:
         async def list_models(self) -> dict[str, _Model]:
             return {"gpt-4o-mini": _Model("gpt-4o-mini", "openai")}
 
@@ -3943,10 +3943,12 @@ async def test_get_agent_preset_authoring_context_includes_output_type_guidance(
     monkeypatch.setattr(
         mcp_server, "_build_integrations_inventory", _integrations_inventory
     )
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
     monkeypatch.setattr(
         mcp_server.VariablesService,
@@ -4037,7 +4039,7 @@ async def test_get_agent_preset_authoring_context_preserves_source_backed_models
                 "model_name": self.model_name,
             }
 
-    class _AgentManagementService:
+    class _AgentService:
         async def list_models(self, workspace_id: uuid.UUID) -> list[_Model]:
             assert workspace_id == role.workspace_id
             return [
@@ -4061,10 +4063,12 @@ async def test_get_agent_preset_authoring_context_preserves_source_backed_models
     monkeypatch.setattr(
         mcp_server, "_build_integrations_inventory", _integrations_inventory
     )
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
     monkeypatch.setattr(
         mcp_server.VariablesService,
@@ -4132,7 +4136,7 @@ async def test_get_agent_preset_authoring_context_handles_unavailable_legacy_def
                 "model_provider": "openai",
             }
 
-    class _AgentManagementService:
+    class _AgentService:
         async def list_models(self, workspace_id: uuid.UUID) -> list[_Model]:
             assert workspace_id == role.workspace_id
             return [_Model()]
@@ -4153,10 +4157,12 @@ async def test_get_agent_preset_authoring_context_handles_unavailable_legacy_def
     monkeypatch.setattr(
         mcp_server, "_build_integrations_inventory", _integrations_inventory
     )
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
     monkeypatch.setattr(
         mcp_server.VariablesService,
@@ -4187,17 +4193,25 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _AgentManagementService:
-        async def get_default_model(self) -> str | None:
-            return "gpt-4o-mini"
+    class _Model:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "model_name": "gpt-4o-mini",
+                "model_provider": "openai",
+                "source_id": None,
+            }
 
-        async def get_model_config(self, model_name: str) -> SimpleNamespace:
-            assert model_name == "gpt-4o-mini"
-            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+    class _AgentService:
+        async def get_default_model(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                source_id=None, model_provider="openai", model_name="gpt-4o-mini"
+            )
 
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            assert provider == "openai"
-            return True
+        async def list_models(self, workspace_id: uuid.UUID | None = None) -> list[Any]:
+            return [_Model()]
+
+        async def get_providers_status(self) -> dict[str, bool]:
+            return {"openai": True}
 
     class _PresetService:
         async def create_preset(self, params: Any) -> SimpleNamespace:
@@ -4227,10 +4241,12 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
     monkeypatch.setattr(
         mcp_server.AgentPresetService,
@@ -4361,7 +4377,15 @@ async def test_create_agent_preset_preserves_source_id_from_default_model(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _AgentManagementService:
+    class _Model:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "model_name": "claude-3-7-sonnet",
+                "model_provider": "anthropic",
+                "source_id": str(source_id),
+            }
+
+    class _AgentService:
         async def get_default_model(self) -> SimpleNamespace:
             return SimpleNamespace(
                 source_id=source_id,
@@ -4369,9 +4393,11 @@ async def test_create_agent_preset_preserves_source_id_from_default_model(
                 model_provider="anthropic",
             )
 
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            assert provider == "anthropic"
-            return True
+        async def list_models(self, workspace_id: uuid.UUID | None = None) -> list[Any]:
+            return [_Model()]
+
+        async def get_providers_status(self) -> dict[str, bool]:
+            return {"anthropic": True}
 
     class _PresetService:
         async def create_preset(self, params: Any) -> SimpleNamespace:
@@ -4401,10 +4427,12 @@ async def test_create_agent_preset_preserves_source_id_from_default_model(
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
     monkeypatch.setattr(
         mcp_server.AgentPresetService,
@@ -4538,7 +4566,7 @@ async def test_create_agent_preset_accepts_source_backed_default_without_explici
                 "source_id": source_id,
             }
 
-    class _AgentManagementService:
+    class _AgentService:
         async def get_default_model(self) -> SimpleNamespace:
             return SimpleNamespace(
                 source_id=source_id,
@@ -4581,10 +4609,12 @@ async def test_create_agent_preset_accepts_source_backed_default_without_explici
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
     monkeypatch.setattr(
         mcp_server.AgentPresetService,
@@ -4643,18 +4673,23 @@ async def test_create_agent_preset_requires_default_model_when_model_not_provide
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _AgentManagementService:
-        async def get_default_model(self) -> str | None:
+    class _AgentService:
+        async def get_default_model(self) -> None:
             return None
 
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            return True
+        async def list_models(self, workspace_id: uuid.UUID | None = None) -> list[Any]:
+            return []
+
+        async def get_providers_status(self) -> dict[str, bool]:
+            return {}
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
 
     with pytest.raises(ToolError, match="No default model configured"):
@@ -4675,17 +4710,25 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _AgentManagementService:
-        async def get_default_model(self) -> str | None:
-            return "gpt-4o-mini"
+    class _Model:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "model_name": "gpt-4o-mini",
+                "model_provider": "openai",
+                "source_id": None,
+            }
 
-        async def get_model_config(self, model_name: str) -> SimpleNamespace:
-            assert model_name == "gpt-4o-mini"
-            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+    class _AgentService:
+        async def get_default_model(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                source_id=None, model_provider="openai", model_name="gpt-4o-mini"
+            )
 
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            assert provider == "openai"
-            return True
+        async def list_models(self, workspace_id: uuid.UUID | None = None) -> list[Any]:
+            return [_Model()]
+
+        async def get_providers_status(self) -> dict[str, bool]:
+            return {"openai": True}
 
     class _PresetService:
         async def create_preset(self, params: Any) -> SimpleNamespace:
@@ -4715,10 +4758,12 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
     monkeypatch.setattr(
         mcp_server.AgentPresetService,
@@ -4749,23 +4794,31 @@ async def test_create_agent_preset_validates_explicit_model_provider_pair(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _AgentManagementService:
-        async def get_model_config(self, model_name: str) -> SimpleNamespace:
-            assert model_name == "gpt-4o-mini"
-            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+    class _Model:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "model_name": "gpt-4o-mini",
+                "model_provider": "openai",
+                "source_id": None,
+            }
 
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            assert provider == "openai"
-            return True
+    class _AgentService:
+        async def list_models(self, workspace_id: uuid.UUID | None = None) -> list[Any]:
+            return [_Model()]
+
+        async def get_providers_status(self) -> dict[str, bool]:
+            return {"openai": True}
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
 
-    with pytest.raises(ToolError, match="belongs to provider 'openai', not 'opneai'"):
+    with pytest.raises(ToolError, match="Model 'gpt-4o-mini' not found"):
         await _tool(mcp_server.create_agent_preset)(
             workspace_id=str(workspace_id),
             name="Security triage",
@@ -4803,7 +4856,7 @@ async def test_create_agent_preset_matches_explicit_model_on_provider_and_name(
             assert mode == "json"
             return self._payload
 
-    class _AgentManagementService:
+    class _AgentService:
         async def list_models(self, workspace_id: uuid.UUID) -> list[_Model]:
             assert workspace_id == role.workspace_id
             return [
@@ -4817,9 +4870,8 @@ async def test_create_agent_preset_matches_explicit_model_on_provider_and_name(
                 ),
             ]
 
-        async def check_workspace_provider_credentials(self, provider: str) -> bool:
-            assert provider == "bedrock"
-            return True
+        async def get_providers_status(self) -> dict[str, bool]:
+            return {"bedrock": True}
 
     class _PresetService:
         async def create_preset(self, params: Any) -> SimpleNamespace:
@@ -4849,10 +4901,12 @@ async def test_create_agent_preset_matches_explicit_model_on_provider_and_name(
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
     monkeypatch.setattr(
         mcp_server.AgentPresetService,
@@ -4898,7 +4952,7 @@ async def test_create_agent_preset_skips_org_credential_check_for_source_backed_
             assert mode == "json"
             return self._payload
 
-    class _AgentManagementService:
+    class _AgentService:
         async def list_models(self, workspace_id: uuid.UUID) -> list[_Model]:
             assert workspace_id == role.workspace_id
             return [_Model()]
@@ -4934,10 +4988,12 @@ async def test_create_agent_preset_skips_org_credential_check_for_source_backed_
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
     monkeypatch.setattr(
         mcp_server.AgentPresetService,
@@ -4989,7 +5045,7 @@ async def test_create_agent_preset_accepts_source_id_for_ambiguous_model(
             assert mode == "json"
             return self._payload
 
-    class _AgentManagementService:
+    class _AgentService:
         async def list_models(self, workspace_id: uuid.UUID) -> list[_Model]:
             assert workspace_id == role.workspace_id
             return [
@@ -5028,10 +5084,12 @@ async def test_create_agent_preset_accepts_source_id_for_ambiguous_model(
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
     monkeypatch.setattr(
         mcp_server.AgentPresetService,
@@ -5063,22 +5121,33 @@ async def test_create_agent_preset_requires_org_credentials_for_default_model(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _AgentManagementService:
-        async def get_default_model(self) -> str | None:
-            return "gpt-4o-mini"
+    class _Model:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "model_name": "gpt-4o-mini",
+                "model_provider": "openai",
+                "source_id": None,
+            }
 
-        async def get_model_config(self, model_name: str) -> SimpleNamespace:
-            assert model_name == "gpt-4o-mini"
-            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+    class _AgentService:
+        async def get_default_model(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                source_id=None, model_provider="openai", model_name="gpt-4o-mini"
+            )
+
+        async def list_models(self, workspace_id: uuid.UUID | None = None) -> list[Any]:
+            return [_Model()]
 
         async def get_providers_status(self) -> dict[str, bool]:
             return {"openai": False}
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
 
     with pytest.raises(
@@ -5101,7 +5170,7 @@ async def test_create_agent_preset_rejects_default_model_outside_workspace_subse
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _AgentManagementService:
+    class _AgentService:
         async def get_default_model(self) -> SimpleNamespace:
             return SimpleNamespace(
                 source_id=None,
@@ -5109,15 +5178,19 @@ async def test_create_agent_preset_rejects_default_model_outside_workspace_subse
                 model_name="gpt-4o-mini",
             )
 
-        async def list_models(self, workspace_id: uuid.UUID) -> list[Any]:
-            assert workspace_id == role.workspace_id
+        async def list_models(self, workspace_id: uuid.UUID | None = None) -> list[Any]:
             return []
 
+        async def get_providers_status(self) -> dict[str, bool]:
+            return {"openai": True}
+
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
 
     with pytest.raises(
@@ -5141,7 +5214,7 @@ async def test_create_agent_preset_rejects_source_backed_default_outside_workspa
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _AgentManagementService:
+    class _AgentService:
         async def get_default_model(self) -> SimpleNamespace:
             return SimpleNamespace(
                 source_id=source_id,
@@ -5149,15 +5222,19 @@ async def test_create_agent_preset_rejects_source_backed_default_outside_workspa
                 model_name="claude-3-7-sonnet",
             )
 
-        async def list_models(self, workspace_id: uuid.UUID) -> list[Any]:
-            assert workspace_id == role.workspace_id
+        async def list_models(self, workspace_id: uuid.UUID | None = None) -> list[Any]:
             return []
 
+        async def get_providers_status(self) -> dict[str, bool]:
+            return {"anthropic": True}
+
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
 
     with pytest.raises(
@@ -5180,25 +5257,33 @@ async def test_create_agent_preset_rejects_missing_org_provider_status(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _AgentManagementService:
-        async def get_default_model(self) -> str | None:
-            return "gpt-4o-mini"
+    class _Model:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "model_name": "gpt-4o-mini",
+                "model_provider": "openai",
+                "source_id": None,
+            }
 
-        async def get_model_config(self, model_name: str) -> SimpleNamespace:
-            assert model_name == "gpt-4o-mini"
-            return SimpleNamespace(name="gpt-4o-mini", provider="openai")
+    class _AgentService:
+        async def get_default_model(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                source_id=None, model_provider="openai", model_name="gpt-4o-mini"
+            )
+
+        async def list_models(self, workspace_id: uuid.UUID | None = None) -> list[Any]:
+            return [_Model()]
 
         async def get_providers_status(self) -> dict[str, bool]:
             return {"openai": False}
 
-        async def get_workspace_providers_status(self) -> dict[str, bool]:
-            return {"openai": True}
-
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    _agent_svc_ctx = lambda role: _AsyncContext(_AgentService())  # noqa: E731
     monkeypatch.setattr(
-        mcp_server.AgentManagementService,
-        "with_session",
-        lambda role: _AsyncContext(_AgentManagementService()),
+        mcp_server.AgentSelectionsService, "with_session", _agent_svc_ctx
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentCredentialsService, "with_session", _agent_svc_ctx
     )
 
     with pytest.raises(

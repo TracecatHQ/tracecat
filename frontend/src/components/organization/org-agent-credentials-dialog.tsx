@@ -5,7 +5,11 @@ import { KeyIcon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import { CenteredSpinner } from "@/components/loading/spinner"
+import {
+  agentCreateProviderCredentials,
+  agentUpdateProviderCredentials,
+} from "@/client"
+import { Spinner } from "@/components/loading/spinner"
 import { ServiceAccountJsonUploader } from "@/components/service-account-json-uploader"
 import { Button } from "@/components/ui/button"
 import {
@@ -31,6 +35,7 @@ import { cn } from "@/lib/utils"
 
 interface AgentCredentialsDialogProps {
   provider: string | null
+  providerConfigured: boolean
   isOpen: boolean
   onClose: () => void
   onSuccess: () => void
@@ -74,6 +79,7 @@ function getCredentialLayoutSections(
 
 export function AgentCredentialsDialog({
   provider,
+  providerConfigured,
   isOpen,
   onClose,
   onSuccess,
@@ -132,20 +138,20 @@ export function AgentCredentialsDialog({
         })
       )
 
-      const response = await fetch("/api/agent/credentials", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      if (providerConfigured) {
+        await agentUpdateProviderCredentials({
           provider,
-          credentials: normalizedCredentials,
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || "Failed to save credentials")
+          requestBody: {
+            credentials: normalizedCredentials,
+          },
+        })
+      } else {
+        await agentCreateProviderCredentials({
+          requestBody: {
+            provider,
+            credentials: normalizedCredentials,
+          },
+        })
       }
 
       onSuccess()
@@ -161,45 +167,27 @@ export function AgentCredentialsDialog({
 
   if (!provider) return null
 
-  if (providerConfigLoading) {
-    return <CenteredSpinner />
-  }
-
-  if (providerConfigError || !providerConfig) {
-    return (
-      <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Configuration Error</DialogTitle>
-            <DialogDescription>
-              {providerConfigError
-                ? `Failed to load credential configuration: ${providerConfigError.message}`
-                : `Credentials configuration for ${provider} is not available.`}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button onClick={onClose}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    )
-  }
-
   const fieldsByKey = new Map(
-    providerConfig.fields.map((field) => [field.key, field])
+    (providerConfig?.fields ?? []).map((field) => [field.key, field])
   )
-  const layoutSections = getCredentialLayoutSections(provider)
+  const layoutSections = provider ? getCredentialLayoutSections(provider) : []
   const fieldRows =
-    layoutSections.length > 0
-      ? layoutSections
-      : [
+    providerConfig && layoutSections.length === 0
+      ? [
           {
             rows: providerConfig.fields.map((field) => [field.key]),
           },
         ]
+      : layoutSections
+  const dialogLabel = providerConfig?.label ?? provider
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      onClose()
+    }
+  }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent
         className={cn(
           provider === "bedrock" ? "sm:max-w-[560px]" : "sm:max-w-[425px]"
@@ -208,7 +196,7 @@ export function AgentCredentialsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
             <KeyIcon className="size-5" />
-            <span>Configure {providerConfig.label} credentials</span>
+            <span>Configure {dialogLabel} credentials</span>
           </DialogTitle>
           <DialogDescription>
             Enter your {provider} credentials to enable AI model access for your
@@ -216,111 +204,130 @@ export function AgentCredentialsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            {fieldRows.map((section, sectionIndex) => (
-              <div
-                className="space-y-4"
-                key={section.title ?? `section-${sectionIndex}`}
-              >
-                {section.title ? (
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">{section.title}</p>
-                    {section.description ? (
-                      <p className="text-xs text-muted-foreground">
-                        {section.description}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-                {section.rows.map((row, rowIndex) => {
-                  const rowFields = row
-                    .map((fieldKey) => fieldsByKey.get(fieldKey))
-                    .filter((field) => field !== undefined)
-
-                  if (!rowFields.length) {
-                    return null
-                  }
-
-                  return (
-                    <div
-                      className={cn(
-                        "grid gap-4",
-                        rowFields.length > 1 && "sm:grid-cols-2"
-                      )}
-                      key={`${sectionIndex}-${rowIndex}`}
-                    >
-                      {rowFields.map((field) => (
-                        <FormField
-                          key={field.key}
-                          control={form.control}
-                          name={field.key}
-                          render={({ field: formField }) => (
-                            <FormItem>
-                              <FormLabel>
-                                {field.label}
-                                {field.required !== false && (
-                                  <span className="ml-1 text-red-500">*</span>
-                                )}
-                              </FormLabel>
-                              <FormControl>
-                                {isJsonCredentialField(field.key) ? (
-                                  <ServiceAccountJsonUploader
-                                    value={formField.value ?? ""}
-                                    onChange={formField.onChange}
-                                    onError={(message) => {
-                                      form.setError(field.key, {
-                                        type: "manual",
-                                        message,
-                                      })
-                                    }}
-                                    onClearError={() => {
-                                      form.clearErrors(field.key)
-                                    }}
-                                    placeholder="Drag & drop the JSON key (.json) or choose a file"
-                                    existingConfigured={false}
-                                    hasError={Boolean(
-                                      form.formState.errors[field.key]
-                                    )}
-                                  />
-                                ) : (
-                                  <Input
-                                    placeholder={`Enter your ${field.label.toLowerCase()}`}
-                                    type={field.type}
-                                    {...formField}
-                                  />
-                                )}
-                              </FormControl>
-                              <FormDescription>
-                                {field.description}
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      ))}
-                    </div>
-                  )
-                })}
-              </div>
-            ))}
-
-            {error && (
-              <div className="rounded-md bg-red-50 p-3">
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
-            )}
-
+        {providerConfigLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Spinner className="size-6" />
+          </div>
+        ) : providerConfigError || !providerConfig ? (
+          <>
+            <div className="rounded-md bg-red-50 p-3">
+              <p className="text-sm text-red-700">
+                {providerConfigError
+                  ? `Failed to load credential configuration: ${providerConfigError.message}`
+                  : `Credentials configuration for ${provider} is not available.`}
+              </p>
+            </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={loading}>
-                {loading ? "Saving..." : "Save credentials"}
-              </Button>
+              <Button onClick={onClose}>Close</Button>
             </DialogFooter>
-          </form>
-        </Form>
+          </>
+        ) : (
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              {fieldRows.map((section, sectionIndex) => (
+                <div
+                  className="space-y-4"
+                  key={section.title ?? `section-${sectionIndex}`}
+                >
+                  {section.title ? (
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">{section.title}</p>
+                      {section.description ? (
+                        <p className="text-xs text-muted-foreground">
+                          {section.description}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {section.rows.map((row, rowIndex) => {
+                    const rowFields = row
+                      .map((fieldKey) => fieldsByKey.get(fieldKey))
+                      .filter((field) => field !== undefined)
+
+                    if (!rowFields.length) {
+                      return null
+                    }
+
+                    return (
+                      <div
+                        className={cn(
+                          "grid gap-4",
+                          rowFields.length > 1 && "sm:grid-cols-2"
+                        )}
+                        key={`${sectionIndex}-${rowIndex}`}
+                      >
+                        {rowFields.map((field) => (
+                          <FormField
+                            key={field.key}
+                            control={form.control}
+                            name={field.key}
+                            render={({ field: formField }) => (
+                              <FormItem>
+                                <FormLabel>
+                                  {field.label}
+                                  {field.required !== false && (
+                                    <span className="ml-1 text-red-500">*</span>
+                                  )}
+                                </FormLabel>
+                                <FormControl>
+                                  {isJsonCredentialField(field.key) ? (
+                                    <ServiceAccountJsonUploader
+                                      value={formField.value ?? ""}
+                                      onChange={formField.onChange}
+                                      onError={(message) => {
+                                        form.setError(field.key, {
+                                          type: "manual",
+                                          message,
+                                        })
+                                      }}
+                                      onClearError={() => {
+                                        form.clearErrors(field.key)
+                                      }}
+                                      placeholder="Drag & drop the JSON key (.json) or choose a file"
+                                      existingConfigured={false}
+                                      hasError={Boolean(
+                                        form.formState.errors[field.key]
+                                      )}
+                                    />
+                                  ) : (
+                                    <Input
+                                      placeholder={`Enter your ${field.label.toLowerCase()}`}
+                                      type={field.type}
+                                      {...formField}
+                                    />
+                                  )}
+                                </FormControl>
+                                <FormDescription>
+                                  {field.description}
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+
+              {error && (
+                <div className="rounded-md bg-red-50 p-3">
+                  <p className="text-sm text-red-700">{error}</p>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={loading}>
+                  {loading ? "Saving..." : "Save credentials"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        )}
       </DialogContent>
     </Dialog>
   )

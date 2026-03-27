@@ -4,11 +4,11 @@ import uuid
 from dataclasses import dataclass
 from typing import Literal
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from tracecat.db.models import AgentCatalog, AgentEnabledModel
+from tracecat.db.models import AgentCatalog, AgentModelSelectionLink
 
 LegacyCatalogMatchStatus = Literal["matched", "missing", "ambiguous"]
 
@@ -149,35 +149,38 @@ def _enabled_catalog_match_stmt(
     model_name: str,
     model_provider: str | None = None,
 ):
-    stmt = select(
-        AgentEnabledModel.source_id,
-        AgentEnabledModel.model_provider,
-        AgentEnabledModel.model_name,
-    ).where(
-        AgentEnabledModel.organization_id == organization_id,
-        AgentEnabledModel.workspace_id.is_(None),
-        AgentEnabledModel.model_name == model_name,
+    stmt = (
+        select(
+            AgentCatalog.source_id,
+            AgentCatalog.model_provider,
+            AgentCatalog.model_name,
+        )
+        .join(
+            AgentModelSelectionLink,
+            AgentModelSelectionLink.catalog_id == AgentCatalog.id,
+        )
+        .where(
+            AgentModelSelectionLink.organization_id == organization_id,
+            AgentModelSelectionLink.workspace_id.is_(None),
+            AgentCatalog.model_name == model_name,
+        )
     )
     if model_provider is not None:
-        stmt = stmt.where(AgentEnabledModel.model_provider == model_provider)
+        stmt = stmt.where(AgentCatalog.model_provider == model_provider)
     if workspace_id is not None and workspace_subset_enabled:
-        workspace_enabled = aliased(AgentEnabledModel)
+        workspace_enabled = aliased(AgentModelSelectionLink)
         stmt = stmt.join(
             workspace_enabled,
             and_(
                 workspace_enabled.organization_id == organization_id,
                 workspace_enabled.workspace_id == workspace_id,
-                workspace_enabled.source_id.is_not_distinct_from(
-                    AgentEnabledModel.source_id
-                ),
-                workspace_enabled.model_provider == AgentEnabledModel.model_provider,
-                workspace_enabled.model_name == AgentEnabledModel.model_name,
+                workspace_enabled.catalog_id == AgentModelSelectionLink.catalog_id,
             ),
         )
     return stmt.order_by(
-        AgentEnabledModel.source_id.asc().nulls_first(),
-        AgentEnabledModel.model_provider.asc(),
-        AgentEnabledModel.model_name.asc(),
+        AgentCatalog.source_id.asc().nulls_first(),
+        AgentCatalog.model_provider.asc(),
+        AgentCatalog.model_name.asc(),
     ).limit(2)
 
 
@@ -234,7 +237,9 @@ async def _workspace_subset_enabled(
 ) -> bool:
     if workspace_id is None:
         return False
-    stmt = select(AgentEnabledModel.id).where(
-        AgentEnabledModel.workspace_id == workspace_id
+    stmt = select(
+        exists().where(
+            AgentModelSelectionLink.workspace_id == workspace_id,
+        )
     )
-    return (await session.execute(stmt.limit(1))).scalar_one_or_none() is not None
+    return bool((await session.execute(stmt)).scalar())

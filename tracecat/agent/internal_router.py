@@ -10,19 +10,20 @@ from fastapi import APIRouter, HTTPException, status
 from tracecat_registry import secrets as registry_secrets
 
 from tracecat.agent.exceptions import AgentRunError
+from tracecat.agent.provider_config import provider_base_url_key
+from tracecat.agent.runtime.constants import (
+    SOURCE_RUNTIME_API_KEY,
+    SOURCE_RUNTIME_API_KEY_HEADER,
+    SOURCE_RUNTIME_BASE_URL,
+)
 from tracecat.agent.runtime.pydantic_ai.runtime import run_agent as runtime_run_agent
+from tracecat.agent.runtime.service import AgentRuntimeService
 from tracecat.agent.schemas import (
     AgentOutput,
     InternalRankItemsPairwiseRequest,
     InternalRankItemsRequest,
     InternalRunAgentRequest,
     ModelSelection,
-)
-from tracecat.agent.service import (
-    SOURCE_RUNTIME_API_KEY,
-    SOURCE_RUNTIME_API_KEY_HEADER,
-    SOURCE_RUNTIME_BASE_URL,
-    AgentManagementService,
 )
 from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.ai.ranker import rank_items as ranker_rank_items
@@ -42,7 +43,7 @@ router = APIRouter(
     include_in_schema=False,
 )
 
-_PROVIDERS_WITH_OPTIONAL_WORKSPACE_CREDENTIALS = {"ollama"}
+_PROVIDERS_WITH_OPTIONAL_CREDENTIALS = {"ollama"}
 _SCALAR_OUTPUT_TYPES: set[str] = {"bool", "float", "int", "str"}
 _LIST_OUTPUT_TYPES: set[str] = {
     "list[bool]",
@@ -50,49 +51,52 @@ _LIST_OUTPUT_TYPES: set[str] = {
     "list[int]",
     "list[str]",
 }
-_PROVIDER_BASE_URL_KEYS: dict[str, str] = {
-    "openai": "OPENAI_BASE_URL",
-    "anthropic": "ANTHROPIC_BASE_URL",
-    "azure_openai": "AZURE_API_BASE",
-    "azure_ai": "AZURE_API_BASE",
-}
 
 
-def _merge_runtime_overrides(
-    base: AgentConfig,
-    overrides: AgentConfig,
+def _apply_request_overrides(
+    resolved: AgentConfig,
+    request_config: AgentConfig,
     *,
     override_fields: set[str],
 ) -> AgentConfig:
-    """Apply request-scoped fields on top of catalog-resolved runtime config."""
-    if "instructions" in override_fields and overrides.instructions is not None:
-        base.instructions = overrides.instructions
-    if "output_type" in override_fields and overrides.output_type is not None:
-        base.output_type = overrides.output_type
-    if "actions" in override_fields and overrides.actions is not None:
-        base.actions = overrides.actions
-    if "namespaces" in override_fields and overrides.namespaces is not None:
-        base.namespaces = overrides.namespaces
-    if "tool_approvals" in override_fields and overrides.tool_approvals is not None:
-        base.tool_approvals = overrides.tool_approvals
-    if "model_settings" in override_fields and overrides.model_settings is not None:
-        base.model_settings = overrides.model_settings
-    if "mcp_servers" in override_fields and overrides.mcp_servers is not None:
-        base.mcp_servers = overrides.mcp_servers
+    """Return a final config with explicit request overrides layered on top."""
+    final = AgentConfig(**resolved.__dict__)
+    if "instructions" in override_fields and request_config.instructions is not None:
+        final.instructions = request_config.instructions
+    if "output_type" in override_fields and request_config.output_type is not None:
+        final.output_type = request_config.output_type
+    if "actions" in override_fields and request_config.actions is not None:
+        final.actions = request_config.actions
+    if "namespaces" in override_fields and request_config.namespaces is not None:
+        final.namespaces = request_config.namespaces
+    if (
+        "tool_approvals" in override_fields
+        and request_config.tool_approvals is not None
+    ):
+        final.tool_approvals = request_config.tool_approvals
+    if (
+        "model_settings" in override_fields
+        and request_config.model_settings is not None
+    ):
+        final.model_settings = request_config.model_settings
+    if "mcp_servers" in override_fields and request_config.mcp_servers is not None:
+        final.mcp_servers = request_config.mcp_servers
     if "retries" in override_fields:
-        base.retries = overrides.retries
+        final.retries = request_config.retries
     if "enable_internet_access" in override_fields:
-        base.enable_internet_access = overrides.enable_internet_access
+        final.enable_internet_access = request_config.enable_internet_access
     if "base_url" in override_fields:
-        base.base_url = overrides.base_url
-    return base
+        final.base_url = request_config.base_url
+    return final
 
 
 async def _resolve_run_config(
-    params: InternalRunAgentRequest, agent_svc: AgentManagementService
+    params: InternalRunAgentRequest, agent_svc: AgentRuntimeService
 ) -> tuple[AgentConfig, set[str]]:
     """Resolve runtime config from request config or preset slug."""
     if params.preset_slug:
+        # Presets become the base config and request-scoped overrides are
+        # applied later so catalog-backed defaults survive resolution.
         if agent_svc.presets is None:
             raise ValueError("Preset-based runs require workspace context.")
         return (
@@ -112,11 +116,11 @@ async def _resolve_run_config(
 
 @asynccontextmanager
 async def _provider_secrets_context(
-    agent_svc: AgentManagementService,
     config: AgentConfig,
+    credentials: dict[str, str],
 ):
     """Set runtime credentials in registry secrets context for this request."""
-    if config.model_provider in _PROVIDERS_WITH_OPTIONAL_WORKSPACE_CREDENTIALS:
+    if config.model_provider in _PROVIDERS_WITH_OPTIONAL_CREDENTIALS:
         secrets_token = registry_secrets.set_context({})
         try:
             yield
@@ -124,7 +128,6 @@ async def _provider_secrets_context(
             registry_secrets.reset_context(secrets_token)
         return
 
-    credentials = await agent_svc.get_runtime_credentials_for_config(config)
     if not credentials:
         raise ValueError(
             f"No credentials found for provider '{config.model_provider}'. "
@@ -133,9 +136,9 @@ async def _provider_secrets_context(
     if config.base_url is None:
         if source_base_url := credentials.get(SOURCE_RUNTIME_BASE_URL):
             config.base_url = source_base_url
-        elif (
-            base_url_key := _provider_base_url_key(agent_svc, config.model_provider)
-        ) and (provider_base_url := credentials.get(base_url_key)):
+        elif (base_url_key := provider_base_url_key(config.model_provider)) and (
+            provider_base_url := credentials.get(base_url_key)
+        ):
             config.base_url = provider_base_url
     if (
         (api_key := credentials.get(SOURCE_RUNTIME_API_KEY))
@@ -157,18 +160,6 @@ async def _provider_secrets_context(
         yield
     finally:
         registry_secrets.reset_context(secrets_token)
-
-
-def _provider_base_url_key(
-    agent_svc: AgentManagementService,
-    provider: str,
-) -> str | None:
-    """Resolve provider base URL env key even when tests stub the service lightly."""
-    if callable(
-        resolver := getattr(agent_svc, "_provider_base_url_key", None)
-    ) and isinstance(base_url_key := resolver(provider), str):
-        return base_url_key
-    return _PROVIDER_BASE_URL_KEYS.get(provider)
 
 
 def _normalize_output_type(
@@ -201,10 +192,14 @@ async def run_agent_endpoint(
     ctx_session_id.set(session_id)
 
     try:
-        agent_svc = AgentManagementService(session, role=role)
-        config, override_fields = await _resolve_run_config(params, agent_svc)
-        config = _merge_runtime_overrides(
-            await agent_svc.resolve_runtime_agent_config(config),
+        runtime_service = AgentRuntimeService(session, role=role)
+        config, override_fields = await _resolve_run_config(params, runtime_service)
+        context = await runtime_service.resolve_execution_context(
+            config,
+            workspace_id=role.workspace_id,
+        )
+        config = _apply_request_overrides(
+            context.config,
             config,
             override_fields=override_fields,
         )
@@ -213,7 +208,7 @@ async def run_agent_endpoint(
         if config and config.tool_approvals:
             await check_entitlement(session, role, Entitlement.AGENT_ADDONS)
 
-        async with _provider_secrets_context(agent_svc, config):
+        async with _provider_secrets_context(config, context.credentials):
             result: AgentOutput = await runtime_run_agent(
                 user_prompt=params.user_prompt,
                 model_name=config.model_name,
@@ -261,8 +256,8 @@ async def rank_items_endpoint(
     ctx_role.set(role)
 
     try:
-        agent_svc = AgentManagementService(session, role=role)
-        config = await agent_svc.resolve_runtime_agent_config(
+        runtime_service = AgentRuntimeService(session, role=role)
+        context = await runtime_service.resolve_execution_context(
             AgentConfig(
                 source_id=params.source_id,
                 model_name=params.model_name,
@@ -271,7 +266,8 @@ async def rank_items_endpoint(
                 base_url=params.base_url,
             )
         )
-        await agent_svc.require_enabled_model_selection(
+        config = context.config
+        await runtime_service.selections.require_enabled_model_selection(
             ModelSelection(
                 source_id=config.source_id,
                 model_name=config.model_name,
@@ -279,7 +275,7 @@ async def rank_items_endpoint(
             ),
             workspace_id=role.workspace_id,
         )
-        async with _provider_secrets_context(agent_svc, config):
+        async with _provider_secrets_context(config, context.credentials):
             return await ranker_rank_items(
                 items=params.items,
                 criteria_prompt=params.criteria_prompt,
@@ -316,8 +312,8 @@ async def rank_items_pairwise_endpoint(
     ctx_role.set(role)
 
     try:
-        agent_svc = AgentManagementService(session, role=role)
-        config = await agent_svc.resolve_runtime_agent_config(
+        runtime_service = AgentRuntimeService(session, role=role)
+        context = await runtime_service.resolve_execution_context(
             AgentConfig(
                 source_id=params.source_id,
                 model_name=params.model_name,
@@ -326,7 +322,8 @@ async def rank_items_pairwise_endpoint(
                 base_url=params.base_url,
             )
         )
-        await agent_svc.require_enabled_model_selection(
+        config = context.config
+        await runtime_service.selections.require_enabled_model_selection(
             ModelSelection(
                 source_id=config.source_id,
                 model_name=config.model_name,
@@ -334,7 +331,7 @@ async def rank_items_pairwise_endpoint(
             ),
             workspace_id=role.workspace_id,
         )
-        async with _provider_secrets_context(agent_svc, config):
+        async with _provider_secrets_context(config, context.credentials):
             return await ranker_rank_items_pairwise(
                 items=params.items,
                 criteria_prompt=params.criteria_prompt,

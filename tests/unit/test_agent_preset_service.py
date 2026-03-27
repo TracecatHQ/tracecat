@@ -12,12 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from tests.database import TEST_DB_CONFIG
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.service import AgentManagementService
+from tracecat.agent.selections.service import AgentSelectionsService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentCatalog,
-    AgentEnabledModel,
+    AgentModelSelectionLink,
     AgentPreset,
     AgentPresetVersion,
     AgentSource,
@@ -38,6 +38,7 @@ from tracecat.registry.versions.schemas import (
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
+from tracecat.secrets.service import SecretsService
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -456,8 +457,8 @@ class TestAgentPresetService:
         session.add(catalog_row)
         await session.commit()
 
-        management_service = AgentManagementService(session=session, role=svc_role)
-        summary = await management_service.repair_legacy_model_selections()
+        selections_service = AgentSelectionsService(session=session, role=svc_role)
+        summary = await selections_service.repair_legacy_model_selections()
         await session.refresh(created_preset)
         await session.refresh(current_version)
 
@@ -484,7 +485,7 @@ class TestAgentPresetService:
         assert created_preset.source_id is None
         assert current_version.source_id is None
 
-        management_service = AgentManagementService(session=session, role=svc_role)
+        selections_service = AgentSelectionsService(session=session, role=svc_role)
         secret = OrganizationSecret(
             organization_id=svc_role.organization_id,
             name="agent-custom-model-provider-credentials",
@@ -495,7 +496,7 @@ class TestAgentPresetService:
                 "provider": "custom-model-provider",
                 "type": "agent-credentials",
             },
-            encrypted_keys=management_service.secrets_service.encrypt_keys(
+            encrypted_keys=SecretsService(session, role=svc_role).encrypt_keys(
                 [
                     SecretKeyValue(
                         key="CUSTOM_MODEL_PROVIDER_API_KEY",
@@ -515,7 +516,7 @@ class TestAgentPresetService:
         session.add(secret)
         await session.commit()
 
-        summary = await management_service.repair_legacy_model_selections()
+        summary = await selections_service.repair_legacy_model_selections()
         await session.refresh(created_preset)
         await session.refresh(current_version)
 
@@ -562,12 +563,11 @@ class TestAgentPresetService:
         enabled_rows = (
             (
                 await session.execute(
-                    select(AgentEnabledModel).where(
-                        AgentEnabledModel.organization_id == svc_role.organization_id,
-                        AgentEnabledModel.workspace_id.is_(None),
-                        AgentEnabledModel.source_id == catalog_row.source_id,
-                        AgentEnabledModel.model_provider == catalog_row.model_provider,
-                        AgentEnabledModel.model_name == catalog_row.model_name,
+                    select(AgentModelSelectionLink).where(
+                        AgentModelSelectionLink.organization_id
+                        == svc_role.organization_id,
+                        AgentModelSelectionLink.workspace_id.is_(None),
+                        AgentModelSelectionLink.catalog_id == catalog_row.id,
                     )
                 )
             )

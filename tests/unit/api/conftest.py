@@ -7,17 +7,13 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from tracecat.agent.router import (
-    OrganizationAdminUserRole,
-    OrganizationUserOptionalWorkspaceRole,
-    OrganizationUserRole,
-)
-from tracecat.agent.router import WorkspaceUserInPath as AgentWorkspaceUserInPath
 from tracecat.api.app import app
 from tracecat.auth.credentials import AuthenticatedUserOnly, SuperuserRole
 from tracecat.auth.dependencies import (
     ExecutorWorkspaceRole,
+    OrgUserOptionalWorkspaceRole,
     OrgUserRole,
+    WorkspaceUserInPathRole,
     WorkspaceUserRole,
 )
 from tracecat.auth.types import Role
@@ -54,22 +50,19 @@ def client() -> Generator[TestClient, None, None]:
     from test_role/test_admin_role fixtures for authentication.
     """
 
-    # List of Annotated role dependencies to override
     role_dependencies = [
         WorkspaceUserRole,
         ExecutorWorkspaceRole,
         WorkspaceUser,
         SuperuserRole,
         AuthenticatedUserOnly,
-        OrganizationUserRole,
-        OrganizationUserOptionalWorkspaceRole,
-        OrganizationAdminUserRole,
-        SecretsWorkspaceUser,
         OrgUserRole,
+        OrgUserOptionalWorkspaceRole,
+        WorkspaceUserInPathRole,
+        SecretsWorkspaceUser,
         TablesWorkspaceUser,
         TablesWorkspaceEditorUser,
         WorkspaceUserInPath,
-        AgentWorkspaceUserInPath,
     ]
 
     for annotated_type in role_dependencies:
