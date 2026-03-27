@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 
+from tracecat import config
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
@@ -240,6 +241,7 @@ class SandboxedAgentExecutor:
             logger.info(
                 "Started LLM socket proxy",
                 socket_path=str(llm_socket_path),
+                llm_execution_backend=config.TRACECAT__LLM_EXECUTION_BACKEND.value,
             )
 
             # Set umask before socket creation to ensure 0o600 permissions from the start
