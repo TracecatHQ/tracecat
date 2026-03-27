@@ -282,6 +282,21 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - When resolving merge conflicts in dependencies, ensure exact version pins are preserved
 - Security fixes should update the pinned version to the specific patched version, not use range constraints
 
+### GitHub Actions and CI Security
+- `pull_request_target` is banned in this repository. Do not add it to any workflow. It runs with base-repo privileges and is too easy to misuse in ways that expose secrets, write-scoped tokens, or privileged automation to untrusted PR activity.
+- Use `push`, `pull_request`, and protected branch or tag triggers instead of `pull_request_target`.
+- Treat `workflow_dispatch` as a privileged operator path, not a convenience default. Add it only when a human-triggered run is genuinely required.
+- Any privileged manual workflow must be guarded with the `TRUSTED_CI_ACTORS_JSON` Actions variable. Store it as a JSON array of GitHub usernames, for example `["topher-lo","jordan-umusu"]`.
+- If a guarded `workflow_dispatch` is expected to be triggered by another workflow, explicitly account for `github-actions[bot]` instead of weakening the general allowlist check for everyone.
+- Keep workflow permissions read-only by default. Grant write permissions only at the job level and only for the specific scopes a job actually uses.
+- Do not add `pull-requests: write`, `packages: write`, or `id-token: write` unless a step in that job demonstrably needs that permission.
+- Secret-backed jobs must use protected environments rather than broad repo secrets whenever possible. In this repo, keep `CROSS_REPO_AUTOMATION_APP_PRIVATE_KEY` in the `release` environment and `CUSTOM_REPO_SSH_PRIVATE_KEY` in the `internal-registry-ci` environment.
+- External fork PRs must never reach secret-backed jobs or private-infrastructure jobs. For sensitive PR paths, require `github.event.pull_request.head.repo.full_name == github.repository` before using secrets or private credentials.
+- Release automation must validate trusted inputs before mutating tags, releases, downstream repos, or container registries. Keep branch-name and version validation in the workflow instead of assuming upstream tooling enforced it.
+- Use `concurrency` for workflows that publish releases, move tags, or dispatch downstream automation so duplicate runs cannot race each other.
+- When adding or changing pytest coverage that depends on real third-party credentials, mark those tests with `@pytest.mark.live_secret`, register the marker in `pyproject.toml`, and exclude them from default CI commands with `-m "not live_secret"`.
+- Before merging workflow changes, review `.github/workflows/*.yml` for trigger trust boundaries, secret exposure, repo-owned ref checks, environment usage, and unnecessary permissions. Do not treat a passing YAML parser as a security review.
+
 ### Python Standards
 - Use Python 3.12+ type hints with builtin types (`list`, `dict`, `set`)
 - Follow Google Python style guide
@@ -488,6 +503,8 @@ All code should be optimized for the reviewer, not the writer. Assume every chan
 - When handling frontend types, don't import variables prefixed with '$' unless you are importing the schema object
 - **NEVER** use `--no-gpg-sign` or `--no-verify` to bypass commit signing. If GPG/SSH signing fails (e.g., 1Password agent not running), stop and ask the user to fix their signing setup rather than creating an unverified commit.
 - **NEVER use PostgreSQL superuser commands** in migrations, queries, or scripts. Deployed environments may use restricted database roles without superuser privileges. All SQL must work under a standard (non-superuser) role. If a migration needs to handle foreign keys, use proper row ordering or `ON DELETE`/`ON UPDATE` clauses instead of bypassing constraints.
+- **NEVER** add `pull_request_target` to any GitHub Actions workflow in this repository.
+- **NEVER** add a new privileged GitHub Actions workflow or job without reviewing trigger trust boundaries, trimming permissions to the minimum required scope, and deciding whether secrets belong in a protected environment instead of repo-level secrets.
 
 - For infrastructure changes, always verify and update all relevant deployment targets together: `docker-compose*.yml`, Terraform Fargate (`deployments/fargate/`), Terraform EKS (`deployments/k8s/eks/` and `deployments/k8s/eks/modules/eks/`), and Helm (`deployments/k8s/helm/`).
 - As part of that infra review, explicitly check `values.yaml`, `variables.tf`, and `main.tf` in the relevant deployment directories before marking the change complete.
