@@ -367,6 +367,7 @@ WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
         "workspace:create",
         "workspace:delete",
         "workspace:member:read",
+        "deduplicate:create",
         "action:*:execute",
         "org:secret:read",
     }
