@@ -137,6 +137,7 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 RUN chown -R apiuser:apiuser /app
 
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/home/apiuser/.local"
 
 RUN mkdir -p /home/apiuser/.local/bin && ln -s $(which uv) /home/apiuser/.local/bin/uv
 
@@ -170,9 +171,6 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 # Set sandbox cache permissions for apiuser
 RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache && \
     chmod -R 755 /var/lib/tracecat/sandbox-cache
-
-COPY docker/scripts/auto-update.sh ./auto-update.sh
-RUN chmod +x auto-update.sh && ./auto-update.sh && rm auto-update.sh
 
 ENV PYTHONUSERBASE="/home/apiuser/.local"
 ENV UV_CACHE_DIR="/home/apiuser/.cache/uv"

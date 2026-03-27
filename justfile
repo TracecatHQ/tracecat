@@ -85,6 +85,13 @@ gen-client:
 gen-client-ci:
 	pnpm -C frontend generate-client-ci
 	just lint-fix
+
+gen-mcp-docs:
+	uv run python scripts/generate_mcp_docs.py
+
+gen-tool-docs:
+	uv run python scripts/generate_tool_docs.py
+
 # Update version number. If no version is provided, increments patch version.
 update-version *after='':
 	@-./scripts/update-version.sh {{after}}

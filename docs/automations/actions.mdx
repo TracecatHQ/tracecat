@@ -1,0 +1,150 @@
+---
+title: "Actions"
+description: "Connect actions to build workflows."
+---
+
+import ActionExpressionsSection from "/snippets/action-expressions-section.mdx";
+
+You can view all available actions in the `/actions` page.
+
+![Actions page](/img/automations/actions/actions-table.png)
+
+## Action names
+
+Every Tracecat action has a title, namespace, and name.
+Actions IDs are defined as `<namespace>.<name>`. For example, `tools.slack.post_message` uses the `tools.slack` namespace and the `post_message` name.
+
+## Action types
+
+Tracecat actions are defined in either Python UDFs (user-defined functions) or YAML templates (domain-specific language for actions).
+
+See [Custom actions](/custom-actions/custom-registry) for more details.
+
+## Action toolbar
+
+If you're building workflows in the UI, you can quickly find actions by namespace using the actions toolbar:
+
+![Actions toolbar](/img/automations/actions/actions-toolbar.png)
+
+- `core` for built-in utilities such as HTTP requests, Python scripts, email, and gRPC actions
+- `ai` for non-agent AI actions
+- `ai` also powers the separate `Agent` group for actions such as `ai.agent` and `ai.preset_agent`
+- `core.workflow` for workflow actions, plus scatter and gather helpers
+- `core.transform` for transform actions
+- `core.cases` for case actions
+- `core.table` for table actions
+- `core.sql` and `core.duckdb` for SQL actions
+- `tools.*` for installed integrations; this menu also supports search
+
+## Expressions
+
+<ActionExpressionsSection />
+
+## Success and error paths
+
+Every action has a success and error path.
+The success path, which is represented by the green dot, runs when the action succeeds.
+The error path, which is represented by the red dot, runs when the action fails.
+
+![Success error paths](/img/automations/actions/success-error-paths.png)
+
+## Control flow
+
+You can configure how an action runs from the "Control flow" tab in the action panel.
+
+![Action control flow](/img/automations/actions/control-flow.png)
+
+### Run if
+
+Use `run_if` to execute an action only when a condition evaluates to a truthy value. If the condition is falsy, Tracecat skips the action.
+
+<CodeGroup>
+```yaml High severity only
+- ref: notify_team
+  action: tools.slack.post_message
+  run_if: ${{ TRIGGER.severity == "high" }}
+  args:
+    channel: ${{ SECRETS.slack.SECURITY_CHANNEL }}
+    text: "High severity alert: ${{ TRIGGER.alert_id }}"
+```
+
+```yaml Status and owner check
+- ref: escalate_case
+  action: core.cases.update
+  run_if: ${{ TRIGGER.status == "open" && TRIGGER.owner != None }}
+  args:
+    case_id: ${{ TRIGGER.case_id }}
+    status: in_progress
+```
+
+```yaml Retry on empty result
+- ref: fetch_user
+  action: core.http_request
+  run_if: ${{ ACTIONS.lookup_user.result == None }}
+  args:
+    url: "https://api.example.com/users/${{ TRIGGER.user_id }}"
+    method: GET
+```
+</CodeGroup>
+
+### For each
+
+Use `for_each` to run the same action once per item in a collection. If `items` contains `N` values, Tracecat runs the action `N` times.
+
+Inside the action inputs, reference the current item with `var.<name>`. For example, `for_each: ${{ for var.user in TRIGGER.users }}` runs the action `len(TRIGGER.users)` times, and each run reads the current item from `var.user`.
+
+<CodeGroup>
+```yaml Send one email per user
+- ref: email_user
+  action: core.email.send
+  for_each: ${{ for var.user in TRIGGER.users }}
+  args:
+    recipients:
+      - ${{ var.user.email }}
+    subject: "Tracecat notification"
+    body: "Hello ${{ var.user.name }}"
+```
+
+```yaml Fetch one record per alert
+- ref: fetch_alert
+  action: core.http_request
+  for_each: ${{ for var.alert in TRIGGER.alerts }}
+  args:
+    url: "https://api.example.com/alerts/${{ var.alert.id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer ${{ SECRETS.alerts.API_TOKEN }}"
+```
+
+```yaml Create one case comment per finding
+- ref: comment_on_case
+  action: core.cases.create_comment
+  for_each: ${{ for var.finding in ACTIONS.parse_findings.result }}
+  args:
+    case_id: ${{ TRIGGER.case_id }}
+    comment: "Finding: ${{ var.finding.title }}"
+```
+</CodeGroup>
+
+### Join strategy
+
+`join_strategy` controls how a downstream action waits on multiple upstream branches. Use `all` to wait for every branch, or `any` to continue after the first branch completes.
+
+### Environment
+
+Use `environment` to override which secrets or variables environment an action reads from.
+This is useful to target different secrets or variables for the same pre-built action (e.g. different Slack apps for `tools.slack.post_message`).
+
+### Start delay
+
+Use `start_delay` to wait a fixed number of seconds before an action starts.
+
+### Timeout
+
+Use `timeout` to cap how long Tracecat waits for an action attempt to finish.
+Defaults to 300 seconds.
+
+### Max attempts
+
+Use `max_attempts` to control how many times Tracecat retries the action if it fails.
+Defaults to 1 attempt.

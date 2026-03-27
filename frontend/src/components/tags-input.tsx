@@ -6,6 +6,7 @@ import fuzzysort from "fuzzysort"
 import { ChevronDown, X } from "lucide-react"
 import type React from "react"
 import { useCallback, useMemo, useRef, useState } from "react"
+import { LockedFeatureChip } from "@/components/locked-feature-modal"
 import { Badge } from "@/components/ui/badge"
 import {
   Command,
@@ -57,6 +58,8 @@ export interface Suggestion {
   description?: string
   group?: string
   icon?: React.ReactNode
+  locked?: boolean
+  onSelect?: () => void
 }
 
 export interface MultiTagCommandInputProps {
@@ -138,10 +141,15 @@ export function MultiTagCommandInput({
     return filterActions(filtered, inputValue).map((result) => result.obj)
   }, [suggestions, inputValue, valueSet, filterActions])
 
-  const handleSelect = (suggestionValue: string) => {
+  const handleSelect = (suggestion: Suggestion) => {
+    if (suggestion.locked) {
+      suggestion.onSelect?.()
+      return
+    }
+
     if (maxTags && value.length >= maxTags) return
 
-    const newValue = [...value, suggestionValue]
+    const newValue = [...value, suggestion.value]
     onChange?.(newValue)
     setInputValue("")
     setHighlightedIndex(-1)
@@ -282,10 +290,12 @@ export function MultiTagCommandInput({
                     <CommandItem
                       key={suggestion.id}
                       value={suggestion.value}
-                      onSelect={() => handleSelect(suggestion.value)}
+                      onSelect={() => handleSelect(suggestion)}
+                      onMouseDown={(e) => e.preventDefault()}
                       data-suggestion-index={index}
                       className={cn(
                         "flex cursor-pointer gap-2",
+                        suggestion.locked && "text-muted-foreground",
                         index === highlightedIndex &&
                           "bg-accent text-accent-foreground"
                       )}
@@ -296,14 +306,19 @@ export function MultiTagCommandInput({
                         </div>
                       )}
                       <div className="flex flex-col gap-1">
-                        <span className="font-medium">
-                          {suggestion.label}{" "}
-                          {suggestion.group && (
-                            <span className="text-xs text-muted-foreground">
-                              {suggestion.group}
-                            </span>
-                          )}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">
+                            {suggestion.label}{" "}
+                            {suggestion.group && (
+                              <span className="text-xs text-muted-foreground">
+                                {suggestion.group}
+                              </span>
+                            )}
+                          </span>
+                          {suggestion.locked ? (
+                            <LockedFeatureChip className="shrink-0" />
+                          ) : null}
+                        </div>
                         {suggestion.description && (
                           <span className="text-xs text-muted-foreground">
                             {suggestion.description}

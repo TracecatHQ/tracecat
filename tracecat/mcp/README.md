@@ -3,9 +3,14 @@
 This document lists the currently registered MCP tools in
 `tracecat/mcp/server.py` (the functions decorated with `@mcp.tool()`).
 
+Top-level list/search tools return a paginated object with:
+`items`, `next_cursor`, `prev_cursor`, `has_more`, and `has_previous`.
+Object-style authoring/context tools remain object responses and document their
+own embedded collection truncation behavior below.
+
 ## Workflow tools
 
-- `list_workspaces()`
+- `list_workspaces(limit=20, cursor=None)`
 - `create_workflow(workspace_id, title, description="", definition_yaml=None)`
 - `get_workflow(workspace_id, workflow_id, include_definition_yaml=False)`
 - `get_workflow_file(workspace_id, workflow_id, draft=True)`
@@ -13,12 +18,13 @@ This document lists the currently registered MCP tools in
 - `create_workflow_from_uploaded_file(workspace_id, artifact_id, title=None, description="", use_workflow_id=False)`
 - `update_workflow_from_uploaded_file(workspace_id, workflow_id, artifact_id, title=None, description=None, status=None, alias=None, error_handler=None, update_mode=None)`
 - `update_workflow(workspace_id, workflow_id, title=None, description=None, status=None, alias=None, error_handler=None, definition_yaml=None, update_mode="patch")`
-- `list_workflows(workspace_id, status=None, limit=50, search=None)`
+- `list_workflows(workspace_id, status=None, limit=50, search=None, cursor=None)`
+- `list_workflow_tree(workspace_id, path="/", depth=1, include_workflows=True, limit=20, cursor=None)`
 - `validate_workflow(workspace_id, workflow_id)`
 - `publish_workflow(workspace_id, workflow_id)`
 - `run_draft_workflow(workspace_id, workflow_id, inputs=None, title=None, description=None)`
 - `run_published_workflow(workspace_id, workflow_id, inputs=None)`
-- `list_workflow_executions(workspace_id, workflow_id, limit=20)`
+- `list_workflow_executions(workspace_id, workflow_id, limit=20, cursor=None)`
 - `get_workflow_execution(workspace_id, execution_id)`
 
 ### Workflow file transfer notes
@@ -40,11 +46,14 @@ This document lists the currently registered MCP tools in
 
 ## Action discovery and authoring context
 
-- `list_actions(workspace_id, query=None, namespace=None, limit=50)`
+- `list_actions(workspace_id, query=None, namespace=None, limit=50, cursor=None)`
 - `get_action_context(workspace_id, action_name)`
 - `get_workflow_authoring_context(workspace_id, action_names_json=None, query=None)`
 - `prepare_template_file_upload(workspace_id, relative_path)`
 - `validate_template_action(workspace_id, artifact_id, check_db=False)`
+
+`get_workflow_authoring_context` now caps embedded collections and returns
+truncation metadata under `truncation.collections`.
 
 ## Webhook and case trigger tools
 
@@ -55,40 +64,40 @@ This document lists the currently registered MCP tools in
 
 ## Workflow tag tools
 
-- `list_workflow_tags(workspace_id)`
+- `list_workflow_tags(workspace_id, limit=20, cursor=None)`
 - `create_workflow_tag(workspace_id, name, color=None)`
 - `update_workflow_tag(workspace_id, tag_id, name=None, color=None)`
 - `delete_workflow_tag(workspace_id, tag_id)`
-- `list_tags_for_workflow(workspace_id, workflow_id)`
+- `list_tags_for_workflow(workspace_id, workflow_id, limit=20, cursor=None)`
 - `add_workflow_tag(workspace_id, workflow_id, tag_id)`
 - `remove_workflow_tag(workspace_id, workflow_id, tag_id)`
 
 ## Case tag tools
 
-- `list_case_tags(workspace_id)`
+- `list_case_tags(workspace_id, limit=20, cursor=None)`
 - `create_case_tag(workspace_id, name, color=None)`
 - `update_case_tag(workspace_id, tag_id, name=None, color=None)`
 - `delete_case_tag(workspace_id, tag_id)`
-- `list_tags_for_case(workspace_id, case_id)`
+- `list_tags_for_case(workspace_id, case_id, limit=20, cursor=None)`
 - `add_case_tag(workspace_id, case_id, tag_identifier)`
 - `remove_case_tag(workspace_id, case_id, tag_identifier)`
 
 ## Case field tools
 
-- `list_case_fields(workspace_id)`
+- `list_case_fields(workspace_id, limit=20, cursor=None)`
 - `create_case_field(workspace_id, name, type, options=None)`
 - `update_case_field(workspace_id, field_id, name=None, type=None, options=None)`
 - `delete_case_field(workspace_id, field_id)`
 
 ## Table tools
 
-- `list_tables(workspace_id)`
+- `list_tables(workspace_id, limit=20, cursor=None)`
 - `create_table(workspace_id, name, columns_json=None)`
 - `get_table(workspace_id, table_id)`
 - `update_table(workspace_id, table_id, name=None)`
 - `insert_table_row(workspace_id, table_id, row_json, upsert=False)`
 - `update_table_row(workspace_id, table_id, row_id, row_json)`
-- `search_table_rows(workspace_id, table_id, search_term=None, limit=100, offset=0)`
+- `search_table_rows(workspace_id, table_id, search_term=None, limit=100, cursor=None)`
 - `export_csv(workspace_id, table_id, include_header=True)`
 
 ### Template and CSV file transfer notes
@@ -99,7 +108,20 @@ This document lists the currently registered MCP tools in
 
 ## Variable and secret metadata tools
 
-- `list_variables(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT)`
+- `list_variables(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT, limit=20, cursor=None)`
 - `get_variable(workspace_id, variable_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`
-- `list_secrets_metadata(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT)`
+- `list_secrets_metadata(workspace_id, environment=DEFAULT_SECRETS_ENVIRONMENT, limit=20, cursor=None)`
 - `get_secret_metadata(workspace_id, secret_name, environment=DEFAULT_SECRETS_ENVIRONMENT)`
+
+## Integration and agent tools
+
+- `list_integrations(workspace_id)`
+- `get_agent_preset_authoring_context(workspace_id)`
+- `create_agent_preset(workspace_id, name, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_internet_access=None)`
+- `update_agent_preset(workspace_id, preset_slug, name=None, slug=None, description=None, instructions=None, model_name=None, model_provider=None, base_url=None, output_type=None, actions=None, namespaces=None, tool_approvals=None, mcp_integration_ids=None, retries=None, enable_internet_access=None)`
+- `list_agent_presets(workspace_id, limit=20, cursor=None)`
+- `get_agent_preset(workspace_id, preset_slug)`
+- `run_agent_preset(workspace_id, preset_slug, prompt, preset_version=None, timeout_seconds=120)`
+
+`list_integrations` and `get_agent_preset_authoring_context` keep object
+responses but cap embedded collections and expose `truncation.collections`.

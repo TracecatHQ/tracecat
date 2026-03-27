@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from tracecat_registry import RegistrySecret
 
 from tracecat.auth.credentials import RoleACL
@@ -25,10 +25,14 @@ async def list_registry_actions(
         require_workspace="no",
     ),
     session: AsyncDBSession,
+    include_locked: bool = Query(
+        default=False,
+        description="Include actions locked by missing entitlements",
+    ),
 ) -> list[RegistryActionReadMinimal]:
     """List all actions from registry index."""
     service = RegistryActionsService(session, role)
-    index_entries = await service.list_actions_from_index()
+    index_entries = await service.list_actions_from_index(include_locked=include_locked)
     return [
         RegistryActionReadMinimal.from_index(entry, origin)
         for entry, origin in index_entries

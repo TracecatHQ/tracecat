@@ -28,7 +28,9 @@ def test_execute_command_rejects_missing_host_key_when_checking_enabled(
     mock_ssh_client: MagicMock,
 ) -> None:
     monkeypatch.setattr(registry_ssh.secrets, "get", lambda key: "private-key")
-    monkeypatch.setattr(registry_ssh, "_load_private_key", lambda private_key: MagicMock())
+    monkeypatch.setattr(
+        registry_ssh, "_load_private_key", lambda private_key: MagicMock()
+    )
     monkeypatch.setattr(paramiko, "SSHClient", lambda: mock_ssh_client)
 
     with pytest.raises(ValueError, match="host_public_key is required"):
@@ -46,7 +48,9 @@ def test_execute_command_uses_transient_policy_when_host_key_checking_disabled(
     mock_ssh_client: MagicMock,
 ) -> None:
     monkeypatch.setattr(registry_ssh.secrets, "get", lambda key: "private-key")
-    monkeypatch.setattr(registry_ssh, "_load_private_key", lambda private_key: MagicMock())
+    monkeypatch.setattr(
+        registry_ssh, "_load_private_key", lambda private_key: MagicMock()
+    )
     monkeypatch.setattr(paramiko, "SSHClient", lambda: mock_ssh_client)
 
     with pytest.warns(RuntimeWarning, match="not persisted across action runs"):
@@ -69,9 +73,15 @@ def test_execute_command_uses_known_hosts_when_host_key_checking_enabled(
     tmp_path,
 ) -> None:
     monkeypatch.setattr(registry_ssh.secrets, "get", lambda key: "private-key")
-    monkeypatch.setattr(registry_ssh, "_load_private_key", lambda private_key: MagicMock())
+    monkeypatch.setattr(
+        registry_ssh, "_load_private_key", lambda private_key: MagicMock()
+    )
     monkeypatch.setattr(paramiko, "SSHClient", lambda: mock_ssh_client)
-    monkeypatch.setattr(registry_ssh.tempfile, "NamedTemporaryFile", lambda **kwargs: open(tmp_path / "known_hosts", "w", encoding="utf-8"))
+    monkeypatch.setattr(
+        registry_ssh.tempfile,
+        "NamedTemporaryFile",
+        lambda **kwargs: open(tmp_path / "known_hosts", "w", encoding="utf-8"),
+    )
 
     registry_ssh.execute_command(
         command="hostname",
@@ -80,6 +90,8 @@ def test_execute_command_uses_known_hosts_when_host_key_checking_enabled(
         host_public_key="ssh-ed25519 AAAA",
     )
 
-    mock_ssh_client.load_host_keys.assert_called_once_with(str(tmp_path / "known_hosts"))
+    mock_ssh_client.load_host_keys.assert_called_once_with(
+        str(tmp_path / "known_hosts")
+    )
     policy = mock_ssh_client.set_missing_host_key_policy.call_args.args[0]
     assert isinstance(policy, paramiko.RejectPolicy)

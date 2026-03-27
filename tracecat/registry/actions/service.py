@@ -214,7 +214,10 @@ class RegistryActionsService(BaseOrgService):
         return await self._is_custom_registry_enabled()
 
     async def _filter_index_entries_by_entitlements(
-        self, entries: list[tuple[IndexEntry, str]]
+        self,
+        entries: list[tuple[IndexEntry, str]],
+        *,
+        include_locked: bool = False,
     ) -> list[tuple[IndexEntry, str]]:
         required_any: set[str] = set()
         for entry, _origin in entries:
@@ -222,11 +225,14 @@ class RegistryActionsService(BaseOrgService):
         if not required_any:
             return entries
         enabled = await self._get_enabled_entitlements()
-        return [
-            (entry, origin)
-            for entry, origin in entries
-            if self._normalize_required_entitlements(entry.options).issubset(enabled)
-        ]
+        filtered: list[tuple[IndexEntry, str]] = []
+        for entry, origin in entries:
+            missing = self._normalize_required_entitlements(entry.options) - enabled
+            entry.missing_entitlements = tuple(sorted(missing))
+            if missing and not include_locked:
+                continue
+            filtered.append((entry, origin))
+        return filtered
 
     async def list_actions_from_index(
         self,
@@ -234,6 +240,7 @@ class RegistryActionsService(BaseOrgService):
         namespace: str | None = None,
         include_marked: bool = False,
         include_keys: set[str] | None = None,
+        include_locked: bool = False,
     ) -> list[tuple[IndexEntry, str]]:
         """List actions from registry index for current versions.
 
@@ -365,7 +372,9 @@ class RegistryActionsService(BaseOrgService):
                 options=row.options or {},
             )
             entries.append((entry, row.origin))
-        return await self._filter_index_entries_by_entitlements(entries)
+        return await self._filter_index_entries_by_entitlements(
+            entries, include_locked=include_locked
+        )
 
     async def list_actions_from_index_by_repository(
         self,

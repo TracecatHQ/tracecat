@@ -50,6 +50,7 @@ from tracecat.temporal.visibility import is_tokenized_visibility_value
 from tracecat.validation.service import validate_dsl
 from tracecat.workflow.executions.dependencies import UnquotedExecutionID
 from tracecat.workflow.executions.enums import (
+    WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES,
     ExecutionType,
     TemporalSearchAttr,
     TriggerType,
@@ -400,6 +401,7 @@ async def list_workflow_executions(
         workflow_id=workflow_id,
         trigger_types=trigger_types,
         triggered_by_user_id=triggered_by_user_id,
+        exclude_workflow_types=set(WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES),
         limit=effective_limit,
     )
     return [
@@ -499,6 +501,7 @@ async def search_workflow_executions(
             statuses=statuses,
             status_mode=status_mode,
             execution_types={ExecutionType.PUBLISHED},
+            exclude_workflow_types=set(WORKFLOW_RUN_EXCLUDED_WORKFLOW_TYPES),
             start_time_from=start_time_from,
             start_time_to=start_time_to,
             close_time_from=close_time_from,
@@ -533,7 +536,7 @@ async def search_workflow_executions(
     return CursorPaginatedResponse(
         items=items,
         next_cursor=page.next_cursor,
-        prev_cursor=None,
+        prev_cursor=page.prev_cursor,
         has_more=page.has_more,
         has_previous=page.has_previous,
         total_estimate=None,

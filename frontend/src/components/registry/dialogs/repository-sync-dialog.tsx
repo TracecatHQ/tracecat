@@ -80,21 +80,21 @@ export function SyncRepositoryDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent className="max-w-2xl">
         <AlertDialogHeader>
           <AlertDialogTitle>Sync repository</AlertDialogTitle>
           <AlertDialogDescription>
-            <span className="flex flex-col space-y-2">
+            <span className="flex flex-col space-y-3">
               <span>
-                You are about to pull the latest version of the repository{" "}
+                You are about to pull the latest version of the repository.
               </span>
-              <b className="font-mono tracking-tighter">
+              <span className="max-w-full rounded-md border px-3 py-2 font-mono text-sm font-semibold tracking-tight text-foreground break-all whitespace-normal">
                 {selectedRepo?.origin}
-              </b>
+              </span>
               {selectedRepo?.commit_sha && (
-                <span className="text-sm text-muted-foreground">
-                  <span>Current SHA: </span>
-                  <span className="font-mono text-xs bg-secondary text-secondary-foreground px-2 py-1 rounded">
+                <span className="flex flex-wrap items-start gap-2 text-sm text-muted-foreground">
+                  <span>Current SHA:</span>
+                  <span className="rounded bg-secondary px-2 py-1 font-mono text-xs text-secondary-foreground break-all whitespace-normal">
                     {selectedRepo.commit_sha}
                   </span>
                 </span>

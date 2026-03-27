@@ -272,6 +272,8 @@ class TestWorkspaceService:
         "git+ssh://git@gitlab.company.com:2222/team/project.git",
         "git+ssh://git@gitlab.com/group/subgroup/repo.git",
         "git+ssh://git@example.com/org/repo",
+        "git+ssh://someuser@git.example.com/org/repo.git",
+        "git+ssh://git@github.com/org/repo.git@feature/custom-branch",
     ],
 )
 def test_workspace_settings_update_accepts_valid_git_urls(valid_url: str) -> None:
@@ -285,7 +287,7 @@ def test_workspace_settings_update_accepts_valid_git_urls(valid_url: str) -> Non
     "invalid_url",
     [
         "https://github.com/org/repo.git",
-        "git+ssh://user@github.com/org/repo.git",
+        "git+ssh://github.com/org/repo.git",
         "git+ssh://git@github.com",
         "git+ssh://git@github.com:not_a_port/org/repo.git",
         "git+ssh://git@github.com:/org/repo.git",

@@ -1,0 +1,128 @@
+---
+title: AWS ECS Fargate
+description: Deploy Tracecat to AWS ECS Fargate using Terraform.
+---
+
+<Warning>
+  This stack exposes Tracecat to the public internet.
+  We've set the `auth_types` Terraform variable to `saml` by default.
+  You must configure SAML before your first login or change `auth_types` to another method.
+</Warning>
+
+## Prerequisites
+
+- [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
+- AWS credentials configured for your target account and role
+- A public [Route53 hosted zone](https://aws.amazon.com/route53/) (domain and hosted zone ID)
+- `openssl` and AWS CLI (if using the helper secret script)
+
+## Clone the repository
+
+Clone the Tracecat repository and navigate to the Fargate deployment directory.
+
+```bash
+git clone https://github.com/TracecatHQ/tracecat.git
+cd tracecat/deployments/fargate
+```
+
+## Create core secrets
+
+Create the required secrets (`TRACECAT__DB_ENCRYPTION_KEY`, `TRACECAT__SERVICE_KEY`, `TRACECAT__SIGNING_SECRET`) in AWS Secrets Manager.
+
+```bash
+export AWS_DEFAULT_REGION=<aws-region>
+./scripts/create-aws-secrets.sh
+```
+
+Save the resulting secret ARNs. You'll need them for Terraform variables.
+
+## Configure authentication secrets (optional)
+
+Depending on your chosen `auth_types` (e.g. `saml`, `oidc`, `oauth`), provide the necessary secret ARNs as Terraform variables.
+
+For example, for SAML:
+- `saml_idp_metadata_url_arn`
+- `saml_ca_certs_arn`
+- `saml_metadata_cert_arn`
+
+## Initialize and deploy
+
+Initialize Terraform and apply the configuration.
+
+```bash
+terraform init
+
+export TF_VAR_aws_region=<aws-region>
+export TF_VAR_domain_name=<domain>
+export TF_VAR_hosted_zone_id=<hosted-zone-id>
+
+export TF_VAR_tracecat_db_encryption_key_arn=<secret-arn>
+export TF_VAR_tracecat_service_key_arn=<secret-arn>
+export TF_VAR_tracecat_signing_secret_arn=<secret-arn>
+
+# Optional but recommended
+export TF_VAR_tracecat_image_tag=1.0.0-beta.35
+
+terraform apply
+```
+
+Provisioning takes about 10-20 minutes due to RDS and ECS startup.
+
+## Access Tracecat
+
+Once deployed, access your instance at:
+- UI: `https://<domain>`
+- API docs: `https://<domain>/api/docs`
+- MCP: `https://<domain>/mcp`
+
+## Updating Tracecat
+
+To update an existing Tracecat deployment on Fargate:
+
+1. Pull the latest Fargate stack from the Tracecat repository to ensure you have the most recent infrastructure changes.
+2. Change the `TF_VAR_tracecat_image_tag` variable to the desired image tag compatible with the stack, or remove the variable to default to the latest image tag.
+3. Run `terraform apply` to apply the updates.
+
+```bash
+cd tracecat/deployments/fargate
+git pull origin main
+
+# Set variables as before, then update the image tag
+export TF_VAR_tracecat_image_tag=1.0.0-beta.35
+
+terraform apply
+```
+
+## Temporal DB SSL enforcement
+
+For the bundled Fargate `temporalio/auto-setup` deployment, `temporal_db_force_ssl` defaults to `false`:
+
+```bash
+export TF_VAR_temporal_db_force_ssl=false
+terraform apply
+```
+
+This setting applies only to the bundled Temporal RDS instance. It requires a DB reboot when changed and permits non-TLS connections to the Temporal database for compatibility with the current Fargate Temporal auto-setup flow.
+
+If you are using Temporal Cloud or another external Temporal cluster, set `disable_temporal_autosetup=true` and point `temporal_cluster_url` at your external cluster. In that setup, `temporal_db_force_ssl` is typically unused because the bundled Temporal RDS instance is not created. If you run your own external Temporal PostgreSQL and want SSL-only enforcement there, set `TF_VAR_temporal_db_force_ssl=true`.
+
+## FAQ
+
+### Is untrusted code execution safe on Fargate?
+
+Fargate does not support the permissions model required by `nsjail`. Tracecat uses a fallback executor without `nsjail` isolation on Fargate.
+If you need the highest isolation for untrusted code execution (like custom registry actions or `core.script.run_python`), deploy Tracecat on Kubernetes using the [Helm chart](https://github.com/TracecatHQ/tracecat/tree/main/deployments/k8s/helm), where `nsjail` is enabled by default.
+
+### What infrastructure does this stack create?
+
+The Terraform stack deploys:
+- Public ALB, Route53 records, and ACM certificates
+- ECS cluster with Service Connect
+- RDS instances (core database and optional Temporal database)
+- ElastiCache Redis
+- S3 buckets for attachments, registry, and workflow artifacts
+- VPC endpoints for S3 and Secrets Manager
+
+### What happens if database migrations fail?
+
+Migrations run in an init container during the API task startup. The API container only starts if migrations succeed. If migrations fail, the deployment pauses and dependent services (`worker`, `executor`) will not update.

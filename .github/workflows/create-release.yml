@@ -19,6 +19,11 @@ concurrency:
 
 jobs:
   create-release:
+    if: >-
+      contains(
+        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
+        github.triggering_actor || github.actor
+      )
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -33,7 +38,7 @@ jobs:
           fi
 
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: main
           fetch-depth: 0
@@ -65,7 +70,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Ensure version has not already been published
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           VERSION: ${{ steps.version.outputs.version }}
         with:

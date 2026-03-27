@@ -187,6 +187,19 @@ class RegistryActionBase(BaseModel):
     repository_id: UUID4 = Field(..., description="The repository id")
 
 
+class RegistryActionAvailability(BaseModel):
+    """Availability metadata for a registry action."""
+
+    locked: bool = Field(
+        default=False,
+        description="Whether this action is locked behind an upgraded plan",
+    )
+    missing_entitlements: list[str] = Field(
+        default_factory=list,
+        description="Entitlements required to unlock this action",
+    )
+
+
 class RegistryActionReadMinimal(BaseModel):
     """API minimal read model for a registered action."""
 
@@ -201,6 +214,10 @@ class RegistryActionReadMinimal(BaseModel):
     )
     display_group: str | None = Field(
         None, description="The presentation group of the action"
+    )
+    availability: RegistryActionAvailability = Field(
+        default_factory=RegistryActionAvailability,
+        description="Availability metadata for this action",
     )
 
     @computed_field(return_type=str)
@@ -223,6 +240,10 @@ class RegistryActionReadMinimal(BaseModel):
             origin=origin,
             default_title=index.default_title,
             display_group=index.display_group,
+            availability=RegistryActionAvailability(
+                locked=bool(index.missing_entitlements),
+                missing_entitlements=list(index.missing_entitlements),
+            ),
         )
 
 

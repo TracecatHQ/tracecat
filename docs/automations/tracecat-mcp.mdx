@@ -1,0 +1,97 @@
+---
+title: "Tracecat MCP"
+description: "Build automations through your own agent harness."
+---
+
+import McpInstallation from "/snippets/mcp-installation.mdx";
+import McpTools from "/snippets/mcp-tools.mdx";
+
+Tracecat works best with agentic coding tools (Claude Code, Cursor, Codex, OpenCode).
+Agents connected to Tracecat MCP gain the ability to build and orchestrate core Tracecat resources:
+
+- Agents
+- Workflows
+- Tables (local and remote)
+- Integrations (HTTP, gRPC, SQL)
+- Scripts (Python, docker run)
+- Cases (local and remote)
+
+Tracecat MCP turns any coding agent into a security automation architect and engineer.
+
+## Installation
+
+<McpInstallation />
+
+## Starter prompts
+
+<Prompt
+  description="Recreate automation from blog post"
+  icon="newspaper"
+  actions={["copy"]}
+>
+Recreate a security automation based on a blog post.
+
+Review the following examples and ask me if I have a specific one in mind, or if I'd like to implement one of these:
+- Slack's Distributed Security Alerting (https://slack.engineering/distributed-security-alerting/)
+- AWS Incident Response Playbooks (https://github.com/aws-samples/aws-incident-response-playbooks)
+- GitLab SIRT Incident Response (https://handbook.gitlab.com/handbook/security/security-operations/sirt/sec-incident-response/)
+- Reddit's Threat Detection (https://www.reddit.com/r/RedditEng/comments/1riyeam/how_reddit_does_threat_detection/)
+
+Once we've selected a post:
+1. Analyze the post to identify the core workflow logic, required data tables, and integration points.
+2. Design and implement the necessary Tracecat workflows and tables.
+3. Question any assumptions in the original post that might not apply to a modern cloud-native environment.
+4. Ask clarifying questions about my specific environment, such as preferred communication channels or existing security stack.
+</Prompt>
+
+<Prompt
+  description="Audit and improve existing workflows"
+  icon="clipboard-check"
+  actions={["copy"]}
+>
+Audit my existing Tracecat workflows, tables, and cases.
+
+Goal:
+1. Suggest improvements for efficiency, reliability, and security.
+2. Identify missing components, with a specific focus on SLAs, reporting, and observability.
+3. Question assumptions about my current data retention and alerting thresholds.
+4. Ask clarifying questions about my team's response requirements and reporting stakeholders.
+</Prompt>
+
+<Prompt
+  description="Build alert triage automation"
+  icon="shield-alert"
+  actions={["copy"]}
+>
+Build a security automation for automated alert triage and response.
+
+Tasks:
+1. Create a workflow triggered by a webhook that receives inbound security alerts.
+2. Ask me if I have a SIEM or central log repository (like Splunk or Sentinel) that should be the primary alert source.
+3. Implement an AI analysis step using `ai.action` or `ai.agent` to interpret the alert context.
+4. Ask which enrichment integrations (such as VirusTotal or urlscan.io) I'd like to include for reputation checks.
+5. Ensure the workflow creates a case for any alert that meets a specific risk threshold.
+6. Question assumptions about alert fidelity and whether automated actions should be taken without human review.
+7. Ask clarifying questions about my data schemas, expected alert volume, and specific response SLAs.
+</Prompt>
+
+<Prompt
+  description="Automate phishing email response"
+  icon="mail-warning"
+  actions={["copy"]}
+>
+Build an automated response for user-reported phishing emails.
+
+Tasks:
+1. Design a workflow that triggers when a user submits a suspicious email to our phishing reporting mailbox.
+2. Use a script or AI step to extract all URLs, domains, and attachments from the email body.
+3. Perform reputation checks and sandboxing using my available security tools (e.g., URLScan, Joe Sandbox, or CrowdStrike).
+4. Ask which email service (Microsoft 365 or Google Workspace) I'd like to integrate with for automated deletion or quarantine.
+5. Create a case to notify the SOC if the email is confirmed malicious.
+6. Question assumptions about whether automated deletion should happen for "suspicious" but not "confirmed" hits.
+7. Ask clarifying questions about our internal whitelist of trusted senders and domains.
+</Prompt>
+
+## MCP tools
+
+<McpTools />

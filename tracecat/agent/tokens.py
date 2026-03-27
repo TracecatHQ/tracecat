@@ -86,6 +86,10 @@ class MCPTokenClaims(BaseModel):
     """Optional user ID for audit/traceability."""
     session_id: uuid.UUID
     """Agent session ID for traceability."""
+    parent_agent_workflow_id: str | None = None
+    """Optional parent durable agent workflow ID for correlation."""
+    parent_agent_run_id: str | None = None
+    """Optional parent durable agent run ID for correlation."""
     organization_id: OrganizationID
     """Organization UUID for authorization context."""
     allowed_actions: list[str]
@@ -105,6 +109,8 @@ def mint_mcp_token(
     allowed_actions: list[str],
     session_id: uuid.UUID,
     user_id: UserID | None = None,
+    parent_agent_workflow_id: str | None = None,
+    parent_agent_run_id: str | None = None,
     user_mcp_servers: list[UserMCPServerClaim] | None = None,
     allowed_internal_tools: list[str] | None = None,
     internal_tool_context: InternalToolContext | None = None,
@@ -153,6 +159,12 @@ def mint_mcp_token(
 
     if user_id is not None:
         payload["user_id"] = str(user_id)
+
+    if parent_agent_workflow_id is not None:
+        payload["parent_agent_workflow_id"] = parent_agent_workflow_id
+
+    if parent_agent_run_id is not None:
+        payload["parent_agent_run_id"] = parent_agent_run_id
 
     if user_mcp_servers:
         payload["user_mcp_servers"] = [s.model_dump() for s in user_mcp_servers]
@@ -334,6 +346,9 @@ def verify_llm_token(token: str) -> LLMTokenClaims:
     """
     if not config.TRACECAT__SERVICE_KEY:
         raise ValueError("TRACECAT__SERVICE_KEY is not set")
+
+    if not token:
+        raise ValueError("Invalid LLM token")
 
     try:
         payload = jwt.decode(

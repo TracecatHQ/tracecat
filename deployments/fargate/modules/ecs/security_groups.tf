@@ -72,6 +72,14 @@ resource "aws_security_group" "caddy" {
     self        = true
   }
 
+  ingress {
+    description = "Allow Caddy to forward traffic to MCP service"
+    protocol    = "tcp"
+    from_port   = 8099
+    to_port     = 8099
+    self        = true
+  }
+
   egress {
     protocol    = "-1"
     from_port   = 0

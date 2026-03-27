@@ -14634,6 +14634,28 @@ export const $ReceiveInteractionResponse = {
   title: "ReceiveInteractionResponse",
 } as const
 
+export const $RegistryActionAvailability = {
+  properties: {
+    locked: {
+      type: "boolean",
+      title: "Locked",
+      description: "Whether this action is locked behind an upgraded plan",
+      default: false,
+    },
+    missing_entitlements: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Missing Entitlements",
+      description: "Entitlements required to unlock this action",
+    },
+  },
+  type: "object",
+  title: "RegistryActionAvailability",
+  description: "Availability metadata for a registry action.",
+} as const
+
 export const $RegistryActionInterface = {
   properties: {
     expects: {
@@ -14924,6 +14946,10 @@ export const $RegistryActionReadMinimal = {
       ],
       title: "Display Group",
       description: "The presentation group of the action",
+    },
+    availability: {
+      $ref: "#/components/schemas/RegistryActionAvailability",
+      description: "Availability metadata for this action",
     },
     action: {
       type: "string",

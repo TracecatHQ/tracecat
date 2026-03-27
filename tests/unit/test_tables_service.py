@@ -4,13 +4,14 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import EDITOR_SCOPES, VIEWER_SCOPES
-from tracecat.db.models import Table
+from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
@@ -822,6 +823,24 @@ class TestTableColumns:
         # Verify the error message indicates a unique constraint violation
         error_msg = str(exc_info.value)
         assert "unique" in error_msg.lower() or "duplicate" in error_msg.lower()
+
+    async def test_update_column_can_create_unique_index(
+        self, tables_service: TablesService, table: Table, session: AsyncSession
+    ) -> None:
+        """Creating a unique index via update_column should not trigger lazy-load IO."""
+        name_column_id = await session.scalar(
+            select(TableColumn.id).where(
+                TableColumn.table_id == table.id,
+                TableColumn.name == "name",
+            )
+        )
+        assert name_column_id is not None
+        column = await tables_service.get_column(table.id, name_column_id)
+
+        await tables_service.update_column(column, TableColumnUpdate(is_index=True))
+
+        index_columns = await tables_service.get_index(table)
+        assert "name" in index_columns
 
     async def test_create_unique_index_with_existing_duplicates(
         self, tables_service: TablesService, table: Table

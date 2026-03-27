@@ -43,6 +43,7 @@ def _prompt_for_output_type(output_type: Any, base_prompt: str) -> str:
 
 
 @pytest.mark.anyio
+@pytest.mark.live_secret
 @requires_openai_mocks
 @pytest.mark.parametrize("output_type", PRIMITIVE_OUTPUT_TYPES)
 async def test_agent_primitives(output_type: Any, test_role: Role) -> None:
@@ -76,6 +77,7 @@ async def test_agent_primitives(output_type: Any, test_role: Role) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.live_secret
 @requires_openai_mocks
 @pytest.mark.parametrize("output_type", JSON_SCHEMA_OUTPUT_TYPES)
 async def test_agent_json_schema(output_type: Any, test_role: Role) -> None:

@@ -1,0 +1,363 @@
+---
+title: "JSONPath"
+description: "Path access reference for Tracecat expressions."
+---
+
+## Overview
+
+JSONPath is used inside expression contexts such as `TRIGGER` and `ACTIONS.<ref>.result` to access nested fields and arrays.
+
+## Field access
+
+Use dot notation for nested fields.
+
+<CodeGroup>
+```yaml Expression
+theme: ${{ TRIGGER.data.settings.theme }}
+status: ${{ ACTIONS.fetch_alert.result.status }}
+```
+
+```json Result
+{
+  "theme": "dark",
+  "status": "open"
+}
+```
+</CodeGroup>
+
+Use quoted field names when the field contains special characters.
+
+<CodeGroup>
+```yaml Expression
+value: ${{ TRIGGER.data."alert.sample.data" }}
+dash_value: ${{ TRIGGER.data."field-with-dashes" }}
+```
+
+```json Result
+{
+  "value": "sample-1",
+  "dash_value": "ok"
+}
+```
+</CodeGroup>
+
+## Array access
+
+Use brackets to access array items.
+
+<CodeGroup>
+```yaml Expression
+first_item: ${{ TRIGGER.items[0] }}
+last_item: ${{ TRIGGER.items[-1] }}
+first_name: ${{ ACTIONS.lookup_users.result.users[0].name }}
+```
+
+```json Result
+{
+  "first_item": {"id": "a1"},
+  "last_item": {"id": "a3"},
+  "first_name": "Alice"
+}
+```
+</CodeGroup>
+
+## Wildcards
+
+Use `[*]` to select all items in an array.
+
+<CodeGroup>
+```yaml Expression
+ids: ${{ TRIGGER.items[*].id }}
+names: ${{ ACTIONS.lookup_users.result.users[*].name }}
+```
+
+```json Result
+{
+  "ids": ["a1", "a2", "a3"],
+  "names": ["Alice", "Bob", "Carol"]
+}
+```
+</CodeGroup>
+
+Wildcard expressions return a list.
+
+## Filters
+
+Use filters to select matching items.
+
+<CodeGroup>
+```yaml Expression
+active_users: ${{ ACTIONS.lookup_users.result.users[?(@.active == true)] }}
+high_scores: ${{ ACTIONS.lookup_users.result.users[?(@.score >= 90)] }}
+matching_alerts: ${{ TRIGGER.alerts[?(@.severity == "high")] }}
+```
+
+```json Result
+{
+  "active_users": [{"name": "Alice", "active": true}],
+  "high_scores": [{"name": "Alice", "score": 96}],
+  "matching_alerts": [{"id": "al-1", "severity": "high"}]
+}
+```
+</CodeGroup>
+
+Filter expressions return a list.
+
+Common filter patterns:
+
+Equality:
+
+<CodeGroup>
+```yaml Expression
+high_alerts: ${{ TRIGGER.alerts[?(@.severity == "high")] }}
+open_findings: ${{ ACTIONS.fetch_findings.result.items[?(@.status == "open")] }}
+```
+
+```json Result
+{
+  "high_alerts": [{"id": "al-1", "severity": "high"}],
+  "open_findings": [{"id": "f-1", "status": "open"}]
+}
+```
+</CodeGroup>
+
+Inequality:
+
+<CodeGroup>
+```yaml Expression
+secondary_roles: ${{ ACTIONS.parse_event.result.included[?(@.attributes.incident_role.data.attributes.slug != "primary-role")] }}
+```
+
+```json Result
+{
+  "secondary_roles": [
+    {
+      "attributes": {
+        "incident_role": {
+          "data": {
+            "attributes": {
+              "slug": "secondary-role"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
+```
+</CodeGroup>
+
+Numeric comparison:
+
+<CodeGroup>
+```yaml Expression
+critical_scores: ${{ ACTIONS.lookup_users.result.users[?(@.score >= 90)] }}
+recent_events: ${{ TRIGGER.events[?(@.count > 10)] }}
+```
+
+```json Result
+{
+  "critical_scores": [{"name": "Alice", "score": 96}],
+  "recent_events": [{"id": "evt-1", "count": 14}]
+}
+```
+</CodeGroup>
+
+Truthy field check:
+
+<CodeGroup>
+```yaml Expression
+users_with_email: ${{ ACTIONS.lookup_users.result.users[?(@.email)] }}
+alerts_with_owner: ${{ TRIGGER.alerts[?(@.owner)] }}
+```
+
+```json Result
+{
+  "users_with_email": [{"name": "Alice", "email": "alice@example.com"}],
+  "alerts_with_owner": [{"id": "al-1", "owner": "secops"}]
+}
+```
+</CodeGroup>
+
+String matching by exact value:
+
+<CodeGroup>
+```yaml Expression
+prod_hosts: ${{ ACTIONS.inventory.result.hosts[?(@.environment == "prod")] }}
+linux_hosts: ${{ ACTIONS.inventory.result.hosts[?(@.os == "linux")] }}
+```
+
+```json Result
+{
+  "prod_hosts": [{"hostname": "api-1", "environment": "prod"}],
+  "linux_hosts": [{"hostname": "api-1", "os": "linux"}, {"hostname": "worker-1", "os": "linux"}]
+}
+```
+</CodeGroup>
+
+Nested field checks:
+
+<CodeGroup>
+```yaml Expression
+owned_devices: ${{ TRIGGER.assets[?(@.owner.name == "SecOps")] }}
+resolved_cases: ${{ ACTIONS.search_cases.result.items[?(@.status.name == "resolved")] }}
+```
+
+```json Result
+{
+  "owned_devices": [{"id": "dev-1", "owner": {"name": "SecOps"}}],
+  "resolved_cases": [{"id": "case-2", "status": {"name": "resolved"}}]
+}
+```
+</CodeGroup>
+
+Filter and project a nested field:
+
+<CodeGroup>
+```yaml Expression
+role_slugs: ${{ ACTIONS.parse_event.result.included[?(@.attributes.incident_role.data.attributes.slug)].attributes.incident_role.data.attributes.slug }}
+```
+
+```json Result
+{
+  "role_slugs": ["primary-role", "secondary-role"]
+}
+```
+</CodeGroup>
+
+Filter and return one field from matching rows:
+
+<CodeGroup>
+```yaml Expression
+open_ids: ${{ ACTIONS.fetch_findings.result.items[?(@.status == "open")].id }}
+```
+
+```json Result
+{
+  "open_ids": ["f-1", "f-3"]
+}
+```
+</CodeGroup>
+
+## Return behavior
+
+- Single matches return a scalar.
+- Wildcards return a list.
+- Filters return a list.
+
+Examples:
+
+<CodeGroup>
+```yaml Expression
+name: ${{ TRIGGER.user.name }}
+```
+
+```json Result
+{
+  "name": "Alice"
+}
+```
+</CodeGroup>
+
+<CodeGroup>
+```yaml Expression
+names: ${{ TRIGGER.users[*].name }}
+```
+
+```json Result
+{
+  "names": ["Alice", "Bob", "Carol"]
+}
+```
+</CodeGroup>
+
+## Examples
+
+Trigger data:
+
+<CodeGroup>
+```yaml Expression
+email: ${{ TRIGGER.user.email }}
+```
+
+```json Result
+{
+  "email": "alice@example.com"
+}
+```
+</CodeGroup>
+
+Action result:
+
+<CodeGroup>
+```yaml Expression
+ticket_id: ${{ ACTIONS.create_ticket.result.id }}
+```
+
+```json Result
+{
+  "ticket_id": "T-123"
+}
+```
+</CodeGroup>
+
+Array item:
+
+<CodeGroup>
+```yaml Expression
+first_tag: ${{ ACTIONS.lookup_tags.result.tags[0] }}
+```
+
+```json Result
+{
+  "first_tag": "malware"
+}
+```
+</CodeGroup>
+
+Wildcard:
+
+<CodeGroup>
+```yaml Expression
+tag_names: ${{ ACTIONS.lookup_tags.result.tags[*].name }}
+```
+
+```json Result
+{
+  "tag_names": ["malware", "phishing", "credential-access"]
+}
+```
+</CodeGroup>
+
+Filter:
+
+<CodeGroup>
+```yaml Expression
+open_findings: ${{ ACTIONS.fetch_findings.result.items[?(@.status == "open")] }}
+```
+
+```json Result
+{
+  "open_findings": [{"id": "f-1", "status": "open"}, {"id": "f-3", "status": "open"}]
+}
+```
+</CodeGroup>
+
+Filter and project:
+
+<CodeGroup>
+```yaml Expression
+open_titles: ${{ ACTIONS.fetch_findings.result.items[?(@.status == "open")].title }}
+```
+
+```json Result
+{
+  "open_titles": ["Suspicious login", "Impossible travel"]
+}
+```
+</CodeGroup>
+
+## Related pages
+
+- See [Expressions](/automations/core-concepts/expressions) for expression syntax and contexts.
+- See [Functions](/automations/core-concepts/functions) for helper functions you can use alongside JSONPath access.

@@ -10,10 +10,12 @@ from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
         "git+ssh://git@github.com/user/repo.git",
         "git+ssh://git@gitlab.company.com/team/project.git",
         "git+ssh://git@example.com/org/repo.git",
+        "git+ssh://someuser@git.example.com/org/repo.git",
         "git+ssh://git@github.com:2222/user/repo.git",  # With port
         "git+ssh://git@gitlab.com/org/team/subteam/repo.git",  # Nested groups
         "git+ssh://git@github.com/user/repo",  # Without .git suffix
         "git+ssh://git@github.com/user/repo.git@main",  # With branch ref
+        "git+ssh://git@github.com/user/repo.git@feature/custom-branch",  # Slash ref
     ],
 )
 def test_registry_repository_create_valid_urls(url: str) -> None:
@@ -34,7 +36,7 @@ def test_registry_repository_create_valid_urls(url: str) -> None:
         # Non-git+ssh URLs
         "https://github.com/user/repo.git",
         "ssh://git@github.com/user/repo.git",
-        # Missing git@ user
+        # Missing SSH user
         "git+ssh://github.com/user/repo.git",
     ],
 )

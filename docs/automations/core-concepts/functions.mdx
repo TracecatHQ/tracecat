@@ -1,0 +1,102 @@
+---
+title: "Functions"
+description: "In-line utility functions."
+---
+
+import FunctionsReference from "/snippets/functions-reference.mdx";
+
+## Overview
+
+Tracecat expressions can call built-in functions with the `FN.<name>(...)` syntax.
+Function results support bracket indexing such as `FN.range(0, 3)[0]`.
+Function results do not support JSONPath wildcards or filters such as `FN.range(0, 3)[*]`.
+
+<Note>
+Use in-line functions for one-line data transforms in action inputs.
+For more complex logic, use a Python script or a custom UDF instead.
+</Note>
+
+## Examples
+
+Build a prompt or short string:
+
+<CodeGroup>
+```yaml Expression
+prompt: ${{ FN.format("Investigate alert {0} with severity {1}", TRIGGER.alert_id, TRIGGER.severity) }}
+```
+
+```json Result
+{
+  "prompt": "Investigate alert al-123 with severity high"
+}
+```
+</CodeGroup>
+
+Time manipulation for alert search windows:
+
+<CodeGroup>
+```yaml Expression
+start_time: ${{ FN.to_isoformat(FN.now() - FN.minutes(15)) }}
+end_time: ${{ FN.to_isoformat(FN.now()) }}
+```
+
+```json Result
+{
+  "start_time": "2026-03-18T12:45:00",
+  "end_time": "2026-03-18T13:00:00"
+}
+```
+</CodeGroup>
+
+Deserialize or serialize JSON:
+
+<CodeGroup>
+```yaml Expression
+parsed: ${{ FN.deserialize_json(TRIGGER.raw_json) }}
+serialized: ${{ FN.serialize_json({"status": "ok", "count": 3}) }}
+```
+
+```json Result
+{
+  "parsed": {
+    "status": "open",
+    "count": 3
+  },
+  "serialized": "{\"status\":\"ok\",\"count\":3}"
+}
+```
+</CodeGroup>
+
+Format rows into a Markdown table:
+
+<CodeGroup>
+```yaml Expression
+table: ${{ FN.to_markdown_table(ACTIONS.list_findings.result) }}
+```
+
+```json Result
+{
+  "table": "| id | severity |\\n| --- | --- |\\n| f-1 | high |\\n| f-2 | medium |"
+}
+```
+</CodeGroup>
+
+Count or reshape a small value:
+
+<CodeGroup>
+```yaml Expression
+count: ${{ FN.length(ACTIONS.gather_results.result) }}
+unique_tags: ${{ FN.unique(TRIGGER.tags) }}
+```
+
+```json Result
+{
+  "count": 3,
+  "unique_tags": ["auth", "critical"]
+}
+```
+</CodeGroup>
+
+This page is generated from `tracecat/expressions/functions.py`.
+
+<FunctionsReference />

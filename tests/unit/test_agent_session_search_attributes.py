@@ -17,6 +17,7 @@ from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import BasicChatRequest, ChatRequest
 from tracecat.db.models import AgentSession
+from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -118,6 +119,9 @@ async def test_run_turn_stamps_tracecat_search_attributes(
     assert (
         pairs[TemporalSearchAttr.EXECUTION_TYPE.value] == ExecutionType.PUBLISHED.value
     )
+    assert pairs[
+        TemporalSearchAttr.CORRELATION_ID.value
+    ] == build_agent_session_correlation_id(session_id)
     assert pairs[TemporalSearchAttr.WORKSPACE_ID.value] == str(
         role_with_user.workspace_id
     )
@@ -159,6 +163,9 @@ async def test_run_turn_omits_triggered_by_when_role_has_no_user_id(
     assert (
         pairs[TemporalSearchAttr.EXECUTION_TYPE.value] == ExecutionType.PUBLISHED.value
     )
+    assert pairs[
+        TemporalSearchAttr.CORRELATION_ID.value
+    ] == build_agent_session_correlation_id(session_id)
     assert pairs[TemporalSearchAttr.WORKSPACE_ID.value] == str(
         role_without_user.workspace_id
     )

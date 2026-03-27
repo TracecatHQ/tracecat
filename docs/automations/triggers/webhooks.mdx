@@ -1,0 +1,69 @@
+---
+title: "Webhooks"
+description: "Trigger workflows from external systems with webhooks."
+---
+
+## Overview
+
+Webhooks start a workflow from an external system. The URL includes the webhook secret. `POST` is the primary method. `GET` also works for verification flows. The workflow must be published before the webhook runs.
+
+![Webhook trigger](/img/triggers/webhook.png)
+
+## Using webhook payloads
+
+The request body becomes `TRIGGER`, for example `${{ TRIGGER.alert_id }}`.
+
+## Supported request formats
+
+Parsing:
+
+- **Empty body**: no trigger payload is created.
+- **JSON by default**: the body is parsed as JSON and becomes `TRIGGER`.
+- **Form payloads** with `application/x-www-form-urlencoded`: the body is parsed as a dictionary. Form field names become keys on `TRIGGER`.
+- **NDJSON payloads** with `application/x-ndjson`, `application/jsonlines`, and `application/jsonl`: Tracecat starts one workflow run per JSON line. `TRIGGER` is that line, not the full request body.
+
+## Securing webhooks
+
+### Allowed HTTP methods
+
+Allowed methods can be `GET`, `POST`, or both. Requests that use a method outside the allowed list are rejected.
+
+### API key authentication
+
+Webhook API keys are optional. If configured, the sender must include `x-tracecat-api-key`. The UI supports generate, rotate, revoke, and delete. A revoked key blocks requests until a new key is generated or API key protection is removed.
+
+### IP allowlist
+
+Requests can be restricted to specific IPs or CIDR ranges. The allowlist is IPv4-only.
+
+## Response
+
+Default response:
+
+```json
+{
+  "message": "Workflow execution created",
+  "wf_id": "wf_3mYp8JkL2nQr7sTu9vWx0Z",
+  "wf_exec_id": "wf_3mYp8JkL2nQr7sTu9vWx0Z/exec_7aBcDeFgHiJkLmNoPqRsTu"
+}
+```
+
+`echo=true` adds `payload`. `echo=true&empty_echo=true` returns an empty `200` response instead of the default JSON body.
+
+## Slack event subscriptions
+
+Slack event subscription verification uses `?echo=true`.
+
+## Slack modal close and fast acknowledgements
+
+Slack interactive flows that need a fast empty acknowledgement use `?echo=true&empty_echo=true`.
+
+## Okta verification
+
+Okta verification requests use `vendor=okta`. Tracecat reads `x-okta-verification-challenge` and returns:
+
+```json
+{
+  "verification": "<challenge>"
+}
+```

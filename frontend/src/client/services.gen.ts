@@ -453,6 +453,7 @@ import type {
   RbacUpdateUserAssignmentResponse,
   RegistryActionsGetRegistryActionData,
   RegistryActionsGetRegistryActionResponse,
+  RegistryActionsListRegistryActionsData,
   RegistryActionsListRegistryActionsResponse,
   RegistryRepositoriesCompareRegistryVersionsData,
   RegistryRepositoriesCompareRegistryVersionsResponse,
@@ -6222,16 +6223,25 @@ export const registryRepositoriesGetPreviousRegistryVersion = (
 /**
  * List Registry Actions
  * List all actions from registry index.
+ * @param data The data for the request.
+ * @param data.includeLocked Include actions locked by missing entitlements
  * @returns RegistryActionReadMinimal Successful Response
  * @throws ApiError
  */
-export const registryActionsListRegistryActions =
-  (): CancelablePromise<RegistryActionsListRegistryActionsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/registry/actions",
-    })
-  }
+export const registryActionsListRegistryActions = (
+  data: RegistryActionsListRegistryActionsData = {}
+): CancelablePromise<RegistryActionsListRegistryActionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/registry/actions",
+    query: {
+      include_locked: data.includeLocked,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Get Registry Action

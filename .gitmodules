@@ -1,0 +1,4 @@
+[submodule "deployments/k8s"]
+	path = deployments/k8s
+	url = git@github.com:TracecatHQ/k8s.git
+	branch = main

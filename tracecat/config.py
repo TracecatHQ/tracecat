@@ -666,11 +666,75 @@ TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
 )
 """Read timeout for the LLM socket proxy in seconds (default: 5 minutes)."""
 
+
+TRACECAT__LITELLM_NUM_WORKERS = max(
+    1,
+    int(os.environ.get("TRACECAT__LITELLM_NUM_WORKERS") or 4),
+)
+"""Number of LiteLLM proxy workers to run per agent-executor sidecar."""
+
+TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS = float(
+    os.environ.get("TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS") or 60.0
+)
+"""TTL for process-local LiteLLM credential cache entries in seconds."""
+
+TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS = float(
+    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS") or 30.0
+)
+"""Interval between LiteLLM readiness checks in seconds."""
+
+TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS") or 2.0
+)
+"""Legacy default timeout for LiteLLM readiness checks in seconds."""
+
+TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS")
+    or TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS
+)
+"""Connect timeout for LiteLLM readiness checks in seconds."""
+
+TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS")
+    or TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS
+)
+"""Read timeout for LiteLLM readiness checks in seconds."""
+
+TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS")
+    or TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS
+)
+"""Write timeout for LiteLLM readiness checks in seconds."""
+
+TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS")
+    or TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS
+)
+"""Pool timeout for LiteLLM readiness checks in seconds."""
+
+TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD = int(
+    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD") or 3
+)
+"""Number of consecutive LiteLLM readiness failures before failing the worker."""
+
+TRACECAT__LITELLM_STATUS_LOG_INTERVAL_SECONDS = float(
+    os.environ.get("TRACECAT__LITELLM_STATUS_LOG_INTERVAL_SECONDS") or 30.0
+)
+"""Interval between periodic LiteLLM status heartbeat logs in seconds."""
+
 TRACECAT__AGENT_QUEUE = os.environ.get("TRACECAT__AGENT_QUEUE", "shared-agent-queue")
 """Task queue for the AgentWorker (Temporal workflow queue).
 
 This is the dedicated queue for agent workflow execution, separate from the main
 tracecat-task-queue used by DSLWorkflow."""
+
+TRACECAT__AGENT_EXECUTOR_QUEUE = os.environ.get(
+    "TRACECAT__AGENT_EXECUTOR_QUEUE", "shared-agent-executor-queue"
+)
+"""Task queue for the AgentExecutorWorker.
+
+This queue is reserved for `run_agent_activity` so agent runtime capacity can be
+provisioned independently from agent workflow/control-plane work."""
 
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
