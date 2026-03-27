@@ -567,6 +567,46 @@ def test_vertex_request_uses_system_instruction_and_blank_user_message() -> None
 
 
 @pytest.mark.parametrize(
+    ("system_content", "expected_text"),
+    [
+        # Plain string — unchanged
+        ("Be concise.", "Be concise."),
+        # Anthropic-style block list — extract text
+        (
+            [
+                {"type": "text", "text": "First block."},
+                {"type": "text", "text": "Second block."},
+            ],
+            "First block.\nSecond block.",
+        ),
+        # Single dict block
+        ({"type": "text", "text": "From dict."}, "From dict."),
+    ],
+    ids=["plain-string", "block-list", "single-dict"],
+)
+def test_gemini_system_instruction_extracts_text_from_structured_content(
+    system_content: Any,
+    expected_text: str,
+) -> None:
+    """System messages with structured content blocks must produce clean text."""
+    request = _base_request(
+        provider="gemini",
+        model="gemini-2.5-pro",
+        messages=(
+            NormalizedMessage(role="system", content=system_content),
+            NormalizedMessage(role="user", content="hi"),
+        ),
+    )
+    request_http = GeminiAdapter().prepare_request(
+        request, {"GEMINI_API_KEY": "test-key"}
+    )
+    assert request_http.json_body is not None
+    assert request_http.json_body["systemInstruction"] == {
+        "parts": [{"text": expected_text}]
+    }
+
+
+@pytest.mark.parametrize(
     ("location", "expected_base_url"),
     [
         ("europe-west4", "https://europe-west4-aiplatform.googleapis.com"),
