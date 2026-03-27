@@ -469,11 +469,15 @@ class ClaudeAgentRuntime:
             "hookSpecificOutput": hook_output,
         }
 
-    def _build_system_prompt(
-        self, instructions: str | None, model: str | None = None
-    ) -> str:
+    def _build_system_prompt(self, instructions: str | None) -> str:
         """Build the system prompt for the agent."""
-        base = "If asked about your identity, you are a Tracecat automation assistant."
+        base = (
+            "If asked about your identity, you are a Tracecat automation assistant.\n\n"
+            "If a structured output schema is configured, you MUST produce structured"
+            " output as the very last thing in EVERY turn — including follow-up turns."
+            " Do not add any commentary, explanation, or text after the structured"
+            " output. This applies to every response, not just the first one."
+        )
         return f"{base}\n\n{instructions}" if instructions else base
 
     async def run(self, payload: RuntimeInitPayload) -> None:

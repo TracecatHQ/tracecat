@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -248,3 +248,23 @@ def test_build_litellm_command_uses_gunicorn_for_multiple_workers(
         "4",
         "--run_gunicorn",
     ]
+
+
+@pytest.mark.anyio
+async def test_start_configured_llm_proxy_is_noop_for_tracecat_proxy_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    start_litellm = AsyncMock()
+    info = Mock()
+    monkeypatch.setattr(
+        runtime_services,
+        "TRACECAT__LLM_EXECUTION_BACKEND",
+        runtime_services.LLMExecutionBackend.TRACECAT_PROXY,
+    )
+    monkeypatch.setattr(runtime_services, "start_litellm_proxy", start_litellm)
+    monkeypatch.setattr(runtime_services.logger, "info", info)
+
+    await runtime_services.start_configured_llm_proxy()
+
+    start_litellm.assert_not_called()
+    info.assert_called_once()

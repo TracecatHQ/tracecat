@@ -1,4 +1,4 @@
-"""Runtime sidecars for agent execution workers."""
+"""Worker-global runtime services for agent execution workers."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import inspect
 import os
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
@@ -23,6 +23,8 @@ from tracecat.config import (
     TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS,
     TRACECAT__LITELLM_NUM_WORKERS,
     TRACECAT__LITELLM_STATUS_LOG_INTERVAL_SECONDS,
+    TRACECAT__LLM_EXECUTION_BACKEND,
+    LLMExecutionBackend,
 )
 from tracecat.logger import logger
 
@@ -52,13 +54,6 @@ _litellm_unhealthy_notified = False
 _litellm_status = LiteLLMProxyStatus()
 _mcp_server_task: asyncio.Task[None] | None = None
 _proxy_load_tracker = get_load_tracker("llm_socket_proxy")
-
-
-class _StatusUnset:
-    pass
-
-
-_STATUS_UNSET = _StatusUnset()
 
 
 def _proxy_load_fields() -> dict[str, int]:
@@ -101,39 +96,6 @@ def get_litellm_proxy_status() -> LiteLLMProxyStatus:
     return _litellm_status
 
 
-def _set_litellm_status(
-    *,
-    state: Literal["starting", "ready", "unhealthy", "stopped"]
-    | _StatusUnset = _STATUS_UNSET,
-    pid: int | None | _StatusUnset = _STATUS_UNSET,
-    last_ready_at: float | None | _StatusUnset = _STATUS_UNSET,
-    consecutive_probe_failures: int | _StatusUnset = _STATUS_UNSET,
-    reason: str | None | _StatusUnset = _STATUS_UNSET,
-    exit_code: int | None | _StatusUnset = _STATUS_UNSET,
-) -> LiteLLMProxyStatus:
-    global _litellm_status
-    current = _litellm_status
-    _litellm_status = LiteLLMProxyStatus(
-        state=current.state if isinstance(state, _StatusUnset) else state,
-        pid=current.pid if isinstance(pid, _StatusUnset) else pid,
-        last_ready_at=(
-            current.last_ready_at
-            if isinstance(last_ready_at, _StatusUnset)
-            else last_ready_at
-        ),
-        consecutive_probe_failures=(
-            current.consecutive_probe_failures
-            if isinstance(consecutive_probe_failures, _StatusUnset)
-            else consecutive_probe_failures
-        ),
-        reason=current.reason if isinstance(reason, _StatusUnset) else reason,
-        exit_code=current.exit_code
-        if isinstance(exit_code, _StatusUnset)
-        else exit_code,
-    )
-    return _litellm_status
-
-
 async def _invoke_litellm_on_unhealthy(status: LiteLLMProxyStatus) -> None:
     callback = _litellm_on_unhealthy
     if callback is None:
@@ -148,31 +110,26 @@ async def _mark_litellm_unhealthy(
     reason: str,
     exit_code: int | None = None,
 ) -> None:
-    global _litellm_unhealthy_notified
+    global _litellm_status, _litellm_unhealthy_notified
 
-    current_status = get_litellm_proxy_status()
-    if current_status.state == "stopped":
-        return
-    if current_status.state == "unhealthy":
+    if _litellm_status.state in ("stopped", "unhealthy"):
         return
 
-    status = _set_litellm_status(
-        state="unhealthy",
-        reason=reason,
-        exit_code=exit_code,
+    _litellm_status = replace(
+        _litellm_status, state="unhealthy", reason=reason, exit_code=exit_code
     )
     logger.error(
         "LiteLLM sidecar became unhealthy",
         reason=reason,
         exit_code=exit_code,
-        pid=status.pid,
-        consecutive_probe_failures=status.consecutive_probe_failures,
+        pid=_litellm_status.pid,
+        consecutive_probe_failures=_litellm_status.consecutive_probe_failures,
         **_proxy_load_fields(),
     )
     if _litellm_unhealthy_notified:
         return
     _litellm_unhealthy_notified = True
-    await _invoke_litellm_on_unhealthy(status)
+    await _invoke_litellm_on_unhealthy(_litellm_status)
 
 
 async def _stream_litellm_stderr(process: asyncio.subprocess.Process) -> None:
@@ -208,6 +165,7 @@ async def _monitor_litellm_health(
     url: str = _LITELLM_READINESS_URL,
 ) -> None:
     """Continuously poll LiteLLM readiness and fail fast on repeated probe failures."""
+    global _litellm_status
     timeout = _litellm_healthcheck_timeout()
     async with httpx.AsyncClient(timeout=timeout) as client:
         while True:
@@ -221,10 +179,9 @@ async def _monitor_litellm_health(
             try:
                 response = await client.get(url)
                 if response.status_code == 200:
-                    previous_failures = (
-                        get_litellm_proxy_status().consecutive_probe_failures
-                    )
-                    status = _set_litellm_status(
+                    previous_failures = _litellm_status.consecutive_probe_failures
+                    _litellm_status = replace(
+                        _litellm_status,
                         state="ready",
                         last_ready_at=time.time(),
                         consecutive_probe_failures=0,
@@ -234,7 +191,7 @@ async def _monitor_litellm_health(
                     if previous_failures > 0:
                         logger.info(
                             "LiteLLM readiness recovered",
-                            pid=status.pid,
+                            pid=_litellm_status.pid,
                             **_proxy_load_fields(),
                         )
                     continue
@@ -250,10 +207,9 @@ async def _monitor_litellm_health(
                     f"LiteLLM readiness probe failed ({type(e).__name__}: {e})"
                 )
 
-            next_failures = get_litellm_proxy_status().consecutive_probe_failures + 1
-            current_status = get_litellm_proxy_status()
-            _set_litellm_status(
-                state=current_status.state,
+            next_failures = _litellm_status.consecutive_probe_failures + 1
+            _litellm_status = replace(
+                _litellm_status,
                 consecutive_probe_failures=next_failures,
                 reason=failure_reason,
             )
@@ -307,13 +263,9 @@ async def start_litellm_proxy(
     on_unhealthy: LiteLLMUnhealthyCallback | None = None,
 ) -> None:
     """Start the LiteLLM proxy subprocess and health supervision."""
-    global _litellm_process
-    global _litellm_stderr_task
-    global _litellm_exit_task
-    global _litellm_health_task
-    global _litellm_status_log_task
-    global _litellm_on_unhealthy
-    global _litellm_unhealthy_notified
+    global _litellm_process, _litellm_stderr_task, _litellm_exit_task
+    global _litellm_health_task, _litellm_status_log_task
+    global _litellm_on_unhealthy, _litellm_unhealthy_notified, _litellm_status
 
     if _litellm_process is not None and _litellm_process.returncode is None:
         logger.info("LiteLLM proxy already running", pid=_litellm_process.pid)
@@ -337,14 +289,7 @@ async def start_litellm_proxy(
 
     _litellm_on_unhealthy = on_unhealthy
     _litellm_unhealthy_notified = False
-    _set_litellm_status(
-        state="starting",
-        pid=None,
-        last_ready_at=None,
-        consecutive_probe_failures=0,
-        reason=None,
-        exit_code=None,
-    )
+    _litellm_status = LiteLLMProxyStatus(state="starting")
 
     cmd = _build_litellm_command(runtime_config)
     logger.info(
@@ -364,19 +309,17 @@ async def start_litellm_proxy(
             stderr=asyncio.subprocess.PIPE,
             env=env,
         )
-        _set_litellm_status(state="starting", pid=_litellm_process.pid)
+        _litellm_status = replace(_litellm_status, pid=_litellm_process.pid)
         _litellm_stderr_task = asyncio.create_task(
             _stream_litellm_stderr(_litellm_process)
         )
 
         await _wait_for_litellm_ready()
-        _set_litellm_status(
+        _litellm_status = replace(
+            _litellm_status,
             state="ready",
             pid=_litellm_process.pid,
             last_ready_at=time.time(),
-            consecutive_probe_failures=0,
-            reason=None,
-            exit_code=None,
         )
         _litellm_exit_task = asyncio.create_task(
             _watch_litellm_process(_litellm_process)
@@ -391,6 +334,34 @@ async def start_litellm_proxy(
     except Exception:
         await stop_litellm_proxy()
         raise
+
+
+def get_configured_llm_proxy_backend() -> LLMExecutionBackend:
+    """Return the configured backend for sandbox LLM calls."""
+    return TRACECAT__LLM_EXECUTION_BACKEND
+
+
+async def start_configured_llm_proxy(
+    *,
+    on_unhealthy: LiteLLMUnhealthyCallback | None = None,
+) -> None:
+    """Start any worker-global LLM backend services required by the runtime."""
+    match get_configured_llm_proxy_backend():
+        case LLMExecutionBackend.LITELLM:
+            await start_litellm_proxy(on_unhealthy=on_unhealthy)
+        case LLMExecutionBackend.TRACECAT_PROXY:
+            logger.info(
+                "Tracecat LLM proxy is execution-scoped; no worker-global startup required"
+            )
+
+
+async def stop_configured_llm_proxy() -> None:
+    """Stop any worker-global LLM backend services required by the runtime."""
+    match get_configured_llm_proxy_backend():
+        case LLMExecutionBackend.LITELLM:
+            await stop_litellm_proxy()
+        case LLMExecutionBackend.TRACECAT_PROXY:
+            return
 
 
 async def _wait_for_litellm_ready(
@@ -440,13 +411,9 @@ async def _wait_for_litellm_ready(
 
 async def stop_litellm_proxy() -> None:
     """Stop the LiteLLM proxy subprocess and supervision tasks."""
-    global _litellm_process
-    global _litellm_stderr_task
-    global _litellm_exit_task
-    global _litellm_health_task
-    global _litellm_status_log_task
-    global _litellm_on_unhealthy
-    global _litellm_unhealthy_notified
+    global _litellm_process, _litellm_stderr_task, _litellm_exit_task
+    global _litellm_health_task, _litellm_status_log_task
+    global _litellm_on_unhealthy, _litellm_unhealthy_notified, _litellm_status
     for task in (
         _litellm_status_log_task,
         _litellm_health_task,
@@ -477,14 +444,7 @@ async def stop_litellm_proxy() -> None:
     _litellm_process = None
     _litellm_on_unhealthy = None
     _litellm_unhealthy_notified = False
-    _set_litellm_status(
-        state="stopped",
-        pid=None,
-        last_ready_at=None,
-        consecutive_probe_failures=0,
-        reason=None,
-        exit_code=None,
-    )
+    _litellm_status = LiteLLMProxyStatus()
 
 
 async def start_mcp_server() -> None:

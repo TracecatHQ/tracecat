@@ -57,6 +57,13 @@ class RLSMode(StrEnum):
     ENFORCE = "enforce"
 
 
+class LLMExecutionBackend(StrEnum):
+    """Execution backend for the agent LLM runtime path."""
+
+    LITELLM = "litellm"
+    TRACECAT_PROXY = "tracecat_proxy"
+
+
 # === Internal Services === #
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = cast(
     Literal["development", "staging", "production"],
@@ -625,6 +632,17 @@ TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
     os.environ.get("TRACECAT__LLM_PROXY_READ_TIMEOUT") or 300.0
 )
 """Read timeout for the LLM socket proxy in seconds (default: 5 minutes)."""
+
+try:
+    TRACECAT__LLM_EXECUTION_BACKEND = LLMExecutionBackend(
+        (os.environ.get("TRACECAT__LLM_EXECUTION_BACKEND") or "litellm").strip()
+    )
+except ValueError:
+    valid = ", ".join(f"'{backend.value}'" for backend in LLMExecutionBackend)
+    raise ValueError(
+        f"Invalid TRACECAT__LLM_EXECUTION_BACKEND. Valid values: {valid}"
+    ) from None
+"""Execution backend for the agent LLM runtime path."""
 
 
 TRACECAT__LITELLM_NUM_WORKERS = max(

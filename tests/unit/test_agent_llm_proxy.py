@@ -4,12 +4,15 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
+from uuid import uuid4
 
 import httpx
 import pytest
 
 from tracecat.agent.litellm_observability import LiteLLMLoadTracker
+from tracecat.agent.llm_proxy.core import TracecatLLMProxy
 from tracecat.agent.sandbox.llm_proxy import LLMSocketProxy
+from tracecat.agent.tokens import LLMTokenClaims
 
 
 class _FakeWriter:
@@ -73,6 +76,9 @@ class _FakeClient:
         if self._response is None:
             raise RuntimeError("Missing fake response")
         yield self._response
+
+    async def aclose(self) -> None:
+        return None
 
 
 @pytest.mark.anyio
@@ -157,7 +163,7 @@ async def test_forward_request_logs_fully_qualified_timeout_class(
     logged_kwargs: dict[str, object] = {}
 
     def fake_error(message: str, **kwargs: object) -> None:
-        if message == "LiteLLM request timeout":
+        if message == "LLM backend request timeout":
             logged_kwargs.update(kwargs)
 
     monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger.error", fake_error)
@@ -209,3 +215,139 @@ async def test_forward_request_preserves_incoming_trace_request_id(
     response_text = writer.buffer.decode("utf-8")
     assert response_text.startswith("HTTP/1.1 200 OK")
     assert "X-Request-ID: trace-123" in response_text
+
+
+@pytest.mark.anyio
+async def test_forward_request_streams_tracecat_proxy_response(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    static_llm_proxy_factory,
+) -> None:
+    ttft_logs: list[dict[str, object]] = []
+    tracker = LiteLLMLoadTracker()
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy._proxy_load_tracker", tracker)
+    proxy = static_llm_proxy_factory({"OPENAI_API_KEY": "sk-test"})
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        tracecat_proxy=proxy,
+    )
+    writer = _FakeWriter()
+    claims = LLMTokenClaims(
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+        model="gpt-5-mini",
+        provider="openai",
+        base_url=None,
+        model_settings={},
+        use_workspace_credentials=False,
+    )
+
+    monkeypatch.setattr(
+        "tracecat.agent.llm_proxy.auth.verify_llm_token",
+        lambda token: claims if token == "llm-token" else None,
+    )
+    monotonic_values = iter([10.0, 10.025, 10.05, 10.075, 10.1, 10.125])
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.llm_proxy.time.monotonic",
+        lambda: next(monotonic_values, 10.125),
+    )
+
+    def fake_info(message: str, **kwargs: object) -> None:
+        if message == "LLM proxy first response chunk":
+            ttft_logs.append(dict(kwargs))
+
+    monkeypatch.setattr("tracecat.agent.sandbox.llm_proxy.logger.info", fake_info)
+
+    async def fake_bound_stream_messages(
+        self: TracecatLLMProxy,
+        *,
+        payload: dict,
+        claims: object,
+        trace_request_id: str | None = None,
+    ) -> object:
+        del self, claims, trace_request_id
+        assert payload["stream"] is True
+
+        async def _events():
+            yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+            yield b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+
+        return _events()
+
+    monkeypatch.setattr(
+        TracecatLLMProxy,
+        "stream_messages",
+        fake_bound_stream_messages,
+    )
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer llm-token",
+                },
+                "body": b'{"stream":true,"messages":[{"role":"user","content":"hello"}]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        await proxy.close()
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert "text/event-stream" in response_text
+    assert "event: message_start" in response_text
+    assert "event: message_stop" in response_text
+    assert len(ttft_logs) == 1
+    assert ttft_logs[0]["request_counter"] == 1
+    assert ttft_logs[0]["backend"] == "tracecat_proxy"
+    assert ttft_logs[0]["method"] == "POST"
+    assert ttft_logs[0]["path"] == "/v1/messages"
+    assert isinstance(ttft_logs[0]["trace_request_id"], str)
+    assert ttft_logs[0]["ttft_ms"] == pytest.approx(25.0)
+
+
+@pytest.mark.anyio
+async def test_stop_waits_for_tracecat_proxy_requests_to_finish(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    static_llm_proxy_factory,
+) -> None:
+    events: list[str] = []
+    proxy = static_llm_proxy_factory({"OPENAI_API_KEY": "sk-test"})
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        tracecat_proxy=proxy,
+    )
+
+    class _ClosableClient:
+        async def aclose(self) -> None:
+            events.append("client_closed")
+
+    async def fake_close() -> None:
+        events.append("proxy_closed")
+
+    socket_proxy._client = cast(httpx.AsyncClient, _ClosableClient())
+    monkeypatch.setattr(
+        TracecatLLMProxy,
+        "close",
+        lambda self: fake_close(),
+    )
+    proxy.state.active_requests = 1
+
+    async def finish_request() -> None:
+        await asyncio.sleep(0.01)
+        proxy.state.active_requests = 0
+        events.append("request_finished")
+
+    task = asyncio.create_task(finish_request())
+    try:
+        await socket_proxy.stop()
+    finally:
+        await task
+
+    assert events == ["request_finished", "client_closed", "proxy_closed"]
