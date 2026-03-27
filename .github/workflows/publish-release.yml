@@ -5,18 +5,28 @@ on:
     types: [closed]
     branches: [main]
 
-permissions:
-  contents: write
-  actions: write
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
 
 jobs:
   publish-release:
+    permissions:
+      contents: write
+      actions: write
     if: >-
       github.event.pull_request.merged == true &&
-      startsWith(github.event.pull_request.head.ref, 'release/')
+      startsWith(github.event.pull_request.head.ref, 'release/') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(
+        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
+        github.triggering_actor || github.actor
+      )
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Extract version from branch name
         id: version
@@ -26,6 +36,10 @@ jobs:
           VERSION="${HEAD_REF#release/}"
           if [ -z "$VERSION" ] || [ "$VERSION" = "$HEAD_REF" ]; then
             echo "Branch '$HEAD_REF' does not follow the release/<version> pattern." >&2
+            exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?(\+[0-9A-Za-z.]+)?$ ]]; then
+            echo "Branch '$HEAD_REF' does not contain a valid semver version." >&2
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -144,6 +158,21 @@ jobs:
 
             core.info(`Published release ${version}`)
 
+      - name: Delete release branch
+        if: ${{ always() }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/release/${VERSION}" || true
+
+  trigger-k8s-version-bump:
+    needs: publish-release
+    if: ${{ needs.publish-release.result == 'success' }}
+    continue-on-error: true
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: release
+    permissions:
+      contents: read
+    steps:
       - name: Create cross-repo automation token
         id: cross-repo-token
         uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3
@@ -156,10 +185,8 @@ jobs:
           permission-contents: write
 
       - name: Trigger k8s version bump
-        id: trigger-k8s-version-bump
-        continue-on-error: true
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.publish-release.outputs.version }}
           GH_TOKEN: ${{ steps.cross-repo-token.outputs.token }}
         run: |
           gh api \
@@ -169,9 +196,3 @@ jobs:
             -F client_payload[version]="$VERSION" \
             -F client_payload[source_repository]="${{ github.repository }}" \
             -F client_payload[source_run_id]="${{ github.run_id }}"
-
-      - name: Delete release branch
-        if: ${{ always() }}
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/release/${VERSION}" || true

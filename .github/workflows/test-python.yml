@@ -31,16 +31,9 @@ on:
       - docker-compose.dev.yml
       - docker-compose.local.yml
       - .github/workflows/test-python.yml
-  workflow_dispatch:
-    inputs:
-      git-ref:
-        description: "Git Ref (optional)"
-        required: false
-        default: ""
 
 permissions:
   contents: read
-  packages: write
 
 env:
   UV_SYSTEM_PYTHON: 1
@@ -51,8 +44,6 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          ref: ${{ github.event.inputs.git-ref || github.ref }}
 
       - name: Install uv
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
@@ -84,8 +75,6 @@ jobs:
           # - ee # TODO: re-enable this when we have tests
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          ref: ${{ github.event.inputs.git-ref || github.ref }}
 
       - name: Install uv
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
@@ -120,24 +109,21 @@ jobs:
 
       - name: Run tests
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
           TRACECAT__EXECUTOR_BACKEND: "direct"
           TRACECAT__WORKFLOW_RETURN_STRATEGY: "context"
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
         run: |
           if [ "${{ matrix.test_group }}" = "ee" ]; then
-            uv run pytest packages/tracecat-ee/tests/ -ra
+            uv run pytest packages/tracecat-ee/tests/ -m "not live_secret" -ra
           elif [ "${{ matrix.test_group }}" = "temporal" ]; then
             # Temporal tests run with compression enabled and parallelization
             # Worker-specific task queues in conftest.py enable safe parallel execution
             TRACECAT__CONTEXT_COMPRESSION_ENABLED=true \
             TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB=0 \
-            uv run pytest tests/temporal -n auto -ra -o faulthandler_timeout=300
+            uv run pytest tests/temporal -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
           else
-            uv run pytest tests/${{ matrix.test_group }} -n auto -ra -o faulthandler_timeout=300
+            uv run pytest tests/${{ matrix.test_group }} -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
           fi
 
       - name: Show Docker logs on failure
