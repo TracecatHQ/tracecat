@@ -7,6 +7,7 @@ import pytest
 
 from tracecat.agent.llm_proxy.providers import ProviderRetryAdapter
 from tracecat.agent.llm_proxy.types import (
+    IngressFormat,
     NormalizedMessagesRequest,
     NormalizedResponse,
     ProviderHTTPRequest,
@@ -179,3 +180,78 @@ async def test_proxy_retries_once_with_provider_mutation(
     assert len(requests_seen) == 2
     assert requests_seen[0]["json"] == {"messages": [], "bad_field": True}
     assert requests_seen[1]["json"] == {"messages": []}
+
+
+@pytest.mark.anyio
+async def test_proxy_passes_authorized_model_to_anthropic_passthrough(
+    static_llm_proxy_factory,
+) -> None:
+    claims = LLMTokenClaims(
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+        model="claude-sonnet-4-5-20250929",
+        provider="anthropic",
+        base_url="https://anthropic.example",
+        model_settings={"temperature": 0.3},
+        use_workspace_credentials=False,
+    )
+    proxy = static_llm_proxy_factory({"ANTHROPIC_API_KEY": "anth-key"})
+    captured: dict[str, object] = {}
+
+    class _PassthroughAdapter:
+        provider = "anthropic"
+        native_format = IngressFormat.ANTHROPIC
+
+        def prepare_request(
+            self,
+            request: NormalizedMessagesRequest,
+            credentials: dict[str, str],
+        ) -> ProviderHTTPRequest:
+            del request, credentials
+            raise AssertionError("passthrough path should not call prepare_request")
+
+        async def parse_response(
+            self,
+            response: httpx.Response,
+            request: NormalizedMessagesRequest,
+        ) -> NormalizedResponse:
+            del response, request
+            raise AssertionError("passthrough path should not call parse_response")
+
+        async def passthrough_stream(
+            self,
+            client: httpx.AsyncClient,
+            payload: dict[str, object],
+            credentials: dict[str, str],
+            model_settings: dict[str, object],
+            *,
+            model: str,
+            base_url: str | None = None,
+        ):
+            del client
+            captured["payload_model"] = payload["model"]
+            captured["credentials"] = credentials
+            captured["model_settings"] = model_settings
+            captured["model"] = model
+            captured["base_url"] = base_url
+            yield b"event: message_stop\ndata: {}\n\n"
+
+    proxy.provider_registry.adapters["anthropic"] = _PassthroughAdapter()
+    payload = {
+        "model": "user-overrode-model",
+        "messages": [{"role": "user", "content": "hello"}],
+    }
+
+    events = await proxy.stream_messages(payload=payload, claims=claims)
+    rendered = [chunk async for chunk in events]
+
+    assert rendered == [b"event: message_stop\ndata: {}\n\n"]
+    assert captured == {
+        "payload_model": "user-overrode-model",
+        "credentials": {"ANTHROPIC_API_KEY": "anth-key"},
+        "model_settings": {"temperature": 0.3},
+        "model": "claude-sonnet-4-5-20250929",
+        "base_url": "https://anthropic.example",
+    }
+    assert payload["model"] == "user-overrode-model"

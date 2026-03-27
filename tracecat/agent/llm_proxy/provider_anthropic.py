@@ -155,22 +155,25 @@ class AnthropicAdapter:
         credentials: dict[str, str],
         model_settings: dict[str, Any],
         *,
+        model: str,
         base_url: str | None = None,
     ) -> AsyncIterator[bytes]:
         """Stream raw SSE bytes — Anthropic in, Anthropic out, no normalization."""
         base_url = base_url or _DEFAULT_ANTHROPIC_BASE_URL
         headers = _build_anthropic_headers(credentials)
+        outbound_payload = dict(payload)
 
         # Inject token-level model settings into the raw payload
         if allowed := filter_allowed_model_settings(model_settings):
-            payload.update(allowed)
-        payload["stream"] = True
+            outbound_payload.update(allowed)
+        outbound_payload["stream"] = True
+        outbound_payload["model"] = model
 
         async with client.stream(
             "POST",
             _anthropic_messages_url(base_url),
             headers=headers,
-            content=orjson.dumps(payload),
+            content=orjson.dumps(outbound_payload),
         ) as response:
             if response.status_code >= 400:
                 await _raise_stream_http_error(response, provider=self.provider)

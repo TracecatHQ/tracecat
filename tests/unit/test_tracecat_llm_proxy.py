@@ -65,15 +65,21 @@ class _FakeStreamingResponse:
         *,
         status_code: int = 200,
         lines: list[str] | None = None,
+        chunks: list[bytes] | None = None,
         body: bytes = b"",
     ) -> None:
         self.status_code = status_code
         self._lines = lines or []
+        self._chunks = chunks or []
         self._body = body
 
     async def aiter_lines(self):
         for line in self._lines:
             yield line
+
+    async def aiter_bytes(self):
+        for chunk in self._chunks:
+            yield chunk
 
     async def aread(self) -> bytes:
         return self._body
@@ -822,6 +828,47 @@ async def test_anthropic_streaming_adapter_passes_through_events() -> None:
         "content_block_delta",
         "message_stop",
     ]
+
+
+@pytest.mark.anyio
+async def test_anthropic_passthrough_stream_pins_authorized_model() -> None:
+    adapter = AnthropicAdapter()
+    captured: dict[str, object] = {}
+
+    class _CapturingStreamingClient:
+        @asynccontextmanager
+        async def stream(self, *args: object, **kwargs: object):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            yield _FakeStreamingResponse(chunks=[b"event: message_stop\ndata: {}\n\n"])
+
+    client = cast(httpx.AsyncClient, _CapturingStreamingClient())
+    payload = {
+        "model": "user-overrode-model",
+        "messages": [{"role": "user", "content": "hello"}],
+        "stream": False,
+    }
+
+    chunks = [
+        chunk
+        async for chunk in adapter.passthrough_stream(
+            client,
+            payload,
+            {"ANTHROPIC_API_KEY": "anth-key"},
+            {"temperature": 0.3},
+            model="claude-sonnet-4-5-20250929",
+            base_url="https://anthropic.example",
+        )
+    ]
+
+    request_kwargs = cast(dict[str, object], captured["kwargs"])
+    outbound_payload = orjson.loads(cast(bytes, request_kwargs["content"]))
+
+    assert chunks == [b"event: message_stop\ndata: {}\n\n"]
+    assert outbound_payload["model"] == "claude-sonnet-4-5-20250929"
+    assert outbound_payload["temperature"] == 0.3
+    assert outbound_payload["stream"] is True
+    assert payload["model"] == "user-overrode-model"
 
 
 @pytest.mark.anyio
