@@ -188,11 +188,31 @@ def _message_to_parts(message: NormalizedMessage) -> list[dict[str, Any]]:
     return [_text_part(message.content)]
 
 
+def _extract_text_from_content(content: Any) -> str:
+    """Extract plain text from any content shape (str, block list, or dict)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            match item:
+                case {"type": "text", "text": str(text)}:
+                    parts.append(text)
+                case str(text):
+                    parts.append(text)
+        return "\n".join(parts)
+    if isinstance(content, dict):
+        match content:
+            case {"type": "text", "text": str(text)}:
+                return text
+    return str(content)
+
+
 def _system_instruction_from_messages(
     messages: Sequence[NormalizedMessage],
 ) -> dict[str, Any] | None:
     system_texts = [
-        str(message.content)
+        _extract_text_from_content(message.content)
         for message in messages
         if message.role == "system" and message.content is not None
     ]
