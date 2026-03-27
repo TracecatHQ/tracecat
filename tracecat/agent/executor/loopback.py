@@ -61,7 +61,7 @@ class LoopbackInput:
     - socket_dir: For control socket path
 
     Fields passed through to RuntimeInitPayload:
-    - user_prompt, config, mcp_auth_token, litellm_*, allowed_actions, sdk_session_*
+    - user_prompt, config, mcp_auth_token, llm_gateway_*, allowed_actions, sdk_session_*
 
     On resume after approval, the sdk_session_data contains the proper tool_result
     entry (inserted by execute_approved_tools_activity before reload).
@@ -72,7 +72,7 @@ class LoopbackInput:
     user_prompt: str
     config: AgentConfig
     mcp_auth_token: str
-    litellm_auth_token: str
+    llm_gateway_auth_token: str
     socket_dir: Path
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     sdk_session_id: str | None = None
@@ -355,7 +355,7 @@ class LoopbackHandler:
             mcp_auth_token=self.input.mcp_auth_token,
             config=sandbox_config,
             user_prompt=self.input.user_prompt,
-            litellm_auth_token=self.input.litellm_auth_token,
+            llm_gateway_auth_token=self.input.llm_gateway_auth_token,
             allowed_actions=self.input.allowed_actions,
             sdk_session_id=self.input.sdk_session_id,
             sdk_session_data=self.input.sdk_session_data,
@@ -587,7 +587,7 @@ class LoopbackHandler:
                             self._received_assistant_content = True
                         await self._stream_sink.append(envelope.event)
 
-                        # Check for error events (e.g., from LiteLLM/SDK)
+                        # Check for error events (e.g., from LLM gateway/SDK)
                         if envelope.event.type == StreamEventType.ERROR:
                             error_msg = envelope.event.error or "Unknown error"
                             logger.error(

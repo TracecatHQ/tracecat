@@ -29,6 +29,7 @@ from tracecat.agent.llm_proxy.types import (
 )
 
 OPENAI_MAX_TOOL_CALL_ID_LENGTH = _OPENAI_MAX_TOOL_CALL_ID_LENGTH
+ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY = "_anthropic_content_blocks"
 
 _DEFAULT_ALLOWED_MODEL_SETTING_KEYS = {
     "temperature",
@@ -43,14 +44,44 @@ _DEFAULT_ALLOWED_MODEL_SETTING_KEYS = {
     "verbosity",
 }
 
+_PROVIDER_ALLOWED_MODEL_SETTING_KEYS: dict[str, frozenset[str]] = {
+    "gemini": frozenset(
+        {
+            "top_k",
+            "candidate_count",
+            "response_mime_type",
+            "response_schema",
+            "response_json_schema",
+        }
+    ),
+    "vertex_ai": frozenset(
+        {
+            "top_k",
+            "candidate_count",
+            "response_mime_type",
+            "response_schema",
+            "response_json_schema",
+        }
+    ),
+    "bedrock": frozenset({"top_k", "thinking"}),
+}
 
-def filter_allowed_model_settings(model_settings: dict[str, Any]) -> dict[str, Any]:
-    """Keep only model settings that are safe to forward upstream."""
-    return {
-        key: value
-        for key, value in model_settings.items()
-        if key in _DEFAULT_ALLOWED_MODEL_SETTING_KEYS
-    }
+
+def _allowed_model_setting_keys(provider: str | None) -> set[str]:
+    keys = set(_DEFAULT_ALLOWED_MODEL_SETTING_KEYS)
+    if provider is not None:
+        keys.update(_PROVIDER_ALLOWED_MODEL_SETTING_KEYS.get(provider, ()))
+    return keys
+
+
+def filter_allowed_model_settings(
+    model_settings: dict[str, Any],
+    *,
+    provider: str | None = None,
+) -> dict[str, Any]:
+    """Keep only model settings supported by the selected provider family."""
+    allowed_keys = _allowed_model_setting_keys(provider)
+    return {key: value for key, value in model_settings.items() if key in allowed_keys}
 
 
 def _safe_dict(value: Any) -> dict[str, Any]:
@@ -73,6 +104,19 @@ def _parse_json_value(value: Any) -> Any:
         except orjson.JSONDecodeError:
             return value
     return value
+
+
+def _metadata_with_anthropic_content_blocks(
+    metadata: dict[str, Any],
+    content: list[Any],
+) -> dict[str, Any]:
+    """Attach original Anthropic content blocks for exact provider replay."""
+    return {
+        **metadata,
+        ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY: [
+            dict(item) if isinstance(item, dict) else item for item in content
+        ],
+    }
 
 
 def _normalized_tool_call_from_dict(data: dict[str, Any]) -> NormalizedToolCall:
@@ -142,7 +186,7 @@ def normalize_anthropic_request(
     session_id: UUID | None = None,
 ) -> NormalizedMessagesRequest:
     """Normalize an Anthropic Messages API request."""
-    parts = extract_anthropic_request_parts(payload)
+    parts = extract_anthropic_request_parts(payload, provider=provider)
     return NormalizedMessagesRequest(
         provider=provider,
         model=str(payload.get("model", model)),
@@ -164,6 +208,8 @@ def normalize_anthropic_request(
 
 def extract_anthropic_request_parts(
     payload: dict[str, Any],
+    *,
+    provider: str | None = None,
 ) -> _AnthropicRequestParts:
     """Extract the payload-owned Anthropic request fields.
 
@@ -198,13 +244,7 @@ def extract_anthropic_request_parts(
             normalized_messages.append(normalized_message)
     messages = tuple(normalized_messages)
     tools = tuple(tool for tool in payload.get("tools", []) if isinstance(tool, dict))
-    model_settings = filter_allowed_model_settings(
-        {
-            key: value
-            for key, value in payload.items()
-            if key in _DEFAULT_ALLOWED_MODEL_SETTING_KEYS
-        }
-    )
+    model_settings = filter_allowed_model_settings(payload, provider=provider)
     return {
         "messages": messages,
         "tools": tools,
@@ -316,6 +356,26 @@ def _coerce_anthropic_content_blocks(content: Any) -> list[dict[str, Any]]:
     return [{"type": "text", "text": str(content)}]
 
 
+def _anthropic_system_payload(
+    messages: tuple[NormalizedMessage, ...],
+) -> str | list[dict[str, Any]] | None:
+    """Render normalized system messages into Anthropic's accepted shape."""
+    system_messages = [
+        message.content
+        for message in messages
+        if message.role == "system" and message.content is not None
+    ]
+    if not system_messages:
+        return None
+    if all(isinstance(item, str) for item in system_messages):
+        return "\n\n".join(system_messages)
+
+    blocks: list[dict[str, Any]] = []
+    for item in system_messages:
+        blocks.extend(_coerce_anthropic_content_blocks(item))
+    return blocks
+
+
 def _normalized_messages_from_anthropic_message(
     data: dict[str, Any],
 ) -> tuple[NormalizedMessage, ...]:
@@ -324,6 +384,10 @@ def _normalized_messages_from_anthropic_message(
         return (_normalized_message_from_dict(data),)
 
     role = _normalized_message_role(data.get("role", "user"))
+    metadata = _metadata_with_anthropic_content_blocks(
+        _safe_dict(data.get("metadata")),
+        content,
+    )
     text_parts: list[Any] = []
     tool_calls: list[NormalizedToolCall] = []
     tool_results: list[NormalizedMessage] = []
@@ -369,7 +433,7 @@ def _normalized_messages_from_anthropic_message(
                     content=text_content,
                     tool_calls=tuple(tool_calls),
                     name=data.get("name"),
-                    metadata=_safe_dict(data.get("metadata")),
+                    metadata=metadata,
                 )
             )
     elif tool_results:
@@ -380,7 +444,7 @@ def _normalized_messages_from_anthropic_message(
                     role=role,
                     content=text_content,
                     name=data.get("name"),
-                    metadata=_safe_dict(data.get("metadata")),
+                    metadata=metadata,
                 )
             )
     else:
@@ -389,7 +453,7 @@ def _normalized_messages_from_anthropic_message(
                 role=role,
                 content=text_content,
                 name=data.get("name"),
-                metadata=_safe_dict(data.get("metadata")),
+                metadata=metadata,
             )
         )
     return tuple(messages)
@@ -422,11 +486,6 @@ def messages_request_to_anthropic_payload(
     request: NormalizedMessagesRequest,
 ) -> dict[str, Any]:
     """Render a provider messages request into an Anthropic payload."""
-    system_messages = [
-        message.content
-        for message in request.messages
-        if message.role == "system" and message.content is not None
-    ]
     messages = [
         _message_to_anthropic(message)
         for message in request.messages
@@ -437,8 +496,8 @@ def messages_request_to_anthropic_payload(
         "messages": messages,
         "stream": request.stream,
     }
-    if system_messages:
-        payload["system"] = "\n\n".join(str(item) for item in system_messages)
+    if system_payload := _anthropic_system_payload(request.messages):
+        payload["system"] = system_payload
     if request.tools:
         payload["tools"] = [
             tool_definition_to_anthropic(dict(tool)) for tool in request.tools

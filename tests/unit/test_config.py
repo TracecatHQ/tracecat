@@ -66,14 +66,15 @@ def test_bound_env_rejects_invalid_bounds() -> None:
         bound_env("TEST_BOUND_ENV", 16, lower=10, upper=8)
 
 
-def test_llm_execution_backend_defaults_to_litellm(
+def test_llm_execution_backend_defaults_to_tracecat_proxy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with monkeypatch.context() as patch:
         patch.delenv("TRACECAT__LLM_EXECUTION_BACKEND", raising=False)
         module = importlib.reload(config_module)
         assert (
-            module.TRACECAT__LLM_EXECUTION_BACKEND is module.LLMExecutionBackend.LITELLM
+            module.TRACECAT__LLM_EXECUTION_BACKEND
+            is module.LLMExecutionBackend.TRACECAT_PROXY
         )
 
     importlib.reload(config_module)

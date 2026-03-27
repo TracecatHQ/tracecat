@@ -102,7 +102,7 @@ def sample_init_payload(
         mcp_auth_token="test-jwt-token",
         config=sample_sandbox_config,
         user_prompt="Hello, how are you?",
-        litellm_auth_token="test-litellm-token",
+        llm_gateway_auth_token="test-llm-token",
         allowed_actions=sample_shared_tool_definitions,
     )
 

@@ -58,14 +58,14 @@ from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
-# Default LiteLLM port for NSJail mode and internet-enabled mode
+# Default LLM proxy port for NSJail mode and internet-enabled mode
 # In direct mode with network isolation, the bridge uses a dynamic port
 # passed via TRACECAT__LLM_BRIDGE_PORT environment variable
-LITELLM_DEFAULT_PORT = 4000
+LLM_PROXY_DEFAULT_PORT = 4000
 
 
-def get_litellm_url() -> str:
-    """Get the LiteLLM URL based on runtime mode.
+def get_llm_proxy_url() -> str:
+    """Get the LLM proxy URL based on runtime mode.
 
     - NSJail mode: Uses fixed port 4000 (network namespace isolated)
     - Direct mode (network isolated): Uses dynamic port from env var
@@ -74,9 +74,9 @@ def get_litellm_url() -> str:
 
     if TRACECAT__DISABLE_NSJAIL:
         # Direct mode: check for dynamic port from LLM bridge
-        port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT", str(LITELLM_DEFAULT_PORT))
+        port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT", str(LLM_PROXY_DEFAULT_PORT))
         return f"http://127.0.0.1:{port}"
-    return f"http://127.0.0.1:{LITELLM_DEFAULT_PORT}"
+    return f"http://127.0.0.1:{LLM_PROXY_DEFAULT_PORT}"
 
 
 def _configure_claude_sdk_process_env() -> None:
@@ -600,8 +600,8 @@ class ClaudeAgentRuntime:
                 resume=resume_session_id,
                 fork_session=fork_session,  # If True, creates new session from parent's history
                 env={
-                    "ANTHROPIC_AUTH_TOKEN": payload.litellm_auth_token,
-                    "ANTHROPIC_BASE_URL": get_litellm_url(),
+                    "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
+                    "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
                 },
                 model=payload.config.model_name,
                 system_prompt=self._build_system_prompt(payload.config.instructions),

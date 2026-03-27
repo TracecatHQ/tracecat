@@ -13,7 +13,6 @@ from typing import Any
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 
-from tracecat import config
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
@@ -58,7 +57,7 @@ class AgentExecutorInput(BaseModel):
     role: Role
     # Authentication tokens (minted by workflow before calling activity)
     mcp_auth_token: str
-    litellm_auth_token: str
+    llm_gateway_auth_token: str
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     # Session resume data (from previous run, includes tool_result for approval flow)
@@ -147,17 +146,9 @@ class SandboxedAgentExecutor:
             self._fatal_error = error_msg
             self._fatal_error_event.set()
 
-        if (
-            config.TRACECAT__LLM_EXECUTION_BACKEND
-            is config.LLMExecutionBackend.TRACECAT_PROXY
-        ):
-            return LLMSocketProxy(
-                socket_path=socket_path,
-                tracecat_proxy=TracecatLLMProxy.build(),
-                on_error=on_error,
-            )
         return LLMSocketProxy(
             socket_path=socket_path,
+            tracecat_proxy=TracecatLLMProxy.build(),
             on_error=on_error,
         )
 
@@ -181,7 +172,7 @@ class SandboxedAgentExecutor:
                 user_prompt=self.input.user_prompt,
                 config=self.input.config,
                 mcp_auth_token=self.input.mcp_auth_token,
-                litellm_auth_token=self.input.litellm_auth_token,
+                llm_gateway_auth_token=self.input.llm_gateway_auth_token,
                 socket_dir=socket_dir,
                 allowed_actions=self.input.allowed_actions,
                 sdk_session_id=self.input.sdk_session_id,
@@ -247,7 +238,6 @@ class SandboxedAgentExecutor:
             logger.info(
                 "Started LLM socket proxy",
                 socket_path=str(llm_socket_path),
-                llm_execution_backend=config.TRACECAT__LLM_EXECUTION_BACKEND.value,
             )
 
             # Set umask before socket creation to ensure 0o600 permissions from the start

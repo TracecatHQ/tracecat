@@ -19,7 +19,7 @@ def test_build_sdk_output_format_accepts_raw_json_schema() -> None:
     }
 
 
-def test_build_sdk_output_format_unwraps_litellm_style_schema_bundle() -> None:
+def test_build_sdk_output_format_unwraps_schema_bundle() -> None:
     output_type = {
         "name": "user_data",
         "strict": True,

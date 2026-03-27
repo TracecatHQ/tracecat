@@ -38,7 +38,7 @@ def make_init_payload() -> RuntimeInitPayload:
             instructions="You are a test assistant.",
         ),
         user_prompt="Say hello",
-        litellm_auth_token="test-litellm-token",
+        llm_gateway_auth_token="test-llm-token",
         allowed_actions={},
     )
 

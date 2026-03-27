@@ -193,7 +193,7 @@ async def test_agent_executor_worker_raises_when_runtime_service_reports_failure
             del exc_type, exc, tb
 
     async def fake_start_runtime_services() -> object:
-        executor_worker.runtime_failure_reason = "LiteLLM sidecar became unhealthy"
+        executor_worker.runtime_failure_reason = "LLM gateway became unhealthy"
         executor_worker.interrupt_event.set()
         return object()
 
@@ -206,5 +206,5 @@ async def test_agent_executor_worker_raises_when_runtime_service_reports_failure
     executor_worker.interrupt_event.clear()
     executor_worker.runtime_failure_reason = None
 
-    with pytest.raises(RuntimeError, match="LiteLLM sidecar became unhealthy"):
+    with pytest.raises(RuntimeError, match="LLM gateway became unhealthy"):
         await executor_worker.main()

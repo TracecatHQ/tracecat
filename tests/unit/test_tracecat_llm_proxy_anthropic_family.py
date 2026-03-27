@@ -297,6 +297,43 @@ def test_azure_ai_prepare_request_uses_x_api_key_and_anthropic_url() -> None:
     assert outbound.headers["anthropic-version"] == "2024-01-01"
 
 
+def test_azure_ai_prepare_request_preserves_structured_system_blocks() -> None:
+    request = NormalizedMessagesRequest(
+        provider="azure_ai",
+        model="claude-3-5-sonnet",
+        messages=(
+            NormalizedMessage(
+                role="system",
+                content={
+                    "type": "text",
+                    "text": "Use the schema exactly.",
+                    "cache_control": {"type": "ephemeral"},
+                },
+            ),
+            NormalizedMessage(role="user", content="hello"),
+        ),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=False,
+    )
+    outbound = AzureAIAdapter().prepare_request(
+        request,
+        {
+            "AZURE_API_BASE": "https://resource.services.ai.azure.com",
+            "AZURE_API_KEY": "azure-key",
+            "AZURE_AI_MODEL_NAME": "claude-3-5-sonnet",
+        },
+    )
+
+    assert outbound.json_body is not None
+    assert outbound.json_body["system"] == [
+        {
+            "type": "text",
+            "text": "Use the schema exactly.",
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+
 def test_azure_ai_retry_helpers_handle_known_errors() -> None:
     assert should_retry_llm_api_inside_llm_translation_on_http_error(
         "Extra inputs are not permitted",

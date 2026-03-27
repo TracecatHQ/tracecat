@@ -64,7 +64,7 @@ def extract_json_schema(
     ):
         return schema
 
-    # LiteLLM-style schema bundles.
+    # Schema bundles (name + schema + strict).
     if "type" not in schema_or_format and isinstance(
         schema := schema_or_format.get("schema"),
         dict,
@@ -96,7 +96,7 @@ def build_sdk_output_format(
 
     For dict output_type, we accept either:
     - a raw JSON Schema object
-    - a LiteLLM-compatible schema bundle like
+    - a schema bundle like
       ``{"name": "...", "schema": {...}, "strict": true}``
     - an already-wrapped ``{"type": "json_schema", "schema": {...}}`` object
 

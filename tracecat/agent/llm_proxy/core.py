@@ -98,8 +98,11 @@ class TracecatLLMProxy:
             if claims.provider in {"openai", "anthropic", "custom-model-provider"}
             else None
         )
-        parts = extract_anthropic_request_parts(payload)
-        token_model_settings = filter_allowed_model_settings(claims.model_settings)
+        parts = extract_anthropic_request_parts(payload, provider=claims.provider)
+        token_model_settings = filter_allowed_model_settings(
+            claims.model_settings,
+            provider=claims.provider,
+        )
         parallel_tool_calls = None
         if isinstance(claims.model_settings.get("parallel_tool_calls"), bool):
             parallel_tool_calls = claims.model_settings["parallel_tool_calls"]
@@ -224,7 +227,7 @@ class TracecatLLMProxy:
                     claims=claims,
                     trace_request_id=trace_request_id,
                 )
-                if isinstance(adapter, AnthropicStreamingAdapter):
+                if isinstance(adapter, AnthropicStreamingAdapter) and request.stream:
                     async for event in adapter.stream_anthropic(
                         self.http_client,
                         request,

@@ -26,6 +26,7 @@ from tracecat.agent.llm_proxy.anthropic_compat import (
     anthropic_tool_choice,
     anthropic_tool_definition,
 )
+from tracecat.agent.llm_proxy.requests import ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY
 from tracecat.agent.llm_proxy.types import (
     NormalizedMessage,
     NormalizedMessagesRequest,
@@ -99,6 +100,13 @@ def _content_item_to_part(item: Any) -> dict[str, Any]:
     match item:
         case {"type": "text", "text": str(text)}:
             return _text_part(text)
+        case {"type": "tool_use", "name": str(name), "input": arguments, **_rest}:
+            return {
+                "functionCall": {
+                    "name": name,
+                    "args": _tool_arguments(arguments),
+                }
+            }
         case {"type": "image_url", "image_url": {"url": str(url), **image_info}}:
             return _media_part_from_reference(
                 url,
@@ -133,20 +141,16 @@ def _content_item_to_part(item: Any) -> dict[str, Any]:
             return _text_part(item)
 
 
-def _message_to_parts(message: NormalizedMessage) -> list[dict[str, Any]]:
-    if message.tool_calls:
-        parts: list[dict[str, Any]] = []
-        for tool_call in message.tool_calls:
-            parts.append(
-                {
-                    "functionCall": {
-                        "name": tool_call.name,
-                        "args": _tool_arguments(tool_call.arguments),
-                    }
-                }
-            )
-        return parts
+def _anthropic_content_blocks_from_message(
+    message: NormalizedMessage,
+) -> list[Any] | None:
+    blocks = message.metadata.get(ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY)
+    if isinstance(blocks, list):
+        return blocks
+    return None
 
+
+def _message_to_parts(message: NormalizedMessage) -> list[dict[str, Any]]:
     if message.role == "tool":
         response: dict[str, Any] = {}
         if isinstance(message.content, dict):
@@ -179,13 +183,28 @@ def _message_to_parts(message: NormalizedMessage) -> list[dict[str, Any]]:
             }
         ]
 
+    if anthropic_blocks := _anthropic_content_blocks_from_message(message):
+        return [_content_item_to_part(item) for item in anthropic_blocks]
+
+    parts: list[dict[str, Any]] = []
     if isinstance(message.content, list):
-        return [_content_item_to_part(item) for item in message.content]
-    if message.content is None:
-        return []
-    if isinstance(message.content, dict):
-        return [_content_item_to_part(message.content)]
-    return [_text_part(message.content)]
+        parts.extend(_content_item_to_part(item) for item in message.content)
+    elif message.content is not None:
+        if isinstance(message.content, dict):
+            parts.append(_content_item_to_part(message.content))
+        else:
+            parts.append(_text_part(message.content))
+
+    for tool_call in message.tool_calls:
+        parts.append(
+            {
+                "functionCall": {
+                    "name": tool_call.name,
+                    "args": _tool_arguments(tool_call.arguments),
+                }
+            }
+        )
+    return parts
 
 
 def _extract_text_from_content(content: Any) -> str:
