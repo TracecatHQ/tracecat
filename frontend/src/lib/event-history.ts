@@ -16,6 +16,8 @@ export type WorkflowExecutionReadCompact =
   WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
 
 // Safe because refs are slugified. Use `workflow` to namespace from regular action refs.
+export const WF_TRIGGER_EVENT_REF = "__workflow_trigger__"
+export const WF_TRIGGER_EVENT_LABEL = "Trigger"
 export const WF_FAILURE_EVENT_REF = "__workflow_failure__"
 export const WF_FAILURE_EVENT_LABEL = "Workflow Failure"
 export const WF_COMPLETED_EVENT_REF = "__workflow_completed__"
@@ -312,6 +314,9 @@ export function isAgentOutput(
  * @returns The formatted display label for the action ref
  */
 export function refToLabel(actionRef: string) {
+  if (actionRef === WF_TRIGGER_EVENT_REF) {
+    return WF_TRIGGER_EVENT_LABEL
+  }
   if (actionRef === WF_FAILURE_EVENT_REF) {
     return WF_FAILURE_EVENT_LABEL
   }

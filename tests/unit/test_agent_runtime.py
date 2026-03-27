@@ -5,8 +5,11 @@ Tests the runtime execution with mocked Claude SDK.
 
 from __future__ import annotations
 
+import os
+import tempfile
 import uuid
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -27,6 +30,10 @@ from tracecat.agent.common.types import (
 from tracecat.agent.common.types import (
     MCPToolDefinition as SharedMCPToolDefinition,
 )
+from tracecat.agent.mcp.proxy_server import (
+    PROXY_TOOL_CALL_ID_KEY,
+    PROXY_TOOL_METADATA_KEY,
+)
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
 from tracecat.agent.types import AgentConfig
 
@@ -34,7 +41,7 @@ from tracecat.agent.types import AgentConfig
 @pytest.fixture
 def sample_agent_config() -> AgentConfig:
     """Create a sample agent config for testing."""
-    return AgentConfig(
+    return cast(Any, AgentConfig)(
         model_name="claude-3-5-sonnet-20241022",
         model_provider="anthropic",
         instructions="You are a helpful assistant.",
@@ -57,6 +64,7 @@ def sample_tool_definitions() -> dict[str, MCPToolDefinition]:
                     "method": {"type": "string"},
                 },
                 "required": ["url", "method"],
+                "additionalProperties": False,
             },
         ),
     }
@@ -231,7 +239,88 @@ class TestClaudeAgentRuntimeRun:
 
         # Should have called send_stream_event
         mock_socket_writer.send_stream_event.assert_awaited()
-        mock_adapter.to_unified_event.assert_called()
+
+    @pytest.mark.anyio
+    async def test_sets_skip_version_check_before_sdk_connect(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Test that the runtime primes the SDK skip-version-check env var."""
+        monkeypatch.delenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", raising=False)
+        mock_client = MagicMock()
+
+        async def enter_client() -> MagicMock:
+            assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "1"
+            return mock_client
+
+        mock_client.__aenter__ = AsyncMock(side_effect=enter_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.query = AsyncMock()
+        mock_client.interrupt = AsyncMock()
+
+        async def empty_response() -> Any:
+            return
+            yield  # pragma: no cover  # noqa: B901
+
+        mock_client.receive_response = empty_response
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            await runtime.run(sample_init_payload)
+
+        assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "1"
+
+    @pytest.mark.anyio
+    async def test_preserves_existing_skip_version_check_value(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Test that runtime does not overwrite an existing SDK env value."""
+        monkeypatch.setenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "existing")
+        mock_client = MagicMock()
+
+        async def enter_client() -> MagicMock:
+            assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "existing"
+            return mock_client
+
+        mock_client.__aenter__ = AsyncMock(side_effect=enter_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.query = AsyncMock()
+        mock_client.interrupt = AsyncMock()
+
+        async def empty_response() -> Any:
+            return
+            yield  # pragma: no cover  # noqa: B901
+
+        mock_client.receive_response = empty_response
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            await runtime.run(sample_init_payload)
+
+        assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "existing"
 
     @pytest.mark.anyio
     async def test_sends_error_on_exception(
@@ -261,13 +350,13 @@ class TestClaudeAgentRuntimeRun:
         mock_socket_writer.send_done.assert_awaited_once()
 
     @pytest.mark.anyio
-    async def test_adds_registry_mcp_alias_on_resume(
+    async def test_canonicalizes_registry_mcp_alias_on_resume(
         self,
         mock_socket_writer: MagicMock,
         mock_claude_sdk_client: MagicMock,
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
-        """Test that resumed sessions include the registry MCP alias."""
+        """Test that resumed sessions only mount the canonical registry MCP name."""
         captured_options: list[Any] = []
 
         def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
@@ -297,7 +386,35 @@ class TestClaudeAgentRuntimeRun:
         mcp_servers = captured_options[0].mcp_servers
         assert isinstance(mcp_servers, dict)
         assert "tracecat-registry" in mcp_servers
-        assert "tracecat_registry" in mcp_servers
+        assert "tracecat_registry" not in mcp_servers
+
+    @pytest.mark.anyio
+    async def test_write_session_file_canonicalizes_registry_mcp_aliases(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Test that resume JSONL is rewritten to the canonical registry MCP name."""
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        runtime._cwd = (
+            Path(tempfile.gettempdir())
+            / "tracecat-agent-test-canonicalize-registry-mcp-alias"
+        )
+        sdk_session_data = (
+            '{"type":"assistant","message":{"content":[{"type":"tool_use",'
+            '"name":"mcp__tracecat_registry__execute_tool","input":{"tool_name":'
+            '"mcp__tracecat_registry__core__http_request"}}]}}\n'
+        )
+
+        session_file = await runtime._write_session_file(
+            sdk_session_id,
+            sdk_session_data,
+        )
+
+        session_text = session_file.read_text()
+        assert "mcp__tracecat-registry__execute_tool" in session_text
+        assert "mcp__tracecat-registry__core__http_request" in session_text
+        assert "mcp__tracecat_registry__" not in session_text
 
 
 class TestClaudeAgentRuntimePreToolUseHook:
@@ -332,7 +449,10 @@ class TestClaudeAgentRuntimePreToolUseHook:
         )
 
         hook_output = get_hook_output(result)
-        assert hook_output.get("permissionDecision") == "allow"
+        assert hook_output == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
 
     @pytest.mark.anyio
     async def test_auto_approve_registry_tool_without_approval(
@@ -357,6 +477,57 @@ class TestClaudeAgentRuntimePreToolUseHook:
 
         hook_output = get_hook_output(result)
         assert hook_output.get("permissionDecision") == "allow"
+        assert hook_output["updatedInput"] == {
+            "url": "https://example.com",
+            "method": "GET",
+            PROXY_TOOL_METADATA_KEY: {
+                PROXY_TOOL_CALL_ID_KEY: "call-2",
+            },
+        }
+
+    @pytest.mark.anyio
+    async def test_auto_approve_internal_tool_does_not_inject_metadata(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__tracecat-registry__internal__builder__list_sessions",
+                tool_input={"query": "abc"},
+            ),
+            tool_use_id="call-internal",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
+
+    @pytest.mark.anyio
+    async def test_auto_approve_non_registry_mcp_tool_does_not_inject_metadata(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__jira__search",
+                tool_input={"jql": "project = TRACE"},
+            ),
+            tool_use_id="call-jira",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
 
     @pytest.mark.anyio
     async def test_tool_requires_approval(

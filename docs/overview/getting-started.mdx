@@ -1,0 +1,36 @@
+---
+title: "Getting started"
+---
+
+import McpInstallation from "/snippets/mcp-installation.mdx";
+
+Join Tracecat Community Cloud or self-host your own instance.
+The easiest way to get started is to connect your agent harness (Claude Code, Cursor, OpenAI Codex) to Tracecat.
+
+## Cloud
+
+Connecting your agent to Tracecat Cloud automatically creates an account for you.
+You can also sign up manually via [https://platform.tracecat.com](https://platform.tracecat.com).
+
+<McpInstallation />
+
+## Self-host
+
+Docker Compose is the easiest way to self-host.
+Check out the full guide [here](/self-hosting/docker-compose) or follow the quickstart below.
+
+```bash
+# Setup environment variables and secrets
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/.env.example
+chmod +x env.sh && ./env.sh
+
+# Download Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/Caddyfile
+
+# Download Docker Compose file
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/docker-compose.yml
+
+# Start Tracecat
+docker compose up -d
+```

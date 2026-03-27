@@ -6,17 +6,18 @@ from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import EDITOR_SCOPES, VIEWER_SCOPES
-from tracecat.db.models import Table
+from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
-from tracecat.tables.common import parse_postgres_default
+from tracecat.tables.common import handle_default_value, parse_postgres_default
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
     TableColumnCreate,
@@ -30,6 +31,8 @@ from tracecat.tables.service import (
     TableEditorService,
     TablesService,
     is_internal_column_name,
+    sanitize_identifier,
+    validate_identifier,
     visible_column_names,
 )
 
@@ -181,6 +184,26 @@ class TestTablesService:
 
         retrieved_table = await tables_service.get_table_by_name("user")
         assert retrieved_table.id == created_table.id
+
+    async def test_get_table_by_name_rejects_invalid_alias(
+        self, tables_service: TablesService
+    ) -> None:
+        """Invalid external names should not alias to a different stored table name."""
+        await tables_service.create_table(TableCreate(name="badname"))
+
+        with pytest.raises(ValueError, match="Identifier must"):
+            await tables_service.get_table_by_name("bad-name")
+
+    async def test_get_table_by_name_allows_exact_legacy_metadata_name(
+        self, tables_service: TablesService
+    ) -> None:
+        """Legacy metadata names should still resolve when matched exactly."""
+        table = await tables_service.create_table(TableCreate(name="legacyname"))
+        table.name = "legacy-name"
+        await tables_service.session.flush()
+
+        resolved = await tables_service.get_table_by_name("legacy-name")
+        assert resolved.id == table.id
 
     async def test_editor_can_create_table(
         self, tables_service_editor: TablesService
@@ -452,6 +475,7 @@ class TestParsePostgresDefault:
         [
             (None, None),
             ("'attack'::text", "attack"),
+            ("'O''Brien'::text", "O'Brien"),
             ("0::integer", "0"),
             ("true::boolean", "true"),
             ("'2024-01-01'::timestamp", "2024-01-01"),
@@ -476,6 +500,133 @@ class TestParsePostgresDefault:
         self, parse_default, raw: str | None, expected: str | None
     ) -> None:
         assert parse_default(raw) == expected
+
+
+class TestHandleDefaultValue:
+    @pytest.mark.parametrize(
+        ("sql_type", "default", "expected"),
+        [
+            pytest.param(
+                SqlType.TEXT,
+                "O'Brien",
+                "'O''Brien'",
+                id="text-escapes-single-quote",
+            ),
+            pytest.param(
+                SqlType.SELECT,
+                "O'Brien",
+                "'O''Brien'",
+                id="select-escapes-single-quote",
+            ),
+            pytest.param(
+                SqlType.INTEGER,
+                "42",
+                "42",
+                id="integer-literal",
+            ),
+            pytest.param(
+                SqlType.NUMERIC,
+                "3.14159",
+                "3.14159",
+                id="numeric-literal",
+            ),
+            pytest.param(
+                SqlType.UUID,
+                "00000000-0000-0000-0000-000000000000",
+                "'00000000-0000-0000-0000-000000000000'::uuid",
+                id="uuid-literal",
+            ),
+            pytest.param(
+                SqlType.JSONB,
+                {"author": "O'Brien"},
+                "'{\"author\":\"O''Brien\"}'::jsonb",
+                id="jsonb-literal",
+            ),
+        ],
+    )
+    def test_formats_literal_safe_defaults(
+        self, sql_type: SqlType, default: Any, expected: str
+    ) -> None:
+        assert handle_default_value(sql_type, default) == expected
+
+    @pytest.mark.parametrize(
+        ("sql_type", "default", "error_message"),
+        [
+            pytest.param(
+                SqlType.INTEGER,
+                "1 + 2",
+                "Invalid integer default value",
+                id="integer-expression",
+            ),
+            pytest.param(
+                SqlType.INTEGER,
+                "Infinity",
+                "Invalid integer default value",
+                id="integer-infinity",
+            ),
+            pytest.param(
+                SqlType.INTEGER,
+                "1e500000",
+                "Invalid integer default value",
+                id="integer-out-of-range-exponent",
+            ),
+            pytest.param(
+                SqlType.NUMERIC,
+                "1 / 0.5",
+                "Invalid numeric default value",
+                id="numeric-expression",
+            ),
+            pytest.param(
+                SqlType.NUMERIC,
+                "Infinity",
+                "Invalid numeric default value",
+                id="numeric-infinity",
+            ),
+            pytest.param(
+                SqlType.UUID,
+                "00000000-0000-0000-0000-000000000000' || current_user || '",
+                "Invalid UUID default value",
+                id="uuid-expression",
+            ),
+        ],
+    )
+    def test_rejects_non_literal_defaults(
+        self, sql_type: SqlType, default: Any, error_message: str
+    ) -> None:
+        with pytest.raises(ValueError, match=error_message):
+            handle_default_value(sql_type, default)
+
+    def test_text_sql_injection_payload_is_rendered_as_literal(self) -> None:
+        payload = "'; SELECT pg_sleep(1); --"
+        assert (
+            handle_default_value(SqlType.TEXT, payload)
+            == "'''; SELECT pg_sleep(1); --'"
+        )
+
+    def test_jsonb_sql_injection_payload_is_rendered_as_literal(self) -> None:
+        payload = {"query": "'; SELECT pg_sleep(1); --"}
+        rendered = handle_default_value(SqlType.JSONB, payload)
+        assert rendered.startswith("'")
+        assert rendered.endswith("'::jsonb")
+        assert "SELECT pg_sleep(1)" in rendered
+
+
+class TestSanitizeIdentifier:
+    @pytest.mark.parametrize(
+        ("identifier", "expected"),
+        [
+            ("display_name", "display_name"),
+            ("bad-name", "badname"),
+            ('";drop', "drop"),
+        ],
+    )
+    def test_normalizes_identifiers(self, identifier: str, expected: str) -> None:
+        assert sanitize_identifier(identifier) == expected
+
+    @pytest.mark.parametrize("identifier", ["", '";drop', "123field"])
+    def test_rejects_identifiers_without_valid_sql_shape(self, identifier: str) -> None:
+        with pytest.raises(ValueError):
+            validate_identifier(identifier)
 
 
 @pytest.mark.anyio
@@ -548,6 +699,136 @@ class TestTableColumns:
         assert retrieved_column.default == "default_value"
         assert retrieved_column.type == SqlType.TEXT
 
+    async def test_create_column_default_with_single_quote(
+        self, tables_service: TablesService
+    ) -> None:
+        """Quoted text defaults should be stored as string literals, not SQL."""
+        table = await tables_service.create_table(
+            TableCreate(name="quoted_default_create")
+        )
+
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(
+                name="nickname",
+                type=SqlType.TEXT,
+                nullable=True,
+                default="O'Brien",
+            ),
+        )
+        assert column.default == "O'Brien"
+
+        inserted = await tables_service.insert_row(table, TableRowInsert(data={}))
+        assert inserted["nickname"] == "O'Brien"
+
+    async def test_update_column_default_with_single_quote(
+        self, tables_service: TablesService
+    ) -> None:
+        """TablesService updates should safely apply quoted defaults."""
+        table = await tables_service.create_table(
+            TableCreate(name="quoted_default_update")
+        )
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(name="nickname", type=SqlType.TEXT, nullable=True),
+        )
+
+        await tables_service.update_column(
+            column,
+            TableColumnUpdate(name="display_name", default="O'Brien"),
+        )
+        updated_column = await tables_service.get_column(table.id, column.id)
+        assert updated_column.default == "O'Brien"
+
+        inserted = await tables_service.insert_row(table, TableRowInsert(data={}))
+        assert inserted["display_name"] == "O'Brien"
+
+    async def test_table_editor_update_column_default_with_single_quote(
+        self, tables_service: TablesService
+    ) -> None:
+        """TableEditorService should also escape quoted defaults."""
+        table = await tables_service.create_table(
+            TableCreate(name="quoted_default_editor_update")
+        )
+        await tables_service.create_column(
+            table,
+            TableColumnCreate(name="nickname", type=SqlType.TEXT, nullable=True),
+        )
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        await editor.update_column("nickname", TableColumnUpdate(default="O'Brien"))
+
+        inserted = await editor.insert_row(TableRowInsert(data={}))
+        assert inserted["nickname"] == "O'Brien"
+
+    async def test_update_column_handles_legacy_metadata_name(
+        self, tables_service: TablesService
+    ) -> None:
+        """Legacy metadata names should still resolve to the physical column."""
+        table = await tables_service.create_table(
+            TableCreate(name="legacy_column_name")
+        )
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(name="badname", type=SqlType.TEXT, nullable=True),
+        )
+        column.name = "bad-name"
+        await tables_service.session.flush()
+
+        updated_column = await tables_service.update_column(
+            column,
+            TableColumnUpdate(name="display_name"),
+        )
+
+        assert updated_column.name == "display_name"
+
+    async def test_create_column_sql_injection_payload_is_stored_as_text_literal(
+        self, tables_service: TablesService
+    ) -> None:
+        """Text defaults that look like SQL must round-trip as plain text."""
+        payload = "'; SELECT pg_sleep(1); --"
+        table = await tables_service.create_table(
+            TableCreate(name="default_sql_injection_create")
+        )
+
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(
+                name="notes",
+                type=SqlType.TEXT,
+                nullable=True,
+                default=payload,
+            ),
+        )
+
+        assert column.default == payload
+        inserted = await tables_service.insert_row(table, TableRowInsert(data={}))
+        assert inserted["notes"] == payload
+
+    async def test_update_column_rejects_sql_injection_payload_for_integer_default(
+        self, tables_service: TablesService
+    ) -> None:
+        """Typed defaults should reject SQL-expression payloads instead of rendering them."""
+        payload = "1; SELECT pg_sleep(1); --"
+        table = await tables_service.create_table(
+            TableCreate(name="default_sql_injection_update")
+        )
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(name="attempts", type=SqlType.INTEGER, nullable=True),
+        )
+
+        with pytest.raises(ValueError, match="Invalid integer default value"):
+            await tables_service.update_column(
+                column,
+                TableColumnUpdate(default=payload),
+            )
+
     async def test_create_single_column_unique_index(
         self, tables_service: TablesService, table: Table
     ) -> None:
@@ -569,6 +850,24 @@ class TestTableColumns:
         # Verify the error message indicates a unique constraint violation
         error_msg = str(exc_info.value)
         assert "unique" in error_msg.lower() or "duplicate" in error_msg.lower()
+
+    async def test_update_column_can_create_unique_index(
+        self, tables_service: TablesService, table: Table, session: AsyncSession
+    ) -> None:
+        """Creating a unique index via update_column should not trigger lazy-load IO."""
+        name_column_id = await session.scalar(
+            select(TableColumn.id).where(
+                TableColumn.table_id == table.id,
+                TableColumn.name == "name",
+            )
+        )
+        assert name_column_id is not None
+        column = await tables_service.get_column(table.id, name_column_id)
+
+        await tables_service.update_column(column, TableColumnUpdate(is_index=True))
+
+        index_columns = await tables_service.get_index(table)
+        assert "name" in index_columns
 
     async def test_create_unique_index_with_existing_duplicates(
         self, tables_service: TablesService, table: Table
@@ -784,6 +1083,50 @@ class TestTableRows:
         result = results[0]
         assert result["name"] == "Bob"
         assert result["age"] == 40
+
+    async def test_lookup_row_rejects_invalid_column_alias(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Invalid external column names should not alias to a different column."""
+        with pytest.raises(ValueError, match="Identifier must"):
+            await tables_service.lookup_rows(
+                table_name=table.name,
+                columns=["na-me"],
+                values=["Bob"],
+            )
+
+    async def test_lookup_row_allows_system_id_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """System columns should remain available to lookup_rows."""
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 40})
+        )
+
+        results = await tables_service.lookup_rows(
+            table_name=table.name,
+            columns=["id"],
+            values=[inserted["id"]],
+        )
+
+        assert len(results) == 1
+        assert results[0]["id"] == inserted["id"]
+
+    async def test_exists_rows_allows_system_id_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """System columns should remain available to exists_rows."""
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 40})
+        )
+
+        exists = await tables_service.exists_rows(
+            table_name=table.name,
+            columns=["id"],
+            values=[inserted["id"]],
+        )
+
+        assert exists is True
 
     async def test_list_rows(self, tables_service: TablesService, table: Table) -> None:
         """Test listing rows with cursor-based pagination."""

@@ -4549,6 +4549,20 @@ export type ReceiveInteractionResponse = {
   message: string
 }
 
+/**
+ * Availability metadata for a registry action.
+ */
+export type RegistryActionAvailability = {
+  /**
+   * Whether this action is locked behind an upgraded plan
+   */
+  locked?: boolean
+  /**
+   * Entitlements required to unlock this action
+   */
+  missing_entitlements?: Array<string>
+}
+
 export type RegistryActionInterface = {
   expects: {
     [key: string]: unknown
@@ -4675,6 +4689,10 @@ export type RegistryActionReadMinimal = {
    * The presentation group of the action
    */
   display_group?: string | null
+  /**
+   * Availability metadata for this action
+   */
+  availability?: RegistryActionAvailability
   /**
    * The full action identifier.
    */
@@ -9447,6 +9465,13 @@ export type RegistryRepositoriesGetPreviousRegistryVersionData = {
 export type RegistryRepositoriesGetPreviousRegistryVersionResponse =
   tracecat__registry__repositories__schemas__RegistryVersionRead | null
 
+export type RegistryActionsListRegistryActionsData = {
+  /**
+   * Include actions locked by missing entitlements
+   */
+  includeLocked?: boolean
+}
+
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
 
@@ -13737,11 +13762,16 @@ export type $OpenApiTs = {
   }
   "/registry/actions": {
     get: {
+      req: RegistryActionsListRegistryActionsData
       res: {
         /**
          * Successful Response
          */
         200: Array<RegistryActionReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

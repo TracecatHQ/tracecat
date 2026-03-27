@@ -1,0 +1,142 @@
+---
+title: Docker Compose
+description: Deploy Tracecat using Docker Compose.
+---
+
+<Warning>
+  Docker Compose deployments default to basic email / password authentication.
+  Production deployments should use [OIDC](/authentication/oidc) or [SAML](/authentication/saml) SSO.
+</Warning>
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/engine/install/) version 26.0.0+
+- [Docker Compose](https://docs.docker.com/compose/install/) version 2.29.0+
+- [openssl](https://www.openssl.org/source/)
+
+## Download configuration files
+
+```bash
+# 1. Download the env.sh installation script
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/env.sh
+
+# 2. Download the .env.example template file (env.sh needs this to generate your .env file)
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/.env.example
+
+# 3. Make the env.sh script executable and run it
+chmod +x env.sh && ./env.sh
+```
+
+After running `env.sh`, you'll be prompted to input the following:
+
+- Set `PUBLIC_APP_URL`. Defaults to `localhost`.
+- Require PostgreSQL SSL mode? Defaults to `n`.
+- **Required field**: Enter email address for the first user (superadmin).
+
+## Download Caddyfile
+
+Tracecat uses Caddy as a reverse proxy.
+You'll need to download the following `Caddyfile` to configure this service.
+
+```bash
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/Caddyfile
+```
+
+## Download Docker Compose file
+
+```bash
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/docker-compose.yml
+```
+
+## Start Tracecat
+
+Run the command below to start Tracecat and all related services.
+Make sure your `docker-compose.yml` and generated `.env` files are in the same directory.
+
+```bash
+docker compose up
+```
+
+## Access Tracecat
+
+Once deployed, access your instance at:
+- UI: `http://localhost:${PUBLIC_APP_PORT}`
+- API docs: `http://localhost:${PUBLIC_APP_PORT}/api/docs`
+- MCP: `http://localhost:${PUBLIC_APP_PORT}/mcp`
+
+## Updating Tracecat
+
+<Warning>
+  Be careful when updating Tracecat.
+  Do not accidentally overwrite or lose your existing `TRACECAT__SERVICE_KEY`, `TRACECAT__SIGNING_SECRET`, and `TRACECAT__DB_ENCRYPTION_KEY` secrets.
+  Losing these secrets will break your credentials and webhooks.
+</Warning>
+
+```bash
+# 1. Download the latest env migration script and env template
+curl -o env-migration.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/env-migration.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/.env.example
+
+# 2. Make the migration script executable and update your existing .env
+chmod +x env-migration.sh && ./env-migration.sh
+
+# 3. Download the latest Docker Compose file
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/docker-compose.yml
+
+# 4. Download the latest Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/<version>/Caddyfile
+
+# 5. Restart Tracecat with the updated configuration
+docker compose up -d
+```
+
+The migration script creates a backup of your existing `.env` before rewriting it.
+After the stack starts, verify that your containers are healthy and that you can sign in successfully.
+
+## FAQ
+
+### Does Docker Compose support Tracecat MCP?
+
+Yes. Tracecat uses [Dex](https://github.com/dexidp/dex) as a built-in OIDC provider for MCP.
+Dex is shipped with the Tracecat Docker Compose stack.
+
+Seek assistance in our [#help-chat](https://discord.gg/3W3BMe85q6) channel if you encounter any issues.
+
+### Does Tracecat support Windows?
+
+Yes but don't forget to set `PUBLIC_APP_URL` to `127.0.0.1` instead of `localhost` in your `.env` file.
+
+### Does Tracecat support WSL?
+
+Yes but you'll need to set `PUBLIC_APP_URL` to the WSL IP address instead of `localhost`.
+Run `ip addr` to find your WSL IP address (usually 172.x.x.x).
+
+### I can see the landing page but not the login page
+
+This suggests that the Tracecat UI is healthy but is unable to communicate with the Tracecat API.
+
+- Check that the `api` service is healthy
+- Check that this is not a CORS issue (see next FAQ)
+- Check that you changed `PUBLIC_APP_URL` and `PUBLIC_APP_PORT` to the correct address
+- Check the Chrome developer console for any errors
+
+### What is the CORS issue?
+
+You must configure `PUBLIC_APP_URL` and `PUBLIC_API_URL` to the same domain that your browser is accessing the Tracecat UI from.
+Tracecat strictly enforces CORS to prevent XSS attacks.
+
+This error occurs when your browser cannot connect to Tracecat API via `PUBLIC_APP_URL`.
+Please check the following:
+
+- Do not set `PUBLIC_APP_URL` to `0.0.0.0`. Browsers cannot connect to this address. Use `localhost`, `127.0.0.1`, or your machine's actual IP address instead.
+- WSL users: Do not use `127.0.0.1`. Run `ip addr` to find your WSL IP address (usually `172.x.x.x`) and use that instead.
+- If your frontend is running on a different machine than the API, set `NEXT_PUBLIC_API_URL` to an address your browser can reach.
+- Run `docker compose ps` to verify all services are running.
+- Check the temporal service is healthy. Worker connectivity issues can sometimes affect login.
+- View container logs: `docker compose logs api` and `docker compose logs temporal`.
+- Check firewall and port forwarding if using a reverse proxy.
+
+For example, if you've deployed Tracecat into a VM and exposed it to your browser as `https://my-tracecat-instance.com`,
+you must set:
+- `PUBLIC_APP_URL` to `https://my-tracecat-instance.com`
+- `PUBLIC_API_URL` to `https://my-tracecat-instance.com/api`

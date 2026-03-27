@@ -1,11 +1,19 @@
 import {
   groupEventsByActionRef,
+  refToLabel,
   WF_COMPLETED_EVENT_REF,
   WF_FAILURE_EVENT_REF,
+  WF_TRIGGER_EVENT_REF,
   type WorkflowExecutionEventCompact,
 } from "@/lib/event-history"
 
 describe("event-history", () => {
+  describe("WF_TRIGGER_EVENT_REF", () => {
+    it("should export the correct sentinel value", () => {
+      expect(WF_TRIGGER_EVENT_REF).toBe("__workflow_trigger__")
+    })
+  })
+
   describe("WF_FAILURE_EVENT_REF", () => {
     it("should export the correct sentinel value", () => {
       expect(WF_FAILURE_EVENT_REF).toBe("__workflow_failure__")
@@ -15,6 +23,12 @@ describe("event-history", () => {
   describe("WF_COMPLETED_EVENT_REF", () => {
     it("should export the correct sentinel value", () => {
       expect(WF_COMPLETED_EVENT_REF).toBe("__workflow_completed__")
+    })
+  })
+
+  describe("refToLabel", () => {
+    it("should label the trigger sentinel as Trigger", () => {
+      expect(refToLabel(WF_TRIGGER_EVENT_REF)).toBe("Trigger")
     })
   })
 
@@ -75,6 +89,18 @@ describe("event-history", () => {
           schedule_time: "2023-01-01T10:00:00Z",
           start_time: "2023-01-01T10:00:00Z",
           close_time: null,
+          curr_event_type: "WORKFLOW_EXECUTION_STARTED",
+          status: "COMPLETED",
+          action_name: "Workflow",
+          action_ref: WF_TRIGGER_EVENT_REF,
+          action_input: { key: "value" },
+          action_result: null,
+        },
+        {
+          source_event_id: 2,
+          schedule_time: "2023-01-01T10:00:00Z",
+          start_time: "2023-01-01T10:00:00Z",
+          close_time: null,
           curr_event_type: "WORKFLOW_EXECUTION_FAILED",
           status: "FAILED",
           action_name: "Workflow",
@@ -83,7 +109,7 @@ describe("event-history", () => {
           action_result: null,
         },
         {
-          source_event_id: 2,
+          source_event_id: 3,
           schedule_time: "2023-01-01T10:00:01Z",
           start_time: "2023-01-01T10:00:01Z",
           close_time: null,
@@ -95,7 +121,7 @@ describe("event-history", () => {
           action_result: null,
         },
         {
-          source_event_id: 3,
+          source_event_id: 4,
           schedule_time: "2023-01-01T10:00:02Z",
           start_time: "2023-01-01T10:00:02Z",
           close_time: null,
@@ -110,6 +136,10 @@ describe("event-history", () => {
 
       const result = groupEventsByActionRef(events)
 
+      expect(result[WF_TRIGGER_EVENT_REF]).toHaveLength(1)
+      expect(result[WF_TRIGGER_EVENT_REF][0].action_ref).toBe(
+        WF_TRIGGER_EVENT_REF
+      )
       expect(result[WF_FAILURE_EVENT_REF]).toHaveLength(2)
       expect(result[WF_FAILURE_EVENT_REF][0].action_ref).toBe(
         WF_FAILURE_EVENT_REF

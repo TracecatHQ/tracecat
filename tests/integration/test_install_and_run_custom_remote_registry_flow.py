@@ -37,6 +37,7 @@ from tracecat.secrets.schemas import SecretCreate
 from tracecat.settings.schemas import GitSettingsUpdate
 
 GIT_SSH_URL = "git+ssh://git@github.com/TracecatHQ/internal-registry.git"
+KNOWN_GOOD_REMOTE_COMMIT_SHA = "e2bfd94c35c93f8052c2b97ff542961596ddd3f8"
 
 
 @pytest.mark.anyio
@@ -190,6 +191,7 @@ async def test_remote_custom_registry_repo() -> None:
     )
     sync_response = session.post(
         f"{base_url}/registry/repos/{repository_id}/sync",
+        json={"target_commit_sha": KNOWN_GOOD_REMOTE_COMMIT_SHA},
     )
     assert sync_response.status_code == 200, f"Sync failed: {sync_response.text}"
     sync_data = sync_response.json()

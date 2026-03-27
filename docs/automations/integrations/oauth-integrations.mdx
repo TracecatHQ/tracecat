@@ -1,0 +1,69 @@
+---
+title: "OAuth"
+description: "Connect OAuth providers and use managed OAuth tokens in expressions."
+---
+
+## Overview
+
+Tracecat supports built-in OAuth integrations and custom OAuth providers. OAuth integrations expose tokens through secret expressions.
+
+![OAuth integrations](/img/integrations/oauth-integrations.png)
+
+## Grant types
+
+OAuth grant types:
+
+- Delegated access (`authorization_code`): Tracecat stores a user token after a user completes the OAuth login flow.
+- Client credentials (`client_credentials`): Tracecat stores a service token for server-to-server access.
+
+## Configure a provider
+
+Built-in providers already exist in the Integrations page. Add custom providers from `Add integration` -> `OAuth provider`.
+
+Most providers require these fields:
+
+- Client ID
+- Client secret
+- Authorization endpoint
+- Token endpoint
+- Scopes
+
+## Use OAuth tokens in expressions
+
+Tracecat exposes OAuth tokens under the secret name `<provider_id>_oauth`.
+The token key depends on the grant type:
+
+- Delegated access: `${{ SECRETS.<provider_id>_oauth.<PROVIDER>_USER_TOKEN }}`
+- Client credentials: `${{ SECRETS.<provider_id>_oauth.<PROVIDER>_SERVICE_TOKEN }}`
+
+Examples:
+
+```yaml
+${{ SECRETS.slack_oauth.SLACK_USER_TOKEN }}
+${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
+```
+
+Some templates support either grant type.
+In that case, use a fallback:
+
+```yaml
+${{ SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_USER_TOKEN || SECRETS.microsoft_entra_oauth.MICROSOFT_ENTRA_SERVICE_TOKEN }}
+```
+
+## OAuth and actions
+
+Registry actions can require an OAuth integration directly. Actions can also reference OAuth tokens in expressions.
+
+## OAuth and MCP
+
+Remote MCP integrations can use an existing OAuth integration. For custom remote MCP servers:
+
+1. Create a custom OAuth provider.
+2. Connect that provider.
+3. Create an MCP integration and attach the connected OAuth integration.
+
+## Related pages
+
+- See [Prebuilt credentials](/automations/integrations/prebuilt-credentials) for static credentials such as API keys and bot tokens.
+- See [Secrets](/automations/core-concepts/secrets) for how secret expressions are resolved at runtime.
+- See [MCP servers](/automations/integrations/mcp-integrations) for remote and `stdio` MCP setup.

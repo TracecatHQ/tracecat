@@ -743,12 +743,20 @@ class CasesService(BaseWorkspaceService):
         )
 
     async def get_case(
-        self, case_id: uuid.UUID, *, track_view: bool = False
+        self,
+        case_id: uuid.UUID,
+        *,
+        track_view: bool = False,
+        for_update: bool = False,
     ) -> Case | None:
         """Get a case with its associated custom fields.
 
         Args:
             case_id: UUID of the case to retrieve
+            track_view: Whether to record a view event
+            for_update: Whether to acquire a row-level exclusive lock (SELECT FOR UPDATE).
+                Use this when the caller intends to modify the case, to prevent
+                concurrent updates from racing and causing database errors.
 
         Returns:
             Tuple containing the case and its fields (or None if no fields exist)
@@ -764,6 +772,8 @@ class CasesService(BaseWorkspaceService):
             )
             .options(selectinload(Case.tags))
         )
+        if for_update:
+            statement = statement.with_for_update()
 
         result = await self.session.execute(statement)
         case = result.scalars().first()
@@ -1807,6 +1817,7 @@ class CaseCommentsService(BaseWorkspaceService):
                             if comment.parent_id is not None
                             else None
                         ),
+                        "comment": comment.content,
                         "text": comment.content,
                         "workflow_id": str(workflow.id),
                         "wf_exec_id": wf_exec_id,

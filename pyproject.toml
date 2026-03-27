@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tracecat"
-description = "AI automation platform for enterprise."
+description = "The open source AI automation platform for security teams and agents."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "AGPL-3.0"
@@ -27,7 +27,7 @@ dependencies = [
     "alembic==1.13.2",
     "async-lru==2.0.4",
     "asyncpg==0.29.0",
-    "authlib==1.6.7",
+    "authlib==1.6.9",
     "claude-agent-sdk==0.1.18",
     "cloudpickle==3.1.1",
     "cramjam==2.11.0",
@@ -47,7 +47,7 @@ dependencies = [
     "litellm[proxy]==1.81.13",
     "loguru==0.7.3",
     "minio==7.2.18",
-    "orjson==3.11.5",
+    "orjson==3.11.7",
     "paramiko==3.5.0",
     "polyfile==0.5.6",
     "protobuf==6.33.5",
@@ -96,6 +96,8 @@ members = ["packages/*"]
 # - grpcio-tools pinned in tracecat-registry
 # - chardet 7.0 removed chardet.universaldetector, breaking polyfile 0.5.6
 override-dependencies = [
+    "pyasn1==0.6.3",
+    "requests==2.33.0",
     "uvicorn==0.35.0",
     "boto3==1.40.61",
     "python-multipart==0.0.22",
@@ -103,7 +105,9 @@ override-dependencies = [
     "grpcio==1.75.1",
     "grpcio-tools==1.75.1",
     "pillow==12.1.1",
+    "PyJWT==2.12.1",
     "chardet<7",
+    "fickling==0.1.10",
 ]
 
 [dependency-groups]
@@ -180,6 +184,7 @@ markers = [
     "disable_fixture: marks tests that disable fixtures",
     "integration: marks tests that perform live network calls and container operations",
     "llm: marks tests that perform LLM calls",
+    "live_secret: marks tests that require real environment-backed third-party secrets",
     "ollama: mark tests that require Ollama",
     "temporal: marks tests that require Temporal server",
     "regression: marks regression tests",

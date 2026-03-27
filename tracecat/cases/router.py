@@ -546,7 +546,7 @@ async def update_case(
 ) -> None:
     """Update a case."""
     service = CasesService(session, role)
-    case = await service.get_case(case_id)
+    case = await service.get_case(case_id, for_update=True)
     if case is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
@@ -560,11 +560,10 @@ async def update_case(
             detail=str(e),
         ) from e
     except DBAPIError as e:
-        while (cause := e.__cause__) is not None:
-            e = cause
+        logger.exception("Database error occurred during case operation")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Database operation failed",
         ) from e
 
 
@@ -777,7 +776,22 @@ async def update_field(
 ) -> None:
     """Update a case field."""
     service = CaseFieldsService(session, role)
-    await service.update_field(field_id, params)
+    try:
+        await service.update_field(field_id, params)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except ProgrammingError as err:
+        while (cause := err.__cause__) is not None:
+            err = cause
+        if isinstance(err, DuplicateColumnError):
+            raise HTTPException(
+                status_code=HTTP_409_CONFLICT,
+                detail=f"A field with the name '{params.name}' already exists",
+            ) from err
+        raise
 
 
 @case_fields_router.delete("/{field_id}", status_code=HTTP_204_NO_CONTENT)
@@ -790,7 +804,13 @@ async def delete_field(
 ) -> None:
     """Delete a case field."""
     service = CaseFieldsService(session, role)
-    await service.delete_field(field_id)
+    try:
+        await service.delete_field(field_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
 
 # Case Events

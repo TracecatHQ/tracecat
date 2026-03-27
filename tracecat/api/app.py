@@ -381,7 +381,9 @@ def create_app(**kwargs) -> FastAPI:
         allow_origins = ["*"]
     app = FastAPI(
         title="Tracecat API",
-        description=("Tracecat is the open source automation platform for enterprise."),
+        description=(
+            "The open source AI automation platform for security teams and agents."
+        ),
         summary="Tracecat API",
         version="1",
         terms_of_service="https://docs.google.com/document/d/e/2PACX-1vQvDe3SoVAPoQc51MgfGCP71IqFYX_rMVEde8zC4qmBCec5f8PLKQRdxa6tsUABT8gWAR9J-EVs2CrQ/pub",

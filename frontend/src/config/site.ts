@@ -5,7 +5,7 @@ export const siteConfig: SiteConfig = {
   name: "Tracecat",
   author: "Tracecat",
   description:
-    "The open workflow automation platform for security and IT engineers.",
+    "The open source AI automation platform for security teams and agents.",
   keywords: ["Next.js", "React", "Tailwind CSS", "Radix UI", "shadcn/ui"],
   url: {
     base: env.NEXT_PUBLIC_APP_URL,

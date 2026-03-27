@@ -8,7 +8,7 @@ from typing import Any, cast
 import sqlalchemy as sa
 import yaml
 from pydantic import ValidationError
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -31,6 +31,7 @@ from tracecat.dsl.common import (
     DSLEntrypoint,
     DSLInput,
     build_action_statements_from_actions,
+    edge_components_from_dep,
 )
 from tracecat.dsl.schemas import DSLConfig, ExecutionContext, RunContext
 from tracecat.dsl.view import RFGraph
@@ -80,6 +81,18 @@ class WorkflowsManagementService(BaseWorkspaceService):
     """Manages CRUD operations for Workflows."""
 
     service_name = "workflows"
+
+    @staticmethod
+    def _workflow_fields_from_dsl(dsl: DSLInput) -> dict[str, Any]:
+        """Project runtime-relevant workflow fields from a DSLInput."""
+        return {
+            "title": dsl.title,
+            "description": dsl.description,
+            "expects": dsl.entrypoint.model_dump().get("expects"),
+            "returns": dsl.returns,
+            "config": dsl.config.model_dump(),
+            "error_handler": dsl.error_handler,
+        }
 
     @staticmethod
     def _build_schedule_summary_subqueries() -> tuple[sa.Subquery, sa.Subquery]:
@@ -278,7 +291,12 @@ class WorkflowsManagementService(BaseWorkspaceService):
         return res
 
     async def list_workflows(
-        self, params: CursorPaginationParams, *, tags: list[str] | None = None
+        self,
+        params: CursorPaginationParams,
+        *,
+        tags: list[str] | None = None,
+        status: str | None = None,
+        search: str | None = None,
     ) -> CursorPaginatedResponse[
         tuple[
             Workflow,
@@ -357,6 +375,17 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 sa.cast(Workflow.id, sa.UUID) == schedule_preview_subq.c.workflow_id,
             )
         )
+
+        if status is not None:
+            stmt = stmt.where(Workflow.status == status)
+        if search:
+            search_pattern = f"%{search}%"
+            stmt = stmt.where(
+                or_(
+                    Workflow.title.ilike(search_pattern),
+                    Workflow.description.ilike(search_pattern),
+                )
+            )
 
         # Apply tag filtering if specified
         if tags:
@@ -909,15 +938,10 @@ class WorkflowsManagementService(BaseWorkspaceService):
         resolved_lock = await lock_service.resolve_lock_with_bindings(action_names)
         registry_lock = resolved_lock.model_dump()
 
-        entrypoint = dsl.entrypoint.model_dump()
         workflow_kwargs = {
-            "title": dsl.title,
-            "description": dsl.description,
             "workspace_id": self.workspace_id,
-            "returns": dsl.returns,
-            "config": dsl.config.model_dump(),
-            "expects": entrypoint.get("expects"),
             "registry_lock": registry_lock,
+            **self._workflow_fields_from_dsl(dsl),
         }
         if workflow_id:
             workflow_kwargs["id"] = workflow_id
@@ -1015,12 +1039,13 @@ class WorkflowsManagementService(BaseWorkspaceService):
 
             if act_stmt.depends_on:
                 for dep_ref in act_stmt.depends_on:
-                    if dep_action := ref_to_action.get(dep_ref):
+                    src_ref, edge_type = edge_components_from_dep(dep_ref)
+                    if dep_action := ref_to_action.get(src_ref):
                         upstream_edges.append(
                             ActionEdge(
                                 source_id=str(dep_action.id),
                                 source_type="udf",
-                                source_handle="success",
+                                source_handle=edge_type.value,
                             )
                         )
             else:

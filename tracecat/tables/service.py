@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
+from sqlalchemy.orm import selectinload
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -48,9 +49,9 @@ from tracecat.tables.common import (
     coerce_to_date,
     coerce_to_utc_datetime,
     convert_value,
-    handle_default_value,
     is_valid_sql_type,
     normalize_column_options,
+    prepare_default_value,
     to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
@@ -71,6 +72,7 @@ _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
     InFailedSQLTransactionError,
 )
+_TABLE_SYSTEM_COLUMNS = frozenset({"id", "created_at", "updated_at"})
 
 DYNAMIC_WORKSPACE_TENANT_COLUMN = "__tc_workspace_id"
 DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
@@ -114,8 +116,22 @@ class BaseTablesService(BaseWorkspaceService):
         self.ws_uuid = WorkspaceUUID.new(self.workspace_id)
 
     def _sanitize_identifier(self, identifier: str) -> str:
-        """Sanitize table/column names to prevent SQL injection."""
+        """Normalize a stored identifier to its physical SQL name."""
         return sanitize_identifier(identifier)
+
+    def _resolve_external_column_name(self, table: Table, column_name: str) -> str:
+        """Resolve an external column name against metadata without aliasing invalid names."""
+        column_names = {column.name for column in table.columns} | _TABLE_SYSTEM_COLUMNS
+        if column_name in column_names:
+            return column_name
+
+        normalized_name = validate_identifier(column_name)
+        if normalized_name in column_names:
+            return normalized_name
+
+        raise ValueError(
+            f"Column '{column_name}' does not exist in table '{table.name}'"
+        )
 
     def _get_schema_name(self, workspace_id: WorkspaceUUID | None = None) -> str:
         """Generate the schema name for a workspace."""
@@ -331,12 +347,25 @@ class BaseTablesService(BaseWorkspaceService):
             The requested Table
 
         Raises:
+            ValueError: If the provided table name is not a valid external identifier
             TracecatNotFoundError: If the table does not exist
         """
-        sanitized_name = self._sanitize_identifier(table_name)
         statement = select(Table).where(
             Table.workspace_id == self.ws_uuid,
-            Table.name == sanitized_name,
+            Table.name == table_name,
+        )
+        result = await self.session.execute(statement)
+        table = result.scalars().first()
+        if table is not None:
+            return table
+
+        normalized_name = validate_identifier(table_name)
+        if normalized_name == table_name:
+            raise TracecatNotFoundError(f"Table '{table_name}' not found")
+
+        statement = select(Table).where(
+            Table.workspace_id == self.ws_uuid,
+            Table.name == normalized_name,
         )
         result = await self.session.execute(statement)
         table = result.scalars().first()
@@ -359,7 +388,7 @@ class BaseTablesService(BaseWorkspaceService):
             ValueError: If table name is invalid
         """
         schema_name = self._get_schema_name(self.ws_uuid)
-        table_name = self._sanitize_identifier(params.name)
+        table_name = validate_identifier(params.name)
 
         # Create schema if it doesn't exist
         conn = await self.session.connection()
@@ -427,7 +456,7 @@ class BaseTablesService(BaseWorkspaceService):
             try:
                 conn = await self.session.connection()
                 old_full_table_name = self._full_table_name(table.name)
-                sanitized_new_name = self._sanitize_identifier(new_name)
+                sanitized_new_name = validate_identifier(new_name)
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s RENAME TO %s",
@@ -442,6 +471,7 @@ class BaseTablesService(BaseWorkspaceService):
                     new_name=params.name,
                 )
                 raise
+            set_fields["name"] = sanitized_new_name
         # Update DB Table
         for key, value in set_fields.items():
             setattr(table, key, value)
@@ -467,9 +497,15 @@ class BaseTablesService(BaseWorkspaceService):
         self, table_id: TableID, column_id: TableColumnID
     ) -> TableColumn:
         """Get a column by ID."""
-        statement = select(TableColumn).where(
-            TableColumn.table_id == table_id,
-            TableColumn.id == column_id,
+        statement = (
+            select(TableColumn)
+            .options(
+                selectinload(TableColumn.table).selectinload(Table.columns),
+            )
+            .where(
+                TableColumn.table_id == table_id,
+                TableColumn.id == column_id,
+            )
         )
         result = await self.session.execute(statement)
         column = result.scalars().first()
@@ -493,7 +529,7 @@ class BaseTablesService(BaseWorkspaceService):
         Raises:
             ValueError: If the column type is invalid
         """
-        column_name = self._sanitize_identifier(params.name)
+        column_name = validate_identifier(params.name)
         full_table_name = self._full_table_name(table.name)
 
         # Validate SQL type first
@@ -504,15 +540,18 @@ class BaseTablesService(BaseWorkspaceService):
 
         # Handle default value based on type
         default_value = params.default
+        rendered_default = None
         if default_value is not None:
-            default_value = handle_default_value(sql_type, default_value)
+            default_value, rendered_default = prepare_default_value(
+                sql_type, default_value
+            )
         # Create the column metadata first
         column = TableColumn(
             table_id=table.id,
             name=column_name,
             type=sql_type.value,
             nullable=params.nullable,
-            default=default_value,  # Store original default in metadata
+            default=default_value,
             options=normalized_options,
         )
         self.session.add(column)
@@ -531,8 +570,8 @@ class BaseTablesService(BaseWorkspaceService):
         column_def = [f"{column_name} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
-        if default_value is not None:
-            column_def.append(f"DEFAULT {default_value}")
+        if rendered_default is not None:
+            column_def.append(f"DEFAULT {rendered_default}")
 
         column_def_str = " ".join(column_def)
 
@@ -599,12 +638,12 @@ class BaseTablesService(BaseWorkspaceService):
             elif target_type not in (SqlType.SELECT, SqlType.MULTI_SELECT):
                 set_fields["options"] = None
 
+        old_name = self._sanitize_identifier(column.name)
+        new_name = self._sanitize_identifier(set_fields.get("name", column.name))
+        new_type = set_fields.get("type", column.type)
+
         # Handle physical column changes if name or type is being updated
         if "name" in set_fields or "type" in set_fields:
-            old_name = self._sanitize_identifier(column.name)
-            new_name = self._sanitize_identifier(set_fields.get("name", column.name))
-            new_type = set_fields.get("type", column.type)
-
             if not is_valid_sql_type(new_type):
                 raise ValueError(f"Invalid type: {new_type}")
 
@@ -632,48 +671,42 @@ class BaseTablesService(BaseWorkspaceService):
                         (full_table_name, new_name, physical_type),
                     )
                 )
-            if "nullable" in set_fields:
-                constraint = (
-                    "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
+        if "nullable" in set_fields:
+            constraint = "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
+            await conn.execute(
+                sa.DDL(
+                    # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
+                    # No user input is interpolated here - only predefined SQL keywords
+                    f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                    (full_table_name, new_name),
                 )
+            )
+        if "default" in set_fields:
+            updated_default = set_fields["default"]
+            if updated_default is None:
                 await conn.execute(
                     sa.DDL(
-                        # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
-                        # No user input is interpolated here - only predefined SQL keywords
-                        f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                        "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
                         (full_table_name, new_name),
                     )
                 )
-            if "default" in set_fields:
-                updated_default = set_fields["default"]
-                if updated_default is None:
-                    await conn.execute(
-                        sa.DDL(
-                            "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
-                            (full_table_name, new_name),
-                        )
+            else:
+                normalized_default, formatted_default = prepare_default_value(
+                    SqlType(new_type if "type" in set_fields else column.type),
+                    updated_default,
+                )
+                set_fields["default"] = normalized_default
+                await conn.execute(
+                    sa.DDL(
+                        # SAFE f-string: formatted_default is compiler-rendered from a typed value.
+                        f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
+                        (full_table_name, new_name),
                     )
-                else:
-                    # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
-                    # We must use string interpolation here, but it's SAFE because:
-                    # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
-                    # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
-                    # 3. The function validates the SQL type and rejects invalid inputs
-                    # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
-                    formatted_default = handle_default_value(
-                        SqlType(new_type if "type" in set_fields else column.type),
-                        updated_default,
-                    )
-                    await conn.execute(
-                        sa.DDL(
-                            # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
-                            # Other parameters (table/column names) still use secure parameter binding
-                            f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
-                            (full_table_name, new_name),
-                        )
-                    )
+                )
 
         # Update the column metadata
+        if "name" in set_fields:
+            set_fields["name"] = new_name
         for key, value in set_fields.items():
             setattr(column, key, value)
 
@@ -692,7 +725,8 @@ class BaseTablesService(BaseWorkspaceService):
         full_table_name = self._full_table_name(table.name)
 
         # Sanitize column names to prevent SQL injection
-        sanitized_column = self._sanitize_identifier(column_name)
+        resolved_column_name = self._resolve_external_column_name(table, column_name)
+        sanitized_column = self._sanitize_identifier(resolved_column_name)
 
         # Create a descriptive name for the index
         # Format: uq_[table_name]_[col1]_[col2]_etc
@@ -1023,9 +1057,17 @@ class BaseTablesService(BaseWorkspaceService):
 
         table = await self.get_table_by_name(table_name)
         schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table_name)
+        table = await self.get_table_by_name(table_name)
+        sanitized_table_name = self._sanitize_identifier(table.name)
 
-        cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
+        resolved_columns = [
+            self._resolve_external_column_name(table, column_name)
+            for column_name in columns
+        ]
+        cols = [
+            sa.column(self._sanitize_identifier(column_name))
+            for column_name in resolved_columns
+        ]
         stmt = (
             sa.select(*self._visible_columns(table))
             .select_from(sa.table(sanitized_table_name, schema=schema_name))
@@ -1102,10 +1144,18 @@ class BaseTablesService(BaseWorkspaceService):
             raise ValueError("Values and column names must have the same length")
 
         schema_name = self._get_schema_name()
-        sanitized_table_name = self._sanitize_identifier(table_name)
+        table = await self.get_table_by_name(table_name)
+        sanitized_table_name = self._sanitize_identifier(table.name)
 
         table_clause = sa.table(sanitized_table_name, schema=schema_name)
-        cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
+        resolved_columns = [
+            self._resolve_external_column_name(table, column_name)
+            for column_name in columns
+        ]
+        cols = [
+            sa.column(self._sanitize_identifier(column_name))
+            for column_name in resolved_columns
+        ]
         condition = sa.and_(
             *[col == value for col, value in zip(cols, values, strict=True)]
         )
@@ -1898,14 +1948,19 @@ class TableEditorService(BaseWorkspaceService):
             ValueError: If the column type is invalid
         """
 
+        column_name = validate_identifier(params.name)
+
         # Validate SQL type first
         if not is_valid_sql_type(params.type):
             raise ValueError(f"Invalid type: {params.type}")
 
         # Handle default value based on type
         default_value = params.default
+        rendered_default = None
         if default_value is not None:
-            default_value = handle_default_value(params.type, default_value)
+            default_value, rendered_default = prepare_default_value(
+                params.type, default_value
+            )
 
         # Build the column definition string
         # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
@@ -1915,11 +1970,11 @@ class TableEditorService(BaseWorkspaceService):
             column_type_sql = SqlType.JSONB.value
         else:
             column_type_sql = params.type.value
-        column_def = [f"{params.name} {column_type_sql}"]
+        column_def = [f"{column_name} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
-        if default_value is not None:
-            column_def.append(f"DEFAULT {default_value}")
+        if rendered_default is not None:
+            column_def.append(f"DEFAULT {rendered_default}")
 
         column_def_str = " ".join(column_def)
 
@@ -1951,16 +2006,17 @@ class TableEditorService(BaseWorkspaceService):
         set_fields = params.model_dump(exclude_unset=True)
         conn = await self.session.connection()
 
-        new_name = column_name
+        sanitized_column_name = validate_identifier(column_name)
+        new_name = sanitized_column_name
         full_table_name = self._full_table_name()
 
         # Execute ALTER statements using safe DDL construction
         if "name" in set_fields:
-            new_name = sanitize_identifier(set_fields["name"])
+            new_name = validate_identifier(set_fields["name"])
             await conn.execute(
                 sa.DDL(
                     "ALTER TABLE %s RENAME COLUMN %s TO %s",
-                    (full_table_name, column_name, new_name),
+                    (full_table_name, sanitized_column_name, new_name),
                 )
             )
         if "type" in set_fields:
@@ -2000,19 +2056,13 @@ class TableEditorService(BaseWorkspaceService):
                     )
                 )
             else:
-                # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
-                # We must use string interpolation here, but it's SAFE because:
-                # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
-                # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
-                # 3. The function validates the SQL type and rejects invalid inputs
-                # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
-                formatted_default = handle_default_value(
+                normalized_default, formatted_default = prepare_default_value(
                     SqlType(set_fields.get("type", "TEXT")), updated_default
                 )
+                set_fields["default"] = normalized_default
                 await conn.execute(
                     sa.DDL(
-                        # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
-                        # Other parameters (table/column names) still use secure parameter binding
+                        # SAFE f-string: formatted_default is compiler-rendered from a typed value.
                         f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
                         (full_table_name, new_name),
                     )
@@ -2024,7 +2074,7 @@ class TableEditorService(BaseWorkspaceService):
     async def delete_column(self, column_name: str) -> None:
         """Remove a column from an existing table."""
         self._assert_user_column_name_allowed(column_name)
-        sanitized_column = sanitize_identifier(column_name)
+        sanitized_column = validate_identifier(column_name)
 
         # Drop the column from the physical table using DDL
         conn = await self.session.connection()
@@ -2230,14 +2280,28 @@ class TableEditorService(BaseWorkspaceService):
 
 
 def sanitize_identifier(identifier: str) -> str:
-    """Sanitize table/column names to prevent SQL injection."""
-    # Remove any non-alphanumeric characters except underscores
+    """Normalize a stored identifier to its physical SQL name."""
     sanitized = "".join(c for c in identifier if c.isalnum() or c == "_")
-    if not sanitized[0].isalpha():
-        raise ValueError("Identifier must start with a letter")
+    if not sanitized:
+        raise ValueError("Identifier must contain at least one letter")
+    if not (sanitized[0].isalpha() or sanitized[0] == "_"):
+        raise ValueError("Identifier must start with a letter or underscore")
     return sanitized.lower()
 
 
 def is_internal_column_name(column_name: str) -> bool:
     """Check whether a column is internal/system-managed for dynamic schemas."""
     return column_name.lower().startswith(INTERNAL_COLUMN_PREFIX)
+
+
+def validate_identifier(identifier: str) -> str:
+    """Validate an external identifier before using it in DDL operations."""
+    if not identifier:
+        raise ValueError("Identifier must contain at least one letter")
+    if not all(c.isalnum() or c == "_" for c in identifier):
+        raise ValueError(
+            "Identifier must contain only letters, numbers, and underscores"
+        )
+    if not (identifier[0].isalpha() or identifier[0] == "_"):
+        raise ValueError("Identifier must start with a letter or underscore")
+    return identifier.lower()

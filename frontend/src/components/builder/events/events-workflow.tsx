@@ -53,6 +53,7 @@ import {
   refToLabel,
   WF_COMPLETED_EVENT_REF,
   WF_FAILURE_EVENT_REF,
+  WF_TRIGGER_EVENT_REF,
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
@@ -350,6 +351,15 @@ export function WorkflowEvents({
           : loopMeta
       const instanceCount = relatedEvents.length
       const childWorkflowRunLink = getChildWorkflowRunLink(relatedEvents)
+      const isWorkflowFailureEvent = actionRef === WF_FAILURE_EVENT_REF
+      const isWorkflowResultEvent = actionRef === WF_COMPLETED_EVENT_REF
+      const canViewInput =
+        isActionRefValid(actionRef) || actionRef === WF_TRIGGER_EVENT_REF
+      const canViewResult =
+        isActionRefValid(actionRef) ||
+        isWorkflowFailureEvent ||
+        isWorkflowResultEvent
+      const canFocusAction = isActionRefValid(actionRef)
 
       return {
         key: actionRef,
@@ -405,7 +415,7 @@ export function WorkflowEvents({
               )}
             >
               <DropdownMenuItem
-                disabled={!isActionRefValid(actionRef)}
+                disabled={!canViewInput}
                 onClick={(e) => {
                   e.stopPropagation()
                   sidebarRef.current?.setOpen(true)
@@ -417,11 +427,7 @@ export function WorkflowEvents({
                 <span>View last input</span>
               </DropdownMenuItem>
               <DropdownMenuItem
-                disabled={
-                  !isActionRefValid(actionRef) &&
-                  actionRef !== WF_FAILURE_EVENT_REF &&
-                  actionRef !== WF_COMPLETED_EVENT_REF
-                }
+                disabled={!canViewResult}
                 onClick={(e) => {
                   e.stopPropagation()
                   sidebarRef.current?.setOpen(true)
@@ -433,13 +439,13 @@ export function WorkflowEvents({
                 <span>View last result</span>
               </DropdownMenuItem>
               <DropdownMenuItem
-                disabled={!isActionRefValid(actionRef)}
+                disabled={!canFocusAction}
                 onClick={(e) => {
                   e.stopPropagation()
                   centerNode(actionRef)
                 }}
               >
-                {!isActionRefValid(actionRef) ? (
+                {!canFocusAction ? (
                   <EyeOffIcon className="size-3" />
                 ) : (
                   <ScanEyeIcon className="size-3" />

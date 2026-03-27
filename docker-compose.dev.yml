@@ -124,9 +124,6 @@ services:
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
       TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
       TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
-      # Local registry
-      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
-      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
       TRACECAT__EXECUTOR_CLIENT_TIMEOUT: ${TRACECAT__EXECUTOR_CLIENT_TIMEOUT:-300}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN:-}
@@ -139,7 +136,6 @@ services:
     volumes:
       - ./tracecat:/app/tracecat
       - ./packages:/app/packages
-      - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "-m", "tracecat.dsl.worker"]
     depends_on:
       migrations:
@@ -191,6 +187,7 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      PYTHONPATH: ${PYTHONPATH:+${PYTHONPATH}:}/home/apiuser/.local:/app/local_registry
       # Sandbox
       TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-true}
       TRACECAT__SANDBOX_NSJAIL_PATH: /usr/local/bin/nsjail
@@ -220,6 +217,66 @@ services:
     depends_on:
       migrations:
         condition: service_completed_successfully
+      temporal:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  agent-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    restart: unless-stopped
+    environment:
+      # Common
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__APP_ENV: ${TRACECAT__APP_ENV}
+      TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID: ${TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID:-}
+      TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN: ${TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN:-}
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
+      TRACECAT__API_URL: ${TRACECAT__API_URL:-http://api:8000}
+      # Compression (must match worker for codec compatibility)
+      TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
+      TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
+      TRACECAT__RESULT_EXTERNALIZATION_ENABLED: ${TRACECAT__RESULT_EXTERNALIZATION_ENABLED}
+      TRACECAT__COLLECTION_MANIFESTS_ENABLED: ${TRACECAT__COLLECTION_MANIFESTS_ENABLED}
+      TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES: ${TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES}
+      # Registry
+      TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
+      # Temporal
+      TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
+      TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
+      TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      # Agent worker configuration
+      TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
+      TRACECAT__AGENT_EXECUTOR_QUEUE: ${TRACECAT__AGENT_EXECUTOR_QUEUE:-shared-agent-executor-queue}
+      TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
+      TRACECAT__EXECUTOR_CLIENT_TIMEOUT: ${TRACECAT__EXECUTOR_CLIENT_TIMEOUT:-300}
+      # Redis
+      REDIS_URL: ${REDIS_URL}
+      # Blob storage (for S3/MinIO tarball access)
+      TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ./tracecat:/app/tracecat
+      - ./packages:/app/packages
+    command: ["python", "-m", "tracecat.agent.worker"]
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
       temporal:
         condition: service_healthy
       redis:
@@ -266,6 +323,7 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      PYTHONPATH: ${PYTHONPATH:+${PYTHONPATH}:}/home/apiuser/.local:/app/local_registry
       # Sandbox
       TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-direct}
       TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-true}
@@ -276,9 +334,22 @@ services:
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
       TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
-      # Agent Worker configuration
+      # Agent worker configuration
       TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
+      TRACECAT__AGENT_EXECUTOR_QUEUE: ${TRACECAT__AGENT_EXECUTOR_QUEUE:-shared-agent-executor-queue}
+      TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
+      TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-1}
       TRACECAT__LLM_PROXY_READ_TIMEOUT: ${TRACECAT__LLM_PROXY_READ_TIMEOUT:-300}
+      TRACECAT__LITELLM_NUM_WORKERS: ${TRACECAT__LITELLM_NUM_WORKERS:-1}
+      TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS: ${TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS:-60}
+      TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS: ${TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS:-30}
+      TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS: ${TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS:-2}
+      TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS: ${TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS:-}
+      TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS: ${TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS:-}
+      TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS: ${TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS:-}
+      TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS: ${TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS:-}
+      TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD: ${TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD:-3}
+      TRACECAT__LITELLM_STATUS_LOG_INTERVAL_SECONDS: ${TRACECAT__LITELLM_STATUS_LOG_INTERVAL_SECONDS:-30}
       # Pool size auto-scales based on available CPUs if not set
       TRACECAT__EXECUTOR_WORKER_POOL_SIZE: ${TRACECAT__EXECUTOR_WORKER_POOL_SIZE:-}
       # Redis
@@ -292,7 +363,7 @@ services:
       - ./packages:/app/packages
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
       - sandbox-cache:/var/lib/tracecat/sandbox-cache
-    command: ["python", "-m", "tracecat.agent.worker"]
+    command: ["python", "-m", "tracecat.agent.executor_worker"]
     depends_on:
       migrations:
         condition: service_completed_successfully
@@ -323,13 +394,14 @@ services:
       TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
       # Redis
       REDIS_URL: ${REDIS_URL}
-      # OIDC (required for MCP auth)
+      # OIDC
       OIDC_ISSUER: ${OIDC_ISSUER}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
       OIDC_SCOPES: ${OIDC_SCOPES}
       # MCP-specific
       TRACECAT_MCP__BASE_URL: ${TRACECAT_MCP__BASE_URL:-${PUBLIC_URL:-http://localhost:${PUBLIC_APP_PORT:-80}}}
+      TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS: ${TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS:-300}
       TRACECAT_MCP__STARTUP_MAX_ATTEMPTS: ${TRACECAT_MCP__STARTUP_MAX_ATTEMPTS:-3}
       TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS: ${TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS:-2}
       # Temporal
@@ -350,7 +422,7 @@ services:
         condition: service_healthy
 
   ui:
-    # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.0.0-beta.32}
+    # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.0.0-beta.35}
     # container_name: ui
     build:
       context: ./frontend

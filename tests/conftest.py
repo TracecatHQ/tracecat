@@ -605,6 +605,86 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "implementation": create_case_impl,
             }
 
+            # core.cases.create_task (case add-on gated)
+            create_task_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.ee.tasks",
+                "name": "create_task",
+            }
+            manifest_actions["core.cases.create_task"] = {
+                "namespace": "core.cases",
+                "name": "create_task",
+                "action_type": "udf",
+                "description": "Create a case task",
+                "default_title": "Create task",
+                "display_group": "Cases",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": create_task_impl,
+                "options": {"required_entitlements": ["case_addons"]},
+            }
+
+            # core.cases.get_case_metrics (case add-on gated)
+            get_case_metrics_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.ee.durations",
+                "name": "get_case_metrics",
+            }
+            manifest_actions["core.cases.get_case_metrics"] = {
+                "namespace": "core.cases",
+                "name": "get_case_metrics",
+                "action_type": "udf",
+                "description": "Get case metrics",
+                "default_title": "Get case metrics",
+                "display_group": "Cases",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": get_case_metrics_impl,
+                "options": {"required_entitlements": ["case_addons"]},
+            }
+
+            # ai.agent preset CRUD actions (agent add-on gated)
+            agent_preset_actions = {
+                "create_preset": {
+                    "description": "Create an agent preset",
+                    "default_title": "Create agent preset",
+                },
+                "get_preset": {
+                    "description": "Get an agent preset",
+                    "default_title": "Get agent preset",
+                },
+                "list_presets": {
+                    "description": "List agent presets",
+                    "default_title": "List agent presets",
+                },
+                "update_preset": {
+                    "description": "Update an agent preset",
+                    "default_title": "Update agent preset",
+                },
+                "delete_preset": {
+                    "description": "Delete an agent preset",
+                    "default_title": "Delete agent preset",
+                },
+            }
+            for action_name, metadata in agent_preset_actions.items():
+                preset_impl = {
+                    "type": "udf",
+                    "url": origin,
+                    "module": "tracecat_registry.core.presets",
+                    "name": action_name,
+                }
+                manifest_actions[f"ai.agent.{action_name}"] = {
+                    "namespace": "ai.agent",
+                    "name": action_name,
+                    "action_type": "udf",
+                    "description": metadata["description"],
+                    "default_title": metadata["default_title"],
+                    "display_group": "Agent Presets",
+                    "interface": {"expects": {}, "returns": None},
+                    "implementation": preset_impl,
+                    "options": {"required_entitlements": ["agent_addons"]},
+                }
+
             # core.table.lookup
             table_lookup_impl = {
                 "type": "udf",

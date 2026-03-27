@@ -42,6 +42,11 @@ TRACECAT_MCP__MAX_INPUT_SIZE_BYTES: int = int(
 )
 """Maximum size in bytes for any single string argument to a tool call (default 512KB)."""
 
+TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS: int = int(
+    os.environ.get("TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS") or "300"
+)
+"""Expiry time in seconds for MCP staged file transfer URLs (default 5 minutes)."""
+
 TRACECAT_MCP__STARTUP_MAX_ATTEMPTS: int = int(
     os.environ.get("TRACECAT_MCP__STARTUP_MAX_ATTEMPTS", "3")
 )

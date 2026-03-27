@@ -22,6 +22,7 @@ from tracecat.tables.service import (
     TableEditorService,
     is_internal_column_name,
     sanitize_identifier,
+    validate_identifier,
 )
 
 
@@ -178,8 +179,10 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
 
         await self._ensure_schema_ready()
         self._assert_user_field_name_allowed(field_id)
+        validate_identifier(field_id)
         if params.name is not None:
             self._assert_user_field_name_allowed(params.name)
+            validate_identifier(params.name)
         await self.editor.update_column(field_id, params)
         await self.session.commit()
 
@@ -197,6 +200,7 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         self._assert_user_field_name_allowed(field_id)
         if field_id in self._reserved_columns:
             raise ValueError(f"Field {field_id} is a reserved field")
+        validate_identifier(field_id)
         await self.editor.delete_column(field_id)
         await self.session.commit()
 

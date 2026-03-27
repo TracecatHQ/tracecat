@@ -18,7 +18,11 @@ from tracecat.git.types import GitUrl
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.secrets.service import SecretsService
-from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
+from tracecat.vcs.github.app import (
+    GitHubAppError,
+    GitHubAppSecretState,
+    GitHubAppService,
+)
 from tracecat.vcs.github.schemas import (
     GitHubAppConfig,
     GitHubAppCredentials,
@@ -139,7 +143,7 @@ class TestGitHubAppService:
         """Test retrieving GitHub App credentials."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = Mock()
-            mock_service.get_org_secret_by_name = AsyncMock(return_value=mock_secret)
+            mock_service.get_github_app_org_secret = AsyncMock(return_value=mock_secret)
             mock_service.decrypt_keys = Mock(
                 return_value=[
                     SecretKeyValue(
@@ -176,7 +180,7 @@ class TestGitHubAppService:
         """Test retrieving GitHub App credentials when not found."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = AsyncMock()
-            mock_service.get_org_secret_by_name.side_effect = TracecatNotFoundError(
+            mock_service.get_github_app_org_secret.side_effect = TracecatNotFoundError(
                 "Secret not found"
             )
             mock_secrets_service.return_value = mock_service
@@ -220,7 +224,7 @@ class TestGitHubAppService:
 
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = Mock()
-            mock_service.get_org_secret_by_name = AsyncMock(return_value=mock_secret)
+            mock_service.get_github_app_org_secret = AsyncMock(return_value=mock_secret)
             mock_service.decrypt_keys = Mock(
                 return_value=[
                     SecretKeyValue(
@@ -255,12 +259,12 @@ class TestGitHubAppService:
 
     @pytest.mark.anyio
     async def test_get_github_app_credentials_status_exists(
-        self, github_service, mock_credentials, mock_secret
+        self, github_admin_service, mock_credentials, mock_secret
     ):
         """Test getting credentials status when they exist."""
         with patch("tracecat.vcs.github.app.SecretsService") as mock_secrets_service:
             mock_service = Mock()
-            mock_service.get_org_secret_by_name = AsyncMock(return_value=mock_secret)
+            mock_service.get_github_app_org_secret = AsyncMock(return_value=mock_secret)
             mock_service.decrypt_keys = Mock(
                 return_value=[
                     SecretKeyValue(
@@ -279,7 +283,7 @@ class TestGitHubAppService:
             )
             mock_secrets_service.return_value = mock_service
 
-            status = await github_service.get_github_app_credentials_status()
+            status = await github_admin_service.get_github_app_credentials_status()
 
             assert status["exists"] is True
             assert status["is_corrupted"] is False
@@ -412,9 +416,40 @@ class TestGitHubAppService:
         with (
             patch.object(
                 github_service,
-                "get_github_app_credentials",
-                return_value=mock_credentials,
+                "_get_github_app_secret_state",
+                return_value=(GitHubAppSecretState.VALID, Mock(), mock_credentials),
             ),
+            patch("tracecat.vcs.github.app.GithubIntegration") as mock_gh_integration,
+            patch("tracecat.vcs.github.app.asyncio.to_thread") as mock_to_thread,
+        ):
+            mock_integration = Mock()
+            mock_integration.get_repo_installation.return_value = mock_installation
+            mock_gh_integration.return_value = mock_integration
+            mock_to_thread.return_value = mock_installation
+
+            client = await github_service.get_github_client_for_repo(mock_repo_url)
+
+            assert client == mock_github_client
+            mock_to_thread.assert_called_once()
+            mock_installation.get_github_for_installation.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_get_github_client_for_repo_allows_workspace_admin(
+        self, github_service, github_admin_service, mock_credentials, mock_repo_url
+    ):
+        """Workspace admins with workflow sync access should be able to sync via GitHub."""
+        await github_admin_service.register_app(
+            app_id=mock_credentials.app_id,
+            private_key_pem=mock_credentials.private_key,
+            webhook_secret=mock_credentials.webhook_secret,
+            client_id=mock_credentials.client_id,
+        )
+
+        mock_github_client = Mock(spec=Github)
+        mock_installation = Mock()
+        mock_installation.get_github_for_installation.return_value = mock_github_client
+
+        with (
             patch("tracecat.vcs.github.app.GithubIntegration") as mock_gh_integration,
             patch("tracecat.vcs.github.app.asyncio.to_thread") as mock_to_thread,
         ):
@@ -437,8 +472,8 @@ class TestGitHubAppService:
         with (
             patch.object(
                 github_service,
-                "get_github_app_credentials",
-                return_value=mock_credentials,
+                "_get_github_app_secret_state",
+                return_value=(GitHubAppSecretState.VALID, Mock(), mock_credentials),
             ),
             patch("tracecat.vcs.github.app.GithubIntegration") as mock_gh_integration,
             patch("tracecat.vcs.github.app.asyncio.to_thread") as mock_to_thread,
@@ -460,8 +495,8 @@ class TestGitHubAppService:
         with (
             patch.object(
                 github_service,
-                "get_github_app_credentials",
-                return_value=mock_credentials,
+                "_get_github_app_secret_state",
+                return_value=(GitHubAppSecretState.VALID, Mock(), mock_credentials),
             ),
             patch("tracecat.vcs.github.app.GithubIntegration") as mock_gh_integration,
             patch("tracecat.vcs.github.app.asyncio.to_thread") as mock_to_thread,

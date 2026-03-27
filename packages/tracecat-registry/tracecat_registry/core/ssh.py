@@ -3,6 +3,7 @@
 import io
 import os
 import tempfile
+import warnings
 from typing import Annotated, TypedDict
 
 import paramiko
@@ -26,6 +27,16 @@ class SSHCommandResult(TypedDict):
     stdout: str
     stderr: str
     exit_status: int
+
+
+class _TransientMissingHostKeyPolicy(paramiko.MissingHostKeyPolicy):
+    """Accept unknown host keys for this client without persisting them."""
+
+    def missing_host_key(  # noqa: D102
+        self, client: paramiko.SSHClient, hostname: str, key: paramiko.PKey
+    ) -> None:
+        del client, hostname, key
+        return None
 
 
 def _load_private_key(private_key: str) -> paramiko.PKey:
@@ -77,17 +88,24 @@ def execute_command(
         str,
         Doc("SSH host to connect to."),
     ],
-    host_public_key: Annotated[
-        str,
-        Doc(
-            "Expected public host key for the target host in '<key_type> <base64>' format. "
-            "For non-22 ports, the entry is stored as [host]:port."
-        ),
-    ],
     username: Annotated[
         str,
         Doc("SSH username."),
     ],
+    host_public_key: Annotated[
+        str | None,
+        Doc(
+            "Expected public host key for the target host in '<key_type> <base64>' format. "
+            "Required when host_key_checking is enabled. For non-22 ports, the entry is stored as [host]:port."
+        ),
+    ] = None,
+    host_key_checking: Annotated[
+        bool,
+        Doc(
+            "Whether to verify the remote host key before connecting. Disable only for first-contact or otherwise trusted hosts; "
+            "PID isolation and nsjail do not protect against SSH man-in-the-middle attacks."
+        ),
+    ] = True,
     password: Annotated[
         str | None,
         Doc("Password for the SSH user."),
@@ -103,7 +121,9 @@ def execute_command(
 ) -> SSHCommandResult:
     """Execute a command over SSH and return stdout, stderr, and exit status.
 
-    Unknown host keys are rejected; provide `host_public_key` to trust a host.
+    By default, unknown host keys are rejected; provide `host_public_key` to trust
+    a host. Set `host_key_checking=False` to accept an unknown host key for this
+    action run only, without persisting trust across runs or workers.
     """
     private_key = secrets.get("PRIVATE_KEY")
     pkey = _load_private_key(private_key)
@@ -111,17 +131,33 @@ def execute_command(
     with paramiko.SSHClient() as client:
         known_hosts_path: str | None = None
         try:
-            known_hosts_data = _build_known_hosts(host, port, host_public_key)
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                delete=False,
-                encoding="utf-8",
-            ) as known_hosts_file:
-                known_hosts_file.write(known_hosts_data)
-                known_hosts_path = known_hosts_file.name
-            client.load_host_keys(known_hosts_path)
-
-            client.set_missing_host_key_policy(paramiko.RejectPolicy())
+            if host_key_checking:
+                if host_public_key is None:
+                    raise ValueError(
+                        "host_public_key is required when host_key_checking is enabled."
+                    )
+                known_hosts_data = _build_known_hosts(host, port, host_public_key)
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    delete=False,
+                    encoding="utf-8",
+                ) as known_hosts_file:
+                    known_hosts_file.write(known_hosts_data)
+                    known_hosts_path = known_hosts_file.name
+                client.load_host_keys(known_hosts_path)
+                client.set_missing_host_key_policy(paramiko.RejectPolicy())
+            else:
+                warnings.warn(
+                    "host_key_checking=False temporarily trusts unknown SSH host "
+                    "keys for this action run only. The accepted key is not "
+                    "persisted across action runs or shared workers, but neither "
+                    "PID isolation nor nsjail protects against SSH man-in-the-"
+                    "middle attacks; prefer host_public_key pinning for "
+                    "production use.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                client.set_missing_host_key_policy(_TransientMissingHostKeyPolicy())
 
             client.connect(
                 hostname=host,

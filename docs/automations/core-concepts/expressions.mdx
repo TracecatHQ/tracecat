@@ -1,0 +1,244 @@
+---
+title: "Expressions"
+description: "Syntax reference for Tracecat expressions."
+---
+
+import ExpressionIntro from "/snippets/expression-intro.mdx";
+import ExpressionContexts from "/snippets/expression-contexts.mdx";
+
+## Overview
+
+Tracecat expressions let you build values from trigger data, action results, secrets, variables, and functions.
+
+<ExpressionIntro />
+
+## Where expressions are used
+
+You can use expressions in:
+
+- Action inputs
+- `run_if`
+- `for_each`
+- Action `environment`
+- Workflow environment
+- Output schema
+
+Use `var.<name>` in action inputs for actions that run with `for_each`.
+
+## Expression contexts
+
+Use these references inside expressions:
+
+<ExpressionContexts />
+
+## Operators
+
+Expressions support literals and operators.
+
+### Literals
+
+- String literals such as `"high"` and `'prod'`
+- Numeric literals such as `1` and `3.14`
+- Boolean literals such as `True` and `False`
+- Null literals such as `None`
+- List literals such as `["a", "b"]`
+- Object literals with string keys such as `{"severity": "high"}`
+
+### Operators
+
+- Logical operators such as `||` and `&&`
+- Comparison operators such as `==`, `!=`, `<`, `<=`, `>`, `>=`
+- Arithmetic operators such as `+`, `-`, `*`, `/`, `%`
+- Ternary expressions such as `${{ "p1" if TRIGGER.severity == "high" else "p3" }}`
+
+## Examples
+
+Basic trigger reference:
+
+<CodeGroup>
+```yaml Expression
+text: "Alert ${{ TRIGGER.alert_id }}"
+```
+
+```json Result
+{
+  "text": "Alert al-123"
+}
+```
+</CodeGroup>
+
+Action result reference:
+
+<CodeGroup>
+```yaml Expression
+value: ${{ ACTIONS.fetch_alert.result }}
+```
+
+```json Result
+{
+  "value": {
+    "id": "al-123",
+    "status": "open"
+  }
+}
+```
+</CodeGroup>
+
+Secret reference:
+
+<CodeGroup>
+```yaml Expression
+token: ${{ SECRETS.github.GITHUB_TOKEN }}
+```
+
+```json Result
+{
+  "token": "ghp_xxxxx"
+}
+```
+</CodeGroup>
+
+Variable reference:
+
+<CodeGroup>
+```yaml Expression
+team: ${{ VARS.routing.team }}
+```
+
+```json Result
+{
+  "team": "secops"
+}
+```
+</CodeGroup>
+
+Conditional execution:
+
+<CodeGroup>
+```yaml Expression
+run_if: ${{ FN.is_equal(TRIGGER.severity, "high") }}
+```
+
+```json Result
+{
+  "run_if": true
+}
+```
+</CodeGroup>
+
+Iteration:
+
+<CodeGroup>
+```yaml Expression
+for_each: ${{ for var.alert in TRIGGER.alerts }}
+```
+
+```json Result
+[
+  {
+    "var.alert": {
+      "id": "al-1",
+      "severity": "high"
+    }
+  },
+  {
+    "var.alert": {
+      "id": "al-2",
+      "severity": "low"
+    }
+  }
+]
+```
+</CodeGroup>
+
+Using `var.<name>` in action inputs:
+
+<CodeGroup>
+```yaml Expression
+title: ${{ var.alert.title }}
+severity: ${{ var.alert.severity }}
+```
+
+```json Result
+{
+  "title": "Suspicious login",
+  "severity": "high"
+}
+```
+</CodeGroup>
+
+Ternary:
+
+<CodeGroup>
+```yaml Expression
+priority: ${{ "p1" if TRIGGER.severity == "high" else "p3" }}
+```
+
+```json Result
+{
+  "priority": "p1"
+}
+```
+</CodeGroup>
+
+Function call:
+
+<CodeGroup>
+```yaml Expression
+created_at: ${{ FN.to_datetime(TRIGGER.created_at) }}
+```
+
+```json Result
+{
+  "created_at": "2026-03-18T09:00:00"
+}
+```
+</CodeGroup>
+
+Nested list literal:
+
+<CodeGroup>
+```yaml Expression
+value: ${{ [1, [2, 3], {"severity": "high", "flags": [True, False, None]}] }}
+```
+
+```json Result
+{
+  "value": [
+    1,
+    [2, 3],
+    {
+      "severity": "high",
+      "flags": [true, false, null]
+    }
+  ]
+}
+```
+</CodeGroup>
+
+Nested object literal:
+
+<CodeGroup>
+```yaml Expression
+value: ${{ {"alert": {"id": "al-123", "tags": ["auth", "critical"]}, "ok": True, "meta": None} }}
+```
+
+```json Result
+{
+  "value": {
+    "alert": {
+      "id": "al-123",
+      "tags": ["auth", "critical"]
+    },
+    "ok": true,
+    "meta": null
+  }
+}
+```
+</CodeGroup>
+
+## Related pages
+
+- See [Workflow definition](/automations/core-concepts/workflow-definition) for where expressions appear in workflow YAML.
+- See [JSONPath](/automations/core-concepts/jsonpath) for field access, arrays, and filters.
+- See [Functions](/automations/core-concepts/functions) for the full function reference.

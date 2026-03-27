@@ -39,7 +39,7 @@ def _resolve_dedup_scope() -> str:
 
 @registry.register(
     default_title="Reshape",
-    description="Reshapes the input value to the output. You can use this to reshape a JSON-like structure into another easier to manipulate JSON object.",
+    description="Define the exact scalar, object, or list output you want from workflow data.",
     display_group="Data Transform",
     namespace="core.transform",
 )
@@ -49,6 +49,7 @@ def reshape(
         Doc("The value to reshape"),
     ],
 ) -> Any:
+    """Define the exact scalar, object, or list output you want from workflow data."""
     return value
 
 

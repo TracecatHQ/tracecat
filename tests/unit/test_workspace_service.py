@@ -27,6 +27,7 @@ from tracecat.workspaces.schemas import (
     WorkspaceInvitationCreate,
     WorkspaceSettings,
     WorkspaceSettingsUpdate,
+    WorkspaceUpdate,
 )
 from tracecat.workspaces.service import WorkspaceService
 
@@ -154,6 +155,115 @@ class TestWorkspaceService:
         assert membership is None
         assert deleted_workspace is None
 
+    async def test_update_workspace_merges_partial_settings(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Partial settings updates should preserve unrelated keys."""
+        svc_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "validate_attachment_magic_number": True,
+        }
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(
+                settings=WorkspaceSettingsUpdate(
+                    workflow_unlimited_timeout_enabled=True
+                )
+            ),
+        )
+
+        assert updated.settings == {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "validate_attachment_magic_number": True,
+            "workflow_unlimited_timeout_enabled": True,
+        }
+
+    async def test_update_workspace_preserves_other_settings_when_clearing_one_key(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Explicit null updates should only clear the targeted setting key."""
+        svc_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "workflow_default_timeout_seconds": 300,
+        }
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(settings=WorkspaceSettingsUpdate(git_repo_url=None)),
+        )
+
+        assert updated.settings == {
+            "git_repo_url": None,
+            "workflow_default_timeout_seconds": 300,
+        }
+
+    async def test_update_workspace_replaces_list_settings_and_preserves_other_keys(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """A settings patch should replace list values and preserve unrelated keys."""
+        svc_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "workflow_default_timeout_seconds": 300,
+            "allowed_attachment_extensions": [".png"],
+            "validate_attachment_magic_number": True,
+        }
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(
+                settings=WorkspaceSettingsUpdate(
+                    git_repo_url=None,
+                    workflow_unlimited_timeout_enabled=True,
+                    allowed_attachment_extensions=[".pdf"],
+                )
+            ),
+        )
+
+        assert updated.settings == {
+            "git_repo_url": None,
+            "workflow_default_timeout_seconds": 300,
+            "allowed_attachment_extensions": [".pdf"],
+            "validate_attachment_magic_number": True,
+            "workflow_unlimited_timeout_enabled": True,
+        }
+
+    async def test_update_workspace_allows_explicit_null_to_clear_settings(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Explicit null settings updates should clear to an empty settings object."""
+        svc_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "workflow_default_timeout_seconds": 300,
+        }
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(settings=None),
+        )
+
+        assert updated.settings == {}
+
 
 @pytest.mark.parametrize(
     "valid_url",
@@ -162,6 +272,8 @@ class TestWorkspaceService:
         "git+ssh://git@gitlab.company.com:2222/team/project.git",
         "git+ssh://git@gitlab.com/group/subgroup/repo.git",
         "git+ssh://git@example.com/org/repo",
+        "git+ssh://someuser@git.example.com/org/repo.git",
+        "git+ssh://git@github.com/org/repo.git@feature/custom-branch",
     ],
 )
 def test_workspace_settings_update_accepts_valid_git_urls(valid_url: str) -> None:
@@ -175,7 +287,7 @@ def test_workspace_settings_update_accepts_valid_git_urls(valid_url: str) -> Non
     "invalid_url",
     [
         "https://github.com/org/repo.git",
-        "git+ssh://user@github.com/org/repo.git",
+        "git+ssh://github.com/org/repo.git",
         "git+ssh://git@github.com",
         "git+ssh://git@github.com:not_a_port/org/repo.git",
         "git+ssh://git@github.com:/org/repo.git",

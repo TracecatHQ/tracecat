@@ -457,7 +457,7 @@ async def update_case(
     include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CaseRead:
     service = CasesService(session, role)
-    case = await service.get_case(case_id)
+    case = await service.get_case(case_id, for_update=True)
     if case is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,

@@ -15,6 +15,7 @@ import { CaseSelectionProvider } from "@/components/cases/case-selection-context
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
+import { SettingsModal } from "@/components/settings/settings-modal"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
@@ -160,6 +161,7 @@ export default function WorkspaceLayout({
           <WorkspaceChildren>{children}</WorkspaceChildren>
         )}
       </ScopeProvider>
+      <SettingsModal />
     </WorkspaceIdProvider>
   )
 }
@@ -174,7 +176,6 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const isTablesPage = Boolean(pathname?.match(/\/tables(\/|$)/))
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
-  const isRegistryPage = pathname?.includes("/registry")
 
   if (canReadWorkspace === undefined) {
     return <CenteredSpinner />
@@ -194,8 +195,8 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     )
   }
 
-  // Settings, organization and registry pages have their own sidebars
-  if (isSettingsPage || isOrganizationPage || isRegistryPage) {
+  // Settings and organization pages have their own sidebars
+  if (isSettingsPage || isOrganizationPage) {
     return <>{children}</>
   }
 

@@ -22,6 +22,20 @@ describe("gitFormSchema git_repo_url superRefine", () => {
     }
   })
 
+  it("accepts a valid git+ssh URL with a non-default SSH user", () => {
+    const result = customRegistryFormSchema.safeParse({
+      ...baseFormData,
+      git_repo_url: "git+ssh://someuser@git.example.com/org/repo.git",
+    })
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.git_repo_url).toBe(
+        "git+ssh://someuser@git.example.com/org/repo.git"
+      )
+    }
+  })
+
   it.each([
     [
       "missing protocol",
@@ -31,7 +45,7 @@ describe("gitFormSchema git_repo_url superRefine", () => {
     [
       "missing git user",
       "git+ssh://github.com/org/repo.git",
-      "URL must include 'git@' user specification",
+      "URL must include an SSH user (e.g., git@ or someuser@)",
     ],
     [
       "missing repository path",
@@ -78,7 +92,7 @@ describe("gitFormSchema git_repo_url superRefine", () => {
       expect(
         result.error.issues.map((issue: ZodIssue) => issue.message)
       ).toContain(
-        "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)"
+        "Must be a valid Git SSH URL (e.g., git+ssh://<user>@github.com/org/repo.git)"
       )
     }
   })

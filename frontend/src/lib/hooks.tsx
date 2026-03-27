@@ -475,6 +475,20 @@ type GraphOpParams = {
   operations: GraphOperation[]
 }
 
+const structuralGraphOperationTypes = new Set<GraphOperation["type"]>([
+  "add_node",
+  "update_node",
+  "delete_node",
+  "add_edge",
+  "delete_edge",
+])
+
+function shouldSyncGraphCache(operations: GraphOperation[]): boolean {
+  return operations.some((operation) =>
+    structuralGraphOperationTypes.has(operation.type)
+  )
+}
+
 /**
  * Hook to fetch graph data for a workflow.
  */
@@ -508,11 +522,12 @@ export function useGraphOperations(workspaceId: string, workflowId: string) {
           operations,
         },
       }),
-    onSuccess: (graph) => {
-      // Update the graph cache with the new version
-      queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
-      // Also invalidate workflow to pick up any action changes
-      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+    onSuccess: (graph, variables) => {
+      if (shouldSyncGraphCache(variables.operations)) {
+        // Update the graph cache with the latest structural state.
+        queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
+        queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+      }
     },
     onError: (error) => {
       console.error("Failed to apply graph operations:", error)
@@ -1817,15 +1832,28 @@ export function useUserManager() {
 
 /* Registry Actions */
 // For selector node
-export function useBuilderRegistryActions(versions?: string[]) {
+interface UseBuilderRegistryActionsOptions {
+  versions?: string[]
+  includeLocked?: boolean
+}
+
+export function useBuilderRegistryActions(
+  options?: UseBuilderRegistryActionsOptions
+) {
   const {
     data: registryActions,
     isLoading: registryActionsIsLoading,
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
-    queryKey: ["builder_registry_actions", versions],
+    queryKey: [
+      "builder_registry_actions",
+      options?.versions,
+      options?.includeLocked,
+    ],
     queryFn: async () => {
-      return await registryActionsListRegistryActions()
+      return await registryActionsListRegistryActions(
+        options?.includeLocked ? { includeLocked: true } : {}
+      )
     },
   })
 
@@ -1866,15 +1894,22 @@ export function useGetRegistryAction(actionName?: string) {
 }
 
 // For selector node
-export function useRegistryActions(versions?: string[]) {
+interface UseRegistryActionsOptions {
+  versions?: string[]
+  includeLocked?: boolean
+}
+
+export function useRegistryActions(options?: UseRegistryActionsOptions) {
   const {
     data: registryActions,
     isLoading: registryActionsIsLoading,
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
-    queryKey: ["registry_actions", versions],
+    queryKey: ["registry_actions", options?.versions, options?.includeLocked],
     queryFn: async () => {
-      return await registryActionsListRegistryActions()
+      return await registryActionsListRegistryActions({
+        includeLocked: options?.includeLocked,
+      })
     },
   })
 
@@ -5545,7 +5580,12 @@ export function useWorkspaceSettings(
  * When `workspaceId` is provided, workspace-specific role assignments are
  * included in effective scope computation.
  */
-export function useUserScopes(workspaceId?: string) {
+export function useUserScopes(
+  workspaceId?: string,
+  options?: {
+    enabled?: boolean
+  }
+) {
   const {
     data: userScopes,
     isLoading,
@@ -5562,6 +5602,7 @@ export function useUserScopes(workspaceId?: string) {
       })
       return response.data
     },
+    enabled: options?.enabled ?? true,
   })
 
   return {
@@ -6376,6 +6417,14 @@ export function useRbacUserAssignments(options?: {
   const queryClient = useQueryClient()
   const enabled = options?.enabled ?? true
 
+  const invalidateAssignmentQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] }),
+      queryClient.invalidateQueries({ queryKey: ["user-scopes"] }),
+      queryClient.invalidateQueries({ queryKey: ["org-members"] }),
+    ])
+  }
+
   // List user assignments
   const {
     data: userAssignments,
@@ -6403,9 +6452,8 @@ export function useRbacUserAssignments(options?: {
   } = useMutation({
     mutationFn: async (params: UserRoleAssignmentCreate) =>
       await rbacCreateUserAssignment({ requestBody: params }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
-      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    onSuccess: async () => {
+      await invalidateAssignmentQueries()
       toast({
         title: "User assignment created",
         description: "Role assigned to user successfully.",
@@ -6463,9 +6511,8 @@ export function useRbacUserAssignments(options?: {
       ...params
     }: UserRoleAssignmentUpdate & { assignmentId: string }) =>
       await rbacUpdateUserAssignment({ assignmentId, requestBody: params }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
-      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    onSuccess: async () => {
+      await invalidateAssignmentQueries()
       toast({
         title: "User assignment updated",
         description: "User assignment updated successfully.",
@@ -6506,9 +6553,8 @@ export function useRbacUserAssignments(options?: {
   } = useMutation({
     mutationFn: async (assignmentId: string) =>
       await rbacDeleteUserAssignment({ assignmentId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
-      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    onSuccess: async () => {
+      await invalidateAssignmentQueries()
       toast({
         title: "User assignment deleted",
         description: "User assignment removed successfully.",

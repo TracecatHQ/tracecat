@@ -41,7 +41,7 @@ class GitSettingsUpdate(BaseSettingsGroup):
         # Use shared regex from git utils to ensure consistency across the codebase
         if not GIT_SSH_URL_REGEX.match(value):
             raise ValueError(
-                "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)"
+                "Must be a valid Git SSH URL (e.g., git+ssh://<user>@github.com/org/repo.git)"
             )
 
         return value

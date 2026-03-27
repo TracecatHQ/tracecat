@@ -228,15 +228,14 @@ async def resolve_to_inline(stored: StoredObject) -> InlineObject:
         CollectionObject,
         ExternalObject,
         InlineObject,
-        get_object_storage,
+        retrieve_stored_object,
     )
 
     match stored:
         case InlineObject():
             return stored
         case ExternalObject() | CollectionObject():
-            storage = get_object_storage()
-            data = await storage.retrieve(stored)
+            data = await retrieve_stored_object(stored)
             return InlineObject(data=data)
         case _:
             raise TypeError(f"Expected StoredObject, got {type(stored).__name__}")

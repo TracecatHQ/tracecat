@@ -146,6 +146,11 @@ async def get_table_metadata(
     service = TablesService(session, role=role)
     try:
         table = await service.get_table_by_name(table_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -250,6 +255,11 @@ async def search_rows(
     service = TablesService(session, role=role)
     try:
         table = await service.get_table_by_name(table_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -290,6 +300,11 @@ async def insert_row(
     service = TablesService(session, role=role)
     try:
         table = await service.get_table_by_name(table_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -318,6 +333,11 @@ async def insert_rows_batch(
     service = TablesService(session, role=role)
     try:
         table = await service.get_table_by_name(table_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -353,6 +373,11 @@ async def update_row(
     service = TablesService(session, role=role)
     try:
         table = await service.get_table_by_name(table_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -386,6 +411,11 @@ async def delete_row(
     service = TablesService(session, role=role)
     try:
         table = await service.get_table_by_name(table_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -419,6 +449,11 @@ async def download_table(
     service = TablesService(session, role=role)
     try:
         table = await service.get_table_by_name(table_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     except TracecatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
