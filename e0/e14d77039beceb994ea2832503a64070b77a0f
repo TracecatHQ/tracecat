@@ -1,0 +1,23 @@
+tracecat/workflow/management/definitions.py
+  f339f8e6b770190f 11,125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "e0e14d77039beceb994ea2832503a64070b77a0f",
+  "prompts": {
+    "f339f8e6b770190f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6d2c3ea6-36cc-48bc-8662-4b634fefc544",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
