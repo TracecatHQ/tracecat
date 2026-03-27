@@ -15401,6 +15401,12 @@ export const $RegistrySecret = {
       title: "Optional",
       default: false,
     },
+    secret_type: {
+      type: "string",
+      enum: ["custom", "ssh_key", "mtls", "ca_cert"],
+      title: "Secret Type",
+      default: "custom",
+    },
   },
   type: "object",
   required: ["name"],
@@ -16915,7 +16921,7 @@ Secret types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
 - \`oauth2\`: OAuth2 Client Credentials (TBC)
 - \`mtls\`: TLS client certificate and key
-- \`ca-cert\`: Certificate authority bundle`,
+- \`ca_cert\`: Certificate authority bundle`,
 } as const
 
 export const $SecretDefinition = {
@@ -16949,6 +16955,10 @@ export const $SecretDefinition = {
       type: "boolean",
       title: "Optional",
       default: false,
+    },
+    secret_type: {
+      $ref: "#/components/schemas/SecretType",
+      default: "custom",
     },
     actions: {
       items: {
@@ -17114,7 +17124,7 @@ export const $SecretReadMinimal = {
 
 export const $SecretType = {
   type: "string",
-  enum: ["custom", "ssh-key", "mtls", "ca-cert", "github-app"],
+  enum: ["custom", "ssh_key", "mtls", "ca_cert", "github_app"],
   title: "SecretType",
   description: "The type of a secret.",
 } as const
@@ -17213,7 +17223,7 @@ Secret types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
 - \`oauth2\`: OAuth2 Client Credentials (TBC)
 - \`mtls\`: TLS client certificate and key
-- \`ca-cert\`: Certificate authority bundle`,
+- \`ca_cert\`: Certificate authority bundle`,
 } as const
 
 export const $SecretValidationDetail = {

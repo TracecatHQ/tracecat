@@ -4830,7 +4830,10 @@ export type RegistrySecret = {
   keys?: Array<string> | null
   optional_keys?: Array<string> | null
   optional?: boolean
+  secret_type?: "custom" | "ssh_key" | "mtls" | "ca_cert"
 }
+
+export type secret_type = "custom" | "ssh_key" | "mtls" | "ca_cert"
 
 export type RegistrySecretType = RegistrySecret | RegistryOAuthSecret
 
@@ -5258,7 +5261,7 @@ export type ScopeSource = "platform" | "custom"
  * - `token`: A token, e.g. API Key, JWT Token (TBC)
  * - `oauth2`: OAuth2 Client Credentials (TBC)
  * - `mtls`: TLS client certificate and key
- * - `ca-cert`: Certificate authority bundle
+ * - `ca_cert`: Certificate authority bundle
  */
 export type SecretCreate = {
   type?: SecretType
@@ -5279,6 +5282,7 @@ export type SecretDefinition = {
   keys: Array<string>
   optional_keys?: Array<string> | null
   optional?: boolean
+  secret_type?: SecretType
   actions: Array<string>
   action_count: number
 }
@@ -5321,10 +5325,10 @@ export type SecretReadMinimal = {
  */
 export type SecretType =
   | "custom"
-  | "ssh-key"
+  | "ssh_key"
   | "mtls"
-  | "ca-cert"
-  | "github-app"
+  | "ca_cert"
+  | "github_app"
 
 /**
  * Update a secret.
@@ -5335,7 +5339,7 @@ export type SecretType =
  * - `token`: A token, e.g. API Key, JWT Token (TBC)
  * - `oauth2`: OAuth2 Client Credentials (TBC)
  * - `mtls`: TLS client certificate and key
- * - `ca-cert`: Certificate authority bundle
+ * - `ca_cert`: Certificate authority bundle
  */
 export type SecretUpdate = {
   type?: SecretType | null

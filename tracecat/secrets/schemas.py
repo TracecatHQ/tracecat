@@ -209,7 +209,7 @@ class SecretCreate(BaseModel):
     - `token`: A token, e.g. API Key, JWT Token (TBC)
     - `oauth2`: OAuth2 Client Credentials (TBC)
     - `mtls`: TLS client certificate and key
-    - `ca-cert`: Certificate authority bundle"""
+    - `ca_cert`: Certificate authority bundle"""
 
     type: SecretType = SecretType.CUSTOM
     name: str = Field(..., min_length=1, max_length=100)
@@ -252,7 +252,7 @@ class SecretUpdate(BaseModel):
     - `token`: A token, e.g. API Key, JWT Token (TBC)
     - `oauth2`: OAuth2 Client Credentials (TBC)
     - `mtls`: TLS client certificate and key
-    - `ca-cert`: Certificate authority bundle"""
+    - `ca_cert`: Certificate authority bundle"""
 
     type: SecretType | None = None
     name: str | None = Field(default=None, min_length=1, max_length=100)
@@ -355,6 +355,7 @@ class SecretDefinition(BaseModel):
     keys: list[str]
     optional_keys: list[str] | None = None
     optional: bool = False
+    secret_type: SecretType = SecretType.CUSTOM
     actions: list[str]
     action_count: int
 

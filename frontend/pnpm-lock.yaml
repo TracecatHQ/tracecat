@@ -5,16 +5,18 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  brace-expansion@5.0.2: 5.0.5
+  handlebars@4.7.8: 4.7.9
   prismjs: 1.30.0
   glob: 13.0.6
-  mdast-util-to-hast: 13.2.1
+  immutable: 5.1.5
   lodash: 4.17.23
   lodash-es: 4.17.23
-  tar: 7.5.11
-  markdown-it: 14.1.1
   minimatch: 10.2.3
   dompurify: 3.3.2
-  immutable: 5.1.5
+  markdown-it: 14.1.1
+  mdast-util-to-hast: 13.2.1
+  tar: 7.5.11
   cosmiconfig>yaml: 1.10.3
   '@hey-api/openapi-ts>handlebars': 4.7.9
   ts-jest>handlebars: 4.7.9
