@@ -49,7 +49,6 @@ async def _start_runtime_services() -> Client:
 async def _stop_runtime_services() -> None:
     """Stop runtime services without letting one failure skip the others."""
     logger.info("Shutting down runtime services")
-    llm_backend = get_configured_llm_proxy_backend()
     results = await asyncio.gather(
         stop_mcp_server(),
         stop_configured_llm_proxy(),
