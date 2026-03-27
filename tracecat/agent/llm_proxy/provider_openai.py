@@ -343,7 +343,7 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
                 headers["Authorization"] = f"Bearer {api_key}"
             return ProviderHTTPRequest(
                 method="POST",
-                url=urljoin(custom_base_url.rstrip("/") + "/", "/v1/chat/completions"),
+                url=urljoin(custom_base_url.rstrip("/") + "/", "v1/chat/completions"),
                 headers=headers,
                 json_body=payload,
                 stream=request.stream,
@@ -357,7 +357,7 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
             base_url = explicit_base_url.rstrip("/")
         return ProviderHTTPRequest(
             method="POST",
-            url=urljoin(base_url.rstrip("/") + "/", "/v1/chat/completions"),
+            url=urljoin(base_url.rstrip("/") + "/", "v1/chat/completions"),
             headers=headers,
             json_body=payload,
             stream=request.stream,

@@ -236,7 +236,7 @@ class AzureAIAdapter:
         outbound_request: ProviderHTTPRequest,
         attempt: int,
     ) -> ProviderHTTPRequest | None:
-        if attempt >= 2:
+        if attempt >= 1:
             return None
 
         error_text = response.text

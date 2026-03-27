@@ -66,6 +66,8 @@ class PassthroughStreamAdapter(Protocol):
         payload: dict[str, Any],
         credentials: dict[str, str],
         model_settings: dict[str, Any],
+        *,
+        base_url: str | None = None,
     ) -> AsyncIterator[bytes]:
         raise NotImplementedError
 
@@ -131,7 +133,7 @@ async def iter_sse_events(response: httpx.Response) -> AsyncIterator[ServerSentE
             event_name = line.removeprefix("event:").strip() or None
             continue
         if line.startswith("data:"):
-            data_lines.append(line.removeprefix("data:").lstrip())
+            data_lines.append(line.removeprefix("data:").removeprefix(" "))
 
     if data_lines:
         yield ServerSentEvent(event=event_name, data="\n".join(data_lines))

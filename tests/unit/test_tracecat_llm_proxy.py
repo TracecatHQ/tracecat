@@ -470,9 +470,7 @@ def test_anthropic_stream_events_from_response_builds_tool_use_events() -> None:
     ]
 
 
-def test_provider_adapters_build_expected_requests(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_provider_adapters_build_expected_requests() -> None:
     request = NormalizedMessagesRequest(
         provider="openai",
         model="gpt-5-mini",
@@ -552,20 +550,10 @@ def test_provider_adapters_build_expected_requests(
     assert gemini_request.headers["x-goog-api-key"] == "gem-key"
     assert gemini_request.json_body["contents"][0]["role"] == "user"
 
-    class _FakeServiceAccountCredentials:
-        token = "vertex-token"
-
-        def refresh(self, _: object) -> None:
-            return None
-
-    monkeypatch.setattr(
-        "google.oauth2.service_account.Credentials.from_service_account_info",
-        lambda *args, **kwargs: _FakeServiceAccountCredentials(),
-    )
     vertex_request = VertexAIAdapter().prepare_request(
         request,
         {
-            "GOOGLE_API_CREDENTIALS": "{}",
+            "VERTEX_AI_BEARER_TOKEN": "vertex-token",
             "GOOGLE_CLOUD_PROJECT": "tracecat",
             "VERTEX_AI_MODEL": "gemini-2.5-pro",
         },
@@ -964,7 +952,8 @@ async def test_stream_messages_tracks_active_requests_until_stream_completion(
         claims=claims,
     )
 
-    assert proxy.state.active_requests == 1
+    # Tracking starts when iteration begins, not when the generator is created
+    assert proxy.state.active_requests == 0
     rendered = [chunk async for chunk in events]
 
     assert rendered[0].startswith(b"event: message_start\n")

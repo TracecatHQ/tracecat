@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import uuid
 from collections.abc import AsyncIterator, Iterator
 
+import orjson
+from google.auth.transport.requests import Request as GoogleAuthRequest
+from google.oauth2 import service_account
 from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +38,37 @@ from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
 
 _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
+_VERTEX_BEARER_TOKEN_KEY = "VERTEX_AI_BEARER_TOKEN"
+_GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+
+
+def _refresh_vertex_token(credentials_blob: str) -> str:
+    """Synchronous helper that refreshes a Vertex AI SA token.
+
+    Isolated so it can be called via ``asyncio.to_thread``.
+    """
+    creds = service_account.Credentials.from_service_account_info(
+        orjson.loads(credentials_blob),
+        scopes=[_GOOGLE_CLOUD_SCOPE],
+    )
+    creds.refresh(GoogleAuthRequest())
+    return creds.token
+
+
+async def _resolve_vertex_bearer_token(
+    credentials: dict[str, str],
+) -> dict[str, str]:
+    """Resolve the Vertex AI bearer token off-thread and inject it into the credentials dict.
+
+    The result is cached by the upstream ``aiocache`` TTL cache in
+    ``credentials.py``, so the blocking ``refresh()`` round-trip only
+    happens once per cache window (~60 s by default).
+    """
+    blob = credentials["GOOGLE_API_CREDENTIALS"]
+    token = await asyncio.to_thread(_refresh_vertex_token, blob)
+    augmented = credentials.copy()
+    augmented[_VERTEX_BEARER_TOKEN_KEY] = token
+    return augmented
 
 
 class AgentManagementService(BaseOrgService):
@@ -170,23 +205,25 @@ class AgentManagementService(BaseOrgService):
         except TracecatNotFoundError:
             return None
 
-    def _augment_runtime_provider_credentials(
+    async def _augment_runtime_provider_credentials(
         self, provider: str, credentials: dict[str, str]
     ) -> dict[str, str]:
         """Augment provider credentials with runtime-only values when required."""
-        if (
-            provider != "bedrock"
-            or "AWS_ROLE_ARN" not in credentials
-            or self.role.workspace_id is None
-            or _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY in credentials
-        ):
-            return credentials
-
-        runtime_credentials = credentials.copy()
-        runtime_credentials[_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY] = (
-            build_workspace_external_id(self.role.workspace_id)
-        )
-        return runtime_credentials
+        match provider:
+            case "bedrock" if (
+                "AWS_ROLE_ARN" in credentials
+                and self.role.workspace_id is not None
+                and _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY not in credentials
+            ):
+                runtime_credentials = credentials.copy()
+                runtime_credentials[_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY] = (
+                    build_workspace_external_id(self.role.workspace_id)
+                )
+                return runtime_credentials
+            case "vertex_ai" if "GOOGLE_API_CREDENTIALS" in credentials:
+                return await _resolve_vertex_bearer_token(credentials)
+            case _:
+                return credentials
 
     async def get_runtime_provider_credentials(
         self, provider: str, *, use_workspace_credentials: bool = True
@@ -199,7 +236,7 @@ class AgentManagementService(BaseOrgService):
 
         if credentials is None:
             return None
-        return self._augment_runtime_provider_credentials(provider, credentials)
+        return await self._augment_runtime_provider_credentials(provider, credentials)
 
     @require_scope("agent:update")
     async def delete_provider_credentials(self, provider: str) -> None:

@@ -184,34 +184,36 @@ class TracecatLLMProxy:
         claims: LLMTokenClaims,
         trace_request_id: str | None = None,
     ) -> AsyncIterator[bytes]:
-        self._track_start()
+        # Eagerly resolve credentials before constructing the lazy generator
+        # so that HTTPException is raised before response headers are sent.
+        credentials = await self._resolve_credentials(claims)
+        if credentials is None:
+            raise HTTPException(
+                status_code=401,
+                detail=(f"No credentials configured for provider '{claims.provider}'"),
+            )
+        adapter = self.provider_registry.get(claims.provider)
         error = False
 
         async def _event_stream() -> AsyncIterator[bytes]:
             nonlocal error
+            self._track_start()
             try:
-                credentials = await self._resolve_credentials(claims)
-                if credentials is None:
-                    raise HTTPException(
-                        status_code=401,
-                        detail=(
-                            f"No credentials configured for provider "
-                            f"'{claims.provider}'"
-                        ),
-                    )
-                adapter = self.provider_registry.get(claims.provider)
-
                 # Passthrough: ingress format matches provider's native format.
                 # Forward raw payload with auth + model settings, no normalization.
+                # Pin the model to what the token authorizes to prevent callers
+                # from overriding it in the body (e.g. requesting a costlier model).
                 if (
                     isinstance(adapter, PassthroughStreamAdapter)
                     and adapter.native_format is IngressFormat.ANTHROPIC
                 ):
+                    payload["model"] = claims.model
                     async for chunk in adapter.passthrough_stream(
                         self.http_client,
                         payload,
                         credentials,
                         claims.model_settings,
+                        base_url=claims.base_url,
                     ):
                         yield chunk
                     return

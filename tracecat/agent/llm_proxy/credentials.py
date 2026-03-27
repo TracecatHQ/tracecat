@@ -52,10 +52,13 @@ def _credential_cache_key_builder(
     workspace_id: WorkspaceID,
     organization_id: OrganizationID,
     use_workspace_credentials: bool,
+    *,
+    service_id: InternalServiceID = "tracecat-llm-gateway",
+    **_kwargs: Any,
 ) -> str:
     del func
     scope = "workspace" if use_workspace_credentials else "organization"
-    return f"llm_creds:{organization_id}:{workspace_id}:{scope}:{provider}"
+    return f"llm_creds:{organization_id}:{workspace_id}:{scope}:{provider}:{service_id}"
 
 
 @cached(
