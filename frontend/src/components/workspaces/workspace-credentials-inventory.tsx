@@ -482,6 +482,7 @@ function ConnectedEnvironmentsHoverCard({
           role="img"
           className="flex items-center justify-center"
           aria-label={`View configured environments for ${groupName}`}
+          onClick={(event) => event.stopPropagation()}
         >
           <SquareAsterisk className="icon-success size-3.5" />
         </span>
