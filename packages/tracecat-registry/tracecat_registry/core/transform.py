@@ -24,6 +24,9 @@ def _compute_digests(seen: dict[tuple[Any, ...], dict[str, Any]]) -> list[str]:
     """
     digests: list[str] = []
     for key in seen:
+        # NOTE: Must use stdlib json (not orjson) to preserve digest stability.
+        # orjson produces different whitespace (no space after comma), which
+        # would change SHA256 digests and invalidate existing Redis keys.
         key_str = json.dumps(key, sort_keys=True, default=str)
         digests.append(hashlib.sha256(key_str.encode()).hexdigest())
     return digests
