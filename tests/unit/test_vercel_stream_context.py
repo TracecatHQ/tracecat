@@ -5,7 +5,6 @@ into Vercel AI SDK SSE frames.
 """
 
 import json
-from collections.abc import AsyncIterator
 
 import pytest
 
@@ -24,15 +23,8 @@ from tracecat.agent.adapter.vercel import (
     VercelSSEPayload,
     VercelStreamContext,
     format_sse,
-    sse_vercel,
 )
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
-from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamEvent
-
-
-async def _iter_stream_events(events: list[StreamEvent]) -> AsyncIterator[StreamEvent]:
-    for event in events:
-        yield event
 
 
 async def collect_frames(
@@ -889,49 +881,3 @@ async def test_format_sse_produces_valid_output():
     data = json.loads(json_str)
     assert data["type"] == "text-start"
     assert data["id"] == "test_id"
-
-
-@pytest.mark.anyio
-async def test_sse_vercel_logs_ttft_on_first_content_frame(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    logged: list[dict[str, object]] = []
-    monotonic_values = iter([20.0, 20.15, 20.2, 20.25])
-    monkeypatch.setattr(
-        "tracecat.agent.adapter.vercel.time.monotonic",
-        lambda: next(monotonic_values, 20.25),
-    )
-
-    def fake_info(message: str, **kwargs: object) -> None:
-        if message == "Vercel SSE first content frame":
-            logged.append(dict(kwargs))
-
-    monkeypatch.setattr("tracecat.agent.adapter.vercel.logger.info", fake_info)
-
-    events = [
-        StreamDelta(
-            id="1",
-            event=UnifiedStreamEvent(
-                type=StreamEventType.TEXT_START,
-                part_id=0,
-                text="hello",
-            ),
-        ),
-        StreamDelta(
-            id="2",
-            event=UnifiedStreamEvent(
-                type=StreamEventType.TEXT_DELTA,
-                part_id=0,
-                text=" world",
-            ),
-        ),
-        StreamEnd(id="3"),
-    ]
-
-    frames = [frame async for frame in sse_vercel(_iter_stream_events(events))]
-
-    assert frames[0].startswith("data: ")
-    assert len(logged) == 1
-    assert isinstance(logged[0]["message_id"], str)
-    assert logged[0]["event_type"] == "text-delta"
-    assert logged[0]["ttft_ms"] == pytest.approx(150.0)

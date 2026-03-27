@@ -4,6 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import httpx
@@ -309,6 +310,68 @@ async def test_forward_request_streams_tracecat_proxy_response(
     assert ttft_logs[0]["path"] == "/v1/messages"
     assert isinstance(ttft_logs[0]["trace_request_id"], str)
     assert ttft_logs[0]["ttft_ms"] == pytest.approx(25.0)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("body", "expected_detail"),
+    [
+        (b'{"messages":[', "Malformed JSON in request body"),
+        (b'["not", "an", "object"]', "Request body must be a JSON object"),
+    ],
+)
+async def test_forward_request_returns_bad_request_for_invalid_tracecat_proxy_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    static_llm_proxy_factory,
+    body: bytes,
+    expected_detail: str,
+) -> None:
+    proxy = static_llm_proxy_factory({"OPENAI_API_KEY": "sk-test"})
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        tracecat_proxy=proxy,
+    )
+    writer = _FakeWriter()
+    claims = LLMTokenClaims(
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+        model="gpt-5-mini",
+        provider="openai",
+        base_url=None,
+        model_settings={},
+        use_workspace_credentials=False,
+    )
+    stream_messages = AsyncMock()
+
+    monkeypatch.setattr(
+        "tracecat.agent.llm_proxy.auth.verify_llm_token",
+        lambda token: claims if token == "llm-token" else None,
+    )
+    monkeypatch.setattr(TracecatLLMProxy, "stream_messages", stream_messages)
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages/count_tokens",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer llm-token",
+                },
+                "body": body,
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        await proxy.close()
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 400")
+    assert "X-Request-ID:" in response_text
+    assert expected_detail in response_text
+    stream_messages.assert_not_awaited()
 
 
 @pytest.mark.anyio

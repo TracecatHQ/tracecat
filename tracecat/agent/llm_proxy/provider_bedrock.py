@@ -209,24 +209,32 @@ def _message_to_content_blocks(message: NormalizedMessage) -> list[dict[str, Any
                     "image_url": {"url": str(url), **image_info},
                 }:
                     mime_type = image_info.get("format") or "image/png"
+                    # Bedrock expects short format like "png", not MIME "image/png"
+                    fmt = str(mime_type).removeprefix("image/")
+                    if not url.startswith("data:"):
+                        raise ValueError(
+                            "Bedrock Converse only supports data: URIs for inline images. "
+                            f"HTTP(S) image URLs are not supported: {url!r}"
+                        )
                     blocks.append(
                         {
                             "image": {
-                                "format": str(mime_type),
-                                "source": {
-                                    "bytes": url if url.startswith("data:") else None
-                                },
+                                "format": fmt,
+                                "source": {"bytes": url},
                             }
                         }
                     )
                 case {"type": "image_url", "image_url": str(url)}:
+                    if not url.startswith("data:"):
+                        raise ValueError(
+                            "Bedrock Converse only supports data: URIs for inline images. "
+                            f"HTTP(S) image URLs are not supported: {url!r}"
+                        )
                     blocks.append(
                         {
                             "image": {
-                                "format": "image/png",
-                                "source": {
-                                    "bytes": url if url.startswith("data:") else None
-                                },
+                                "format": "png",
+                                "source": {"bytes": url},
                             }
                         }
                     )

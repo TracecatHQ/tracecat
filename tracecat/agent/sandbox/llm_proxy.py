@@ -603,7 +603,32 @@ class LLMSocketProxy:
             )
             return
 
-        payload = orjson.loads(body) if body else {}
+        if not body:
+            payload: dict[str, Any] = {}
+        else:
+            try:
+                decoded_payload = orjson.loads(body)
+            except orjson.JSONDecodeError as exc:
+                await self._write_error_response(
+                    writer,
+                    status_code=400,
+                    detail=f"Malformed JSON in request body: {exc}",
+                    request_counter=request_counter,
+                    trace_request_id=trace_request_id,
+                )
+                return
+            match decoded_payload:
+                case dict() as parsed_payload:
+                    payload = parsed_payload
+                case _:
+                    await self._write_error_response(
+                        writer,
+                        status_code=400,
+                        detail="Request body must be a JSON object",
+                        request_counter=request_counter,
+                        trace_request_id=trace_request_id,
+                    )
+                    return
 
         try:
             match path_without_query:
@@ -728,13 +753,43 @@ class LLMSocketProxy:
                         raise
                     logger.debug("Client disconnected during response streaming")
                     return
-        except httpx.ReadError:
-            if writer.is_closing():
-                logger.debug("Backend connection closed after client disconnect")
-            else:
-                logger.warning(
-                    "Backend connection closed unexpectedly during streaming"
+        except Exception as exc:
+            # Headers (200 OK) are already flushed — we cannot write a
+            # second HTTP error response.  Emit the error as an SSE event
+            # so the client can surface it.  This covers HTTPException from
+            # the proxy layer and RuntimeError from upstream provider errors
+            # (e.g. _raise_stream_http_error on 4xx/5xx).
+            if is_streaming_response and not writer.is_closing():
+                status_code = getattr(exc, "status_code", 502)
+                detail = (
+                    str(exc.detail)
+                    if isinstance(exc, HTTPException)
+                    else str(exc)[:512]
                 )
+                logger.warning(
+                    "Stream error after headers sent, emitting SSE error event",
+                    status_code=status_code,
+                    detail=detail,
+                    trace_request_id=trace_request_id,
+                )
+                error_payload = orjson.dumps(
+                    {
+                        "type": "error",
+                        "error": {
+                            "type": "server_error",
+                            "message": detail,
+                        },
+                    }
+                )
+                try:
+                    writer.write(b"event: error\ndata: " + error_payload + b"\n\n")
+                    await writer.drain()
+                except Exception:
+                    logger.debug(
+                        "Failed to send SSE error event, client likely disconnected"
+                    )
+            else:
+                raise
 
     async def _write_error_response(
         self,

@@ -81,7 +81,8 @@ def extract_json_schema(
 
 
 def _schema_from_output_type(output_type: dict[str, Any]) -> dict[str, Any]:
-    return extract_json_schema(output_type) or output_type
+    extracted = extract_json_schema(output_type)
+    return extracted if extracted is not None else output_type
 
 
 def build_sdk_output_format(

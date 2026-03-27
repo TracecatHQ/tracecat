@@ -154,9 +154,11 @@ class AnthropicAdapter:
         payload: dict[str, Any],
         credentials: dict[str, str],
         model_settings: dict[str, Any],
+        *,
+        base_url: str | None = None,
     ) -> AsyncIterator[bytes]:
         """Stream raw SSE bytes — Anthropic in, Anthropic out, no normalization."""
-        base_url = _DEFAULT_ANTHROPIC_BASE_URL
+        base_url = base_url or _DEFAULT_ANTHROPIC_BASE_URL
         headers = _build_anthropic_headers(credentials)
 
         # Inject token-level model settings into the raw payload

@@ -533,14 +533,7 @@ async def test_gemini_response_parses_text_and_tool_calls() -> None:
     )
 
 
-def test_vertex_request_uses_system_instruction_and_blank_user_message(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "google.oauth2.service_account.Credentials.from_service_account_info",
-        lambda *args, **kwargs: _FakeServiceAccountCredentials(),
-    )
-
+def test_vertex_request_uses_system_instruction_and_blank_user_message() -> None:
     request = _base_request(
         provider="vertex_ai",
         model="gemini-2.5-pro",
@@ -551,7 +544,7 @@ def test_vertex_request_uses_system_instruction_and_blank_user_message(
     request_http = VertexAIAdapter().prepare_request(
         request,
         {
-            "GOOGLE_API_CREDENTIALS": orjson.dumps({"client_email": "x"}).decode(),
+            "VERTEX_AI_BEARER_TOKEN": "vertex-token",
             "GOOGLE_CLOUD_PROJECT": "tracecat",
             "GOOGLE_CLOUD_LOCATION": "us-central1",
             "VERTEX_AI_MODEL": "gemini-2.5-pro",
@@ -571,6 +564,38 @@ def test_vertex_request_uses_system_instruction_and_blank_user_message(
     ]
     assert request_http.json_body["generationConfig"]["temperature"] == 0.3
     assert request_http.json_body["generationConfig"]["stop_sequences"] == ["END"]
+
+
+@pytest.mark.parametrize(
+    ("location", "expected_base_url"),
+    [
+        ("europe-west4", "https://europe-west4-aiplatform.googleapis.com"),
+        ("global", "https://aiplatform.googleapis.com"),
+    ],
+)
+def test_vertex_request_uses_location_specific_endpoint(
+    location: str, expected_base_url: str
+) -> None:
+    request = _base_request(
+        provider="vertex_ai",
+        model="gemini-2.5-pro",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+    )
+
+    request_http = VertexAIAdapter().prepare_request(
+        request,
+        {
+            "VERTEX_AI_BEARER_TOKEN": "vertex-token",
+            "GOOGLE_CLOUD_PROJECT": "tracecat",
+            "GOOGLE_CLOUD_LOCATION": location,
+            "VERTEX_AI_MODEL": "gemini-2.5-pro",
+        },
+    )
+
+    assert request_http.url == (
+        f"{expected_base_url}/v1/projects/tracecat/locations/{location}"
+        "/publishers/google/models/gemini-2.5-pro:generateContent"
+    )
 
 
 @pytest.mark.anyio

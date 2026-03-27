@@ -20,8 +20,6 @@ from typing import Any
 
 import httpx
 import orjson
-from google.auth.transport.requests import Request as GoogleAuthRequest
-from google.oauth2 import service_account
 
 from tracecat.agent.common.output_format import extract_json_schema
 from tracecat.agent.llm_proxy.anthropic_compat import (
@@ -37,8 +35,14 @@ from tracecat.agent.llm_proxy.types import (
 )
 
 _DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com"
-_DEFAULT_VERTEX_BASE_URL = "https://us-central1-aiplatform.googleapis.com"
-_GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+_DEFAULT_VERTEX_LOCATION = "us-central1"
+
+
+def _vertex_base_url(location: str) -> str:
+    normalized_location = location.strip().lower() or _DEFAULT_VERTEX_LOCATION
+    if normalized_location == "global":
+        return "https://aiplatform.googleapis.com"
+    return f"https://{normalized_location}-aiplatform.googleapis.com"
 
 
 def _strip_model_prefix(model: str, prefix: str) -> str:
@@ -618,21 +622,25 @@ class VertexAIAdapter:
         self, request: NormalizedMessagesRequest, credentials: dict[str, str]
     ) -> ProviderHTTPRequest:
         project = credentials.get("GOOGLE_CLOUD_PROJECT")
-        credentials_blob = credentials.get("GOOGLE_API_CREDENTIALS")
-        if not project or not credentials_blob:
+        bearer_token = credentials.get("VERTEX_AI_BEARER_TOKEN")
+        if not project or not bearer_token:
             raise ValueError(
-                "Vertex AI requires GOOGLE_API_CREDENTIALS and GOOGLE_CLOUD_PROJECT"
+                "Vertex AI requires GOOGLE_CLOUD_PROJECT and a resolved bearer token "
+                "(VERTEX_AI_BEARER_TOKEN). Ensure credentials are resolved through "
+                "the credential layer."
             )
 
-        base_url = (request.base_url or _DEFAULT_VERTEX_BASE_URL).rstrip("/")
-        location = credentials.get("GOOGLE_CLOUD_LOCATION", "us-central1")
-        model = credentials.get("VERTEX_AI_MODEL", request.model)
-
-        token_credentials = service_account.Credentials.from_service_account_info(
-            orjson.loads(credentials_blob),
-            scopes=[_GOOGLE_CLOUD_SCOPE],
+        location = (
+            (credentials.get("GOOGLE_CLOUD_LOCATION") or _DEFAULT_VERTEX_LOCATION)
+            .strip()
+            .lower()
         )
-        token_credentials.refresh(GoogleAuthRequest())
+        base_url = (
+            request.base_url.rstrip("/")
+            if request.base_url
+            else _vertex_base_url(location)
+        )
+        model = credentials.get("VERTEX_AI_MODEL", request.model)
 
         payload = _normalize_google_payload(
             request,
@@ -646,7 +654,7 @@ class VertexAIAdapter:
             ),
             headers={
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {token_credentials.token}",
+                "Authorization": f"Bearer {bearer_token}",
             },
             json_body=payload,
             stream=request.stream,
