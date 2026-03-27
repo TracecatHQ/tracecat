@@ -207,12 +207,12 @@ class TracecatLLMProxy:
                     isinstance(adapter, PassthroughStreamAdapter)
                     and adapter.native_format is IngressFormat.ANTHROPIC
                 ):
-                    payload["model"] = claims.model
                     async for chunk in adapter.passthrough_stream(
                         self.http_client,
                         payload,
                         credentials,
                         claims.model_settings,
+                        model=claims.model,
                         base_url=claims.base_url,
                     ):
                         yield chunk
