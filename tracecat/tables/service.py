@@ -1922,8 +1922,10 @@ class TableEditorService(BaseWorkspaceService):
             )
         return self._visible_columns_cache
 
-    async def get_columns(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
-        """Get all columns for a table."""
+    async def _get_physical_columns(
+        self,
+    ) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
+        """Get all physical columns for a table, including internal columns."""
 
         def inspect_columns(
             sync_conn: sa.Connection,
@@ -1934,6 +1936,15 @@ class TableEditorService(BaseWorkspaceService):
         conn = await self.session.connection()
         columns = await conn.run_sync(inspect_columns)
         return columns
+
+    async def get_columns(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
+        """Get user-visible columns for a table."""
+        reflected_columns = await self._get_physical_columns()
+        return [
+            column
+            for column in reflected_columns
+            if not is_internal_column_name(column.get("name"))
+        ]
 
     async def create_column(self, params: TableColumnCreate) -> None:
         """Add a new column to an existing table.
@@ -1948,6 +1959,7 @@ class TableEditorService(BaseWorkspaceService):
             ValueError: If the column type is invalid
         """
 
+        self._assert_user_column_name_allowed(params.name)
         column_name = validate_identifier(params.name)
 
         # Validate SQL type first
@@ -2003,6 +2015,7 @@ class TableEditorService(BaseWorkspaceService):
             ValueError: If the column type is invalid
             ProgrammingError: If the database operation fails
         """
+        self._assert_user_column_name_allowed(column_name)
         set_fields = params.model_dump(exclude_unset=True)
         conn = await self.session.connection()
 
@@ -2012,6 +2025,7 @@ class TableEditorService(BaseWorkspaceService):
 
         # Execute ALTER statements using safe DDL construction
         if "name" in set_fields:
+            self._assert_user_column_name_allowed(set_fields["name"])
             new_name = validate_identifier(set_fields["name"])
             await conn.execute(
                 sa.DDL(

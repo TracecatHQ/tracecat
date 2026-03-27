@@ -1104,7 +1104,6 @@ class CaseFieldsService(CustomFieldsService):
         """Create a new custom field column and update the schema."""
 
         await self._ensure_schema_ready()
-        self._assert_user_field_name_allowed(params.name)
         params.nullable = True  # Custom fields remain nullable by default
         await self.editor.create_column(params)
 
@@ -1124,9 +1123,6 @@ class CaseFieldsService(CustomFieldsService):
     async def update_field(self, field_id: str, params: CustomFieldUpdate) -> None:
         """Update a custom field column and update the schema if needed."""
         await self._ensure_schema_ready()
-        self._assert_user_field_name_allowed(field_id)
-        if params.name is not None:
-            self._assert_user_field_name_allowed(params.name)
 
         # Get current schema to preserve type info
         current_schema = await self.get_field_schema()

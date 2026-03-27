@@ -81,11 +81,6 @@ class TestCaseFieldsService:
             {"name": "case_id", "type": sa.types.UUID(), "nullable": False},
             {"name": "created_at", "type": sa.types.TIMESTAMP(), "nullable": False},
             {"name": "updated_at", "type": sa.types.TIMESTAMP(), "nullable": False},
-            {
-                "name": "__tc_workspace_id",
-                "type": sa.types.UUID(),
-                "nullable": False,
-            },
             {"name": "custom_field1", "type": sa.types.String(), "nullable": True},
             {"name": "custom_field2", "type": sa.types.Integer(), "nullable": True},
         ]
@@ -98,12 +93,8 @@ class TestCaseFieldsService:
             # Call the list_fields method
             fields = await case_fields_service.list_fields()
 
-            # Verify the internal column was filtered from the result
-            assert fields == [
-                column
-                for column in mock_columns
-                if column["name"] != "__tc_workspace_id"
-            ]
+            # Verify list_fields delegates the visible-column contract to the editor
+            assert fields == mock_columns
             mock_get_columns.assert_called_once()
 
     async def test_case_field_read_accepts_timestamp_type(self) -> None:

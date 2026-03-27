@@ -162,14 +162,12 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         """List all custom fields for the workspace."""
 
         await self._ensure_schema_ready()
-        columns = await self.editor.get_columns()
-        return [col for col in columns if not is_internal_column_name(col["name"])]
+        return await self.editor.get_columns()
 
     async def create_field(self, params: CustomFieldCreate) -> None:
         """Create a new custom field column."""
 
         await self._ensure_schema_ready()
-        self._assert_user_field_name_allowed(params.name)
         params.nullable = True  # Custom fields remain nullable by default
         await self.editor.create_column(params)
         await self.session.commit()
@@ -178,11 +176,6 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
         """Update a custom field column."""
 
         await self._ensure_schema_ready()
-        self._assert_user_field_name_allowed(field_id)
-        validate_identifier(field_id)
-        if params.name is not None:
-            self._assert_user_field_name_allowed(params.name)
-            validate_identifier(params.name)
         await self.editor.update_column(field_id, params)
         await self.session.commit()
 
