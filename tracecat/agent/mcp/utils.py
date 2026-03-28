@@ -8,9 +8,24 @@ The fetch_tool_definitions() function requires DB access and uses lazy imports.
 
 from __future__ import annotations
 
-from tracecat.agent.common.types import MCPToolDefinition
+from typing import TYPE_CHECKING, TypeGuard
+
+from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
+
+if TYPE_CHECKING:
+    from tracecat.agent.common.types import MCPServerConfig
 
 REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
+
+
+def is_http_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
+    """Return True if the MCP server config is an HTTP/SSE server.
+
+    Legacy HTTP configs may omit "type"; treat missing as HTTP for compatibility.
+    """
+    return config.get("type", "http") == "http"
+
+
 LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
 
 
@@ -30,7 +45,28 @@ def mcp_tool_name_to_action_name(tool_name: str) -> str:
     return tool_name.replace("__", ".")
 
 
-def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
+def _resolve_canonical_user_mcp_name(
+    canonical_tool_name: str,
+    *,
+    known_server_names: set[str] | None = None,
+) -> str:
+    """Preserve full configured MCP server names when they contain dots."""
+    if not canonical_tool_name.startswith("mcp.") or not known_server_names:
+        return canonical_tool_name
+
+    canonical_name = canonical_tool_name.removeprefix("mcp.")
+    for known_server_name in sorted(known_server_names, key=len, reverse=True):
+        if canonical_name.startswith(f"{known_server_name}."):
+            return canonical_tool_name
+
+    return canonical_tool_name
+
+
+def normalize_mcp_tool_name(
+    mcp_tool_name: str,
+    *,
+    known_server_names: set[str] | None = None,
+) -> str:
     """Convert MCP tool name to readable action name for display.
 
     MCP tool naming convention: mcp__{server_name}__{tool_name}
@@ -47,7 +83,7 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
     - mcp.tracecat-registry.mcp.Linear.list_issues -> mcp.Linear.list_issues
     - mcp.tracecat_registry.mcp.Linear.list_issues -> mcp.Linear.list_issues
 
-    Other MCP tool names are returned as-is.
+    Other canonical user MCP names are returned as-is.
 
     Args:
         mcp_tool_name: The MCP tool name to normalize
@@ -61,8 +97,12 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
         f"mcp.{REGISTRY_MCP_SERVER_NAME}.mcp."
     ) or mcp_tool_name.startswith(f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}.mcp."):
         # Extract mcp.{server}.{tool} part
-        return mcp_tool_name.replace(f"mcp.{REGISTRY_MCP_SERVER_NAME}.", "", 1).replace(
-            f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}.", "", 1
+        canonical_name = mcp_tool_name.replace(
+            f"mcp.{REGISTRY_MCP_SERVER_NAME}.", "", 1
+        ).replace(f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}.", "", 1)
+        return _resolve_canonical_user_mcp_name(
+            canonical_name,
+            known_server_names=known_server_names,
         )
 
     # Handle user MCP tools routed through proxy (underscore-separated, runtime)
@@ -74,7 +114,11 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
         tool_part = mcp_tool_name.replace(
             f"mcp__{REGISTRY_MCP_SERVER_NAME}__", ""
         ).replace(f"mcp__{LEGACY_REGISTRY_MCP_SERVER_NAME}__", "")
-        return mcp_tool_name_to_action_name(tool_part)
+        canonical_name = mcp_tool_name_to_action_name(tool_part)
+        return _resolve_canonical_user_mcp_name(
+            canonical_name,
+            known_server_names=known_server_names,
+        )
 
     # Handle dot-separated format (persisted messages) for registry tools
     if mcp_tool_name.startswith(
@@ -93,23 +137,48 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
         ).replace(f"mcp__{LEGACY_REGISTRY_MCP_SERVER_NAME}__", "")
         return mcp_tool_name_to_action_name(tool_part)
 
-    # Generic MCP prefix stripping for any other servers
-    # Handle pattern: mcp.{server-name}.{tool_name}
+    # Canonical user MCP names are already normalized. Keep the server segment
+    # so approval/history flows remain unambiguous across integrations.
     if mcp_tool_name.startswith("mcp."):
-        parts = mcp_tool_name.split(".", 2)
-        if len(parts) >= 3:
-            # Return everything after mcp.{server-name}.
-            return parts[2]
+        return _resolve_canonical_user_mcp_name(
+            mcp_tool_name,
+            known_server_names=known_server_names,
+        )
 
     # Handle pattern: mcp__{server-name}__{tool_name}
     if mcp_tool_name.startswith("mcp__"):
         parts = mcp_tool_name.split("__", 2)
         if len(parts) >= 3:
-            # Return everything after mcp__{server-name}__ with underscores -> dots
-            return mcp_tool_name_to_action_name(parts[2])
+            # Return user MCP tool as canonical form: mcp.{server}.{tool_name}
+            return f"mcp.{parts[1]}.{mcp_tool_name_to_action_name(parts[2])}"
+
+    # Handle runtime registry/internal tool names (e.g. core__http_request)
+    if "__" in mcp_tool_name:
+        return mcp_tool_name_to_action_name(mcp_tool_name)
 
     # Other tool names returned as-is
     return mcp_tool_name
+
+
+def mcp_tool_name_to_canonical(discovered_name: str) -> str:
+    """Convert discovered MCP tool name to canonical dot format.
+
+    Discovered names follow the pattern ``mcp__{server}__{tool}``.
+    The canonical format is ``mcp.{server}.{tool}``.
+
+    This must produce the same result as :func:`normalize_mcp_tool_name`
+    when given the runtime-wrapped version
+    ``mcp__tracecat-registry__mcp__{server}__{tool}``.
+
+    Examples:
+        mcp__Linear__list_issues  -> mcp.Linear.list_issues
+        mcp__Sentry__get_issue    -> mcp.Sentry.get_issue
+    """
+    if discovered_name.startswith("mcp__"):
+        parts = discovered_name.split("__", 2)
+        if len(parts) >= 3:
+            return f"mcp.{parts[1]}.{mcp_tool_name_to_action_name(parts[2])}"
+    return discovered_name
 
 
 async def fetch_tool_definitions(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from typing import Any, TypeGuard
+from typing import Any
 
 from pydantic import (
     UUID4,
@@ -11,7 +11,6 @@ from pydantic import (
 from temporalio import activity
 
 from tracecat.agent.common.types import (
-    MCPHttpServerConfig,
     MCPServerConfig,
     MCPToolDefinition,
 )
@@ -20,12 +19,15 @@ from tracecat.agent.mcp.internal_tools import (
     BUILDER_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
 )
+from tracecat.agent.mcp.user_client import UserMCPClient, discover_user_mcp_tools
+from tracecat.agent.mcp.utils import is_http_server, mcp_tool_name_to_canonical
 from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.tokens import InternalToolContext, UserMCPServerClaim
 from tracecat.agent.tools import build_agent_tools
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
 from tracecat.contexts import ctx_role
+from tracecat.exceptions import TracecatValidationError
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
@@ -82,10 +84,6 @@ class ApplyApprovalResultsActivityInputs(BaseModel):
 class AgentActivities:
     """Activities for agent execution."""
 
-    @staticmethod
-    def _is_http_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
-        return config.get("type", "http") == "http"
-
     def get_activities(self) -> list[Callable[..., Any]]:
         return all_activities(self)
 
@@ -117,16 +115,33 @@ class AgentActivities:
         )
 
         # For builder sessions, add bundled actions to the tool filters
-        actions_to_build = list(args.tool_filters.actions or [])
+        actions_to_build = [
+            s for action in (args.tool_filters.actions or []) if (s := action.strip())
+        ]
+        selected_mcp_action_names = {
+            mcp_tool_name_to_canonical(action)
+            for action in actions_to_build
+            if UserMCPClient.parse_user_mcp_tool_name(action)
+        }
+        approved_mcp_action_names = {
+            mcp_tool_name_to_canonical(tool_name)
+            for tool_name in (args.tool_approvals or {})
+            if UserMCPClient.parse_user_mcp_tool_name(tool_name)
+        }
+        registry_actions = [
+            action
+            for action in actions_to_build
+            if not UserMCPClient.parse_user_mcp_tool_name(action)
+        ]
         if is_builder:
             # Add bundled registry actions for builder (core.table.*, tools.exa.*)
             for action in BUILDER_BUNDLED_ACTIONS:
-                if action not in actions_to_build:
-                    actions_to_build.append(action)
+                if action not in registry_actions:
+                    registry_actions.append(action)
 
         result = await build_agent_tools(
             namespaces=args.tool_filters.namespaces,
-            actions=actions_to_build if actions_to_build else None,
+            actions=registry_actions if registry_actions else None,
             tool_approvals=args.tool_approvals,
         )
         # Convert to dict[str, MCPToolDefinition] keyed by canonical action name
@@ -154,18 +169,94 @@ class AgentActivities:
 
         # Discover user MCP tools if configured
         user_mcp_claims: list[UserMCPServerClaim] | None = None
+        if selected_mcp_action_names and not args.mcp_servers:
+            raise TracecatValidationError(
+                "MCP tools were selected, but no MCP servers are configured: "
+                f"{sorted(selected_mcp_action_names)}"
+            )
         if args.mcp_servers:
-            from tracecat.agent.mcp.user_client import discover_user_mcp_tools
+            http_servers = [cfg for cfg in args.mcp_servers if is_http_server(cfg)]
+            known_server_names = {cfg["name"] for cfg in args.mcp_servers}
+            stdio_server_names = {
+                cfg["name"] for cfg in args.mcp_servers if not is_http_server(cfg)
+            }
+            if selected_mcp_action_names:
+                selected_stdio_tools = {
+                    name
+                    for name in selected_mcp_action_names
+                    if (
+                        parsed := UserMCPClient.parse_user_mcp_tool_name(
+                            name,
+                            known_server_names=known_server_names,
+                        )
+                    )
+                    and parsed[0] in stdio_server_names
+                }
+                if selected_stdio_tools:
+                    raise TracecatValidationError(
+                        "Stdio MCP tools cannot be allowlisted individually in the "
+                        "Claude runtime because stdio integrations are mounted as "
+                        "whole servers: "
+                        f"{sorted(selected_stdio_tools)}"
+                    )
 
-            http_servers = [
-                cfg for cfg in args.mcp_servers if self._is_http_server(cfg)
-            ]
-            if not http_servers:
-                logger.info("No HTTP MCP servers configured for discovery")
-                http_servers = []
+            if args.tool_approvals:
+                stdio_approval_tools = {
+                    tool_name
+                    for tool_name in args.tool_approvals
+                    if (
+                        parsed := UserMCPClient.parse_user_mcp_tool_name(
+                            tool_name,
+                            known_server_names=known_server_names,
+                        )
+                    )
+                    and parsed[0] in stdio_server_names
+                }
+                if stdio_approval_tools:
+                    raise TracecatValidationError(
+                        "Stdio MCP tool approvals are not supported in the Claude "
+                        "runtime because approved stdio calls cannot be replayed "
+                        "through the executor: "
+                        f"{sorted(stdio_approval_tools)}"
+                    )
 
             try:
                 user_mcp_tools = await discover_user_mcp_tools(http_servers)
+
+                # If specific MCP tools were selected, only include those.
+                # Otherwise include all discovered MCP tools for backward compatibility.
+                if selected_mcp_action_names:
+                    canonical_mcp_names = {
+                        mcp_tool_name_to_canonical(tool_name)
+                        for tool_name in user_mcp_tools
+                    }
+                    missing_mcp_tools = selected_mcp_action_names - canonical_mcp_names
+                    if missing_mcp_tools:
+                        raise TracecatValidationError(
+                            "Some MCP tools were not found in configured integrations: "
+                            f"{sorted(missing_mcp_tools)}"
+                        )
+                    user_mcp_tools = {
+                        tool_name: tool_def
+                        for tool_name, tool_def in user_mcp_tools.items()
+                        if mcp_tool_name_to_canonical(tool_name)
+                        in selected_mcp_action_names
+                    }
+                else:
+                    canonical_mcp_names = {
+                        mcp_tool_name_to_canonical(tool_name)
+                        for tool_name in user_mcp_tools
+                    }
+
+                missing_mcp_approval_tools = (
+                    approved_mcp_action_names - canonical_mcp_names
+                )
+                if missing_mcp_approval_tools:
+                    raise TracecatValidationError(
+                        "Some MCP tool approvals did not match configured integrations: "
+                        f"{sorted(missing_mcp_approval_tools)}"
+                    )
+
                 # Add user MCP tools to definitions
                 for tool_name, tool_def in user_mcp_tools.items():
                     defs[tool_name] = tool_def
@@ -187,6 +278,8 @@ class AgentActivities:
                     tool_count=len(user_mcp_tools),
                     server_count=len(http_servers),
                 )
+            except TracecatValidationError:
+                raise
             except Exception as e:
                 logger.error(
                     "Failed to discover user MCP tools",

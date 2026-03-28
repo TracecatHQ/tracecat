@@ -13,10 +13,13 @@ from sqlalchemy import select
 
 from tracecat import config
 from tracecat.agent.common.types import MCPHttpServerConfig
+from tracecat.agent.mcp.user_client import UserMCPClient, discover_user_mcp_tools
+from tracecat.agent.mcp.utils import is_http_server, mcp_tool_name_to_canonical
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetUpdate,
     AgentPresetVersionDiff,
+    DiscoveredMCPTool,
     ScalarFieldChange,
     StringListFieldChange,
     ToolApprovalFieldChange,
@@ -31,6 +34,7 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersion,
+    MCPIntegration,
     OAuthIntegration,
 )
 from tracecat.dsl.common import create_default_execution_context
@@ -74,6 +78,106 @@ class AgentPresetService(BaseWorkspaceService):
         "enable_internet_access",
     }
 
+    @staticmethod
+    def _canonicalize_mcp_tool_name(
+        tool_name: str,
+        *,
+        mcp_servers: Sequence[MCPServerConfig] | None = None,
+    ) -> str:
+        """Normalize legacy display-name MCP tool IDs to slug-based IDs."""
+        if not tool_name.startswith("mcp.") or not mcp_servers:
+            return tool_name
+
+        canonical_name = tool_name.removeprefix("mcp.")
+        servers_by_display_length = sorted(
+            mcp_servers,
+            key=lambda cfg: len(str(cfg.get("display_name", cfg["name"]))),
+            reverse=True,
+        )
+
+        for server in servers_by_display_length:
+            server_slug = server["name"]
+            display_name = server.get("display_name", server_slug)
+
+            if canonical_name.startswith(f"{server_slug}."):
+                return tool_name
+
+            if display_name != server_slug and canonical_name.startswith(
+                f"{display_name}."
+            ):
+                original_tool_name = canonical_name[len(display_name) + 1 :]
+                if original_tool_name:
+                    return f"mcp.{server_slug}.{original_tool_name}"
+
+        return tool_name
+
+    @classmethod
+    def _canonicalize_mcp_actions(
+        cls,
+        actions: list[str] | None,
+        *,
+        mcp_servers: Sequence[MCPServerConfig] | None = None,
+    ) -> list[str] | None:
+        """Normalize MCP action IDs while preserving registry actions."""
+        if not actions:
+            return actions
+        return [
+            cls._canonicalize_mcp_tool_name(action, mcp_servers=mcp_servers)
+            for action in actions
+        ]
+
+    @classmethod
+    def _canonicalize_mcp_tool_approvals(
+        cls,
+        tool_approvals: dict[str, bool] | None,
+        *,
+        mcp_servers: Sequence[MCPServerConfig] | None = None,
+    ) -> dict[str, bool] | None:
+        """Normalize MCP approval keys while preserving approval semantics."""
+        if not tool_approvals:
+            return tool_approvals
+        return {
+            cls._canonicalize_mcp_tool_name(tool_name, mcp_servers=mcp_servers): allow
+            for tool_name, allow in tool_approvals.items()
+        }
+
+    async def _resolve_mcp_integration_identities(
+        self, mcp_integration_ids: list[str] | None
+    ) -> list[MCPServerConfig]:
+        """Resolve MCP integration slugs and display names without auth details."""
+        if not mcp_integration_ids:
+            return []
+
+        try:
+            integration_ids = [uuid.UUID(mcp_id) for mcp_id in mcp_integration_ids]
+        except ValueError:
+            return []
+        stmt = select(MCPIntegration).where(
+            MCPIntegration.workspace_id == self.workspace_id,
+            MCPIntegration.id.in_(integration_ids),
+        )
+        result = await self.session.execute(stmt)
+        integrations = result.scalars().all()
+        servers: list[MCPServerConfig] = []
+        for integration in integrations:
+            server: MCPServerConfig
+            if integration.stdio_command:
+                server = {
+                    "type": "stdio",
+                    "name": integration.slug,
+                    "display_name": integration.name,
+                    "command": integration.stdio_command,
+                }
+            else:
+                server = {
+                    "type": "http",
+                    "name": integration.slug,
+                    "display_name": integration.name,
+                    "url": integration.server_uri or "",
+                }
+            servers.append(server)
+        return servers
+
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
         """Return all agent presets for the current workspace ordered by recency."""
@@ -96,8 +200,32 @@ class AgentPresetService(BaseWorkspaceService):
             proposed_slug=params.slug,
             fallback_name=params.name,
         )
+        canonical_mcp_servers = await self._resolve_mcp_integration_identities(
+            params.mcp_integrations
+        )
+        canonical_actions = self._canonicalize_mcp_actions(
+            params.actions,
+            mcp_servers=canonical_mcp_servers,
+        )
+        canonical_tool_approvals = self._canonicalize_mcp_tool_approvals(
+            params.tool_approvals,
+            mcp_servers=canonical_mcp_servers,
+        )
         if params.actions:
-            await self._validate_actions(params.actions)
+            await self._validate_actions(
+                params.actions, mcp_integrations=params.mcp_integrations
+            )
+        if params.tool_approvals:
+            mcp_approval_tools = {
+                tool_name
+                for tool_name in params.tool_approvals
+                if UserMCPClient.parse_user_mcp_tool_name(tool_name)
+            }
+            await self._validate_mcp_tool_configuration(
+                mcp_action_names=mcp_approval_tools,
+                mcp_integrations=params.mcp_integrations,
+                mode="tool_approvals",
+            )
         if params.mcp_integrations:
             await self._validate_mcp_integrations(params.mcp_integrations)
         preset = AgentPreset(
@@ -110,9 +238,9 @@ class AgentPresetService(BaseWorkspaceService):
             model_provider=params.model_provider,
             base_url=params.base_url,
             output_type=params.output_type,
-            actions=params.actions,
+            actions=canonical_actions,
             namespaces=params.namespaces,
-            tool_approvals=params.tool_approvals,
+            tool_approvals=canonical_tool_approvals,
             mcp_integrations=params.mcp_integrations,
             enable_internet_access=params.enable_internet_access,
             retries=params.retries,
@@ -128,9 +256,9 @@ class AgentPresetService(BaseWorkspaceService):
             model_provider=preset.model_provider,
             base_url=preset.base_url,
             output_type=preset.output_type,
-            actions=preset.actions,
+            actions=canonical_actions,
             namespaces=preset.namespaces,
-            tool_approvals=preset.tool_approvals,
+            tool_approvals=canonical_tool_approvals,
             mcp_integrations=preset.mcp_integrations,
             retries=preset.retries,
             enable_internet_access=preset.enable_internet_access,
@@ -143,19 +271,122 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.refresh(preset)
         return preset
 
-    async def _validate_actions(self, actions: list[str]) -> None:
-        """Validate that all actions are in the registry index."""
-        actions_set = set(actions)
+    async def _validate_actions(
+        self,
+        actions: list[str],
+        *,
+        mcp_integrations: list[str] | None = None,
+    ) -> None:
+        """Validate registry actions in ``actions`` against the registry index.
+
+        User MCP actions (for example ``mcp.Linear.list_issues``) are validated
+        to ensure at least one MCP integration is configured.  The exact tool
+        name is resolved at execution time via ``build_tool_definitions()``.
+        """
+        normalized_actions = {s for action in actions if (s := action.strip())}
+        # Separate MCP tools from registry actions
+        mcp_actions = {
+            action
+            for action in normalized_actions
+            if UserMCPClient.parse_user_mcp_tool_name(action)
+        }
+        registry_actions = normalized_actions - mcp_actions
+
+        # Cross-check: MCP tool actions require at least one MCP integration
+        if mcp_actions and not mcp_integrations:
+            raise TracecatValidationError(
+                "Actions reference MCP tools but no MCP integrations are configured: "
+                f"{sorted(mcp_actions)}"
+            )
+        if mcp_actions:
+            await self._validate_mcp_tool_configuration(
+                mcp_action_names=mcp_actions,
+                mcp_integrations=mcp_integrations,
+                mode="actions",
+            )
+
+        if not registry_actions:
+            return
         registry_service = RegistryActionsService(self.session, role=self.role)
         index_entries = await registry_service.list_actions_from_index(
-            include_keys=actions_set
+            include_keys=registry_actions
         )
         available_identifiers = {
             f"{entry.namespace}.{entry.name}" for entry, _ in index_entries
         }
-        if missing_actions := actions_set - available_identifiers:
+        if missing_actions := registry_actions - available_identifiers:
             raise TracecatValidationError(
                 f"{len(missing_actions)} actions were not found in the registry: {sorted(missing_actions)}"
+            )
+
+    async def _validate_mcp_tool_configuration(
+        self,
+        *,
+        mcp_action_names: set[str],
+        mcp_integrations: list[str] | None,
+        mode: str,
+    ) -> None:
+        """Reject MCP configs the current runtimes cannot enforce safely."""
+        if not mcp_action_names:
+            return
+        if not mcp_integrations:
+            raise TracecatValidationError(
+                "MCP tools were referenced but no MCP integrations are configured: "
+                f"{sorted(mcp_action_names)}"
+            )
+
+        mcp_servers = await self._resolve_mcp_integrations(mcp_integrations)
+        if not mcp_servers:
+            raise TracecatValidationError(
+                "No matching MCP integrations found for this preset in the workspace"
+            )
+
+        canonical_mcp_action_names = {
+            self._canonicalize_mcp_tool_name(
+                action_name,
+                mcp_servers=mcp_servers,
+            )
+            for action_name in mcp_action_names
+        }
+        known_server_names = {cfg["name"] for cfg in mcp_servers}
+        stdio_server_names = {
+            cfg["name"] for cfg in mcp_servers if not is_http_server(cfg)
+        }
+        http_servers = [cfg for cfg in mcp_servers if is_http_server(cfg)]
+        unsupported_stdio_tools = {
+            action_name
+            for action_name in canonical_mcp_action_names
+            if (
+                parsed := UserMCPClient.parse_user_mcp_tool_name(
+                    action_name,
+                    known_server_names=known_server_names,
+                )
+            )
+            and parsed[0] in stdio_server_names
+        }
+        if unsupported_stdio_tools:
+            if mode == "actions":
+                raise TracecatValidationError(
+                    "Stdio MCP tools cannot be allowlisted individually because the "
+                    "Claude runtime mounts stdio integrations as whole servers: "
+                    f"{sorted(unsupported_stdio_tools)}"
+                )
+            if mode == "tool_approvals":
+                raise TracecatValidationError(
+                    "Stdio MCP tool approvals are not supported because approved "
+                    "stdio calls cannot be replayed through the executor: "
+                    f"{sorted(unsupported_stdio_tools)}"
+                )
+            raise ValueError(f"Unknown MCP validation mode: {mode}")
+
+        discovered_mcp_tools = await discover_user_mcp_tools(http_servers)
+        available_mcp_tool_names = {
+            mcp_tool_name_to_canonical(tool_name) for tool_name in discovered_mcp_tools
+        }
+        if missing_mcp_tools := canonical_mcp_action_names - available_mcp_tool_names:
+            raise TracecatValidationError(
+                "Some MCP tools were not found in configured integrations: "
+                f"{sorted(missing_mcp_tools)}"
             )
 
     @require_scope("agent:update")
@@ -184,7 +415,18 @@ class AgentPresetService(BaseWorkspaceService):
         if "actions" in set_fields:
             # Select in RegistryAction actions that are in the list of actions
             if actions := set_fields.pop("actions"):
-                await self._validate_actions(actions)
+                # Use the effective mcp_integrations (update value or existing)
+                effective_mcp = set_fields.get(
+                    "mcp_integrations", preset.mcp_integrations
+                )
+                await self._validate_actions(actions, mcp_integrations=effective_mcp)
+                canonical_mcp_servers = await self._resolve_mcp_integration_identities(
+                    effective_mcp
+                )
+                actions = self._canonicalize_mcp_actions(
+                    actions,
+                    mcp_servers=canonical_mcp_servers,
+                )
             # If we reach this point, all actions are valid or was empty
             if preset.actions != actions:
                 preset.actions = actions
@@ -193,9 +435,66 @@ class AgentPresetService(BaseWorkspaceService):
         if "mcp_integrations" in set_fields:
             if mcp_integrations := set_fields.pop("mcp_integrations"):
                 await self._validate_mcp_integrations(mcp_integrations)
+            # Re-validate existing actions against the new mcp_integrations
+            # to prevent removing integrations that are still referenced.
+            effective_actions = preset.actions
+            if effective_actions:
+                mcp_actions = [
+                    a
+                    for a in effective_actions
+                    if UserMCPClient.parse_user_mcp_tool_name(a)
+                ]
+                if mcp_actions and not mcp_integrations:
+                    raise TracecatValidationError(
+                        "Cannot remove MCP integrations while actions still "
+                        f"reference MCP tools: {sorted(mcp_actions)}"
+                    )
+                await self._validate_mcp_tool_configuration(
+                    mcp_action_names=set(mcp_actions),
+                    mcp_integrations=mcp_integrations,
+                    mode="actions",
+                )
+            effective_tool_approvals = (
+                set_fields.get("tool_approvals", preset.tool_approvals) or {}
+            )
+            if effective_tool_approvals:
+                mcp_approval_tools = {
+                    tool_name
+                    for tool_name in effective_tool_approvals
+                    if UserMCPClient.parse_user_mcp_tool_name(tool_name)
+                }
+                await self._validate_mcp_tool_configuration(
+                    mcp_action_names=mcp_approval_tools,
+                    mcp_integrations=mcp_integrations,
+                    mode="tool_approvals",
+                )
             if preset.mcp_integrations != mcp_integrations:
                 preset.mcp_integrations = mcp_integrations
                 execution_changed = True
+
+        if "tool_approvals" in set_fields:
+            tool_approvals = set_fields["tool_approvals"]
+            if tool_approvals:
+                effective_mcp = set_fields.get(
+                    "mcp_integrations", preset.mcp_integrations
+                )
+                mcp_approval_tools = {
+                    tool_name
+                    for tool_name in tool_approvals
+                    if UserMCPClient.parse_user_mcp_tool_name(tool_name)
+                }
+                await self._validate_mcp_tool_configuration(
+                    mcp_action_names=mcp_approval_tools,
+                    mcp_integrations=effective_mcp,
+                    mode="tool_approvals",
+                )
+                canonical_mcp_servers = await self._resolve_mcp_integration_identities(
+                    effective_mcp
+                )
+                set_fields["tool_approvals"] = self._canonicalize_mcp_tool_approvals(
+                    tool_approvals,
+                    mcp_servers=canonical_mcp_servers,
+                )
 
         # Update remaining fields
         for field, value in set_fields.items():
@@ -513,6 +812,7 @@ class AgentPresetService(BaseWorkspaceService):
                 command_config: MCPServerConfig = {
                     "type": "stdio",
                     "name": mcp_integration.slug,
+                    "display_name": mcp_integration.name,
                     "command": mcp_integration.stdio_command,
                 }
                 if mcp_integration.stdio_args:
@@ -669,7 +969,8 @@ class AgentPresetService(BaseWorkspaceService):
             # Build MCP server config
             http_config: MCPHttpServerConfig = {
                 "type": "http",
-                "name": mcp_integration.name,
+                "name": mcp_integration.slug,
+                "display_name": mcp_integration.name,
                 "url": mcp_integration.server_uri,
                 "headers": headers,
             }
@@ -1047,9 +1348,15 @@ class AgentPresetService(BaseWorkspaceService):
             base_url=version.base_url,
             instructions=version.instructions,
             output_type=cast(OutputType | None, version.output_type),
-            actions=version.actions,
+            actions=self._canonicalize_mcp_actions(
+                version.actions,
+                mcp_servers=mcp_servers,
+            ),
             namespaces=version.namespaces,
-            tool_approvals=version.tool_approvals,
+            tool_approvals=self._canonicalize_mcp_tool_approvals(
+                version.tool_approvals,
+                mcp_servers=mcp_servers,
+            ),
             mcp_servers=mcp_servers,
             retries=version.retries,
             model_settings=model_settings,
@@ -1111,3 +1418,32 @@ class AgentPresetService(BaseWorkspaceService):
         preset.mcp_integrations = version.mcp_integrations
         preset.retries = version.retries
         preset.enable_internet_access = version.enable_internet_access
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def discover_mcp_tools(
+        self, mcp_integration_ids: list[str]
+    ) -> list[DiscoveredMCPTool]:
+        """Discover tools from MCP integrations for the approval selector."""
+        mcp_servers = await self._resolve_mcp_integrations(mcp_integration_ids)
+        if not mcp_servers:
+            return []
+
+        http_servers = [cfg for cfg in mcp_servers if is_http_server(cfg)]
+        tools = await discover_user_mcp_tools(http_servers)
+        if not tools:
+            return []
+        display_names_by_server = {
+            cfg["name"]: cfg.get("display_name", cfg["name"]) for cfg in http_servers
+        }
+
+        return [
+            DiscoveredMCPTool(
+                name=mcp_tool_name_to_canonical(name),
+                description=defn.description,
+                server_name=display_names_by_server.get(
+                    name.split("__")[1] if "__" in name else "",
+                    "unknown",
+                ),
+            )
+            for name, defn in tools.items()
+        ]

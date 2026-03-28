@@ -12,6 +12,8 @@ from tracecat.agent.preset.schemas import (
     AgentPresetVersionDiff,
     AgentPresetVersionRead,
     AgentPresetVersionReadMinimal,
+    DiscoveredMCPTool,
+    DiscoverMCPToolsRequest,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.credentials import RoleACL
@@ -63,6 +65,25 @@ async def create_agent_preset(
     try:
         preset = await service.create_preset(params)
         return AgentPresetRead.model_validate(preset)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+
+@router.post("/discover-mcp-tools", response_model=list[DiscoveredMCPTool])
+@require_scope("agent:read")
+async def discover_mcp_tools(
+    *,
+    params: DiscoverMCPToolsRequest,
+    role: WorkspaceEditorRole,
+    session: AsyncDBSession,
+) -> list[DiscoveredMCPTool]:
+    """Discover tools from MCP integrations for the approval selector."""
+    service = AgentPresetService(session, role=role)
+    try:
+        return await service.discover_mcp_tools(params.mcp_integration_ids)
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

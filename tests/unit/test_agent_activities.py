@@ -7,6 +7,7 @@ These tests cover:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,8 +17,12 @@ from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
+    ExecuteApprovedToolsInput,
+    _execute_user_mcp_tool_with_heartbeat,
+    execute_approved_tools_activity,
     run_agent_activity,
 )
+from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
@@ -31,6 +36,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.registry.lock.types import RegistryLock
 
 
 @pytest.fixture
@@ -440,3 +446,96 @@ class TestRunAgentActivity:
 
             # Should send heartbeat at start and end
             assert mock_activity.heartbeat.call_count >= 2
+
+
+class TestApprovedToolExecutionHeartbeat:
+    """Tests for heartbeat behavior while executing approved tools."""
+
+    @pytest.mark.anyio
+    async def test_user_mcp_execution_sends_periodic_heartbeats(self) -> None:
+        """Send heartbeats while waiting on a long-running user MCP call."""
+
+        async def slow_call_user_mcp_tool(
+            *,
+            configs,
+            server_name,
+            tool_name,
+            args,
+        ):
+            del configs, server_name, tool_name, args
+            await asyncio.sleep(0.03)
+            return {"ok": True}
+
+        with (
+            patch(
+                "tracecat.agent.executor.activity.call_user_mcp_tool",
+                side_effect=slow_call_user_mcp_tool,
+            ) as mock_call_user_mcp_tool,
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+            patch("tracecat.agent.executor.activity.HEARTBEAT_INTERVAL", 0.01),
+        ):
+            mock_activity.heartbeat = MagicMock()
+
+            result = await _execute_user_mcp_tool_with_heartbeat(
+                configs=[{"name": "Linear", "url": "https://mcp.example.com"}],
+                server_name="Linear",
+                tool_name="issues.list",
+                args={"limit": 10},
+                original_tool_name="mcp.Linear.issues.list",
+            )
+
+            assert result == {"ok": True}
+            mock_call_user_mcp_tool.assert_awaited_once()
+            assert mock_activity.heartbeat.call_count >= 1
+            assert any(
+                "Executing tool mcp.Linear.issues.list" in call.args[0]
+                for call in mock_activity.heartbeat.call_args_list
+                if call.args
+            )
+
+    @pytest.mark.anyio
+    async def test_approved_mcp_results_match_auto_approved_encoding(
+        self, mock_role: Role
+    ) -> None:
+        """Replay should preserve plain string MCP tool output."""
+        input = ExecuteApprovedToolsInput(
+            session_id=uuid.uuid4(),
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            role=mock_role,
+            approved_tools=[
+                ApprovedToolCall(
+                    tool_call_id="toolu_123",
+                    tool_name="mcp.Linear.list_issues",
+                    args={"limit": 10},
+                )
+            ],
+            denied_tools=[],
+            allowed_actions=[],
+            registry_lock=RegistryLock(origins={}, actions={}),
+            user_mcp_configs=[
+                {
+                    "type": "http",
+                    "name": "Linear",
+                    "display_name": "Linear",
+                    "url": "https://mcp.example.com",
+                }
+            ],
+        )
+
+        with (
+            patch(
+                "tracecat.agent.executor.activity._execute_user_mcp_tool_with_heartbeat",
+                new=AsyncMock(return_value='{"items":[]}'),
+            ),
+            patch("tracecat.agent.executor.activity.activity") as mock_activity,
+        ):
+            mock_activity.heartbeat = MagicMock()
+
+            result = await execute_approved_tools_activity(input)
+
+        assert result.success is True
+        assert len(result.results) == 1
+        assert result.results[0].tool_call_id == "toolu_123"
+        assert result.results[0].tool_name == "mcp.Linear.list_issues"
+        assert result.results[0].result == '{"items":[]}'
+        assert result.results[0].is_error is False

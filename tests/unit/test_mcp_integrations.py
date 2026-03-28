@@ -225,6 +225,30 @@ class TestMCPIntegrationCRUD:
         assert headers.get("Authorization") == "Bearer test_access_token"
         assert headers.get("X-Wiz-Tenant") == "tenant-a"
 
+    async def test_resolve_http_mcp_uses_slug_as_server_identifier(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """HTTP MCP configs should use the integration slug as the server ID."""
+        params = MCPHttpIntegrationCreate(
+            name="Linear",
+            server_uri="https://api.example.com/mcp",
+            auth_type=MCPAuthType.NONE,
+        )
+        created = await integration_service.create_mcp_integration(params=params)
+
+        preset_service = AgentPresetService(
+            session=integration_service.session,
+            role=integration_service.role,
+        )
+        resolved = await preset_service._resolve_mcp_integrations([str(created.id)])
+
+        assert resolved is not None
+        assert len(resolved) == 1
+        assert resolved[0]["name"] == "linear"
+        assert resolved[0].get("display_name") == "Linear"
+        assert created.slug == "linear"
+
     async def test_resolve_oauth2_mcp_filters_authorization_header_variants(
         self,
         integration_service: IntegrationService,
@@ -346,7 +370,7 @@ class TestMCPIntegrationCRUD:
         assert updated is not None
         assert updated.name == "Updated MCP"
         assert updated.description == "Updated description"
-        assert updated.slug == "updated-mcp"  # Slug regenerated when name changes
+        assert updated.slug == created.slug  # Slug remains stable when name changes
         assert updated.server_uri == created.server_uri  # Unchanged
 
     async def test_update_mcp_integration_partial(
@@ -1029,6 +1053,29 @@ class TestMCPIntegrationValidation:
             mcp_integration_id=non_existent_id, params=update_params
         )
         assert result is None
+
+    async def test_rename_preserves_existing_slug(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Renaming an MCP integration should not change its stable slug."""
+        created = await integration_service.create_mcp_integration(
+            params=MCPHttpIntegrationCreate(
+                name="Linear MCP",
+                server_uri="https://api.example.com/mcp",
+                auth_type=MCPAuthType.NONE,
+            )
+        )
+
+        original_slug = created.slug
+        updated = await integration_service.update_mcp_integration(
+            mcp_integration_id=created.id,
+            params=MCPIntegrationUpdate(name="Renamed MCP"),
+        )
+
+        assert updated is not None
+        assert updated.name == "Renamed MCP"
+        assert updated.slug == original_slug
 
 
 @pytest.mark.anyio

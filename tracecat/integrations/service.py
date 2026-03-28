@@ -1276,9 +1276,6 @@ class IntegrationService(BaseWorkspaceService):
         if params.name is not None:
             if params.name.strip() != mcp_integration.name:
                 mcp_integration.name = params.name.strip()
-                mcp_integration.slug = await self._generate_mcp_integration_slug(
-                    name=params.name
-                )
         if params.description is not None:
             mcp_integration.description = (
                 params.description.strip() if params.description else None

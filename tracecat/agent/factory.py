@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeGuard
+from typing import Any, Protocol, cast
 
 from pydantic_ai import Agent, ModelSettings
 from pydantic_ai.agent import AbstractAgent
@@ -9,7 +9,8 @@ from pydantic_ai.mcp import MCPServerStreamableHTTP
 from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.tools import Tool as PATool
 
-from tracecat.agent.common.types import MCPHttpServerConfig, MCPServerConfig
+from tracecat.agent.mcp.user_client import UserMCPClient
+from tracecat.agent.mcp.utils import is_http_server
 from tracecat.agent.parsers import parse_output_type
 from tracecat.agent.prompts import ToolCallPrompt, VerbosityPrompt
 from tracecat.agent.providers import get_model
@@ -20,20 +21,173 @@ from tracecat.agent.types import AgentConfig
 type AgentFactory = Callable[[AgentConfig], Awaitable[AbstractAgent[Any, Any]]]
 
 
-def _is_http_server(config: MCPServerConfig) -> TypeGuard[MCPHttpServerConfig]:
-    # Legacy HTTP configs may omit "type"; treat missing as HTTP for compatibility.
-    return config.get("type", "http") == "http"
+class _ToolsetWithGetTools(Protocol):
+    async def get_tools(self, ctx: Any) -> dict[str, Any]: ...
+
+
+class _FilteredMCPToolsetMixin:
+    """Filter MCP tool exposure to an allowlisted subset when configured."""
+
+    def __init__(
+        self,
+        *args: Any,
+        allowed_tool_names: set[str] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self._allowed_tool_names = (
+            frozenset(allowed_tool_names) if allowed_tool_names else None
+        )
+        super().__init__(*args, **kwargs)
+
+    async def get_tools(self, ctx: Any) -> dict[str, Any]:
+        toolset = cast(_ToolsetWithGetTools, super())
+        tools = await toolset.get_tools(ctx)
+        if self._allowed_tool_names is None:
+            return tools
+        return {
+            tool_name: tool
+            for tool_name, tool in tools.items()
+            if tool_name in self._allowed_tool_names
+        }
+
+
+class _FilteredMCPServerStreamableHTTP(
+    _FilteredMCPToolsetMixin, MCPServerStreamableHTTP
+):
+    """HTTP MCP server with optional per-tool filtering."""
+
+
+def _partition_actions(
+    config: AgentConfig,
+) -> tuple[list[str], dict[str, set[str]]]:
+    """Split configured actions into registry actions and MCP tool allowlists."""
+    registry_actions: list[str] = []
+    selected_mcp_tools_by_server: dict[str, set[str]] = {}
+    known_server_names = (
+        {server["name"] for server in config.mcp_servers}
+        if config.mcp_servers
+        else None
+    )
+
+    for action_name in config.actions or []:
+        if not (normalized_action := action_name.strip()):
+            continue
+
+        parsed = UserMCPClient.parse_user_mcp_tool_name(
+            normalized_action,
+            known_server_names=known_server_names,
+        )
+        if parsed is None:
+            registry_actions.append(normalized_action)
+            continue
+
+        server_name, original_tool_name = parsed
+        selected_mcp_tools_by_server.setdefault(server_name, set()).add(
+            original_tool_name
+        )
+
+    return registry_actions, selected_mcp_tools_by_server
+
+
+def _has_mcp_tool_approvals(config: AgentConfig) -> bool:
+    """Return True when tool approvals target user MCP tools."""
+    if not config.tool_approvals:
+        return False
+
+    known_server_names = (
+        {server["name"] for server in config.mcp_servers}
+        if config.mcp_servers
+        else None
+    )
+    return any(
+        UserMCPClient.parse_user_mcp_tool_name(
+            tool_name,
+            known_server_names=known_server_names,
+        )
+        is not None
+        for tool_name in config.tool_approvals
+    )
+
+
+def _build_mcp_toolsets(
+    config: AgentConfig,
+    *,
+    selected_mcp_tools_by_server: dict[str, set[str]],
+) -> list[Any] | None:
+    """Build MCP toolsets, optionally restricting each server to selected tools."""
+    if not config.mcp_servers:
+        return None
+
+    toolsets: list[Any] = []
+    selected_servers = (
+        set(selected_mcp_tools_by_server) if selected_mcp_tools_by_server else None
+    )
+    seen_servers: set[str] = set()
+
+    for server in config.mcp_servers:
+        server_name = server["name"]
+        if selected_servers is not None and server_name not in selected_servers:
+            continue
+
+        seen_servers.add(server_name)
+        allowed_tool_names = selected_mcp_tools_by_server.get(server_name)
+
+        if not is_http_server(server):
+            if allowed_tool_names:
+                raise ValueError(
+                    "Stdio MCP servers are not supported in the PydanticAI runtime"
+                )
+            continue
+
+        server_timeout = server.get("timeout")
+        if server_timeout is None:
+            toolsets.append(
+                _FilteredMCPServerStreamableHTTP(
+                    url=server["url"],
+                    headers=server.get("headers", {}),
+                    allowed_tool_names=allowed_tool_names,
+                )
+            )
+        else:
+            toolsets.append(
+                _FilteredMCPServerStreamableHTTP(
+                    url=server["url"],
+                    headers=server.get("headers", {}),
+                    timeout=float(server_timeout),
+                    allowed_tool_names=allowed_tool_names,
+                )
+            )
+
+    if selected_servers and (missing_servers := selected_servers - seen_servers):
+        raise ValueError(
+            "Requested MCP tools reference servers that are not configured: "
+            f"{sorted(missing_servers)}"
+        )
+
+    return toolsets or None
 
 
 async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
     """The default factory for building an agent."""
 
+    registry_actions, selected_mcp_tools_by_server = _partition_actions(config)
+    if selected_mcp_tools_by_server and not config.mcp_servers:
+        raise ValueError(
+            "MCP tools were selected, but no MCP servers are configured: "
+            f"{sorted(selected_mcp_tools_by_server)}"
+        )
+
+    if _has_mcp_tool_approvals(config):
+        raise ValueError(
+            "MCP tool approvals are not supported in the PydanticAI runtime"
+        )
+
     agent_tools: list[PATool] = []
     tool_prompt_tools: list[PATool] = []
-    if config.actions:
+    if registry_actions:
         tools_result = await build_agent_tools(
             namespaces=config.namespaces,
-            actions=config.actions,
+            actions=registry_actions,
             tool_approvals=config.tool_approvals,
         )
         # Convert Tracecat Tools to pydantic-ai Tools
@@ -60,29 +214,10 @@ async def build_agent(config: AgentConfig) -> Agent[Any, Any]:
         instruction_parts = [instructions, tool_calling_prompt.prompt]
         instructions = "\n".join(part for part in instruction_parts if part)
 
-    toolsets = None
-    if config.mcp_servers:
-        http_servers = [
-            server for server in config.mcp_servers if _is_http_server(server)
-        ]
-        toolsets = []
-        for server in http_servers:
-            server_timeout = server.get("timeout")
-            if server_timeout is None:
-                toolsets.append(
-                    MCPServerStreamableHTTP(
-                        url=server["url"],
-                        headers=server.get("headers", {}),
-                    )
-                )
-            else:
-                toolsets.append(
-                    MCPServerStreamableHTTP(
-                        url=server["url"],
-                        headers=server.get("headers", {}),
-                        timeout=float(server_timeout),
-                    )
-                )
+    toolsets = _build_mcp_toolsets(
+        config,
+        selected_mcp_tools_by_server=selected_mcp_tools_by_server,
+    )
 
     output_type_for_agent: type[Any] | list[type[Any]]
     # If any tool requires approval, include DeferredToolRequests in output types

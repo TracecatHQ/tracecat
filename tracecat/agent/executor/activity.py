@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import tempfile
 import uuid
@@ -20,12 +21,18 @@ from tracecat.agent.common.config import (
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.common.types import (
+    MCPHttpServerConfig,
+    MCPServerConfig,
+    MCPToolDefinition,
+)
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
     LoopbackResult,
 )
+from tracecat.agent.mcp.user_client import UserMCPClient, call_user_mcp_tool
+from tracecat.agent.mcp.utils import is_http_server, normalize_mcp_tool_name
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
 from tracecat.agent.session.service import AgentSessionService
@@ -86,7 +93,7 @@ class AgentExecutorResult(BaseModel):
 
 
 class ExecuteApprovedToolsInput(BaseModel):
-    """Deprecated compatibility input for approval-path tool execution."""
+    """Input for the execute_approved_tools_activity."""
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -97,10 +104,12 @@ class ExecuteApprovedToolsInput(BaseModel):
     denied_tools: list[DeniedToolCall]
     allowed_actions: list[str]
     registry_lock: RegistryLock
+    # User MCP server configs for executing approved MCP tools
+    user_mcp_configs: list[MCPServerConfig] | None = None
 
 
 class ExecuteApprovedToolsResult(BaseModel):
-    """Deprecated compatibility result for approval-path tool execution."""
+    """Result from execute_approved_tools_activity."""
 
     results: list[ToolExecutionResult]
     success: bool = True
@@ -573,3 +582,156 @@ async def run_agent_activity(
         activity.heartbeat(f"Agent execution failed: {result.error}")
 
     return result
+
+
+# --- Approved Tools Execution Activity ---
+
+
+HEARTBEAT_INTERVAL = 30  # seconds - must be less than heartbeat_timeout (60s)
+
+
+async def _await_with_heartbeat(
+    task: asyncio.Task[Any],
+    *,
+    tool_name: str,
+) -> Any:
+    """Await a task while sending periodic Temporal heartbeats."""
+    elapsed = 0
+    try:
+        while True:
+            try:
+                return await asyncio.wait_for(
+                    asyncio.shield(task),
+                    timeout=HEARTBEAT_INTERVAL,
+                )
+            except TimeoutError:
+                elapsed += HEARTBEAT_INTERVAL
+                activity.heartbeat(f"Executing tool {tool_name}: {elapsed}s elapsed")
+                logger.debug(
+                    "Heartbeat sent while executing tool",
+                    tool_name=tool_name,
+                    elapsed=elapsed,
+                )
+    finally:
+        if not task.done():
+            task.cancel()
+
+
+async def _execute_user_mcp_tool_with_heartbeat(
+    configs: list[MCPHttpServerConfig],
+    server_name: str,
+    tool_name: str,
+    args: dict[str, Any],
+    *,
+    original_tool_name: str,
+) -> Any:
+    """Execute a user MCP tool with periodic Temporal heartbeats."""
+    mcp_task = asyncio.create_task(
+        call_user_mcp_tool(
+            configs=configs,
+            server_name=server_name,
+            tool_name=tool_name,
+            args=args,
+        )
+    )
+    return await _await_with_heartbeat(mcp_task, tool_name=original_tool_name)
+
+
+def _encode_approved_mcp_result(result: Any) -> str:
+    """Preserve plain text tool output while stringifying structured values."""
+    if isinstance(result, str):
+        return result
+    return json.dumps(result, default=str)
+
+
+@activity.defn
+async def execute_approved_tools_activity(
+    input: ExecuteApprovedToolsInput,
+) -> ExecuteApprovedToolsResult:
+    """Execute approved HTTP MCP tools after approval."""
+    activity.heartbeat(f"Executing approved tools for session: {input.session_id}")
+
+    results: list[ToolExecutionResult] = []
+    if input.denied_tools:
+        raise ValueError(
+            "Denied tools must be reconciled by the workflow, not the agent executor"
+        )
+    if not input.user_mcp_configs:
+        raise ValueError("HTTP MCP configs are required for approved MCP execution")
+
+    logger.info(
+        "Executing approved tools",
+        session_id=str(input.session_id),
+        approved_count=len(input.approved_tools),
+        denied_count=0,
+    )
+    known_mcp_server_names = {cfg["name"] for cfg in input.user_mcp_configs}
+    http_configs = [cfg for cfg in input.user_mcp_configs if is_http_server(cfg)]
+
+    # Execute approved tools
+    for tool_call in input.approved_tools:
+        activity.heartbeat(f"Executing tool: {tool_call.tool_name}")
+
+        try:
+            parsed_mcp = UserMCPClient.parse_user_mcp_tool_name(
+                tool_call.tool_name,
+                known_server_names=known_mcp_server_names,
+            )
+            if parsed_mcp is None:
+                parsed_mcp = UserMCPClient.parse_user_mcp_tool_name(
+                    normalize_mcp_tool_name(tool_call.tool_name),
+                    known_server_names=known_mcp_server_names,
+                )
+            if parsed_mcp is None:
+                raise ValueError(
+                    f"Approved tool is not a configured HTTP MCP tool: {tool_call.tool_name}"
+                )
+
+            logger.info(
+                "Executing approved tool",
+                tool_call_id=tool_call.tool_call_id,
+                tool_name=tool_call.tool_name,
+                is_mcp_tool=True,
+            )
+
+            server_name, original_tool_name = parsed_mcp
+            result = await _execute_user_mcp_tool_with_heartbeat(
+                configs=http_configs,
+                server_name=server_name,
+                tool_name=original_tool_name,
+                args=tool_call.args,
+                original_tool_name=tool_call.tool_name,
+            )
+
+            tool_result = ToolExecutionResult(
+                tool_call_id=tool_call.tool_call_id,
+                tool_name=tool_call.tool_name,
+                result=_encode_approved_mcp_result(result),
+                is_error=False,
+            )
+            results.append(tool_result)
+
+            logger.info(
+                "Tool executed successfully",
+                tool_call_id=tool_call.tool_call_id,
+                tool_name=tool_call.tool_name,
+            )
+
+        except Exception as e:
+            logger.exception(
+                "Approved MCP tool execution failed",
+                tool_call_id=tool_call.tool_call_id,
+                tool_name=tool_call.tool_name,
+                error=str(e),
+            )
+            tool_result = ToolExecutionResult(
+                tool_call_id=tool_call.tool_call_id,
+                tool_name=tool_call.tool_name,
+                result=f"Tool execution failed: {e}",
+                is_error=True,
+            )
+            results.append(tool_result)
+
+    activity.heartbeat(f"Completed tool execution: {len(results)} results")
+
+    return ExecuteApprovedToolsResult(results=results)

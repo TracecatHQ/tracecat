@@ -1,6 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useQuery } from "@tanstack/react-query"
 import {
   AlertCircle,
   Box,
@@ -40,6 +41,7 @@ import type {
   AgentPresetRead,
   AgentPresetUpdate,
 } from "@/client"
+import { agentPresetsDiscoverMcpTools } from "@/client"
 import { AgentPresetDeleteDialog } from "@/components/agents/agent-preset-delete-dialog"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
 import { AgentPresetVersionsPanel } from "@/components/agents/agent-preset-versions-panel"
@@ -147,17 +149,25 @@ const DEFAULT_RETRIES = 3
  * This handles both built-in MCP providers and custom integrations.
  */
 function getMcpProviderId(slug: string): string | undefined {
-  // Map common slugs to provider IDs
+  // Map common slugs to provider IDs.
+  // Slugs from built-in providers already equal the provider ID (e.g. "linear_mcp"),
+  // so we include both short names and the full provider IDs as keys.
   const slugMap: Record<string, string> = {
     "github-copilot": "github_mcp",
     github: "github_mcp",
+    github_mcp: "github_mcp",
     sentry: "sentry_mcp",
+    sentry_mcp: "sentry_mcp",
     notion: "notion_mcp",
+    notion_mcp: "notion_mcp",
     linear: "linear_mcp",
     jira: "jira_mcp",
+    linear_mcp: "linear_mcp",
     runreveal: "runreveal_mcp",
+    runreveal_mcp: "runreveal_mcp",
     "secure-annex": "secureannex_mcp",
     secureannex: "secureannex_mcp",
+    secureannex_mcp: "secureannex_mcp",
     wiz: "wiz_mcp",
   }
 
@@ -314,6 +324,7 @@ export function AgentPresetsBuilder({
       .map((integration) => ({
         id: integration.id,
         name: integration.name,
+        slug: integration.slug,
         description: integration.description,
         providerId: getMcpProviderId(integration.slug),
       }))
@@ -870,8 +881,46 @@ type AgentPresetSideTab =
 type McpIntegrationOption = {
   id: string
   name: string
+  slug: string
   description?: string | null
   providerId?: string
+}
+
+function parseCanonicalMcpToolName(
+  value: string
+): { serverSlug: string; toolName: string } | null {
+  const match = value.match(/^mcp\.([^.]+)\.(.+)$/)
+  if (!match?.[1] || !match[2]) {
+    return null
+  }
+  return {
+    serverSlug: match[1],
+    toolName: match[2],
+  }
+}
+
+function normalizeLegacyMcpToolValue(
+  value: string,
+  integrations: McpIntegrationOption[]
+): string {
+  if (!value.startsWith("mcp.")) {
+    return value
+  }
+
+  for (const integration of [...integrations].sort(
+    (left, right) => right.name.length - left.name.length
+  )) {
+    const legacyPrefix = `mcp.${integration.name}.`
+    if (
+      integration.slug !== integration.name &&
+      value.startsWith(legacyPrefix) &&
+      value.length > legacyPrefix.length
+    ) {
+      return `mcp.${integration.slug}.${value.slice(legacyPrefix.length)}`
+    }
+  }
+
+  return value
 }
 
 function getAgentPresetErrorTab(
@@ -984,6 +1033,7 @@ function AgentPresetForm({
   const watchedName = form.watch("name")
   const providerValue = form.watch("model_provider")
   const modelNameValue = form.watch("model_name")
+  const watchedMcpIntegrationIds = form.watch("mcpIntegrations")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
 
   useEffect(() => {
@@ -992,6 +1042,36 @@ function AgentPresetForm({
       form.setValue("slug", nextSlug, { shouldDirty: false })
     }
   }, [form, watchedName])
+
+  useEffect(() => {
+    const selectedIntegrations = mcpIntegrations.filter((integration) =>
+      watchedMcpIntegrationIds.includes(integration.id)
+    )
+    if (selectedIntegrations.length === 0) {
+      return
+    }
+
+    const currentActions = form.getValues("actions")
+    const normalizedActions = currentActions.map((action) =>
+      normalizeLegacyMcpToolValue(action, selectedIntegrations)
+    )
+    if (JSON.stringify(currentActions) !== JSON.stringify(normalizedActions)) {
+      form.setValue("actions", normalizedActions, { shouldDirty: false })
+    }
+
+    const currentApprovals = form.getValues("toolApprovals")
+    const normalizedApprovals = currentApprovals.map((approval) => ({
+      ...approval,
+      tool: normalizeLegacyMcpToolValue(approval.tool, selectedIntegrations),
+    }))
+    if (
+      JSON.stringify(currentApprovals) !== JSON.stringify(normalizedApprovals)
+    ) {
+      form.setValue("toolApprovals", normalizedApprovals, {
+        shouldDirty: false,
+      })
+    }
+  }, [form, mcpIntegrations, watchedMcpIntegrationIds])
 
   useEffect(() => {
     if (
@@ -1490,6 +1570,111 @@ function AgentPresetConfigurationPanel({
   const providerValue = form.watch("model_provider")
   const internetAccessEnabled = form.watch("enableInternetAccess")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
+  const watchedMcpIntegrations = form.watch("mcpIntegrations")
+  const watchedActions = form.watch("actions")
+  const watchedToolApprovals = form.watch("toolApprovals")
+  const workspaceId = useWorkspaceId()
+
+  // Discover MCP tools when integrations are selected (for approval selector)
+  const { data: mcpToolSuggestions } = useQuery({
+    queryKey: ["mcp-tools", workspaceId, watchedMcpIntegrations],
+    queryFn: () =>
+      agentPresetsDiscoverMcpTools({
+        workspaceId,
+        requestBody: { mcp_integration_ids: watchedMcpIntegrations },
+      }),
+    enabled: watchedMcpIntegrations.length > 0,
+  })
+
+  // Build MCP integration metadata keyed by slug for tool labels and icons.
+  const selectedMcpIntegrationsBySlug = useMemo(() => {
+    const map = new Map<
+      string,
+      { label: string; providerId: string | undefined }
+    >()
+    for (const integration of mcpIntegrations) {
+      if (watchedMcpIntegrations.includes(integration.id)) {
+        map.set(integration.slug, {
+          label: integration.name,
+          providerId: integration.providerId,
+        })
+      }
+    }
+    return map
+  }, [mcpIntegrations, watchedMcpIntegrations])
+
+  const fallbackMcpSuggestions = useMemo(() => {
+    const seen = new Set<string>()
+    return [
+      ...watchedActions,
+      ...watchedToolApprovals.map((item) => item.tool),
+    ].flatMap((value) => {
+      if (seen.has(value)) {
+        return []
+      }
+      seen.add(value)
+
+      const parsed = parseCanonicalMcpToolName(value)
+      if (!parsed) {
+        return []
+      }
+      const integration = selectedMcpIntegrationsBySlug.get(parsed.serverSlug)
+      if (!integration) {
+        return []
+      }
+      return [
+        {
+          id: value,
+          label: parsed.toolName,
+          value,
+          group: integration.label,
+          icon: (
+            <ProviderIcon
+              providerId={integration.providerId || "custom"}
+              className="size-6 border-[0.5px] p-[3px]"
+            />
+          ),
+        } satisfies Suggestion,
+      ]
+    })
+  }, [selectedMcpIntegrationsBySlug, watchedActions, watchedToolApprovals])
+
+  // Merge registry action suggestions with MCP tool suggestions for the approval selector
+  const approvalSuggestions: Suggestion[] = useMemo(() => {
+    const suggestionsByValue = new Map<string, Suggestion>(
+      actionSuggestions.map((suggestion) => [suggestion.value, suggestion])
+    )
+    for (const suggestion of fallbackMcpSuggestions) {
+      suggestionsByValue.set(suggestion.value, suggestion)
+    }
+    if (mcpToolSuggestions) {
+      for (const tool of mcpToolSuggestions) {
+        const parsed = parseCanonicalMcpToolName(tool.name)
+        const integration = parsed
+          ? selectedMcpIntegrationsBySlug.get(parsed.serverSlug)
+          : undefined
+        suggestionsByValue.set(tool.name, {
+          id: tool.name,
+          label: parsed?.toolName ?? tool.name,
+          value: tool.name,
+          description: tool.description,
+          group: tool.server_name,
+          icon: (
+            <ProviderIcon
+              providerId={integration?.providerId || "custom"}
+              className="size-6 p-[3px] border-[0.5px]"
+            />
+          ),
+        })
+      }
+    }
+    return [...suggestionsByValue.values()]
+  }, [
+    actionSuggestions,
+    fallbackMcpSuggestions,
+    mcpToolSuggestions,
+    selectedMcpIntegrationsBySlug,
+  ])
 
   return (
     <ScrollArea className="h-full">
@@ -1639,7 +1824,7 @@ function AgentPresetConfigurationPanel({
                   <MultiTagCommandInput
                     value={field.value}
                     onChange={field.onChange}
-                    suggestions={actionSuggestions}
+                    suggestions={approvalSuggestions}
                     placeholder="+ Add tool"
                     searchKeys={["label", "value", "description", "group"]}
                     allowCustomTags
@@ -1755,7 +1940,7 @@ function AgentPresetConfigurationPanel({
                             <FormControl>
                               <ActionSelect
                                 field={field}
-                                suggestions={[...actionSuggestions]}
+                                suggestions={[...approvalSuggestions]}
                                 searchKeys={[
                                   "label",
                                   "value",

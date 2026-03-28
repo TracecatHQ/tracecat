@@ -66,6 +66,7 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import AgentSessionHistory, User
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.dsl.schemas import RunActionInput
+from tracecat.executor.activities import ExecutorActivities
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import InlineObject
 from tracecat.tiers import defaults as tier_defaults
@@ -183,17 +184,19 @@ def create_mock_execute_action_activity(
     response_callback: Callable[[RunActionInput], InlineObject[dict[str, str]]]
     | None = None,
 ) -> Callable[..., Any]:
-    """Create a mock executor activity for approved registry UDFs."""
+    """Create a mock registry action executor activity."""
 
-    @activity.defn(name="execute_action_activity")
+    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
     async def mock_execute_action_activity(
         input: RunActionInput,
         role: Role,
     ) -> InlineObject[dict[str, str]]:
         del role
-        if response_callback:
-            return response_callback(input)
-        return InlineObject(data={"status": "success"})
+        return (
+            response_callback(input)
+            if response_callback
+            else InlineObject(data={"status": "success"})
+        )
 
     return mock_execute_action_activity
 
@@ -697,7 +700,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
     async def mock_apply_approval_decisions(input: Any) -> None:
         del input
 
-    @activity.defn(name="execute_action_activity")
+    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
     async def mock_execute_action_activity(
         input: RunActionInput,
         role: Role,
@@ -783,7 +786,7 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
     assert resumed_after_approval.is_set()
     assert len(captured_run_inputs) == 1
     assert len(captured_executor_roles) == 1
-    assert captured_run_inputs[0].task.action == "core__http_request"
+    assert captured_run_inputs[0].task.action == "core.http_request"
     assert captured_executor_roles[0].type == "service"
     assert captured_executor_roles[0].service_id == "tracecat-mcp"
     assert captured_executor_roles[0].workspace_id == svc_role.workspace_id
@@ -1010,7 +1013,7 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
     async def mock_apply_approval_decisions(input: Any) -> None:
         del input
 
-    @activity.defn(name="execute_action_activity")
+    @activity.defn(name=ExecutorActivities.execute_action_activity.__name__)
     async def mock_execute_action_activity(
         input: RunActionInput,
         role: Role,
@@ -1019,7 +1022,7 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
         nonlocal executor_attempts
         executor_attempts += 1
         if executor_attempts == 1:
-            raise ApplicationError("transient tool failure")
+            raise ApplicationError("transient tool failure", non_retryable=True)
         return InlineObject(data={"status": "success"})
 
     workflow_args = AgentWorkflowArgs(

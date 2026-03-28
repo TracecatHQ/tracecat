@@ -693,8 +693,9 @@ TRACECAT__AGENT_EXECUTOR_QUEUE = os.environ.get(
 )
 """Task queue for the AgentExecutorWorker.
 
-This queue is reserved for `run_agent_activity` so agent runtime capacity can be
-provisioned independently from agent workflow/control-plane work."""
+This queue is reserved for agent runtime execution activities such as
+`run_agent_activity` and approved HTTP MCP tool replay so that runtime capacity
+can be provisioned independently from agent workflow/control-plane work."""
 
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (

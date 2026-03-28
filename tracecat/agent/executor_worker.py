@@ -1,4 +1,4 @@
-"""AgentExecutorWorker - Temporal worker for `run_agent_activity` execution."""
+"""AgentExecutorWorker for agent runtime and approved HTTP MCP replay."""
 
 from __future__ import annotations
 
@@ -12,7 +12,10 @@ import uvloop
 from temporalio.worker import Worker
 
 from tracecat import config
-from tracecat.agent.executor.activity import run_agent_activity
+from tracecat.agent.executor.activity import (
+    execute_approved_tools_activity,
+    run_agent_activity,
+)
 from tracecat.agent.runtime_services import (
     LiteLLMProxyStatus,
     start_litellm_proxy,
@@ -33,7 +36,7 @@ runtime_failure_reason: str | None = None
 
 def get_activities() -> list:
     """Load runtime activities registered by the agent-executor worker."""
-    return [run_agent_activity]
+    return [run_agent_activity, execute_approved_tools_activity]
 
 
 async def _start_runtime_services() -> Client:
