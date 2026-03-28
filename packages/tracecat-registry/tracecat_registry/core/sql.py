@@ -24,7 +24,6 @@ sql_secret = RegistrySecret(
 
 Required keys:
 - `CONNECTION_URL`: SQLAlchemy database URL format described at https://docs.sqlalchemy.org/20/core/engines.html#database-urls
-  (for example, `postgresql+psycopg://user:pass@db.example.com:5432/app`).
 
 Common driver formats:
 - PostgreSQL: postgresql+psycopg:// (installed psycopg3 driver)
@@ -32,8 +31,6 @@ Common driver formats:
 - ClickHouse: clickhouse+http://, clickhouse+native://
 - MSSQL: mssql+pyodbc://, mssql+pymssql://
 - Oracle: oracle+cx_oracle://
-
-This action only supports external databases. Do not use SQLite file URLs.
 """
 
 
