@@ -56,6 +56,15 @@ def get_model(
                     base_url=base_url, api_key=secrets.get("OPENAI_API_KEY")
                 ),
             )
+        case "novita":
+            model = OpenAIChatModel(
+                model_name=model_name,
+                provider=OpenAIProvider(
+                    base_url="https://api.novita.ai/openai/v1",
+                    api_key=secrets.get("NOVITA_API_KEY"),
+                ),
+            )
+
         case "ollama":
             model = OpenAIChatModel(
                 model_name=model_name,
