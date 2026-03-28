@@ -229,6 +229,7 @@ class ExternalWorkflowDefinition(BaseModel):
                         "status": workflow_case_trigger.status,
                         "event_types": workflow_case_trigger.event_types,
                         "tag_filters": workflow_case_trigger.tag_filters,
+                        "event_filters": workflow_case_trigger.event_filters,
                     }
                 )
         return ExternalWorkflowDefinition(

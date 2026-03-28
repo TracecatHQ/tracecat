@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
@@ -10,7 +11,11 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
-from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig, CaseTriggerUpdate
+from tracecat.workflow.case_triggers.schemas import (
+    CaseTriggerConfig,
+    CaseTriggerUpdate,
+    normalize_case_trigger_event_filters,
+)
 
 
 class CaseTriggersService(BaseWorkspaceService):
@@ -45,6 +50,7 @@ class CaseTriggersService(BaseWorkspaceService):
                 status="offline",
                 event_types=[],
                 tag_filters=[],
+                event_filters={},
             )
             .on_conflict_do_nothing(index_elements=[CaseTrigger.workflow_id])
         )
@@ -81,6 +87,7 @@ class CaseTriggersService(BaseWorkspaceService):
                     status=params.status,
                     event_types=params.event_types,
                     tag_filters=params.tag_filters,
+                    event_filters=params.event_filters,
                 ),
                 create_missing_tags=create_missing_tags,
                 commit=commit,
@@ -95,6 +102,7 @@ class CaseTriggersService(BaseWorkspaceService):
                 status=params.status,
                 event_types=[evt.value for evt in params.event_types],
                 tag_filters=resolved_tags,
+                event_filters=params.event_filters.model_dump(mode="json"),
             )
             self.session.add(case_trigger)
             if commit:
@@ -124,10 +132,6 @@ class CaseTriggersService(BaseWorkspaceService):
             event_types = [
                 evt.value if hasattr(evt, "value") else evt for evt in event_types
             ]
-        if status == "online" and not event_types:
-            raise TracecatValidationError(
-                "event_types must be non-empty when status is online"
-            )
 
         tag_filters = updates.get("tag_filters", case_trigger.tag_filters)
         if tag_filters is None:
@@ -137,9 +141,26 @@ class CaseTriggersService(BaseWorkspaceService):
                 tag_filters, create_missing=create_missing_tags
             )
 
-        case_trigger.status = status
-        case_trigger.event_types = list(event_types) if event_types is not None else []
-        case_trigger.tag_filters = resolved_tags
+        try:
+            event_filters = normalize_case_trigger_event_filters(
+                updates.get("event_filters", case_trigger.event_filters),
+                event_types=event_types,
+            )
+            normalized = CaseTriggerConfig(
+                status=status,
+                event_types=list(event_types) if event_types is not None else [],
+                tag_filters=resolved_tags,
+                event_filters=event_filters,
+            )
+        except (ValidationError, ValueError) as e:
+            raise TracecatValidationError(str(e)) from e
+
+        case_trigger.status = normalized.status
+        case_trigger.event_types = [
+            event_type.value for event_type in normalized.event_types
+        ]
+        case_trigger.tag_filters = normalized.tag_filters
+        case_trigger.event_filters = normalized.event_filters.model_dump(mode="json")
 
         self.session.add(case_trigger)
         if commit:

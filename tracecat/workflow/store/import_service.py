@@ -464,6 +464,7 @@ class WorkflowImportService(BaseWorkspaceService):
         case_trigger.status = "offline"
         case_trigger.event_types = []
         case_trigger.tag_filters = []
+        case_trigger.event_filters = {}
         self.session.add(case_trigger)
         await self.session.flush()
 
