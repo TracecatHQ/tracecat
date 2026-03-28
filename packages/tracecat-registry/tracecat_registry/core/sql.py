@@ -23,14 +23,17 @@ sql_secret = RegistrySecret(
 """SQL connection secret.
 
 Required keys:
-- `CONNECTION_URL`: SQLAlchemy connection URL (e.g., 'postgresql+psycopg://user:pass@host:port/dbname')
+- `CONNECTION_URL`: SQLAlchemy database URL format described at https://docs.sqlalchemy.org/20/core/engines.html#database-urls
+  (for example, `postgresql+psycopg://user:pass@db.example.com:5432/app`).
 
 Common driver formats:
-- PostgreSQL: postgresql+psycopg://, postgresql+psycopg2://, postgresql+asyncpg://
+- PostgreSQL: postgresql+psycopg:// (installed psycopg3 driver)
 - MySQL: mysql+pymysql://, mysql+mysqlclient://, mysql+mysql-connector-python://
+- ClickHouse: clickhouse+http://, clickhouse+native://
 - MSSQL: mssql+pyodbc://, mssql+pymssql://
 - Oracle: oracle+cx_oracle://
-- SQLite: sqlite+pysqlite://
+
+This action only supports external databases. Do not use SQLite file URLs.
 """
 
 
@@ -155,7 +158,20 @@ async def execute_query(
         ),
     ] = DEFAULT_MAX_ROWS,
 ) -> int | dict[str, Any] | list[dict[str, Any]] | None:
-    """Execute a parameterized SQL query on an external database."""
+    """Execute a parameterized SQL query on an external database.
+
+    Configure the `sql.CONNECTION_URL` secret with a SQLAlchemy database URL.
+    For the URL format reference and dialect-specific examples, see:
+    https://docs.sqlalchemy.org/20/core/engines.html#database-urls
+
+    Common examples:
+        - PostgreSQL: `postgresql+psycopg://user:pass@db.example.com:5432/app`
+        - MySQL: `mysql+pymysql://user:pass@db.example.com:3306/app`
+        - ClickHouse: `clickhouse+http://user:pass@clickhouse.example.com:8123/default`
+
+    Note:
+        This action is intended for external databases only.
+    """
     # Get connection URL from secrets and parse it
     connection_url_str = secrets.get("CONNECTION_URL")
     try:
