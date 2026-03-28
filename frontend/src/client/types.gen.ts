@@ -830,6 +830,13 @@ export type AssistantMessage = {
     | "server_error"
     | "unknown"
     | null
+  usage?: {
+    [key: string]: unknown
+  } | null
+  message_id?: string | null
+  stop_reason?: string | null
+  session_id?: string | null
+  uuid?: string | null
 }
 
 /**
@@ -1903,6 +1910,7 @@ export type ChatMessage = {
     | SystemMessage
     | ResultMessage
     | StreamEvent
+    | RateLimitEvent
     | null
   /**
    * Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)
@@ -4524,6 +4532,33 @@ export type PullResult = {
   message: string
 }
 
+export type RateLimitEvent = {
+  rate_limit_info: RateLimitInfo
+  uuid: string
+  session_id: string
+}
+
+export type RateLimitInfo = {
+  status: "allowed" | "allowed_warning" | "rejected"
+  resets_at?: number | null
+  rate_limit_type?:
+    | "five_hour"
+    | "seven_day"
+    | "seven_day_opus"
+    | "seven_day_sonnet"
+    | "overage"
+    | null
+  utilization?: number | null
+  overage_status?: "allowed" | "allowed_warning" | "rejected" | null
+  overage_resets_at?: number | null
+  overage_disabled_reason?: string | null
+  raw?: {
+    [key: string]: unknown
+  }
+}
+
+export type status3 = "allowed" | "allowed_warning" | "rejected"
+
 export type ReadinessResponse = {
   status: string
   registry: RegistryStatus
@@ -4915,12 +4950,19 @@ export type ResultMessage = {
   is_error: boolean
   num_turns: number
   session_id: string
+  stop_reason?: string | null
   total_cost_usd?: number | null
   usage?: {
     [key: string]: unknown
   } | null
   result?: string | null
   structured_output?: unknown
+  model_usage?: {
+    [key: string]: unknown
+  } | null
+  permission_denials?: Array<unknown> | null
+  errors?: Array<string> | null
+  uuid?: string | null
 }
 
 export type RetryPromptPart = {
@@ -6436,6 +6478,9 @@ export type UserMessage = {
     | Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
   uuid?: string | null
   parent_tool_use_id?: string | null
+  tool_use_result?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type UserRead = {
@@ -6897,7 +6942,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status3 = "success" | "failure"
+export type status4 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -6956,7 +7001,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status4 = "committed" | "no_op"
+export type status5 = "committed" | "no_op"
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -7274,7 +7319,7 @@ export type WorkflowExecutionRead = {
   interactions?: Array<InteractionRead>
 }
 
-export type status5 =
+export type status6 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
