@@ -2,7 +2,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from tracecat import config
+from tracecat.agent.schemas import (
+    DEFAULT_PRESET_AGENT_MAX_REQUESTS,
+    DEFAULT_PRESET_AGENT_MAX_TOOL_CALLS,
+    AgentMaxRequests,
+    AgentMaxToolCalls,
+)
 from tracecat.agent.types import OutputType
 
 
@@ -14,18 +19,8 @@ class AgentActionArgs(BaseModel):
     instructions: str | None = None
     output_type: OutputType | None = None
     model_settings: dict[str, Any] | None = None
-    max_tool_calls: int = Field(
-        default=15,
-        ge=1,
-        le=config.TRACECAT__AGENT_MAX_TOOL_CALLS,
-        description="The maximum number of tool calls to make per agent run",
-    )
-    max_requests: int = Field(
-        default=45,
-        ge=1,
-        le=config.TRACECAT__AGENT_MAX_REQUESTS,
-        description="The maximum number of model requests to make per agent run",
-    )
+    max_tool_calls: AgentMaxToolCalls = DEFAULT_PRESET_AGENT_MAX_TOOL_CALLS
+    max_requests: AgentMaxRequests = DEFAULT_PRESET_AGENT_MAX_REQUESTS
     retries: int = 3
     base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
@@ -41,18 +36,8 @@ class PresetAgentActionArgs(BaseModel):
     user_prompt: str
     actions: list[str] | None = None
     instructions: str | None = None
-    max_tool_calls: int = Field(
-        default=15,
-        ge=1,
-        le=config.TRACECAT__AGENT_MAX_TOOL_CALLS,
-        description="The maximum number of tool calls to make per agent run",
-    )
-    max_requests: int = Field(
-        default=45,
-        ge=1,
-        le=config.TRACECAT__AGENT_MAX_REQUESTS,
-        description="The maximum number of model requests to make per agent run",
-    )
+    max_tool_calls: AgentMaxToolCalls = DEFAULT_PRESET_AGENT_MAX_TOOL_CALLS
+    max_requests: AgentMaxRequests = DEFAULT_PRESET_AGENT_MAX_REQUESTS
     use_workspace_credentials: bool = Field(
         default=True,
         description="If True, use workspace-scoped credentials; otherwise org-level",
