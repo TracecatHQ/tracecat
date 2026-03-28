@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from claude_agent_sdk.types import (
     HookContext,
-    HookInput,
+    PreToolUseHookInput,
     SyncHookJSONOutput,
 )
 
@@ -141,8 +141,9 @@ def mock_claude_sdk_client() -> MagicMock:
 def make_hook_input(
     tool_name: str,
     tool_input: dict[str, Any],
-) -> HookInput:
-    """Create a HookInput for testing."""
+    tool_use_id: str,
+) -> PreToolUseHookInput:
+    """Create a PreToolUse hook input for testing."""
     return {
         "session_id": "test-session-id",
         "transcript_path": "/tmp/test-transcript.jsonl",
@@ -150,6 +151,7 @@ def make_hook_input(
         "hook_event_name": "PreToolUse",
         "tool_name": tool_name,
         "tool_input": tool_input,
+        "tool_use_id": tool_use_id,
     }
 
 
@@ -443,6 +445,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
             input_data=make_hook_input(
                 tool_name="mcp__tracecat-registry__mcp__some_tool",
                 tool_input={"arg": "value"},
+                tool_use_id="call-1",
             ),
             tool_use_id="call-1",
             context=make_hook_context(),
@@ -470,6 +473,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
                 # MCP tool name format: mcp__tracecat-registry__core__http_request
                 tool_name="mcp__tracecat-registry__core__http_request",
                 tool_input={"url": "https://example.com", "method": "GET"},
+                tool_use_id="call-2",
             ),
             tool_use_id="call-2",
             context=make_hook_context(),
@@ -496,6 +500,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
             input_data=make_hook_input(
                 tool_name="mcp__tracecat-registry__internal__builder__list_sessions",
                 tool_input={"query": "abc"},
+                tool_use_id="call-internal",
             ),
             tool_use_id="call-internal",
             context=make_hook_context(),
@@ -518,6 +523,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
             input_data=make_hook_input(
                 tool_name="mcp__jira__search",
                 tool_input={"jql": "project = TRACE"},
+                tool_use_id="call-jira",
             ),
             tool_use_id="call-jira",
             context=make_hook_context(),
@@ -551,6 +557,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
             input_data=make_hook_input(
                 tool_name="mcp__tracecat-registry__core__http_request",
                 tool_input={"url": "https://example.com"},
+                tool_use_id="call-3",
             ),
             tool_use_id="call-3",
             context=make_hook_context(),
