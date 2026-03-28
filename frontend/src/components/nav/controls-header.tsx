@@ -7,10 +7,13 @@ import {
   Check,
   ChevronDown,
   ClockPlus,
+  FileText,
   FileUpIcon,
   Flag,
   Flame,
+  ListIcon,
   Lock,
+  MessageSquare,
   PanelRight,
   PenLine,
   Plus,
@@ -20,6 +23,7 @@ import {
   User,
   X,
 } from "lucide-react"
+import dynamic from "next/dynamic"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import {
@@ -29,7 +33,13 @@ import {
   useEffect,
   useState,
 } from "react"
-import { type CaseStatus, casesAddTag } from "@/client"
+import {
+  type CaseStatus,
+  casesAddTag,
+  casesCreateComment,
+  casesGetCase,
+  casesUpdateCase,
+} from "@/client"
 import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCaseTag } from "@/components/cases/add-case-tag"
@@ -53,6 +63,7 @@ import {
   WorkflowsCatalogViewMode,
   WorkflowsCatalogViewToggle,
 } from "@/components/dashboard/workflows-catalog-view-toggle"
+import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { Spinner } from "@/components/loading/spinner"
@@ -68,6 +79,15 @@ import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { TableLinkRowsToCaseCommand } from "@/components/tables/table-link-rows-to-case-command"
+
+const SimpleEditor = dynamic(
+  () =>
+    import("@/components/tiptap-templates/simple/simple-editor").then(
+      (m) => m.SimpleEditor
+    ),
+  { ssr: false }
+)
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -88,6 +108,14 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup, ButtonGroupText } from "@/components/ui/button-group"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -117,6 +145,7 @@ import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
 import {
+  useCaseDropdownDefinitions,
   useCaseDurationDefinitions,
   useCaseDurations,
   useCaseTagCatalog,
@@ -444,8 +473,16 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const [selectedTagIds, setSelectedTagIds] = useState<Set<string>>(new Set())
   const [isApplyingTags, setIsApplyingTags] = useState(false)
+  const [commentDialogOpen, setCommentDialogOpen] = useState(false)
+  const [commentText, setCommentText] = useState("")
+  const [isAddingComments, setIsAddingComments] = useState(false)
+  const [appendDialogOpen, setAppendDialogOpen] = useState(false)
+  const [appendText, setAppendText] = useState("")
+  const [isAppending, setIsAppending] = useState(false)
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
+  const { hasEntitlement } = useEntitlements()
+  const caseAddonsEnabled = hasEntitlement("case_addons")
   const shouldLoadCatalogData = enabled && selectedCount > 0
   const { members, membersLoading } = useWorkspaceMembers(workspaceId, {
     enabled: shouldLoadCatalogData,
@@ -453,6 +490,11 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
   const { caseTags, caseTagsIsLoading } = useCaseTagCatalog(workspaceId, {
     enabled: shouldLoadCatalogData,
   })
+  const { dropdownDefinitions, dropdownDefinitionsIsLoading } =
+    useCaseDropdownDefinitions(
+      workspaceId,
+      shouldLoadCatalogData && caseAddonsEnabled
+    )
 
   // All callbacks must be defined before any early returns to satisfy React's rules of hooks
   const handleToggleTagSelection = useCallback((tagId: string) => {
@@ -515,6 +557,89 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
     }
   }, [selectedTagIds, selectedCaseIds, workspaceId, queryClient, caseTags])
 
+  const handleBulkAddComment = useCallback(async () => {
+    if (!commentText.trim() || selectedCaseIds.length === 0) return
+
+    setIsAddingComments(true)
+    try {
+      await Promise.all(
+        selectedCaseIds.map((caseId) =>
+          casesCreateComment({
+            caseId,
+            workspaceId,
+            requestBody: { content: commentText.trim() },
+          })
+        )
+      )
+
+      await queryClient.invalidateQueries({ queryKey: ["cases"] })
+
+      const caseCount = selectedCaseIds.length
+      toast({
+        title: "Comments added",
+        description: `Added comment to ${caseCount} case${caseCount === 1 ? "" : "s"}.`,
+      })
+
+      setCommentText("")
+      setCommentDialogOpen(false)
+    } catch (error) {
+      console.error("Failed to add comments:", error)
+      toast({
+        title: "Error",
+        description: "Failed to add comments to some cases. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsAddingComments(false)
+    }
+  }, [commentText, selectedCaseIds, workspaceId, queryClient])
+
+  const handleBulkAppendDescription = useCallback(async () => {
+    if (!appendText.trim() || selectedCaseIds.length === 0) return
+
+    setIsAppending(true)
+    try {
+      const cases = await Promise.all(
+        selectedCaseIds.map((caseId) => casesGetCase({ caseId, workspaceId }))
+      )
+
+      await Promise.all(
+        cases.map((c) =>
+          casesUpdateCase({
+            caseId: c.id,
+            workspaceId,
+            requestBody: {
+              description:
+                (c.description ? `${c.description}\n\n` : "") +
+                appendText.trim(),
+            },
+          })
+        )
+      )
+
+      await queryClient.invalidateQueries({ queryKey: ["cases"] })
+
+      const caseCount = selectedCaseIds.length
+      toast({
+        title: "Descriptions updated",
+        description: `Appended text to ${caseCount} case${caseCount === 1 ? "" : "s"}.`,
+      })
+
+      setAppendText("")
+      setAppendDialogOpen(false)
+    } catch (error) {
+      console.error("Failed to append to descriptions:", error)
+      toast({
+        title: "Error",
+        description:
+          "Failed to update some case descriptions. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsAppending(false)
+    }
+  }, [appendText, selectedCaseIds, workspaceId, queryClient])
+
   const statusOptions = Object.values(STATUSES)
   const priorityOptions = Object.values(PRIORITIES)
   const severityOptions = Object.values(SEVERITIES)
@@ -537,7 +662,12 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
     return null
   }
 
-  const isBusy = Boolean(isDeleting) || Boolean(isUpdating) || isApplyingTags
+  const isBusy =
+    Boolean(isDeleting) ||
+    Boolean(isUpdating) ||
+    isApplyingTags ||
+    isAddingComments ||
+    isAppending
   const canUpdate = Boolean(bulkUpdateSelectedCases) && !isBusy
   const pluralisedCases = `${selectedCount} case${selectedCount === 1 ? "" : "s"}`
   const canApplyTags = !isBusy && caseTags && caseTags.length > 0
@@ -596,7 +726,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
               <DropdownMenuSubTrigger disabled={!canUpdate}>
                 <span className="flex items-center gap-2">
                   <Flag className="size-3 text-muted-foreground" aria-hidden />
-                  <span>Change status</span>
+                  <span>Status</span>
                 </span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-48">
@@ -636,7 +766,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                     className="size-3 text-muted-foreground"
                     aria-hidden
                   />
-                  <span>Change priority</span>
+                  <span>Priority</span>
                 </span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-48">
@@ -673,7 +803,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
               <DropdownMenuSubTrigger disabled={!canUpdate}>
                 <span className="flex items-center gap-2">
                   <Flame className="size-3 text-muted-foreground" aria-hidden />
-                  <span>Change severity</span>
+                  <span>Severity</span>
                 </span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-48">
@@ -706,6 +836,111 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                 ))}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+            {caseAddonsEnabled && dropdownDefinitionsIsLoading && (
+              <DropdownMenuItem disabled>
+                <Spinner className="mr-2 size-3" /> Loading dropdowns...
+              </DropdownMenuItem>
+            )}
+            {caseAddonsEnabled &&
+              !dropdownDefinitionsIsLoading &&
+              dropdownDefinitions?.map((definition) => (
+                <DropdownMenuSub key={definition.id}>
+                  <DropdownMenuSubTrigger disabled={!canUpdate}>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="shrink-0">
+                        {definition.icon_name ? (
+                          <DynamicLucideIcon
+                            name={definition.icon_name}
+                            className="size-3 text-muted-foreground"
+                            fallback={
+                              <ListIcon className="size-3 text-muted-foreground" />
+                            }
+                          />
+                        ) : (
+                          <ListIcon className="size-3 text-muted-foreground" />
+                        )}
+                      </span>
+                      <span className="truncate" title={definition.name}>
+                        {definition.name}
+                      </span>
+                    </span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-48">
+                    <DropdownMenuItem
+                      disabled={!canUpdate}
+                      className="flex items-center gap-2"
+                      onSelect={async () => {
+                        if (!bulkUpdateSelectedCases) return
+                        await bulkUpdateSelectedCases(
+                          {
+                            dropdown_values: [
+                              {
+                                definition_id: definition.id,
+                                option_id: null,
+                              },
+                            ],
+                          },
+                          {
+                            successTitle: `${definition.name} cleared`,
+                            successDescription: `Applied to ${pluralisedCases}.`,
+                          }
+                        )
+                      }}
+                    >
+                      <span className="text-muted-foreground">None</span>
+                    </DropdownMenuItem>
+                    {definition.options?.map((opt) => {
+                      const optionStyle = opt.color
+                        ? ({ color: opt.color } as React.CSSProperties)
+                        : undefined
+                      return (
+                        <DropdownMenuItem
+                          key={opt.id}
+                          disabled={!canUpdate}
+                          className="flex items-center gap-2"
+                          onSelect={async () => {
+                            if (!bulkUpdateSelectedCases) return
+                            await bulkUpdateSelectedCases(
+                              {
+                                dropdown_values: [
+                                  {
+                                    definition_id: definition.id,
+                                    option_id: opt.id,
+                                  },
+                                ],
+                              },
+                              {
+                                successTitle: `${definition.name} set to ${opt.label}`,
+                                successDescription: `Applied to ${pluralisedCases}.`,
+                              }
+                            )
+                          }}
+                        >
+                          {opt.icon_name ? (
+                            <DynamicLucideIcon
+                              name={opt.icon_name}
+                              className="size-3"
+                              style={optionStyle}
+                              fallback={
+                                <span
+                                  className="size-3 shrink-0 rounded-full bg-muted-foreground/40"
+                                  style={optionStyle}
+                                />
+                              }
+                            />
+                          ) : opt.color ? (
+                            <span
+                              className="size-3 shrink-0 rounded-full"
+                              style={{ backgroundColor: opt.color }}
+                            />
+                          ) : null}
+                          <span style={optionStyle}>{opt.label}</span>
+                        </DropdownMenuItem>
+                      )
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              ))}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger disabled={!canUpdate}>
                 <span className="flex items-center gap-2">
@@ -835,6 +1070,37 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
             </DropdownMenuSub>
             <DropdownMenuSeparator />
             <DropdownMenuItem
+              disabled={isBusy}
+              onSelect={(event) => {
+                event.preventDefault()
+                setCommentDialogOpen(true)
+              }}
+            >
+              <span className="flex items-center gap-2">
+                <MessageSquare
+                  className="size-3 text-muted-foreground"
+                  aria-hidden
+                />
+                <span>Add comment</span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={isBusy}
+              onSelect={(event) => {
+                event.preventDefault()
+                setAppendDialogOpen(true)
+              }}
+            >
+              <span className="flex items-center gap-2">
+                <FileText
+                  className="size-3 text-muted-foreground"
+                  aria-hidden
+                />
+                <span>Append to description</span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
               className="text-destructive focus:text-destructive"
               disabled={!deleteSelected || isBusy}
               onSelect={(event) => {
@@ -881,6 +1147,100 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <Dialog
+        open={commentDialogOpen}
+        onOpenChange={(open) => {
+          setCommentDialogOpen(open)
+          if (!open) setCommentText("")
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add comment</DialogTitle>
+            <DialogDescription>
+              Add a comment to {selectedCount} selected
+              {selectedCount === 1 ? " case" : " cases"}.
+            </DialogDescription>
+          </DialogHeader>
+          <SimpleEditor
+            value={commentText}
+            onChange={setCommentText}
+            placeholder="Enter comment..."
+            className="min-h-[150px]"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setCommentDialogOpen(false)
+                setCommentText("")
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!commentText.trim() || isAddingComments}
+              onClick={handleBulkAddComment}
+            >
+              {isAddingComments ? (
+                <>
+                  <Spinner className="mr-2 size-3" />
+                  Adding...
+                </>
+              ) : (
+                "Add comment"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={appendDialogOpen}
+        onOpenChange={(open) => {
+          setAppendDialogOpen(open)
+          if (!open) setAppendText("")
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Append to description</DialogTitle>
+            <DialogDescription>
+              Append text to the description of {selectedCount} selected
+              {selectedCount === 1 ? " case" : " cases"}.
+            </DialogDescription>
+          </DialogHeader>
+          <SimpleEditor
+            value={appendText}
+            onChange={setAppendText}
+            placeholder="Enter text to append..."
+            className="min-h-[150px]"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAppendDialogOpen(false)
+                setAppendText("")
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!appendText.trim() || isAppending}
+              onClick={handleBulkAppendDescription}
+            >
+              {isAppending ? (
+                <>
+                  <Spinner className="mr-2 size-3" />
+                  Appending...
+                </>
+              ) : (
+                "Append"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
