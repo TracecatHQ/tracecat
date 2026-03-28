@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterator
 from unittest.mock import patch
 
 import pytest
@@ -20,6 +21,12 @@ from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.tables.enums import SqlType
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def workflow_bucket() -> Iterator[None]:
+    """Disable MinIO-dependent workflow bucket setup for these tests."""
+    yield
 
 
 @pytest.fixture
@@ -86,7 +93,7 @@ class TestCaseFieldsService:
             # Call the list_fields method
             fields = await case_fields_service.list_fields()
 
-            # Verify the method returned the mock columns
+            # Verify list_fields delegates the visible-column contract to the editor
             assert fields == mock_columns
             mock_get_columns.assert_called_once()
 
@@ -150,6 +157,29 @@ class TestCaseFieldsService:
             # Verify the method was called with the right parameters
             mock_create_column.assert_called_once_with(field_params)
 
+    async def test_create_field_rejects_internal_name(
+        self, case_fields_service: CaseFieldsService
+    ) -> None:
+        """Internal/system-managed column names should be rejected."""
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await case_fields_service.create_field(
+                CaseFieldCreate(name="__tc_workspace_id", type=SqlType.TEXT)
+            )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await case_fields_service.create_field(
+                CaseFieldCreate(name="__TC_workspace_id", type=SqlType.TEXT)
+            )
+
+    async def test_create_field_rejects_internal_namespace_prefix(
+        self, case_fields_service: CaseFieldsService
+    ) -> None:
+        """The internal Tracecat namespace prefix should be reserved."""
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await case_fields_service.create_field(
+                CaseFieldCreate(name="__tc_shadow", type=SqlType.TEXT)
+            )
+
     async def test_update_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test updating a case field."""
         # Create field update parameters
@@ -166,6 +196,24 @@ class TestCaseFieldsService:
 
             # Verify the method was called with the right parameters
             mock_update_column.assert_called_once_with("test_field", field_update)
+
+    async def test_update_field_rejects_internal_name(
+        self, case_fields_service: CaseFieldsService
+    ) -> None:
+        """Updating an internal/system-managed column should be rejected."""
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await case_fields_service.update_field(
+                "__tc_workspace_id", CaseFieldUpdate(name="updated_field")
+            )
+
+    async def test_update_field_rejects_rename_to_internal_name(
+        self, case_fields_service: CaseFieldsService
+    ) -> None:
+        """Renaming a field to an internal/system-managed name should be rejected."""
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await case_fields_service.update_field(
+                "test_field", CaseFieldUpdate(name="__tc_workspace_id")
+            )
 
     async def test_delete_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test deleting a case field."""
@@ -289,6 +337,22 @@ class TestCaseFieldsService:
             assert result == mock_row
             mock_ensure_row.assert_called_once_with(test_case.id)
             mock_get_row.assert_called_once_with(row_id=mock_row_id)
+
+    async def test_upsert_field_values_rejects_internal_column(
+        self, case_fields_service: CaseFieldsService, test_case: Case
+    ) -> None:
+        """Internal/system-managed field values should be rejected."""
+        with (
+            pytest.raises(ValueError, match="reserved for internal use"),
+            patch.object(
+                case_fields_service, "ensure_workspace_row"
+            ) as mock_ensure_workspace_row,
+        ):
+            await case_fields_service.upsert_field_values(
+                test_case, {"__tc_workspace_id": str(uuid.uuid4())}
+            )
+
+        mock_ensure_workspace_row.assert_not_called()
 
     async def test_ensure_workspace_row_reuses_existing_row_on_case_conflict(
         self,

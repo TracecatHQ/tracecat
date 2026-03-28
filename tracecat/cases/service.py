@@ -117,7 +117,7 @@ from tracecat.pagination import (
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import normalize_column_options
 from tracecat.tables.enums import SqlType
-from tracecat.tables.service import TablesService
+from tracecat.tables.service import DYNAMIC_WORKSPACE_TENANT_COLUMN, TablesService
 from tracecat.tiers.enums import Entitlement
 
 
@@ -1015,7 +1015,13 @@ class CaseFieldsService(CustomFieldsService):
     # Hardcoded to preserve existing workspace-scoped table names
     # (metadata table was renamed from case_fields to case_field)
     _table = "case_fields"
-    _reserved_columns = {"id", "case_id", "created_at", "updated_at", "workspace_id"}
+    _reserved_columns = {
+        "id",
+        "case_id",
+        "created_at",
+        "updated_at",
+        DYNAMIC_WORKSPACE_TENANT_COLUMN,
+    }
 
     def _table_definition(self) -> sa.Table:
         """Return the SQLAlchemy Table definition for the case_fields workspace table."""
@@ -1035,6 +1041,12 @@ class CaseFieldsService(CustomFieldsService):
                 sa.TIMESTAMP(timezone=True),
                 nullable=False,
                 server_default=sa.func.now(),
+            ),
+            sa.Column(
+                DYNAMIC_WORKSPACE_TENANT_COLUMN,
+                UUID(as_uuid=True),
+                nullable=False,
+                server_default=self._workspace_tenant_default_sql(),
             ),
             # Use the actual Case table column to avoid metadata resolution issues
             sa.ForeignKeyConstraint(
@@ -1228,6 +1240,8 @@ class CaseFieldsService(CustomFieldsService):
             raise TracecatException(
                 "Cannot upsert case fields without an owning workspace."
             )
+        for field_name in fields:
+            self._assert_user_field_name_allowed(field_name)
         row_id = await self.ensure_workspace_row(case.id)
 
         try:
