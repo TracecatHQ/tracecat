@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Remove pin
+  description: Remove a pinned message from a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/pins.remove
+  namespace: tools.slack
+  name: remove_pin
+  expects:
+    channel:
+      type: str
+      description: ID of the channel containing the pinned message.
+    timestamp:
+      type: str
+      description: Timestamp of the message to unpin.
+  steps:
+    - ref: remove_pin
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: pins_remove
+        params:
+          channel: ${{ inputs.channel }}
+          timestamp: ${{ inputs.timestamp }}
+  returns: ${{ steps.remove_pin.result }}
