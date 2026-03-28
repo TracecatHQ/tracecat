@@ -158,20 +158,7 @@ async def execute_query(
         ),
     ] = DEFAULT_MAX_ROWS,
 ) -> int | dict[str, Any] | list[dict[str, Any]] | None:
-    """Execute a parameterized SQL query on an external database.
-
-    Configure the `sql.CONNECTION_URL` secret with a SQLAlchemy database URL.
-    For the URL format reference and dialect-specific examples, see:
-    https://docs.sqlalchemy.org/20/core/engines.html#database-urls
-
-    Common examples:
-        - PostgreSQL: `postgresql+psycopg://user:pass@db.example.com:5432/app`
-        - MySQL: `mysql+pymysql://user:pass@db.example.com:3306/app`
-        - ClickHouse: `clickhouse+http://user:pass@clickhouse.example.com:8123/default`
-
-    Note:
-        This action is intended for external databases only.
-    """
+    """Execute a parameterized SQL query on an external database."""
     # Get connection URL from secrets and parse it
     connection_url_str = secrets.get("CONNECTION_URL")
     try:
