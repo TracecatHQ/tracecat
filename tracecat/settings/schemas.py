@@ -1,3 +1,4 @@
+import uuid
 from enum import StrEnum
 from typing import Any
 
@@ -169,15 +170,26 @@ class AuditSettingsUpdate(BaseSettingsGroup):
     )
 
 
+class AgentDefaultModelSelection(BaseModel):
+    source_id: uuid.UUID | None = Field(default=None)
+    model_provider: str = Field(..., min_length=1, max_length=120)
+    model_name: str = Field(..., min_length=1, max_length=500)
+
+
 class AgentSettingsRead(BaseSettingsGroup):
-    agent_default_model: str | None
-    agent_fixed_args: str | None
-    agent_case_chat_prompt: str
-    agent_case_chat_inject_content: bool
+    agent_default_model: AgentDefaultModelSelection | str | None = Field(default=None)
+    agent_default_model_ref: str | None = Field(default=None)
+    agent_fixed_args: str | None = Field(default=None)
+    agent_case_chat_prompt: str = Field(default="")
+    agent_case_chat_inject_content: bool = Field(default=False)
 
 
 class AgentSettingsUpdate(BaseSettingsGroup):
-    agent_default_model: str | None = Field(
+    agent_default_model: AgentDefaultModelSelection | str | None = Field(
+        default=None,
+        description="Legacy raw AI model name for compatibility during migration.",
+    )
+    agent_default_model_ref: str | None = Field(
         default=None,
         description="The default AI model to use for agent operations.",
     )

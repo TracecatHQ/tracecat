@@ -32,7 +32,10 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
-from tracecat.registry.actions.bound import BoundRegistryAction
+from tracecat.registry.actions.bound import (
+    BoundRegistryAction,
+    _normalize_ai_model_args,
+)
 from tracecat.registry.actions.schemas import (
     ActionStep,
     RegistryActionCreate,
@@ -49,9 +52,43 @@ from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.tiers import defaults as tier_defaults
 from tracecat.validation.schemas import ActionValidationResult, ValidationResultType
-from tracecat.validation.service import validate_dsl
+from tracecat.validation.service import _normalize_registry_action_args, validate_dsl
 
 TEST_VERSION = "test-version"
+
+
+def test_normalize_registry_action_args_maps_legacy_ai_model_fields() -> None:
+    normalized = _normalize_registry_action_args(
+        "ai.agent",
+        {
+            "user_prompt": "hello",
+            "source_id": "11111111-1111-1111-1111-111111111111",
+            "model_provider": "openai",
+            "model_name": "gpt-5",
+        },
+    )
+
+    assert normalized == {
+        "user_prompt": "hello",
+        "model": '["11111111-1111-1111-1111-111111111111","openai","gpt-5"]',
+    }
+
+
+def test_bound_action_model_normalization_accepts_uuid_source_id() -> None:
+    source_id = UUID("11111111-1111-1111-1111-111111111111")
+
+    normalized = _normalize_ai_model_args(
+        "ai.agent",
+        {
+            "user_prompt": "hello",
+            "model": '["11111111-1111-1111-1111-111111111111","openai","gpt-5"]',
+            "source_id": source_id,
+        },
+    )
+
+    assert normalized["model"] == (
+        '["11111111-1111-1111-1111-111111111111","openai","gpt-5"]'
+    )
 
 
 async def create_manifest_for_actions(

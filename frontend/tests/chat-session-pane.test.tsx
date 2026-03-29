@@ -100,13 +100,16 @@ const createChatFixture = (
   channel_context: null,
   tools: [],
   agent_preset_id: null,
+  agent_preset_version_id: null,
+  source_id: null,
+  model_name: null,
+  model_provider: null,
   harness_type: null,
   created_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
   updated_at: new Date("2024-01-01T00:00:00.000Z").toISOString(),
   last_stream_id: null,
   messages: [],
   ...overrides,
-  agent_preset_version_id: overrides?.agent_preset_version_id ?? null,
 })
 
 describe("ChatSessionPane", () => {

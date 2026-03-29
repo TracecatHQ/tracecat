@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { useProviderCredentialConfig } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
 
 interface AgentCredentialsDialogProps {
   provider: string | null
@@ -35,8 +36,40 @@ interface AgentCredentialsDialogProps {
   onSuccess: () => void
 }
 
+interface CredentialLayoutSection {
+  title?: string
+  description?: string
+  rows: string[][]
+}
+
 function isJsonCredentialField(fieldKey: string): boolean {
   return fieldKey === "GOOGLE_API_CREDENTIALS"
+}
+
+function getCredentialLayoutSections(
+  provider: string
+): CredentialLayoutSection[] {
+  if (provider === "bedrock") {
+    return [
+      {
+        title: "Authentication",
+        description:
+          "Use either AWS access keys or a Bedrock bearer token for this provider.",
+        rows: [
+          ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+          ["AWS_BEARER_TOKEN_BEDROCK"],
+        ],
+      },
+      {
+        title: "Request defaults",
+        description:
+          "Set the required region and optional fallback targets for Bedrock routing.",
+        rows: [["AWS_REGION"], ["AWS_MODEL_ID", "AWS_INFERENCE_PROFILE_ID"]],
+      },
+    ]
+  }
+
+  return []
 }
 
 export function AgentCredentialsDialog({
@@ -87,11 +120,17 @@ export function AgentCredentialsDialog({
   }, [provider, providerConfig, form])
 
   const onSubmit = async (data: Record<string, string>) => {
-    if (!provider) return
+    if (!provider || !providerConfig) return
 
     try {
       setLoading(true)
       setError(null)
+      const normalizedCredentials = Object.fromEntries(
+        providerConfig.fields.map((field) => {
+          const rawValue = data[field.key]
+          return [field.key, rawValue?.trim() || ""]
+        })
+      )
 
       const response = await fetch("/api/agent/credentials", {
         method: "POST",
@@ -100,7 +139,7 @@ export function AgentCredentialsDialog({
         },
         body: JSON.stringify({
           provider,
-          credentials: data,
+          credentials: normalizedCredentials,
         }),
       })
 
@@ -146,9 +185,26 @@ export function AgentCredentialsDialog({
     )
   }
 
+  const fieldsByKey = new Map(
+    providerConfig.fields.map((field) => [field.key, field])
+  )
+  const layoutSections = getCredentialLayoutSections(provider)
+  const fieldRows =
+    layoutSections.length > 0
+      ? layoutSections
+      : [
+          {
+            rows: providerConfig.fields.map((field) => [field.key]),
+          },
+        ]
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent
+        className={cn(
+          provider === "bedrock" ? "sm:max-w-[560px]" : "sm:max-w-[425px]"
+        )}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
             <KeyIcon className="size-5" />
@@ -162,50 +218,91 @@ export function AgentCredentialsDialog({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            {providerConfig.fields.map((field) => (
-              <FormField
-                key={field.key}
-                control={form.control}
-                name={field.key}
-                render={({ field: formField }) => (
-                  <FormItem>
-                    <FormLabel>
-                      {field.label}
-                      {field.required !== false && (
-                        <span className="text-red-500 ml-1">*</span>
+            {fieldRows.map((section, sectionIndex) => (
+              <div
+                className="space-y-4"
+                key={section.title ?? `section-${sectionIndex}`}
+              >
+                {section.title ? (
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">{section.title}</p>
+                    {section.description ? (
+                      <p className="text-xs text-muted-foreground">
+                        {section.description}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                {section.rows.map((row, rowIndex) => {
+                  const rowFields = row
+                    .map((fieldKey) => fieldsByKey.get(fieldKey))
+                    .filter((field) => field !== undefined)
+
+                  if (!rowFields.length) {
+                    return null
+                  }
+
+                  return (
+                    <div
+                      className={cn(
+                        "grid gap-4",
+                        rowFields.length > 1 && "sm:grid-cols-2"
                       )}
-                    </FormLabel>
-                    <FormControl>
-                      {isJsonCredentialField(field.key) ? (
-                        <ServiceAccountJsonUploader
-                          value={formField.value ?? ""}
-                          onChange={formField.onChange}
-                          onError={(message) => {
-                            form.setError(field.key, {
-                              type: "manual",
-                              message,
-                            })
-                          }}
-                          onClearError={() => {
-                            form.clearErrors(field.key)
-                          }}
-                          placeholder="Drag & drop the JSON key (.json) or choose a file"
-                          existingConfigured={false}
-                          hasError={Boolean(form.formState.errors[field.key])}
+                      key={`${sectionIndex}-${rowIndex}`}
+                    >
+                      {rowFields.map((field) => (
+                        <FormField
+                          key={field.key}
+                          control={form.control}
+                          name={field.key}
+                          render={({ field: formField }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {field.label}
+                                {field.required !== false && (
+                                  <span className="ml-1 text-red-500">*</span>
+                                )}
+                              </FormLabel>
+                              <FormControl>
+                                {isJsonCredentialField(field.key) ? (
+                                  <ServiceAccountJsonUploader
+                                    value={formField.value ?? ""}
+                                    onChange={formField.onChange}
+                                    onError={(message) => {
+                                      form.setError(field.key, {
+                                        type: "manual",
+                                        message,
+                                      })
+                                    }}
+                                    onClearError={() => {
+                                      form.clearErrors(field.key)
+                                    }}
+                                    placeholder="Drag & drop the JSON key (.json) or choose a file"
+                                    existingConfigured={false}
+                                    hasError={Boolean(
+                                      form.formState.errors[field.key]
+                                    )}
+                                  />
+                                ) : (
+                                  <Input
+                                    placeholder={`Enter your ${field.label.toLowerCase()}`}
+                                    type={field.type}
+                                    {...formField}
+                                  />
+                                )}
+                              </FormControl>
+                              <FormDescription>
+                                {field.description}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
                         />
-                      ) : (
-                        <Input
-                          type={field.type}
-                          placeholder={`Enter your ${field.label.toLowerCase()}`}
-                          {...formField}
-                        />
-                      )}
-                    </FormControl>
-                    <FormDescription>{field.description}</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
             ))}
 
             {error && (

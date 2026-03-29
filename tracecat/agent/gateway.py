@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 
 import orjson
 from fastapi import Request
@@ -19,11 +20,17 @@ from litellm.types.utils import CallTypesLiteral
 
 from tracecat.agent.litellm_compat import apply_patch
 from tracecat.agent.litellm_observability import get_load_tracker
-from tracecat.agent.service import AgentManagementService
+from tracecat.agent.service import (
+    SOURCE_RUNTIME_API_KEY,
+    SOURCE_RUNTIME_API_KEY_HEADER,
+    SOURCE_RUNTIME_API_VERSION,
+    SOURCE_RUNTIME_BASE_URL,
+    AgentManagementService,
+)
 from tracecat.agent.tokens import verify_llm_token
+from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.config import TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS
 from tracecat.identifiers import OrganizationID, WorkspaceID
 
 # Apply monkeypatches for LiteLLM adapter compatibility fixes
@@ -40,7 +47,6 @@ _UNAUTHENTICATED_HEALTH_ROUTES = {
 }
 _gateway_load_tracker = get_load_tracker("litellm_gateway")
 _hook_request_counters: dict[int, int] = {}
-_CREDENTIALS_CACHE_PREFIX = "tracecat:litellm:provider-creds"
 _SANITIZED_ERROR_MAX_LENGTH = 512
 _TRACE_REQUEST_ID_HEADER = "x-request-id"
 _gateway_logger = logging.getLogger(__name__)
@@ -90,20 +96,6 @@ def _pop_hook_request_counter(data: dict) -> int | None:
     return _hook_request_counters.pop(id(data), None)
 
 
-def _credentials_cache_key(
-    *,
-    workspace_id: WorkspaceID,
-    organization_id: OrganizationID,
-    provider: str,
-    use_workspace_creds: bool,
-) -> str:
-    scope = "workspace" if use_workspace_creds else "organization"
-    return (
-        f"{_CREDENTIALS_CACHE_PREFIX}:{organization_id}:{workspace_id}:"
-        f"{scope}:{provider}"
-    )
-
-
 def _sanitize_exception_message(exc: Exception) -> str:
     sanitized = str(exc).strip()
     for pattern, replacement in _SENSITIVE_ERROR_PATTERNS:
@@ -123,14 +115,15 @@ def _gateway_log(level: int, message: str, **fields: object) -> None:
     _gateway_logger.log(level, "%s | %s", message, serialized_fields)
 
 
-async def get_provider_credentials(
+async def get_runtime_credentials(
+    *,
     workspace_id: WorkspaceID,
     organization_id: OrganizationID,
+    model_name: str,
     provider: str,
-    use_workspace_creds: bool = False,
+    source_id: str | None,
 ) -> dict[str, str] | None:
-    """Fetch provider credentials using AgentManagementService."""
-    # Create a service role for the workspace
+    """Fetch credentials for either direct providers or catalog-backed sources."""
     role = Role(
         type="service",
         user_id=None,
@@ -139,49 +132,14 @@ async def get_provider_credentials(
         organization_id=organization_id,
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-llm-gateway"],
     )
-
     async with AgentManagementService.with_session(role=role) as service:
-        if use_workspace_creds:
-            return await service.get_workspace_provider_credentials(provider)
-        return await service.get_provider_credentials(provider)
-
-
-async def _get_cached_provider_credentials(
-    *,
-    cache: DualCache,
-    workspace_id: WorkspaceID,
-    organization_id: OrganizationID,
-    provider: str,
-    use_workspace_creds: bool,
-) -> tuple[dict[str, str] | None, bool]:
-    cache_key = _credentials_cache_key(
-        workspace_id=workspace_id,
-        organization_id=organization_id,
-        provider=provider,
-        use_workspace_creds=use_workspace_creds,
-    )
-
-    cached_creds = await cache.async_get_cache(cache_key, local_only=True)
-    if isinstance(cached_creds, dict) and all(
-        isinstance(key, str) and isinstance(value, str)
-        for key, value in cached_creds.items()
-    ):
-        return cached_creds.copy(), True
-
-    creds = await get_provider_credentials(
-        workspace_id=workspace_id,
-        organization_id=organization_id,
-        provider=provider,
-        use_workspace_creds=use_workspace_creds,
-    )
-    if creds:
-        await cache.async_set_cache(
-            cache_key,
-            creds,
-            ttl=TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS,
-            local_only=True,
+        return await service.get_runtime_credentials_for_config(
+            AgentConfig(
+                source_id=uuid.UUID(source_id) if source_id else None,
+                model_provider=provider,
+                model_name=model_name,
+            )
         )
-    return creds, False
 
 
 # -----------------------------------------------------------------------------
@@ -225,9 +183,9 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
             "organization_id": str(claims.organization_id),
             "session_id": str(claims.session_id),
             "trace_request_id": request.headers.get(_TRACE_REQUEST_ID_HEADER),
-            "use_workspace_credentials": claims.use_workspace_credentials,
             "model": claims.model,
             "provider": claims.provider,
+            "source_id": str(claims.source_id) if claims.source_id else None,
             "base_url": claims.base_url,
             "model_settings": claims.model_settings,
         },
@@ -251,15 +209,11 @@ class TracecatCallbackHandler(CustomLogger):
         """Inject credentials and model settings before LLM call."""
         workspace_id: str = user_api_key_dict.metadata.get("workspace_id", "")
         organization_id: str = user_api_key_dict.metadata.get("organization_id", "")
-        use_workspace_creds: bool = user_api_key_dict.metadata.get(
-            "use_workspace_credentials", True
-        )
-        workspace = WorkspaceID(workspace_id)
-        organization = OrganizationID(organization_id)
 
         # Use model and provider from token metadata (trusted, required claims)
         model = user_api_key_dict.metadata.get("model")
         provider = user_api_key_dict.metadata.get("provider")
+        source_id = user_api_key_dict.metadata.get("source_id")
         if not model or not provider:
             _gateway_log(
                 logging.WARNING,
@@ -277,15 +231,19 @@ class TracecatCallbackHandler(CustomLogger):
             )
         data["model"] = model
 
-        creds, _ = await _get_cached_provider_credentials(
-            cache=cache,
-            workspace_id=workspace,
-            organization_id=organization,
+        creds = await get_runtime_credentials(
+            workspace_id=WorkspaceID(workspace_id),
+            organization_id=OrganizationID(organization_id),
+            model_name=model,
             provider=provider,
-            use_workspace_creds=use_workspace_creds,
+            source_id=source_id,
         )
 
-        if not creds:
+        if not creds and provider not in {
+            "default_sidecar",
+            "openai_compatible_gateway",
+            "manual_custom",
+        }:
             _gateway_log(
                 logging.WARNING,
                 "No credentials configured for provider",
@@ -294,17 +252,20 @@ class TracecatCallbackHandler(CustomLogger):
                 **_load_fields(),
             )
             raise ProxyException(
-                message=f"No {provider} API credentials configured. Add them in workspace settings.",
+                message=f"No {provider} API credentials configured. Add them in organization agent settings.",
                 type="credential_error",
                 param=None,
                 code=401,
             )
 
         # Inject credentials based on provider type
-        _inject_provider_credentials(data, provider, creds)
-        if (
-            model_base_url := user_api_key_dict.metadata.get("base_url")
-        ) and provider in {"openai", "anthropic", "custom-model-provider"}:
+        _inject_provider_credentials(
+            data,
+            provider,
+            creds or {},
+            source_id=source_id,
+        )
+        if model_base_url := user_api_key_dict.metadata.get("base_url"):
             # Preset/config base_url should override provider credential base URL
             data["api_base"] = model_base_url
 
@@ -382,59 +343,112 @@ def _inject_provider_credentials(
     data: dict,
     provider: str,
     creds: dict[str, str],
+    *,
+    source_id: str | None,
 ) -> None:
     """Inject provider-specific credentials into request."""
+    if source_id is not None and provider in {
+        "openai_compatible_gateway",
+        "manual_custom",
+        "direct_endpoint",
+    }:
+        api_key = creds.get(SOURCE_RUNTIME_API_KEY)
+        api_key_header = creds.get(SOURCE_RUNTIME_API_KEY_HEADER)
+        if api_key and api_key_header and api_key_header.lower() != "authorization":
+            _set_extra_headers(data, {api_key_header: api_key})
+            data.pop("api_key", None)
+        else:
+            data["api_key"] = api_key or "not-needed"
+        if base_url := creds.get(SOURCE_RUNTIME_BASE_URL) or creds.get(
+            "OPENAI_BASE_URL"
+        ):
+            data["api_base"] = base_url
+        if api_version := creds.get(SOURCE_RUNTIME_API_VERSION):
+            data["api_version"] = api_version
+        if not str(data.get("model", "")).startswith("openai/"):
+            data["model"] = f"openai/{data['model']}"
+        return
+
     match provider:
         case "openai":
-            api_key = creds.get("OPENAI_API_KEY")
+            api_key = (
+                creds.get(SOURCE_RUNTIME_API_KEY)
+                if source_id is not None
+                else creds.get("OPENAI_API_KEY")
+            ) or creds.get("OPENAI_API_KEY")
             if not api_key:
-                _gateway_log(
-                    logging.WARNING,
-                    "Required credential key missing for provider",
-                    provider=provider,
-                )
-                raise ProxyException(
-                    message="Provider credentials incomplete",
-                    type="auth_error",
-                    param=None,
-                    code=401,
-                )
+                if source_id is not None:
+                    api_key = "not-needed"
+                else:
+                    _gateway_log(
+                        logging.WARNING,
+                        "Required credential key missing for provider",
+                        provider=provider,
+                    )
+                    raise ProxyException(
+                        message="Provider credentials incomplete",
+                        type="auth_error",
+                        param=None,
+                        code=401,
+                    )
             data["api_key"] = api_key
-            if base_url := creds.get("OPENAI_BASE_URL"):
+            if base_url := creds.get(SOURCE_RUNTIME_BASE_URL) or creds.get(
+                "OPENAI_BASE_URL"
+            ):
                 data["api_base"] = base_url
+            if not str(data.get("model", "")).startswith("openai/"):
+                data["model"] = f"openai/{data['model']}"
 
         case "anthropic":
-            api_key = creds.get("ANTHROPIC_API_KEY")
+            api_key = (
+                creds.get(SOURCE_RUNTIME_API_KEY)
+                if source_id is not None
+                else creds.get("ANTHROPIC_API_KEY")
+            ) or creds.get("ANTHROPIC_API_KEY")
             if not api_key:
-                _gateway_log(
-                    logging.WARNING,
-                    "Required credential key missing for provider",
-                    provider=provider,
-                )
-                raise ProxyException(
-                    message="Provider credentials incomplete",
-                    type="auth_error",
-                    param=None,
-                    code=401,
-                )
+                if source_id is not None:
+                    api_key = "not-needed"
+                else:
+                    _gateway_log(
+                        logging.WARNING,
+                        "Required credential key missing for provider",
+                        provider=provider,
+                    )
+                    raise ProxyException(
+                        message="Provider credentials incomplete",
+                        type="auth_error",
+                        param=None,
+                        code=401,
+                    )
             data["api_key"] = api_key
-            if base_url := creds.get("ANTHROPIC_BASE_URL"):
+            if base_url := creds.get(SOURCE_RUNTIME_BASE_URL) or creds.get(
+                "ANTHROPIC_BASE_URL"
+            ):
                 data["api_base"] = base_url
+            if not str(data.get("model", "")).startswith("anthropic/"):
+                data["model"] = f"anthropic/{data['model']}"
 
         case "gemini":
-            api_key = creds.get("GEMINI_API_KEY")
+            api_key = (
+                creds.get(SOURCE_RUNTIME_API_KEY)
+                if source_id is not None
+                else creds.get("GEMINI_API_KEY")
+            ) or creds.get("GEMINI_API_KEY")
             if not api_key:
-                _gateway_log(
-                    logging.WARNING,
-                    "Required credential key missing for provider",
-                    provider=provider,
-                )
-                raise ProxyException(
-                    message="Provider credentials incomplete",
-                    type="auth_error",
-                    param=None,
-                    code=401,
-                )
+                if source_id is not None:
+                    api_key = "not-needed"
+                else:
+                    _gateway_log(
+                        logging.WARNING,
+                        "Required credential key missing for provider",
+                        provider=provider,
+                    )
+                    raise ProxyException(
+                        message="Provider credentials incomplete",
+                        type="auth_error",
+                        param=None,
+                        code=401,
+                    )
             data["api_key"] = api_key
             # Prefix model name for LiteLLM routing (e.g. gemini-2.5-flash -> gemini/gemini-2.5-flash)
             if not data.get("model", "").startswith("gemini/"):
@@ -443,7 +457,7 @@ def _inject_provider_credentials(
         case "vertex_ai":
             credentials = creds.get("GOOGLE_API_CREDENTIALS")
             project = creds.get("GOOGLE_CLOUD_PROJECT")
-            model_name = creds.get("VERTEX_AI_MODEL")
+            model_name = creds.get("VERTEX_AI_MODEL") or str(data.get("model") or "")
             if not credentials or not project or not model_name:
                 _gateway_log(
                     logging.WARNING,
@@ -454,7 +468,7 @@ def _inject_provider_credentials(
                     has_model_name=bool(model_name),
                 )
                 raise ProxyException(
-                    message="Vertex AI requires GOOGLE_API_CREDENTIALS, GOOGLE_CLOUD_PROJECT, and VERTEX_AI_MODEL",
+                    message="Vertex AI requires GOOGLE_API_CREDENTIALS and GOOGLE_CLOUD_PROJECT.",
                     type="config_error",
                     param=None,
                     code=400,
@@ -462,7 +476,11 @@ def _inject_provider_credentials(
 
             data["vertex_credentials"] = credentials
             data["vertex_project"] = project
-            data["model"] = f"vertex_ai/{model_name}"
+            data["model"] = (
+                model_name
+                if model_name.startswith("vertex_ai/")
+                else f"vertex_ai/{model_name}"
+            )
             if location := creds.get("GOOGLE_CLOUD_LOCATION"):
                 data["vertex_location"] = location
 
@@ -503,16 +521,19 @@ def _inject_provider_credentials(
             if region := creds.get("AWS_REGION"):
                 data["aws_region_name"] = region
 
-            # Inference Profile ID takes precedence (required for newer models like Claude 4)
-            # Can be a system profile ID (us.anthropic.claude-sonnet-4-...) or custom ARN
             if inference_profile_id := creds.get("AWS_INFERENCE_PROFILE_ID"):
                 data["model"] = f"bedrock/{inference_profile_id}"
-            # Legacy: Direct model ID for older models that support on-demand throughput
             elif model_id := creds.get("AWS_MODEL_ID"):
                 data["model"] = f"bedrock/{model_id}"
+            elif model_name := str(data.get("model") or ""):
+                data["model"] = (
+                    model_name
+                    if model_name.startswith("bedrock/")
+                    else f"bedrock/{model_name}"
+                )
             else:
                 raise ProxyException(
-                    message="No Bedrock model configured. Set AWS_INFERENCE_PROFILE_ID (for newer models) or AWS_MODEL_ID (for legacy models) in your credentials.",
+                    message="No Bedrock model configured. Select a model or add a default Bedrock override in the provider settings.",
                     type="config_error",
                     param=None,
                     code=400,
@@ -548,10 +569,11 @@ def _inject_provider_credentials(
             )
 
         case "azure_openai":
-            # Azure OpenAI requires base URL, API version, and deployment name
             base = creds.get("AZURE_API_BASE")
             version = creds.get("AZURE_API_VERSION")
-            deployment = creds.get("AZURE_DEPLOYMENT_NAME")
+            deployment = creds.get("AZURE_DEPLOYMENT_NAME") or str(
+                data.get("model") or ""
+            )
 
             if not base or not version or not deployment:
                 _gateway_log(
@@ -563,7 +585,7 @@ def _inject_provider_credentials(
                     has_deployment=bool(deployment),
                 )
                 raise ProxyException(
-                    message="Azure OpenAI requires AZURE_API_BASE, AZURE_API_VERSION, and AZURE_DEPLOYMENT_NAME",
+                    message="Azure OpenAI requires AZURE_API_BASE and AZURE_API_VERSION plus either a selected model or a default deployment override.",
                     type="config_error",
                     param=None,
                     code=400,
@@ -592,13 +614,16 @@ def _inject_provider_credentials(
 
             data["api_base"] = base.rstrip("/")
             data["api_version"] = version
-            data["model"] = f"azure/{deployment}"
+            data["model"] = (
+                deployment if deployment.startswith("azure/") else f"azure/{deployment}"
+            )
 
         case "azure_ai":
-            # Azure AI requires base URL, API key, and model name
             base = creds.get("AZURE_API_BASE")
             api_key = creds.get("AZURE_API_KEY")
-            model_name = creds.get("AZURE_AI_MODEL_NAME")
+            model_name = creds.get("AZURE_AI_MODEL_NAME") or str(
+                data.get("model") or ""
+            )
 
             if not base or not api_key or not model_name:
                 _gateway_log(
@@ -610,7 +635,7 @@ def _inject_provider_credentials(
                     has_model_name=bool(model_name),
                 )
                 raise ProxyException(
-                    message="Azure AI requires AZURE_API_BASE, AZURE_API_KEY, and AZURE_AI_MODEL_NAME",
+                    message="Azure AI requires AZURE_API_BASE and AZURE_API_KEY plus either a selected model or a default model override.",
                     type="config_error",
                     param=None,
                     code=400,
@@ -618,7 +643,11 @@ def _inject_provider_credentials(
 
             data["api_base"] = base.rstrip("/")
             data["api_key"] = api_key
-            data["model"] = f"azure_ai/{model_name}"
+            data["model"] = (
+                model_name
+                if model_name.startswith("azure_ai/")
+                else f"azure_ai/{model_name}"
+            )
 
         case _:
             _gateway_log(
@@ -632,3 +661,25 @@ def _inject_provider_credentials(
                 param=None,
                 code=400,
             )
+
+    if source_id is not None:
+        _apply_source_request_overrides(data, creds)
+
+
+def _set_extra_headers(data: dict, extra_headers: dict[str, str]) -> None:
+    current = data.get("extra_headers")
+    headers = dict(current) if isinstance(current, dict) else {}
+    headers.update(extra_headers)
+    data["extra_headers"] = headers
+
+
+def _apply_source_request_overrides(data: dict, creds: dict[str, str]) -> None:
+    api_key = creds.get(SOURCE_RUNTIME_API_KEY)
+    api_key_header = creds.get(SOURCE_RUNTIME_API_KEY_HEADER)
+    if api_key and api_key_header and api_key_header.lower() != "authorization":
+        _set_extra_headers(data, {api_key_header: api_key})
+        data.pop("api_key", None)
+    if base_url := creds.get(SOURCE_RUNTIME_BASE_URL):
+        data["api_base"] = base_url
+    if api_version := creds.get(SOURCE_RUNTIME_API_VERSION):
+        data["api_version"] = api_version

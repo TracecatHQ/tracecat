@@ -44,7 +44,7 @@ dependencies = [
     "httpx==0.28.1",
     "jsonpath_ng==1.7.0",
     "lark==1.1.9",
-    "litellm[proxy]==1.81.13",
+    "litellm[proxy]==1.82.1",
     "loguru==0.7.3",
     "minio==7.2.18",
     "orjson==3.11.7",

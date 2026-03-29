@@ -37,6 +37,19 @@ type UpdateableChatRecord =
   | AgentSessionsGetSessionVercelResponse
   | AgentSessionsListSessionsResponse[number]
 
+type SessionModelSelectionFields = {
+  source_id?: string | null
+  model_name?: string | null
+  model_provider?: string | null
+}
+
+type AgentSessionCreateWithModelSelection = AgentSessionCreate &
+  SessionModelSelectionFields
+type AgentSessionUpdateWithModelSelection = AgentSessionUpdate &
+  SessionModelSelectionFields
+type UpdateableChatRecordWithModelSelection = UpdateableChatRecord &
+  SessionModelSelectionFields
+
 type UpdateChatContext = {
   previousChat?: AgentSessionsGetSessionResponse
   previousChatVercel?: AgentSessionsGetSessionVercelResponse
@@ -45,12 +58,26 @@ type UpdateChatContext = {
   >
 }
 
+function normalizeSelectionFields(
+  fields: SessionModelSelectionFields
+): Pick<
+  SessionModelSelectionFields,
+  "source_id" | "model_name" | "model_provider"
+> {
+  return {
+    source_id: fields.source_id,
+    model_name: fields.model_name,
+    model_provider: fields.model_provider,
+  }
+}
+
 function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
   chat: T,
-  update: AgentSessionUpdate
+  update: AgentSessionUpdateWithModelSelection
 ): T {
-  return {
-    ...chat,
+  const normalizedSelection = normalizeSelectionFields(update)
+  const updatedChat: UpdateableChatRecordWithModelSelection = {
+    ...(chat as UpdateableChatRecordWithModelSelection),
     updated_at: new Date().toISOString(),
     ...(typeof update.title === "string" ? { title: update.title } : {}),
     ...(update.tools !== undefined ? { tools: update.tools ?? [] } : {}),
@@ -60,10 +87,21 @@ function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
     ...(update.agent_preset_version_id !== undefined
       ? { agent_preset_version_id: update.agent_preset_version_id }
       : {}),
+    ...(normalizedSelection.source_id !== undefined
+      ? { source_id: normalizedSelection.source_id ?? null }
+      : {}),
+    ...(normalizedSelection.model_name !== undefined
+      ? { model_name: normalizedSelection.model_name ?? null }
+      : {}),
+    ...(normalizedSelection.model_provider !== undefined
+      ? { model_provider: normalizedSelection.model_provider ?? null }
+      : {}),
     ...("harness_type" in chat && update.harness_type !== undefined
       ? { harness_type: update.harness_type }
       : {}),
   }
+
+  return updatedChat as T
 }
 
 export function parseChatError(error: unknown): string {
@@ -125,10 +163,16 @@ export function useCreateChat(workspaceId: string) {
   const { mutateAsync: createChat, isPending: createChatPending } = useMutation<
     AgentSessionRead,
     ApiError,
-    AgentSessionCreate
+    AgentSessionCreateWithModelSelection
   >({
-    mutationFn: (request: AgentSessionCreate) =>
-      agentSessionsCreateSession({ requestBody: request, workspaceId }),
+    mutationFn: (request: AgentSessionCreateWithModelSelection) =>
+      agentSessionsCreateSession({
+        requestBody: {
+          ...request,
+          ...normalizeSelectionFields(request),
+        } as AgentSessionCreate,
+        workspaceId,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
     },
@@ -210,14 +254,17 @@ export function useUpdateChat(workspaceId: string) {
   const mutation = useMutation<
     AgentSessionRead,
     ApiError,
-    { chatId: string; update: AgentSessionUpdate },
+    { chatId: string; update: AgentSessionUpdateWithModelSelection },
     UpdateChatContext
   >({
     mutationFn: ({ chatId, update }) =>
       agentSessionsUpdateSession({
         sessionId: chatId,
         workspaceId,
-        requestBody: update,
+        requestBody: {
+          ...update,
+          ...normalizeSelectionFields(update),
+        } as AgentSessionUpdate,
       }),
     onMutate: async ({ chatId, update }) => {
       await Promise.all([

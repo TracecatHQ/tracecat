@@ -16,6 +16,9 @@ import type {
   ActionsListActionsResponse,
   ActionsUpdateActionData,
   ActionsUpdateActionResponse,
+  AdminAgentListPlatformCatalogData,
+  AdminAgentListPlatformCatalogResponse,
+  AdminAgentRefreshPlatformCatalogResponse,
   AdminCreateOrganizationData,
   AdminCreateOrganizationDomainData,
   AdminCreateOrganizationDomainResponse,
@@ -93,19 +96,39 @@ import type {
   AgentChannelsStartSlackOauthResponse,
   AgentChannelsUpdateChannelTokenData,
   AgentChannelsUpdateChannelTokenResponse,
+  AgentClearWorkspaceModelSubsetData,
+  AgentClearWorkspaceModelSubsetResponse,
   AgentCreateProviderCredentialsData,
   AgentCreateProviderCredentialsResponse,
+  AgentCreateSourceData,
+  AgentCreateSourceResponse,
   AgentDeleteProviderCredentialsData,
   AgentDeleteProviderCredentialsResponse,
+  AgentDeleteSourceData,
+  AgentDeleteSourceResponse,
+  AgentDisableModelData,
+  AgentDisableModelResponse,
+  AgentDisableModelsData,
+  AgentDisableModelsLegacyData,
+  AgentDisableModelsLegacyResponse,
+  AgentDisableModelsResponse,
+  AgentEnableModelData,
+  AgentEnableModelResponse,
+  AgentEnableModelsData,
+  AgentEnableModelsResponse,
   AgentGetDefaultModelResponse,
   AgentGetProviderCredentialConfigData,
   AgentGetProviderCredentialConfigResponse,
   AgentGetProvidersStatusResponse,
-  AgentGetWorkspaceProvidersStatusData,
-  AgentGetWorkspaceProvidersStatusResponse,
+  AgentGetWorkspaceModelSubsetData,
+  AgentGetWorkspaceModelSubsetResponse,
+  AgentListModelsData,
   AgentListModelsResponse,
+  AgentListPlatformCatalogData,
+  AgentListPlatformCatalogResponse,
   AgentListProviderCredentialConfigsResponse,
   AgentListProvidersResponse,
+  AgentListSourcesResponse,
   AgentPresetsCompareAgentPresetVersionsData,
   AgentPresetsCompareAgentPresetVersionsResponse,
   AgentPresetsCreateAgentPresetData,
@@ -126,6 +149,10 @@ import type {
   AgentPresetsRestoreAgentPresetVersionResponse,
   AgentPresetsUpdateAgentPresetData,
   AgentPresetsUpdateAgentPresetResponse,
+  AgentRefreshSourceData,
+  AgentRefreshSourceResponse,
+  AgentReplaceWorkspaceModelSubsetData,
+  AgentReplaceWorkspaceModelSubsetResponse,
   AgentSessionsCreateSessionData,
   AgentSessionsCreateSessionResponse,
   AgentSessionsDeleteSessionData,
@@ -146,8 +173,12 @@ import type {
   AgentSessionsUpdateSessionResponse,
   AgentSetDefaultModelData,
   AgentSetDefaultModelResponse,
+  AgentUpdateEnabledModelConfigData,
+  AgentUpdateEnabledModelConfigResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
+  AgentUpdateSourceData,
+  AgentUpdateSourceResponse,
   ApprovalsSubmitApprovalsData,
   ApprovalsSubmitApprovalsResponse,
   AuthAuthDatabaseLoginData,
@@ -3820,21 +3851,128 @@ export const organizationGetInvitationByToken = (
 /**
  * List Models
  * List all available AI models.
- * @returns ModelConfig Successful Response
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns ModelCatalogEntry Successful Response
  * @throws ApiError
  */
-export const agentListModels =
-  (): CancelablePromise<AgentListModelsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/agent/models",
-    })
-  }
+export const agentListModels = (
+  data: AgentListModelsData = {}
+): CancelablePromise<AgentListModelsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/models",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workspace Model Subset
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns WorkspaceModelSubsetRead Successful Response
+ * @throws ApiError
+ */
+export const agentGetWorkspaceModelSubset = (
+  data: AgentGetWorkspaceModelSubsetData
+): CancelablePromise<AgentGetWorkspaceModelSubsetResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/workspaces/{workspace_id}/model-subset",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Replace Workspace Model Subset
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkspaceModelSubsetRead Successful Response
+ * @throws ApiError
+ */
+export const agentReplaceWorkspaceModelSubset = (
+  data: AgentReplaceWorkspaceModelSubsetData
+): CancelablePromise<AgentReplaceWorkspaceModelSubsetResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/agent/workspaces/{workspace_id}/model-subset",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Clear Workspace Model Subset
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentClearWorkspaceModelSubset = (
+  data: AgentClearWorkspaceModelSubsetData
+): CancelablePromise<AgentClearWorkspaceModelSubsetResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/workspaces/{workspace_id}/model-subset",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Platform Catalog
+ * List the shared platform catalog with org readiness state.
+ * @param data The data for the request.
+ * @param data.query Search models by name.
+ * @param data.provider Filter by provider.
+ * @param data.cursor Opaque cursor for the next built-in catalog page.
+ * @param data.limit
+ * @returns BuiltInCatalogRead Successful Response
+ * @throws ApiError
+ */
+export const agentListPlatformCatalog = (
+  data: AgentListPlatformCatalogData = {}
+): CancelablePromise<AgentListPlatformCatalogResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/catalog/platform",
+    query: {
+      query: data.query,
+      provider: data.provider,
+      cursor: data.cursor,
+      limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * List Providers
- * List all available AI model providers.
- * @returns string Successful Response
+ * List built-in providers with discovery and credential state.
+ * @returns BuiltInProviderRead Successful Response
  * @throws ApiError
  */
 export const agentListProviders =
@@ -3985,8 +4123,8 @@ export const agentGetDefaultModel =
  * Set Default Model
  * Set the organization's default AI model.
  * @param data The data for the request.
- * @param data.modelName
- * @returns string Successful Response
+ * @param data.requestBody
+ * @returns DefaultModelSelection Successful Response
  * @throws ApiError
  */
 export const agentSetDefaultModel = (
@@ -3995,7 +4133,156 @@ export const agentSetDefaultModel = (
   return __request(OpenAPI, {
     method: "PUT",
     url: "/agent/default-model",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Sources
+ * @returns AgentModelSourceRead Successful Response
+ * @throws ApiError
+ */
+export const agentListSources =
+  (): CancelablePromise<AgentListSourcesResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/sources",
+    })
+  }
+
+/**
+ * Create Source
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AgentModelSourceRead Successful Response
+ * @throws ApiError
+ */
+export const agentCreateSource = (
+  data: AgentCreateSourceData
+): CancelablePromise<AgentCreateSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/sources",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Source
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @param data.requestBody
+ * @returns AgentModelSourceRead Successful Response
+ * @throws ApiError
+ */
+export const agentUpdateSource = (
+  data: AgentUpdateSourceData
+): CancelablePromise<AgentUpdateSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/agent/sources/{source_id}",
+    path: {
+      source_id: data.sourceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Source
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentDeleteSource = (
+  data: AgentDeleteSourceData
+): CancelablePromise<AgentDeleteSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/sources/{source_id}",
+    path: {
+      source_id: data.sourceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Refresh Source
+ * @param data The data for the request.
+ * @param data.sourceId
+ * @returns ModelCatalogEntry Successful Response
+ * @throws ApiError
+ */
+export const agentRefreshSource = (
+  data: AgentRefreshSourceData
+): CancelablePromise<AgentRefreshSourceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/sources/{source_id}/refresh",
+    path: {
+      source_id: data.sourceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Enable Model
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ModelCatalogEntry Successful Response
+ * @throws ApiError
+ */
+export const agentEnableModel = (
+  data: AgentEnableModelData
+): CancelablePromise<AgentEnableModelResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/models/enabled",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disable Model
+ * @param data The data for the request.
+ * @param data.modelProvider
+ * @param data.modelName
+ * @param data.sourceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentDisableModel = (
+  data: AgentDisableModelData
+): CancelablePromise<AgentDisableModelResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/models/enabled",
     query: {
+      source_id: data.sourceId,
+      model_provider: data.modelProvider,
       model_name: data.modelName,
     },
     errors: {
@@ -4005,22 +4292,84 @@ export const agentSetDefaultModel = (
 }
 
 /**
- * Get Workspace Providers Status
- * Get workspace credential status for all providers.
+ * Update Enabled Model Config
  * @param data The data for the request.
- * @param data.workspaceId
- * @returns boolean Successful Response
+ * @param data.requestBody
+ * @returns ModelCatalogEntry Successful Response
  * @throws ApiError
  */
-export const agentGetWorkspaceProvidersStatus = (
-  data: AgentGetWorkspaceProvidersStatusData
-): CancelablePromise<AgentGetWorkspaceProvidersStatusResponse> => {
+export const agentUpdateEnabledModelConfig = (
+  data: AgentUpdateEnabledModelConfigData
+): CancelablePromise<AgentUpdateEnabledModelConfigResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
-    url: "/agent/workspace/providers/status",
-    query: {
-      workspace_id: data.workspaceId,
+    method: "PATCH",
+    url: "/agent/models/enabled",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
     },
+  })
+}
+
+/**
+ * Enable Models
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ModelCatalogEntry Successful Response
+ * @throws ApiError
+ */
+export const agentEnableModels = (
+  data: AgentEnableModelsData
+): CancelablePromise<AgentEnableModelsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/models/enabled/batch",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * @deprecated
+ * Disable Models Legacy
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentDisableModelsLegacy = (
+  data: AgentDisableModelsLegacyData
+): CancelablePromise<AgentDisableModelsLegacyResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/models/enabled/batch",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disable Models
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentDisableModels = (
+  data: AgentDisableModelsData
+): CancelablePromise<AgentDisableModelsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/models/disabled/batch",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
@@ -5598,6 +5947,47 @@ export const adminDemoteFromSuperuser = (
     },
   })
 }
+
+/**
+ * List Platform Catalog
+ * @param data The data for the request.
+ * @param data.query
+ * @param data.provider
+ * @param data.cursor
+ * @param data.limit
+ * @returns PlatformCatalogRead Successful Response
+ * @throws ApiError
+ */
+export const adminAgentListPlatformCatalog = (
+  data: AdminAgentListPlatformCatalogData = {}
+): CancelablePromise<AdminAgentListPlatformCatalogResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/agent/catalog/platform",
+    query: {
+      query: data.query,
+      provider: data.provider,
+      cursor: data.cursor,
+      limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Refresh Platform Catalog
+ * @returns PlatformCatalogRead Successful Response
+ * @throws ApiError
+ */
+export const adminAgentRefreshPlatformCatalog =
+  (): CancelablePromise<AdminAgentRefreshPlatformCatalogResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/admin/agent/catalog/platform/refresh",
+    })
+  }
 
 /**
  * List Platform Repositories
