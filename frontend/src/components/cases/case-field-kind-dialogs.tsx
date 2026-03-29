@@ -124,7 +124,8 @@ export function UrlFieldDialog({
   const trimmedLabel = label.trim()
   const urlHint = getUrlHint(trimmedUrl)
   const isEmpty = trimmedUrl.length === 0 && trimmedLabel.length === 0
-  const isValid = !urlHint && trimmedUrl.length > 0 && trimmedLabel.length > 0
+  const isValid =
+    isEmpty || (!urlHint && trimmedUrl.length > 0 && trimmedLabel.length > 0)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -209,9 +210,7 @@ export function JsonFieldDialog({
   const serialized =
     initialValue === null || initialValue === undefined
       ? ""
-      : typeof initialValue === "string"
-        ? initialValue
-        : JSON.stringify(initialValue, null, 2)
+      : JSON.stringify(initialValue, null, 2)
 
   const [draft, setDraft] = useState(serialized)
   const [error, setError] = useState<string | null>(null)
