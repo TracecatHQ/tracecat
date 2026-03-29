@@ -22,7 +22,7 @@ from tracecat.identifiers.workflow import WorkspaceUUID
 
 MIGRATION_REVISION = "b5fc4168fe22"
 # Immediate down_revision for b5fc4168fe22.
-PREVIOUS_REVISION = "0a1e3100a432"
+PREVIOUS_REVISION = "3431033d29fd"
 TABLES_PREFIX = "tables_"
 CUSTOM_FIELDS_PREFIX = "custom_fields_"
 TABLES_TABLE = "alerts"
