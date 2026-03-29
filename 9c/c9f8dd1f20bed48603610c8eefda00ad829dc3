@@ -1,0 +1,23 @@
+tests/migration/test_dynamic_workspace_rls_migration.py
+  f4810ff570faf5bd 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "9cc9f8dd1f20bed48603610c8eefda00ad829dc3",
+  "prompts": {
+    "f4810ff570faf5bd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d3b09-20c4-7602-a3e1-65b485d5c7d7",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
