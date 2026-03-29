@@ -304,39 +304,15 @@ export function JsonFieldDialog({
 
 // -- Inline renderers for the case panel --
 
-interface LongTextFieldCellProps {
+interface ExpandFieldCellProps {
   onClick: () => void
   hasValue: boolean
 }
 
 /**
- * Inline cell for a LONG_TEXT field: shows an "Expand" button.
+ * Inline cell for expandable fields (LONG_TEXT, JSONB): shows "Expand" or "Add..." button.
  */
-export function LongTextFieldCell({
-  onClick,
-  hasValue,
-}: LongTextFieldCellProps) {
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-7 w-full justify-end px-2 text-sm font-normal text-muted-foreground"
-      onClick={onClick}
-    >
-      {hasValue ? "Expand" : "Add..."}
-    </Button>
-  )
-}
-
-interface JsonFieldCellProps {
-  onClick: () => void
-  hasValue: boolean
-}
-
-/**
- * Inline cell for a JSONB field: shows "Expand" or "Add..." button.
- */
-export function JsonFieldCell({ onClick, hasValue }: JsonFieldCellProps) {
+export function ExpandFieldCell({ onClick, hasValue }: ExpandFieldCellProps) {
   return (
     <Button
       variant="ghost"

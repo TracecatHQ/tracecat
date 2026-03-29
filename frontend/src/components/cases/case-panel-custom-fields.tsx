@@ -11,9 +11,8 @@ import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import type { CaseFieldRead, CaseUpdate } from "@/client"
 import {
-  JsonFieldCell,
+  ExpandFieldCell,
   JsonFieldDialog,
-  LongTextFieldCell,
   LongTextFieldDialog,
   UrlFieldCell,
   UrlFieldDialog,
@@ -207,7 +206,7 @@ function LongTextCustomField({
 
   return (
     <>
-      <LongTextFieldCell
+      <ExpandFieldCell
         onClick={() => setDialogOpen(true)}
         hasValue={currentValue.length > 0}
       />
@@ -299,7 +298,10 @@ function JsonCustomField({
 
   return (
     <>
-      <JsonFieldCell onClick={() => setDialogOpen(true)} hasValue={hasValue} />
+      <ExpandFieldCell
+        onClick={() => setDialogOpen(true)}
+        hasValue={hasValue}
+      />
       <JsonFieldDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -334,7 +336,13 @@ function MultiSelectBadges({ values }: { values: string[] }) {
     if (!container) return
 
     const measure = () => {
-      const badges = Array.from(container.children) as HTMLElement[]
+      const children = Array.from(container.children) as HTMLElement[]
+      // Last child is the +N indicator placeholder
+      const indicatorEl = children[children.length - 1]
+      const badges = children.slice(0, -1)
+      const indicatorWidth = indicatorEl ? indicatorEl.offsetWidth : 0
+      const gap = 4 // gap-1 = 0.25rem = 4px
+
       let count = 0
       for (const child of badges) {
         if (child.offsetLeft + child.offsetWidth > container.clientWidth) {
@@ -342,6 +350,21 @@ function MultiSelectBadges({ values }: { values: string[] }) {
         }
         count++
       }
+
+      // If there are hidden badges, reserve space for the +N indicator
+      if (count > 1 && count < badges.length) {
+        const lastVisible = badges[count - 1]
+        if (
+          lastVisible.offsetLeft +
+            lastVisible.offsetWidth +
+            gap +
+            indicatorWidth >
+          container.clientWidth
+        ) {
+          count--
+        }
+      }
+
       setVisibleCount(count > 0 ? count : 1)
     }
 
@@ -355,7 +378,7 @@ function MultiSelectBadges({ values }: { values: string[] }) {
 
   return (
     <div className="relative overflow-hidden">
-      {/* Hidden measurement layer — always contains every badge */}
+      {/* Hidden measurement layer — all badges + a +N placeholder for width calculation */}
       <div
         ref={measureRef}
         aria-hidden
@@ -377,6 +400,7 @@ function MultiSelectBadges({ values }: { values: string[] }) {
             {value}
           </Badge>
         ))}
+        <span className="shrink-0 text-[11px]">+{values.length}</span>
       </div>
       {/* Visible layer — only the badges that fit plus the +N indicator */}
       <div className="flex items-center gap-1">
