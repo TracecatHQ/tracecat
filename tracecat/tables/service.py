@@ -155,6 +155,11 @@ class BaseTablesService(BaseWorkspaceService):
         """Column list for API-facing queries, excluding internal columns."""
         return visible_column_clauses([c.name for c in table.columns])
 
+    def _assert_user_column_name_allowed(self, column_name: str) -> None:
+        """Reject operations on internal/system-managed column names."""
+        if is_internal_column_name(column_name):
+            raise ValueError(f"Column {column_name} is reserved for internal use")
+
     async def _enable_workspace_rls_for_physical_table(
         self, conn: AsyncConnection, full_table_name: str
     ) -> None:
@@ -529,6 +534,7 @@ class BaseTablesService(BaseWorkspaceService):
         Raises:
             ValueError: If the column type is invalid
         """
+        self._assert_user_column_name_allowed(params.name)
         column_name = validate_identifier(params.name)
         full_table_name = self._full_table_name(table.name)
 
@@ -607,6 +613,9 @@ class BaseTablesService(BaseWorkspaceService):
             ProgrammingError: If the database operation fails
         """
         set_fields = params.model_dump(exclude_unset=True)
+        self._assert_user_column_name_allowed(column.name)
+        if "name" in set_fields and set_fields["name"] is not None:
+            self._assert_user_column_name_allowed(set_fields["name"])
         full_table_name = self._full_table_name(column.table.name)
         conn = await self.session.connection()
         is_index = set_fields.pop("is_index", False)
@@ -753,8 +762,7 @@ class BaseTablesService(BaseWorkspaceService):
     @audit_log(resource_type="table_column", action="delete")
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
-        if is_internal_column_name(column.name):
-            raise ValueError(f"Column {column.name} is reserved for internal use")
+        self._assert_user_column_name_allowed(column.name)
         full_table_name = self._full_table_name(column.table.name)
         sanitized_column = self._sanitize_identifier(column.name)
 

@@ -648,6 +648,29 @@ class TestTableColumns:
         assert retrieved_col.name == "age"
         assert retrieved_col.type == SqlType.INTEGER
 
+    async def test_create_column_rejects_internal_namespace(
+        self, tables_service: TablesService
+    ) -> None:
+        """TablesService should reject creating internal/system-managed columns."""
+        table = await tables_service.create_table(
+            TableCreate(name="create_internal_column_reject")
+        )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await tables_service.create_column(
+                table,
+                TableColumnCreate(
+                    name=DYNAMIC_WORKSPACE_TENANT_COLUMN,
+                    type=SqlType.TEXT,
+                ),
+            )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await tables_service.create_column(
+                table,
+                TableColumnCreate(name="__tc_shadow", type=SqlType.TEXT),
+            )
+
     async def test_delete_column(self, tables_service: TablesService) -> None:
         """Test deleting a column from a table and ensuring it is removed."""
         # Create table and add a column
@@ -698,6 +721,32 @@ class TestTableColumns:
         assert retrieved_column.nullable is False
         assert retrieved_column.default == "default_value"
         assert retrieved_column.type == SqlType.TEXT
+
+    async def test_update_column_rejects_internal_namespace(
+        self, tables_service: TablesService
+    ) -> None:
+        """TablesService should reject operating on internal/system-managed columns."""
+        table = await tables_service.create_table(
+            TableCreate(name="update_internal_column_reject")
+        )
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(name="nickname", type=SqlType.TEXT, nullable=True),
+        )
+
+        column.name = DYNAMIC_WORKSPACE_TENANT_COLUMN
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await tables_service.update_column(
+                column,
+                TableColumnUpdate(name="display_name"),
+            )
+
+        column.name = "nickname"
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await tables_service.update_column(
+                column,
+                TableColumnUpdate(name="__TC_workspace_id"),
+            )
 
     async def test_create_column_default_with_single_quote(
         self, tables_service: TablesService
