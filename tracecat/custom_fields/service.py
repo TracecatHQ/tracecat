@@ -102,9 +102,7 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
     def _assert_user_field_name_allowed(self, field_name: str) -> None:
         """Reject operations on internal/system-managed field names."""
         if is_internal_column_name(field_name):
-            raise TracecatValidationError(
-                f"Field {field_name} is reserved for internal use"
-            )
+            raise ValueError(f"Field {field_name} is reserved for internal use")
 
     @abstractmethod
     def _table_definition(self) -> sa.Table:

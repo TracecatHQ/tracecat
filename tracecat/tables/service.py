@@ -33,7 +33,6 @@ from tracecat.db.models import Table, TableColumn
 from tracecat.exceptions import (
     TracecatImportError,
     TracecatNotFoundError,
-    TracecatValidationError,
 )
 from tracecat.identifiers import TableColumnID, TableID
 from tracecat.identifiers.workflow import WorkspaceUUID
@@ -1906,9 +1905,7 @@ class TableEditorService(BaseWorkspaceService):
     def _assert_user_column_name_allowed(self, column_name: str) -> None:
         """Reject operations on internal/system-managed column names."""
         if is_internal_column_name(column_name):
-            raise TracecatValidationError(
-                f"Column {column_name} is reserved for internal use"
-            )
+            raise ValueError(f"Column {column_name} is reserved for internal use")
 
     def _invalidate_visible_columns_cache(self) -> None:
         self._visible_columns_cache = None

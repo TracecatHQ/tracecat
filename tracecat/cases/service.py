@@ -1240,6 +1240,8 @@ class CaseFieldsService(CustomFieldsService):
             raise TracecatException(
                 "Cannot upsert case fields without an owning workspace."
             )
+        for field_name in fields:
+            self._assert_user_field_name_allowed(field_name)
         row_id = await self.ensure_workspace_row(case.id)
 
         try:
