@@ -214,18 +214,34 @@ export function UrlFieldCell({ value, onEdit }: UrlFieldCellProps) {
       >
         {value.label}
       </button>
-      <a
-        href={value.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="shrink-0 text-muted-foreground hover:text-foreground"
-        title={value.url}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <ExternalLink className="size-3.5" />
-      </a>
+      {isSafeUrl(value.url) && (
+        <a
+          href={value.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 text-muted-foreground hover:text-foreground"
+          title={value.url}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ExternalLink className="size-3.5" />
+        </a>
+      )}
     </div>
   )
+}
+
+/**
+ * Return true when the URL is a valid absolute http or https URL.
+ * Used to gate the rendered anchor so non-http(s) schemes (e.g. javascript:)
+ * are never placed in an href attribute.
+ */
+function isSafeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+  } catch {
+    return false
+  }
 }
 
 /**

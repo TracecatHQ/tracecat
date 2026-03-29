@@ -311,7 +311,7 @@ function MultiSelectBadges({ values }: { values: string[] }) {
 
   return (
     <div ref={containerRef} className="flex items-center gap-1 overflow-hidden">
-      {values.map((value) => (
+      {values.slice(0, visibleCount).map((value) => (
         <Badge
           key={value}
           variant="secondary"
