@@ -4678,6 +4678,11 @@ export const $CaseDropdownDefinitionCreate = {
       title: "Is Ordered",
       default: false,
     },
+    required_on_closure: {
+      type: "boolean",
+      title: "Required On Closure",
+      default: false,
+    },
     position: {
       type: "integer",
       title: "Position",
@@ -4727,6 +4732,10 @@ export const $CaseDropdownDefinitionRead = {
       type: "boolean",
       title: "Is Ordered",
     },
+    required_on_closure: {
+      type: "boolean",
+      title: "Required On Closure",
+    },
     position: {
       type: "integer",
       title: "Position",
@@ -4740,7 +4749,14 @@ export const $CaseDropdownDefinitionRead = {
     },
   },
   type: "object",
-  required: ["id", "name", "ref", "is_ordered", "position"],
+  required: [
+    "id",
+    "name",
+    "ref",
+    "is_ordered",
+    "required_on_closure",
+    "position",
+  ],
   title: "CaseDropdownDefinitionRead",
   description: "Read model for a dropdown definition with its options.",
 } as const
@@ -4795,6 +4811,17 @@ export const $CaseDropdownDefinitionUpdate = {
         },
       ],
       title: "Is Ordered",
+    },
+    required_on_closure: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Required On Closure",
     },
     position: {
       anyOf: [
@@ -5820,6 +5847,11 @@ export const $CaseFieldCreate = {
         },
       ],
     },
+    required_on_closure: {
+      type: "boolean",
+      title: "Required On Closure",
+      default: false,
+    },
   },
   type: "object",
   required: ["name", "type"],
@@ -5892,6 +5924,11 @@ export const $CaseFieldRead = {
           type: "null",
         },
       ],
+    },
+    required_on_closure: {
+      type: "boolean",
+      title: "Required On Closure",
+      default: false,
     },
     value: {
       title: "Value",
@@ -5966,6 +6003,11 @@ export const $CaseFieldReadMinimal = {
           type: "null",
         },
       ],
+    },
+    required_on_closure: {
+      type: "boolean",
+      title: "Required On Closure",
+      default: false,
     },
   },
   type: "object",
@@ -6050,6 +6092,17 @@ export const $CaseFieldUpdate = {
         },
       ],
       title: "Options",
+    },
+    required_on_closure: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Required On Closure",
     },
   },
   type: "object",

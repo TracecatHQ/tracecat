@@ -1754,6 +1754,12 @@ class CaseDropdownDefinition(WorkspaceModel):
     position: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False, doc="Display order among dropdowns"
     )
+    required_on_closure: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        doc="Whether this dropdown must have a value when closing/resolving a case",
+    )
 
     workspace: Mapped[Workspace] = relationship(
         back_populates="case_dropdown_definitions"

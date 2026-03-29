@@ -35,7 +35,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { getCaseFieldTypeConfig } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
@@ -90,6 +92,7 @@ const caseFieldFormSchema = z
     default: z.string().nullable().optional(),
     defaultMulti: z.array(z.string()).optional(),
     options: z.array(z.string().min(1, "Option cannot be empty")).optional(),
+    required_on_closure: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
     if (isSelectableColumnType(data.type)) {
@@ -144,6 +147,7 @@ const emptyDefaults: CaseFieldFormValues = {
   default: null,
   defaultMulti: [],
   options: [],
+  required_on_closure: false,
 }
 
 function getFormDefaults(field: CaseFieldReadMinimal): CaseFieldFormValues {
@@ -158,6 +162,7 @@ function getFormDefaults(field: CaseFieldReadMinimal): CaseFieldFormValues {
       default: "",
       defaultMulti: parseMultiSelectDefault(field.default),
       options: sanitizedOptions,
+      required_on_closure: field.required_on_closure ?? false,
     }
   }
 
@@ -168,6 +173,7 @@ function getFormDefaults(field: CaseFieldReadMinimal): CaseFieldFormValues {
     default: field.default ?? "",
     defaultMulti: [],
     options: sanitizedOptions,
+    required_on_closure: field.required_on_closure ?? false,
   }
 }
 
@@ -180,6 +186,8 @@ export function EditCustomFieldDialog({
   const queryClient = useQueryClient()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const previousTypeRef = useRef<SqlTypeCreatable | null>(null)
+  const { hasEntitlement } = useEntitlements()
+  const caseAddonsEnabled = hasEntitlement("case_addons")
 
   const form = useForm<CaseFieldFormValues>({
     resolver: zodResolver(caseFieldFormSchema),
@@ -330,6 +338,7 @@ export function EditCustomFieldDialog({
           options: isSelectableColumnType(data.type)
             ? sanitizeColumnOptions(data.options)
             : null,
+          required_on_closure: data.required_on_closure,
         },
       })
 
@@ -512,6 +521,25 @@ export function EditCustomFieldDialog({
               />
             )}
 
+            {caseAddonsEnabled && (
+              <FormField
+                control={form.control}
+                name="required_on_closure"
+                render={({ field: switchField }) => (
+                  <FormItem className="flex items-center justify-between gap-2">
+                    <FormLabel className="text-xs text-muted-foreground">
+                      Required on closure
+                    </FormLabel>
+                    <FormControl>
+                      <Switch
+                        checked={switchField.value}
+                        onCheckedChange={switchField.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            )}
             <DialogFooter>
               <Button type="submit" disabled={isSubmitting}>
                 Save changes

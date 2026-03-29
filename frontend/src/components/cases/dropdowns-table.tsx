@@ -101,6 +101,7 @@ const updateDefinitionSchema = z.object({
     .optional(),
   icon_name: z.string().max(100).optional(),
   is_ordered: z.boolean().optional(),
+  required_on_closure: z.boolean().optional(),
 })
 
 enum DefinitionAction {
@@ -485,6 +486,7 @@ function EditDefinitionDialog({
       name: definition.name,
       icon_name: definition.icon_name ?? "",
       is_ordered: definition.is_ordered,
+      required_on_closure: definition.required_on_closure,
     },
   })
 
@@ -493,8 +495,15 @@ function EditDefinitionDialog({
       name: definition.name,
       icon_name: definition.icon_name ?? "",
       is_ordered: definition.is_ordered,
+      required_on_closure: definition.required_on_closure,
     })
-  }, [methods, definition.name, definition.icon_name, definition.is_ordered])
+  }, [
+    methods,
+    definition.name,
+    definition.icon_name,
+    definition.is_ordered,
+    definition.required_on_closure,
+  ])
 
   const isOrdered = methods.watch("is_ordered") ?? false
 
@@ -563,6 +572,7 @@ function EditDefinitionDialog({
         ref: nextRef,
         icon_name: normalizedDefinitionIcon || null,
         is_ordered: formValues.is_ordered,
+        required_on_closure: formValues.required_on_closure,
       })
 
       // 2. Delete removed options
@@ -726,6 +736,29 @@ function EditDefinitionDialog({
                       <FormLabel className="text-sm">Ordered</FormLabel>
                       <FormDescription>
                         Enable sorting by this dropdown in the cases list
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value ?? false}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={methods.control}
+                name="required_on_closure"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-sm">
+                        Required on closure
+                      </FormLabel>
+                      <FormDescription>
+                        Must have a value before a case can be closed or
+                        resolved
                       </FormDescription>
                     </div>
                     <FormControl>
