@@ -23,8 +23,9 @@ revision: str = "b5fc4168fe22"
 down_revision: str | None = "3431033d29fd"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
-LEGACY_TENANT_RENAME_COMMENT_PREFIX = f"tracecat:{revision}:legacy-tenant-column:"
+LEGACY_INTERNAL_RENAME_COMMENT_PREFIX = f"tracecat:{revision}:legacy-internal-column:"
 
+INTERNAL_COLUMN_PREFIX = "__tc_"
 INTERNAL_TENANT_COLUMN = "__tc_workspace_id"
 LEGACY_TENANT_COLUMN_PREFIX = "migrated_tc_workspace_id"
 DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
@@ -77,43 +78,59 @@ def _policy_expression() -> str:
     )
 
 
-def _next_legacy_tenant_column_name(existing_column_names: set[str]) -> str:
-    """Generate a non-conflicting rename target for legacy tenant collisions."""
-    candidate = LEGACY_TENANT_COLUMN_PREFIX
+def _legacy_internal_column_base_name(column_name: str) -> str:
+    """Build the base migrated column name for a legacy internal-prefixed column."""
+    return f"migrated_{column_name.removeprefix('__')}"
+
+
+def _next_legacy_internal_column_name(
+    existing_column_names: set[str], original_column_name: str
+) -> str:
+    """Generate a non-conflicting rename target for a legacy internal column."""
+    candidate = _legacy_internal_column_base_name(original_column_name)
     suffix = 1
     while candidate in existing_column_names:
-        candidate = f"{LEGACY_TENANT_COLUMN_PREFIX}_{suffix}"
+        candidate = (
+            f"{_legacy_internal_column_base_name(original_column_name)}_{suffix}"
+        )
         suffix += 1
     return candidate
 
 
-def _legacy_tenant_rename_comment(original_comment: str | None) -> str:
-    """Encode downgrade metadata for a renamed legacy tenant column."""
-    payload = orjson.dumps({"original_comment": original_comment}).decode()
-    return f"{LEGACY_TENANT_RENAME_COMMENT_PREFIX}{payload}"
+def _legacy_internal_rename_comment(
+    *, original_name: str, original_comment: str | None
+) -> str:
+    """Encode downgrade metadata for a renamed legacy internal column."""
+    payload = orjson.dumps(
+        {"original_name": original_name, "original_comment": original_comment}
+    ).decode()
+    return f"{LEGACY_INTERNAL_RENAME_COMMENT_PREFIX}{payload}"
 
 
-def _parse_legacy_tenant_rename_comment(
+def _parse_legacy_internal_rename_comment(
     comment: str | None,
-) -> tuple[bool, str | None]:
-    """Decode downgrade metadata for a renamed legacy tenant column comment."""
-    if comment is None or not comment.startswith(LEGACY_TENANT_RENAME_COMMENT_PREFIX):
-        return False, None
+) -> tuple[bool, str | None, str | None]:
+    """Decode downgrade metadata for a renamed legacy internal column comment."""
+    if comment is None or not comment.startswith(LEGACY_INTERNAL_RENAME_COMMENT_PREFIX):
+        return False, None, None
 
     try:
         payload = orjson.loads(
-            comment.removeprefix(LEGACY_TENANT_RENAME_COMMENT_PREFIX)
+            comment.removeprefix(LEGACY_INTERNAL_RENAME_COMMENT_PREFIX)
         )
     except orjson.JSONDecodeError:
-        return False, None
+        return False, None, None
 
     match payload:
-        case {"original_comment": None}:
-            return True, None
-        case {"original_comment": str() as original_comment}:
-            return True, original_comment
+        case {"original_name": str() as original_name, "original_comment": None}:
+            return True, original_name, None
+        case {
+            "original_name": str() as original_name,
+            "original_comment": str() as original_comment,
+        }:
+            return True, original_name, original_comment
         case _:
-            return False, None
+            return False, None, None
 
 
 def _set_column_comment(
@@ -208,123 +225,134 @@ def _rename_case_field_schema_key(
     )
 
 
-def _rename_legacy_tenant_column(
+def _rename_legacy_internal_columns(
     *,
     schema_name: str,
     table_name: str,
     workspace_id: UUID,
     preparer: sa.sql.compiler.IdentifierPreparer,
 ) -> None:
-    """Rename any pre-existing user column that collides with the tenant column."""
+    """Rename any pre-existing user columns in the reserved internal namespace."""
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     columns = inspector.get_columns(table_name, schema=schema_name)
-    legacy_column = next(
-        (column for column in columns if column["name"] == INTERNAL_TENANT_COLUMN), None
-    )
     column_names = {column["name"] for column in columns}
-    if legacy_column is None:
-        return
-
     qualified_table = _qualified_table(preparer, schema_name, table_name)
-    legacy_column_name = _next_legacy_tenant_column_name(column_names)
-    existing_comment = legacy_column.get("comment")
-    op.execute(
-        sa.text(
-            f"""
-            ALTER TABLE {qualified_table}
-            RENAME COLUMN "{INTERNAL_TENANT_COLUMN}" TO "{legacy_column_name}"
-            """
-        )
-    )
-    _set_column_comment(
-        schema_name=schema_name,
-        table_name=table_name,
-        column_name=legacy_column_name,
-        comment=_legacy_tenant_rename_comment(
-            existing_comment if isinstance(existing_comment, str | None) else None
-        ),
-        preparer=preparer,
-    )
+    for column in columns:
+        column_name = column["name"]
+        if not isinstance(column_name, str) or not column_name.startswith(
+            INTERNAL_COLUMN_PREFIX
+        ):
+            continue
 
-    if schema_name.startswith("tables_"):
-        _rename_table_column_metadata(
-            workspace_id=workspace_id,
+        legacy_column_name = _next_legacy_internal_column_name(
+            column_names, column_name
+        )
+        existing_comment = column.get("comment")
+        op.execute(
+            sa.text(
+                f"""
+                ALTER TABLE {qualified_table}
+                RENAME COLUMN "{column_name}" TO "{legacy_column_name}"
+                """
+            )
+        )
+        _set_column_comment(
+            schema_name=schema_name,
             table_name=table_name,
-            old_name=INTERNAL_TENANT_COLUMN,
-            new_name=legacy_column_name,
+            column_name=legacy_column_name,
+            comment=_legacy_internal_rename_comment(
+                original_name=column_name,
+                original_comment=(
+                    existing_comment
+                    if isinstance(existing_comment, str | None)
+                    else None
+                ),
+            ),
+            preparer=preparer,
         )
-    elif schema_name.startswith("custom_fields_") and table_name == "case_fields":
-        _rename_case_field_schema_key(
-            workspace_id=workspace_id,
-            old_name=INTERNAL_TENANT_COLUMN,
-            new_name=legacy_column_name,
-        )
+        column_names.remove(column_name)
+        column_names.add(legacy_column_name)
+
+        if schema_name.startswith("tables_"):
+            _rename_table_column_metadata(
+                workspace_id=workspace_id,
+                table_name=table_name,
+                old_name=column_name,
+                new_name=legacy_column_name,
+            )
+        elif schema_name.startswith("custom_fields_") and table_name == "case_fields":
+            _rename_case_field_schema_key(
+                workspace_id=workspace_id,
+                old_name=column_name,
+                new_name=legacy_column_name,
+            )
 
 
-def _restore_legacy_tenant_column(
+def _restore_legacy_internal_columns(
     *,
     schema_name: str,
     table_name: str,
     workspace_id: UUID,
     preparer: sa.sql.compiler.IdentifierPreparer,
 ) -> None:
-    """Restore any collision-renamed legacy tenant column during downgrade."""
+    """Restore any migrated legacy internal columns during downgrade."""
     bind = op.get_bind()
     inspector = sa.inspect(bind)
-    matches: list[tuple[str, str | None]] = []
+    matches: list[tuple[str, str, str | None]] = []
     for column in inspector.get_columns(table_name, schema=schema_name):
         column_name = column["name"]
-        if not isinstance(column_name, str) or not column_name.startswith(
-            LEGACY_TENANT_COLUMN_PREFIX
-        ):
+        if not isinstance(column_name, str):
             continue
         comment = column.get("comment")
         if not isinstance(comment, str | None):
             continue
-        found_marker, original_comment = _parse_legacy_tenant_rename_comment(comment)
-        if found_marker:
-            matches.append((column_name, original_comment))
+        found_marker, original_name, original_comment = (
+            _parse_legacy_internal_rename_comment(comment)
+        )
+        if found_marker and original_name is not None:
+            matches.append((column_name, original_name, original_comment))
 
     if not matches:
         return
-    if len(matches) > 1:
-        raise RuntimeError(
-            "Multiple renamed legacy tenant columns found during downgrade for "
-            f"{schema_name}.{table_name}: {', '.join(column_name for column_name, _ in matches)}"
-        )
-
-    legacy_column_name, original_comment = matches[0]
     qualified_table = _qualified_table(preparer, schema_name, table_name)
-    op.execute(
-        sa.text(
-            f"""
-            ALTER TABLE {qualified_table}
-            RENAME COLUMN "{legacy_column_name}" TO "{INTERNAL_TENANT_COLUMN}"
-            """
+    restored_names: set[str] = set()
+    for legacy_column_name, original_name, original_comment in sorted(matches):
+        if original_name in restored_names:
+            raise RuntimeError(
+                "Multiple migrated legacy internal columns found during downgrade for "
+                f"{schema_name}.{table_name}: {original_name}"
+            )
+        op.execute(
+            sa.text(
+                f"""
+                ALTER TABLE {qualified_table}
+                RENAME COLUMN "{legacy_column_name}" TO "{original_name}"
+                """
+            )
         )
-    )
-    _set_column_comment(
-        schema_name=schema_name,
-        table_name=table_name,
-        column_name=INTERNAL_TENANT_COLUMN,
-        comment=original_comment,
-        preparer=preparer,
-    )
-
-    if schema_name.startswith("tables_"):
-        _rename_table_column_metadata(
-            workspace_id=workspace_id,
+        _set_column_comment(
+            schema_name=schema_name,
             table_name=table_name,
-            old_name=legacy_column_name,
-            new_name=INTERNAL_TENANT_COLUMN,
+            column_name=original_name,
+            comment=original_comment,
+            preparer=preparer,
         )
-    elif schema_name.startswith("custom_fields_") and table_name == "case_fields":
-        _rename_case_field_schema_key(
-            workspace_id=workspace_id,
-            old_name=legacy_column_name,
-            new_name=INTERNAL_TENANT_COLUMN,
-        )
+
+        if schema_name.startswith("tables_"):
+            _rename_table_column_metadata(
+                workspace_id=workspace_id,
+                table_name=table_name,
+                old_name=legacy_column_name,
+                new_name=original_name,
+            )
+        elif schema_name.startswith("custom_fields_") and table_name == "case_fields":
+            _rename_case_field_schema_key(
+                workspace_id=workspace_id,
+                old_name=legacy_column_name,
+                new_name=original_name,
+            )
+        restored_names.add(original_name)
 
 
 def _ensure_tenant_column(
@@ -337,7 +365,7 @@ def _ensure_tenant_column(
     """Add/backfill the internal tenant column on a physical dynamic table."""
     qualified_table = _qualified_table(preparer, schema_name, table_name)
 
-    _rename_legacy_tenant_column(
+    _rename_legacy_internal_columns(
         schema_name=schema_name,
         table_name=table_name,
         workspace_id=workspace_id,
@@ -474,7 +502,7 @@ def downgrade() -> None:
                 """
             )
         )
-        _restore_legacy_tenant_column(
+        _restore_legacy_internal_columns(
             schema_name=schema_name,
             table_name=table_name,
             workspace_id=workspace_id,
