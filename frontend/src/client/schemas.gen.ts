@@ -3374,6 +3374,62 @@ export const $AssistantMessage = {
       ],
       title: "Error",
     },
+    usage: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Usage",
+    },
+    message_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Message Id",
+    },
+    stop_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stop Reason",
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+    },
+    uuid: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Uuid",
+    },
   },
   type: "object",
   required: ["content", "model"],
@@ -5754,11 +5810,31 @@ export const $CaseFieldCreate = {
       ],
       title: "Options",
     },
+    kind: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseFieldKind",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: ["name", "type"],
   title: "CaseFieldCreate",
   description: "Create a new case field.",
+} as const
+
+export const $CaseFieldKind = {
+  type: "string",
+  enum: ["LONG_TEXT", "URL"],
+  title: "CaseFieldKind",
+  description: `Semantic kind for case custom fields.
+
+Controls how the field is rendered in the UI without changing the underlying
+SQL storage type.`,
 } as const
 
 export const $CaseFieldRead = {
@@ -5806,6 +5882,16 @@ export const $CaseFieldRead = {
         },
       ],
       title: "Options",
+    },
+    kind: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseFieldKind",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     value: {
       title: "Value",
@@ -5870,6 +5956,16 @@ export const $CaseFieldReadMinimal = {
         },
       ],
       title: "Options",
+    },
+    kind: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseFieldKind",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",
@@ -6995,6 +7091,9 @@ export const $ChatMessage = {
         },
         {
           $ref: "#/components/schemas/StreamEvent",
+        },
+        {
+          $ref: "#/components/schemas/RateLimitEvent",
         },
         {
           type: "null",
@@ -14575,6 +14674,117 @@ export const $PullResult = {
   title: "PullResult",
 } as const
 
+export const $RateLimitEvent = {
+  properties: {
+    rate_limit_info: {
+      $ref: "#/components/schemas/RateLimitInfo",
+    },
+    uuid: {
+      type: "string",
+      title: "Uuid",
+    },
+    session_id: {
+      type: "string",
+      title: "Session Id",
+    },
+  },
+  type: "object",
+  required: ["rate_limit_info", "uuid", "session_id"],
+  title: "RateLimitEvent",
+} as const
+
+export const $RateLimitInfo = {
+  properties: {
+    status: {
+      type: "string",
+      enum: ["allowed", "allowed_warning", "rejected"],
+      title: "Status",
+    },
+    resets_at: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resets At",
+    },
+    rate_limit_type: {
+      anyOf: [
+        {
+          type: "string",
+          enum: [
+            "five_hour",
+            "seven_day",
+            "seven_day_opus",
+            "seven_day_sonnet",
+            "overage",
+          ],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Rate Limit Type",
+    },
+    utilization: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Utilization",
+    },
+    overage_status: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["allowed", "allowed_warning", "rejected"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Overage Status",
+    },
+    overage_resets_at: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Overage Resets At",
+    },
+    overage_disabled_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Overage Disabled Reason",
+    },
+    raw: {
+      additionalProperties: true,
+      type: "object",
+      title: "Raw",
+    },
+  },
+  type: "object",
+  required: ["status"],
+  title: "RateLimitInfo",
+} as const
+
 export const $ReadinessResponse = {
   properties: {
     status: {
@@ -15401,6 +15611,12 @@ export const $RegistrySecret = {
       title: "Optional",
       default: false,
     },
+    secret_type: {
+      type: "string",
+      enum: ["custom", "ssh_key", "mtls", "ca_cert"],
+      title: "Secret Type",
+      default: "custom",
+    },
   },
   type: "object",
   required: ["name"],
@@ -15700,6 +15916,17 @@ export const $ResultMessage = {
       type: "string",
       title: "Session Id",
     },
+    stop_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stop Reason",
+    },
     total_cost_usd: {
       anyOf: [
         {
@@ -15736,6 +15963,55 @@ export const $ResultMessage = {
     },
     structured_output: {
       title: "Structured Output",
+    },
+    model_usage: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Usage",
+    },
+    permission_denials: {
+      anyOf: [
+        {
+          items: {},
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Permission Denials",
+    },
+    errors: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Errors",
+    },
+    uuid: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Uuid",
     },
   },
   type: "object",
@@ -16915,7 +17191,7 @@ Secret types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
 - \`oauth2\`: OAuth2 Client Credentials (TBC)
 - \`mtls\`: TLS client certificate and key
-- \`ca-cert\`: Certificate authority bundle`,
+- \`ca_cert\`: Certificate authority bundle`,
 } as const
 
 export const $SecretDefinition = {
@@ -16949,6 +17225,10 @@ export const $SecretDefinition = {
       type: "boolean",
       title: "Optional",
       default: false,
+    },
+    secret_type: {
+      $ref: "#/components/schemas/SecretType",
+      default: "custom",
     },
     actions: {
       items: {
@@ -17114,7 +17394,7 @@ export const $SecretReadMinimal = {
 
 export const $SecretType = {
   type: "string",
-  enum: ["custom", "ssh-key", "mtls", "ca-cert", "github-app"],
+  enum: ["custom", "ssh_key", "mtls", "ca_cert", "github_app"],
   title: "SecretType",
   description: "The type of a secret.",
 } as const
@@ -17213,7 +17493,7 @@ Secret types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
 - \`oauth2\`: OAuth2 Client Credentials (TBC)
 - \`mtls\`: TLS client certificate and key
-- \`ca-cert\`: Certificate authority bundle`,
+- \`ca_cert\`: Certificate authority bundle`,
 } as const
 
 export const $SecretValidationDetail = {
@@ -20580,6 +20860,18 @@ export const $UserMessage = {
         },
       ],
       title: "Parent Tool Use Id",
+    },
+    tool_use_result: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Use Result",
     },
   },
   type: "object",

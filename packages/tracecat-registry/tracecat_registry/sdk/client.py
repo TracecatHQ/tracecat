@@ -18,6 +18,7 @@ from tracecat_registry.sdk.exceptions import (
 if TYPE_CHECKING:
     from tracecat_registry.sdk.agents import AgentsClient
     from tracecat_registry.sdk.cases import CasesClient
+    from tracecat_registry.sdk.deduplicate import DeduplicateClient
     from tracecat_registry.sdk.tables import TablesClient
     from tracecat_registry.sdk.variables import VariablesClient
     from tracecat_registry.sdk.workflows import WorkflowsClient
@@ -66,6 +67,7 @@ class TracecatClient:
         # Lazily initialized sub-clients
         self._agents: AgentsClient | None = None
         self._cases: CasesClient | None = None
+        self._deduplicate: DeduplicateClient | None = None
         self._tables: TablesClient | None = None
         self._variables: VariablesClient | None = None
         self._workflows: WorkflowsClient | None = None
@@ -79,6 +81,15 @@ class TracecatClient:
     def workspace_id(self) -> str:
         """Current workspace ID."""
         return self._workspace_id
+
+    @property
+    def deduplicate(self) -> DeduplicateClient:
+        """Deduplicate API client."""
+        if self._deduplicate is None:
+            from tracecat_registry.sdk.deduplicate import DeduplicateClient
+
+            self._deduplicate = DeduplicateClient(self)
+        return self._deduplicate
 
     @property
     def cases(self) -> CasesClient:

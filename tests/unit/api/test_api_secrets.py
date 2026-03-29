@@ -154,6 +154,7 @@ async def test_list_secret_definitions_success(
                 "keys": ["KEY1"],
                 "optional_keys": None,
                 "optional": False,
+                "secret_type": "custom",
                 "actions": ["tools.alpha.action_one"],
                 "action_count": 1,
             }

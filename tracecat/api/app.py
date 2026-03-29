@@ -93,6 +93,9 @@ from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
 )
 from tracecat.db.rls import set_rls_context_from_role
+from tracecat.deduplicate.internal_router import (
+    router as internal_deduplicate_router,
+)
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
 from tracecat.feature_flags import FlagLike, is_feature_enabled
@@ -492,6 +495,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(internal_agent_preset_router)
     app.include_router(internal_case_attachments_router)
     app.include_router(internal_cases_router)
+    app.include_router(internal_deduplicate_router)
     app.include_router(internal_case_rows_router)
     app.include_router(internal_comments_router)
     app.include_router(internal_case_tags_router)

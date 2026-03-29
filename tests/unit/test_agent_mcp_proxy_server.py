@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from claude_agent_sdk.types import (
     HookContext,
+    PreToolUseHookInput,
     PreToolUseHookSpecificOutput,
     SyncHookJSONOutput,
 )
@@ -189,15 +190,18 @@ async def test_registry_proxy_server_accepts_hook_injected_metadata_during_tool_
     }
     runtime.tool_approvals = {"core.http_request": False}
 
+    hook_input: PreToolUseHookInput = {
+        "session_id": "test-session-id",
+        "transcript_path": "/tmp/test-transcript.jsonl",
+        "cwd": "/tmp",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "mcp__tracecat-registry__core__http_request",
+        "tool_input": {"url": "https://example.com", "method": "GET"},
+        "tool_use_id": "toolu_123",
+    }
+
     hook_result = await runtime._pre_tool_use_hook(
-        input_data={
-            "session_id": "test-session-id",
-            "transcript_path": "/tmp/test-transcript.jsonl",
-            "cwd": "/tmp",
-            "hook_event_name": "PreToolUse",
-            "tool_name": "mcp__tracecat-registry__core__http_request",
-            "tool_input": {"url": "https://example.com", "method": "GET"},
-        },
+        input_data=hook_input,
         tool_use_id="toolu_123",
         context=HookContext(signal=None),
     )

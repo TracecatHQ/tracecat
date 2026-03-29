@@ -13,6 +13,7 @@ interface CaseDescriptionEditorProps {
   className?: string
   onBlur?: () => void
   toolbarStatus?: React.ReactNode
+  autoFocus?: boolean
 }
 
 export function CaseDescriptionEditor({
@@ -21,6 +22,7 @@ export function CaseDescriptionEditor({
   className,
   onBlur,
   toolbarStatus,
+  autoFocus = false,
 }: CaseDescriptionEditorProps) {
   const [value, setValue] = React.useState(initialContent ?? "")
   const [isEditorActive, setIsEditorActive] = React.useState(false)
@@ -73,6 +75,7 @@ export function CaseDescriptionEditor({
         toolbarStatus={toolbarStatus}
         placeholder="Describe the case..."
         className="case-description-editor"
+        autoFocus={autoFocus}
       />
     </div>
   )

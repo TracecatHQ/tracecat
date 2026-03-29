@@ -52,20 +52,8 @@ const SEARCH_KEY_INDEX: Record<(typeof SEARCH_KEYS)[number], number> =
     {} as Record<(typeof SEARCH_KEYS)[number], number>
   )
 
-const FORCE_LOCKED_PRESET_ACTIONS = new Set([
-  "ai.agent.create_preset",
-  "ai.agent.delete_preset",
-  "ai.agent.get_preset",
-  "ai.agent.list_presets",
-  "ai.agent.update_preset",
-  "ai.preset_agent",
-])
-
 function isLockedAction(action: RegistryActionReadMinimal): boolean {
-  return (
-    FORCE_LOCKED_PRESET_ACTIONS.has(action.action) ||
-    (action.availability?.locked ?? false)
-  )
+  return action.availability?.locked ?? false
 }
 
 function filterActions(actions: RegistryActionReadMinimal[], search: string) {

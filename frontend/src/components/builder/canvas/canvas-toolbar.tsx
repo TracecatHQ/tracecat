@@ -150,20 +150,8 @@ const TRANSFORM_TOP = [
 const SQL_TOP = ["core.duckdb.execute_sql", "core.sql.execute_query"]
 const AI_TOP = ["ai.action", "ai.ranker", "ai.slackbot"]
 const AGENT_TOP = ["ai.agent", "ai.preset_agent"]
-const FORCE_LOCKED_PRESET_ACTIONS = new Set([
-  "ai.agent.create_preset",
-  "ai.agent.delete_preset",
-  "ai.agent.get_preset",
-  "ai.agent.list_presets",
-  "ai.agent.update_preset",
-  "ai.preset_agent",
-])
-
 function isLockedAction(action: RegistryActionReadMinimal): boolean {
-  return (
-    FORCE_LOCKED_PRESET_ACTIONS.has(action.action) ||
-    (action.availability?.locked ?? false)
-  )
+  return action.availability?.locked ?? false
 }
 
 const WORKFLOW_EXTRA_ACTIONS = new Set([

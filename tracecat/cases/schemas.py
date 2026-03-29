@@ -16,6 +16,7 @@ from tracecat.cases.dropdowns.schemas import (
 )
 from tracecat.cases.enums import (
     CaseEventType,
+    CaseFieldKind,
     CasePriority,
     CaseSeverity,
     CaseStatus,
@@ -120,6 +121,8 @@ class CaseUpdate(Schema):
 class CaseFieldReadMinimal(CustomFieldRead):
     """Minimal read model for a case field."""
 
+    kind: CaseFieldKind | None = Field(default=None)
+
     @classmethod
     def from_sa(
         cls,
@@ -138,17 +141,22 @@ class CaseFieldReadMinimal(CustomFieldRead):
         Returns:
             A CaseFieldReadMinimal instance populated from the column data.
         """
-        return cls.model_validate(
-            super().from_sa(
-                column,
-                reserved_fields=set(RESERVED_CASE_FIELDS),
-                field_schema=field_schema,
-            )
+        base = super().from_sa(
+            column,
+            reserved_fields=set(RESERVED_CASE_FIELDS),
+            field_schema=field_schema,
         )
+        kind: CaseFieldKind | None = None
+        if field_schema and (meta := field_schema.get(column["name"])):
+            if kind_str := meta.get("kind"):
+                kind = CaseFieldKind(kind_str)
+        return cls.model_validate({**base.model_dump(), "kind": kind})
 
 
 class CaseFieldCreate(CustomFieldCreate):
     """Create a new case field."""
+
+    kind: CaseFieldKind | None = Field(default=None)
 
 
 class CaseFieldUpdate(CustomFieldUpdate):

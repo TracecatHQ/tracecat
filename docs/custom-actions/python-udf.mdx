@@ -57,6 +57,58 @@ async def say_goodbye_secretly(
 - Read secret values with `secrets.get(...)`.
 - Return plain dicts, lists, strings, numbers, or booleans.
 
+## Declaring secret types
+
+By default, secrets are `custom` (arbitrary key-value). If your action requires an SSH key, mTLS certificate, or CA certificate, set `secret_type` so the credentials UI renders the correct form.
+
+| `secret_type` | Required `keys` | Description |
+|---|---|---|
+| `"custom"` | Any | Generic key-value pairs (default) |
+| `"ssh_key"` | `["PRIVATE_KEY"]` | SSH private key (PEM) |
+| `"mtls"` | `["TLS_CERTIFICATE", "TLS_PRIVATE_KEY"]` | mTLS client certificate and key |
+| `"ca_cert"` | `["CA_CERTIFICATE"]` | CA certificate bundle |
+
+<Warning>
+Structured types (`ssh_key`, `mtls`, `ca_cert`) enforce exact key names. The declaration will fail validation if the keys don't match the expected shape. Structured types cannot have `optional_keys`.
+</Warning>
+
+### Examples
+
+```python
+# SSH key secret — renders an SSH private key textarea in the UI
+ssh_secret = RegistrySecret(
+    name="ansible",
+    keys=["PRIVATE_KEY"],
+    secret_type="ssh_key",
+)
+
+# mTLS secret — renders certificate + key textareas
+mtls_secret = RegistrySecret(
+    name="mtls",
+    keys=["TLS_CERTIFICATE", "TLS_PRIVATE_KEY"],
+    secret_type="mtls",
+    optional=True,
+)
+
+# CA certificate secret — renders a certificate textarea
+ca_cert_secret = RegistrySecret(
+    name="ca_cert",
+    keys=["CA_CERTIFICATE"],
+    secret_type="ca_cert",
+    optional=True,
+)
+
+# Custom secret (default) — renders key-value inputs
+api_secret = RegistrySecret(
+    name="slack",
+    keys=["SLACK_BOT_TOKEN"],
+)
+```
+
+<Note>
+`secret_type` uses snake_case everywhere — Python declarations, the API, and the UI all use the same values (`ssh_key`, `ca_cert`, `mtls`, `custom`).
+</Note>
+
 ## Example actions
 
 You can browse all open-source integrations in Tracecat in [tools actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/integrations). Use [template actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/templates/tools) to see how actions are composed, and use [core actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/core) to inspect built-in implementations.

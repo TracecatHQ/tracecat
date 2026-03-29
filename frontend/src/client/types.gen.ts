@@ -830,6 +830,13 @@ export type AssistantMessage = {
     | "server_error"
     | "unknown"
     | null
+  usage?: {
+    [key: string]: unknown
+  } | null
+  message_id?: string | null
+  stop_reason?: string | null
+  session_id?: string | null
+  uuid?: string | null
 }
 
 /**
@@ -1567,7 +1574,16 @@ export type CaseFieldCreate = {
   nullable?: boolean
   default?: unknown | null
   options?: Array<string> | null
+  kind?: CaseFieldKind | null
 }
+
+/**
+ * Semantic kind for case custom fields.
+ *
+ * Controls how the field is rendered in the UI without changing the underlying
+ * SQL storage type.
+ */
+export type CaseFieldKind = "LONG_TEXT" | "URL"
 
 /**
  * Read model for a case field.
@@ -1580,6 +1596,7 @@ export type CaseFieldRead = {
   default: string | null
   reserved: boolean
   options?: Array<string> | null
+  kind?: CaseFieldKind | null
   value: unknown
 }
 
@@ -1594,6 +1611,7 @@ export type CaseFieldReadMinimal = {
   default: string | null
   reserved: boolean
   options?: Array<string> | null
+  kind?: CaseFieldKind | null
 }
 
 /**
@@ -1903,6 +1921,7 @@ export type ChatMessage = {
     | SystemMessage
     | ResultMessage
     | StreamEvent
+    | RateLimitEvent
     | null
   /**
    * Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)
@@ -4524,6 +4543,33 @@ export type PullResult = {
   message: string
 }
 
+export type RateLimitEvent = {
+  rate_limit_info: RateLimitInfo
+  uuid: string
+  session_id: string
+}
+
+export type RateLimitInfo = {
+  status: "allowed" | "allowed_warning" | "rejected"
+  resets_at?: number | null
+  rate_limit_type?:
+    | "five_hour"
+    | "seven_day"
+    | "seven_day_opus"
+    | "seven_day_sonnet"
+    | "overage"
+    | null
+  utilization?: number | null
+  overage_status?: "allowed" | "allowed_warning" | "rejected" | null
+  overage_resets_at?: number | null
+  overage_disabled_reason?: string | null
+  raw?: {
+    [key: string]: unknown
+  }
+}
+
+export type status3 = "allowed" | "allowed_warning" | "rejected"
+
 export type ReadinessResponse = {
   status: string
   registry: RegistryStatus
@@ -4830,7 +4876,10 @@ export type RegistrySecret = {
   keys?: Array<string> | null
   optional_keys?: Array<string> | null
   optional?: boolean
+  secret_type?: "custom" | "ssh_key" | "mtls" | "ca_cert"
 }
+
+export type secret_type = "custom" | "ssh_key" | "mtls" | "ca_cert"
 
 export type RegistrySecretType = RegistrySecret | RegistryOAuthSecret
 
@@ -4912,12 +4961,19 @@ export type ResultMessage = {
   is_error: boolean
   num_turns: number
   session_id: string
+  stop_reason?: string | null
   total_cost_usd?: number | null
   usage?: {
     [key: string]: unknown
   } | null
   result?: string | null
   structured_output?: unknown
+  model_usage?: {
+    [key: string]: unknown
+  } | null
+  permission_denials?: Array<unknown> | null
+  errors?: Array<string> | null
+  uuid?: string | null
 }
 
 export type RetryPromptPart = {
@@ -5258,7 +5314,7 @@ export type ScopeSource = "platform" | "custom"
  * - `token`: A token, e.g. API Key, JWT Token (TBC)
  * - `oauth2`: OAuth2 Client Credentials (TBC)
  * - `mtls`: TLS client certificate and key
- * - `ca-cert`: Certificate authority bundle
+ * - `ca_cert`: Certificate authority bundle
  */
 export type SecretCreate = {
   type?: SecretType
@@ -5279,6 +5335,7 @@ export type SecretDefinition = {
   keys: Array<string>
   optional_keys?: Array<string> | null
   optional?: boolean
+  secret_type?: SecretType
   actions: Array<string>
   action_count: number
 }
@@ -5321,10 +5378,10 @@ export type SecretReadMinimal = {
  */
 export type SecretType =
   | "custom"
-  | "ssh-key"
+  | "ssh_key"
   | "mtls"
-  | "ca-cert"
-  | "github-app"
+  | "ca_cert"
+  | "github_app"
 
 /**
  * Update a secret.
@@ -5335,7 +5392,7 @@ export type SecretType =
  * - `token`: A token, e.g. API Key, JWT Token (TBC)
  * - `oauth2`: OAuth2 Client Credentials (TBC)
  * - `mtls`: TLS client certificate and key
- * - `ca-cert`: Certificate authority bundle
+ * - `ca_cert`: Certificate authority bundle
  */
 export type SecretUpdate = {
   type?: SecretType | null
@@ -6432,6 +6489,9 @@ export type UserMessage = {
     | Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
   uuid?: string | null
   parent_tool_use_id?: string | null
+  tool_use_result?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type UserRead = {
@@ -6893,7 +6953,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status3 = "success" | "failure"
+export type status4 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -6952,7 +7012,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status4 = "committed" | "no_op"
+export type status5 = "committed" | "no_op"
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -7270,7 +7330,7 @@ export type WorkflowExecutionRead = {
   interactions?: Array<InteractionRead>
 }
 
-export type status5 =
+export type status6 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"

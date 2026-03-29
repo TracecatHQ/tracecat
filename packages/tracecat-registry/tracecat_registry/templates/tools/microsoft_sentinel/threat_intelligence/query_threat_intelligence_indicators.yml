@@ -3,7 +3,7 @@ definition:
   title: Query threat intelligence indicators
   description: Query threat intelligence indicators using advanced filters in Microsoft Sentinel.
   display_group: Microsoft Sentinel
-  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/threat-intelligence-indicators/query-indicators
+  doc_url: https://learn.microsoft.com/en-us/rest/api/securityinsights/threat-intelligence-indicators
   namespace: tools.microsoft_sentinel
   name: query_threat_intelligence_indicators
   secrets:
