@@ -57,9 +57,9 @@ async def list_rules(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     page_size: Annotated[
@@ -101,9 +101,9 @@ async def get_rule(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_id: Annotated[
@@ -141,9 +141,9 @@ async def create_rule(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_text: Annotated[str, Field(description="YARA-L 2.0 rule text")],
@@ -180,9 +180,9 @@ async def update_rule(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_id: Annotated[str, Field(description="The rule ID to update")],
@@ -217,9 +217,9 @@ async def delete_rule(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_id: Annotated[str, Field(description="The rule ID to delete")],
@@ -256,9 +256,9 @@ async def verify_rule(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_text: Annotated[str, Field(description="YARA-L 2.0 rule text to validate")],
@@ -298,9 +298,9 @@ async def enable_rule(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_id: Annotated[str, Field(description="The rule ID to enable")],
@@ -333,9 +333,9 @@ async def disable_rule(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_id: Annotated[str, Field(description="The rule ID to disable")],
@@ -368,9 +368,9 @@ async def get_rule_deployment(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_id: Annotated[str, Field(description="The rule ID")],
@@ -408,9 +408,9 @@ async def list_detections(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_id: Annotated[str, Field(description="The rule ID to get detections for")],
@@ -469,9 +469,9 @@ async def create_retrohunt(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_id: Annotated[str, Field(description="The rule ID to run retrohunt for")],
@@ -516,9 +516,9 @@ async def get_retrohunt(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_id: Annotated[str, Field(description="The rule ID")],
@@ -552,9 +552,9 @@ async def list_retrohunts(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_id: Annotated[str, Field(description="The rule ID")],
@@ -596,9 +596,9 @@ async def cancel_retrohunt(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_id: Annotated[str, Field(description="The rule ID")],
@@ -637,9 +637,9 @@ async def list_rule_errors(
     base_url: Annotated[
         str,
         Field(
-            description="Chronicle API base URL (e.g., 'backstory.googleapis.com' for US, "
-            "'europe-backstory.googleapis.com' for EU, "
-            "'asia-southeast1-backstory.googleapis.com' for Asia)"
+            description="Chronicle API base URL (e.g., 'https://backstory.googleapis.com' for US, "
+            "'https://europe-backstory.googleapis.com' for EU, "
+            "'https://asia-southeast1-backstory.googleapis.com' for Asia)"
         ),
     ],
     rule_id: Annotated[str, Field(description="The rule ID")],

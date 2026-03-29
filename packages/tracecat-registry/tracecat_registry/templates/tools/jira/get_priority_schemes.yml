@@ -12,7 +12,7 @@ definition:
   expects:
     base_url:
       type: str | None
-      description: Jira tenant URL (e.g. your-domain.atlassian.net)
+      description: Jira tenant URL (e.g. https://your-domain.atlassian.net)
       default: null
     limit:
       type: int
