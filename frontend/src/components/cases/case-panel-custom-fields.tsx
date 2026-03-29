@@ -61,6 +61,14 @@ const customFieldFormSchema = z.object({
 
 type CustomFieldFormSchema = z.infer<typeof customFieldFormSchema>
 
+/** Serialize JSONB object values to a JSON string for text input display. */
+function serializeFormValue(type: string, value: unknown): unknown {
+  if (type === "JSONB" && typeof value === "object" && value !== null) {
+    return JSON.stringify(value)
+  }
+  return value
+}
+
 const DATE_TIME_DISPLAY_FORMAT = "yyyy-MM-dd HH:mm"
 const DATE_DISPLAY_FORMAT = "yyyy-MM-dd"
 
@@ -112,6 +120,7 @@ export function CustomField({
 
   return (
     <InlineCustomField
+      key={`${customField.id}-${JSON.stringify(customField.value)}`}
       customField={customField}
       updateCase={updateCase}
       inputClassName={inputClassName}
@@ -141,33 +150,40 @@ function InlineCustomField({
   const form = useForm<CustomFieldFormSchema>({
     defaultValues: {
       id: customField.id,
-      // JSONB values arrive as parsed objects from the API — serialize to a
-      // JSON string so the text input displays and round-trips correctly.
-      value:
-        customField.type === "JSONB" &&
-        typeof customField.value === "object" &&
-        customField.value !== null
-          ? JSON.stringify(customField.value)
-          : customField.value,
+      value: serializeFormValue(customField.type, customField.value),
     },
   })
+
   const onSubmit = async (data: CustomFieldFormSchema) => {
-    const caseUpdate: Partial<CaseUpdate> = {
-      fields: {
-        [customField.id]: data.value,
-      },
+    // JSONB values are stored as JSON strings in the form — parse back for the API
+    let submitValue = data.value
+    if (
+      customField.type === "JSONB" &&
+      typeof submitValue === "string" &&
+      submitValue.trim()
+    ) {
+      try {
+        submitValue = JSON.parse(submitValue)
+      } catch {
+        // keep as string if invalid JSON
+      }
     }
     try {
-      await updateCase(caseUpdate)
+      await updateCase({ fields: { [customField.id]: submitValue } })
     } catch (error) {
       console.error(error)
     }
   }
-  const onBlur = (id: string, value: unknown) => {
-    onValueChange?.(id, value)
-    form.setValue("value", value)
-    form.handleSubmit(onSubmit)()
-  }
+  const onBlur = useCallback(
+    (id: string, value: unknown) => {
+      onValueChange?.(id, value)
+      // Serialize for display (prevents [object Object] flash on JSONB fields)
+      form.setValue("value", serializeFormValue(customField.type, value))
+      // Submit the raw value directly to the API (objects stay as objects)
+      updateCase({ fields: { [id]: value } }).catch(console.error)
+    },
+    [customField.type, form, onValueChange, updateCase]
+  )
   return (
     <FormProvider {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className={formClassName}>

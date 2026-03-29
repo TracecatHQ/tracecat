@@ -100,7 +100,7 @@ export function UrlFieldDialog({
       setUrl(initialValue.url)
       setLabel(initialValue.label)
     }
-  }, [open, initialValue])
+  }, [open, initialValue.url, initialValue.label])
 
   const handleSave = useCallback(() => {
     onSave({ url: url.trim(), label: label.trim() })
