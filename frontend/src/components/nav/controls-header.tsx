@@ -450,7 +450,7 @@ function CasesActions() {
         <AddCaseTag />
       ) : view === CasesViewMode.Dropdowns ? (
         <AddCaseDropdown />
-      ) : (
+      ) : view === CasesViewMode.ClosureRequirements ? null : (
         <>
           <Button
             variant="outline"
@@ -1637,9 +1637,10 @@ function getPageConfig(
   if (pagePath.startsWith("/cases")) {
     if (
       pagePath === "/cases/custom-fields" ||
+      pagePath === "/cases/dropdowns" ||
+      pagePath === "/cases/closure-requirements" ||
       pagePath === "/cases/durations" ||
-      pagePath === "/cases/tags" ||
-      pagePath === "/cases/dropdowns"
+      pagePath === "/cases/tags"
     ) {
       return {
         title: "Cases",

@@ -2,9 +2,9 @@
 
 import {
   BracesIcon,
+  Flag,
   LayersIcon,
   ListIcon,
-  ShieldCheck,
   TagIcon,
   Timer,
 } from "lucide-react"
@@ -84,7 +84,7 @@ export function CasesViewToggle({
     },
     {
       mode: CasesViewMode.ClosureRequirements,
-      icon: ShieldCheck,
+      icon: Flag,
       tooltip: "Closure requirements",
       href: closureRequirementsHref,
       ariaLabel: "Closure requirements view",
