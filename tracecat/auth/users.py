@@ -50,13 +50,22 @@ from tracecat.db.engine import (
 )
 from tracecat.db.models import (
     AccessToken,
+    Membership,
     OAuthAccount,
     OrganizationDomain,
     OrganizationMembership,
     User,
 )
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers import OrganizationID
+from tracecat.invitations.service import (
+    accept_invitation_for_user,
+    get_invitation_group_by_token,
+)
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
 from tracecat.settings.service import get_setting
@@ -388,9 +397,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         Errors during invitation acceptance are logged but do NOT fail registration.
         This ensures users can still register even if the invitation is invalid/expired.
         """
-        # Import here to avoid circular import (organization.service imports from auth.users)
-        from tracecat.organization.service import accept_invitation_for_user
-
         token = self._pending_invitation_token
         self._pending_invitation_token = None  # Clear to prevent reuse
 
@@ -399,14 +405,32 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
         try:
             async with get_async_session_bypass_rls_context_manager() as session:
+                invitation_group = await get_invitation_group_by_token(
+                    session,
+                    token=token,
+                )
+                if invitation_group.invitation.workspace_id is None:
+                    self.logger.info(
+                        "Skipped automatic org invitation acceptance during registration",
+                        user_id=str(user.id),
+                        email=user.email,
+                        org_id=str(invitation_group.invitation.organization_id),
+                    )
+                    return
                 membership = await accept_invitation_for_user(
                     session, user_id=user.id, token=token
                 )
+                log_kwargs = {
+                    "user_id": str(user.id),
+                    "email": user.email,
+                }
+                if isinstance(membership, OrganizationMembership):
+                    log_kwargs["org_id"] = str(membership.organization_id)
+                elif isinstance(membership, Membership):
+                    log_kwargs["workspace_id"] = str(membership.workspace_id)
                 self.logger.info(
                     "Invitation accepted during registration",
-                    user_id=str(user.id),
-                    email=user.email,
-                    org_id=str(membership.organization_id),
+                    **log_kwargs,
                 )
         except TracecatNotFoundError:
             self.logger.warning(
@@ -417,6 +441,13 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         except TracecatAuthorizationError as e:
             self.logger.warning(
                 "Invitation acceptance failed during registration",
+                user_id=str(user.id),
+                email=user.email,
+                error=str(e),
+            )
+        except TracecatValidationError as e:
+            self.logger.warning(
+                "Invitation validation failed during registration",
                 user_id=str(user.id),
                 email=user.email,
                 error=str(e),

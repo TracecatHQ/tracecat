@@ -42,7 +42,6 @@ INITIAL_WORKSPACE_SCOPED_TABLES = (
     "chat",
     "chat_message",
     "membership",
-    "invitation",
     "oauth_integration",
     "oauth_provider",
     "mcp_integration",
@@ -53,7 +52,6 @@ INITIAL_ORG_SCOPED_TABLES = (
     "organization_settings",
     "organization_domain",
     "organization_membership",
-    "organization_invitation",
     "organization_tier",
     "registry_repository",
     "registry_action",
@@ -66,6 +64,7 @@ INITIAL_ORG_SCOPED_TABLES = (
 INITIAL_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "user_role_assignment",
     "group_role_assignment",
+    "invitation",
 )
 
 # Tables introduced after the initial RLS rollout. Their creating or follow-up

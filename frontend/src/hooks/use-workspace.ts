@@ -1,4 +1,5 @@
 "use client"
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ApiError,
@@ -13,6 +14,71 @@ import {
 } from "@/client"
 import { retryHandler } from "@/lib/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+type WorkspaceMembershipBulkCreate = {
+  user_ids: string[]
+  role_id: string
+}
+
+type WorkspaceMembershipBulkCreateResponse = {
+  processed_count: number
+}
+
+function getWorkspaceMutationErrorMessage(
+  detail: unknown,
+  fallback: string
+): string {
+  if (typeof detail === "string" && detail) {
+    return detail
+  }
+  if (detail && typeof detail === "object") {
+    const message = (detail as { message?: unknown }).message
+    if (typeof message === "string" && message) {
+      return message
+    }
+    const nestedDetail = (detail as { detail?: unknown }).detail
+    if (typeof nestedDetail === "string" && nestedDetail) {
+      return nestedDetail
+    }
+  }
+  return fallback
+}
+
+async function createWorkspaceMembershipsBulk(
+  workspaceId: string,
+  requestBody: WorkspaceMembershipBulkCreate
+): Promise<WorkspaceMembershipBulkCreateResponse> {
+  const response = await fetch(
+    `/api/workspaces/${workspaceId}/memberships/bulk`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    }
+  )
+
+  const text = await response.text()
+  const data = text ? (JSON.parse(text) as unknown) : undefined
+
+  if (!response.ok) {
+    const detail =
+      data && typeof data === "object"
+        ? (data as { detail?: unknown }).detail
+        : data
+    throw new Error(
+      getWorkspaceMutationErrorMessage(
+        detail,
+        `Request failed with status ${response.status}`
+      )
+    )
+  }
+
+  return data as WorkspaceMembershipBulkCreateResponse
+}
 
 /* ── SELECTORS ─────────────────────────────────────────────────────────── */
 
@@ -57,6 +123,24 @@ export function useWorkspaceMutations() {
     },
   })
 
+  const { mutateAsync: addMembersBulk, isPending: addMembersBulkPending } =
+    useMutation<
+      WorkspaceMembershipBulkCreateResponse,
+      Error,
+      WorkspaceMembershipBulkCreate
+    >({
+      mutationFn: (requestBody) =>
+        createWorkspaceMembershipsBulk(workspaceId, requestBody),
+      onSuccess: async () => {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: ["workspace", workspaceId] }),
+          qc.invalidateQueries({
+            queryKey: ["workspace", workspaceId, "members"],
+          }),
+        ])
+      },
+    })
+
   const { mutateAsync: removeMember, isPending: removePending } = useMutation<
     unknown,
     Error,
@@ -80,6 +164,8 @@ export function useWorkspaceMutations() {
   return {
     addMember,
     addPending,
+    addMembersBulk,
+    addMembersBulkPending,
     removeMember,
     removePending,
   }

@@ -272,4 +272,20 @@ describe("Auth UI matrix", () => {
       }
     }
   )
+
+  it("sanitizes sign-up returnUrl before redirecting an authenticated user", async () => {
+    mockUser = { email: "user@example.com" }
+
+    render(
+      <SignUp returnUrl="https://evil.example/phish" organizationSlug="acme" />
+    )
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith("/workspaces")
+    })
+    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute(
+      "href",
+      "/sign-in?org=acme"
+    )
+  })
 })

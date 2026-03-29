@@ -28,10 +28,12 @@ from tracecat.dsl.worker import get_activities as get_worker_activities
 from tracecat.executor.registry_resolver import _get_manifest_entry
 from tracecat.executor.service import get_registry_artifacts_for_lock
 from tracecat.integrations.router import connect_provider, oauth_callback
-from tracecat.organization.router import (
+from tracecat.invitations.router import (
     accept_invitation,
     get_invitation_by_token,
+    get_invitation_token,
     list_my_pending_invitations,
+    revoke_invitation,
 )
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
 from tracecat.service import BaseOrgService
@@ -251,6 +253,16 @@ def test_list_my_pending_invitations_uses_bypass_session_dependency() -> None:
 
 def test_get_invitation_by_token_uses_bypass_session_dependency() -> None:
     source = inspect.getsource(get_invitation_by_token)
+    assert "session: AsyncDBSessionBypass" in source
+
+
+def test_revoke_invitation_uses_bypass_session_dependency() -> None:
+    source = inspect.getsource(revoke_invitation)
+    assert "session: AsyncDBSessionBypass" in source
+
+
+def test_get_invitation_token_uses_bypass_session_dependency() -> None:
+    source = inspect.getsource(get_invitation_token)
     assert "session: AsyncDBSessionBypass" in source
 
 

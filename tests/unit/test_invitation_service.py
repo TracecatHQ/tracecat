@@ -1,0 +1,1353 @@
+"""Tests for unified invitation service regressions."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime, timedelta
+
+import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+import tracecat.invitations.service as invitation_service_module
+from tracecat.auth.schemas import UserRole
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import ORG_ADMIN_SCOPES
+from tracecat.db.models import (
+    Invitation,
+    Membership,
+    Organization,
+    OrganizationMembership,
+    User,
+    UserRoleAssignment,
+    Workspace,
+)
+from tracecat.db.models import (
+    Role as DBRole,
+)
+from tracecat.exceptions import TracecatAuthorizationError, TracecatValidationError
+from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.schemas import InvitationCreate, WorkspaceAssignment
+from tracecat.invitations.service import (
+    InvitationService,
+    accept_invitation_for_user,
+    get_invitation_group_by_token,
+    list_pending_invitation_groups_for_email,
+)
+
+pytestmark = pytest.mark.usefixtures("db")
+
+
+def _create_user(*, email: str) -> User:
+    return User(
+        id=uuid.uuid4(),
+        email=email,
+        hashed_password="hashed",
+        role=UserRole.BASIC,
+        is_active=True,
+        is_superuser=False,
+        is_verified=True,
+    )
+
+
+def _create_role_context(
+    *,
+    organization_id: uuid.UUID,
+    user_id: uuid.UUID,
+    scopes: frozenset[str] = ORG_ADMIN_SCOPES,
+) -> Role:
+    return Role(
+        type="user",
+        user_id=user_id,
+        organization_id=organization_id,
+        service_id="tracecat-api",
+        scopes=scopes,
+    )
+
+
+@pytest.mark.anyio
+async def test_create_invitation_blocks_owner_role_without_assign_scope(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    inviter = _create_user(email="admin@example.com")
+    owner_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Owner",
+        slug="organization-owner",
+        description="Owner role",
+        organization_id=organization.id,
+    )
+    session.add_all([organization, inviter])
+    await session.flush()
+    session.add(owner_role)
+    await session.commit()
+
+    service = InvitationService(
+        session,
+        role=_create_role_context(
+            organization_id=organization.id,
+            user_id=inviter.id,
+        ),
+    )
+
+    with pytest.raises(
+        TracecatAuthorizationError,
+        match="Only organization owners can create owner invitations",
+    ):
+        await service.create_invitation(
+            InvitationCreate(
+                email="new-owner@example.com",
+                role_id=owner_role.id,
+            )
+        )
+
+
+def test_invitation_create_rejects_workspace_assignments_with_workspace_id() -> None:
+    with pytest.raises(
+        ValueError,
+        match="workspace_assignments cannot be combined with workspace_id",
+    ):
+        InvitationCreate(
+            email="invitee@example.com",
+            role_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            workspace_assignments=[
+                WorkspaceAssignment(
+                    workspace_id=uuid.uuid4(),
+                    role_id=uuid.uuid4(),
+                )
+            ],
+        )
+
+
+@pytest.mark.anyio
+async def test_create_workspace_invitation_direct_add_clears_pending_row(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    inviter = _create_user(email="admin@example.com")
+    existing_user = _create_user(email="invitee@example.com")
+    workspace_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    stale_invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        email=existing_user.email,
+        role_id=workspace_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add_all([organization, workspace, inviter, existing_user])
+    await session.flush()
+    session.add_all(
+        [
+            workspace_role,
+            stale_invitation,
+            OrganizationMembership(
+                organization_id=organization.id,
+                user_id=existing_user.id,
+            ),
+        ]
+    )
+    await session.commit()
+
+    service = InvitationService(
+        session,
+        role=_create_role_context(
+            organization_id=organization.id,
+            user_id=inviter.id,
+        ),
+    )
+
+    invitation = await service.create_invitation(
+        InvitationCreate(
+            email=existing_user.email,
+            role_id=workspace_role.id,
+            workspace_id=workspace.id,
+        )
+    )
+
+    assert invitation is None
+    membership = await session.scalar(
+        select(Membership).where(
+            Membership.workspace_id == workspace.id,
+            Membership.user_id == existing_user.id,
+        )
+    )
+    assert membership is not None
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.organization_id == organization.id,
+            UserRoleAssignment.user_id == existing_user.id,
+            UserRoleAssignment.workspace_id == workspace.id,
+        )
+    )
+    assert assignment is not None
+    assert assignment.role_id == workspace_role.id
+
+    refreshed_invitation = await session.get(Invitation, stale_invitation.id)
+    assert refreshed_invitation is None
+
+
+@pytest.mark.anyio
+async def test_create_workspace_invitation_rejects_existing_workspace_member(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    inviter = _create_user(email="admin@example.com")
+    existing_user = _create_user(email="invitee@example.com")
+    current_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Viewer",
+        slug="workspace-viewer",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    invited_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    session.add_all([organization, workspace, inviter, existing_user])
+    await session.flush()
+    session.add_all(
+        [
+            current_role,
+            invited_role,
+            OrganizationMembership(
+                organization_id=organization.id,
+                user_id=existing_user.id,
+            ),
+            Membership(
+                workspace_id=workspace.id,
+                user_id=existing_user.id,
+            ),
+            UserRoleAssignment(
+                organization_id=organization.id,
+                user_id=existing_user.id,
+                workspace_id=workspace.id,
+                role_id=current_role.id,
+            ),
+        ]
+    )
+    await session.commit()
+
+    service = InvitationService(
+        session,
+        role=_create_role_context(
+            organization_id=organization.id,
+            user_id=inviter.id,
+        ),
+    )
+
+    with pytest.raises(
+        TracecatValidationError,
+        match="User is already a member of this workspace",
+    ):
+        await service.create_invitation(
+            InvitationCreate(
+                email=existing_user.email,
+                role_id=invited_role.id,
+                workspace_id=workspace.id,
+            )
+        )
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.organization_id == organization.id,
+            UserRoleAssignment.user_id == existing_user.id,
+            UserRoleAssignment.workspace_id == workspace.id,
+        )
+    )
+    assert assignment is not None
+    assert assignment.role_id == current_role.id
+
+    invitations = await session.scalars(
+        select(Invitation).where(
+            Invitation.organization_id == organization.id,
+            Invitation.workspace_id == workspace.id,
+            Invitation.email == existing_user.email,
+        )
+    )
+    assert list(invitations) == []
+
+
+@pytest.mark.anyio
+async def test_get_invitation_group_by_token_excludes_expired_workspace_options(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    expired_workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Old Ops",
+        organization_id=organization.id,
+    )
+    org_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Member role",
+        organization_id=organization.id,
+    )
+    workspace_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    org_invitation = Invitation(
+        organization_id=organization.id,
+        email="invitee@example.com",
+        role_id=org_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    expired_workspace_invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=expired_workspace.id,
+        email="invitee@example.com",
+        role_id=workspace_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) - timedelta(hours=1),
+    )
+    valid_workspace_invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        email="invitee@example.com",
+        role_id=workspace_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add_all([organization, workspace, expired_workspace])
+    await session.flush()
+    session.add_all(
+        [
+            org_role,
+            workspace_role,
+            org_invitation,
+            expired_workspace_invitation,
+            valid_workspace_invitation,
+        ]
+    )
+    await session.commit()
+
+    group = await get_invitation_group_by_token(session, token=org_invitation.token)
+
+    assert group.invitation.id == org_invitation.id
+    assert [row.id for row in group.workspace_invitations] == [
+        valid_workspace_invitation.id
+    ]
+
+
+@pytest.mark.anyio
+async def test_list_pending_invitation_groups_for_email_excludes_expired_workspace_rows(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    org_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Member role",
+        organization_id=organization.id,
+    )
+    workspace_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    session.add_all([organization, workspace])
+    await session.flush()
+    session.add_all([org_role, workspace_role])
+    await session.flush()
+
+    session.add_all(
+        [
+            Invitation(
+                organization_id=organization.id,
+                email="invitee@example.com",
+                role_id=org_role.id,
+                status=InvitationStatus.PENDING,
+                token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+                expires_at=datetime.now(UTC) + timedelta(days=7),
+            ),
+            Invitation(
+                organization_id=organization.id,
+                workspace_id=workspace.id,
+                email="invitee@example.com",
+                role_id=workspace_role.id,
+                status=InvitationStatus.PENDING,
+                token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+                expires_at=datetime.now(UTC) - timedelta(hours=1),
+            ),
+        ]
+    )
+    await session.commit()
+
+    groups = await list_pending_invitation_groups_for_email(
+        session,
+        email="invitee@example.com",
+    )
+
+    assert len(groups) == 1
+    assert groups[0].workspace_invitations == []
+
+
+@pytest.mark.anyio
+async def test_list_pending_invitation_groups_for_email_keeps_attached_rows_grouped(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    inviter = _create_user(email="admin@example.com")
+    org_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Member role",
+        organization_id=organization.id,
+    )
+    workspace_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    expires_at = datetime.now(UTC) + timedelta(days=7)
+    org_invitation = Invitation(
+        organization_id=organization.id,
+        email="invitee@example.com",
+        role_id=org_role.id,
+        invited_by=inviter.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=expires_at,
+    )
+    session.add_all([organization, workspace, inviter, org_role, workspace_role])
+    await session.flush()
+    session.add(org_invitation)
+    await session.flush()
+
+    workspace_invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        email="invitee@example.com",
+        role_id=workspace_role.id,
+        invited_by=inviter.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=expires_at,
+    )
+    session.add(workspace_invitation)
+    await session.commit()
+
+    groups = await list_pending_invitation_groups_for_email(
+        session,
+        email="invitee@example.com",
+    )
+
+    assert len(groups) == 1
+    assert groups[0].invitation.id == org_invitation.id
+    assert [row.id for row in groups[0].workspace_invitations] == [
+        workspace_invitation.id
+    ]
+
+
+@pytest.mark.anyio
+async def test_workspace_token_does_not_redirect_to_unrelated_org_invitation(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    inviter = _create_user(email="admin@example.com")
+    org_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Member role",
+        organization_id=organization.id,
+    )
+    workspace_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    session.add_all([organization, workspace, inviter, org_role, workspace_role])
+    await session.flush()
+
+    workspace_invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        email="invitee@example.com",
+        role_id=workspace_role.id,
+        invited_by=inviter.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add(workspace_invitation)
+    await session.flush()
+
+    org_invitation = Invitation(
+        organization_id=organization.id,
+        email="invitee@example.com",
+        role_id=org_role.id,
+        invited_by=inviter.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=8),
+    )
+    session.add(org_invitation)
+    await session.commit()
+
+    group = await get_invitation_group_by_token(
+        session, token=workspace_invitation.token
+    )
+
+    assert group.invitation.id == workspace_invitation.id
+    assert group.workspace_invitations == []
+    assert group.redirected is False
+
+
+@pytest.mark.anyio
+async def test_org_invitation_group_excludes_unrelated_workspace_invitation(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    attached_workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    standalone_workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Infra",
+        organization_id=organization.id,
+    )
+    inviter = _create_user(email="admin@example.com")
+    org_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Member role",
+        organization_id=organization.id,
+    )
+    workspace_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    session.add_all(
+        [
+            organization,
+            attached_workspace,
+            standalone_workspace,
+            inviter,
+            org_role,
+            workspace_role,
+        ]
+    )
+    await session.flush()
+
+    standalone_invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=standalone_workspace.id,
+        email="invitee@example.com",
+        role_id=workspace_role.id,
+        invited_by=inviter.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=5),
+    )
+    session.add(standalone_invitation)
+    await session.flush()
+
+    expires_at = datetime.now(UTC) + timedelta(days=7)
+    org_invitation = Invitation(
+        organization_id=organization.id,
+        email="invitee@example.com",
+        role_id=org_role.id,
+        invited_by=inviter.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=expires_at,
+    )
+    session.add(org_invitation)
+    await session.flush()
+
+    attached_invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=attached_workspace.id,
+        email="invitee@example.com",
+        role_id=workspace_role.id,
+        invited_by=inviter.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=expires_at,
+    )
+    session.add(attached_invitation)
+    await session.commit()
+
+    groups = await list_pending_invitation_groups_for_email(
+        session,
+        email="invitee@example.com",
+    )
+
+    assert len(groups) == 2
+    assert groups[0].invitation.id == org_invitation.id
+    assert [row.id for row in groups[0].workspace_invitations] == [
+        attached_invitation.id
+    ]
+    assert groups[1].invitation.id == standalone_invitation.id
+    assert groups[1].workspace_invitations == []
+
+
+@pytest.mark.anyio
+async def test_revoke_org_invitation_only_revokes_attached_workspace_rows(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    attached_workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    standalone_workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Infra",
+        organization_id=organization.id,
+    )
+    inviter = _create_user(email="admin@example.com")
+    org_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Member role",
+        organization_id=organization.id,
+    )
+    workspace_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    session.add_all(
+        [
+            organization,
+            attached_workspace,
+            standalone_workspace,
+            inviter,
+            org_role,
+            workspace_role,
+        ]
+    )
+    await session.flush()
+
+    standalone_invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=standalone_workspace.id,
+        email="invitee@example.com",
+        role_id=workspace_role.id,
+        invited_by=inviter.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=5),
+    )
+    session.add(standalone_invitation)
+    await session.flush()
+
+    expires_at = datetime.now(UTC) + timedelta(days=7)
+    org_invitation = Invitation(
+        organization_id=organization.id,
+        email="invitee@example.com",
+        role_id=org_role.id,
+        invited_by=inviter.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=expires_at,
+    )
+    session.add(org_invitation)
+    await session.flush()
+
+    attached_invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=attached_workspace.id,
+        email="invitee@example.com",
+        role_id=workspace_role.id,
+        invited_by=inviter.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=expires_at,
+    )
+    session.add(attached_invitation)
+    await session.commit()
+
+    service = InvitationService(
+        session,
+        role=_create_role_context(
+            organization_id=organization.id,
+            user_id=inviter.id,
+        ),
+    )
+    await service.revoke_invitation(org_invitation.id)
+    await session.commit()
+
+    refreshed_org = await session.get(Invitation, org_invitation.id)
+    refreshed_attached = await session.get(Invitation, attached_invitation.id)
+    refreshed_standalone = await session.get(Invitation, standalone_invitation.id)
+
+    assert refreshed_org is not None
+    assert refreshed_org.status == InvitationStatus.REVOKED
+    assert refreshed_attached is not None
+    assert refreshed_attached.status == InvitationStatus.REVOKED
+    assert refreshed_standalone is not None
+    assert refreshed_standalone.status == InvitationStatus.PENDING
+
+
+@pytest.mark.anyio
+async def test_workspace_token_ignores_expired_org_parent(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    org_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Member role",
+        organization_id=organization.id,
+    )
+    workspace_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    expired_org_invitation = Invitation(
+        organization_id=organization.id,
+        email="invitee@example.com",
+        role_id=org_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) - timedelta(hours=1),
+    )
+    workspace_invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        email="invitee@example.com",
+        role_id=workspace_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add_all([organization, workspace])
+    await session.flush()
+    session.add_all(
+        [
+            org_role,
+            workspace_role,
+            expired_org_invitation,
+            workspace_invitation,
+        ]
+    )
+    await session.commit()
+
+    group = await get_invitation_group_by_token(
+        session, token=workspace_invitation.token
+    )
+
+    assert group.invitation.id == workspace_invitation.id
+    assert group.redirected is False
+
+
+@pytest.mark.anyio
+async def test_accept_workspace_invitation_rejects_existing_membership(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    invitee = _create_user(email="invitee@example.com")
+    low_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Viewer",
+        slug="workspace-viewer",
+        description="Viewer role",
+        organization_id=organization.id,
+    )
+    high_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Admin",
+        slug="workspace-admin",
+        description="Admin role",
+        organization_id=organization.id,
+    )
+    invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        email=invitee.email,
+        role_id=high_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add_all([organization, workspace, invitee])
+    await session.flush()
+    session.add_all(
+        [
+            low_role,
+            high_role,
+            invitation,
+            OrganizationMembership(
+                organization_id=organization.id,
+                user_id=invitee.id,
+            ),
+            Membership(
+                workspace_id=workspace.id,
+                user_id=invitee.id,
+            ),
+            UserRoleAssignment(
+                organization_id=organization.id,
+                user_id=invitee.id,
+                workspace_id=workspace.id,
+                role_id=low_role.id,
+            ),
+        ]
+    )
+    await session.commit()
+    invitation_id = invitation.id
+    organization_id = organization.id
+    workspace_id = workspace.id
+    invitee_id = invitee.id
+    low_role_id = low_role.id
+
+    with pytest.raises(
+        TracecatValidationError,
+        match="User is already a member of this workspace",
+    ):
+        await accept_invitation_for_user(
+            session,
+            user_id=invitee.id,
+            token=invitation.token,
+        )
+    await session.rollback()
+
+    refreshed_invitation = await session.get(Invitation, invitation_id)
+    assert refreshed_invitation is not None
+    assert refreshed_invitation.status == InvitationStatus.PENDING
+
+    assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.organization_id == organization_id,
+            UserRoleAssignment.user_id == invitee_id,
+            UserRoleAssignment.workspace_id == workspace_id,
+        )
+    )
+    assert assignment is not None
+    assert assignment.role_id == low_role_id
+
+
+@pytest.mark.anyio
+async def test_accept_workspace_invitation_rolls_back_on_status_conflict(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    invitee = _create_user(email="invitee@example.com")
+    org_member_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Member role",
+        organization_id=organization.id,
+    )
+    workspace_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Editor role",
+        organization_id=organization.id,
+    )
+    invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        email=invitee.email,
+        role_id=workspace_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add_all([organization, workspace, invitee])
+    await session.flush()
+    session.add_all([org_member_role, workspace_role, invitation])
+    await session.commit()
+    invitation_id = invitation.id
+    organization_id = organization.id
+    workspace_id = workspace.id
+    invitee_id = invitee.id
+
+    original = invitation_service_module._set_invitation_status_if_pending
+
+    async def fail_status_update(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise TracecatAuthorizationError(
+            "Invitation is no longer pending for this action"
+        )
+
+    monkeypatch.setattr(
+        invitation_service_module,
+        "_set_invitation_status_if_pending",
+        fail_status_update,
+    )
+
+    with pytest.raises(
+        TracecatAuthorizationError,
+        match="Invitation is no longer pending for this action",
+    ):
+        await accept_invitation_for_user(
+            session,
+            user_id=invitee.id,
+            token=invitation.token,
+        )
+    await session.rollback()
+
+    monkeypatch.setattr(
+        invitation_service_module,
+        "_set_invitation_status_if_pending",
+        original,
+    )
+
+    org_membership = await session.scalar(
+        select(OrganizationMembership).where(
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.user_id == invitee_id,
+        )
+    )
+    workspace_membership = await session.scalar(
+        select(Membership).where(
+            Membership.workspace_id == workspace_id,
+            Membership.user_id == invitee_id,
+        )
+    )
+    refreshed_invitation = await session.get(Invitation, invitation_id)
+
+    assert org_membership is None
+    assert workspace_membership is None
+    assert refreshed_invitation is not None
+    assert refreshed_invitation.status == InvitationStatus.PENDING
+
+
+@pytest.mark.anyio
+async def test_accept_workspace_invitation_assigns_org_member_role_for_new_org_member(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    invitee = _create_user(email="invitee@example.com")
+    org_member_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Member role",
+        organization_id=organization.id,
+    )
+    workspace_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        email=invitee.email,
+        role_id=workspace_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add_all([organization, workspace, invitee])
+    await session.flush()
+    session.add_all([org_member_role, workspace_role, invitation])
+    await session.commit()
+
+    membership = await accept_invitation_for_user(
+        session,
+        user_id=invitee.id,
+        token=invitation.token,
+    )
+
+    assert isinstance(membership, Membership)
+    org_membership = await session.scalar(
+        select(OrganizationMembership).where(
+            OrganizationMembership.organization_id == organization.id,
+            OrganizationMembership.user_id == invitee.id,
+        )
+    )
+    assert org_membership is not None
+
+    org_assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.organization_id == organization.id,
+            UserRoleAssignment.user_id == invitee.id,
+            UserRoleAssignment.workspace_id.is_(None),
+        )
+    )
+    assert org_assignment is not None
+    assert org_assignment.role_id == org_member_role.id
+
+    workspace_assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.organization_id == organization.id,
+            UserRoleAssignment.user_id == invitee.id,
+            UserRoleAssignment.workspace_id == workspace.id,
+        )
+    )
+    assert workspace_assignment is not None
+    assert workspace_assignment.role_id == workspace_role.id
+
+
+@pytest.mark.anyio
+async def test_accept_workspace_invitation_allows_missing_org_member_role(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    invitee = _create_user(email="invitee@example.com")
+    workspace_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        email=invitee.email,
+        role_id=workspace_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add_all([organization, workspace, invitee, workspace_role, invitation])
+    await session.commit()
+
+    membership = await accept_invitation_for_user(
+        session,
+        user_id=invitee.id,
+        token=invitation.token,
+    )
+
+    assert isinstance(membership, Membership)
+    org_membership = await session.scalar(
+        select(OrganizationMembership).where(
+            OrganizationMembership.organization_id == organization.id,
+            OrganizationMembership.user_id == invitee.id,
+        )
+    )
+    assert org_membership is not None
+    org_assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.organization_id == organization.id,
+            UserRoleAssignment.user_id == invitee.id,
+            UserRoleAssignment.workspace_id.is_(None),
+        )
+    )
+    assert org_assignment is None
+
+
+@pytest.mark.anyio
+async def test_accept_org_invitation_rejects_unknown_selected_workspace_ids(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Ops",
+        organization_id=organization.id,
+    )
+    invitee = _create_user(email="invitee@example.com")
+    org_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Member role",
+        organization_id=organization.id,
+    )
+    workspace_role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Editor",
+        slug="workspace-editor",
+        description="Workspace role",
+        organization_id=organization.id,
+    )
+    org_invitation = Invitation(
+        organization_id=organization.id,
+        email=invitee.email,
+        role_id=org_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    workspace_invitation = Invitation(
+        organization_id=organization.id,
+        workspace_id=workspace.id,
+        email=invitee.email,
+        role_id=workspace_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add_all([organization, workspace, invitee])
+    await session.flush()
+    session.add_all([org_role, workspace_role, org_invitation, workspace_invitation])
+    await session.commit()
+    org_invitation_id = org_invitation.id
+    workspace_invitation_id = workspace_invitation.id
+    invitee_id = invitee.id
+    organization_id = organization.id
+
+    with pytest.raises(
+        TracecatValidationError,
+        match="Selected workspaces are not part of this invitation",
+    ):
+        await accept_invitation_for_user(
+            session,
+            user_id=invitee.id,
+            token=org_invitation.token,
+            selected_workspace_ids=[uuid.uuid4()],
+        )
+    await session.rollback()
+
+    refreshed_org_invitation = await session.get(Invitation, org_invitation_id)
+    refreshed_workspace_invitation = await session.get(
+        Invitation, workspace_invitation_id
+    )
+    org_membership = await session.scalar(
+        select(OrganizationMembership).where(
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.user_id == invitee_id,
+        )
+    )
+
+    assert refreshed_org_invitation is not None
+    assert refreshed_org_invitation.status == InvitationStatus.PENDING
+    assert refreshed_workspace_invitation is not None
+    assert refreshed_workspace_invitation.status == InvitationStatus.PENDING
+    assert org_membership is None
+
+
+@pytest.mark.anyio
+async def test_accept_org_invitation_preserves_existing_org_role_assignment(
+    session: AsyncSession,
+) -> None:
+    organization = Organization(
+        id=uuid.uuid4(),
+        name="Acme",
+        slug=f"acme-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    invitee = _create_user(email="invitee@example.com")
+    existing_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Admin",
+        slug="organization-admin",
+        description="Admin role",
+        organization_id=organization.id,
+    )
+    invited_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Member",
+        slug="organization-member",
+        description="Member role",
+        organization_id=organization.id,
+    )
+    invitation = Invitation(
+        organization_id=organization.id,
+        email=invitee.email,
+        role_id=invited_role.id,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex + uuid.uuid4().hex[:32],
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    session.add_all([organization, invitee, existing_role, invited_role, invitation])
+    await session.flush()
+    session.add(
+        OrganizationMembership(
+            organization_id=organization.id,
+            user_id=invitee.id,
+        )
+    )
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=invitee.id,
+            workspace_id=None,
+            role_id=existing_role.id,
+        )
+    )
+    await session.commit()
+
+    membership = await accept_invitation_for_user(
+        session,
+        user_id=invitee.id,
+        token=invitation.token,
+    )
+
+    assert isinstance(membership, OrganizationMembership)
+    org_assignment = await session.scalar(
+        select(UserRoleAssignment).where(
+            UserRoleAssignment.organization_id == organization.id,
+            UserRoleAssignment.user_id == invitee.id,
+            UserRoleAssignment.workspace_id.is_(None),
+        )
+    )
+    assert org_assignment is not None
+    assert org_assignment.role_id == existing_role.id

@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import NotRequired, TypedDict
+from uuid import UUID
 
 from pydantic import EmailStr, Field, computed_field, field_validator
 
 from tracecat import config
 from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
-from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
-from tracecat.invitations.enums import InvitationStatus
+from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 
 # === Workspace === #
 
@@ -135,36 +134,20 @@ class WorkspaceMembershipCreate(Schema):
     user_id: UserID
 
 
+class WorkspaceMembershipBulkCreate(Schema):
+    user_ids: list[UserID] = Field(min_length=1)
+    role_id: UUID
+
+    @field_validator("user_ids")
+    @classmethod
+    def dedupe_user_ids(cls, value: list[UserID]) -> list[UserID]:
+        return list(dict.fromkeys(value))
+
+
+class WorkspaceMembershipBulkCreateResponse(Schema):
+    processed_count: int
+
+
 class WorkspaceMembershipRead(Schema):
     user_id: UserID
     workspace_id: WorkspaceID
-
-
-# === Invitation === #
-class WorkspaceInvitationCreate(Schema):
-    """Request schema for creating a workspace invitation."""
-
-    email: EmailStr
-    role_id: str  # UUID as string for API compatibility
-
-
-class WorkspaceInvitationRead(Schema):
-    """Response schema for a workspace invitation."""
-
-    id: InvitationID
-    workspace_id: WorkspaceID
-    email: EmailStr
-    role_id: str
-    role_name: str
-    role_slug: str | None = None
-    status: InvitationStatus
-    invited_by: UserID | None
-    expires_at: datetime
-    accepted_at: datetime | None
-    created_at: datetime
-
-
-class WorkspaceInvitationList(Schema):
-    """Query params for listing workspace invitations."""
-
-    status: InvitationStatus | None = None
