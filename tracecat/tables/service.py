@@ -616,8 +616,9 @@ class BaseTablesService(BaseWorkspaceService):
         self._assert_user_column_name_allowed(column.name)
         if "name" in set_fields:
             if (requested_name := set_fields["name"]) is None:
-                raise ValueError("Column name cannot be null")
-            self._assert_user_column_name_allowed(requested_name)
+                set_fields.pop("name")
+            else:
+                self._assert_user_column_name_allowed(requested_name)
         full_table_name = self._full_table_name(column.table.name)
         conn = await self.session.connection()
         is_index = set_fields.pop("is_index", False)
@@ -2038,15 +2039,16 @@ class TableEditorService(BaseWorkspaceService):
         # Execute ALTER statements using safe DDL construction
         if "name" in set_fields:
             if (requested_name := set_fields["name"]) is None:
-                raise ValueError("Column name cannot be null")
-            self._assert_user_column_name_allowed(requested_name)
-            new_name = validate_identifier(requested_name)
-            await conn.execute(
-                sa.DDL(
-                    "ALTER TABLE %s RENAME COLUMN %s TO %s",
-                    (full_table_name, sanitized_column_name, new_name),
+                set_fields.pop("name")
+            else:
+                self._assert_user_column_name_allowed(requested_name)
+                new_name = validate_identifier(requested_name)
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s RENAME COLUMN %s TO %s",
+                        (full_table_name, sanitized_column_name, new_name),
+                    )
                 )
-            )
         if "type" in set_fields:
             new_type = SqlType(set_fields["type"])
             # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
