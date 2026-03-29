@@ -11,6 +11,8 @@ import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import type { CaseFieldRead, CaseUpdate } from "@/client"
 import {
+  JsonFieldCell,
+  JsonFieldDialog,
   LongTextFieldCell,
   LongTextFieldDialog,
   UrlFieldCell,
@@ -61,14 +63,6 @@ const customFieldFormSchema = z.object({
 
 type CustomFieldFormSchema = z.infer<typeof customFieldFormSchema>
 
-/** Serialize JSONB object values to a JSON string for text input display. */
-function serializeFormValue(type: string, value: unknown): unknown {
-  if (type === "JSONB" && typeof value === "object" && value !== null) {
-    return JSON.stringify(value)
-  }
-  return value
-}
-
 const DATE_TIME_DISPLAY_FORMAT = "yyyy-MM-dd HH:mm"
 const DATE_DISPLAY_FORMAT = "yyyy-MM-dd"
 
@@ -117,6 +111,10 @@ export function CustomField({
   if (customField.kind === "URL") {
     return <UrlCustomField customField={customField} updateCase={updateCase} />
   }
+  // Plain JSONB fields (no kind) use a JSON editor dialog
+  if (customField.type === "JSONB") {
+    return <JsonCustomField customField={customField} updateCase={updateCase} />
+  }
 
   return (
     <InlineCustomField
@@ -150,26 +148,13 @@ function InlineCustomField({
   const form = useForm<CustomFieldFormSchema>({
     defaultValues: {
       id: customField.id,
-      value: serializeFormValue(customField.type, customField.value),
+      value: customField.value,
     },
   })
 
   const onSubmit = async (data: CustomFieldFormSchema) => {
-    // JSONB values are stored as JSON strings in the form — parse back for the API
-    let submitValue = data.value
-    if (
-      customField.type === "JSONB" &&
-      typeof submitValue === "string" &&
-      submitValue.trim()
-    ) {
-      try {
-        submitValue = JSON.parse(submitValue)
-      } catch {
-        // keep as string if invalid JSON
-      }
-    }
     try {
-      await updateCase({ fields: { [customField.id]: submitValue } })
+      await updateCase({ fields: { [customField.id]: data.value } })
     } catch (error) {
       console.error(error)
     }
@@ -177,12 +162,10 @@ function InlineCustomField({
   const onBlur = useCallback(
     (id: string, value: unknown) => {
       onValueChange?.(id, value)
-      // Serialize for display (prevents [object Object] flash on JSONB fields)
-      form.setValue("value", serializeFormValue(customField.type, value))
-      // Submit the raw value directly to the API (objects stay as objects)
-      updateCase({ fields: { [id]: value } }).catch(console.error)
+      form.setValue("value", value)
+      form.handleSubmit(onSubmit)()
     },
-    [customField.type, form, onValueChange, updateCase]
+    [form, onSubmit, onValueChange]
   )
   return (
     <FormProvider {...form}>
@@ -285,6 +268,43 @@ function UrlCustomField({
         onOpenChange={setDialogOpen}
         fieldLabel={customField.id}
         initialValue={urlValue}
+        onSave={handleSave}
+      />
+    </>
+  )
+}
+
+function JsonCustomField({
+  customField,
+  updateCase,
+}: {
+  customField: CaseFieldRead
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+}) {
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const hasValue = customField.value !== null && customField.value !== undefined
+
+  const handleSave = useCallback(
+    async (value: unknown) => {
+      try {
+        await updateCase({
+          fields: { [customField.id]: value },
+        })
+      } catch (error) {
+        console.error(error)
+      }
+    },
+    [customField.id, updateCase]
+  )
+
+  return (
+    <>
+      <JsonFieldCell onClick={() => setDialogOpen(true)} hasValue={hasValue} />
+      <JsonFieldDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        fieldLabel={customField.id}
+        initialValue={customField.value}
         onSave={handleSave}
       />
     </>
@@ -544,43 +564,7 @@ export function CustomFieldInner({
           )}
         />
       )
-    case "JSONB":
-      return (
-        <FormField
-          control={form.control}
-          name="value"
-          render={({ field }) => (
-            <FormItem>
-              <FormControl>
-                <Input
-                  type="text"
-                  {...field}
-                  value={String(field.value || "")}
-                  className={baseInputClassName}
-                  style={inputStyle}
-                  onBlur={() => {
-                    const raw = String(field.value ?? "").trim()
-                    if (!raw) {
-                      onBlur?.(customField.id, null)
-                      return
-                    }
-                    try {
-                      const parsed = JSON.parse(raw)
-                      onBlur?.(customField.id, parsed)
-                    } catch {
-                      toast({
-                        title: "Validation error",
-                        description: "Must be valid JSON",
-                        variant: "default",
-                      })
-                    }
-                  }}
-                />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-      )
+    // JSONB fields are handled by JsonCustomField before reaching this switch
     case "TIMESTAMP":
     case "TIMESTAMPTZ": {
       const fieldType =

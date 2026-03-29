@@ -1,7 +1,14 @@
 "use client"
 
+import { closeBrackets } from "@codemirror/autocomplete"
+import { history } from "@codemirror/commands"
+import { json } from "@codemirror/lang-json"
+import { bracketMatching } from "@codemirror/language"
+import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
+import { EditorView } from "@codemirror/view"
+import CodeMirror from "@uiw/react-codemirror"
 import { ExternalLink } from "lucide-react"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
 import { Button } from "@/components/ui/button"
 import {
@@ -54,13 +61,19 @@ export function LongTextFieldDialog({
           <DialogTitle>{fieldLabel}</DialogTitle>
         </DialogHeader>
         <div className="min-h-[200px]">
-          <CaseDescriptionEditor initialContent={draft} onChange={setDraft} />
+          <CaseDescriptionEditor
+            initialContent={draft}
+            onChange={setDraft}
+            autoFocus
+          />
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave}>Save</Button>
+          <Button variant="outline" onClick={handleSave}>
+            Save
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -147,7 +160,141 @@ export function UrlFieldDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={!isValid}>
+          <Button variant="outline" onClick={handleSave} disabled={!isValid}>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// -- JSON dialog --
+
+function jsonLinter(view: EditorView): Diagnostic[] {
+  const content = view.state.doc.toString()
+  if (!content.trim()) return []
+  try {
+    JSON.parse(content)
+    return []
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Invalid JSON"
+    const posMatch = msg.match(/position (\d+)/)
+    const pos = posMatch ? Number.parseInt(posMatch[1], 10) : 0
+    const from = Math.min(pos, content.length)
+    const to = Math.min(from + 1, content.length)
+    return [{ from, to, severity: "error", message: msg, source: "json" }]
+  }
+}
+
+interface JsonFieldDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  fieldLabel: string
+  initialValue: unknown
+  onSave: (value: unknown) => void
+}
+
+/**
+ * Dialog for editing a JSONB case field using a CodeMirror JSON editor
+ * with syntax highlighting, linting, and validation.
+ */
+export function JsonFieldDialog({
+  open,
+  onOpenChange,
+  fieldLabel,
+  initialValue,
+  onSave,
+}: JsonFieldDialogProps) {
+  const serialized =
+    initialValue === null || initialValue === undefined
+      ? ""
+      : typeof initialValue === "string"
+        ? initialValue
+        : JSON.stringify(initialValue, null, 2)
+
+  const [draft, setDraft] = useState(serialized)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      setDraft(serialized)
+      setError(null)
+    }
+  }, [open, serialized])
+
+  const validate = useCallback((val: string): boolean => {
+    if (val.trim() === "") return true
+    try {
+      JSON.parse(val)
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
+  const handleSave = useCallback(() => {
+    if (!validate(draft)) {
+      setError("Invalid JSON")
+      return
+    }
+    const trimmed = draft.trim()
+    onSave(trimmed === "" ? null : JSON.parse(trimmed))
+    onOpenChange(false)
+  }, [draft, validate, onSave, onOpenChange])
+
+  const extensions = useMemo(
+    () => [
+      json(),
+      lintGutter(),
+      linter(jsonLinter),
+      history(),
+      bracketMatching(),
+      closeBrackets(),
+      EditorView.theme({
+        ".cm-content": { fontFamily: "monospace", fontSize: "13px" },
+        ".cm-scroller": { maxHeight: "400px", overflow: "auto" },
+      }),
+    ],
+    []
+  )
+
+  const isValid = validate(draft)
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{fieldLabel}</DialogTitle>
+        </DialogHeader>
+        <CodeMirror
+          value={draft}
+          onChange={(val) => {
+            setDraft(val)
+            if (error) setError(validate(val) ? null : "Invalid JSON")
+          }}
+          height="300px"
+          extensions={extensions}
+          autoFocus
+          basicSetup={{
+            lineNumbers: true,
+            foldGutter: true,
+            highlightActiveLine: true,
+            bracketMatching: false,
+            closeBrackets: false,
+            history: false,
+            defaultKeymap: true,
+            syntaxHighlighting: true,
+            autocompletion: false,
+          }}
+          className="overflow-auto rounded-md border font-mono text-sm"
+        />
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button variant="outline" onClick={handleSave} disabled={!isValid}>
             Save
           </Button>
         </DialogFooter>
@@ -170,6 +317,27 @@ export function LongTextFieldCell({
   onClick,
   hasValue,
 }: LongTextFieldCellProps) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-7 w-full justify-end px-2 text-sm font-normal text-muted-foreground"
+      onClick={onClick}
+    >
+      {hasValue ? "Expand" : "Add..."}
+    </Button>
+  )
+}
+
+interface JsonFieldCellProps {
+  onClick: () => void
+  hasValue: boolean
+}
+
+/**
+ * Inline cell for a JSONB field: shows "Expand" or "Add..." button.
+ */
+export function JsonFieldCell({ onClick, hasValue }: JsonFieldCellProps) {
   return (
     <Button
       variant="ghost"
