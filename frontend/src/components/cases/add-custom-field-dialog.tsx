@@ -35,9 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
-import { useEntitlements } from "@/hooks/use-entitlements"
 import { CASE_FIELD_KIND_CONFIG } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
@@ -101,7 +99,6 @@ const caseFieldFormSchema = z
     default: z.string().nullable().optional(),
     defaultMulti: z.array(z.string()).optional(), // For MULTI_SELECT defaults
     options: z.array(z.string().min(1, "Option cannot be empty")).optional(),
-    required_on_closure: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
     if (isSelectableColumnType(data.type)) {
@@ -156,8 +153,6 @@ export function AddCustomFieldDialog({
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const { hasEntitlement } = useEntitlements()
-  const caseAddonsEnabled = hasEntitlement("case_addons")
 
   const form = useForm<CaseFieldFormValues>({
     resolver: zodResolver(caseFieldFormSchema),
@@ -169,7 +164,6 @@ export function AddCustomFieldDialog({
       default: null,
       defaultMulti: [],
       options: [],
-      required_on_closure: false,
     },
   })
   const selectedType = form.watch("type")
@@ -299,7 +293,6 @@ export function AddCustomFieldDialog({
             ? sanitizeColumnOptions(data.options)
             : null,
           kind: data.kind ?? null,
-          required_on_closure: data.required_on_closure,
         },
       })
 
@@ -490,25 +483,6 @@ export function AddCustomFieldDialog({
                 />
               ))}
 
-            {caseAddonsEnabled && (
-              <FormField
-                control={form.control}
-                name="required_on_closure"
-                render={({ field }) => (
-                  <FormItem className="flex items-center justify-between gap-2">
-                    <FormLabel className="text-xs text-muted-foreground">
-                      Required on closure
-                    </FormLabel>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-            )}
             <DialogFooter>
               <Button type="submit" disabled={isSubmitting}>
                 Add field

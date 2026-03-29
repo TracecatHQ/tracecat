@@ -73,7 +73,6 @@ const createDropdownSchema = z.object({
     .trim(),
   icon_name: z.string().max(100).optional(),
   is_ordered: z.boolean(),
-  required_on_closure: z.boolean(),
 })
 
 type CreateDropdownFormValues = z.infer<typeof createDropdownSchema>
@@ -208,7 +207,6 @@ export function AddCaseDropdownDialog({
       name: "",
       icon_name: "",
       is_ordered: false,
-      required_on_closure: false,
     },
   })
 
@@ -307,7 +305,6 @@ export function AddCaseDropdownDialog({
           icon_name:
             resolveIconName(formValues.icon_name?.trim() ?? "") ?? undefined,
           is_ordered: formValues.is_ordered,
-          required_on_closure: formValues.required_on_closure,
           options: validOptions,
         },
       })
@@ -388,29 +385,6 @@ export function AddCaseDropdownDialog({
                       <FormDescription>
                         Options will be ranked by their position from top to
                         bottom.
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={methods.control}
-                name="required_on_closure"
-                render={({ field }) => (
-                  <FormItem className="flex items-center justify-between rounded-lg border p-3">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-sm">
-                        Required on closure
-                      </FormLabel>
-                      <FormDescription>
-                        Must have a value before a case can be closed or
-                        resolved.
                       </FormDescription>
                     </div>
                     <FormControl>

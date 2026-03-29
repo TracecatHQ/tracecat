@@ -404,13 +404,15 @@ function CasesActions() {
 
   const view = pathname?.includes("/cases/custom-fields")
     ? CasesViewMode.CustomFields
-    : pathname?.includes("/cases/durations")
-      ? CasesViewMode.Durations
-      : pathname?.includes("/cases/tags")
-        ? CasesViewMode.Tags
-        : pathname?.includes("/cases/dropdowns")
-          ? CasesViewMode.Dropdowns
-          : CasesViewMode.Cases
+    : pathname?.includes("/cases/closure-requirements")
+      ? CasesViewMode.ClosureRequirements
+      : pathname?.includes("/cases/durations")
+        ? CasesViewMode.Durations
+        : pathname?.includes("/cases/tags")
+          ? CasesViewMode.Tags
+          : pathname?.includes("/cases/dropdowns")
+            ? CasesViewMode.Dropdowns
+            : CasesViewMode.Cases
 
   const casesHref = workspaceId ? `/workspaces/${workspaceId}/cases` : undefined
   const tagsHref = workspaceId
@@ -419,11 +421,14 @@ function CasesActions() {
   const customFieldsHref = workspaceId
     ? `/workspaces/${workspaceId}/cases/custom-fields`
     : undefined
-  const durationsHref = workspaceId
-    ? `/workspaces/${workspaceId}/cases/durations`
-    : undefined
   const dropdownsHref = workspaceId
     ? `/workspaces/${workspaceId}/cases/dropdowns`
+    : undefined
+  const closureRequirementsHref = workspaceId
+    ? `/workspaces/${workspaceId}/cases/closure-requirements`
+    : undefined
+  const durationsHref = workspaceId
+    ? `/workspaces/${workspaceId}/cases/durations`
     : undefined
 
   return (
@@ -433,8 +438,9 @@ function CasesActions() {
         casesHref={casesHref}
         tagsHref={tagsHref}
         customFieldsHref={customFieldsHref}
-        durationsHref={durationsHref}
         dropdownsHref={dropdownsHref}
+        closureRequirementsHref={closureRequirementsHref}
+        durationsHref={durationsHref}
       />
       {view === CasesViewMode.CustomFields ? (
         <AddCustomField />
