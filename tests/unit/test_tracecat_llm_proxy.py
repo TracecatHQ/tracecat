@@ -16,7 +16,7 @@ from tracecat.agent.llm_proxy.auth import (
 )
 from tracecat.agent.llm_proxy.core import TracecatLLMProxy
 from tracecat.agent.llm_proxy.credentials import (
-    AgentManagementCredentialResolver,
+    AgentCredentialResolver,
 )
 from tracecat.agent.llm_proxy.providers import (
     AnthropicAdapter,
@@ -107,7 +107,6 @@ async def test_verify_claims_from_headers_uses_bearer_token(
         provider="openai",
         base_url="https://example.invalid",
         model_settings={"temperature": 0.2},
-        use_workspace_credentials=True,
     )
 
     def fake_verify(token: str) -> LLMTokenClaims:
@@ -942,7 +941,6 @@ async def test_proxy_tracks_success_and_error_counts(
         session_id=uuid4(),
         model="gpt-5-mini",
         provider="openai",
-        use_workspace_credentials=False,
     )
     proxy = static_llm_proxy_factory({"OPENAI_API_KEY": "sk-test"})
 
@@ -1010,7 +1008,6 @@ async def test_stream_messages_tracks_active_requests_until_stream_completion(
         session_id=uuid4(),
         model="gpt-5-mini",
         provider="openai",
-        use_workspace_credentials=False,
     )
     proxy = static_llm_proxy_factory({"OPENAI_API_KEY": "sk-test"})
     stream_started: list[int] = []
@@ -1082,7 +1079,6 @@ async def test_proxy_falls_back_to_buffered_streaming_for_non_streaming_adapters
         session_id=uuid4(),
         model="gemini-2.5-pro",
         provider="gemini",
-        use_workspace_credentials=False,
     )
     proxy = static_llm_proxy_factory({"GEMINI_API_KEY": "gem-key"})
 
@@ -1135,7 +1131,6 @@ async def test_proxy_uses_token_model_settings_and_restricts_base_url(
             "candidate_count": 2,
             "api_key": "nope",
         },
-        use_workspace_credentials=False,
     )
     proxy = static_llm_proxy_factory({"GEMINI_API_KEY": "gem-key"})
     captured: dict[str, object] = {}
@@ -1193,6 +1188,186 @@ async def test_proxy_uses_token_model_settings_and_restricts_base_url(
     }
 
 
-def test_build_proxy_uses_agent_management_resolver() -> None:
+def test_build_proxy_uses_agent_credential_resolver() -> None:
     proxy = TracecatLLMProxy.build()
-    assert isinstance(proxy.credential_resolver, AgentManagementCredentialResolver)
+    assert isinstance(proxy.credential_resolver, AgentCredentialResolver)
+
+
+# ---------------------------------------------------------------------------
+# Source-backed provider tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "provider",
+    ["openai_compatible_gateway", "manual_custom", "direct_endpoint"],
+)
+def test_provider_registry_contains_source_backed_aliases(provider: str) -> None:
+    """ProviderRegistry.default() must include adapters for source-backed providers."""
+    from tracecat.agent.llm_proxy.providers import (
+        OpenAIFamilyAdapter,
+        ProviderRegistry,
+    )
+
+    registry = ProviderRegistry.default()
+    adapter = registry.get(provider)
+    assert isinstance(adapter, OpenAIFamilyAdapter)
+    assert adapter.provider == provider
+
+
+@pytest.mark.parametrize(
+    "provider",
+    ["openai_compatible_gateway", "manual_custom", "direct_endpoint"],
+)
+@pytest.mark.anyio
+async def test_base_url_passthrough_for_source_backed_providers(
+    monkeypatch: pytest.MonkeyPatch,
+    static_llm_proxy_factory,
+    provider: str,
+) -> None:
+    """Source-backed provider base_url must propagate to the outbound request."""
+    expected_base_url = "https://my-gateway.example.com/v1"
+    claims = LLMTokenClaims(
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+        model="my-custom-model",
+        provider=provider,
+        source_id=uuid4(),
+        base_url=expected_base_url,
+        model_settings={},
+    )
+    proxy = static_llm_proxy_factory({"OPENAI_API_KEY": "sk-test"})
+    captured: dict[str, object] = {}
+    _provider = provider  # capture for class body
+
+    @dataclass(slots=True)
+    class _Adapter:
+        provider: str
+
+        def prepare_request(
+            self,
+            request: NormalizedMessagesRequest,
+            credentials: dict[str, str],
+        ) -> ProviderHTTPRequest:
+            del credentials
+            captured["base_url"] = request.base_url
+            captured["model"] = request.model
+            return ProviderHTTPRequest(
+                method="POST",
+                url="https://test.invalid",
+                headers={},
+                json_body={},
+            )
+
+        async def parse_response(
+            self,
+            response: httpx.Response,
+            request: NormalizedMessagesRequest,
+        ) -> NormalizedResponse:
+            del response
+            return NormalizedResponse(
+                provider=self.provider, model=request.model, raw={}
+            )
+
+    proxy.provider_registry.adapters[provider] = _Adapter(provider=_provider)
+
+    async def _request(*args: object, **kwargs: object) -> httpx.Response:
+        del args, kwargs
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(proxy.http_client, "request", _request)
+
+    event_stream = await proxy.stream_messages(
+        payload={
+            "messages": [{"role": "user", "content": "hello"}],
+        },
+        claims=claims,
+    )
+    async for _ in event_stream:
+        pass
+
+    assert captured["base_url"] == expected_base_url
+    assert captured["model"] == "my-custom-model"
+
+
+@pytest.mark.anyio
+async def test_static_credential_resolver_works_with_claims_protocol() -> None:
+    """StaticCredentialResolver accepts LLMTokenClaims and returns static creds."""
+    from tracecat.agent.llm_proxy.credentials import StaticCredentialResolver
+
+    resolver = StaticCredentialResolver({"OPENAI_API_KEY": "sk-test"})
+    claims = LLMTokenClaims(
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+        model="test-model",
+        provider="openai_compatible_gateway",
+        source_id=uuid4(),
+        model_settings={},
+    )
+    result = await resolver.resolve(claims)
+    assert result == {"OPENAI_API_KEY": "sk-test"}
+
+
+def test_map_source_credentials_openai_compatible() -> None:
+    """map_source_credentials produces OPENAI_API_KEY and OPENAI_BASE_URL."""
+    from unittest.mock import MagicMock
+
+    from tracecat.agent.provider_config import map_source_credentials
+    from tracecat.agent.runtime.constants import (
+        SOURCE_RUNTIME_API_KEY,
+        SOURCE_RUNTIME_BASE_URL,
+    )
+
+    source = MagicMock()
+    source.api_key_header = "Authorization"
+    source.api_version = None
+    creds = map_source_credentials(
+        source=source,
+        source_config={"api_key": "sk-custom"},
+        model_provider="openai_compatible_gateway",
+        runtime_base_url="https://gw.example.com/v1",
+    )
+    assert creds["OPENAI_API_KEY"] == "sk-custom"
+    assert creds["OPENAI_BASE_URL"] == "https://gw.example.com/v1"
+    assert creds[SOURCE_RUNTIME_API_KEY] == "sk-custom"
+    assert creds[SOURCE_RUNTIME_BASE_URL] == "https://gw.example.com/v1"
+
+
+@pytest.mark.parametrize(
+    ("model_provider", "expected_api_key", "expected_base_url_key"),
+    [
+        ("anthropic", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"),
+        ("azure_openai", "AZURE_API_KEY", "AZURE_API_BASE"),
+        ("azure_ai", "AZURE_API_KEY", "AZURE_API_BASE"),
+        ("gemini", "GEMINI_API_KEY", None),
+        (
+            "custom-model-provider",
+            "CUSTOM_MODEL_PROVIDER_API_KEY",
+            "CUSTOM_MODEL_PROVIDER_BASE_URL",
+        ),
+    ],
+)
+def test_map_source_credentials_provider_variants(
+    model_provider: str,
+    expected_api_key: str,
+    expected_base_url_key: str | None,
+) -> None:
+    """map_source_credentials maps to the correct provider-specific keys."""
+    from unittest.mock import MagicMock
+
+    from tracecat.agent.provider_config import map_source_credentials
+
+    source = MagicMock()
+    source.api_key_header = "Authorization"
+    source.api_version = "2024-01-01" if model_provider == "azure_openai" else None
+    creds = map_source_credentials(
+        source=source,
+        source_config={"api_key": "key-123"},
+        model_provider=model_provider,
+        runtime_base_url="https://base.example.com",
+    )
+    assert creds[expected_api_key] == "key-123"
+    if expected_base_url_key:
+        assert creds[expected_base_url_key] == "https://base.example.com"

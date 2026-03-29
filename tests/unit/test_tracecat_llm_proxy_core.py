@@ -32,7 +32,6 @@ async def test_proxy_uses_token_parallel_tool_calls_and_response_format(
             "response_format": {"type": "json_object"},
             "verbosity": "low",
         },
-        use_workspace_credentials=False,
     )
     proxy = static_llm_proxy_factory({"OPENAI_API_KEY": "sk-test"})
     captured: dict[str, object] = {}
@@ -104,7 +103,6 @@ async def test_proxy_retries_once_with_provider_mutation(
         session_id=uuid4(),
         model="gpt-5-mini",
         provider="openai",
-        use_workspace_credentials=False,
     )
     proxy = static_llm_proxy_factory({"OPENAI_API_KEY": "sk-test"})
     requests_seen: list[dict[str, object]] = []
@@ -192,7 +190,6 @@ async def test_proxy_preserves_provider_specific_payload_settings_for_bedrock(
         session_id=uuid4(),
         model="anthropic.claude-3-7-sonnet",
         provider="bedrock",
-        use_workspace_credentials=False,
     )
     proxy = static_llm_proxy_factory(
         {
@@ -265,7 +262,6 @@ async def test_proxy_passes_authorized_model_to_anthropic_passthrough(
         provider="anthropic",
         base_url="https://anthropic.example",
         model_settings={"temperature": 0.3},
-        use_workspace_credentials=False,
     )
     proxy = static_llm_proxy_factory({"ANTHROPIC_API_KEY": "anth-key"})
     captured: dict[str, object] = {}
@@ -339,7 +335,6 @@ async def test_proxy_buffers_non_stream_requests_for_streaming_adapters(
         session_id=uuid4(),
         model="gpt-5-mini",
         provider="openai",
-        use_workspace_credentials=False,
     )
     proxy = static_llm_proxy_factory({"OPENAI_API_KEY": "sk-test"})
     captured: dict[str, object] = {}

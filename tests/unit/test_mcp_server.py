@@ -4497,7 +4497,7 @@ async def test_update_agent_preset_resolves_explicit_model(
         assert model_name == "gpt-5-mini"
         assert model_provider == "openai"
         return ModelSelection(
-            source_id=source_id,
+            source_id=selected_source_id,
             model_name="gpt-5-mini",
             model_provider="openai",
         )
@@ -4540,7 +4540,7 @@ async def test_update_agent_preset_resolves_explicit_model(
     params = captured["params"]
     assert params.model_name == "gpt-5-mini"
     assert params.model_provider == "openai"
-    assert params.source_id == source_id
+    assert params.source_id == selected_source_id
     assert payload["model_name"] == "gpt-5-mini"
     assert payload["model_provider"] == "openai"
 

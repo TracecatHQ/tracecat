@@ -58,7 +58,6 @@ async def test_forward_request_streams_tracecat_proxy_response(
         provider="openai",
         base_url=None,
         model_settings={},
-        use_workspace_credentials=False,
     )
 
     monkeypatch.setattr(
@@ -158,7 +157,6 @@ async def test_forward_request_returns_bad_request_for_invalid_tracecat_proxy_js
         provider="openai",
         base_url=None,
         model_settings={},
-        use_workspace_credentials=False,
     )
     stream_messages = AsyncMock()
 

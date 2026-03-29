@@ -110,6 +110,8 @@ def test_dynamic_workspace_rls_targets_workspace_scoped_schemas() -> None:
         case_fields_service._table_definition().schema
         == case_fields_service.schema_name
     )
+
+
 def test_org_shared_rls_allows_global_reads_but_not_global_writes() -> None:
     sql = enable_org_shared_table_rls("agent_catalog")
 

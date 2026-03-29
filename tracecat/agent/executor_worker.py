@@ -39,20 +39,6 @@ async def _start_runtime_services() -> Client:
     """Start shared runtime services needed by the agent executor worker."""
     logger.info("Starting runtime services")
 
-    def on_litellm_unhealthy(status: LiteLLMProxyStatus) -> None:
-        global runtime_failure_reason
-        if runtime_failure_reason is not None:
-            return
-        runtime_failure_reason = status.reason or "LLM gateway sidecar became unhealthy"
-        logger.error(
-            "LLM gateway sidecar reported fatal health failure",
-            reason=runtime_failure_reason,
-            pid=status.pid,
-            exit_code=status.exit_code,
-            consecutive_probe_failures=status.consecutive_probe_failures,
-        )
-        interrupt_event.set()
-
     _, _, client = await asyncio.gather(
         start_configured_llm_proxy(),
         start_mcp_server(),

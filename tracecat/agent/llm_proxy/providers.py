@@ -48,6 +48,13 @@ class ProviderRegistry:
                 "vertex_ai": VertexAIAdapter(),
                 "bedrock": BedrockAdapter(),
                 "azure_ai": AzureAIAdapter(),
+                # Source-backed providers (OpenAI-compatible gateways and
+                # manual custom sources) use the default OpenAI adapter path.
+                "openai_compatible_gateway": OpenAIFamilyAdapter(
+                    "openai_compatible_gateway"
+                ),
+                "manual_custom": OpenAIFamilyAdapter("manual_custom"),
+                "direct_endpoint": OpenAIFamilyAdapter("direct_endpoint"),
             }
         )
 

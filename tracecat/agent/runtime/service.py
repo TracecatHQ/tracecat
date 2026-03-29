@@ -22,13 +22,8 @@ from tracecat.agent.provider_config import (
     credential_secret_name,
     deserialize_secret_keyvalues,
     deserialize_source_config,
+    map_source_credentials,
     source_runtime_base_url,
-)
-from tracecat.agent.runtime.constants import (
-    SOURCE_RUNTIME_API_KEY,
-    SOURCE_RUNTIME_API_KEY_HEADER,
-    SOURCE_RUNTIME_API_VERSION,
-    SOURCE_RUNTIME_BASE_URL,
 )
 from tracecat.agent.runtime.types import ResolvedExecutionContext
 from tracecat.agent.schemas import ModelSelection
@@ -113,54 +108,12 @@ class AgentRuntimeService(BaseOrgService):
         # that config into the env vars the downstream runtime expects.
         source_config = deserialize_source_config(source.encrypted_config)
         runtime_base_url = source_runtime_base_url(source, source_config=source_config)
-        credentials: dict[str, str] = {}
-        if api_key := source_config.get("api_key"):
-            credentials[SOURCE_RUNTIME_API_KEY] = api_key
-        if source.api_key_header:
-            credentials[SOURCE_RUNTIME_API_KEY_HEADER] = source.api_key_header
-        if source.api_version:
-            credentials[SOURCE_RUNTIME_API_VERSION] = source.api_version
-        if runtime_base_url:
-            credentials[SOURCE_RUNTIME_BASE_URL] = runtime_base_url
-        match catalog.model_provider:
-            case (
-                "openai"
-                | "openai_compatible_gateway"
-                | "manual_custom"
-                | "direct_endpoint"
-            ):
-                if api_key:
-                    credentials["OPENAI_API_KEY"] = api_key
-                if runtime_base_url:
-                    credentials["OPENAI_BASE_URL"] = runtime_base_url
-            case "anthropic":
-                if api_key:
-                    credentials["ANTHROPIC_API_KEY"] = api_key
-                if runtime_base_url:
-                    credentials["ANTHROPIC_BASE_URL"] = runtime_base_url
-            case "gemini":
-                if api_key:
-                    credentials["GEMINI_API_KEY"] = api_key
-            case "azure_openai":
-                if api_key:
-                    credentials["AZURE_API_KEY"] = api_key
-                if runtime_base_url:
-                    credentials["AZURE_API_BASE"] = runtime_base_url
-                if source.api_version:
-                    credentials["AZURE_API_VERSION"] = source.api_version
-            case "azure_ai":
-                if api_key:
-                    credentials["AZURE_API_KEY"] = api_key
-                if runtime_base_url:
-                    credentials["AZURE_API_BASE"] = runtime_base_url
-            case "custom-model-provider":
-                if api_key:
-                    credentials["CUSTOM_MODEL_PROVIDER_API_KEY"] = api_key
-                if runtime_base_url:
-                    credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] = runtime_base_url
-            case _:
-                pass
-        return credentials
+        return map_source_credentials(
+            source=source,
+            source_config=source_config,
+            model_provider=catalog.model_provider,
+            runtime_base_url=runtime_base_url,
+        )
 
     def _runtime_config_from_catalog(
         self,

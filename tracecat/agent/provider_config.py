@@ -11,6 +11,12 @@ from cryptography.fernet import InvalidToken
 
 from tracecat import config
 from tracecat.agent.config import PROVIDER_CREDENTIAL_CONFIGS
+from tracecat.agent.runtime.constants import (
+    SOURCE_RUNTIME_API_KEY,
+    SOURCE_RUNTIME_API_KEY_HEADER,
+    SOURCE_RUNTIME_API_VERSION,
+    SOURCE_RUNTIME_BASE_URL,
+)
 from tracecat.agent.types import CustomModelSourceType, ModelSourceType
 from tracecat.db.models import AgentSource
 from tracecat.exceptions import TracecatNotFoundError
@@ -163,6 +169,79 @@ def deserialize_source_config(payload: bytes | None) -> dict[str, str]:
         except orjson.JSONDecodeError:
             return {}
     return orjson.loads(decrypted)
+
+
+def map_source_credentials(
+    *,
+    source: AgentSource,
+    source_config: dict[str, str],
+    model_provider: str,
+    runtime_base_url: str | None,
+) -> dict[str, str]:
+    """Map a custom source's config into the credential dict providers expect.
+
+    This is the single source of truth for translating ``AgentSource`` fields
+    into the environment-variable-shaped keys consumed by provider adapters
+    (both in the agent runtime and the LLM proxy).
+
+    Args:
+        source: The custom source row.
+        source_config: Decrypted source configuration (api_key, flavor, etc.).
+        model_provider: The catalog model_provider value
+            (e.g. ``"openai_compatible_gateway"``).
+        runtime_base_url: Resolved runtime base URL for the source.
+
+    Returns:
+        Credential dict keyed by provider-expected env var names.
+    """
+
+    credentials: dict[str, str] = {}
+    api_key = source_config.get("api_key")
+    if api_key:
+        credentials[SOURCE_RUNTIME_API_KEY] = api_key
+    if source.api_key_header:
+        credentials[SOURCE_RUNTIME_API_KEY_HEADER] = source.api_key_header
+    if source.api_version:
+        credentials[SOURCE_RUNTIME_API_VERSION] = source.api_version
+    if runtime_base_url:
+        credentials[SOURCE_RUNTIME_BASE_URL] = runtime_base_url
+
+    match model_provider:
+        case (
+            "openai" | "openai_compatible_gateway" | "manual_custom" | "direct_endpoint"
+        ):
+            if api_key:
+                credentials["OPENAI_API_KEY"] = api_key
+            if runtime_base_url:
+                credentials["OPENAI_BASE_URL"] = runtime_base_url
+        case "anthropic":
+            if api_key:
+                credentials["ANTHROPIC_API_KEY"] = api_key
+            if runtime_base_url:
+                credentials["ANTHROPIC_BASE_URL"] = runtime_base_url
+        case "gemini":
+            if api_key:
+                credentials["GEMINI_API_KEY"] = api_key
+        case "azure_openai":
+            if api_key:
+                credentials["AZURE_API_KEY"] = api_key
+            if runtime_base_url:
+                credentials["AZURE_API_BASE"] = runtime_base_url
+            if source.api_version:
+                credentials["AZURE_API_VERSION"] = source.api_version
+        case "azure_ai":
+            if api_key:
+                credentials["AZURE_API_KEY"] = api_key
+            if runtime_base_url:
+                credentials["AZURE_API_BASE"] = runtime_base_url
+        case "custom-model-provider":
+            if api_key:
+                credentials["CUSTOM_MODEL_PROVIDER_API_KEY"] = api_key
+            if runtime_base_url:
+                credentials["CUSTOM_MODEL_PROVIDER_BASE_URL"] = runtime_base_url
+        case _:
+            pass
+    return credentials
 
 
 def source_type_from_row(row: AgentSource) -> CustomModelSourceType:
