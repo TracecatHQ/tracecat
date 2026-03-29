@@ -278,19 +278,20 @@ interface CustomFieldProps {
 /**
  * Renders badges in a single-line container with overflow detection.
  * When badges overflow, shows only those that fit plus a "+N" indicator.
+ *
+ * A hidden measurement div always renders every badge so the
+ * ResizeObserver can re-expand the visible set when the container grows.
  */
 function MultiSelectBadges({ values }: { values: string[] }) {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const measureRef = useRef<HTMLDivElement>(null)
   const [visibleCount, setVisibleCount] = useState(values.length)
 
   useEffect(() => {
-    const container = containerRef.current
+    const container = measureRef.current
     if (!container) return
 
     const measure = () => {
-      const children = Array.from(container.children) as HTMLElement[]
-      // Exclude the +N indicator from measurement (it has data-overflow attribute)
-      const badges = children.filter((c) => !c.dataset.overflow)
+      const badges = Array.from(container.children) as HTMLElement[]
       let count = 0
       for (const child of badges) {
         if (child.offsetLeft + child.offsetWidth > container.clientWidth) {
@@ -310,24 +311,47 @@ function MultiSelectBadges({ values }: { values: string[] }) {
   const hiddenCount = values.length - visibleCount
 
   return (
-    <div ref={containerRef} className="flex items-center gap-1 overflow-hidden">
-      {values.slice(0, visibleCount).map((value) => (
-        <Badge
-          key={value}
-          variant="secondary"
-          className="shrink-0 px-1.5 py-0 text-[11px]"
-        >
-          {value}
-        </Badge>
-      ))}
-      {hiddenCount > 0 && (
-        <span
-          data-overflow=""
-          className="shrink-0 text-[11px] text-muted-foreground"
-        >
-          +{hiddenCount}
-        </span>
-      )}
+    <div className="relative overflow-hidden">
+      {/* Hidden measurement layer — always contains every badge */}
+      <div
+        ref={measureRef}
+        aria-hidden
+        className="pointer-events-none flex items-center gap-1"
+        style={{
+          visibility: "hidden",
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+        }}
+      >
+        {values.map((value) => (
+          <Badge
+            key={value}
+            variant="secondary"
+            className="shrink-0 px-1.5 py-0 text-[11px]"
+          >
+            {value}
+          </Badge>
+        ))}
+      </div>
+      {/* Visible layer — only the badges that fit plus the +N indicator */}
+      <div className="flex items-center gap-1">
+        {values.slice(0, visibleCount).map((value) => (
+          <Badge
+            key={value}
+            variant="secondary"
+            className="shrink-0 px-1.5 py-0 text-[11px]"
+          >
+            {value}
+          </Badge>
+        ))}
+        {hiddenCount > 0 && (
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            +{hiddenCount}
+          </span>
+        )}
+      </div>
     </div>
   )
 }
