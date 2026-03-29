@@ -99,6 +99,13 @@ def _raise_comment_http_error(
     raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
+def _raise_case_field_http_error(
+    exc: ValueError | TracecatValidationError,
+) -> NoReturn:
+    """Convert case-field validation failures into HTTP 400 responses."""
+    raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 def _parse_dropdown_filter(
     dropdown: list[str] | None,
 ) -> dict[str, list[str]] | None:
@@ -747,6 +754,8 @@ async def create_field(
     service = CaseFieldsService(session, role)
     try:
         await service.create_field(params)
+    except (ValueError, TracecatValidationError) as exc:
+        _raise_case_field_http_error(exc)
     except ProgrammingError as e:
         # Drill down to the root cause
         while (cause := e.__cause__) is not None:
@@ -772,11 +781,8 @@ async def update_field(
     service = CaseFieldsService(session, role)
     try:
         await service.update_field(field_id, params)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+    except (ValueError, TracecatValidationError) as exc:
+        _raise_case_field_http_error(exc)
     except ProgrammingError as err:
         while (cause := err.__cause__) is not None:
             err = cause
@@ -800,11 +806,8 @@ async def delete_field(
     service = CaseFieldsService(session, role)
     try:
         await service.delete_field(field_id)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
+    except (ValueError, TracecatValidationError) as exc:
+        _raise_case_field_http_error(exc)
 
 
 # Case Events
