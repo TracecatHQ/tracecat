@@ -600,6 +600,7 @@ function JsonField({
       onChange(parsed)
       setError(null)
     } catch {
+      onChange(undefined)
       setError("Invalid JSON")
     }
   }

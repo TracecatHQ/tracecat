@@ -503,7 +503,10 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
       workspaceId,
       shouldLoadCatalogData && caseAddonsEnabled
     )
-  const { caseFields: caseFieldDefinitions } = useCaseFields(workspaceId)
+  const { caseFields: caseFieldDefinitions } = useCaseFields(
+    workspaceId,
+    shouldLoadCatalogData && caseAddonsEnabled
+  )
   const [closureDialog, setClosureDialog] = useState<{
     open: boolean
     targetStatus: CaseStatus
