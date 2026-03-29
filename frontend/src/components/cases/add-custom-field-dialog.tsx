@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
-import { ApiError, casesCreateField } from "@/client"
+import { ApiError, type CaseFieldKind, casesCreateField } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
@@ -36,9 +36,34 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { CASE_FIELD_KIND_CONFIG } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+/** Options for the case field type picker (SQL types + kind-based semantic types). */
+interface CaseFieldTypeOption {
+  value: string
+  type: SqlTypeCreatable
+  kind: CaseFieldKind | null
+}
+
+const CASE_FIELD_TYPE_OPTIONS: CaseFieldTypeOption[] = [
+  { value: "TEXT", type: "TEXT", kind: null },
+  { value: "LONG_TEXT", type: "TEXT", kind: "LONG_TEXT" },
+  { value: "INTEGER", type: "INTEGER", kind: null },
+  { value: "NUMERIC", type: "NUMERIC", kind: null },
+  { value: "BOOLEAN", type: "BOOLEAN", kind: null },
+  { value: "DATE", type: "DATE", kind: null },
+  { value: "TIMESTAMPTZ", type: "TIMESTAMPTZ", kind: null },
+  { value: "URL", type: "JSONB", kind: "URL" },
+  { value: "SELECT", type: "SELECT", kind: null },
+  { value: "MULTI_SELECT", type: "MULTI_SELECT", kind: null },
+]
+
+function findTypeOption(value: string): CaseFieldTypeOption | undefined {
+  return CASE_FIELD_TYPE_OPTIONS.find((opt) => opt.value === value)
+}
 
 const isSelectableColumnType = (type?: string) =>
   type === "SELECT" || type === "MULTI_SELECT"
@@ -69,6 +94,7 @@ const caseFieldFormSchema = z
         "Field name must start with a letter and contain only letters, numbers, and underscores"
       ),
     type: z.enum(SqlTypeCreatableEnum),
+    kind: z.enum(["LONG_TEXT", "URL"]).nullable().optional(),
     nullable: z.boolean().default(true),
     default: z.string().nullable().optional(),
     defaultMulti: z.array(z.string()).optional(), // For MULTI_SELECT defaults
@@ -133,6 +159,7 @@ export function AddCustomFieldDialog({
     defaultValues: {
       name: "",
       type: "TEXT",
+      kind: null,
       nullable: true,
       default: null,
       defaultMulti: [],
@@ -140,7 +167,9 @@ export function AddCustomFieldDialog({
     },
   })
   const selectedType = form.watch("type")
+  const selectedKind = form.watch("kind")
   const requiresOptions = isSelectableColumnType(selectedType)
+  const pickerValue = selectedKind ?? selectedType
 
   useEffect(() => {
     form.setValue("default", "")
@@ -152,7 +181,7 @@ export function AddCustomFieldDialog({
       form.setValue("options", [])
       form.clearErrors("options")
     }
-  }, [form, selectedType])
+  }, [form, selectedType, selectedKind])
 
   const onSubmit = async (data: CaseFieldFormValues) => {
     setIsSubmitting(true)
@@ -263,6 +292,7 @@ export function AddCustomFieldDialog({
           options: isSelectableColumnType(data.type)
             ? sanitizeColumnOptions(data.options)
             : null,
+          kind: data.kind ?? null,
         },
       })
 
@@ -328,38 +358,49 @@ export function AddCustomFieldDialog({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="type"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Data type</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a data type" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {SqlTypeCreatableEnum.filter(
-                        (type) => type !== "JSONB"
-                      ).map((type) => (
-                        <SelectItem key={type} value={type}>
-                          <SqlTypeDisplay
-                            type={type}
-                            labelClassName="text-xs"
-                          />
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    The SQL data type for this field.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <FormItem>
+              <FormLabel>Data type</FormLabel>
+              <Select
+                value={pickerValue}
+                onValueChange={(value) => {
+                  const opt = findTypeOption(value)
+                  if (opt) {
+                    form.setValue("type", opt.type)
+                    form.setValue("kind", opt.kind ?? null)
+                  }
+                }}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a data type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {CASE_FIELD_TYPE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.kind ? (
+                        <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                          {(() => {
+                            const Icon = CASE_FIELD_KIND_CONFIG[opt.kind].icon
+                            return <Icon className="size-4 shrink-0" />
+                          })()}
+                          <span className="text-xs font-normal leading-none whitespace-nowrap">
+                            {CASE_FIELD_KIND_CONFIG[opt.kind].label}
+                          </span>
+                        </span>
+                      ) : (
+                        <SqlTypeDisplay
+                          type={opt.type}
+                          labelClassName="text-xs"
+                        />
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormDescription>The data type for this field.</FormDescription>
+              <FormMessage />
+            </FormItem>
 
             {requiresOptions && (
               <FormField
@@ -388,54 +429,59 @@ export function AddCustomFieldDialog({
               />
             )}
 
-            {selectedType === "MULTI_SELECT" ? (
-              <FormField
-                control={form.control}
-                name="defaultMulti"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Default values (optional)</FormLabel>
-                    <FormControl>
-                      <MultiTagCommandInput
-                        value={field.value || []}
-                        onChange={field.onChange}
-                        placeholder="Select default values..."
-                        suggestions={sanitizeColumnOptions(
-                          form.watch("options")
-                        ).map((opt) => ({ id: opt, label: opt, value: opt }))}
-                        searchKeys={["label"]}
-                        className="w-full"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Select default values from the options above.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            ) : (
-              <FormField
-                control={form.control}
-                name="default"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Default value (optional)</FormLabel>
-                    <FormControl>
-                      <DefaultValueInput
-                        type={selectedType}
-                        field={field}
-                        options={form.watch("options")}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {getDefaultHelperText(selectedType)}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+            {!selectedKind &&
+              (selectedType === "MULTI_SELECT" ? (
+                <FormField
+                  control={form.control}
+                  name="defaultMulti"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Default values (optional)</FormLabel>
+                      <FormControl>
+                        <MultiTagCommandInput
+                          value={field.value || []}
+                          onChange={field.onChange}
+                          placeholder="Select default values..."
+                          suggestions={sanitizeColumnOptions(
+                            form.watch("options")
+                          ).map((opt) => ({
+                            id: opt,
+                            label: opt,
+                            value: opt,
+                          }))}
+                          searchKeys={["label"]}
+                          className="w-full"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Select default values from the options above.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : (
+                <FormField
+                  control={form.control}
+                  name="default"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Default value (optional)</FormLabel>
+                      <FormControl>
+                        <DefaultValueInput
+                          type={selectedType}
+                          field={field}
+                          options={form.watch("options")}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {getDefaultHelperText(selectedType)}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ))}
 
             <DialogFooter>
               <Button type="submit" disabled={isSubmitting}>

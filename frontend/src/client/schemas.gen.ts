@@ -5810,11 +5810,31 @@ export const $CaseFieldCreate = {
       ],
       title: "Options",
     },
+    kind: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseFieldKind",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: ["name", "type"],
   title: "CaseFieldCreate",
   description: "Create a new case field.",
+} as const
+
+export const $CaseFieldKind = {
+  type: "string",
+  enum: ["LONG_TEXT", "URL"],
+  title: "CaseFieldKind",
+  description: `Semantic kind for case custom fields.
+
+Controls how the field is rendered in the UI without changing the underlying
+SQL storage type.`,
 } as const
 
 export const $CaseFieldRead = {
@@ -5862,6 +5882,16 @@ export const $CaseFieldRead = {
         },
       ],
       title: "Options",
+    },
+    kind: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseFieldKind",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     value: {
       title: "Value",
@@ -5926,6 +5956,16 @@ export const $CaseFieldReadMinimal = {
         },
       ],
       title: "Options",
+    },
+    kind: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseFieldKind",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",

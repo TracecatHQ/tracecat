@@ -46,6 +46,7 @@ from tracecat.cases.schemas import (
     CaseCommentWorkflowStatus,
     CaseCreate,
     CaseEventVariant,
+    CaseFieldCreate,
     CaseReadMinimal,
     CaseSearchAggregateRead,
     CaseStatusGroupCounts,
@@ -81,7 +82,7 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.cases.triggers.publisher import publish_case_event_payload
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
-from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
+from tracecat.custom_fields.schemas import CustomFieldUpdate
 from tracecat.db.models import (
     Case,
     CaseComment,
@@ -1017,6 +1018,28 @@ class CaseFieldsService(CustomFieldsService):
     _table = "case_fields"
     _reserved_columns = {"id", "case_id", "created_at", "updated_at", "workspace_id"}
 
+    @require_scope("case:create")
+    async def create_field(self, params: CaseFieldCreate) -> None:  # type: ignore[override]
+        """Create a new case field column and update the schema.
+
+        Extends the parent to persist the optional ``kind`` metadata
+        (e.g. LONG_TEXT, URL) that controls UI rendering.
+        """
+        await self._ensure_schema_ready()
+        params.nullable = True
+        await self.editor.create_column(params)
+
+        field_def: dict[str, Any] = {"type": params.type.value}
+
+        if params.type in (SqlType.SELECT, SqlType.MULTI_SELECT) and params.options:
+            field_def["options"] = normalize_column_options(params.options)
+
+        if params.kind is not None:
+            field_def["kind"] = params.kind.value
+
+        await self._update_field_schema(params.name, field_def)
+        await self.session.commit()
+
     def _table_definition(self) -> sa.Table:
         """Return the SQLAlchemy Table definition for the case_fields workspace table."""
         return sa.Table(
@@ -1087,26 +1110,6 @@ class CaseFieldsService(CustomFieldsService):
         flag_modified(definition, "schema")
         await self.session.flush()
 
-    @require_scope("case:create")
-    async def create_field(self, params: CustomFieldCreate) -> None:
-        """Create a new custom field column and update the schema."""
-
-        await self._ensure_schema_ready()
-        params.nullable = True  # Custom fields remain nullable by default
-        await self.editor.create_column(params)
-
-        # Store field metadata in schema
-        # Schema structure: {field_name: {type, options (only for SELECT/MULTI_SELECT)}}
-        field_def: dict[str, Any] = {"type": params.type.value}
-
-        # Only include options for SELECT/MULTI_SELECT types
-        if params.type in (SqlType.SELECT, SqlType.MULTI_SELECT) and params.options:
-            field_def["options"] = normalize_column_options(params.options)
-
-        await self._update_field_schema(params.name, field_def)
-
-        await self.session.commit()
-
     @require_scope("case:update")
     async def update_field(self, field_id: str, params: CustomFieldUpdate) -> None:
         """Update a custom field column and update the schema if needed."""
@@ -1136,6 +1139,10 @@ class CaseFieldsService(CustomFieldsService):
             elif "options" in current_field_def:
                 # Preserve existing options if not being updated
                 new_field_def["options"] = current_field_def["options"]
+
+            # Preserve kind metadata across updates
+            if "kind" in current_field_def:
+                new_field_def["kind"] = current_field_def["kind"]
 
             # If field was renamed, remove old entry
             if new_field_id != field_id:
