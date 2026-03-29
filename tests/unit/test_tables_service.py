@@ -748,6 +748,21 @@ class TestTableColumns:
                 TableColumnUpdate(name="__TC_workspace_id"),
             )
 
+    async def test_update_column_rejects_null_rename(
+        self, tables_service: TablesService
+    ) -> None:
+        """TablesService should reject explicit null column rename payloads."""
+        table = await tables_service.create_table(
+            TableCreate(name="reject_null_column_rename")
+        )
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(name="nickname", type=SqlType.TEXT, nullable=True),
+        )
+
+        with pytest.raises(ValueError, match="Column name cannot be null"):
+            await tables_service.update_column(column, TableColumnUpdate(name=None))
+
     async def test_create_column_default_with_single_quote(
         self, tables_service: TablesService
     ) -> None:
@@ -872,6 +887,28 @@ class TestTableColumns:
                 "nickname",
                 TableColumnUpdate(name="__TC_workspace_id"),
             )
+
+    async def test_table_editor_update_column_rejects_null_rename(
+        self, tables_service: TablesService
+    ) -> None:
+        """TableEditorService should reject explicit null rename payloads."""
+        table = await tables_service.create_table(
+            TableCreate(
+                name="editor_reject_null_update",
+                columns=[
+                    TableColumnCreate(name="nickname", type=SqlType.TEXT),
+                ],
+            )
+        )
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        with pytest.raises(ValueError, match="Column name cannot be null"):
+            await editor.update_column("nickname", TableColumnUpdate(name=None))
 
     async def test_update_column_handles_legacy_metadata_name(
         self, tables_service: TablesService
