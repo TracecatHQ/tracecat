@@ -1,0 +1,27 @@
+tracecat/tables/service.py
+  98a60cc4f969f72e 1908
+tracecat/cases/service.py
+  98a60cc4f969f72e 1243-1244
+tracecat/custom_fields/service.py
+  98a60cc4f969f72e 105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "f0e4784e522cdb74df1ec12244f9961f4bf68423",
+  "prompts": {
+    "98a60cc4f969f72e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d30ae-cff5-79b3-a352-64e450ebafa8",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 7,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}
