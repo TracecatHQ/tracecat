@@ -1574,7 +1574,16 @@ export type CaseFieldCreate = {
   nullable?: boolean
   default?: unknown | null
   options?: Array<string> | null
+  kind?: CaseFieldKind | null
 }
+
+/**
+ * Semantic kind for case custom fields.
+ *
+ * Controls how the field is rendered in the UI without changing the underlying
+ * SQL storage type.
+ */
+export type CaseFieldKind = "LONG_TEXT" | "URL"
 
 /**
  * Read model for a case field.
@@ -1587,6 +1596,7 @@ export type CaseFieldRead = {
   default: string | null
   reserved: boolean
   options?: Array<string> | null
+  kind?: CaseFieldKind | null
   value: unknown
 }
 
@@ -1601,6 +1611,7 @@ export type CaseFieldReadMinimal = {
   default: string | null
   reserved: boolean
   options?: Array<string> | null
+  kind?: CaseFieldKind | null
 }
 
 /**

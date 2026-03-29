@@ -1,9 +1,21 @@
 import { format, isValid as isValidDate } from "date-fns"
-import { Check, Clock3, X } from "lucide-react"
-import type { CSSProperties } from "react"
+import { Check } from "lucide-react"
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import type { CaseFieldRead, CaseUpdate } from "@/client"
+import {
+  LongTextFieldCell,
+  LongTextFieldDialog,
+  UrlFieldCell,
+  UrlFieldDialog,
+} from "@/components/cases/case-field-kind-dialogs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +33,11 @@ import {
   FormItem,
   FormMessage,
 } from "@/components/ui/form"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import {
   Popover,
@@ -34,6 +51,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { toast } from "@/components/ui/use-toast"
 import { cn, linearStyles } from "@/lib/utils"
 
 const customFieldFormSchema = z.object({
@@ -43,8 +61,8 @@ const customFieldFormSchema = z.object({
 
 type CustomFieldFormSchema = z.infer<typeof customFieldFormSchema>
 
-const DATE_TIME_DISPLAY_FORMAT = "MMM d yyyy '·' p"
-const DATE_DISPLAY_FORMAT = "MMM d yyyy"
+const DATE_TIME_DISPLAY_FORMAT = "yyyy-MM-dd HH:mm"
+const DATE_DISPLAY_FORMAT = "yyyy-MM-dd"
 
 const formatDateFieldValue = (
   date: Date,
@@ -68,6 +86,44 @@ const toDateValue = (value: unknown): Date | null => {
 }
 
 export function CustomField({
+  customField,
+  updateCase,
+  inputClassName,
+  inputStyle,
+  onValueChange,
+  formClassName,
+}: {
+  customField: CaseFieldRead
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  inputClassName?: string
+  inputStyle?: CSSProperties
+  onValueChange?: (id: string, value: unknown) => void
+  formClassName?: string
+}) {
+  // Kind-specific fields use dialog-based editing, not inline blur-to-save
+  if (customField.kind === "LONG_TEXT") {
+    return (
+      <LongTextCustomField customField={customField} updateCase={updateCase} />
+    )
+  }
+  if (customField.kind === "URL") {
+    return <UrlCustomField customField={customField} updateCase={updateCase} />
+  }
+
+  return (
+    <InlineCustomField
+      customField={customField}
+      updateCase={updateCase}
+      inputClassName={inputClassName}
+      inputStyle={inputStyle}
+      onValueChange={onValueChange}
+      formClassName={formClassName}
+    />
+  )
+}
+
+/** Standard inline-edit custom field (blur-to-save via form). */
+function InlineCustomField({
   customField,
   updateCase,
   inputClassName,
@@ -118,6 +174,100 @@ export function CustomField({
     </FormProvider>
   )
 }
+
+function LongTextCustomField({
+  customField,
+  updateCase,
+}: {
+  customField: CaseFieldRead
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+}) {
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const currentValue =
+    typeof customField.value === "string" ? customField.value : ""
+
+  const handleSave = useCallback(
+    async (value: string) => {
+      try {
+        await updateCase({
+          fields: { [customField.id]: value || null },
+        })
+      } catch (error) {
+        console.error(error)
+      }
+    },
+    [customField.id, updateCase]
+  )
+
+  return (
+    <>
+      <LongTextFieldCell
+        onClick={() => setDialogOpen(true)}
+        hasValue={currentValue.length > 0}
+      />
+      <LongTextFieldDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        fieldLabel={customField.id}
+        initialValue={currentValue}
+        onSave={handleSave}
+      />
+    </>
+  )
+}
+
+function UrlCustomField({
+  customField,
+  updateCase,
+}: {
+  customField: CaseFieldRead
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+}) {
+  const [dialogOpen, setDialogOpen] = useState(false)
+
+  const parsed =
+    customField.value &&
+    typeof customField.value === "object" &&
+    !Array.isArray(customField.value)
+      ? (customField.value as { url?: string; label?: string })
+      : null
+  const urlValue = {
+    url: parsed?.url ?? "",
+    label: parsed?.label ?? "",
+  }
+
+  const handleSave = useCallback(
+    async (value: { url: string; label: string }) => {
+      try {
+        await updateCase({
+          fields: {
+            [customField.id]: value.url && value.label ? value : null,
+          },
+        })
+      } catch (error) {
+        console.error(error)
+      }
+    },
+    [customField.id, updateCase]
+  )
+
+  return (
+    <>
+      <UrlFieldCell
+        value={urlValue.url ? urlValue : null}
+        onEdit={() => setDialogOpen(true)}
+      />
+      <UrlFieldDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        fieldLabel={customField.id}
+        initialValue={urlValue}
+        onSave={handleSave}
+      />
+    </>
+  )
+}
+
 interface CustomFieldProps {
   customField: CaseFieldRead
   onBlur?: (id: string, value: unknown) => void
@@ -126,9 +276,64 @@ interface CustomFieldProps {
 }
 
 /**
- * We wnat to dispatch a form field
- * @param param0
- * @returns
+ * Renders badges in a single-line container with overflow detection.
+ * When badges overflow, shows only those that fit plus a "+N" indicator.
+ */
+function MultiSelectBadges({ values }: { values: string[] }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [visibleCount, setVisibleCount] = useState(values.length)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const measure = () => {
+      const children = Array.from(container.children) as HTMLElement[]
+      // Exclude the +N indicator from measurement (it has data-overflow attribute)
+      const badges = children.filter((c) => !c.dataset.overflow)
+      let count = 0
+      for (const child of badges) {
+        if (child.offsetLeft + child.offsetWidth > container.clientWidth) {
+          break
+        }
+        count++
+      }
+      setVisibleCount(count > 0 ? count : 1)
+    }
+
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [values])
+
+  const hiddenCount = values.length - visibleCount
+
+  return (
+    <div ref={containerRef} className="flex items-center gap-1 overflow-hidden">
+      {values.map((value) => (
+        <Badge
+          key={value}
+          variant="secondary"
+          className="shrink-0 px-1.5 py-0 text-[11px]"
+        >
+          {value}
+        </Badge>
+      ))}
+      {hiddenCount > 0 && (
+        <span
+          data-overflow=""
+          className="shrink-0 text-[11px] text-muted-foreground"
+        >
+          +{hiddenCount}
+        </span>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Core renderer that dispatches on field type.
  */
 export function CustomFieldInner({
   customField,
@@ -194,45 +399,44 @@ export function CustomFieldInner({
                     field.onBlur()
                     const raw = String(field.value ?? "").trim()
                     if (!raw) {
-                      form.clearErrors("value")
                       onBlur?.(customField.id, null)
                       return
                     }
 
                     if (customField.type === "INTEGER") {
                       if (!/^-?\d+$/.test(raw)) {
-                        form.setError("value", {
-                          type: "validate",
-                          message: "Must be a valid integer",
+                        toast({
+                          title: "Validation error",
+                          description: "Must be a valid integer",
+                          variant: "destructive",
                         })
                         return
                       }
-                      form.clearErrors("value")
                       onBlur?.(customField.id, Number.parseInt(raw, 10))
                       return
                     }
 
                     if (!/^-?(?:\d+|\d*\.\d+)$/.test(raw)) {
-                      form.setError("value", {
-                        type: "validate",
-                        message: "Must be a valid number",
+                      toast({
+                        title: "Validation error",
+                        description: "Must be a valid number",
+                        variant: "destructive",
                       })
                       return
                     }
                     const parsed = Number(raw)
                     if (!Number.isFinite(parsed)) {
-                      form.setError("value", {
-                        type: "validate",
-                        message: "Must be a valid number",
+                      toast({
+                        title: "Validation error",
+                        description: "Must be a valid number",
+                        variant: "destructive",
                       })
                       return
                     }
-                    form.clearErrors("value")
                     onBlur?.(customField.id, parsed)
                   }}
                 />
               </FormControl>
-              <FormMessage />
             </FormItem>
           )}
         />
@@ -307,10 +511,25 @@ export function CustomFieldInner({
                   value={String(field.value || "")}
                   className={baseInputClassName}
                   style={inputStyle}
-                  onBlur={() => onBlur && onBlur(customField.id, field.value)}
+                  onBlur={() => {
+                    const raw = String(field.value ?? "").trim()
+                    if (!raw) {
+                      onBlur?.(customField.id, null)
+                      return
+                    }
+                    try {
+                      const parsed = JSON.parse(raw)
+                      onBlur?.(customField.id, parsed)
+                    } catch {
+                      toast({
+                        title: "Validation error",
+                        description: "Must be valid JSON",
+                        variant: "destructive",
+                      })
+                    }
+                  }}
                 />
               </FormControl>
-              <FormMessage />
             </FormItem>
           )}
         />
@@ -342,6 +561,7 @@ export function CustomFieldInner({
                     formatDisplay={(date) =>
                       format(date, DATE_TIME_DISPLAY_FORMAT)
                     }
+                    icon={<></>}
                     buttonProps={{
                       variant: "ghost",
                       className: cn(
@@ -387,7 +607,7 @@ export function CustomFieldInner({
                     hideTime
                     placeholder="Select date"
                     formatDisplay={(date) => format(date, DATE_DISPLAY_FORMAT)}
-                    icon={<Clock3 className="mr-2 size-4" />}
+                    icon={<></>}
                     buttonProps={{
                       variant: "ghost",
                       className: cn(
@@ -521,37 +741,54 @@ export function CustomFieldInner({
               onBlur?.(customField.id, newValues)
             }
 
-            const removeOption = (option: string) => {
-              const newValues = currentValues.filter((v) => v !== option)
-              field.onChange(newValues)
-              onBlur?.(customField.id, newValues)
-            }
-
-            const displayValue =
-              currentValues.length === 0
-                ? "Select..."
-                : currentValues.join(", ")
-
             return (
               <FormItem>
                 <Popover>
-                  <PopoverTrigger asChild>
-                    <FormControl>
-                      <Button
-                        variant="ghost"
-                        role="combobox"
-                        className={cn(
-                          linearStyles.input.full,
-                          "inline-flex h-7 w-full min-w-0 justify-end gap-1 whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
-                          currentValues.length === 0 && "text-muted-foreground",
-                          inputClassName
-                        )}
-                        style={inputStyle}
+                  <HoverCard openDelay={300}>
+                    <HoverCardTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button
+                            variant="ghost"
+                            role="combobox"
+                            className={cn(
+                              linearStyles.input.full,
+                              "inline-flex h-7 w-full min-w-0 justify-end gap-1 overflow-hidden whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
+                              currentValues.length === 0 &&
+                                "text-muted-foreground",
+                              inputClassName
+                            )}
+                            style={inputStyle}
+                          >
+                            {currentValues.length === 0 ? (
+                              <span className="truncate">Select...</span>
+                            ) : (
+                              <MultiSelectBadges values={currentValues} />
+                            )}
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                    </HoverCardTrigger>
+                    {currentValues.length > 0 && (
+                      <HoverCardContent
+                        className="w-auto max-w-xs p-2"
+                        side="top"
+                        align="end"
                       >
-                        <span className="truncate">{displayValue}</span>
-                      </Button>
-                    </FormControl>
-                  </PopoverTrigger>
+                        <div className="flex flex-wrap gap-1">
+                          {currentValues.map((value) => (
+                            <Badge
+                              key={value}
+                              variant="secondary"
+                              className="text-[11px]"
+                            >
+                              {value}
+                            </Badge>
+                          ))}
+                        </div>
+                      </HoverCardContent>
+                    )}
+                  </HoverCard>
                   <PopoverContent className="w-56 p-0" align="end">
                     <Command>
                       <CommandInput
@@ -586,27 +823,6 @@ export function CustomFieldInner({
                     </Command>
                   </PopoverContent>
                 </Popover>
-                {currentValues.length > 0 && (
-                  <div className="mt-1 flex flex-wrap justify-end gap-1">
-                    {currentValues.map((value) => (
-                      <Badge
-                        key={value}
-                        variant="secondary"
-                        className="gap-1 text-[11px]"
-                      >
-                        {value}
-                        <button
-                          type="button"
-                          className="ml-0.5 rounded-full outline-none hover:bg-muted-foreground/20"
-                          onClick={() => removeOption(value)}
-                        >
-                          <X className="h-2.5 w-2.5" />
-                          <span className="sr-only">Remove {value}</span>
-                        </button>
-                      </Badge>
-                    ))}
-                  </div>
-                )}
                 <FormMessage />
               </FormItem>
             )
