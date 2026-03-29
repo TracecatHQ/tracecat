@@ -1240,8 +1240,6 @@ class CaseFieldsService(CustomFieldsService):
             raise TracecatException(
                 "Cannot upsert case fields without an owning workspace."
             )
-        for field_name in fields:
-            self._assert_user_field_name_allowed(field_name)
         row_id = await self.ensure_workspace_row(case.id)
 
         try:
@@ -1250,6 +1248,8 @@ class CaseFieldsService(CustomFieldsService):
                 await self.session.flush()
                 return res
             return await self.editor.get_row(row_id=row_id)
+        except TracecatValidationError:
+            raise
         except TracecatNotFoundError as e:
             self.logger.error(
                 "Case fields row not found after upsert",

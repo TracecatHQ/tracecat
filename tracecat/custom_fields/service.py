@@ -11,6 +11,7 @@ from sqlalchemy.schema import CreateSchema, CreateTable, DropSchema
 from tracecat.auth.types import Role
 from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
 from tracecat.db.locks import derive_lock_key_from_parts, pg_advisory_lock
+from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import (
@@ -101,7 +102,9 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
     def _assert_user_field_name_allowed(self, field_name: str) -> None:
         """Reject operations on internal/system-managed field names."""
         if is_internal_column_name(field_name):
-            raise ValueError(f"Field {field_name} is reserved for internal use")
+            raise TracecatValidationError(
+                f"Field {field_name} is reserved for internal use"
+            )
 
     @abstractmethod
     def _table_definition(self) -> sa.Table:
@@ -186,13 +189,13 @@ class CustomFieldsService(BaseWorkspaceService, ABC):
             field_id: The name of the field to delete
 
         Raises:
-            ValueError: If the field is a reserved column
+            TracecatValidationError: If the field is reserved or internal
         """
 
         await self._ensure_schema_ready()
         self._assert_user_field_name_allowed(field_id)
         if field_id in self._reserved_columns:
-            raise ValueError(f"Field {field_id} is a reserved field")
+            raise TracecatValidationError(f"Field {field_id} is a reserved field")
         validate_identifier(field_id)
         await self.editor.delete_column(field_id)
         await self.session.commit()
