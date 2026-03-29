@@ -1,7 +1,7 @@
 """apply model a rls to dynamic workspace schemas
 
 Revision ID: b5fc4168fe22
-Revises: 0a1e3100a432
+Revises: 3431033d29fd
 Create Date: 2026-02-27 11:43:07.059399
 
 """
@@ -20,7 +20,7 @@ from tracecat.identifiers.workflow import WorkspaceUUID
 
 # revision identifiers, used by Alembic.
 revision: str = "b5fc4168fe22"
-down_revision: str | None = "0a1e3100a432"
+down_revision: str | None = "3431033d29fd"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 LEGACY_TENANT_RENAME_COMMENT_PREFIX = f"tracecat:{revision}:legacy-tenant-column:"
