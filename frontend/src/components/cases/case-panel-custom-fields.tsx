@@ -141,7 +141,14 @@ function InlineCustomField({
   const form = useForm<CustomFieldFormSchema>({
     defaultValues: {
       id: customField.id,
-      value: customField.value,
+      // JSONB values arrive as parsed objects from the API — serialize to a
+      // JSON string so the text input displays and round-trips correctly.
+      value:
+        customField.type === "JSONB" &&
+        typeof customField.value === "object" &&
+        customField.value !== null
+          ? JSON.stringify(customField.value)
+          : customField.value,
     },
   })
   const onSubmit = async (data: CustomFieldFormSchema) => {
@@ -432,7 +439,7 @@ export function CustomFieldInner({
                         toast({
                           title: "Validation error",
                           description: "Must be a valid integer",
-                          variant: "destructive",
+                          variant: "default",
                         })
                         return
                       }
@@ -444,7 +451,7 @@ export function CustomFieldInner({
                       toast({
                         title: "Validation error",
                         description: "Must be a valid number",
-                        variant: "destructive",
+                        variant: "default",
                       })
                       return
                     }
@@ -453,7 +460,7 @@ export function CustomFieldInner({
                       toast({
                         title: "Validation error",
                         description: "Must be a valid number",
-                        variant: "destructive",
+                        variant: "default",
                       })
                       return
                     }
@@ -548,7 +555,7 @@ export function CustomFieldInner({
                       toast({
                         title: "Validation error",
                         description: "Must be valid JSON",
-                        variant: "destructive",
+                        variant: "default",
                       })
                     }
                   }}
