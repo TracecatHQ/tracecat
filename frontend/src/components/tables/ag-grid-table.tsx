@@ -5,6 +5,7 @@ import "./ag-grid-setup"
 import type {
   CellValueChangedEvent,
   ColDef,
+  ColumnResizedEvent,
   GridApi,
   GridReadyEvent,
   SelectionChangedEvent,
@@ -24,6 +25,7 @@ import { tracecatTheme } from "@/components/tables/ag-grid-theme"
 import { CellDisplay } from "@/components/tables/cell-display"
 import { useTableSelection } from "@/components/tables/table-selection-context"
 import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useUpdateRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -118,6 +120,10 @@ export function AgGridTable({
   const [gridApi, setGridApi] = useState<GridApi | null>(null)
   const { updateRow } = useUpdateRow()
   const { updateSelection } = useTableSelection()
+  const [savedWidths, setSavedWidths] = useLocalStorage<Record<string, number>>(
+    `ag-grid-col-widths:${id}`,
+    {}
+  )
 
   const {
     data: rows,
@@ -226,6 +232,18 @@ export function AgGridTable({
     [id, workspaceId, updateRow, isReadOnly]
   )
 
+  const handleColumnResized = useCallback(
+    (event: ColumnResizedEvent) => {
+      if (!event.finished || !event.api) return
+      const widths: Record<string, number> = {}
+      for (const col of event.api.getColumns() ?? []) {
+        widths[col.getColId()] = col.getActualWidth()
+      }
+      setSavedWidths(widths)
+    },
+    [setSavedWidths]
+  )
+
   const columnDefs: ColDef[] = useMemo(() => {
     const defs: ColDef[] = [
       ...columns.map((column): ColDef => {
@@ -237,7 +255,7 @@ export function AgGridTable({
           headerName: column.name,
           sortable: true,
           resizable: true,
-          width: getColumnWidthPx(column.type),
+          width: savedWidths[column.name] ?? getColumnWidthPx(column.type),
           minWidth: 100,
           ...(isNumeric && { valueFormatter: numericValueFormatter }),
         }
@@ -276,7 +294,7 @@ export function AgGridTable({
       }),
     ]
     return defs
-  }, [columns, isReadOnly])
+  }, [columns, isReadOnly, savedWidths])
 
   if (error) {
     return (
@@ -301,6 +319,7 @@ export function AgGridTable({
             columnDefs={columnDefs}
             getRowId={(params) => params.data.id}
             onGridReady={handleGridReady}
+            onColumnResized={handleColumnResized}
             suppressContextMenu
             headerHeight={36}
             rowHeight={36}
@@ -320,6 +339,7 @@ export function AgGridTable({
               columnDefs={columnDefs}
               getRowId={(params) => params.data.id}
               onGridReady={handleGridReady}
+              onColumnResized={handleColumnResized}
               onCellValueChanged={handleCellValueChanged}
               onSelectionChanged={handleSelectionChanged}
               selectionColumnDef={{
