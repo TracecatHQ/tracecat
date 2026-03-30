@@ -1,0 +1,23 @@
+scripts/openapi/generate_openapi.py
+  b95410b345508117 10-17,59-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "0e29732627fc648aa7671f4268e5a2cb90d06018",
+  "prompts": {
+    "b95410b345508117": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e230846a-2cdd-4fc3-8656-a4deda1feee8",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 14,
+      "total_deletions": 4,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    }
+  }
+}
