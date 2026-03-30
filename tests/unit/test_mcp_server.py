@@ -2291,7 +2291,10 @@ async def test_list_case_fields(monkeypatch):
             "comment": "Severity band",
         },
     ]
-    field_schema = {"severity_band": {"type": "SELECT", "options": ["low", "high"]}}
+    field_schema = {
+        "status_reason": {"type": "TEXT", "kind": "LONG_TEXT"},
+        "severity_band": {"type": "SELECT", "options": ["low", "high"]},
+    }
 
     async def _list_fields():
         return columns
@@ -2315,6 +2318,7 @@ async def test_list_case_fields(monkeypatch):
     payload = _payload(result)
     assert payload["items"][0]["id"] == "status_reason"
     assert payload["items"][0]["type"] == "TEXT"
+    assert payload["items"][0]["kind"] == "LONG_TEXT"
     assert payload["items"][1]["type"] == "SELECT"
     assert payload["items"][1]["options"] == ["low", "high"]
 
@@ -2351,6 +2355,63 @@ async def test_create_case_field_parses_type_and_options(monkeypatch):
     assert str(captured["type"]) == "SELECT"
     assert captured["options"] == ["low", "medium", "high"]
     assert "created successfully" in payload["message"]
+
+
+@pytest.mark.anyio
+async def test_create_case_field_parses_kind(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+
+    async def _create_field(params):
+        captured["name"] = params.name
+        captured["type"] = params.type
+        captured["kind"] = params.kind
+
+    field_service = SimpleNamespace(create_field=_create_field)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseFieldsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(field_service)),
+    )
+
+    result = await _tool(mcp_server.create_case_field)(
+        workspace_id=str(uuid.uuid4()),
+        name="details",
+        type="TEXT",
+        kind="LONG_TEXT",
+    )
+    payload = _payload(result)
+    assert captured["name"] == "details"
+    assert str(captured["type"]) == "TEXT"
+    assert captured["kind"].value == "LONG_TEXT"
+    assert "created successfully" in payload["message"]
+
+
+@pytest.mark.anyio
+async def test_create_case_field_rejects_invalid_kind_pair(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    field_service = SimpleNamespace(create_field=lambda _params: None)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseFieldsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(field_service)),
+    )
+
+    with pytest.raises(ToolError, match="Case field kind LONG_TEXT requires type TEXT"):
+        await _tool(mcp_server.create_case_field)(
+            workspace_id=str(uuid.uuid4()),
+            name="bad_details",
+            type="INTEGER",
+            kind="LONG_TEXT",
+        )
 
 
 @pytest.mark.anyio

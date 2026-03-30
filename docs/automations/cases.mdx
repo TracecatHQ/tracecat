@@ -80,6 +80,9 @@ You can use them for values such as ticket IDs, affected systems, request metada
 Use custom fields when you need flexible structured data on a case.
 Your workflows can read and update them through the `fields` input on case actions.
 
+Case custom fields reuse the shared column `type` values `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `SELECT`, and `MULTI_SELECT`.
+The custom field picker also exposes `Long text` and `URL`, which are case-only UI kinds layered on top of `TEXT` and `JSONB`.
+
 ## AI copilot in a case
 
 <Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
@@ -159,6 +162,9 @@ For example, you can link:
 
 Linked rows are especially useful when workflows enrich a case over time.
 You can insert new rows as evidence arrives or link existing rows that are already part of another workflow or lookup table.
+
+Linked rows use regular tables.
+When you create a table for case-linked evidence, use the same `columns` JSON schema documented in [Tables](/automations/tables) and [Table actions](/automations/core-actions/memory-actions/tables).
 
 ## Case actions
 

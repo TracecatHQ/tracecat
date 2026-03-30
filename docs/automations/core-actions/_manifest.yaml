@@ -242,6 +242,12 @@ pages:
         examples:
           - cases-rows
       - id: core.cases.insert_row
+        info: |
+          <Info>
+            Linked rows use regular tables. Create the destination table with
+            the same `columns` schema documented in
+            [Tables](/automations/tables).
+          </Info>
         examples:
           - cases-rows
 
@@ -256,6 +262,15 @@ pages:
     title: Tables
     actions:
       - id: core.table.create_table
+        info: |
+          <Info>
+            `columns` is a JSON array of column objects. Each object has
+            required `name` and uppercase `type` fields, plus optional
+            `nullable`, `default`, and `options` fields. Use `TEXT`,
+            `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`,
+            `SELECT`, or `MULTI_SELECT`. `options` is required for `SELECT`
+            and `MULTI_SELECT`.
+          </Info>
         examples:
           - tables-admin
       - id: core.table.list_tables

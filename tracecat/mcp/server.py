@@ -61,7 +61,7 @@ from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
 from tracecat.agent.tools import create_tool_from_registry
 from tracecat.agent.types import OutputType
-from tracecat.cases.enums import CaseEventType
+from tracecat.cases.enums import CaseEventType, CaseFieldKind
 from tracecat.cases.schemas import (
     CaseFieldCreate,
     CaseFieldReadMinimal,
@@ -1884,9 +1884,14 @@ free-form name that slugifies to an existing tag. If no tag exists yet, create i
 first with `create_case_tag`.
 - Case field tools use `field_id` from `list_case_fields`. This field id is the \
 field name/column id, not a UUID.
+- `list_case_fields` returns field objects with `id`, `type`, `description`, \
+`nullable`, `default`, `reserved`, `options`, and optional `kind`.
 - Case field `type` must be an uppercase SqlType value: `TEXT`, `INTEGER`, \
 `NUMERIC`, `DATE`, `BOOLEAN`, `TIMESTAMP`, `TIMESTAMPTZ`, `JSONB`, `UUID`, \
 `SELECT`, or `MULTI_SELECT`.
+- Case field `kind` is optional on `create_case_field` only. Valid values are \
+`LONG_TEXT` and `URL`. `LONG_TEXT` requires `type="TEXT"` and `URL` requires \
+`type="JSONB"`.
 - Case field `options` must be a JSON array string such as `["low","medium","high"]`. \
 `options` are required for `SELECT` and `MULTI_SELECT`, and invalid for other types.
 
@@ -5209,7 +5214,7 @@ async def list_case_fields(
     """List case field definitions in a workspace.
 
     Returns a JSON array of field objects with `id`, `type`, `description`,
-    `nullable`, `default`, `reserved`, and `options`.
+    `nullable`, `default`, `reserved`, `options`, and optional `kind`.
     """
 
     try:
@@ -5243,9 +5248,13 @@ async def create_case_field(
     workspace_id: str,
     name: str,
     type: str,
+    kind: str | None = None,
     options: str | None = None,
 ) -> str:
     """Create a case field definition.
+
+    Supports optional create-only `kind`: `LONG_TEXT` requires `type="TEXT"`
+    and `URL` requires `type="JSONB"`.
 
     Args:
         workspace_id: The workspace ID.
@@ -5253,6 +5262,8 @@ async def create_case_field(
             `^[a-zA-Z_][a-zA-Z0-9_]*$`.
         type: Uppercase SqlType value: TEXT, INTEGER, NUMERIC, DATE, BOOLEAN,
             TIMESTAMP, TIMESTAMPTZ, JSONB, UUID, SELECT, or MULTI_SELECT.
+        kind: Optional semantic kind. Valid values: LONG_TEXT and URL.
+            LONG_TEXT requires type TEXT. URL requires type JSONB.
         options: Optional JSON array string of strings, e.g.
             '["low","medium","high"]'. Required for SELECT and MULTI_SELECT,
             and invalid for all other field types. Schema: list[str].
@@ -5264,9 +5275,15 @@ async def create_case_field(
         _, role = await _resolve_workspace_role(workspace_id)
         parsed_options = _parse_json_arg(options, "options")
         parsed_type = _parse_sql_type_arg(type)
+        parsed_kind = CaseFieldKind(kind) if kind is not None else None
         async with CaseFieldsService.with_session(role=role) as svc:
             await svc.create_field(
-                CaseFieldCreate(name=name, type=parsed_type, options=parsed_options)
+                CaseFieldCreate(
+                    name=name,
+                    type=parsed_type,
+                    kind=parsed_kind,
+                    options=parsed_options,
+                )
             )
             return _json({"message": f"Case field {name} created successfully"})
     except ToolError:

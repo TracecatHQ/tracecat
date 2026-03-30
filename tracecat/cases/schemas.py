@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
-from pydantic import ConfigDict, Field, RootModel, field_validator
+from pydantic import ConfigDict, Field, RootModel, field_validator, model_validator
 
 from tracecat.auth.schemas import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
@@ -35,6 +35,7 @@ from tracecat.identifiers.workflow import (
     WorkflowIDShort,
     WorkflowUUID,
 )
+from tracecat.tables.enums import SqlType
 
 
 class CaseReadMinimal(Schema):
@@ -169,11 +170,31 @@ class CaseFieldCreate(CustomFieldCreate):
     kind: CaseFieldKind | None = Field(default=None)
     required_on_closure: bool = Field(default=False)
 
+    @model_validator(mode="after")
+    def validate_kind_type_pair(self) -> CaseFieldCreate:
+        """Validate the semantic kind against the storage type."""
+        if self.kind is None:
+            return self
+
+        if self.kind is CaseFieldKind.LONG_TEXT and self.type is not SqlType.TEXT:
+            raise ValueError("Case field kind LONG_TEXT requires type TEXT")
+        if self.kind is CaseFieldKind.URL and self.type is not SqlType.JSONB:
+            raise ValueError("Case field kind URL requires type JSONB")
+        return self
+
 
 class CaseFieldUpdate(CustomFieldUpdate):
     """Update a case field."""
 
     required_on_closure: bool | None = Field(default=None)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_kind_updates(cls, data: Any) -> Any:
+        """Reject create-only kind updates."""
+        if isinstance(data, dict) and "kind" in data:
+            raise ValueError("Case field kind can only be set when creating a field")
+        return data
 
 
 class CaseFieldRead(CaseFieldReadMinimal):
