@@ -12,7 +12,7 @@ import {
   ToggleLeft,
   Type,
 } from "lucide-react"
-import type { CaseFieldKind } from "@/client"
+import type { CaseFieldKind, CaseFieldReadType } from "@/client"
 import type { SqlTypeEnum } from "@/lib/tables"
 
 export type SqlType = (typeof SqlTypeEnum)[number]
@@ -40,16 +40,21 @@ export const CASE_FIELD_KIND_CONFIG: Record<CaseFieldKind, TypeConfig> = {
   URL: { label: "URL", icon: Link },
 }
 
+const CASE_FIELD_READ_TYPE_CONFIG: Record<CaseFieldReadType, TypeConfig> = {
+  ...SQL_TYPE_CONFIG,
+  UUID: { label: "UUID", icon: Hash },
+}
+
 /**
  * Get the display config for a field, preferring kind-specific config when available.
  */
 export function getCaseFieldTypeConfig(
-  type?: SqlType | null,
+  type?: CaseFieldReadType | null,
   kind?: CaseFieldKind | null
 ): TypeConfig | undefined {
   if (kind) return CASE_FIELD_KIND_CONFIG[kind]
   if (!type) return undefined
-  return SQL_TYPE_CONFIG[type]
+  return CASE_FIELD_READ_TYPE_CONFIG[type]
 }
 
 export function getSqlTypeConfig(type?: SqlType | null) {
