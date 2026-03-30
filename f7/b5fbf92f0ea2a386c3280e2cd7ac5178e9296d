@@ -1,0 +1,23 @@
+tracecat/agent/runtime/claude_code/runtime.py
+  fe9dcf1cba6919d8 595
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "f7b5fbf92f0ea2a386c3280e2cd7ac5178e9296d",
+  "prompts": {
+    "fe9dcf1cba6919d8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d3fa1-a8ce-7683-83d7-9dbdc9e5e61a",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
