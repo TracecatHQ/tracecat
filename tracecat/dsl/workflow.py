@@ -941,6 +941,7 @@ class DSLWorkflow:
                             user_prompt=action_args.user_prompt,
                             session_id=session_id,
                             config=AgentConfig(
+                                source_id=action_args.source_id,
                                 model_name=action_args.model_name,
                                 model_provider=action_args.model_provider,
                                 instructions=action_args.instructions,
@@ -953,7 +954,6 @@ class DSLWorkflow:
                             ),
                             max_requests=action_args.max_requests,
                             max_tool_calls=action_args.max_tool_calls,
-                            use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1002,6 +1002,7 @@ class DSLWorkflow:
                             user_prompt=action_args.user_prompt,
                             session_id=session_id,
                             config=AgentConfig(
+                                source_id=action_args.source_id,
                                 model_name=action_args.model_name,
                                 model_provider=action_args.model_provider,
                                 instructions=action_args.instructions,
@@ -1016,7 +1017,6 @@ class DSLWorkflow:
                             max_requests=action_args.max_requests,
                             # No tool calls for AI action
                             max_tool_calls=0,
-                            use_workspace_credentials=action_args.use_workspace_credentials,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
@@ -1092,7 +1092,6 @@ class DSLWorkflow:
                             config=override_config,
                             max_requests=preset_action_args.max_requests,
                             max_tool_calls=preset_action_args.max_tool_calls,
-                            use_workspace_credentials=preset_action_args.use_workspace_credentials,
                         ),
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,

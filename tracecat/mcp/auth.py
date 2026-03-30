@@ -642,8 +642,8 @@ def _build_oidc_consent_html(
 </html>"""
 
 
-def _create_oidc_auth() -> OIDCProxy:
-    """Build the OIDC auth provider for external MCP."""
+def create_mcp_auth() -> AuthProvider:
+    """Build auth provider for external MCP."""
     base_url = mcp_config.TRACECAT_MCP__BASE_URL.strip().rstrip("/")
     if not base_url:
         raise ValueError(
@@ -1046,11 +1046,6 @@ def _create_oidc_auth() -> OIDCProxy:
         auth.client_registration_options.valid_scopes = _required_scopes
         auth.client_registration_options.default_scopes = _required_scopes
     return auth
-
-
-def create_mcp_auth() -> AuthProvider:
-    """Build the auth provider for external MCP."""
-    return _create_oidc_auth()
 
 
 async def resolve_user_by_email(email: str) -> User:

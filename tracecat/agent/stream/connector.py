@@ -89,7 +89,6 @@ class AgentStream:
 
     async def _set_last_stream_id(self, last_stream_id: str | None) -> None:
         """Update last stream ID for reconnection support."""
-
         async with AgentSessionService.with_session() as session_svc:
             if agent_session := await session_svc.get_session(self.session_id):
                 await session_svc.update_last_stream_id(agent_session, last_stream_id)

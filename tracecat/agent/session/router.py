@@ -59,7 +59,15 @@ async def create_session(
 ) -> AgentSessionRead:
     """Create a new agent session associated with an entity."""
     svc = AgentSessionService(session, role)
-    agent_session = await svc.create_session(request)
+    try:
+        agent_session = await svc.create_session(request)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     return AgentSessionRead.model_validate(agent_session, from_attributes=True)
 
 
@@ -136,6 +144,9 @@ async def get_session(
             tools=agent_session.tools,
             agent_preset_id=agent_session.agent_preset_id,
             agent_preset_version_id=agent_session.agent_preset_version_id,
+            source_id=agent_session.source_id,
+            model_name=agent_session.model_name,
+            model_provider=agent_session.model_provider,
             harness_type=agent_session.harness_type,
             created_at=agent_session.created_at,
             updated_at=agent_session.updated_at,
@@ -200,6 +211,9 @@ async def get_session_vercel(
             tools=agent_session.tools,
             agent_preset_id=agent_session.agent_preset_id,
             agent_preset_version_id=agent_session.agent_preset_version_id,
+            source_id=agent_session.source_id,
+            model_name=agent_session.model_name,
+            model_provider=agent_session.model_provider,
             harness_type=agent_session.harness_type,
             created_at=agent_session.created_at,
             updated_at=agent_session.updated_at,
@@ -258,7 +272,15 @@ async def update_session(
             detail="Session not found",
         )
 
-    updated = await svc.update_session(agent_session, params=params)
+    try:
+        updated = await svc.update_session(agent_session, params=params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     return AgentSessionRead.model_validate(updated, from_attributes=True)
 
 

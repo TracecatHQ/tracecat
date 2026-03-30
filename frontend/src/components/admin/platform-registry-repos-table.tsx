@@ -44,7 +44,6 @@ export function PlatformRegistryReposTable() {
       toast({
         title: "Sync failed",
         description: detail,
-        variant: "destructive",
       })
     } finally {
       setSyncingId(null)

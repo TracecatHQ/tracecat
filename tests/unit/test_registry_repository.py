@@ -195,6 +195,26 @@ def test_generate_model_preserves_component_metadata() -> None:
     assert components and components[0]["component_id"] == "code"
 
 
+def test_generate_model_preserves_agent_model_component_metadata() -> None:
+    """Ensure agent-model field metadata propagates to JSON schema."""
+    import tracecat_registry.fields as registry_fields
+
+    AgentModel = registry_fields.AgentModel
+
+    def sample_func(  # noqa: ANN001 - test helper
+        model: Annotated[str, Doc("Select a model"), AgentModel()],
+    ) -> str:
+        return model
+
+    sample_func.__globals__["AgentModel"] = AgentModel
+    input_model, _, _ = generate_model_from_function(sample_func, _make_kwargs())
+    schema = input_model.model_json_schema()
+
+    model_schema = schema["properties"]["model"]
+    components = model_schema.get("x-tracecat-component", [])
+    assert components and components[0]["component_id"] == "agent-model"
+
+
 def test_generate_model_handles_annotated_literal() -> None:
     """Test that Annotated[Literal[...], Doc(...)] works correctly."""
 

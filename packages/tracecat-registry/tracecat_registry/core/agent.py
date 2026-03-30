@@ -10,7 +10,7 @@ from tracecat_registry import (
     registry,
 )
 from tracecat_registry._internal.exceptions import ActionIsInterfaceError
-from tracecat_registry.fields import ActionType, AgentPreset, TextArea
+from tracecat_registry.fields import ActionType, AgentModel, AgentPreset, TextArea
 from tracecat_registry.sdk.agents import OutputType
 
 anthropic_secret = RegistrySecret(
@@ -183,8 +183,11 @@ async def agent(
         Doc("User prompt to the agent."),
         TextArea(),
     ],
-    model_name: Annotated[str, Doc("Name of the model to use.")],
-    model_provider: Annotated[str, Doc("Provider of the model to use.")],
+    model: Annotated[
+        str,
+        Doc("Model selection to use for the agent."),
+        AgentModel(),
+    ],
     actions: Annotated[
         list[str] | None,
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
@@ -278,8 +281,11 @@ async def action(
         Doc("User prompt to the agent."),
         TextArea(),
     ],
-    model_name: Annotated[str, Doc("Name of the model to use.")],
-    model_provider: Annotated[str, Doc("Provider of the model to use.")],
+    model: Annotated[
+        str,
+        Doc("Model selection to use for the action."),
+        AgentModel(),
+    ],
     instructions: Annotated[
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,

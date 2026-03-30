@@ -24,7 +24,6 @@ export default function AdminRegistryPage() {
       toast({
         title: "Sync failed",
         description: "Failed to sync repositories. Please try again.",
-        variant: "destructive",
       })
     }
   }

@@ -37,14 +37,18 @@ def user_role() -> Role:
     )
 
 
-class _DummyAgentManagementService:
+class _DummyAgentRuntimeService:
     def __init__(self, *args, **kwargs):
         pass
 
     @asynccontextmanager
-    async def with_model_config(self, *, use_workspace_credentials: bool = False):
-        assert use_workspace_credentials is False
-        yield SimpleNamespace(name="gpt-4o-mini", provider="openai")
+    async def with_model_config(self, *, catalog_ref: str | None = None):
+        assert catalog_ref is None
+        yield SimpleNamespace(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            base_url="https://gateway.example/v1",
+        )
 
 
 @pytest.mark.anyio
@@ -63,15 +67,16 @@ async def test_auto_title_updates_session_on_first_prompt(role: Role) -> None:
     agent_session.id = uuid.uuid4()
 
     service._is_first_prompt_for_session = AsyncMock(return_value=True)
+    title_generator = AsyncMock(return_value="Investigate login failures")
 
     with (
         patch(
-            "tracecat.agent.session.service.AgentManagementService",
-            _DummyAgentManagementService,
+            "tracecat.agent.session.service.AgentRuntimeService",
+            _DummyAgentRuntimeService,
         ),
         patch(
             "tracecat.agent.session.service.generate_session_title",
-            AsyncMock(return_value="Investigate login failures"),
+            title_generator,
         ),
     ):
         await service.auto_title_session_on_first_prompt(
@@ -80,6 +85,12 @@ async def test_auto_title_updates_session_on_first_prompt(role: Role) -> None:
         )
 
     assert agent_session.title == "Investigate login failures"
+    title_generator.assert_awaited_once_with(
+        user_prompt="Users cannot sign in",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        base_url="https://gateway.example/v1",
+    )
     session.execute.assert_awaited_once()
     session.commit.assert_awaited_once()
 
@@ -102,21 +113,25 @@ async def test_auto_title_uses_service_role_for_model_config(user_role: Role) ->
 
     captured_roles: list[Role] = []
 
-    class _CapturingAgentManagementService:
+    class _CapturingAgentRuntimeService:
         def __init__(self, *args, **kwargs):
             role = kwargs.get("role", args[1] if len(args) > 1 else None)
             assert role is not None
             captured_roles.append(role)
 
         @asynccontextmanager
-        async def with_model_config(self, *, use_workspace_credentials: bool = False):
-            assert use_workspace_credentials is False
-            yield SimpleNamespace(name="gpt-4o-mini", provider="openai")
+        async def with_model_config(self, *, catalog_ref: str | None = None):
+            assert catalog_ref is None
+            yield SimpleNamespace(
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                base_url=None,
+            )
 
     with (
         patch(
-            "tracecat.agent.session.service.AgentManagementService",
-            _CapturingAgentManagementService,
+            "tracecat.agent.session.service.AgentRuntimeService",
+            _CapturingAgentRuntimeService,
         ),
         patch(
             "tracecat.agent.session.service.generate_session_title",
@@ -174,8 +189,8 @@ async def test_auto_title_does_not_raise_on_expected_generation_error(
 
     with (
         patch(
-            "tracecat.agent.session.service.AgentManagementService",
-            _DummyAgentManagementService,
+            "tracecat.agent.session.service.AgentRuntimeService",
+            _DummyAgentRuntimeService,
         ),
         patch(
             "tracecat.agent.session.service.generate_session_title",
@@ -207,8 +222,8 @@ async def test_auto_title_raises_on_unexpected_generation_error(role: Role) -> N
 
     with (
         patch(
-            "tracecat.agent.session.service.AgentManagementService",
-            _DummyAgentManagementService,
+            "tracecat.agent.session.service.AgentRuntimeService",
+            _DummyAgentRuntimeService,
         ),
         patch(
             "tracecat.agent.session.service.generate_session_title",
@@ -257,8 +272,8 @@ async def test_auto_title_skips_when_compare_and_set_guard_fails(role: Role) -> 
 
     with (
         patch(
-            "tracecat.agent.session.service.AgentManagementService",
-            _DummyAgentManagementService,
+            "tracecat.agent.session.service.AgentRuntimeService",
+            _DummyAgentRuntimeService,
         ),
         patch(
             "tracecat.agent.session.service.generate_session_title",

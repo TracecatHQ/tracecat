@@ -252,6 +252,10 @@ class LLMTokenClaims(BaseModel):
     provider: str = Field(
         ..., description="The provider for the model (e.g., openai, anthropic, bedrock)"
     )
+    source_id: uuid.UUID | None = Field(
+        default=None,
+        description="Custom source identifier for source-backed model selections.",
+    )
     base_url: str | None = Field(
         default=None,
         description="Optional provider base URL override from the agent config/preset",
@@ -264,12 +268,6 @@ class LLMTokenClaims(BaseModel):
         description="Model-specific settings passed through to the LLM provider",
     )
 
-    # Credential scope
-    use_workspace_credentials: bool = Field(
-        default=False,
-        description="If True, use workspace-level credentials; otherwise org-level",
-    )
-
 
 def mint_llm_token(
     *,
@@ -278,9 +276,9 @@ def mint_llm_token(
     session_id: uuid.UUID,
     model: str,
     provider: str,
+    source_id: uuid.UUID | None = None,
     base_url: str | None = None,
     model_settings: dict[str, Any] | None = None,
-    use_workspace_credentials: bool = False,
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed LLM JWT for jailed agent runtime.
@@ -297,7 +295,6 @@ def mint_llm_token(
         base_url: Optional provider base URL override from the agent config/preset
         model_settings: Model-specific settings (temperature, max_tokens,
             reasoning_effort, etc.) passed through to LLM provider
-        use_workspace_credentials: Whether to use workspace-level creds
         ttl_seconds: Token TTL in seconds (defaults to executor token TTL)
 
     Returns:
@@ -323,10 +320,9 @@ def mint_llm_token(
         # Model configuration
         "model": model,
         "provider": provider,
+        "source_id": str(source_id) if source_id else None,
         "base_url": base_url,
         "model_settings": model_settings or {},
-        # Credential scope
-        "use_workspace_credentials": use_workspace_credentials,
     }
 
     return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -42,6 +43,47 @@ class StreamKey(str):
             cls,
             f"agent-stream:{str(workspace_id)}:{str(session_id)}",
         )
+
+
+class ModelSourceType(StrEnum):
+    OPENAI_COMPATIBLE_GATEWAY = "openai_compatible_gateway"
+    MANUAL_CUSTOM = "manual_custom"
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    GEMINI = "gemini"
+    BEDROCK = "bedrock"
+    VERTEX_AI = "vertex_ai"
+    AZURE_OPENAI = "azure_openai"
+    AZURE_AI = "azure_ai"
+
+
+class CustomModelSourceType(StrEnum):
+    OPENAI_COMPATIBLE_GATEWAY = "openai_compatible_gateway"
+    MANUAL_CUSTOM = "manual_custom"
+
+
+class CustomModelSourceFlavor(StrEnum):
+    GENERIC_OPENAI_COMPATIBLE = "generic_openai_compatible"
+    OLLAMA = "ollama"
+    VLLM = "vllm"
+    MANUAL = "manual"
+
+
+class ModelDiscoveryStatus(StrEnum):
+    NEVER = "never"
+    READY = "ready"
+    FAILED = "failed"
+
+
+def parse_custom_source_flavor(value: str | None) -> CustomModelSourceFlavor | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized == "litellm":
+        return CustomModelSourceFlavor.GENERIC_OPENAI_COMPATIBLE
+    return CustomModelSourceFlavor(normalized)
 
 
 # TypeAdapters for pydantic-ai message types - created lazily to avoid import overhead
@@ -115,6 +157,7 @@ class AgentConfig:
     # Model
     model_name: str
     model_provider: str
+    source_id: uuid.UUID | None = None
     base_url: str | None = None
     # Agent
     instructions: str | None = None

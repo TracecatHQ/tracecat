@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from tracecat.agent.llm_proxy.credentials import (
-    AgentManagementCredentialResolver,
+    AgentCredentialResolver,
     CredentialResolver,
 )
 from tracecat.agent.llm_proxy.providers import (
@@ -36,6 +36,19 @@ from tracecat.agent.tokens import LLMTokenClaims
 from tracecat.logger import logger
 
 MAX_LLM_PROXY_ATTEMPTS = 2
+
+# Providers whose base_url claim is forwarded to the upstream request.
+# Source-backed models require passthrough so they can reach their custom gateway.
+_BASE_URL_PASSTHROUGH_PROVIDERS = frozenset(
+    {
+        "openai",
+        "anthropic",
+        "custom-model-provider",
+        "openai_compatible_gateway",
+        "manual_custom",
+        "direct_endpoint",
+    }
+)
 
 
 class _RetryableRequestError(RuntimeError):
@@ -69,7 +82,7 @@ class TracecatLLMProxy:
     @classmethod
     def build(cls) -> TracecatLLMProxy:
         """Build the production proxy with service-backed credentials."""
-        return cls(credential_resolver=AgentManagementCredentialResolver())
+        return cls(credential_resolver=AgentCredentialResolver())
 
     def _track_start(self) -> None:
         self.state.active_requests += 1
@@ -86,12 +99,7 @@ class TracecatLLMProxy:
     async def _resolve_credentials(
         self, claims: LLMTokenClaims
     ) -> dict[str, str] | None:
-        return await self.credential_resolver.resolve(
-            claims.provider,
-            claims.workspace_id,
-            claims.organization_id,
-            claims.use_workspace_credentials,
-        )
+        return await self.credential_resolver.resolve(claims)
 
     def _normalize_messages_request(
         self,
@@ -102,7 +110,7 @@ class TracecatLLMProxy:
     ) -> NormalizedMessagesRequest:
         allowed_base_url = (
             claims.base_url
-            if claims.provider in {"openai", "anthropic", "custom-model-provider"}
+            if claims.provider in _BASE_URL_PASSTHROUGH_PROVIDERS
             else None
         )
         parts = extract_anthropic_request_parts(payload, provider=claims.provider)
@@ -123,7 +131,6 @@ class TracecatLLMProxy:
             output_format=IngressFormat.ANTHROPIC,
             stream=parts["stream"],
             base_url=allowed_base_url,
-            use_workspace_credentials=claims.use_workspace_credentials,
             tools=parts["tools"],
             tool_choice=parts["tool_choice"],
             parallel_tool_calls=parallel_tool_calls,

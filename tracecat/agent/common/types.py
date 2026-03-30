@@ -5,6 +5,7 @@ Pure dataclasses with no Pydantic dependencies for minimal import footprint.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Any, Literal, NotRequired, TypedDict
 
@@ -104,6 +105,7 @@ class SandboxAgentConfig:
     # Model
     model_name: str
     model_provider: str
+    source_id: uuid.UUID | None = None
     base_url: str | None = None
 
     # Agent
@@ -131,6 +133,11 @@ class SandboxAgentConfig:
         return cls(
             model_name=data["model_name"],
             model_provider=data["model_provider"],
+            source_id=(
+                uuid.UUID(data["source_id"])
+                if isinstance(data.get("source_id"), str)
+                else data.get("source_id")
+            ),
             base_url=data.get("base_url"),
             instructions=data.get("instructions"),
             tool_approvals=data.get("tool_approvals"),
@@ -151,6 +158,7 @@ class SandboxAgentConfig:
         return cls(
             model_name=config.model_name,
             model_provider=config.model_provider,
+            source_id=getattr(config, "source_id", None),
             base_url=config.base_url,
             instructions=config.instructions,
             tool_approvals=config.tool_approvals,
@@ -165,6 +173,8 @@ class SandboxAgentConfig:
             "model_name": self.model_name,
             "model_provider": self.model_provider,
         }
+        if self.source_id is not None:
+            result["source_id"] = str(self.source_id)
         if self.base_url is not None:
             result["base_url"] = self.base_url
         if self.instructions is not None:

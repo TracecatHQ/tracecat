@@ -38,6 +38,7 @@ def get_activities() -> list:
 async def _start_runtime_services() -> Client:
     """Start shared runtime services needed by the agent executor worker."""
     logger.info("Starting runtime services")
+
     _, _, client = await asyncio.gather(
         start_configured_llm_proxy(),
         start_mcp_server(),
@@ -54,7 +55,9 @@ async def _stop_runtime_services() -> None:
         stop_configured_llm_proxy(),
         return_exceptions=True,
     )
-    for service_name, result in zip(("MCP server", "LLM proxy"), results, strict=True):
+    for service_name, result in zip(
+        ("MCP server", "LLM gateway proxy"), results, strict=True
+    ):
         if isinstance(result, Exception):
             logger.warning(
                 "Runtime service shutdown failed",
@@ -90,7 +93,9 @@ async def main() -> None:
                 activities=get_activities(),
                 workflow_runner=new_sandbox_runner(),
                 max_concurrent_activities=max_concurrent,
-                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                disable_eager_activity_execution=(
+                    config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION
+                ),
                 activity_executor=executor,
             ):
                 logger.info("AgentExecutorWorker started, ctrl+c to exit")

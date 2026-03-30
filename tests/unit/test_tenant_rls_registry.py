@@ -16,6 +16,7 @@ from tracecat.db.tenant_rls import (
     SPECIAL_ORG_POLICY_TABLES,
     SPECIAL_WORKSPACE_POLICY_TABLES,
     WORKSPACE_POLICY_TABLES,
+    enable_org_shared_table_rls,
 )
 from tracecat.tables.service import TablesService
 
@@ -109,3 +110,11 @@ def test_dynamic_workspace_rls_targets_workspace_scoped_schemas() -> None:
         case_fields_service._table_definition().schema
         == case_fields_service.schema_name
     )
+
+
+def test_org_shared_rls_allows_global_reads_but_not_global_writes() -> None:
+    sql = enable_org_shared_table_rls("agent_catalog")
+
+    assert "organization_id IS NULL" in sql
+    _, with_check_clause = sql.split("WITH CHECK", maxsplit=1)
+    assert "organization_id IS NULL" not in with_check_clause

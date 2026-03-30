@@ -149,6 +149,9 @@ describe("SettingsModal workspace navigation", () => {
     expect(
       screen.getByRole("button", { name: "Workflows" })
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "AI models" })
+    ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Files" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Git sync" })).toBeInTheDocument()
   })
@@ -166,6 +169,9 @@ describe("SettingsModal workspace navigation", () => {
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Workflows" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "AI models" })
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Files" })
@@ -190,6 +196,9 @@ describe("SettingsModal workspace navigation", () => {
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Workflows" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "AI models" })
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Files" })

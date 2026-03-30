@@ -47,7 +47,6 @@ export function AdminOrgRegistryTable({
       toast({
         title: "Sync failed",
         description: detail,
-        variant: "destructive",
       })
     } finally {
       setSyncingId(null)

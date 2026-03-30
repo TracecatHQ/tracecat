@@ -17,18 +17,23 @@ from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.admin.agent.router import router as admin_agent_router
 from tracecat.admin.registry.router import router as admin_registry_router
+from tracecat.agent.catalog.router import router as agent_catalog_router
+from tracecat.agent.catalog.startup import sync_model_catalogs_on_startup
 from tracecat.agent.channels.management_router import (
     router as agent_channels_management_router,
 )
 from tracecat.agent.channels.router import router as agent_channels_router
+from tracecat.agent.credentials.router import router as agent_credentials_router
 from tracecat.agent.internal_router import router as internal_agent_router
 from tracecat.agent.preset.internal_router import (
     router as internal_agent_preset_router,
 )
 from tracecat.agent.preset.router import router as agent_preset_router
-from tracecat.agent.router import router as agent_router
+from tracecat.agent.selections.router import router as agent_selections_router
 from tracecat.agent.session.router import router as agent_session_router
+from tracecat.agent.sources.router import router as agent_sources_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
     bootstrap_role,
@@ -175,6 +180,12 @@ async def lifespan(app: FastAPI):
     async with get_async_session_bypass_rls_context_manager() as session:
         await setup_rbac_defaults(session)
 
+    model_catalog_sync_task = asyncio.create_task(
+        sync_model_catalogs_on_startup(),
+        name="model_catalog_sync",
+    )
+    logger.debug("Spawned background task for startup model catalog sync")
+
     # Spawn platform registry sync as background task (non-blocking)
     # Uses leader election to prevent race conditions across multiple API processes
     registry_sync_task = asyncio.create_task(
@@ -198,6 +209,25 @@ async def lifespan(app: FastAPI):
     logger.info("API startup complete")
 
     yield
+
+    if not model_catalog_sync_task.done():
+        logger.info("Waiting for model catalog sync task to complete...")
+        try:
+            await asyncio.wait_for(model_catalog_sync_task, timeout=10.0)
+            logger.info("Model catalog sync task completed")
+        except TimeoutError:
+            logger.warning(
+                "Model catalog sync task did not complete in time, cancelling"
+            )
+            model_catalog_sync_task.cancel()
+            try:
+                await model_catalog_sync_task
+            except asyncio.CancelledError:
+                logger.debug("Model catalog sync task cancelled")
+        except Exception as e:
+            logger.warning(
+                "Model catalog sync task failed during shutdown", error=str(e)
+            )
 
     # Gracefully handle the registry sync task during shutdown
     if not registry_sync_task.done():
@@ -431,13 +461,17 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(tags_router)
     app.include_router(users_router)
     app.include_router(org_router)
-    app.include_router(agent_router)
+    app.include_router(agent_catalog_router, prefix="/agent")
+    app.include_router(agent_credentials_router, prefix="/agent")
+    app.include_router(agent_selections_router, prefix="/agent")
+    app.include_router(agent_sources_router, prefix="/agent")
     app.include_router(agent_channels_management_router)
     app.include_router(agent_preset_router)
     app.include_router(agent_session_router)
     app.include_router(approvals_router)
     app.include_router(watchtower_router)
     app.include_router(admin_router)
+    app.include_router(admin_agent_router, prefix="/admin")
     app.include_router(admin_registry_router, prefix="/admin")
     app.include_router(inbox_router)
     app.include_router(editor_router)

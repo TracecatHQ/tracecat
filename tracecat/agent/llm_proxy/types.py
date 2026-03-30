@@ -67,7 +67,6 @@ class NormalizedMessagesRequest:
     stream: bool = False
     base_url: str | None = None
     api_version: str | None = None
-    use_workspace_credentials: bool = False
     tools: tuple[dict[str, Any], ...] = ()
     tool_choice: Any = None
     parallel_tool_calls: bool | None = None

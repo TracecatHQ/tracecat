@@ -1,174 +1,29 @@
-"""HTTP-level tests for agent management API endpoints."""
+"""Targeted HTTP-level tests for agent API behavior."""
 
+import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
-from tracecat.agent import router as agent_router
-from tracecat.agent.schemas import (
-    ModelConfig,
-    ProviderCredentialConfig,
-    ProviderCredentialField,
-)
+from tracecat.agent.catalog import router as catalog_router
+from tracecat.agent.credentials import router as credentials_router
+from tracecat.agent.schemas import ModelSelection, WorkspaceModelSubsetRead
+from tracecat.agent.selections import router as selections_router
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
 from tracecat.exceptions import TracecatNotFoundError
 
 
 @pytest.mark.anyio
-async def test_list_models_success(
+async def test_workspace_provider_status_route_is_removed(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test GET /agent/models returns available models."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
-        mock_svc = AsyncMock()
-        mock_models = {
-            "gpt-4": ModelConfig(
-                provider="openai",
-                name="gpt-4",
-                org_secret_name="agent-openai-credentials",
-                secrets={"required": ["openai"]},
-            ),
-            "claude-3": ModelConfig(
-                provider="anthropic",
-                name="claude-3",
-                org_secret_name="agent-anthropic-credentials",
-                secrets={"required": ["anthropic"]},
-            ),
-        }
-        mock_svc.list_models.return_value = mock_models
-        MockService.return_value = mock_svc
+    response = client.get("/agent/workspace/providers/status")
 
-        # Make request
-        response = client.get("/agent/models")
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert "gpt-4" in data
-        assert "claude-3" in data
-        assert data["gpt-4"]["provider"] == "openai"
-        assert data["claude-3"]["provider"] == "anthropic"
-
-
-@pytest.mark.anyio
-async def test_list_providers_success(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test GET /agent/providers returns available providers."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
-        mock_svc = AsyncMock()
-        mock_providers = ["openai", "anthropic", "google"]
-        mock_svc.list_providers.return_value = mock_providers
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.get("/agent/providers")
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data == mock_providers
-        assert "openai" in data
-        assert "anthropic" in data
-
-
-@pytest.mark.anyio
-async def test_get_providers_status_success(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test GET /agent/providers/status returns credential status."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
-        mock_svc = AsyncMock()
-        mock_status = {
-            "openai": True,
-            "anthropic": False,
-            "google": True,
-        }
-        mock_svc.get_providers_status.return_value = mock_status
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.get("/agent/providers/status")
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data == mock_status
-        assert data["openai"] is True
-        assert data["anthropic"] is False
-
-
-@pytest.mark.anyio
-async def test_list_provider_credential_configs_success(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test GET /agent/providers/configs returns credential configs."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
-        mock_svc = AsyncMock()
-        mock_configs = [
-            ProviderCredentialConfig(
-                provider="openai",
-                label="OpenAI",
-                fields=[
-                    ProviderCredentialField(
-                        key="api_key",
-                        label="API Key",
-                        type="password",
-                        description="OpenAI API key",
-                    )
-                ],
-            ),
-        ]
-        mock_svc.list_provider_credential_configs.return_value = mock_configs
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.get("/agent/providers/configs")
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["provider"] == "openai"
-
-
-@pytest.mark.anyio
-async def test_get_provider_credential_config_success(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test GET /agent/providers/{provider}/config returns provider config."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
-        mock_svc = AsyncMock()
-        mock_config = ProviderCredentialConfig(
-            provider="openai",
-            label="OpenAI",
-            fields=[
-                ProviderCredentialField(
-                    key="api_key",
-                    label="API Key",
-                    type="password",
-                    description="OpenAI API key",
-                )
-            ],
-        )
-        mock_svc.get_provider_credential_config.return_value = mock_config
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.get("/agent/providers/openai/config")
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["provider"] == "openai"
-        assert "fields" in data
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.anyio
@@ -176,19 +31,85 @@ async def test_get_provider_credential_config_not_found(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test GET /agent/providers/{provider}/config with invalid provider returns 404."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
+    with patch.object(
+        credentials_router, "AgentCredentialsService"
+    ) as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.get_provider_credential_config.side_effect = TracecatNotFoundError(
             "Provider not found"
         )
-        MockService.return_value = mock_svc
+        mock_service_cls.return_value = mock_svc
 
-        # Make request
         response = client.get("/agent/providers/invalid/config")
 
-        # Should return 404
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_get_providers_status_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(
+        credentials_router, "AgentCredentialsService"
+    ) as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.get_providers_status.return_value = {
+            "openai": True,
+            "anthropic": False,
+        }
+        mock_service_cls.return_value = mock_svc
+
+        response = client.get("/agent/providers/status")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"openai": True, "anthropic": False}
+
+
+@pytest.mark.anyio
+async def test_list_providers_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(catalog_router, "AgentCatalogService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_providers.return_value = []
+        mock_service_cls.return_value = mock_svc
+
+        response = client.get("/agent/providers")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == []
+    mock_svc.list_providers.assert_awaited_once_with(
+        configured_only=True,
+        include_discovered_models=False,
+    )
+
+
+@pytest.mark.anyio
+async def test_list_providers_accepts_explicit_query_flags(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(catalog_router, "AgentCatalogService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_providers.return_value = []
+        mock_service_cls.return_value = mock_svc
+
+        response = client.get(
+            "/agent/providers",
+            params={
+                "configured_only": "false",
+                "include_discovered_models": "true",
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == []
+    mock_svc.list_providers.assert_awaited_once_with(
+        configured_only=False,
+        include_discovered_models=True,
+    )
 
 
 @pytest.mark.anyio
@@ -196,76 +117,24 @@ async def test_create_provider_credentials_success(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test POST /agent/credentials creates provider credentials."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
+    with patch.object(
+        credentials_router, "AgentCredentialsService"
+    ) as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.create_provider_credentials.return_value = None
-        MockService.return_value = mock_svc
+        mock_service_cls.return_value = mock_svc
 
-        # Make request
         response = client.post(
             "/agent/credentials",
             json={
                 "provider": "openai",
-                "credentials": {"api_key": "sk-test-key"},
+                "credentials": {"OPENAI_API_KEY": "sk-test"},
             },
         )
 
-        # Assertions
-        assert response.status_code == status.HTTP_201_CREATED
-        data = response.json()
-        assert "message" in data
-        assert "openai" in data["message"]
-
-
-@pytest.mark.anyio
-async def test_create_provider_credentials_error(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test POST /agent/credentials with error returns 400."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.create_provider_credentials.side_effect = Exception(
-            "Invalid credentials"
-        )
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.post(
-            "/agent/credentials",
-            json={
-                "provider": "openai",
-                "credentials": {"api_key": "invalid"},
-            },
-        )
-
-        # Should return 400
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-
-@pytest.mark.anyio
-async def test_update_provider_credentials_success(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test PUT /agent/credentials/{provider} updates credentials."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.update_provider_credentials.return_value = None
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.put(
-            "/agent/credentials/openai",
-            json={"credentials": {"api_key": "sk-new-key"}},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert "message" in data
-        assert "openai" in data["message"]
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.json() == {"message": "Credentials for openai created successfully"}
+    mock_svc.create_provider_credentials.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -273,22 +142,22 @@ async def test_update_provider_credentials_not_found(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test PUT /agent/credentials/{provider} with non-existent provider returns 404."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
+    with patch.object(
+        credentials_router, "AgentCredentialsService"
+    ) as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.update_provider_credentials.side_effect = TracecatNotFoundError(
-            "Credentials not found"
+            "missing"
         )
-        MockService.return_value = mock_svc
+        mock_service_cls.return_value = mock_svc
 
-        # Make request
         response = client.put(
-            "/agent/credentials/invalid",
-            json={"credentials": {"api_key": "test"}},
+            "/agent/credentials/openai",
+            json={"credentials": {"OPENAI_API_KEY": "sk-test"}},
         )
 
-        # Should return 404
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json() == {"detail": "Credentials for provider openai not found"}
 
 
 @pytest.mark.anyio
@@ -296,84 +165,27 @@ async def test_delete_provider_credentials_success(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test DELETE /agent/credentials/{provider} deletes credentials."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
+    with patch.object(
+        credentials_router, "AgentCredentialsService"
+    ) as mock_service_cls:
         mock_svc = AsyncMock()
         mock_svc.delete_provider_credentials.return_value = None
-        MockService.return_value = mock_svc
+        mock_service_cls.return_value = mock_svc
 
-        # Make request
         response = client.delete("/agent/credentials/openai")
 
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert "message" in data
-        assert "openai" in data["message"]
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"message": "Credentials for openai deleted successfully"}
 
 
 @pytest.mark.anyio
-async def test_get_default_model_success(
+async def test_provider_refresh_route_is_removed(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test GET /agent/default-model returns default model."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_default_model.return_value = "gpt-4"
-        MockService.return_value = mock_svc
+    response = client.post("/agent/providers/openai/refresh")
 
-        # Make request
-        response = client.get("/agent/default-model")
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data == "gpt-4"
-
-
-@pytest.mark.anyio
-async def test_get_default_model_none(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test GET /agent/default-model when no default is set."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.get_default_model.return_value = None
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.get("/agent/default-model")
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data is None
-
-
-@pytest.mark.anyio
-async def test_set_default_model_success(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Test PUT /agent/default-model sets default model."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.set_default_model.return_value = None
-        MockService.return_value = mock_svc
-
-        # Make request
-        response = client.put(
-            "/agent/default-model",
-            params={"model_name": "gpt-4"},
-        )
-
-        # Assertions
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert "message" in data
-        assert "gpt-4" in data["message"]
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.anyio
@@ -381,19 +193,320 @@ async def test_set_default_model_not_found(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test PUT /agent/default-model with invalid model returns 404."""
-    with patch.object(agent_router, "AgentManagementService") as MockService:
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
         mock_svc = AsyncMock()
-        mock_svc.set_default_model.side_effect = TracecatNotFoundError(
+        mock_svc.set_default_model_selection.side_effect = TracecatNotFoundError(
             "Model not found"
         )
-        MockService.return_value = mock_svc
+        mock_service_cls.return_value = mock_svc
 
-        # Make request
         response = client.put(
             "/agent/default-model",
-            params={"model_name": "invalid-model"},
+            json={
+                "source_id": None,
+                "model_provider": "openai",
+                "model_name": "gpt-5.2",
+            },
         )
 
-        # Should return 404
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_disable_models_uses_post_batch_endpoint(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_service_cls.return_value = mock_svc
+
+        response = client.post(
+            "/agent/models/disabled/batch",
+            json={
+                "models": [
+                    {
+                        "source_id": None,
+                        "model_provider": "openai",
+                        "model_name": "gpt-5.2",
+                    }
+                ]
+            },
+        )
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    mock_svc.disable_models.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_get_workspace_model_subset_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
+
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.get_workspace_model_subset.return_value = WorkspaceModelSubsetRead(
+            inherit_all=False,
+            models=[
+                ModelSelection(
+                    source_id=None,
+                    model_provider="openai",
+                    model_name="gpt-5.2",
+                )
+            ],
+        )
+        mock_service_cls.return_value = mock_svc
+
+        response = client.get(f"/agent/workspaces/{workspace_id}/model-subset")
+
+    assert response.status_code == status.HTTP_200_OK
+    body = response.json()
+    assert body["inherit_all"] is False
+    assert body["models"] == [
+        {
+            "source_id": None,
+            "model_provider": "openai",
+            "model_name": "gpt-5.2",
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_replace_workspace_model_subset_rejects_explicit_empty(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
+
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.replace_workspace_model_subset.side_effect = ValueError(
+            "Workspace subsets must include at least one model when inherit_all is false."
+        )
+        mock_service_cls.return_value = mock_svc
+
+        response = client.put(
+            f"/agent/workspaces/{workspace_id}/model-subset",
+            json={"inherit_all": False, "models": []},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {
+        "detail": "Workspace subsets must include at least one model when inherit_all is false."
+    }
+
+
+@pytest.mark.anyio
+async def test_replace_workspace_model_subset_not_found(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = uuid.uuid4()
+
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.replace_workspace_model_subset.side_effect = TracecatNotFoundError(
+            f"Workspace {workspace_id} not found"
+        )
+        mock_service_cls.return_value = mock_svc
+
+        response = client.put(
+            f"/agent/workspaces/{workspace_id}/model-subset",
+            json={
+                "inherit_all": False,
+                "models": [
+                    {
+                        "source_id": None,
+                        "model_provider": "openai",
+                        "model_name": "gpt-5.2",
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json() == {"detail": f"Workspace {workspace_id} not found"}
+
+
+@pytest.mark.anyio
+async def test_replace_workspace_model_subset_bad_request(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
+
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.replace_workspace_model_subset.side_effect = ValueError(
+            "Model openai/gpt-5.2 is not enabled for the organization"
+        )
+        mock_service_cls.return_value = mock_svc
+
+        response = client.put(
+            f"/agent/workspaces/{workspace_id}/model-subset",
+            json={
+                "inherit_all": False,
+                "models": [
+                    {
+                        "source_id": None,
+                        "model_provider": "openai",
+                        "model_name": "gpt-5.2",
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {
+        "detail": "Model openai/gpt-5.2 is not enabled for the organization"
+    }
+
+
+@pytest.mark.anyio
+async def test_clear_workspace_model_subset_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
+
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.clear_workspace_model_subset.return_value = None
+        mock_service_cls.return_value = mock_svc
+
+        response = client.delete(f"/agent/workspaces/{workspace_id}/model-subset")
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    assert response.content == b""
+
+
+@pytest.mark.anyio
+async def test_clear_workspace_model_subset_not_found(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = uuid.uuid4()
+
+    with patch.object(selections_router, "AgentSelectionsService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.clear_workspace_model_subset.side_effect = TracecatNotFoundError(
+            f"Workspace {workspace_id} not found"
+        )
+        mock_service_cls.return_value = mock_svc
+
+        response = client.delete(f"/agent/workspaces/{workspace_id}/model-subset")
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_list_models_allows_workspace_filter_with_workspace_access(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
+    restricted_role = test_admin_role.model_copy(
+        update={
+            "scopes": frozenset(
+                scope
+                for scope in (test_admin_role.scopes or frozenset())
+                if scope != "org:workspace:read"
+            )
+        }
+    )
+    token = ctx_role.set(restricted_role)
+    try:
+        with patch.object(
+            selections_router, "AgentSelectionsService"
+        ) as mock_service_cls:
+            mock_svc = AsyncMock()
+            mock_svc.list_models.return_value = []
+            mock_service_cls.return_value = mock_svc
+
+            response = client.get(f"/agent/models?workspace_id={workspace_id}")
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    mock_service_cls.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_list_models_rejects_workspace_filter_outside_role_workspace(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = uuid.uuid4()
+    token = ctx_role.set(test_admin_role)
+    try:
+        with patch.object(
+            selections_router, "AgentSelectionsService"
+        ) as mock_service_cls:
+            response = client.get(f"/agent/models?workspace_id={workspace_id}")
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    mock_service_cls.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_list_platform_catalog_invalid_cursor_returns_bad_request(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(catalog_router, "AgentCatalogService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_builtin_catalog.side_effect = ValueError(
+            "Invalid cursor. Expected a non-negative integer offset."
+        )
+        mock_service_cls.return_value = mock_svc
+
+        response = client.get("/agent/catalog/platform?cursor=abc")
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {
+        "detail": "Invalid cursor. Expected a non-negative integer offset."
+    }
+
+
+@pytest.mark.anyio
+async def test_get_workspace_model_subset_allows_workspace_member_without_org_workspace_scope(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
+    restricted_role = test_admin_role.model_copy(
+        update={
+            "scopes": frozenset(
+                scope
+                for scope in (test_admin_role.scopes or frozenset())
+                if scope != "org:workspace:read"
+            )
+        }
+    )
+    token = ctx_role.set(restricted_role)
+    try:
+        with patch.object(
+            selections_router, "AgentSelectionsService"
+        ) as mock_service_cls:
+            mock_svc = AsyncMock()
+            mock_svc.get_workspace_model_subset.return_value = WorkspaceModelSubsetRead(
+                inherit_all=True,
+                models=[],
+            )
+            mock_service_cls.return_value = mock_svc
+
+            response = client.get(f"/agent/workspaces/{workspace_id}/model-subset")
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
