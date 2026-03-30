@@ -62,7 +62,8 @@ This is the same schema you use for tables that you later link to cases.
 - `options`: Optional array of strings. Required for `SELECT` and `MULTI_SELECT`, and invalid for other types.
 
 The documented `type` values match the custom tables picker.
-Case custom fields reuse the shared values `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `SELECT`, and `MULTI_SELECT`, while `Long text` and `URL` are case-only UI kinds layered on top of `TEXT` and `JSONB`.
+Case custom fields use the same storage type family: `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, and `MULTI_SELECT`.
+In the case field picker, raw `JSONB` is currently surfaced through the `URL` kind, and `Long text` is layered on top of `TEXT`.
 
 ## Notes
 

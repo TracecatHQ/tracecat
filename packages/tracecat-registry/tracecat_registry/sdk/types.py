@@ -223,10 +223,8 @@ SqlType = Literal[
     "NUMERIC",
     "DATE",
     "BOOLEAN",
-    "TIMESTAMP",
     "TIMESTAMPTZ",
     "JSONB",
-    "UUID",
     "SELECT",
     "MULTI_SELECT",
 ]

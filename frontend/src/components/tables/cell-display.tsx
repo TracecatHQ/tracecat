@@ -19,7 +19,6 @@ function isLosslessNumber(str: string): boolean {
   return String(num) === str
 }
 
-const TIMESTAMP_TYPES = new Set(["TIMESTAMP", "TIMESTAMPTZ"])
 const NUMERIC_TYPES = new Set([
   "INT",
   "INTEGER",
@@ -89,7 +88,7 @@ export function CellDisplay({
   const normalizedType = normalizeSqlType(column.type)
   const isNumericColumn = NUMERIC_TYPES.has(normalizedType)
   const isDateLike =
-    normalizedType === "DATE" || TIMESTAMP_TYPES.has(normalizedType)
+    normalizedType === "DATE" || normalizedType === "TIMESTAMPTZ"
   const isSelectColumn = normalizedType === "SELECT"
   const isMultiSelectColumn = normalizedType === "MULTI_SELECT"
   const columnOptions = sanitizeColumnOptions(column.options)

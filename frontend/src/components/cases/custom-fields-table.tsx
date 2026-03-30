@@ -167,11 +167,11 @@ export function CustomFieldsTable({
                   return <div className="text-xs">-</div>
                 }
 
-                // Handle TIMESTAMP/TIMESTAMPTZ with date formatting
+                // Handle TIMESTAMPTZ defaults with date formatting
                 const parsedDate =
                   typeof defaultValue === "string" &&
                   defaultValue &&
-                  (fieldType === "TIMESTAMP" || fieldType === "TIMESTAMPTZ")
+                  fieldType === "TIMESTAMPTZ"
                     ? new Date(defaultValue)
                     : null
                 const isValidDate =

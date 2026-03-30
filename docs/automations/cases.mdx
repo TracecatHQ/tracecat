@@ -80,8 +80,8 @@ You can use them for values such as ticket IDs, affected systems, request metada
 Use custom fields when you need flexible structured data on a case.
 Your workflows can read and update them through the `fields` input on case actions.
 
-Case custom fields reuse the shared column `type` values `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `SELECT`, and `MULTI_SELECT`.
-The custom field picker also exposes `Long text` and `URL`, which are case-only UI kinds layered on top of `TEXT` and `JSONB`.
+Case custom fields use the same storage type family as tables: `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, and `MULTI_SELECT`.
+In the case field picker, raw `JSONB` is currently surfaced through the case-only `URL` kind, and the picker also exposes `Long text`, which is layered on top of `TEXT`.
 
 ## AI copilot in a case
 

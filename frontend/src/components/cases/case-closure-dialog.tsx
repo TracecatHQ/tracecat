@@ -364,7 +364,6 @@ function ClosureFieldInput({
           />
         </div>
       )
-    case "TIMESTAMP":
     case "TIMESTAMPTZ":
       return (
         <div className="space-y-1.5">
@@ -376,11 +375,7 @@ function ClosureFieldInput({
                 onChange(null)
                 return
               }
-              onChange(
-                field.type === "TIMESTAMPTZ"
-                  ? d.toISOString()
-                  : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`
-              )
+              onChange(d.toISOString())
             }}
           />
         </div>

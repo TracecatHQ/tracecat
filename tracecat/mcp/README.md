@@ -89,6 +89,17 @@ truncation metadata under `truncation.collections`.
 - `update_case_field(workspace_id, field_id, name=None, type=None, options=None)`
 - `delete_case_field(workspace_id, field_id)`
 
+Case field and table `type` values are:
+- `TEXT`
+- `INTEGER`
+- `NUMERIC`
+- `BOOLEAN`
+- `DATE`
+- `TIMESTAMPTZ`
+- `JSONB`
+- `SELECT`
+- `MULTI_SELECT`
+
 ## Table tools
 
 - `list_tables(workspace_id, limit=20, cursor=None)`

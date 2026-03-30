@@ -27,14 +27,7 @@ import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
 import { useUpdateRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-const TEXT_TYPES = new Set([
-  "TEXT",
-  "VARCHAR",
-  "CHAR",
-  "CITEXT",
-  "UUID",
-  "BPCHAR",
-])
+const TEXT_TYPES = new Set(["TEXT", "VARCHAR", "CHAR", "CITEXT", "BPCHAR"])
 const JSON_TYPES = new Set(["JSON", "JSONB"])
 const NUMERIC_TYPES = new Set([
   "INT",
@@ -54,13 +47,7 @@ const NUMERIC_TYPES = new Set([
   "SERIAL4",
   "SERIAL8",
 ])
-const DATE_TYPES = new Set([
-  "DATE",
-  "TIMESTAMP",
-  "TIMESTAMPTZ",
-  "TIME",
-  "TIMETZ",
-])
+const DATE_TYPES = new Set(["DATE", "TIMESTAMPTZ", "TIME", "TIMETZ"])
 const BOOLEAN_TYPES = new Set(["BOOL", "BOOLEAN"])
 const POPUP_EDITOR_TYPES = new Set(["JSON", "JSONB"])
 

@@ -65,13 +65,7 @@ type CustomFieldFormSchema = z.infer<typeof customFieldFormSchema>
 const DATE_TIME_DISPLAY_FORMAT = "yyyy-MM-dd HH:mm"
 const DATE_DISPLAY_FORMAT = "yyyy-MM-dd"
 
-const formatDateFieldValue = (
-  date: Date,
-  fieldType: "TIMESTAMP" | "TIMESTAMPTZ"
-) =>
-  fieldType === "TIMESTAMPTZ"
-    ? date.toISOString()
-    : format(date, "yyyy-MM-dd'T'HH:mm:ss")
+const formatDateFieldValue = (date: Date) => date.toISOString()
 
 const toDateValue = (value: unknown): Date | null => {
   if (value instanceof Date) {
@@ -589,10 +583,7 @@ export function CustomFieldInner({
         />
       )
     // JSONB fields are handled by JsonCustomField before reaching this switch
-    case "TIMESTAMP":
     case "TIMESTAMPTZ": {
-      const fieldType =
-        customField.type === "TIMESTAMPTZ" ? "TIMESTAMPTZ" : "TIMESTAMP"
       return (
         <FormField
           control={form.control}
@@ -606,9 +597,7 @@ export function CustomFieldInner({
                   <DateTimePicker
                     value={dateValue}
                     onChange={(next) => {
-                      const formatted = next
-                        ? formatDateFieldValue(next, fieldType)
-                        : null
+                      const formatted = next ? formatDateFieldValue(next) : null
                       field.onChange(formatted)
                       onBlur?.(customField.id, formatted)
                     }}

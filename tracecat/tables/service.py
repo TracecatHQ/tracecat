@@ -259,7 +259,7 @@ class BaseTablesService(BaseWorkspaceService):
                 )
                 continue
 
-            if sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}:
+            if sql_type is SqlType.TIMESTAMPTZ:
                 normalised[column_name] = coerce_to_utc_datetime(value)
             elif sql_type is SqlType.DATE and value is not None:
                 normalised[column_name] = coerce_to_date(value)
@@ -281,12 +281,10 @@ class BaseTablesService(BaseWorkspaceService):
                 return sa.Date()
             case SqlType.BOOLEAN:
                 return sa.Boolean()
-            case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
+            case SqlType.TIMESTAMPTZ:
                 return sa.TIMESTAMP(timezone=True)
             case SqlType.JSONB | SqlType.MULTI_SELECT:
                 return JSONB()
-            case SqlType.UUID:
-                return sa.UUID()
             case _:
                 return sa.String()
 

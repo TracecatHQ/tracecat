@@ -1887,7 +1887,7 @@ field name/column id, not a UUID.
 - `list_case_fields` returns field objects with `id`, `type`, `description`, \
 `nullable`, `default`, `reserved`, `options`, and optional `kind`.
 - Case field `type` must be an uppercase SqlType value: `TEXT`, `INTEGER`, \
-`NUMERIC`, `DATE`, `BOOLEAN`, `TIMESTAMP`, `TIMESTAMPTZ`, `JSONB`, `UUID`, \
+`NUMERIC`, `DATE`, `BOOLEAN`, `TIMESTAMPTZ`, `JSONB`, \
 `SELECT`, or `MULTI_SELECT`.
 - Case field `kind` is optional on `create_case_field` only. Valid values are \
 `LONG_TEXT` and `URL`. `LONG_TEXT` requires `type="TEXT"` and `URL` requires \
@@ -2282,7 +2282,7 @@ task_status_changed, task_priority_changed, task_workflow_changed, \
 task_assignee_changed, dropdown_value_changed
 
 ## Table Column Types
-TEXT, INTEGER, NUMERIC, DATE, BOOLEAN, TIMESTAMP, TIMESTAMPTZ, JSONB, UUID, SELECT, MULTI_SELECT
+TEXT, INTEGER, NUMERIC, DATE, BOOLEAN, TIMESTAMPTZ, JSONB, SELECT, MULTI_SELECT
 
 ## Workflow Control Flow
 
@@ -5261,7 +5261,7 @@ async def create_case_field(
         name: Field name / column id. Schema: string matching
             `^[a-zA-Z_][a-zA-Z0-9_]*$`.
         type: Uppercase SqlType value: TEXT, INTEGER, NUMERIC, DATE, BOOLEAN,
-            TIMESTAMP, TIMESTAMPTZ, JSONB, UUID, SELECT, or MULTI_SELECT.
+            TIMESTAMPTZ, JSONB, SELECT, or MULTI_SELECT.
         kind: Optional semantic kind. Valid values: LONG_TEXT and URL.
             LONG_TEXT requires type TEXT. URL requires type JSONB.
         options: Optional JSON array string of strings, e.g.
@@ -5411,8 +5411,8 @@ async def create_table(
             `{"name": str, "type": SqlType, "nullable": bool?, "default": any?,`
             ` "options": list[str]?}`.
             Column type must be UPPERCASE — one of: TEXT, INTEGER, NUMERIC,
-            DATE, BOOLEAN, TIMESTAMP, TIMESTAMPTZ, JSONB, UUID, SELECT,
-            MULTI_SELECT. `options` are only valid for SELECT or MULTI_SELECT.
+            DATE, BOOLEAN, TIMESTAMPTZ, JSONB, SELECT, MULTI_SELECT.
+            `options` are only valid for SELECT or MULTI_SELECT.
             Example:
             `'[{"name":"severity","type":"SELECT","options":["low","high"]}]'`.
 

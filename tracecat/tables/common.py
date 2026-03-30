@@ -3,7 +3,6 @@ from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
-from uuid import UUID
 
 import orjson
 import sqlalchemy as sa
@@ -19,11 +18,10 @@ POSTGRES_BIGINT_MAX = 2**63 - 1
 def is_valid_sql_type(type: str | SqlType) -> bool:
     """Check if the type is a valid SQL type for user-defined columns."""
     try:
-        sql_type = SqlType(type)
+        SqlType(type)
     except ValueError:
         return False
-    # Plain TIMESTAMP is only supported for legacy/system-managed columns.
-    return sql_type is not SqlType.TIMESTAMP
+    return True
 
 
 def coerce_to_utc_datetime(value: str | int | float | datetime | date) -> datetime:
@@ -113,7 +111,7 @@ def coerce_default_value(type: SqlType, default: Any) -> Any:
             return str(default)
         case SqlType.DATE:
             return coerce_to_date(default)
-        case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
+        case SqlType.TIMESTAMPTZ:
             return coerce_to_utc_datetime(default)
         case SqlType.BOOLEAN:
             if isinstance(default, bool):
@@ -162,13 +160,6 @@ def coerce_default_value(type: SqlType, default: Any) -> Any:
                     f"Invalid numeric default value: {default!r}"
                 )
             return decimal_value
-        case SqlType.UUID:
-            try:
-                return UUID(str(default))
-            except (TypeError, ValueError) as exc:
-                raise InvalidDefaultValueError(
-                    f"Invalid UUID default value: {default!r}"
-                ) from exc
         case _:
             raise InvalidDefaultValueError(
                 f"Unsupported SQL type for default value: {type}"
@@ -182,11 +173,9 @@ def normalize_default_value(type: SqlType, default: Any) -> Any:
             return default
         case SqlType.BOOLEAN:
             return str(default).lower()
-        case SqlType.DATE | SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
+        case SqlType.DATE | SqlType.TIMESTAMPTZ:
             return default.isoformat()
         case SqlType.INTEGER | SqlType.NUMERIC | SqlType.TEXT | SqlType.SELECT:
-            return str(default)
-        case SqlType.UUID:
             return str(default)
         case _:
             raise InvalidDefaultValueError(
@@ -210,7 +199,7 @@ def render_default_value(type: SqlType, default: Any) -> str:
             return _compile_sql_literal(default, sa.String())
         case SqlType.DATE:
             return f"{_compile_sql_literal(default, sa.Date())}::date"
-        case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
+        case SqlType.TIMESTAMPTZ:
             rendered_default = _compile_sql_literal(
                 default, sa.TIMESTAMP(timezone=True)
             )
@@ -221,8 +210,6 @@ def render_default_value(type: SqlType, default: Any) -> str:
             return _compile_sql_literal(default, sa.BigInteger())
         case SqlType.NUMERIC:
             return _compile_sql_literal(default, sa.Numeric())
-        case SqlType.UUID:
-            return f"{_compile_sql_literal(str(default), sa.String())}::uuid"
         case _:
             raise InvalidDefaultValueError(
                 f"Unsupported SQL type for default value: {type}"
@@ -270,7 +257,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
         case SqlType.DATE:
             coerced = coerce_optional_to_date(value)
             return sa.bindparam(key=name, value=coerced, type_=sa.Date)
-        case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
+        case SqlType.TIMESTAMPTZ:
             coerced = coerce_optional_to_utc_datetime(value)
             return sa.bindparam(
                 key=name, value=coerced, type_=sa.TIMESTAMP(timezone=True)
@@ -291,8 +278,6 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
             return sa.bindparam(key=name, value=value, type_=sa.BigInteger)
         case SqlType.NUMERIC:
             return sa.bindparam(key=name, value=value, type_=sa.Numeric)
-        case SqlType.UUID:
-            return sa.bindparam(key=name, value=value, type_=sa.UUID)
         case _:
             raise TypeError(f"Unsupported SQL type for value conversion: {type}")
 
@@ -356,10 +341,8 @@ def convert_value(value: str | None, type: SqlType) -> Any:
                 return coerce_multi_select_value(parsed)
             case SqlType.DATE:
                 return coerce_to_date(value)
-            case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
+            case SqlType.TIMESTAMPTZ:
                 return coerce_to_utc_datetime(value)
-            case SqlType.UUID:
-                return UUID(value)
             case _:
                 raise TypeError(f"Unsupported SQL type for value conversion: {type}")
     except Exception as e:

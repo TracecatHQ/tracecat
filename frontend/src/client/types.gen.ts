@@ -5578,10 +5578,8 @@ export type SqlType =
   | "NUMERIC"
   | "DATE"
   | "BOOLEAN"
-  | "TIMESTAMP"
   | "TIMESTAMPTZ"
   | "JSONB"
-  | "UUID"
   | "SELECT"
   | "MULTI_SELECT"
 

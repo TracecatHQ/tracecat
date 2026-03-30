@@ -97,20 +97,6 @@ class TestCaseFieldsService:
             assert fields == mock_columns
             mock_get_columns.assert_called_once()
 
-    async def test_case_field_read_accepts_timestamp_type(self) -> None:
-        """Ensure TIMESTAMP columns can be read for reserved fields."""
-        column = ReflectedColumn(
-            name="created_at",
-            type=sa.types.TIMESTAMP(),
-            nullable=False,
-            default=None,
-            comment=None,
-        )
-
-        field = CaseFieldReadMinimal.from_sa(column)
-        assert field.type is SqlType.TIMESTAMP
-        assert field.reserved is True
-
     async def test_case_field_read_accepts_timestamptz_type(self) -> None:
         """Ensure TIMESTAMPTZ columns can be read for custom fields."""
         column = ReflectedColumn(
