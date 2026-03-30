@@ -166,11 +166,11 @@ locals {
         TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS        = var.llm_gateway_credential_cache_ttl_seconds
         TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS        = var.llm_gateway_healthcheck_interval_seconds
         TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS         = var.llm_gateway_healthcheck_timeout_seconds
-        TRACECAT__LLM_GATEWAY_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS = var.llm_gateway_healthcheck_connect_timeout_seconds
-        TRACECAT__LLM_GATEWAY_HEALTHCHECK_READ_TIMEOUT_SECONDS    = var.llm_gateway_healthcheck_read_timeout_seconds
-        TRACECAT__LLM_GATEWAY_HEALTHCHECK_WRITE_TIMEOUT_SECONDS   = var.llm_gateway_healthcheck_write_timeout_seconds
-        TRACECAT__LLM_GATEWAY_HEALTHCHECK_POOL_TIMEOUT_SECONDS    = var.llm_gateway_healthcheck_pool_timeout_seconds
-        TRACECAT__LLM_GATEWAY_HEALTHCHECK_FAILURE_THRESHOLD       = var.llm_gateway_healthcheck_failure_threshold
+        TRACECAT__LLM_GATEWAY_CONNECT_TIMEOUT_SECONDS             = var.llm_gateway_healthcheck_connect_timeout_seconds
+        TRACECAT__LLM_GATEWAY_READ_TIMEOUT_SECONDS                = var.llm_gateway_healthcheck_read_timeout_seconds
+        TRACECAT__LLM_GATEWAY_WRITE_TIMEOUT_SECONDS               = var.llm_gateway_healthcheck_write_timeout_seconds
+        TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS                = var.llm_gateway_healthcheck_pool_timeout_seconds
+        TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD                   = var.llm_gateway_healthcheck_failure_threshold
         TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS         = var.llm_gateway_status_log_interval_seconds
         TRACECAT__UNSAFE_DISABLE_SM_MASKING                   = "false"
         TRACECAT__DISABLE_NSJAIL                              = "true"

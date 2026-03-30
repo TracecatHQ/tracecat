@@ -168,6 +168,11 @@ def get_hook_output(result: SyncHookJSONOutput) -> dict[str, Any]:
 class TestClaudeAgentRuntimeRun:
     """Tests for ClaudeAgentRuntime.run()."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_llm_bridge_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Set the LLM bridge port env var so get_llm_proxy_url() succeeds."""
+        monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "12345")
+
     @pytest.mark.anyio
     async def test_sends_done_on_completion(
         self,
