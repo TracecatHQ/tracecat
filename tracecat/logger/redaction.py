@@ -1,43 +1,29 @@
 from __future__ import annotations
 
-import base64
 import dataclasses
-import hashlib
-import hmac
-import json
 import logging
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from enum import Enum, StrEnum
-from functools import lru_cache
+from enum import Enum
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import UUID
 
-import boto3
-from botocore.exceptions import BotoCoreError, ClientError
-from loguru import logger as base_logger
 from pydantic import BaseModel, SecretBytes, SecretStr
-from sentry_sdk.scrubber import EventScrubber
 
 from tracecat import config
-from tracecat.auth.types import Role
-from tracecat.context_state import (
-    ctx_log_masks,
-    ctx_request_id,
-    ctx_role,
-    ctx_run,
-    ctx_session_id,
+from tracecat.context_state import ctx_log_masks
+from tracecat.logger.context import inject_context_fields
+from tracecat.logger.hashing import (
+    LogIdentifierType,
+    compute_identifier_hash,
 )
 from tracecat.secrets.common import apply_masks
-
-_bootstrap_logger = logging.getLogger(__name__)
 
 MASK_TEXT = "[REDACTED]"
 MASK_EMAIL = "[REDACTED_EMAIL]"
 MASK_IP = "[REDACTED_IP]"
 MASK_URL = "[REDACTED_URL]"
-LOG_HASH_VERSION = "v1"
 _SUMMARY_KEY_LIMIT = 32
 _SEQUENCE_ITEM_LIMIT = 32
 _MESSAGE_MAX_LENGTH = 4096
@@ -78,17 +64,10 @@ _SENSITIVE_KEY_MARKERS = (
 )
 _URL_KEY_MARKERS = ("callback_url", "redirect_url", "uri", "url")
 _IDENTIFIER_FIELD_BY_KEY = {
-    "email": "email",
-    "externalaccountid": "external_account_id",
-    "username": "username",
+    "email": LogIdentifierType.EMAIL,
+    "externalaccountid": LogIdentifierType.EXTERNAL_ACCOUNT_ID,
+    "username": LogIdentifierType.USERNAME,
 }
-_HMAC_SECRET_JSON_FIELDS = (
-    "key",
-    "value",
-    "secret",
-    "hmac_key",
-    "log_redaction_hmac_key",
-)
 
 _EMAIL_PATTERN = re.compile(
     r"(?<![\w.+-])([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})(?![\w.-])",
@@ -106,12 +85,6 @@ _URL_USERINFO_PATTERN = re.compile(r"(?i)(https?://[^/\s:@]+:)([^@\s/]+)@")
 _HTTP_URL_PATTERN = re.compile(r"https?://[^\s'\"<>]+")
 
 
-class LogIdentifierType(StrEnum):
-    EMAIL = "email"
-    USERNAME = "username"
-    EXTERNAL_ACCOUNT_ID = "external_account_id"
-
-
 def is_json_logging_enabled() -> bool:
     return config.TRACECAT__APP_ENV in {"staging", "production"}
 
@@ -122,7 +95,7 @@ def is_verbose_payload_logging_enabled() -> bool:
 
 def maybe_warn_verbose_payload_logging_ignored() -> None:
     if _VERBOSE_LOG_PAYLOADS_IGNORED:
-        _bootstrap_logger.warning(
+        logging.getLogger(__name__).warning(
             "Ignoring TRACECAT__UNSAFE_ENABLE_VERBOSE_LOG_PAYLOADS outside development"
         )
 
@@ -136,6 +109,10 @@ def _matches_any_marker(key: str | None, markers: Iterable[str]) -> bool:
         return False
     normalized = key.casefold()
     return any(marker in normalized for marker in markers)
+
+
+def _identifier_type_for_field(field_name: str) -> LogIdentifierType | None:
+    return _IDENTIFIER_FIELD_BY_KEY.get(_normalize_key(field_name))
 
 
 def _mask_value_candidates(masks: Iterable[str] | None = None) -> tuple[str, ...]:
@@ -183,102 +160,6 @@ def sanitize_text(
 
 def sanitize_error_text(text: str | None) -> str | None:
     return sanitize_text(text, max_length=2048)
-
-
-def _decode_secret_value(
-    secret_string: str | None, secret_binary: str | bytes | None
-) -> str:
-    if secret_string:
-        return secret_string
-    if not secret_binary:
-        raise ValueError("Log redaction HMAC secret is empty")
-
-    decoded = base64.b64decode(secret_binary)
-    try:
-        return decoded.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise ValueError(
-            "Log redaction HMAC secret must be UTF-8 text when using SecretBinary"
-        ) from exc
-
-
-@lru_cache(maxsize=1)
-def resolve_log_redaction_hmac_key() -> str | None:
-    if config.TRACECAT__LOG_REDACTION_HMAC_KEY:
-        return config.TRACECAT__LOG_REDACTION_HMAC_KEY
-
-    if not config.TRACECAT__LOG_REDACTION_HMAC_KEY__ARN:
-        return None
-
-    try:
-        session = boto3.session.Session()
-        client = session.client(service_name="secretsmanager")
-        response = client.get_secret_value(
-            SecretId=config.TRACECAT__LOG_REDACTION_HMAC_KEY__ARN
-        )
-    except (BotoCoreError, ClientError) as exc:
-        base_logger.warning(
-            "Failed to retrieve log redaction HMAC key from AWS Secrets Manager",
-            error=str(exc),
-        )
-        return None
-
-    secret_string = _decode_secret_value(
-        secret_string=response.get("SecretString"),
-        secret_binary=response.get("SecretBinary"),
-    )
-
-    try:
-        secret_payload = json.loads(secret_string)
-    except json.JSONDecodeError:
-        return secret_string
-
-    if not isinstance(secret_payload, dict):
-        return secret_string
-
-    for field_name in _HMAC_SECRET_JSON_FIELDS:
-        if isinstance(value := secret_payload.get(field_name), str) and value:
-            return value
-    return None
-
-
-def _normalize_identifier_value(
-    identifier_type: LogIdentifierType, value: str
-) -> str | None:
-    normalized = value.strip()
-    if not normalized:
-        return None
-
-    match identifier_type:
-        case LogIdentifierType.EMAIL:
-            return normalized.casefold()
-        case LogIdentifierType.USERNAME | LogIdentifierType.EXTERNAL_ACCOUNT_ID:
-            return normalized
-
-
-def _compute_identifier_hash(
-    identifier_type: LogIdentifierType, value: str
-) -> str | None:
-    if not (key := resolve_log_redaction_hmac_key()):
-        return None
-    if not (normalized := _normalize_identifier_value(identifier_type, value)):
-        return None
-
-    payload = f"{identifier_type.value}:{normalized}".encode()
-    digest = hmac.new(key.encode("utf-8"), payload, hashlib.sha256).hexdigest()
-    return f"{LOG_HASH_VERSION}_{digest}"
-
-
-def _identifier_type_for_field(field_name: str) -> LogIdentifierType | None:
-    match _IDENTIFIER_FIELD_BY_KEY.get(_normalize_key(field_name)):
-        case "email":
-            return LogIdentifierType.EMAIL
-        case "username":
-            return LogIdentifierType.USERNAME
-        case "external_account_id":
-            return LogIdentifierType.EXTERNAL_ACCOUNT_ID
-        case _:
-            return None
 
 
 def _json_safe_scalar(value: Any) -> Any:
@@ -330,54 +211,6 @@ def _coerce_mapping(value: Mapping[Any, Any]) -> dict[str, Any]:
     return {str(key): item for key, item in value.items()}
 
 
-def _coerce_role(value: Any) -> Role | None:
-    if isinstance(value, Role):
-        return value
-    if isinstance(value, BaseModel):
-        payload = value.model_dump(mode="json")
-    elif isinstance(value, Mapping):
-        payload = value
-    else:
-        return None
-
-    try:
-        return Role.model_validate(payload)
-    except Exception:
-        return None
-
-
-def _inject_role_fields(record: dict[str, Any], role: Role | None) -> None:
-    if role is None:
-        return
-    if role.organization_id is not None:
-        record.setdefault("organization_id", str(role.organization_id))
-    if role.workspace_id is not None:
-        record.setdefault("workspace_id", str(role.workspace_id))
-    if role.user_id is not None:
-        record.setdefault("user_id", str(role.user_id))
-    record.setdefault("role_type", role.type)
-    record.setdefault("role_service_id", role.service_id)
-
-
-def _inject_context_fields(record: dict[str, Any]) -> dict[str, Any]:
-    injected = dict(record)
-
-    if (role := _coerce_role(injected.pop("role", None))) is None:
-        role = ctx_role.get()
-    _inject_role_fields(injected, role)
-
-    if (run_context := ctx_run.get()) is not None:
-        injected.setdefault("wf_id", str(run_context.wf_id))
-        injected.setdefault("wf_exec_id", str(run_context.wf_exec_id))
-        injected.setdefault("wf_run_id", str(run_context.wf_run_id))
-
-    if (request_id := ctx_request_id.get()) is not None:
-        injected.setdefault("request_id", request_id)
-    if (session_id := ctx_session_id.get()) is not None:
-        injected.setdefault("session_id", str(session_id))
-    return injected
-
-
 def _sanitize_mapping(
     value: Mapping[Any, Any],
     *,
@@ -403,7 +236,7 @@ def _sanitize_mapping(
                 sanitized[sanitized_key] = MASK_TEXT
                 if preserve_structure:
                     continue
-                if hash_value := _compute_identifier_hash(identifier_type, item):
+                if hash_value := compute_identifier_hash(identifier_type, item):
                     sanitized[f"{sanitized_key}_hash"] = hash_value
                 continue
         sanitized[sanitized_key] = sanitize_log_value(
@@ -429,7 +262,7 @@ def sanitize_log_value(
             if identifier_type := _identifier_type_for_field(field_name or ""):
                 if preserve_structure:
                     return MASK_TEXT
-                hash_value = _compute_identifier_hash(identifier_type, scalar)
+                hash_value = compute_identifier_hash(identifier_type, scalar)
                 return {
                     "value": MASK_TEXT,
                     "hash": hash_value,
@@ -485,7 +318,7 @@ def sanitize_log_fields(
     *,
     preserve_structure: bool = False,
 ) -> dict[str, Any]:
-    merged_fields = _inject_context_fields(dict(fields))
+    merged_fields = inject_context_fields(fields)
     sanitized: dict[str, Any] = {}
     for key, value in merged_fields.items():
         if key == "client_ip":
@@ -526,46 +359,3 @@ def build_log_payload(record: Mapping[str, Any]) -> dict[str, Any]:
         "process": record["process"].id,
     }
     return {**payload, **extra}
-
-
-def sanitize_workflow_log_fields(fields: Mapping[str, Any]) -> dict[str, Any]:
-    return sanitize_log_fields(fields)
-
-
-def configure_sentry(
-    *,
-    dsn: str,
-    environment: str,
-    release: str,
-    sentry_sdk_module: Any,
-) -> None:
-    sentry_sdk_module.init(
-        dsn=dsn,
-        environment=environment,
-        release=release,
-        send_default_pii=False,
-        include_local_variables=config.TRACECAT__APP_ENV == "development",
-        event_scrubber=EventScrubber(recursive=True, send_default_pii=False),
-        before_send=before_send_sentry_event,
-    )
-
-
-def _sanitize_sentry_value(value: Any, *, field_name: str | None = None) -> Any:
-    if isinstance(value, dict):
-        return {
-            str(key): _sanitize_sentry_value(item, field_name=str(key))
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_sanitize_sentry_value(item, field_name=field_name) for item in value]
-    return sanitize_log_value(value, field_name=field_name, preserve_structure=True)
-
-
-def before_send_sentry_event(
-    event: dict[str, Any], hint: dict[str, Any]
-) -> dict[str, Any]:
-    del hint
-    sanitized = _sanitize_sentry_value(event)
-    if not isinstance(sanitized, dict):
-        return event
-    return sanitized

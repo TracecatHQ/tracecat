@@ -44,7 +44,7 @@ from tracecat.ee.interactions.schemas import (
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
-from tracecat.logger.security import sanitize_error_text
+from tracecat.logger.redaction import sanitize_error_text
 from tracecat.sessions import Session
 from tracecat.storage.object import CollectionObject, StoredObject
 from tracecat.workflow.executions.common import (

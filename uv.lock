@@ -4550,7 +4550,6 @@ dependencies = [
     { name = "async-lru" },
     { name = "asyncpg" },
     { name = "authlib" },
-    { name = "chardet" },
     { name = "claude-agent-sdk" },
     { name = "cloudpickle" },
     { name = "cramjam" },
@@ -4628,7 +4627,6 @@ requires-dist = [
     { name = "async-lru", specifier = "==2.0.4" },
     { name = "asyncpg", specifier = "==0.29.0" },
     { name = "authlib", specifier = "==1.6.9" },
-    { name = "chardet", specifier = "==5.2.0" },
     { name = "claude-agent-sdk", specifier = "==0.1.51" },
     { name = "cloudpickle", specifier = "==3.1.1" },
     { name = "cramjam", specifier = "==2.11.0" },
@@ -4699,7 +4697,6 @@ lint = [
 name = "tracecat-admin"
 source = { editable = "packages/tracecat-admin" }
 dependencies = [
-    { name = "boto3" },
     { name = "email-validator" },
     { name = "httpx" },
     { name = "pydantic" },
@@ -4718,7 +4715,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "boto3", specifier = "==1.40.61" },
     { name = "email-validator", specifier = "==2.2.0" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "pydantic", specifier = "==2.12.5" },

@@ -176,12 +176,6 @@ variable "workflow_artifact_retention_days" {
   default     = 30
 }
 
-variable "unsafe_enable_verbose_log_payloads" {
-  type        = bool
-  description = "Allow verbose payload logging in runtime services. This should remain false outside development."
-  default     = false
-}
-
 ### Database Connection Pool
 
 variable "db_max_overflow" {
@@ -249,12 +243,6 @@ variable "tracecat_service_key_arn" {
 variable "tracecat_signing_secret_arn" {
   type        = string
   description = "The ARN of the secret containing the Tracecat signing secret"
-}
-
-variable "tracecat_log_redaction_hmac_key_arn" {
-  type        = string
-  description = "The ARN of the secret containing the HMAC key used for log redaction hashing (optional)"
-  default     = null
 }
 
 variable "oauth_client_id_arn" {

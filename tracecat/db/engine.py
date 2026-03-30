@@ -6,7 +6,6 @@ from typing import Literal
 
 import boto3
 from botocore.exceptions import ClientError
-from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 from tracecat import config
@@ -15,6 +14,7 @@ from tracecat.db import (
     session_events,  # noqa: F401  # pyright: ignore[reportUnusedImport] - side effect import to register listeners
 )
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
+from tracecat.logger import logger
 
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool

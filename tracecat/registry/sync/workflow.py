@@ -31,6 +31,7 @@ from temporalio import activity, workflow
 from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
+    from tracecat.dsl.workflow_logging import get_workflow_logger
     from tracecat.logger import logger
     from tracecat.registry.sync.runner import (
         RegistrySyncRunner,
@@ -61,9 +62,13 @@ class RegistrySyncWorkflow:
         Returns:
             RegistrySyncResult with discovered actions and tarball URI.
         """
-        workflow.logger.info(
-            "Starting RegistrySyncWorkflow",
+        log = get_workflow_logger(
+            service="registry-sync-workflow",
+            organization_id=request.organization_id,
             repository_id=str(request.repository_id),
+        )
+        log.info(
+            "Starting RegistrySyncWorkflow",
             origin=request.origin,
             origin_type=request.origin_type,
         )
@@ -78,9 +83,8 @@ class RegistrySyncWorkflow:
             start_to_close_timeout=timedelta(minutes=15),
         )
 
-        workflow.logger.info(
+        log.info(
             "RegistrySyncWorkflow completed",
-            repository_id=str(request.repository_id),
             num_actions=len(result.actions),
             tarball_uri=result.tarball_uri,
         )
@@ -110,6 +114,7 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
 
     logger.info(
         "Starting sync_registry_activity",
+        organization_id=request.organization_id,
         repository_id=str(request.repository_id),
         origin=request.origin,
         origin_type=request.origin_type,
@@ -147,6 +152,7 @@ async def sync_registry_activity(request: RegistrySyncRequest) -> RegistrySyncRe
 
     logger.info(
         "sync_registry_activity completed",
+        organization_id=request.organization_id,
         repository_id=str(request.repository_id),
         num_actions=len(result.actions),
         tarball_uri=result.tarball_uri,

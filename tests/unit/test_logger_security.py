@@ -8,14 +8,22 @@ from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_log_masks, ctx_request_id, ctx_role
-from tracecat.logger import security
+from tracecat.logger import hashing
+from tracecat.logger.redaction import (
+    MASK_EMAIL,
+    MASK_IP,
+    MASK_TEXT,
+    sanitize_log_fields,
+    sanitize_text,
+)
+from tracecat.logger.sentry import before_send_sentry_event
 from tracecat.middleware.request import RequestLoggingMiddleware
 
 
 def test_sanitize_text_redacts_pii_secrets_and_urls() -> None:
     token = ctx_log_masks.set(("super-secret-value",))
     try:
-        sanitized = security.sanitize_text(
+        sanitized = sanitize_text(
             "email alice@example.com ip 203.0.113.42 token=abc123 "
             "Bearer my-token https://example.com/path?q=1 super-secret-value"
         )
@@ -23,8 +31,8 @@ def test_sanitize_text_redacts_pii_secrets_and_urls() -> None:
         ctx_log_masks.reset(token)
 
     assert sanitized is not None
-    assert security.MASK_EMAIL in sanitized
-    assert security.MASK_IP in sanitized
+    assert MASK_EMAIL in sanitized
+    assert MASK_IP in sanitized
     assert "token=[REDACTED]" in sanitized
     assert "Bearer [REDACTED]" in sanitized
     assert "https://example.com" in sanitized
@@ -35,9 +43,9 @@ def test_sanitize_log_fields_flattens_context_and_hashes_identifiers(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        security.config, "TRACECAT__LOG_REDACTION_HMAC_KEY", "test-hmac-key"
+        hashing.config, "TRACECAT__LOG_REDACTION_HMAC_KEY", "test-hmac-key"
     )
-    security.resolve_log_redaction_hmac_key.cache_clear()
+    hashing.resolve_log_redaction_hmac_key.cache_clear()
 
     role = Role(
         type="user",
@@ -49,7 +57,7 @@ def test_sanitize_log_fields_flattens_context_and_hashes_identifiers(
     role_token = ctx_role.set(role)
     request_token = ctx_request_id.set("req-123")
     try:
-        sanitized = security.sanitize_log_fields(
+        sanitized = sanitize_log_fields(
             {
                 "role": role,
                 "email": "Alice@example.com",
@@ -61,15 +69,15 @@ def test_sanitize_log_fields_flattens_context_and_hashes_identifiers(
     finally:
         ctx_request_id.reset(request_token)
         ctx_role.reset(role_token)
-        security.resolve_log_redaction_hmac_key.cache_clear()
+        hashing.resolve_log_redaction_hmac_key.cache_clear()
 
     assert sanitized["organization_id"] == str(role.organization_id)
     assert sanitized["workspace_id"] == str(role.workspace_id)
     assert sanitized["user_id"] == str(role.user_id)
     assert sanitized["request_id"] == "req-123"
     assert sanitized["session_id"] == "session-123"
-    assert sanitized["email"] == security.MASK_TEXT
-    assert sanitized["email_hash"].startswith(f"{security.LOG_HASH_VERSION}_")
+    assert sanitized["email"] == MASK_TEXT
+    assert sanitized["email_hash"].startswith(f"{hashing.LOG_HASH_VERSION}_")
     assert sanitized["params"] == {
         "type": "object",
         "item_count": 2,
@@ -85,10 +93,10 @@ def test_before_send_sentry_event_preserves_shape() -> None:
         "exception": {"values": [{"value": "Bearer secret-token"}]},
     }
 
-    sanitized = security.before_send_sentry_event(event, {})
+    sanitized = before_send_sentry_event(event, {})
 
     assert isinstance(sanitized["user"]["email"], str)
-    assert sanitized["user"]["email"] == security.MASK_TEXT
+    assert sanitized["user"]["email"] == MASK_TEXT
     assert sanitized["exception"]["values"][0]["value"] == "Bearer [REDACTED]"
 
 

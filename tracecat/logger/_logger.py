@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import orjson
 from loguru import logger as base_logger
 
-from tracecat.logger.security import (
+from tracecat.logger.redaction import (
     build_log_payload,
     is_json_logging_enabled,
     maybe_warn_verbose_payload_logging_ignored,

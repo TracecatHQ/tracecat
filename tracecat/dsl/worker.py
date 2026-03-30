@@ -32,7 +32,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.workflow import DSLWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
-    from tracecat.logger.security import configure_sentry
+    from tracecat.logger.sentry import configure_sentry
     from tracecat.storage.collection import CollectionActivities
     from tracecat.tiers.activities import TierActivities
     from tracecat.workflow.management.definitions import (

@@ -36,6 +36,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.plugins import TracecatPydanticAIPlugin
     from tracecat.logger import logger
+    from tracecat.logger.sentry import configure_sentry
 
 
 def new_sandbox_runner() -> SandboxedWorkflowRunner:
@@ -103,10 +104,11 @@ async def main() -> None:
         sentry_environment = (
             config.SENTRY_ENVIRONMENT_OVERRIDE or f"{app_env}-{temporal_namespace}"
         )
-        sentry_sdk.init(
+        configure_sentry(
             dsn=sentry_dsn,
             environment=sentry_environment,
             release=f"tracecat@{APP_VERSION}",
+            sentry_sdk_module=sentry_sdk,
         )
         interceptors.append(SentryInterceptor())
 

@@ -245,11 +245,10 @@ resource "aws_iam_role_policy" "api_worker_task_db_access" {
           "rds-db:connect",
           "secretsmanager:GetSecretValue"
         ]
-        Resource = compact([
+        Resource = [
           "${aws_db_instance.core_database.arn}/postgres",
           aws_db_instance.core_database.master_user_secret[0].secret_arn,
-          var.tracecat_log_redaction_hmac_key_arn,
-        ])
+        ]
       }
     ]
   })

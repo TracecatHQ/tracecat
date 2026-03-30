@@ -33,7 +33,6 @@ dependencies = [
     "cramjam==2.11.0",
     "croniter==6.0.0",
     "cryptography==46.0.5",
-    "chardet==5.2.0",
     "dateparser==1.2.2",
     "defusedxml==0.7.1",
     "email-validator==2.2.0",

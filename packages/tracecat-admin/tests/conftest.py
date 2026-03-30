@@ -11,12 +11,7 @@ SERVICE_KEY = "test-service-key"
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure clean environment for tests."""
-    for var in [
-        "TRACECAT__SERVICE_KEY",
-        "TRACECAT__DB_URI",
-        "TRACECAT__LOG_REDACTION_HMAC_KEY",
-        "TRACECAT__LOG_REDACTION_HMAC_KEY__ARN",
-    ]:
+    for var in ["TRACECAT__SERVICE_KEY", "TRACECAT__DB_URI"]:
         monkeypatch.delenv(var, raising=False)
 
 

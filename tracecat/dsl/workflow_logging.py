@@ -7,7 +7,7 @@ from typing import Any
 from temporalio import workflow
 
 from tracecat.logger import logger as process_logger
-from tracecat.logger.security import sanitize_log_fields, sanitize_text
+from tracecat.logger.redaction import sanitize_log_fields, sanitize_text
 
 
 def _in_workflow_context() -> bool:

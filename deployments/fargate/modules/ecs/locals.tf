@@ -48,11 +48,6 @@ locals {
     TRACECAT__DB_SSLMODE                             = "require"
   }
 
-  tracecat_logging_env = {
-    TRACECAT__LOG_REDACTION_HMAC_KEY__ARN        = var.tracecat_log_redaction_hmac_key_arn
-    TRACECAT__UNSAFE_ENABLE_VERBOSE_LOG_PAYLOADS = var.unsafe_enable_verbose_log_payloads
-  }
-
   tracecat_blob_storage_env = {
     TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS = aws_s3_bucket.attachments.bucket
     TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY    = aws_s3_bucket.registry.bucket
@@ -62,7 +57,6 @@ locals {
   api_env = [
     for k, v in merge(
       local.tracecat_common_env,
-      local.tracecat_logging_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
@@ -94,7 +88,6 @@ locals {
   worker_env = [
     for k, v in merge(
       local.tracecat_common_env,
-      local.tracecat_logging_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       {
@@ -134,7 +127,6 @@ locals {
   executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
-      local.tracecat_logging_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       local.tracecat_db_configs_executor,
@@ -157,7 +149,6 @@ locals {
   agent_executor_env = [
     for k, v in merge(
       local.tracecat_common_env,
-      local.tracecat_logging_env,
       local.tracecat_blob_storage_env,
       local.tracecat_db_configs,
       local.tracecat_db_configs_executor,

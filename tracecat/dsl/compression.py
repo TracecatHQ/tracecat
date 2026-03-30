@@ -7,7 +7,6 @@ from cramjam import (
 )
 from cramjam import gzip as cramjam_gzip  # pyright: ignore[reportAttributeAccessIssue]
 from cramjam import zstd as cramjam_zstd  # pyright: ignore[reportAttributeAccessIssue]
-from loguru import logger
 from temporalio.api.common.v1 import Payload
 from temporalio.converter import PayloadCodec
 
@@ -17,6 +16,7 @@ from tracecat.config import (
     TRACECAT__CONTEXT_COMPRESSION_ENABLED,
     TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB,
 )
+from tracecat.logger import logger
 
 
 class CompressionPayloadCodec(PayloadCodec):
