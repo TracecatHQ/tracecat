@@ -21,8 +21,8 @@ from tests.database import TEST_DB_CONFIG
 from tracecat.identifiers.workflow import WorkspaceUUID
 
 MIGRATION_REVISION = "b5fc4168fe22"
-# Immediate down_revision for b5fc4168fe22.
-PREVIOUS_REVISION = "3431033d29fd"
+# Immediate down_revision for b5fc4168fe22 after linearizing onto merged main.
+PREVIOUS_REVISION = "bf38f2aa1c77"
 TABLES_PREFIX = "tables_"
 CUSTOM_FIELDS_PREFIX = "custom_fields_"
 TABLES_TABLE = "alerts"
