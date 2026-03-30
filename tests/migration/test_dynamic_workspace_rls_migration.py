@@ -31,6 +31,8 @@ INTERNAL_TENANT_COLUMN = "__tc_workspace_id"
 LEGACY_TENANT_COLUMN = "migrated_tc_workspace_id"
 LEGACY_INTERNAL_COLUMN = "__tc_shadow"
 MIGRATED_INTERNAL_COLUMN = "migrated_tc_shadow"
+LEGACY_TABLE_PHYSICAL_NAME = "alertslegacy"
+LEGACY_TABLE_METADATA_NAME = "alerts-legacy"
 DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
 
 
@@ -157,7 +159,11 @@ def _get_column_comment(
 
 
 def _seed_legacy_internal_metadata(
-    conn, *, workspace_id: uuid.UUID, column_name: str
+    conn,
+    *,
+    workspace_id: uuid.UUID,
+    column_name: str,
+    table_metadata_name: str = TABLES_TABLE,
 ) -> None:
     """Create minimal metadata tables used by legacy internal rename helpers."""
     table_metadata_id = uuid.uuid4()
@@ -208,7 +214,7 @@ def _seed_legacy_internal_metadata(
         {
             "id": table_metadata_id,
             "workspace_id": workspace_id,
-            "table_name": TABLES_TABLE,
+            "table_name": table_metadata_name,
         },
     )
     conn.execute(
@@ -557,6 +563,164 @@ class TestDynamicWorkspaceRlsMigration:
                 ).scalar_one()
                 assert MIGRATED_INTERNAL_COLUMN in case_field_schema
                 assert LEGACY_INTERNAL_COLUMN not in case_field_schema
+        finally:
+            engine.dispose()
+
+    def test_upgrade_and_downgrade_rename_table_metadata_for_legacy_table_alias(
+        self, test_db
+    ) -> None:
+        workspace_id = test_db["workspace_ids"][0]
+        schema_name = _workspace_schema(TABLES_PREFIX, workspace_id)
+
+        engine = create_engine(test_db["db_url"])
+        try:
+            with engine.begin() as conn:
+                _seed_legacy_internal_metadata(
+                    conn,
+                    workspace_id=workspace_id,
+                    column_name=LEGACY_INTERNAL_COLUMN,
+                    table_metadata_name=LEGACY_TABLE_METADATA_NAME,
+                )
+                conn.execute(
+                    text(
+                        f'''
+                        CREATE TABLE "{schema_name}"."{LEGACY_TABLE_PHYSICAL_NAME}" (
+                            id UUID PRIMARY KEY,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                            name TEXT NOT NULL,
+                            "{LEGACY_INTERNAL_COLUMN}" TEXT
+                        )
+                        '''
+                    )
+                )
+                conn.execute(
+                    text(
+                        f'''
+                        INSERT INTO "{schema_name}"."{LEGACY_TABLE_PHYSICAL_NAME}" (
+                            id, name, "{LEGACY_INTERNAL_COLUMN}"
+                        )
+                        VALUES (:row_id, :name, :legacy_value)
+                        '''
+                    ),
+                    {
+                        "row_id": uuid.uuid4(),
+                        "name": "legacy-alias-row",
+                        "legacy_value": "legacy-alias-value",
+                    },
+                )
+        finally:
+            engine.dispose()
+
+        _run_alembic_upgrade(test_db["db_url"])
+
+        engine = create_engine(test_db["db_url"])
+        try:
+            with engine.begin() as conn:
+                column_names = {
+                    row[0]
+                    for row in conn.execute(
+                        text(
+                            """
+                            SELECT column_name
+                            FROM information_schema.columns
+                            WHERE table_schema = :schema_name
+                              AND table_name = :table_name
+                            """
+                        ),
+                        {
+                            "schema_name": schema_name,
+                            "table_name": LEGACY_TABLE_PHYSICAL_NAME,
+                        },
+                    ).fetchall()
+                }
+                assert LEGACY_INTERNAL_COLUMN not in column_names
+                assert MIGRATED_INTERNAL_COLUMN in column_names
+
+                migrated_value = conn.execute(
+                    text(
+                        f'''
+                        SELECT "{MIGRATED_INTERNAL_COLUMN}"
+                        FROM "{schema_name}"."{LEGACY_TABLE_PHYSICAL_NAME}"
+                        '''
+                    )
+                ).scalar_one()
+                assert migrated_value == "legacy-alias-value"
+
+                table_column_names = conn.execute(
+                    text(
+                        """
+                        SELECT tc.name
+                        FROM table_column AS tc
+                        JOIN tables AS t ON tc.table_id = t.id
+                        WHERE t.workspace_id = :workspace_id
+                          AND t.name = :table_name
+                        """
+                    ),
+                    {
+                        "workspace_id": workspace_id,
+                        "table_name": LEGACY_TABLE_METADATA_NAME,
+                    },
+                ).fetchall()
+                assert [row[0] for row in table_column_names] == [
+                    MIGRATED_INTERNAL_COLUMN
+                ]
+        finally:
+            engine.dispose()
+
+        _run_alembic_downgrade(test_db["db_url"])
+
+        engine = create_engine(test_db["db_url"])
+        try:
+            with engine.begin() as conn:
+                column_names = {
+                    row[0]
+                    for row in conn.execute(
+                        text(
+                            """
+                            SELECT column_name
+                            FROM information_schema.columns
+                            WHERE table_schema = :schema_name
+                              AND table_name = :table_name
+                            """
+                        ),
+                        {
+                            "schema_name": schema_name,
+                            "table_name": LEGACY_TABLE_PHYSICAL_NAME,
+                        },
+                    ).fetchall()
+                }
+                assert LEGACY_INTERNAL_COLUMN in column_names
+                assert MIGRATED_INTERNAL_COLUMN not in column_names
+
+                restored_value = conn.execute(
+                    text(
+                        f'''
+                        SELECT "{LEGACY_INTERNAL_COLUMN}"
+                        FROM "{schema_name}"."{LEGACY_TABLE_PHYSICAL_NAME}"
+                        '''
+                    )
+                ).scalar_one()
+                assert restored_value == "legacy-alias-value"
+
+                table_column_names = conn.execute(
+                    text(
+                        """
+                        SELECT tc.name
+                        FROM table_column AS tc
+                        JOIN tables AS t ON tc.table_id = t.id
+                        WHERE t.workspace_id = :workspace_id
+                          AND t.name = :table_name
+                        """
+                    ),
+                    {
+                        "workspace_id": workspace_id,
+                        "table_name": LEGACY_TABLE_METADATA_NAME,
+                    },
+                ).fetchall()
+                assert [row[0] for row in table_column_names] == [
+                    LEGACY_INTERNAL_COLUMN
+                ]
         finally:
             engine.dispose()
 

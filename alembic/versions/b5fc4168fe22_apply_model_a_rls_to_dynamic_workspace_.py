@@ -154,6 +154,73 @@ def _set_column_comment(
     bind.exec_driver_sql(f"COMMENT ON COLUMN {qualified_column} IS {comment_sql}")
 
 
+def _normalize_legacy_table_metadata_name(table_name: str) -> str | None:
+    """Normalize a legacy metadata name to the reflected physical identifier."""
+    normalized_name = "".join(c for c in table_name if c.isalnum() or c == "_")
+    if not normalized_name:
+        return None
+    if not (normalized_name[0].isalpha() or normalized_name[0] == "_"):
+        return None
+    return normalized_name.lower()
+
+
+def _resolve_table_metadata_id(
+    *,
+    workspace_id: UUID,
+    physical_table_name: str,
+) -> UUID | None:
+    """Resolve the metadata row for a physical table name.
+
+    Exact metadata-name matches win. If there is no exact match, fall back to
+    legacy metadata names that normalize to the same physical identifier.
+    """
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("tables", schema="public"):
+        return None
+
+    rows = bind.execute(
+        sa.text(
+            """
+            SELECT id, name
+            FROM tables
+            WHERE workspace_id = :workspace_id
+            """
+        ),
+        {"workspace_id": str(workspace_id)},
+    ).mappings()
+
+    exact_matches: list[UUID] = []
+    normalized_matches: list[UUID] = []
+    for row in rows:
+        match row:
+            case {"id": UUID() as table_id, "name": str() as metadata_name}:
+                if metadata_name == physical_table_name:
+                    exact_matches.append(table_id)
+                elif (
+                    _normalize_legacy_table_metadata_name(metadata_name)
+                    == physical_table_name
+                ):
+                    normalized_matches.append(table_id)
+
+    if len(exact_matches) > 1:
+        raise RuntimeError(
+            "Ambiguous exact table metadata matches found during legacy internal "
+            f"rename for workspace {workspace_id}: {physical_table_name}"
+        )
+    if exact_matches:
+        return exact_matches[0]
+
+    if len(normalized_matches) > 1:
+        raise RuntimeError(
+            "Ambiguous normalized table metadata matches found during legacy "
+            f"internal rename for workspace {workspace_id}: {physical_table_name}"
+        )
+    if normalized_matches:
+        return normalized_matches[0]
+    return None
+
+
 def _rename_table_column_metadata(
     *,
     workspace_id: UUID,
@@ -170,21 +237,25 @@ def _rename_table_column_metadata(
     ):
         return
 
+    if (
+        table_id := _resolve_table_metadata_id(
+            workspace_id=workspace_id,
+            physical_table_name=table_name,
+        )
+    ) is None:
+        return
+
     bind.execute(
         sa.text(
             """
-            UPDATE table_column AS tc
+            UPDATE table_column
             SET name = :new_name
-            FROM tables AS t
-            WHERE tc.table_id = t.id
-              AND t.workspace_id = :workspace_id
-              AND t.name = :table_name
-              AND tc.name = :old_name
+            WHERE table_id = :table_id
+              AND name = :old_name
             """
         ),
         {
-            "workspace_id": str(workspace_id),
-            "table_name": table_name,
+            "table_id": table_id,
             "old_name": old_name,
             "new_name": new_name,
         },
