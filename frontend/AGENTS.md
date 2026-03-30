@@ -14,12 +14,6 @@
 - Do not assume "mounted globally" means "reachable globally". Confirm the actual opener exists by tracing `setOpen(...)`, links, buttons, and layouts.
 - When a fallback depends on client state like cookies or last-viewed workspace IDs, test the empty/stale case explicitly.
 
-## Input and select focus ring consistency
-
-- All interactive inputs must use the same focus ring style: `ring-1`, `ring-inset`, `ring-ring`. This matches the standard `Input` and `SelectTrigger` components.
-- Do not use `ring-2`, `ring-offset-2`, or other outset ring variants on form inputs — they create visually inconsistent borders in dialogs.
-- Container-based inputs (e.g., `MultiTagCommandInput`) should use `focus-within:` instead of `focus-visible:` since the focusable element is a child, but the ring width and position must still match the standard pattern.
-
 ## Review checklist for settings work
 
 - Closed modal: no authenticated network requests should fire.
