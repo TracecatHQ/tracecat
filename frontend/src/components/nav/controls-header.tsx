@@ -49,6 +49,7 @@ import {
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
+import { CaseClosureDialog } from "@/components/cases/case-closure-dialog"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { CaseDurationMetrics } from "@/components/cases/case-duration-metrics"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
@@ -148,6 +149,7 @@ import {
   useCaseDropdownDefinitions,
   useCaseDurationDefinitions,
   useCaseDurations,
+  useCaseFields,
   useCaseTagCatalog,
   useGetCase,
   useGetTable,
@@ -402,13 +404,15 @@ function CasesActions() {
 
   const view = pathname?.includes("/cases/custom-fields")
     ? CasesViewMode.CustomFields
-    : pathname?.includes("/cases/durations")
-      ? CasesViewMode.Durations
-      : pathname?.includes("/cases/tags")
-        ? CasesViewMode.Tags
-        : pathname?.includes("/cases/dropdowns")
-          ? CasesViewMode.Dropdowns
-          : CasesViewMode.Cases
+    : pathname?.includes("/cases/closure-requirements")
+      ? CasesViewMode.ClosureRequirements
+      : pathname?.includes("/cases/durations")
+        ? CasesViewMode.Durations
+        : pathname?.includes("/cases/tags")
+          ? CasesViewMode.Tags
+          : pathname?.includes("/cases/dropdowns")
+            ? CasesViewMode.Dropdowns
+            : CasesViewMode.Cases
 
   const casesHref = workspaceId ? `/workspaces/${workspaceId}/cases` : undefined
   const tagsHref = workspaceId
@@ -417,11 +421,14 @@ function CasesActions() {
   const customFieldsHref = workspaceId
     ? `/workspaces/${workspaceId}/cases/custom-fields`
     : undefined
-  const durationsHref = workspaceId
-    ? `/workspaces/${workspaceId}/cases/durations`
-    : undefined
   const dropdownsHref = workspaceId
     ? `/workspaces/${workspaceId}/cases/dropdowns`
+    : undefined
+  const closureRequirementsHref = workspaceId
+    ? `/workspaces/${workspaceId}/cases/closure-requirements`
+    : undefined
+  const durationsHref = workspaceId
+    ? `/workspaces/${workspaceId}/cases/durations`
     : undefined
 
   return (
@@ -431,8 +438,9 @@ function CasesActions() {
         casesHref={casesHref}
         tagsHref={tagsHref}
         customFieldsHref={customFieldsHref}
-        durationsHref={durationsHref}
         dropdownsHref={dropdownsHref}
+        closureRequirementsHref={closureRequirementsHref}
+        durationsHref={durationsHref}
       />
       {view === CasesViewMode.CustomFields ? (
         <AddCustomField />
@@ -442,7 +450,7 @@ function CasesActions() {
         <AddCaseTag />
       ) : view === CasesViewMode.Dropdowns ? (
         <AddCaseDropdown />
-      ) : (
+      ) : view === CasesViewMode.ClosureRequirements ? null : (
         <>
           <Button
             variant="outline"
@@ -495,6 +503,14 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
       workspaceId,
       shouldLoadCatalogData && caseAddonsEnabled
     )
+  const { caseFields: caseFieldDefinitions } = useCaseFields(
+    workspaceId,
+    shouldLoadCatalogData && caseAddonsEnabled
+  )
+  const [closureDialog, setClosureDialog] = useState<{
+    open: boolean
+    targetStatus: CaseStatus
+  } | null>(null)
 
   // All callbacks must be defined before any early returns to satisfy React's rules of hooks
   const handleToggleTagSelection = useCallback((tagId: string) => {
@@ -738,6 +754,28 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                     onSelect={async () => {
                       if (!bulkUpdateSelectedCases) {
                         return
+                      }
+                      // Intercept closed/resolved for closure requirements
+                      if (
+                        caseAddonsEnabled &&
+                        (status.value === "closed" ||
+                          status.value === "resolved")
+                      ) {
+                        const reqFields =
+                          caseFieldDefinitions?.filter(
+                            (f) => !f.reserved && f.required_on_closure
+                          ) ?? []
+                        const reqDropdowns =
+                          dropdownDefinitions?.filter(
+                            (d) => d.required_on_closure
+                          ) ?? []
+                        if (reqFields.length > 0 || reqDropdowns.length > 0) {
+                          setClosureDialog({
+                            open: true,
+                            targetStatus: status.value,
+                          })
+                          return
+                        }
                       }
                       await bulkUpdateSelectedCases(
                         { status: status.value },
@@ -1241,6 +1279,44 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {closureDialog && (
+        <CaseClosureDialog
+          open={closureDialog.open}
+          onOpenChange={(open) => {
+            if (!open) setClosureDialog(null)
+          }}
+          targetStatus={closureDialog.targetStatus as "closed" | "resolved"}
+          requiredFields={
+            caseFieldDefinitions?.filter(
+              (f) => !f.reserved && f.required_on_closure
+            ) ?? []
+          }
+          requiredDropdowns={
+            dropdownDefinitions?.filter((d) => d.required_on_closure) ?? []
+          }
+          isBulk
+          selectedCount={selectedCount}
+          onSubmit={async (data) => {
+            if (!bulkUpdateSelectedCases) return
+            const statusLabel =
+              closureDialog.targetStatus === "closed" ? "Closed" : "Resolved"
+            await bulkUpdateSelectedCases(
+              {
+                status: closureDialog.targetStatus,
+                fields: data.fields,
+                dropdown_values: data.dropdown_values.map((dv) => ({
+                  definition_id: dv.definition_id,
+                  option_id: dv.option_id,
+                })),
+              },
+              {
+                successTitle: `Status set to ${statusLabel}`,
+                successDescription: `Applied to ${pluralisedCases}.`,
+              }
+            )
+          }}
+        />
+      )}
     </>
   )
 }
@@ -1564,9 +1640,10 @@ function getPageConfig(
   if (pagePath.startsWith("/cases")) {
     if (
       pagePath === "/cases/custom-fields" ||
+      pagePath === "/cases/dropdowns" ||
+      pagePath === "/cases/closure-requirements" ||
       pagePath === "/cases/durations" ||
-      pagePath === "/cases/tags" ||
-      pagePath === "/cases/dropdowns"
+      pagePath === "/cases/tags"
     ) {
       return {
         title: "Cases",
