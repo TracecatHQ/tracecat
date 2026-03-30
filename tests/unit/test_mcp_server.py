@@ -2277,6 +2277,13 @@ async def test_list_case_fields(monkeypatch):
 
     columns = [
         {
+            "name": "case_id",
+            "type": "UUID",
+            "nullable": False,
+            "default": None,
+            "comment": "Case UUID",
+        },
+        {
             "name": "status_reason",
             "type": "TEXT",
             "nullable": True,
@@ -2291,7 +2298,10 @@ async def test_list_case_fields(monkeypatch):
             "comment": "Severity band",
         },
     ]
-    field_schema = {"severity_band": {"type": "SELECT", "options": ["low", "high"]}}
+    field_schema = {
+        "status_reason": {"type": "TEXT", "kind": "LONG_TEXT"},
+        "severity_band": {"type": "SELECT", "options": ["low", "high"]},
+    }
 
     async def _list_fields():
         return columns
@@ -2313,10 +2323,14 @@ async def test_list_case_fields(monkeypatch):
 
     result = await _tool(mcp_server.list_case_fields)(workspace_id=str(uuid.uuid4()))
     payload = _payload(result)
-    assert payload["items"][0]["id"] == "status_reason"
-    assert payload["items"][0]["type"] == "TEXT"
-    assert payload["items"][1]["type"] == "SELECT"
-    assert payload["items"][1]["options"] == ["low", "high"]
+    assert payload["items"][0]["id"] == "case_id"
+    assert payload["items"][0]["type"] == "UUID"
+    assert payload["items"][0]["reserved"] is True
+    assert payload["items"][1]["id"] == "status_reason"
+    assert payload["items"][1]["type"] == "TEXT"
+    assert payload["items"][1]["kind"] == "LONG_TEXT"
+    assert payload["items"][2]["type"] == "SELECT"
+    assert payload["items"][2]["options"] == ["low", "high"]
 
 
 @pytest.mark.anyio
@@ -2351,6 +2365,63 @@ async def test_create_case_field_parses_type_and_options(monkeypatch):
     assert str(captured["type"]) == "SELECT"
     assert captured["options"] == ["low", "medium", "high"]
     assert "created successfully" in payload["message"]
+
+
+@pytest.mark.anyio
+async def test_create_case_field_parses_kind(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    captured: dict[str, Any] = {}
+
+    async def _create_field(params):
+        captured["name"] = params.name
+        captured["type"] = params.type
+        captured["kind"] = params.kind
+
+    field_service = SimpleNamespace(create_field=_create_field)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseFieldsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(field_service)),
+    )
+
+    result = await _tool(mcp_server.create_case_field)(
+        workspace_id=str(uuid.uuid4()),
+        name="details",
+        type="TEXT",
+        kind="LONG_TEXT",
+    )
+    payload = _payload(result)
+    assert captured["name"] == "details"
+    assert str(captured["type"]) == "TEXT"
+    assert captured["kind"].value == "LONG_TEXT"
+    assert "created successfully" in payload["message"]
+
+
+@pytest.mark.anyio
+async def test_create_case_field_rejects_invalid_kind_pair(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    field_service = SimpleNamespace(create_field=lambda _params: None)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseFieldsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(field_service)),
+    )
+
+    with pytest.raises(ToolError, match="Case field kind LONG_TEXT requires type TEXT"):
+        await _tool(mcp_server.create_case_field)(
+            workspace_id=str(uuid.uuid4()),
+            name="bad_details",
+            type="INTEGER",
+            kind="LONG_TEXT",
+        )
 
 
 @pytest.mark.anyio
@@ -4115,9 +4186,9 @@ async def test_update_agent_preset_resolves_explicit_model(
         model_provider: str | None,
     ) -> tuple[str, str]:
         assert resolved_role is role
-        assert model_name == "o3-mini"
+        assert model_name == "gpt-5-mini"
         assert model_provider == "openai"
-        return "o3-mini", "openai"
+        return "gpt-5-mini", "openai"
 
     class _PresetService:
         async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
@@ -4148,15 +4219,15 @@ async def test_update_agent_preset_resolves_explicit_model(
     result = await _tool(mcp_server.update_agent_preset)(
         workspace_id=str(workspace_id),
         preset_slug="security-triage",
-        model_name="o3-mini",
+        model_name="gpt-5-mini",
         model_provider="openai",
     )
 
     payload = _payload(result)
     params = captured["params"]
-    assert params.model_name == "o3-mini"
+    assert params.model_name == "gpt-5-mini"
     assert params.model_provider == "openai"
-    assert payload["model_name"] == "o3-mini"
+    assert payload["model_name"] == "gpt-5-mini"
     assert payload["model_provider"] == "openai"
 
 

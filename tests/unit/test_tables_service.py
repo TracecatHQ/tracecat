@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -449,19 +450,12 @@ class TestTablesService:
         with pytest.raises(TracecatNotFoundError):
             await tables_service.get_table_by_name("deletable_table")
 
-    async def test_create_column_rejects_plain_timestamp(
-        self, tables_service: TablesService
-    ) -> None:
-        """Ensure TIMESTAMP is not allowed for user-defined columns."""
-        table = await tables_service.create_table(TableCreate(name="reject_ts"))
-
-        with pytest.raises(ValueError, match="Invalid type: TIMESTAMP"):
-            await tables_service.create_column(
-                table,
-                TableColumnCreate(
-                    name="legacy_ts",
-                    type=SqlType.TIMESTAMP,
-                ),
+    @pytest.mark.parametrize("invalid_type", ["TIMESTAMP", "UUID"])
+    def test_table_column_create_rejects_removed_types(self, invalid_type: str) -> None:
+        """Removed user-defined SQL types should fail schema validation."""
+        with pytest.raises(ValidationError, match=invalid_type):
+            TableColumnCreate.model_validate(
+                {"name": "legacy_column", "type": invalid_type}
             )
 
 
@@ -531,12 +525,6 @@ class TestHandleDefaultValue:
                 id="numeric-literal",
             ),
             pytest.param(
-                SqlType.UUID,
-                "00000000-0000-0000-0000-000000000000",
-                "'00000000-0000-0000-0000-000000000000'::uuid",
-                id="uuid-literal",
-            ),
-            pytest.param(
                 SqlType.JSONB,
                 {"author": "O'Brien"},
                 "'{\"author\":\"O''Brien\"}'::jsonb",
@@ -581,12 +569,6 @@ class TestHandleDefaultValue:
                 "Infinity",
                 "Invalid numeric default value",
                 id="numeric-infinity",
-            ),
-            pytest.param(
-                SqlType.UUID,
-                "00000000-0000-0000-0000-000000000000' || current_user || '",
-                "Invalid UUID default value",
-                id="uuid-expression",
             ),
         ],
     )
@@ -1829,7 +1811,6 @@ class TestTableDataTypes:
             TableColumnCreate(name="bool_col", type=SqlType.BOOLEAN),
             TableColumnCreate(name="json_col", type=SqlType.JSONB),
             TableColumnCreate(name="timestamptz_col", type=SqlType.TIMESTAMPTZ),
-            TableColumnCreate(name="uuid_col", type=SqlType.UUID),
         ]
 
         for column in columns:
@@ -1842,8 +1823,6 @@ class TestTableDataTypes:
         self, tables_service: TablesService, complex_table: Table
     ) -> None:
         """Test inserting and retrieving values of all supported SQL types."""
-        # Test data for each type
-        test_uuid = uuid4()
         naive_timestamp = datetime(2024, 2, 24, 12, 0)
         expected_timestamp = naive_timestamp.replace(tzinfo=UTC)
         test_json = {"key": "value", "nested": {"list": [1, 2, 3]}}
@@ -1856,7 +1835,6 @@ class TestTableDataTypes:
             "bool_col": True,
             "json_col": test_json,
             "timestamptz_col": naive_timestamp,
-            "uuid_col": test_uuid,
         }
 
         # Insert the test data
@@ -1880,9 +1858,6 @@ class TestTableDataTypes:
         assert isinstance(retrieved_timestamptz, datetime)
         assert retrieved_timestamptz == expected_timestamp
         assert retrieved_timestamptz.tzinfo == UTC
-
-        # UUID comparison
-        assert str(retrieved["uuid_col"]) == str(test_uuid)
 
     async def test_timestamptz_normalisation(
         self, tables_service: TablesService, complex_table: Table
@@ -1968,12 +1943,6 @@ class TestTableDataTypes:
                 "Expected bool or 0/1, got str",
                 id="invalid_boolean",
             ),
-            # Test invalid UUID
-            pytest.param(
-                {"uuid_col": "not-a-uuid"},
-                "invalid UUID",
-                id="invalid_uuid",
-            ),
             # Test invalid JSON - this raises TypeError directly
             pytest.param(
                 {"json_col": object()},
@@ -2040,7 +2009,6 @@ class TestTableDataTypes:
             "timestamptz_col": datetime(
                 2025, 3, 15, 12, 0, 0, 0, tzinfo=UTC
             ),  # Arbitrary future datetime
-            "uuid_col": UUID("00000000-0000-0000-0000-000000000000"),  # Nil UUID
         }
 
         # Insert edge cases
@@ -2069,6 +2037,3 @@ class TestTableDataTypes:
         assert retrieved_timestamptz.astimezone(UTC).replace(
             tzinfo=None
         ) == expected_timestamptz.astimezone(UTC).replace(tzinfo=None)
-
-        # UUID comparison using string representation
-        assert str(retrieved["uuid_col"]) == str(edge_cases["uuid_col"])

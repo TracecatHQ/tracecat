@@ -484,72 +484,6 @@ function JsonCellEditor({
   )
 }
 
-function UuidCellEditor({
-  value,
-  onChange,
-  onCommit,
-  onCancel,
-}: CellEditorProps) {
-  const strValue = value === null || value === undefined ? "" : String(value)
-  const [error, setError] = useState<string | null>(null)
-  const ref = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    ref.current?.focus()
-    ref.current?.select()
-  }, [])
-
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-  const handleCommit = useCallback(() => {
-    const val = typeof value === "string" ? value : String(value ?? "")
-    if (val.trim() !== "" && !uuidRegex.test(val.trim())) {
-      setError("Invalid UUID format")
-      return
-    }
-    setError(null)
-    onCommit()
-  }, [value, onCommit])
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault()
-        handleCommit()
-      } else if (e.key === "Escape") {
-        e.preventDefault()
-        onCancel()
-      } else if (e.key === "Tab") {
-        e.preventDefault()
-        handleCommit()
-      }
-    },
-    [handleCommit, onCancel]
-  )
-
-  return (
-    <div className="space-y-1">
-      <Input
-        ref={ref}
-        type="text"
-        value={strValue}
-        onChange={(e) => {
-          onChange(e.target.value)
-          if (error && uuidRegex.test(e.target.value.trim())) {
-            setError(null)
-          }
-        }}
-        onKeyDown={handleKeyDown}
-        onBlur={handleCommit}
-        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-        className="h-8 font-mono text-xs border-0 rounded-none shadow-none focus-visible:ring-0"
-      />
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
-  )
-}
-
 function SelectCellEditor({
   value,
   column,
@@ -755,14 +689,11 @@ export function CellEditor(props: CellEditorProps) {
       return <BooleanCellEditor {...props} />
     case "DATE":
       return <DateCellEditor {...props} />
-    case "TIMESTAMP":
     case "TIMESTAMPTZ":
       return <TimestampCellEditor {...props} />
     case "JSON":
     case "JSONB":
       return <JsonCellEditor {...props} />
-    case "UUID":
-      return <UuidCellEditor {...props} />
     case "SELECT":
       return <SelectCellEditor {...props} />
     case "MULTI_SELECT":

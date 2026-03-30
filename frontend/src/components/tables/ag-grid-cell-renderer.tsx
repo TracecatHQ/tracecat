@@ -11,7 +11,7 @@ interface AgGridCellRendererParams extends CustomCellRendererProps {
 
 const JSON_TYPES = new Set(["JSON", "JSONB"])
 const SELECT_TYPES = new Set(["SELECT", "MULTI_SELECT"])
-const DATE_TYPES = new Set(["DATE", "TIMESTAMP", "TIMESTAMPTZ"])
+const DATE_TYPES = new Set(["DATE", "TIMESTAMPTZ"])
 const NUMERIC_TYPES = new Set([
   "INT",
   "INTEGER",

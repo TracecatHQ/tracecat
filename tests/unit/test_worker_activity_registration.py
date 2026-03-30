@@ -59,9 +59,9 @@ async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failu
     from tracecat.agent import executor_worker
 
     stop_mcp_server = AsyncMock()
-    stop_litellm_proxy = AsyncMock()
+    stop_backend = AsyncMock()
 
-    monkeypatch.setattr(executor_worker, "start_litellm_proxy", AsyncMock())
+    monkeypatch.setattr(executor_worker, "start_configured_llm_proxy", AsyncMock())
     monkeypatch.setattr(executor_worker, "start_mcp_server", AsyncMock())
     monkeypatch.setattr(
         executor_worker,
@@ -69,14 +69,45 @@ async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failu
         AsyncMock(side_effect=RuntimeError("boom")),
     )
     monkeypatch.setattr(executor_worker, "stop_mcp_server", stop_mcp_server)
-    monkeypatch.setattr(executor_worker, "stop_litellm_proxy", stop_litellm_proxy)
+    monkeypatch.setattr(executor_worker, "stop_configured_llm_proxy", stop_backend)
     executor_worker.interrupt_event.clear()
 
     with pytest.raises(RuntimeError, match="boom"):
         await executor_worker.main()
 
     stop_mcp_server.assert_awaited_once()
-    stop_litellm_proxy.assert_awaited_once()
+    stop_backend.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_agent_executor_worker_runs_tracecat_proxy_without_worker_global_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tracecat.agent import executor_worker
+
+    start_backend = AsyncMock()
+    stop_backend = AsyncMock()
+    monkeypatch.setattr(
+        executor_worker.config,
+        "TRACECAT__LLM_EXECUTION_BACKEND",
+        executor_worker.config.LLMExecutionBackend.TRACECAT_PROXY,
+    )
+    monkeypatch.setattr(executor_worker, "start_configured_llm_proxy", start_backend)
+    monkeypatch.setattr(executor_worker, "start_mcp_server", AsyncMock())
+    monkeypatch.setattr(
+        executor_worker,
+        "get_temporal_client",
+        AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    monkeypatch.setattr(executor_worker, "stop_mcp_server", AsyncMock())
+    monkeypatch.setattr(executor_worker, "stop_configured_llm_proxy", stop_backend)
+    executor_worker.interrupt_event.clear()
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await executor_worker.main()
+
+    start_backend.assert_awaited_once()
+    stop_backend.assert_awaited_once()
 
 
 @pytest.mark.anyio
@@ -162,7 +193,7 @@ async def test_agent_executor_worker_raises_when_runtime_service_reports_failure
             del exc_type, exc, tb
 
     async def fake_start_runtime_services() -> object:
-        executor_worker.runtime_failure_reason = "LiteLLM sidecar became unhealthy"
+        executor_worker.runtime_failure_reason = "LLM gateway became unhealthy"
         executor_worker.interrupt_event.set()
         return object()
 
@@ -175,5 +206,5 @@ async def test_agent_executor_worker_raises_when_runtime_service_reports_failure
     executor_worker.interrupt_event.clear()
     executor_worker.runtime_failure_reason = None
 
-    with pytest.raises(RuntimeError, match="LiteLLM sidecar became unhealthy"):
+    with pytest.raises(RuntimeError, match="LLM gateway became unhealthy"):
         await executor_worker.main()

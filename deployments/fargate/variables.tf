@@ -508,63 +508,57 @@ variable "llm_proxy_read_timeout" {
   default     = "300"
 }
 
-variable "litellm_num_workers" {
+variable "llm_gateway_credential_cache_ttl_seconds" {
   type        = string
-  description = "Number of LiteLLM proxy workers per agent-executor task"
-  default     = "4"
-}
-
-variable "litellm_credential_cache_ttl_seconds" {
-  type        = string
-  description = "TTL for process-local LiteLLM credential cache entries in seconds"
+  description = "TTL for process-local LLM gateway credential cache entries in seconds"
   default     = "60"
 }
 
-variable "litellm_healthcheck_interval_seconds" {
+variable "llm_gateway_healthcheck_interval_seconds" {
   type        = string
-  description = "LiteLLM readiness check interval in seconds"
+  description = "LLM gateway readiness check interval in seconds"
   default     = "30"
 }
 
-variable "litellm_healthcheck_timeout_seconds" {
+variable "llm_gateway_healthcheck_timeout_seconds" {
   type        = string
-  description = "LiteLLM readiness check timeout in seconds"
+  description = "LLM gateway readiness check timeout in seconds"
   default     = "2"
 }
 
-variable "litellm_healthcheck_connect_timeout_seconds" {
+variable "llm_gateway_healthcheck_connect_timeout_seconds" {
   type        = string
-  description = "LiteLLM readiness connect timeout in seconds"
+  description = "LLM gateway readiness connect timeout in seconds"
   default     = null
 }
 
-variable "litellm_healthcheck_read_timeout_seconds" {
+variable "llm_gateway_healthcheck_read_timeout_seconds" {
   type        = string
-  description = "LiteLLM readiness read timeout in seconds"
+  description = "LLM gateway readiness read timeout in seconds"
   default     = null
 }
 
-variable "litellm_healthcheck_write_timeout_seconds" {
+variable "llm_gateway_healthcheck_write_timeout_seconds" {
   type        = string
-  description = "LiteLLM readiness write timeout in seconds"
+  description = "LLM gateway readiness write timeout in seconds"
   default     = null
 }
 
-variable "litellm_healthcheck_pool_timeout_seconds" {
+variable "llm_gateway_healthcheck_pool_timeout_seconds" {
   type        = string
-  description = "LiteLLM readiness pool timeout in seconds"
+  description = "LLM gateway readiness pool timeout in seconds"
   default     = null
 }
 
-variable "litellm_healthcheck_failure_threshold" {
+variable "llm_gateway_healthcheck_failure_threshold" {
   type        = string
-  description = "Consecutive LiteLLM readiness failures before failing the worker"
+  description = "Consecutive LLM gateway readiness failures before failing the worker"
   default     = "3"
 }
 
-variable "litellm_status_log_interval_seconds" {
+variable "llm_gateway_status_log_interval_seconds" {
   type        = string
-  description = "Interval between LiteLLM status heartbeat logs in seconds"
+  description = "Interval between LLM gateway status heartbeat logs in seconds"
   default     = "30"
 }
 

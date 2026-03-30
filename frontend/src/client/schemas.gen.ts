@@ -5876,7 +5876,7 @@ export const $CaseFieldRead = {
       title: "Id",
     },
     type: {
-      $ref: "#/components/schemas/SqlType",
+      $ref: "#/components/schemas/CaseFieldReadType",
     },
     description: {
       type: "string",
@@ -5955,7 +5955,7 @@ export const $CaseFieldReadMinimal = {
       title: "Id",
     },
     type: {
-      $ref: "#/components/schemas/SqlType",
+      $ref: "#/components/schemas/CaseFieldReadType",
     },
     description: {
       type: "string",
@@ -6014,6 +6014,24 @@ export const $CaseFieldReadMinimal = {
   required: ["id", "type", "description", "nullable", "default", "reserved"],
   title: "CaseFieldReadMinimal",
   description: "Minimal read model for a case field.",
+} as const
+
+export const $CaseFieldReadType = {
+  type: "string",
+  enum: [
+    "TEXT",
+    "INTEGER",
+    "NUMERIC",
+    "DATE",
+    "BOOLEAN",
+    "TIMESTAMPTZ",
+    "JSONB",
+    "SELECT",
+    "MULTI_SELECT",
+    "UUID",
+  ],
+  title: "CaseFieldReadType",
+  description: "Read-only type for case field metadata.",
 } as const
 
 export const $CaseFieldUpdate = {
@@ -17948,10 +17966,8 @@ export const $SqlType = {
     "NUMERIC",
     "DATE",
     "BOOLEAN",
-    "TIMESTAMP",
     "TIMESTAMPTZ",
     "JSONB",
-    "UUID",
     "SELECT",
     "MULTI_SELECT",
   ],

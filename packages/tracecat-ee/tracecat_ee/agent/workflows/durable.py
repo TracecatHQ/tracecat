@@ -336,7 +336,7 @@ class DurableAgentWorkflow:
         This path:
         1. Resolves tool definitions from registry
         2. Loads session history from DB (for resume)
-        3. Mints JWT/LiteLLM tokens
+        3. Mints JWT/LLM gateway tokens
         4. Calls run_agent_executor_activity which spawns NSJail
         5. Persists session history after execution
         6. Handles approval requests
@@ -432,7 +432,7 @@ class DurableAgentWorkflow:
                 is_fork=is_fork,
             )
 
-        # Mint tokens for MCP server and LiteLLM gateway auth
+        # Mint tokens for MCP server and LLM gateway auth
         # These tokens are opaque to the jailed runtime - it cannot decode them
         info = workflow.info()
         mcp_auth_token = mint_mcp_token(
@@ -447,7 +447,7 @@ class DurableAgentWorkflow:
             allowed_internal_tools=allowed_internal_tools,
             internal_tool_context=internal_tool_context,
         )
-        litellm_auth_token = mint_llm_token(
+        llm_gateway_auth_token = mint_llm_token(
             workspace_id=self.workspace_id,
             organization_id=self.organization_id,
             session_id=self.session_id,
@@ -466,7 +466,7 @@ class DurableAgentWorkflow:
             config=cfg,
             role=self.role,
             mcp_auth_token=mcp_auth_token,
-            litellm_auth_token=litellm_auth_token,
+            llm_gateway_auth_token=llm_gateway_auth_token,
             allowed_actions=allowed_actions,
             sdk_session_id=self._sdk_session_id,
             sdk_session_data=self._sdk_session_data,
@@ -555,7 +555,7 @@ class DurableAgentWorkflow:
                     config=cfg,
                     role=self.role,
                     mcp_auth_token=mcp_auth_token,
-                    litellm_auth_token=litellm_auth_token,
+                    llm_gateway_auth_token=llm_gateway_auth_token,
                     allowed_actions=allowed_actions,
                     sdk_session_id=self._sdk_session_id,
                     sdk_session_data=self._sdk_session_data,

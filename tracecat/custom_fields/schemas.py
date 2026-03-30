@@ -11,7 +11,7 @@ from tracecat.tables.schemas import TableColumnCreate, TableColumnUpdate
 
 
 class CustomFieldRead(Schema):
-    """Read model for a custom field."""
+    """Compatibility read model for custom fields."""
 
     id: str
     type: SqlType
@@ -29,6 +29,7 @@ class CustomFieldRead(Schema):
         reserved_fields: set[str] | None = None,
         field_schema: dict[str, Any] | None = None,
     ) -> Self:
+        """Create a CustomFieldRead from a SQLAlchemy reflected column."""
         raw_type = column["type"]
         sql_type: SqlType
         if isinstance(raw_type, SqlType):
@@ -49,16 +50,12 @@ class CustomFieldRead(Schema):
                 sql_type = SqlType.INTEGER
             elif type_str == "TIMESTAMP WITH TIME ZONE":
                 sql_type = SqlType.TIMESTAMPTZ
-            elif type_str in {"TIMESTAMP WITHOUT TIME ZONE", "TIMESTAMP"}:
-                sql_type = SqlType.TIMESTAMP
             else:
                 sql_type = SqlType(type_str)
 
         reserved_set = reserved_fields or set()
         options: list[str] | None = None
-
-        schema_metadata = field_schema.get(column["name"]) if field_schema else None
-        if schema_metadata and "type" in schema_metadata:
+        if field_schema and (schema_metadata := field_schema.get(column["name"])):
             sql_type = SqlType(schema_metadata["type"])
             options = schema_metadata.get("options")
 

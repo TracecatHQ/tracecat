@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Benchmark real agent-session init-to-first-token latency.
 
-This script drives the Tracecat app API rather than the LiteLLM sidecar
+This script drives the Tracecat app API rather than the LLM gateway
 directly:
 
 1. Create a fresh agent session
