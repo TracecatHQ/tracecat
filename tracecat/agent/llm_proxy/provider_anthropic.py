@@ -69,6 +69,8 @@ def _anthropic_messages_url(base_url: str) -> str:
     base_url = base_url.rstrip("/")
     if base_url.endswith("/v1/messages") or base_url.endswith("/anthropic/v1/messages"):
         return base_url
+    if base_url.endswith("/v1"):
+        return f"{base_url}/messages"
     return f"{base_url}/v1/messages"
 
 

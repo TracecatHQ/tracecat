@@ -29,10 +29,15 @@ _KNOWN_EXTRA_PARAMS = ("stream_options", "extra_body", "extra-parameters")
 
 
 def _azure_anthropic_messages_url(api_base: str) -> str:
+    """Build the Azure AI Anthropic messages URL, avoiding /v1 duplication."""
     base = api_base.rstrip("/")
     if base.endswith("/v1/messages") or base.endswith("/anthropic/v1/messages"):
         return base
     if "/anthropic" in base:
+        # Base already contains /anthropic segment — check if it also has /v1
+        if base.endswith("/v1"):
+            # e.g. https://host/anthropic/v1 → append /messages only
+            return f"{base}/messages"
         prefix = base.split("/anthropic", 1)[0].rstrip("/")
         return f"{prefix}/anthropic/v1/messages"
     return f"{base}/anthropic/v1/messages"

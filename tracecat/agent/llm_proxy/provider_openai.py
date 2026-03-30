@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urljoin
 
 import httpx
 import orjson
@@ -43,6 +42,22 @@ from tracecat.agent.llm_proxy.types import (
     NormalizedToolCall,
     ProviderHTTPRequest,
 )
+
+_OPENAI_CHAT_COMPLETIONS_SUFFIX = "/v1/chat/completions"
+
+
+def _openai_chat_completions_url(base_url: str) -> str:
+    """Build the chat completions URL, avoiding /v1 duplication.
+
+    Handles base URLs that already include /v1 (e.g. https://api.openai.com/v1)
+    or even the full endpoint path.
+    """
+    base = base_url.rstrip("/")
+    if base.endswith(_OPENAI_CHAT_COMPLETIONS_SUFFIX):
+        return base
+    if base.endswith("/v1"):
+        return f"{base}/chat/completions"
+    return f"{base}{_OPENAI_CHAT_COMPLETIONS_SUFFIX}"
 
 
 def _model_name(model: str) -> str:
@@ -343,7 +358,7 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
                 headers["Authorization"] = f"Bearer {api_key}"
             return ProviderHTTPRequest(
                 method="POST",
-                url=urljoin(custom_base_url.rstrip("/") + "/", "v1/chat/completions"),
+                url=_openai_chat_completions_url(custom_base_url),
                 headers=headers,
                 json_body=payload,
                 stream=request.stream,
@@ -357,7 +372,7 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
             base_url = explicit_base_url.rstrip("/")
         return ProviderHTTPRequest(
             method="POST",
-            url=urljoin(base_url.rstrip("/") + "/", "v1/chat/completions"),
+            url=_openai_chat_completions_url(base_url),
             headers=headers,
             json_body=payload,
             stream=request.stream,
