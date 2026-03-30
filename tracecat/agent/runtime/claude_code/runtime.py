@@ -592,6 +592,7 @@ class ClaudeAgentRuntime:
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
                     "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
+                    "ENABLE_TOOL_SEARCH": "true",
                 },
                 model=payload.config.model_name,
                 system_prompt=self._build_system_prompt(payload.config.instructions),
