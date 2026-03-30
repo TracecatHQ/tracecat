@@ -4043,6 +4043,10 @@ export type ModelSecretConfig = {
   optional?: Array<string>
 }
 
+export type OAuth2AuthorizeResponse = {
+  authorization_url: string
+}
+
 /**
  * Grant type for OAuth 2.0.
  */
@@ -10859,6 +10863,21 @@ export type AuthVerifyVerifyData = {
 
 export type AuthVerifyVerifyResponse = UserRead
 
+export type AuthOauthOidcDatabaseAuthorizeData = {
+  scopes?: Array<string>
+}
+
+export type AuthOauthOidcDatabaseAuthorizeResponse = OAuth2AuthorizeResponse
+
+export type AuthOauthOidcDatabaseCallbackData = {
+  code?: string | null
+  codeVerifier?: string | null
+  error?: string | null
+  state?: string | null
+}
+
+export type AuthOauthOidcDatabaseCallbackResponse = unknown
+
 export type AuthSamlDatabaseLoginResponse = SAMLDatabaseLoginResponse
 
 export type AuthSsoAcsData = {
@@ -16127,6 +16146,40 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: UserRead
+        /**
+         * Bad Request
+         */
+        400: ErrorModel
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/oauth/authorize": {
+    get: {
+      req: AuthOauthOidcDatabaseAuthorizeData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OAuth2AuthorizeResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/oauth/callback": {
+    get: {
+      req: AuthOauthOidcDatabaseCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
         /**
          * Bad Request
          */

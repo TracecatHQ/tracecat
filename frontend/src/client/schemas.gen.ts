@@ -12812,6 +12812,18 @@ export const $ModelSecretConfig = {
   title: "ModelSecretConfig",
 } as const
 
+export const $OAuth2AuthorizeResponse = {
+  properties: {
+    authorization_url: {
+      type: "string",
+      title: "Authorization Url",
+    },
+  },
+  type: "object",
+  required: ["authorization_url"],
+  title: "OAuth2AuthorizeResponse",
+} as const
+
 export const $OAuthGrantType = {
   type: "string",
   enum: ["authorization_code", "client_credentials"],
