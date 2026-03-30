@@ -20,6 +20,7 @@ import type {
   CaseUpdate,
 } from "@/client"
 import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
+import { CaseClosureDialog } from "@/components/cases/case-closure-dialog"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CaseLinkedRowsSection } from "@/components/cases/case-linked-rows-section"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
@@ -65,6 +66,7 @@ import {
   useCaseDropdownDefinitions,
   useCaseDurationDefinitions,
   useCaseDurations,
+  useCaseFields,
   useCaseTagCatalog,
   useGetCase,
   useRemoveCaseTag,
@@ -121,7 +123,12 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     caseAddonsEnabled
   )
   const setDropdownValue = useSetCaseDropdownValue(workspaceId)
+  const { caseFields: caseFieldDefinitions } = useCaseFields(workspaceId)
   const { toast } = useToast()
+  const [closureDialog, setClosureDialog] = useState<{
+    open: boolean
+    targetStatus: CaseStatus
+  } | null>(null)
   const customFields = useMemo(
     () => (caseData?.fields ?? []).filter((field) => !field.reserved),
     [caseData?.fields]
@@ -199,6 +206,36 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   }
 
   const handleStatusChange = async (newStatus: CaseStatus) => {
+    if (
+      caseAddonsEnabled &&
+      (newStatus === "closed" || newStatus === "resolved")
+    ) {
+      const reqFields =
+        caseFieldDefinitions?.filter(
+          (f) => !f.reserved && f.required_on_closure
+        ) ?? []
+      const reqDropdowns =
+        dropdownDefinitions?.filter((d) => d.required_on_closure) ?? []
+
+      if (reqFields.length > 0 || reqDropdowns.length > 0) {
+        // Check if any required field/dropdown is empty on the current case
+        const hasEmptyField = reqFields.some((f) => {
+          const field = caseData.fields.find((cf) => cf.id === f.id)
+          return isCustomFieldValueEmpty(field?.value)
+        })
+        const hasEmptyDropdown = reqDropdowns.some((d) => {
+          const dv = caseData.dropdown_values.find(
+            (v) => v.definition_id === d.id
+          )
+          return !dv?.option_id
+        })
+
+        if (hasEmptyField || hasEmptyDropdown) {
+          setClosureDialog({ open: true, targetStatus: newStatus })
+          return
+        }
+      }
+    }
     await updateCase({ status: newStatus })
   }
 
@@ -624,6 +661,39 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
           </SidebarContent>
         </Sidebar>
       </div>
+      {closureDialog && (
+        <CaseClosureDialog
+          open={closureDialog.open}
+          onOpenChange={(open) => {
+            if (!open) setClosureDialog(null)
+          }}
+          targetStatus={closureDialog.targetStatus as "closed" | "resolved"}
+          requiredFields={
+            caseFieldDefinitions?.filter(
+              (f) => !f.reserved && f.required_on_closure
+            ) ?? []
+          }
+          requiredDropdowns={
+            dropdownDefinitions?.filter((d) => d.required_on_closure) ?? []
+          }
+          currentFieldValues={Object.fromEntries(
+            caseData.fields
+              .filter((f) => !f.reserved)
+              .map((f) => [f.id, f.value])
+          )}
+          currentDropdownValues={caseData.dropdown_values}
+          onSubmit={async (data) => {
+            await updateCase({
+              status: closureDialog.targetStatus,
+              fields: data.fields,
+              dropdown_values: data.dropdown_values.map((dv) => ({
+                definition_id: dv.definition_id,
+                option_id: dv.option_id,
+              })),
+            })
+          }}
+        />
+      )}
     </>
   )
 }

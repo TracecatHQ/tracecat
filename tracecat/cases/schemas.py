@@ -122,6 +122,7 @@ class CaseFieldReadMinimal(CustomFieldRead):
     """Minimal read model for a case field."""
 
     kind: CaseFieldKind | None = Field(default=None)
+    required_on_closure: bool = Field(default=False)
 
     @classmethod
     def from_sa(
@@ -147,20 +148,32 @@ class CaseFieldReadMinimal(CustomFieldRead):
             field_schema=field_schema,
         )
         kind: CaseFieldKind | None = None
+        required_on_closure = False
         if field_schema and (meta := field_schema.get(column["name"])):
             if kind_str := meta.get("kind"):
                 kind = CaseFieldKind(kind_str)
-        return cls.model_validate({**base.model_dump(), "kind": kind})
+            if meta.get("required_on_closure"):
+                required_on_closure = True
+        return cls.model_validate(
+            {
+                **base.model_dump(),
+                "kind": kind,
+                "required_on_closure": required_on_closure,
+            }
+        )
 
 
 class CaseFieldCreate(CustomFieldCreate):
     """Create a new case field."""
 
     kind: CaseFieldKind | None = Field(default=None)
+    required_on_closure: bool = Field(default=False)
 
 
 class CaseFieldUpdate(CustomFieldUpdate):
     """Update a case field."""
+
+    required_on_closure: bool | None = Field(default=None)
 
 
 class CaseFieldRead(CaseFieldReadMinimal):

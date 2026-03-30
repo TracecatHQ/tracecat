@@ -3750,7 +3750,7 @@ export function useCaseDurationDefinitions(
   }
 }
 
-export function useCaseFields(workspaceId: string) {
+export function useCaseFields(workspaceId: string, enabled = true) {
   const {
     data: caseFields,
     isLoading: caseFieldsIsLoading,
@@ -3758,6 +3758,7 @@ export function useCaseFields(workspaceId: string) {
   } = useQuery<CaseFieldReadMinimal[], TracecatApiError>({
     queryKey: ["case-fields", workspaceId],
     queryFn: async () => await casesListFields({ workspaceId }),
+    enabled: Boolean(workspaceId) && enabled,
   })
 
   return {

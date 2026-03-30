@@ -1211,6 +1211,7 @@ export type CaseDropdownDefinitionCreate = {
   ref: string
   icon_name?: string | null
   is_ordered?: boolean
+  required_on_closure?: boolean
   position?: number
   options?: Array<CaseDropdownOptionCreate>
 }
@@ -1224,6 +1225,7 @@ export type CaseDropdownDefinitionRead = {
   ref: string
   icon_name?: string | null
   is_ordered: boolean
+  required_on_closure: boolean
   position: number
   options?: Array<CaseDropdownOptionRead>
 }
@@ -1236,6 +1238,7 @@ export type CaseDropdownDefinitionUpdate = {
   ref?: string | null
   icon_name?: string | null
   is_ordered?: boolean | null
+  required_on_closure?: boolean | null
   position?: number | null
 }
 
@@ -1575,6 +1578,7 @@ export type CaseFieldCreate = {
   default?: unknown | null
   options?: Array<string> | null
   kind?: CaseFieldKind | null
+  required_on_closure?: boolean
 }
 
 /**
@@ -1597,6 +1601,7 @@ export type CaseFieldRead = {
   reserved: boolean
   options?: Array<string> | null
   kind?: CaseFieldKind | null
+  required_on_closure?: boolean
   value: unknown
 }
 
@@ -1612,6 +1617,7 @@ export type CaseFieldReadMinimal = {
   reserved: boolean
   options?: Array<string> | null
   kind?: CaseFieldKind | null
+  required_on_closure?: boolean
 }
 
 /**
@@ -1639,6 +1645,7 @@ export type CaseFieldUpdate = {
    */
   is_index?: boolean | null
   options?: Array<string> | null
+  required_on_closure?: boolean | null
 }
 
 /**
