@@ -4,7 +4,7 @@ This module provides token minting and verification for authenticating requests
 between the jailed agent runtime and trusted services:
 
 1. MCP Token: For tool execution via the trusted MCP server
-2. LLM Token: For LLM API calls via the LiteLLM gateway
+2. LLM Token: For LLM API calls via the LLM gateway
 
 These tokens are separate to provide isolation - a compromised MCP execution
 path (which runs user code) cannot make arbitrary LLM calls, and vice versa.

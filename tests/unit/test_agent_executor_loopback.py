@@ -60,7 +60,7 @@ def loopback_input(tmp_path: Path) -> LoopbackInput:
             model_provider="anthropic",
         ),
         mcp_auth_token="mcp-token",
-        litellm_auth_token="litellm-token",
+        llm_gateway_auth_token="llm-token",
         socket_dir=tmp_path,
     )
 
@@ -149,7 +149,7 @@ def _make_handler() -> LoopbackHandler:
                 model_provider="anthropic",
             ),
             mcp_auth_token="mcp-token",
-            litellm_auth_token="llm-token",
+            llm_gateway_auth_token="llm-token",
             socket_dir=Path("/tmp"),
         )
     )

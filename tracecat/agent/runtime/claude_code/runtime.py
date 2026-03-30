@@ -58,25 +58,15 @@ from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
-# Default LiteLLM port for NSJail mode and internet-enabled mode
-# In direct mode with network isolation, the bridge uses a dynamic port
-# passed via TRACECAT__LLM_BRIDGE_PORT environment variable
-LITELLM_DEFAULT_PORT = 4000
 
-
-def get_litellm_url() -> str:
-    """Get the LiteLLM URL based on runtime mode.
-
-    - NSJail mode: Uses fixed port 4000 (network namespace isolated)
-    - Direct mode (network isolated): Uses dynamic port from env var
-    - Internet enabled: Uses default port 4000 (direct gateway access)
-    """
-
-    if TRACECAT__DISABLE_NSJAIL:
-        # Direct mode: check for dynamic port from LLM bridge
-        port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT", str(LITELLM_DEFAULT_PORT))
-        return f"http://127.0.0.1:{port}"
-    return f"http://127.0.0.1:{LITELLM_DEFAULT_PORT}"
+def get_llm_proxy_url() -> str:
+    """Get the LLM proxy URL from the dynamic port assigned by the LLM bridge."""
+    port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT")
+    if not port:
+        raise RuntimeError(
+            "TRACECAT__LLM_BRIDGE_PORT is not set — LLM bridge was not started"
+        )
+    return f"http://127.0.0.1:{port}"
 
 
 def _configure_claude_sdk_process_env() -> None:
@@ -469,11 +459,15 @@ class ClaudeAgentRuntime:
             "hookSpecificOutput": hook_output,
         }
 
-    def _build_system_prompt(
-        self, instructions: str | None, model: str | None = None
-    ) -> str:
+    def _build_system_prompt(self, instructions: str | None) -> str:
         """Build the system prompt for the agent."""
-        base = "If asked about your identity, you are a Tracecat automation assistant."
+        base = (
+            "If asked about your identity, you are a Tracecat automation assistant.\n\n"
+            "If a structured output schema is configured, you MUST produce structured"
+            " output as the very last thing in EVERY turn — including follow-up turns."
+            " Do not add any commentary, explanation, or text after the structured"
+            " output. This applies to every response, not just the first one."
+        )
         return f"{base}\n\n{instructions}" if instructions else base
 
     async def run(self, payload: RuntimeInitPayload) -> None:
@@ -596,8 +590,8 @@ class ClaudeAgentRuntime:
                 resume=resume_session_id,
                 fork_session=fork_session,  # If True, creates new session from parent's history
                 env={
-                    "ANTHROPIC_AUTH_TOKEN": payload.litellm_auth_token,
-                    "ANTHROPIC_BASE_URL": get_litellm_url(),
+                    "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
+                    "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
                 },
                 model=payload.config.model_name,
                 system_prompt=self._build_system_prompt(payload.config.instructions),
