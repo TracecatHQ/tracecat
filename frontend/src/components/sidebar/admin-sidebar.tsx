@@ -60,16 +60,12 @@ export function AdminSidebar({
       icon: UsersIcon,
       isActive: pathname?.includes("/admin/users"),
     },
-    ...(multiTenantEnabled
-      ? [
-          {
-            title: "Tiers",
-            url: "/admin/tiers",
-            icon: LayersIcon,
-            isActive: pathname?.includes("/admin/tiers"),
-          },
-        ]
-      : []),
+    {
+      title: "Tiers",
+      url: "/admin/tiers",
+      icon: LayersIcon,
+      isActive: pathname?.includes("/admin/tiers"),
+    },
   ]
 
   const navRegistry = [
