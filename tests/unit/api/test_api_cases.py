@@ -13,7 +13,13 @@ from sqlalchemy.exc import ProgrammingError
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
-from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import (
+    CaseEventType,
+    CaseFieldKind,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
 from tracecat.cases.schemas import (
     CaseCommentRead,
     CaseCommentThreadRead,
@@ -342,6 +348,87 @@ async def test_create_case_validation_error(
 
 
 @pytest.mark.anyio
+async def test_create_case_field_accepts_long_text_kind(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            "/case-fields",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "details", "type": "TEXT", "kind": "LONG_TEXT"},
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    mock_service.create_field.assert_awaited_once()
+    params = mock_service.create_field.await_args.args[0]
+    assert params.type == "TEXT"
+    assert params.kind is CaseFieldKind.LONG_TEXT
+
+
+@pytest.mark.anyio
+async def test_list_case_fields_preserves_reserved_uuid_type(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.list_fields.return_value = [
+            {
+                "name": "case_id",
+                "type": "UUID",
+                "nullable": False,
+                "default": None,
+                "comment": "Case UUID",
+            },
+            {
+                "name": "details",
+                "type": "TEXT",
+                "nullable": True,
+                "default": None,
+                "comment": "Case details",
+            },
+        ]
+        mock_service.get_field_schema.return_value = {
+            "details": {"type": "TEXT", "kind": "LONG_TEXT"}
+        }
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            "/case-fields",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data[0]["id"] == "case_id"
+    assert data[0]["type"] == "UUID"
+    assert data[0]["reserved"] is True
+    assert data[1]["id"] == "details"
+    assert data[1]["type"] == "TEXT"
+    assert data[1]["kind"] == "LONG_TEXT"
+
+
+@pytest.mark.anyio
+async def test_create_case_field_rejects_invalid_kind_pair(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        response = client.post(
+            "/case-fields",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "details", "type": "INTEGER", "kind": "LONG_TEXT"},
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_service_cls.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_update_case_field_invalid_identifier_returns_400(
     client: TestClient,
     test_admin_role: Role,
@@ -383,6 +470,22 @@ async def test_create_case_field_validation_error_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "reserved for internal use" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_update_case_field_rejects_kind_input(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        response = client.patch(
+            "/case-fields/details",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"kind": "URL"},
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_service_cls.assert_not_called()
 
 
 @pytest.mark.anyio

@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import (
+    CaseFieldReadType,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
 from tracecat.cases.schemas import (
     CaseFieldCreate,
     CaseFieldReadMinimal,
@@ -97,20 +102,6 @@ class TestCaseFieldsService:
             assert fields == mock_columns
             mock_get_columns.assert_called_once()
 
-    async def test_case_field_read_accepts_timestamp_type(self) -> None:
-        """Ensure TIMESTAMP columns can be read for reserved fields."""
-        column = ReflectedColumn(
-            name="created_at",
-            type=sa.types.TIMESTAMP(),
-            nullable=False,
-            default=None,
-            comment=None,
-        )
-
-        field = CaseFieldReadMinimal.from_sa(column)
-        assert field.type is SqlType.TIMESTAMP
-        assert field.reserved is True
-
     async def test_case_field_read_accepts_timestamptz_type(self) -> None:
         """Ensure TIMESTAMPTZ columns can be read for custom fields."""
         column = ReflectedColumn(
@@ -122,7 +113,7 @@ class TestCaseFieldsService:
         )
 
         field = CaseFieldReadMinimal.from_sa(column)
-        assert field.type is SqlType.TIMESTAMPTZ
+        assert field.type is CaseFieldReadType.TIMESTAMPTZ
         assert field.reserved is False
 
     async def test_case_field_read_normalises_timestamptz_string(self) -> None:
@@ -136,8 +127,44 @@ class TestCaseFieldsService:
         )
 
         field = CaseFieldReadMinimal.from_sa(column)
-        assert field.type is SqlType.TIMESTAMPTZ
+        assert field.type is CaseFieldReadType.TIMESTAMPTZ
         assert field.reserved is False
+
+    async def test_case_field_read_preserves_reserved_uuid_type(self) -> None:
+        """Ensure reserved UUID columns remain UUID in read metadata."""
+        column = ReflectedColumn(
+            name="case_id",
+            type=sa.types.UUID(),
+            nullable=False,
+            default=None,
+            comment=None,
+        )
+
+        field = CaseFieldReadMinimal.from_sa(column)
+        assert field.type is CaseFieldReadType.UUID
+        assert field.reserved is True
+
+    async def test_case_field_read_prefers_schema_type_metadata(self) -> None:
+        """Ensure user-defined field metadata drives the public read type."""
+        column = ReflectedColumn(
+            name="severity_band",
+            type=sa.types.String(),
+            nullable=True,
+            default=None,
+            comment=None,
+        )
+
+        field = CaseFieldReadMinimal.from_sa(
+            column,
+            field_schema={
+                "severity_band": {
+                    "type": "SELECT",
+                    "options": ["low", "high"],
+                }
+            },
+        )
+        assert field.type is CaseFieldReadType.SELECT
+        assert field.options == ["low", "high"]
 
     async def test_create_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test creating a case field."""

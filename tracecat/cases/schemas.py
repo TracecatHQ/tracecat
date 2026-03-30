@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
-from pydantic import ConfigDict, Field, RootModel, field_validator
+from pydantic import ConfigDict, Field, RootModel, field_validator, model_validator
 
 from tracecat.auth.schemas import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
@@ -17,6 +17,7 @@ from tracecat.cases.dropdowns.schemas import (
 from tracecat.cases.enums import (
     CaseEventType,
     CaseFieldKind,
+    CaseFieldReadType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
@@ -27,7 +28,6 @@ from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.core.schemas import Schema
 from tracecat.custom_fields.schemas import (
     CustomFieldCreate,
-    CustomFieldRead,
     CustomFieldUpdate,
 )
 from tracecat.identifiers.workflow import (
@@ -35,6 +35,8 @@ from tracecat.identifiers.workflow import (
     WorkflowIDShort,
     WorkflowUUID,
 )
+from tracecat.tables.common import parse_postgres_default
+from tracecat.tables.enums import SqlType
 
 
 class CaseReadMinimal(Schema):
@@ -118,9 +120,41 @@ class CaseUpdate(Schema):
 # Case Fields
 
 
-class CaseFieldReadMinimal(CustomFieldRead):
+def _normalize_case_field_read_type(raw_type: Any) -> CaseFieldReadType:
+    if isinstance(raw_type, CaseFieldReadType):
+        return raw_type
+    if isinstance(raw_type, SqlType):
+        return CaseFieldReadType(raw_type.value)
+
+    type_str: str
+    if isinstance(raw_type, str):
+        type_str = raw_type.upper()
+    else:
+        type_str = str(raw_type).upper()
+        if hasattr(raw_type, "timezone"):
+            type_str = (
+                "TIMESTAMP WITH TIME ZONE"
+                if getattr(raw_type, "timezone", False)
+                else "TIMESTAMP WITHOUT TIME ZONE"
+            )
+
+    if type_str == "BIGINT":
+        return CaseFieldReadType.INTEGER
+    if type_str == "TIMESTAMP WITH TIME ZONE":
+        return CaseFieldReadType.TIMESTAMPTZ
+    return CaseFieldReadType(type_str)
+
+
+class CaseFieldReadMinimal(Schema):
     """Minimal read model for a case field."""
 
+    id: str
+    type: CaseFieldReadType
+    description: str
+    nullable: bool
+    default: str | None
+    reserved: bool
+    options: list[str] | None = None
     kind: CaseFieldKind | None = Field(default=None)
     required_on_closure: bool = Field(default=False)
 
@@ -129,34 +163,38 @@ class CaseFieldReadMinimal(CustomFieldRead):
         cls,
         column: sa.engine.interfaces.ReflectedColumn,
         *,
-        reserved_fields: set[str] | None = None,  # noqa: ARG003 - Ignored; case fields always use RESERVED_CASE_FIELDS
         field_schema: dict[str, Any] | None = None,
     ) -> CaseFieldReadMinimal:
         """Create a CaseFieldReadMinimal from a SQLAlchemy reflected column.
 
         Args:
             column: The reflected column metadata from SQLAlchemy.
-            reserved_fields: Ignored. Case fields always use RESERVED_CASE_FIELDS.
             field_schema: Optional schema metadata for the field.
 
         Returns:
             A CaseFieldReadMinimal instance populated from the column data.
         """
-        base = super().from_sa(
-            column,
-            reserved_fields=set(RESERVED_CASE_FIELDS),
-            field_schema=field_schema,
-        )
         kind: CaseFieldKind | None = None
         required_on_closure = False
+        options: list[str] | None = None
         if field_schema and (meta := field_schema.get(column["name"])):
+            read_type = CaseFieldReadType(meta["type"])
+            options = meta.get("options")
             if kind_str := meta.get("kind"):
                 kind = CaseFieldKind(kind_str)
             if meta.get("required_on_closure"):
                 required_on_closure = True
+        else:
+            read_type = _normalize_case_field_read_type(column["type"])
         return cls.model_validate(
             {
-                **base.model_dump(),
+                "id": column["name"],
+                "type": read_type,
+                "description": column.get("comment") or "",
+                "nullable": column["nullable"],
+                "default": parse_postgres_default(column.get("default")),
+                "reserved": column["name"] in RESERVED_CASE_FIELDS,
+                "options": options,
                 "kind": kind,
                 "required_on_closure": required_on_closure,
             }
@@ -169,11 +207,31 @@ class CaseFieldCreate(CustomFieldCreate):
     kind: CaseFieldKind | None = Field(default=None)
     required_on_closure: bool = Field(default=False)
 
+    @model_validator(mode="after")
+    def validate_kind_type_pair(self) -> CaseFieldCreate:
+        """Validate the semantic kind against the storage type."""
+        if self.kind is None:
+            return self
+
+        if self.kind is CaseFieldKind.LONG_TEXT and self.type is not SqlType.TEXT:
+            raise ValueError("Case field kind LONG_TEXT requires type TEXT")
+        if self.kind is CaseFieldKind.URL and self.type is not SqlType.JSONB:
+            raise ValueError("Case field kind URL requires type JSONB")
+        return self
+
 
 class CaseFieldUpdate(CustomFieldUpdate):
     """Update a case field."""
 
     required_on_closure: bool | None = Field(default=None)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_kind_updates(cls, data: Any) -> Any:
+        """Reject create-only kind updates."""
+        if isinstance(data, dict) and "kind" in data:
+            raise ValueError("Case field kind can only be set when creating a field")
+        return data
 
 
 class CaseFieldRead(CaseFieldReadMinimal):
