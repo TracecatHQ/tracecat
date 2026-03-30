@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import orjson
 import pytest
@@ -62,8 +62,9 @@ async def test_list_builtin_catalog_does_not_surface_snapshot_only_rows(
         "tracecat.agent.catalog.service.load_catalog_state",
         AsyncMock(return_value=(ModelDiscoveryStatus.READY, None, None)),
     )
-    service._list_org_selection_link_map = AsyncMock(return_value={})
-    service._list_builtin_catalog_rows = AsyncMock(return_value=[])
+    mock_result = Mock()
+    mock_result.scalars.return_value.all.return_value = []
+    service.session.execute = AsyncMock(return_value=mock_result)
     service._load_provider_credentials = AsyncMock(
         return_value={"OPENAI_API_KEY": "sk-test"}
     )
@@ -110,10 +111,12 @@ async def test_list_builtin_catalog_uses_persisted_rows_with_existing_readiness_
         "tracecat.agent.catalog.service.load_catalog_state",
         AsyncMock(return_value=(ModelDiscoveryStatus.READY, None, None)),
     )
-    service._list_org_selection_link_map = AsyncMock(
-        return_value={catalog_id: selection_link}
-    )
-    service._list_builtin_catalog_rows = AsyncMock(return_value=[persisted_row])
+    # Session returns selection links first, then catalog rows.
+    links_result = Mock()
+    links_result.scalars.return_value.all.return_value = [selection_link]
+    rows_result = Mock()
+    rows_result.scalars.return_value.all.return_value = [persisted_row]
+    service.session.execute = AsyncMock(side_effect=[links_result, rows_result])
     service._load_provider_credentials = AsyncMock(
         return_value={"OPENAI_API_KEY": "sk-test"}
     )
@@ -160,14 +163,16 @@ async def test_list_providers_defaults_to_configured_only_without_discovered_mod
             {"OPENAI_API_KEY": "sk-test"} if provider == "openai" else None
         )
     )
-    service._list_org_selection_link_map = AsyncMock()
-    service._list_builtin_catalog_rows = AsyncMock()
+
+    execute_mock = AsyncMock()
+    service.session.execute = execute_mock
 
     providers = await service.list_providers()
 
     assert [provider.provider for provider in providers] == ["openai"]
-    service._list_org_selection_link_map.assert_not_awaited()
-    service._list_builtin_catalog_rows.assert_not_awaited()
+    # Session should not be queried for catalog rows or selection links
+    # when include_discovered_models is False (default).
+    execute_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -200,10 +205,12 @@ async def test_list_providers_can_include_unconfigured_and_discovered_models(
             {"OPENAI_API_KEY": "sk-test"} if provider == "openai" else None
         )
     )
-    service._list_org_selection_link_map = AsyncMock(
-        return_value={catalog_id: selection_link}
-    )
-    service._list_builtin_catalog_rows = AsyncMock(return_value=[persisted_row])
+    # Session returns selection links first, then catalog rows.
+    links_result = Mock()
+    links_result.scalars.return_value.all.return_value = [selection_link]
+    rows_result = Mock()
+    rows_result.scalars.return_value.all.return_value = [persisted_row]
+    service.session.execute = AsyncMock(side_effect=[links_result, rows_result])
 
     providers = await service.list_providers(
         configured_only=False,

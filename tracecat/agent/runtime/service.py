@@ -199,6 +199,13 @@ class AgentRuntimeService(BaseOrgService):
                 workspace_id=self.role.workspace_id,
             ):
                 return selection
+        # When the caller explicitly supplied a source_id, do not fall back to
+        # a source-agnostic match — that could silently route to a different
+        # source's credentials for the same provider/model pair.
+        if config.source_id is not None:
+            return None
+        if not config.model_provider or not config.model_name:
+            return None
         match_result = await resolve_enabled_catalog_match_for_provider_model(
             self.session,
             organization_id=self.organization_id,
@@ -234,6 +241,16 @@ class AgentRuntimeService(BaseOrgService):
                 preset_selection,
                 workspace_id=effective_workspace_id,
                 overrides=config,
+            )
+        # When the caller pinned a source_id, every resolution path above has
+        # already failed.  Falling through to the bare-provider credential
+        # lookup would silently use different credentials than the caller
+        # intended, so fail fast instead.
+        if config.source_id is not None:
+            raise TracecatNotFoundError(
+                f"No enabled catalog entry found for source_id={config.source_id}, "
+                f"model_provider={config.model_provider!r}, "
+                f"model_name={config.model_name!r}"
             )
         credentials = await self._build_runtime_credentials(
             catalog=None,

@@ -137,11 +137,6 @@ class AgentCatalogService(BaseOrgService):
 
     service_name: ClassVar[str] = "agent-catalog"
 
-    async def get_builtin_catalog_state(
-        self,
-    ) -> tuple[ModelDiscoveryStatus, datetime | None, str | None]:
-        return await load_catalog_state(self.session)
-
     async def _load_provider_credentials(
         self,
         provider: str,
@@ -156,41 +151,11 @@ class AgentCatalogService(BaseOrgService):
             return None
         return deserialize_secret_keyvalues(secret.encrypted_keys)
 
-    async def _list_builtin_catalog_rows(self) -> list[AgentCatalog]:
-        stmt = (
-            select(AgentCatalog)
-            .where(AgentCatalog.organization_id.is_(None))
-            .order_by(AgentCatalog.model_provider.asc(), AgentCatalog.model_name.asc())
-        )
-        return list((await self.session.execute(stmt)).scalars().all())
-
-    async def _list_org_selection_link_map(
-        self,
-    ) -> dict[uuid.UUID, AgentModelSelectionLink]:
-        stmt = select(AgentModelSelectionLink).where(
-            AgentModelSelectionLink.organization_id == self.organization_id,
-            AgentModelSelectionLink.workspace_id.is_(None),
-        )
-        links = list((await self.session.execute(stmt)).scalars().all())
-        return {link.catalog_id: link for link in links}
-
     def _invalidated_model_name(self, model_name: str) -> str:
         if model_name.endswith(PRUNED_MODEL_NAME_SUFFIX):
             return model_name
         max_name_length = 500 - len(PRUNED_MODEL_NAME_SUFFIX)
         return f"{model_name[:max_name_length]}{PRUNED_MODEL_NAME_SUFFIX}"
-
-    async def _prune_stale_platform_selection_links(
-        self,
-        stale_catalog_ids: set[uuid.UUID],
-    ) -> None:
-        if not stale_catalog_ids:
-            return
-        await self.session.execute(
-            delete(AgentModelSelectionLink).where(
-                AgentModelSelectionLink.catalog_id.in_(stale_catalog_ids)
-            )
-        )
 
     async def _clear_default_model_settings_for_stale_catalog_ids(
         self,
@@ -318,7 +283,11 @@ class AgentCatalogService(BaseOrgService):
         # Built-in rows can be referenced from multiple state surfaces, so the
         # invalidation pass prunes selection links first and then rewrites legacy
         # presets, versions, and sessions in one batch.
-        await self._prune_stale_platform_selection_links(stale_catalog_ids)
+        await self.session.execute(
+            delete(AgentModelSelectionLink).where(
+                AgentModelSelectionLink.catalog_id.in_(stale_catalog_ids)
+            )
+        )
         await self._clear_default_model_settings_for_stale_catalog_ids(
             stale_catalog_ids,
             stale_keys,
@@ -527,8 +496,34 @@ class AgentCatalogService(BaseOrgService):
         selection_links_by_catalog_id: dict[uuid.UUID, AgentModelSelectionLink] = {}
         rows_by_provider: dict[str, list[AgentCatalog]] = {}
         if include_discovered_models:
-            selection_links_by_catalog_id = await self._list_org_selection_link_map()
-            builtin_rows = await self._list_builtin_catalog_rows()
+            links = list(
+                (
+                    await self.session.execute(
+                        select(AgentModelSelectionLink).where(
+                            AgentModelSelectionLink.organization_id
+                            == self.organization_id,
+                            AgentModelSelectionLink.workspace_id.is_(None),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            selection_links_by_catalog_id = {link.catalog_id: link for link in links}
+            builtin_rows = list(
+                (
+                    await self.session.execute(
+                        select(AgentCatalog)
+                        .where(AgentCatalog.organization_id.is_(None))
+                        .order_by(
+                            AgentCatalog.model_provider.asc(),
+                            AgentCatalog.model_name.asc(),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
             for row in builtin_rows:
                 rows_by_provider.setdefault(row.model_provider, []).append(row)
         providers: list[BuiltInProviderRead] = []
@@ -585,12 +580,37 @@ class AgentCatalogService(BaseOrgService):
     ) -> BuiltInCatalogRead:
         start = parse_catalog_offset(cursor)
         status, refreshed_at, last_error = await load_catalog_state(self.session)
-        selection_links_by_catalog_id = await self._list_org_selection_link_map()
+        links = list(
+            (
+                await self.session.execute(
+                    select(AgentModelSelectionLink).where(
+                        AgentModelSelectionLink.organization_id == self.organization_id,
+                        AgentModelSelectionLink.workspace_id.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        selection_links_by_catalog_id = {link.catalog_id: link for link in links}
         credentials_by_provider = {
             source_type.value: await self._load_provider_credentials(source_type.value)
             for source_type in BUILT_IN_PROVIDER_ORDER
         }
-        rows = await self._list_builtin_catalog_rows()
+        rows = list(
+            (
+                await self.session.execute(
+                    select(AgentCatalog)
+                    .where(AgentCatalog.organization_id.is_(None))
+                    .order_by(
+                        AgentCatalog.model_provider.asc(),
+                        AgentCatalog.model_name.asc(),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         items = [
             self._build_builtin_catalog_entry(
                 row=row,

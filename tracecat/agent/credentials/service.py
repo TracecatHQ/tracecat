@@ -65,36 +65,6 @@ class AgentCredentialsService(BaseOrgService):
             for key, value in credentials.items()
         ]
 
-    async def _get_builtin_catalog_state(
-        self,
-    ) -> tuple[ModelDiscoveryStatus, datetime | None, str | None]:
-        return await load_catalog_state(self.session)
-
-    async def _list_builtin_catalog_rows(self) -> list[AgentCatalog]:
-        builtin_providers = [
-            source_type.value for source_type in BUILT_IN_PROVIDER_ORDER
-        ]
-        stmt = (
-            select(AgentCatalog)
-            .where(
-                AgentCatalog.organization_id.is_(None),
-                AgentCatalog.model_provider.in_(builtin_providers),
-            )
-            .order_by(AgentCatalog.model_provider.asc(), AgentCatalog.model_name.asc())
-        )
-        return list((await self.session.execute(stmt)).scalars().all())
-
-    async def _list_enabled_catalog_ids(self) -> set[uuid.UUID]:
-        stmt = (
-            select(AgentModelSelectionLink.catalog_id)
-            .join(AgentCatalog, AgentModelSelectionLink.catalog_id == AgentCatalog.id)
-            .where(
-                AgentModelSelectionLink.organization_id == self.organization_id,
-                AgentModelSelectionLink.workspace_id.is_(None),
-            )
-        )
-        return set((await self.session.execute(stmt)).scalars().all())
-
     def _build_provider_read(
         self,
         *,
@@ -266,15 +236,48 @@ class AgentCredentialsService(BaseOrgService):
             discovery_status,
             last_refreshed_at,
             last_error,
-        ) = await self._get_builtin_catalog_state()
-        rows = (
-            await self._list_builtin_catalog_rows() if include_discovered_models else []
-        )
-        enabled_catalog_ids = (
-            await self._list_enabled_catalog_ids()
-            if include_discovered_models
-            else set()
-        )
+        ) = await load_catalog_state(self.session)
+        rows: list[AgentCatalog] = []
+        enabled_catalog_ids: set[uuid.UUID] = set()
+        if include_discovered_models:
+            builtin_providers = [
+                source_type.value for source_type in BUILT_IN_PROVIDER_ORDER
+            ]
+            rows = list(
+                (
+                    await self.session.execute(
+                        select(AgentCatalog)
+                        .where(
+                            AgentCatalog.organization_id.is_(None),
+                            AgentCatalog.model_provider.in_(builtin_providers),
+                        )
+                        .order_by(
+                            AgentCatalog.model_provider.asc(),
+                            AgentCatalog.model_name.asc(),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            enabled_catalog_ids = set(
+                (
+                    await self.session.execute(
+                        select(AgentModelSelectionLink.catalog_id)
+                        .join(
+                            AgentCatalog,
+                            AgentModelSelectionLink.catalog_id == AgentCatalog.id,
+                        )
+                        .where(
+                            AgentModelSelectionLink.organization_id
+                            == self.organization_id,
+                            AgentModelSelectionLink.workspace_id.is_(None),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
         # The same credential snapshot is reused for every provider row.
         credentials_by_provider = {
             source_type.value: await self._load_provider_credentials(source_type.value)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import orjson
@@ -1068,13 +1068,31 @@ class AgentSelectionsService(BaseOrgService):
                 declared_models=declared_models,
             )
             self.session.add(source)
-            await self.session.commit()
-            await self.session.refresh(source)
+            await self.session.flush()
         else:
             source.base_url = secret_config["base_url"]
             source.declared_models = declared_models
             self.session.add(source)
-            await self.session.commit()
+            await self.session.flush()
+        # Ensure a catalog row exists for the legacy custom model so that
+        # downstream match queries in repair_legacy_model_selections can
+        # resolve it.
+        catalog_stmt = pg_insert(AgentCatalog).values(
+            organization_id=self.organization_id,
+            source_id=source.id,
+            model_provider=LEGACY_CUSTOM_PROVIDER,
+            model_name=secret_config["model_name"],
+            last_refreshed_at=datetime.now(UTC),
+        )
+        catalog_stmt = catalog_stmt.on_conflict_do_update(
+            index_elements=["source_id", "model_provider", "model_name"],
+            set_={
+                "last_refreshed_at": catalog_stmt.excluded.last_refreshed_at,
+                "updated_at": func.now(),
+            },
+        )
+        await self.session.execute(catalog_stmt)
+        await self.session.commit()
 
     async def repair_legacy_model_selections(self) -> LegacyModelRepairSummary:
         summary = LegacyModelRepairSummary()

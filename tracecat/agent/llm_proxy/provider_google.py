@@ -227,26 +227,6 @@ def _extract_text_from_content(content: Any) -> str:
     return str(content)
 
 
-def _extract_text_from_content(content: Any) -> str:
-    """Extract plain text from any content shape (str, block list, or dict)."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for item in content:
-            match item:
-                case {"type": "text", "text": str(text)}:
-                    parts.append(text)
-                case str(text):
-                    parts.append(text)
-        return "\n".join(parts)
-    if isinstance(content, dict):
-        match content:
-            case {"type": "text", "text": str(text)}:
-                return text
-    return str(content)
-
-
 def _system_instruction_from_messages(
     messages: Sequence[NormalizedMessage],
 ) -> dict[str, Any] | None:

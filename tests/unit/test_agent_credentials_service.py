@@ -118,29 +118,35 @@ async def test_get_providers_status_uses_internal_lookup(role: Role) -> None:
 
 
 @pytest.mark.anyio
-async def test_list_providers_defaults_to_configured_only(role: Role) -> None:
+async def test_list_providers_defaults_to_configured_only(
+    role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
     service = AgentCredentialsService(AsyncMock(), role=role)
-    service._get_builtin_catalog_state = AsyncMock(
-        return_value=(ModelDiscoveryStatus.READY, None, None)
+    monkeypatch.setattr(
+        "tracecat.agent.credentials.service.load_catalog_state",
+        AsyncMock(return_value=(ModelDiscoveryStatus.READY, None, None)),
     )
     service._load_provider_credentials = AsyncMock(
         side_effect=lambda provider: (
             {"OPENAI_API_KEY": "org-key"} if provider == "openai" else None
         )
     )
-    service._list_builtin_catalog_rows = AsyncMock()
-    service._list_enabled_catalog_ids = AsyncMock()
+
+    execute_mock = AsyncMock()
+    service.session.execute = execute_mock
 
     providers = await service.list_providers()
 
     assert [provider.provider for provider in providers] == ["openai"]
-    service._list_builtin_catalog_rows.assert_not_awaited()
-    service._list_enabled_catalog_ids.assert_not_awaited()
+    # Session should not be queried for catalog rows or enabled IDs
+    # when include_discovered_models is False (default).
+    execute_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio
 async def test_list_providers_can_include_unconfigured_and_discovered_models(
     role: Role,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = AgentCredentialsService(AsyncMock(), role=role)
     catalog_row = AgentCatalog(
@@ -151,11 +157,16 @@ async def test_list_providers_can_include_unconfigured_and_discovered_models(
         model_name="gpt-5.2",
         model_metadata={"tier": "preview"},
     )
-    service._get_builtin_catalog_state = AsyncMock(
-        return_value=(ModelDiscoveryStatus.READY, None, None)
+    monkeypatch.setattr(
+        "tracecat.agent.credentials.service.load_catalog_state",
+        AsyncMock(return_value=(ModelDiscoveryStatus.READY, None, None)),
     )
-    service._list_builtin_catalog_rows = AsyncMock(return_value=[catalog_row])
-    service._list_enabled_catalog_ids = AsyncMock(return_value={catalog_row.id})
+    # Session returns catalog rows first, then enabled catalog IDs.
+    rows_result = Mock()
+    rows_result.scalars.return_value.all.return_value = [catalog_row]
+    enabled_result = Mock()
+    enabled_result.scalars.return_value.all.return_value = [catalog_row.id]
+    service.session.execute = AsyncMock(side_effect=[rows_result, enabled_result])
     service._load_provider_credentials = AsyncMock(
         side_effect=lambda provider: (
             {"OPENAI_API_KEY": "org-key"} if provider == "openai" else None

@@ -1,7 +1,7 @@
 """llm provider v2
 
 Revision ID: ac9577c5a622
-Revises: 0a1e3100a432
+Revises: 7e1a4d9c2b6f
 Create Date: 2026-03-27 11:34:31.984799
 
 """
@@ -24,7 +24,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "ac9577c5a622"
-down_revision: str | None = "0a1e3100a432"
+down_revision: str | None = "7e1a4d9c2b6f"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

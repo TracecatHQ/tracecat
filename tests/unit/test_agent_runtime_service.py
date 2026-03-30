@@ -383,27 +383,19 @@ async def test_resolve_preset_selection_does_not_fallback_when_source_backed_mod
             model_name="gpt-5.2",
         )
     )
-    # The legacy fallback should still run because the new service does not
-    # short-circuit on source_id the way the old monolith did; it delegates
-    # to the legacy matcher which returns no match.
-    legacy_fallback = AsyncMock(
-        return_value=Mock(
-            status="unmatched",
-            source_id=None,
-            model_provider=None,
-            model_name=None,
-        )
-    )
+    # When source_id is set and the exact selection is not enabled, the
+    # legacy fallback must NOT run — it would drop source_id and could
+    # silently route to a different source's credentials.
+    legacy_fallback = AsyncMock()
     monkeypatch.setattr(
         "tracecat.agent.runtime.service.resolve_enabled_catalog_match_for_provider_model",
         legacy_fallback,
     )
-    service.selections._selection_from_match = Mock(return_value=None)
 
     result = await service._resolve_preset_selection(config)
 
     assert result is None
-    legacy_fallback.assert_awaited_once()
+    legacy_fallback.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
