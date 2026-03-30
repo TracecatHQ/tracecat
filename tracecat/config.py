@@ -391,14 +391,6 @@ TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS = int(
 )
 """Maximum number of cached derived Temporal payload keys."""
 
-TEMPORAL__VISIBILITY_HMAC_KEY = os.environ.get("TEMPORAL__VISIBILITY_HMAC_KEY")
-"""Secret used to tokenize Temporal visibility metadata such as alias."""
-
-TEMPORAL__VISIBILITY_HMAC_KEY__ARN = os.environ.get(
-    "TEMPORAL__VISIBILITY_HMAC_KEY__ARN"
-)
-"""AWS Secrets Manager ARN containing the Temporal visibility HMAC key."""
-
 TEMPORAL__CODEC_SERVER_SHARED_SECRET = os.environ.get(
     "TEMPORAL__CODEC_SERVER_SHARED_SECRET"
 )

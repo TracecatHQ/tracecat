@@ -34,7 +34,6 @@ from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import exec_id_to_parts
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.temporal.visibility import tokenize_visibility_value
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 from tracecat_ee.agent.activities import (
     ApplyApprovalResultsActivityInputs,
@@ -330,9 +329,7 @@ class ApprovalService(BaseWorkspaceService):
                 session_id=session_id,
             )
             return []
-        alias = tokenize_visibility_value(
-            build_agent_alias(session.parent_workflow_id, session.action_ref)
-        )
+        alias = build_agent_alias(session.parent_workflow_id, session.action_ref)
 
         query = " AND ".join(
             [

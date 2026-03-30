@@ -14,8 +14,7 @@
 # 1. OAUTH_CLIENT_ID (legacy OIDC alias)
 # 2. OAUTH_CLIENT_SECRET (legacy OIDC alias)
 # 3. TEMPORAL__PAYLOAD_ENCRYPTION_KEY
-# 4. TEMPORAL__VISIBILITY_HMAC_KEY
-# 5. TEMPORAL__CODEC_SERVER_SHARED_SECRET
+# 4. TEMPORAL__CODEC_SERVER_SHARED_SECRET
 
 ### Required secrets
 data "aws_secretsmanager_secret" "tracecat_db_encryption_key" {
@@ -61,11 +60,6 @@ data "aws_secretsmanager_secret" "oidc_client_secret" {
 data "aws_secretsmanager_secret" "temporal_payload_encryption_key" {
   count = var.temporal_payload_encryption_key_arn != null ? 1 : 0
   arn   = var.temporal_payload_encryption_key_arn
-}
-
-data "aws_secretsmanager_secret" "temporal_visibility_hmac_key" {
-  count = var.temporal_visibility_hmac_key_arn != null ? 1 : 0
-  arn   = var.temporal_visibility_hmac_key_arn
 }
 
 data "aws_secretsmanager_secret" "temporal_codec_server_shared_secret" {
@@ -149,11 +143,6 @@ data "aws_secretsmanager_secret_version" "oidc_client_secret" {
 data "aws_secretsmanager_secret_version" "temporal_payload_encryption_key" {
   count     = var.temporal_payload_encryption_key_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.temporal_payload_encryption_key[0].id
-}
-
-data "aws_secretsmanager_secret_version" "temporal_visibility_hmac_key" {
-  count     = var.temporal_visibility_hmac_key_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.temporal_visibility_hmac_key[0].id
 }
 
 data "aws_secretsmanager_secret_version" "temporal_codec_server_shared_secret" {
@@ -253,13 +242,6 @@ locals {
     }
   ] : []
 
-  temporal_visibility_hmac_secret = var.temporal_visibility_hmac_key_arn != null ? [
-    {
-      name      = "TEMPORAL__VISIBILITY_HMAC_KEY"
-      valueFrom = data.aws_secretsmanager_secret_version.temporal_visibility_hmac_key[0].arn
-    }
-  ] : []
-
   temporal_codec_server_shared_secret = var.temporal_codec_server_shared_secret_arn != null ? [
     {
       name      = "TEMPORAL__CODEC_SERVER_SHARED_SECRET"
@@ -271,7 +253,6 @@ locals {
     local.required_tracecat_base_secrets,
     local.temporal_api_key_secret,
     local.temporal_payload_encryption_secret,
-    local.temporal_visibility_hmac_secret,
     local.temporal_codec_server_shared_secret
   )
 

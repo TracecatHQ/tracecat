@@ -14,11 +14,10 @@ The defaults are based on OWASP recommendations:
 https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html#list-allowed-extensions
 """
 
-import importlib
 import os
 from collections.abc import Sequence
-from typing import Any
 
+from polyfile.magic import MagicMatcher
 from pydantic import BaseModel
 
 from tracecat import config
@@ -30,16 +29,6 @@ from tracecat.storage.exceptions import (
     FileNameError,
     FileSizeError,
 )
-
-_MAGIC_MATCHER: Any | None = None
-
-
-def _get_magic_matcher() -> Any:
-    global _MAGIC_MATCHER
-    if _MAGIC_MATCHER is None:
-        polyfile_magic = importlib.import_module("polyfile.magic")
-        _MAGIC_MATCHER = polyfile_magic.MagicMatcher.DEFAULT_INSTANCE
-    return _MAGIC_MATCHER
 
 
 class FileValidationResult(BaseModel):
@@ -218,7 +207,7 @@ class FileSecurityValidator:
         detected_equiv: set[str] = set()
 
         try:
-            matches = list(_get_magic_matcher().match(content))
+            matches = list(MagicMatcher.DEFAULT_INSTANCE.match(content))
             for match in matches:
                 mimetypes = getattr(match, "mimetypes", None)
                 if mimetypes:

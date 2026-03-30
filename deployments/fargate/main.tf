@@ -91,7 +91,6 @@ module "ecs" {
   tracecat_service_key_arn                = var.tracecat_service_key_arn
   tracecat_signing_secret_arn             = var.tracecat_signing_secret_arn
   temporal_payload_encryption_key_arn     = var.temporal_payload_encryption_key_arn
-  temporal_visibility_hmac_key_arn        = var.temporal_visibility_hmac_key_arn
   temporal_codec_server_shared_secret_arn = var.temporal_codec_server_shared_secret_arn
 
   # Authentication

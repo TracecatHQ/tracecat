@@ -327,12 +327,6 @@ variable "temporal_payload_encryption_key_arn" {
   default     = null
 }
 
-variable "temporal_visibility_hmac_key_arn" {
-  type        = string
-  description = "The ARN of the secret containing the Temporal visibility HMAC key"
-  default     = null
-}
-
 variable "temporal_codec_server_shared_secret_arn" {
   type        = string
   description = "The ARN of the secret containing the Temporal codec server shared secret"
