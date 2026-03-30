@@ -83,8 +83,9 @@ async def test_forward_request_streams_tracecat_proxy_response(
         payload: dict,
         claims: object,
         trace_request_id: str | None = None,
+        ingress_headers: dict[str, str] | None = None,
     ) -> object:
-        del self, claims, trace_request_id
+        del self, claims, trace_request_id, ingress_headers
         assert payload["stream"] is True
 
         async def _events():

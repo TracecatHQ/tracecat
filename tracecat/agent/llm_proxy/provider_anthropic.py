@@ -74,19 +74,50 @@ def _anthropic_messages_url(base_url: str) -> str:
     return f"{base_url}/v1/messages"
 
 
+_FORWARDED_INGRESS_HEADERS = frozenset({"anthropic-version", "anthropic-beta"})
+
+
 def _build_anthropic_headers(
     credentials: dict[str, str],
+    *,
+    ingress_headers: dict[str, str] | None = None,
 ) -> dict[str, str]:
+    """Build Anthropic API headers.
+
+    Headers from the ingress request (e.g. ``anthropic-version``,
+    ``anthropic-beta``) are forwarded so the upstream API version matches
+    what the calling SDK expects.  Credential-level overrides still take
+    precedence.
+    """
     api_key = credentials.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise ValueError("Anthropic provider requires ANTHROPIC_API_KEY")
-    headers = {
-        "Content-Type": "application/json",
-        "x-api-key": api_key,
-        "anthropic-version": credentials.get("ANTHROPIC_VERSION", "2023-06-01"),
-    }
+
+    # Start with forwarded SDK headers, then layer credential overrides.
+    # Header names are compared case-insensitively because the socket parser
+    # preserves original casing (e.g. "Anthropic-Version" from the SDK).
+    headers: dict[str, str] = {}
+    if ingress_headers:
+        lowered = {k.lower(): v for k, v in ingress_headers.items()}
+        for key in _FORWARDED_INGRESS_HEADERS:
+            if value := lowered.get(key):
+                headers[key] = value
+
+    headers.update(
+        {
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+        }
+    )
+    # Credential-level overrides win over ingress headers.
+    if version := credentials.get("ANTHROPIC_VERSION"):
+        headers["anthropic-version"] = version
+    elif "anthropic-version" not in headers:
+        headers["anthropic-version"] = "2023-06-01"
+
     if beta := credentials.get("ANTHROPIC_BETA"):
         headers["anthropic-beta"] = beta
+
     return headers
 
 
@@ -159,10 +190,11 @@ class AnthropicAdapter:
         *,
         model: str,
         base_url: str | None = None,
+        ingress_headers: dict[str, str] | None = None,
     ) -> AsyncIterator[bytes]:
         """Stream raw SSE bytes — Anthropic in, Anthropic out, no normalization."""
         base_url = base_url or _DEFAULT_ANTHROPIC_BASE_URL
-        headers = _build_anthropic_headers(credentials)
+        headers = _build_anthropic_headers(credentials, ingress_headers=ingress_headers)
         outbound_payload = dict(payload)
 
         # Inject token-level model settings into the raw payload

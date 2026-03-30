@@ -68,6 +68,7 @@ class PassthroughStreamAdapter(Protocol):
         *,
         model: str,
         base_url: str | None = None,
+        ingress_headers: dict[str, str] | None = None,
     ) -> AsyncIterator[bytes]:
         raise NotImplementedError
 
