@@ -161,9 +161,8 @@ function ValidatedTextEditor({
 // --- Parsers for ValidatedTextEditor ---
 
 function parseInteger(raw: string): number {
-  const parsed = Number.parseInt(raw, 10)
-  if (Number.isNaN(parsed)) throw new Error("Invalid integer")
-  return parsed
+  if (!/^-?\d+$/.test(raw)) throw new Error("Invalid integer")
+  return Number.parseInt(raw, 10)
 }
 
 function parseNumeric(raw: string): string {
@@ -176,9 +175,9 @@ function parseNumeric(raw: string): string {
 function parseDate(raw: string): string {
   const d = new Date(raw)
   if (Number.isNaN(d.getTime())) throw new Error("Invalid date")
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, "0")
-  const dd = String(d.getDate()).padStart(2, "0")
+  const yyyy = d.getUTCFullYear()
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0")
+  const dd = String(d.getUTCDate()).padStart(2, "0")
   return `${yyyy}-${mm}-${dd}`
 }
 

@@ -49,6 +49,7 @@ const createInsertTableRowSchema = (table: TableRead) => {
       case "INTEGER":
         columnValidations[column.name] = z
           .string()
+          .trim()
           .min(1, `${column.name} is required`)
           .refine(
             (val) => {
@@ -62,6 +63,7 @@ const createInsertTableRowSchema = (table: TableRead) => {
       case "NUMERIC":
         columnValidations[column.name] = z
           .string()
+          .trim()
           .min(1, `${column.name} is required`)
           .refine(
             (val) => {

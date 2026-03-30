@@ -355,9 +355,12 @@ function ClosureFieldInput({
             onChange={(e) => {
               const raw = e.target.value.trim()
               if (!raw) {
+                onValidationChange?.(false)
                 onChange(null)
                 return
               }
+              const valid = !Number.isNaN(new Date(raw).getTime())
+              onValidationChange?.(!valid)
               onChange(raw)
             }}
           />
@@ -374,9 +377,12 @@ function ClosureFieldInput({
             onChange={(e) => {
               const raw = e.target.value.trim()
               if (!raw) {
+                onValidationChange?.(false)
                 onChange(null)
                 return
               }
+              const valid = !Number.isNaN(new Date(raw).getTime())
+              onValidationChange?.(!valid)
               onChange(raw)
             }}
           />

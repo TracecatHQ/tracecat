@@ -263,8 +263,18 @@ export function EditCustomFieldDialog({
             break
           }
           case "NUMERIC": {
+            const normalized =
+              typeof rawDefault === "string" ? rawDefault.trim() : rawDefault
+            if (typeof normalized === "string" && normalized.length === 0) {
+              form.setError("default", {
+                type: "manual",
+                message: "Default must be a number",
+              })
+              setIsSubmitting(false)
+              return
+            }
             const parsed =
-              typeof rawDefault === "number" ? rawDefault : Number(rawDefault)
+              typeof normalized === "number" ? normalized : Number(normalized)
             if (Number.isNaN(parsed)) {
               form.setError("default", {
                 type: "manual",
