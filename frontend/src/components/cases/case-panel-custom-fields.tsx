@@ -1,4 +1,3 @@
-import { format, isValid as isValidDate } from "date-fns"
 import { Check } from "lucide-react"
 import {
   type CSSProperties,
@@ -27,7 +26,6 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   FormControl,
   FormField,
@@ -52,7 +50,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { toast } from "@/components/ui/use-toast"
 import { cn, linearStyles } from "@/lib/utils"
 
 const customFieldFormSchema = z.object({
@@ -61,24 +58,6 @@ const customFieldFormSchema = z.object({
 })
 
 type CustomFieldFormSchema = z.infer<typeof customFieldFormSchema>
-
-const DATE_TIME_DISPLAY_FORMAT = "yyyy-MM-dd HH:mm"
-const DATE_DISPLAY_FORMAT = "yyyy-MM-dd"
-
-const formatDateFieldValue = (date: Date) => date.toISOString()
-
-const toDateValue = (value: unknown): Date | null => {
-  if (value instanceof Date) {
-    return isValidDate(value) ? value : null
-  }
-
-  if (typeof value === "string" && value.length > 0) {
-    const parsed = new Date(value)
-    return isValidDate(parsed) ? parsed : null
-  }
-
-  return null
-}
 
 export function CustomField({
   customField,
@@ -490,32 +469,19 @@ export function CustomFieldInner({
 
                     if (customField.type === "INTEGER") {
                       if (!/^-?\d+$/.test(raw)) {
-                        toast({
-                          title: "Validation error",
-                          description: "Must be a valid integer",
-                          variant: "default",
-                        })
+                        // Silently revert to saved value
+                        field.onChange(customField.value)
                         return
                       }
-                      onBlur?.(customField.id, Number.parseInt(raw, 10))
+                      const parsed = Number.parseInt(raw, 10)
+                      onBlur?.(customField.id, parsed)
                       return
                     }
 
-                    if (!/^-?(?:\d+|\d*\.\d+)$/.test(raw)) {
-                      toast({
-                        title: "Validation error",
-                        description: "Must be a valid number",
-                        variant: "default",
-                      })
-                      return
-                    }
                     const parsed = Number(raw)
                     if (!Number.isFinite(parsed)) {
-                      toast({
-                        title: "Validation error",
-                        description: "Must be a valid number",
-                        variant: "default",
-                      })
+                      // Silently revert to saved value
+                      field.onChange(customField.value)
                       return
                     }
                     onBlur?.(customField.id, parsed)
@@ -583,98 +549,93 @@ export function CustomFieldInner({
         />
       )
     // JSONB fields are handled by JsonCustomField before reaching this switch
-    case "TIMESTAMPTZ": {
+    case "TIMESTAMPTZ":
       return (
         <FormField
           control={form.control}
           name="value"
-          render={({ field }) => {
-            const dateValue = toDateValue(field.value)
-
-            return (
-              <FormItem>
-                <FormControl>
-                  <DateTimePicker
-                    value={dateValue}
-                    onChange={(next) => {
-                      const formatted = next ? formatDateFieldValue(next) : null
-                      field.onChange(formatted)
-                      onBlur?.(customField.id, formatted)
-                    }}
-                    onBlur={() => field.onBlur()}
-                    formatDisplay={(date) =>
-                      format(date, DATE_TIME_DISPLAY_FORMAT)
+          render={({ field }) => (
+            <FormItem>
+              <FormControl>
+                <Input
+                  type="text"
+                  placeholder="YYYY-MM-DDTHH:mm:ss.Z"
+                  value={
+                    field.value === null || field.value === undefined
+                      ? ""
+                      : String(field.value)
+                  }
+                  onChange={(e) => field.onChange(e.target.value)}
+                  className={cn(
+                    baseInputClassName,
+                    !field.value && "text-muted-foreground"
+                  )}
+                  style={inputStyle}
+                  onBlur={() => {
+                    field.onBlur()
+                    const raw = String(field.value ?? "").trim()
+                    if (!raw) {
+                      onBlur?.(customField.id, null)
+                      return
                     }
-                    icon={<></>}
-                    buttonProps={{
-                      variant: "ghost",
-                      className: cn(
-                        linearStyles.input.full,
-                        "inline-flex h-7 w-full min-w-0 justify-end whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
-                        !dateValue && "text-muted-foreground",
-                        inputClassName
-                      ),
-                      style: inputStyle,
-                    }}
-                    popoverContentProps={{
-                      className: "w-auto border-none shadow-none p-0",
-                      align: "start",
-                    }}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )
-          }}
+                    const d = new Date(raw)
+                    if (Number.isNaN(d.getTime())) {
+                      field.onChange(customField.value)
+                      return
+                    }
+                    onBlur?.(customField.id, d.toISOString())
+                  }}
+                />
+              </FormControl>
+            </FormItem>
+          )}
         />
       )
-    }
-    case "DATE": {
+    case "DATE":
       return (
         <FormField
           control={form.control}
           name="value"
-          render={({ field }) => {
-            const dateValue = toDateValue(field.value)
-
-            return (
-              <FormItem>
-                <FormControl>
-                  <DateTimePicker
-                    value={dateValue}
-                    onChange={(next) => {
-                      const formatted = next ? format(next, "yyyy-MM-dd") : null
-                      field.onChange(formatted)
-                      onBlur?.(customField.id, formatted)
-                    }}
-                    onBlur={() => field.onBlur()}
-                    hideTime
-                    placeholder="Select date"
-                    formatDisplay={(date) => format(date, DATE_DISPLAY_FORMAT)}
-                    icon={<></>}
-                    buttonProps={{
-                      variant: "ghost",
-                      className: cn(
-                        linearStyles.input.full,
-                        "inline-flex h-7 w-full min-w-0 justify-end whitespace-nowrap rounded-sm border-none px-2 text-right text-sm font-normal shadow-none",
-                        !dateValue && "text-muted-foreground",
-                        inputClassName
-                      ),
-                      style: inputStyle,
-                    }}
-                    popoverContentProps={{
-                      className: "w-auto border-none shadow-none p-0",
-                      align: "end",
-                    }}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )
-          }}
+          render={({ field }) => (
+            <FormItem>
+              <FormControl>
+                <Input
+                  type="text"
+                  placeholder="YYYY-MM-DD"
+                  value={
+                    field.value === null || field.value === undefined
+                      ? ""
+                      : String(field.value)
+                  }
+                  onChange={(e) => field.onChange(e.target.value)}
+                  className={cn(
+                    baseInputClassName,
+                    !field.value && "text-muted-foreground"
+                  )}
+                  style={inputStyle}
+                  onBlur={() => {
+                    field.onBlur()
+                    const raw = String(field.value ?? "").trim()
+                    if (!raw) {
+                      onBlur?.(customField.id, null)
+                      return
+                    }
+                    const d = new Date(raw)
+                    if (Number.isNaN(d.getTime())) {
+                      field.onChange(customField.value)
+                      return
+                    }
+                    const yyyy = d.getUTCFullYear()
+                    const mm = String(d.getUTCMonth() + 1).padStart(2, "0")
+                    const dd = String(d.getUTCDate()).padStart(2, "0")
+                    onBlur?.(customField.id, `${yyyy}-${mm}-${dd}`)
+                  }}
+                />
+              </FormControl>
+            </FormItem>
+          )}
         />
       )
-    }
     case "SELECT": {
       const options = customField.options ?? []
       return (

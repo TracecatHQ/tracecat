@@ -26,7 +26,6 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   Dialog,
   DialogContent,
@@ -349,18 +348,21 @@ function ClosureFieldInput({
       return (
         <div className="space-y-1.5">
           <Label className="text-sm">{field.id}</Label>
-          <DateTimePicker
-            value={value ? new Date(value as string) : undefined}
-            onChange={(d) => {
-              if (!d) {
+          <Input
+            type="text"
+            placeholder="YYYY-MM-DD"
+            value={value != null ? String(value) : ""}
+            onChange={(e) => {
+              const raw = e.target.value.trim()
+              if (!raw) {
+                onValidationChange?.(false)
                 onChange(null)
                 return
               }
-              onChange(
-                `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-              )
+              const valid = !Number.isNaN(new Date(raw).getTime())
+              onValidationChange?.(!valid)
+              onChange(raw)
             }}
-            hideTime
           />
         </div>
       )
@@ -368,14 +370,20 @@ function ClosureFieldInput({
       return (
         <div className="space-y-1.5">
           <Label className="text-sm">{field.id}</Label>
-          <DateTimePicker
-            value={value ? new Date(value as string) : undefined}
-            onChange={(d) => {
-              if (!d) {
+          <Input
+            type="text"
+            placeholder="YYYY-MM-DDTHH:mm:ss.Z"
+            value={value != null ? String(value) : ""}
+            onChange={(e) => {
+              const raw = e.target.value.trim()
+              if (!raw) {
+                onValidationChange?.(false)
                 onChange(null)
                 return
               }
-              onChange(d.toISOString())
+              const valid = !Number.isNaN(new Date(raw).getTime())
+              onValidationChange?.(!valid)
+              onChange(raw)
             }}
           />
         </div>
