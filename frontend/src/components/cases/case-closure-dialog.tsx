@@ -8,7 +8,7 @@ import { linter, lintGutter } from "@codemirror/lint"
 import { EditorView } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
 import { AlertTriangle, Check } from "lucide-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
   CaseDropdownValueRead,
@@ -91,10 +91,17 @@ export function CaseClosureDialog({
     Record<string, string | null>
   >({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const prevOpen = useRef(false)
 
-  // Initialize values when dialog opens
+  // Initialize values when dialog opens (false → true transition only)
   useEffect(() => {
-    if (!open) return
+    if (!open || prevOpen.current === open) {
+      prevOpen.current = open
+      return
+    }
+    prevOpen.current = open
+
+    setFieldErrors(new Set())
 
     if (isBulk) {
       setFieldValues({})
@@ -596,8 +603,14 @@ function JsonField({
     value === null || value === undefined ? "" : JSON.stringify(value, null, 2)
   const [draft, setDraft] = useState(serialized)
   const [error, setError] = useState<string | null>(null)
+  const isLocalEdit = useRef(false)
 
+  // Sync draft from external value changes only (e.g. dialog pre-fill)
   useEffect(() => {
+    if (isLocalEdit.current) {
+      isLocalEdit.current = false
+      return
+    }
     setDraft(serialized)
     setError(null)
   }, [serialized])
@@ -619,6 +632,7 @@ function JsonField({
   )
 
   function handleChange(val: string) {
+    isLocalEdit.current = true
     setDraft(val)
     const trimmed = val.trim()
     if (trimmed === "") {
