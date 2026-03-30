@@ -16,7 +16,7 @@ from asyncpg.exceptions import (
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from sqlalchemy.orm import selectinload
 from tenacity import (
     retry,
@@ -74,6 +74,37 @@ _RETRYABLE_DB_EXCEPTIONS = (
 )
 _TABLE_SYSTEM_COLUMNS = frozenset({"id", "created_at", "updated_at"})
 
+DYNAMIC_WORKSPACE_TENANT_COLUMN = "__tc_workspace_id"
+DYNAMIC_WORKSPACE_RLS_POLICY = "rls_policy_dynamic_workspace"
+RLS_WORKSPACE_VAR = "app.current_workspace_id"
+RLS_BYPASS_VAR = "app.rls_bypass"
+RLS_BYPASS_ON = "on"
+INTERNAL_COLUMN_PREFIX = "__tc_"
+SYSTEM_VISIBLE_COLUMN_NAMES: tuple[str, ...] = ("id", "created_at", "updated_at")
+
+
+def visible_column_names(column_names: Sequence[str]) -> list[str]:
+    """Build the API-facing column order for dynamic table row payloads."""
+    visible_names: list[str] = list(SYSTEM_VISIBLE_COLUMN_NAMES)
+    seen_lower: set[str] = {
+        column_name.lower() for column_name in SYSTEM_VISIBLE_COLUMN_NAMES
+    }
+    for column_name in column_names:
+        if is_internal_column_name(column_name):
+            continue
+        if (normalized_name := column_name.lower()) in seen_lower:
+            continue
+        visible_names.append(column_name)
+        seen_lower.add(normalized_name)
+    return visible_names
+
+
+def visible_column_clauses(column_names: Sequence[str]) -> list[sa.ColumnClause]:
+    """Return SQLAlchemy column clauses for API-facing row payloads."""
+    return [
+        sa.column(column_name) for column_name in visible_column_names(column_names)
+    ]
+
 
 class BaseTablesService(BaseWorkspaceService):
     """Service for managing user-defined tables."""
@@ -114,7 +145,50 @@ class BaseTablesService(BaseWorkspaceService):
         """Get the full table name for a table."""
         schema_name = self._get_schema_name(workspace_id)
         sanitized_table_name = self._sanitize_identifier(table_name)
-        return f'"{schema_name}".{sanitized_table_name}'
+        return f'"{schema_name}"."{sanitized_table_name}"'
+
+    def _workspace_tenant_default_sql(self) -> sa.TextClause:
+        """Build the server default expression for the tenant column."""
+        return sa.text(f"'{self.ws_uuid}'::uuid")
+
+    def _visible_columns(self, table: Table) -> list[sa.ColumnClause]:
+        """Column list for API-facing queries, excluding internal columns."""
+        return visible_column_clauses([c.name for c in table.columns])
+
+    def _assert_user_column_name_allowed(self, column_name: str) -> None:
+        """Reject operations on internal/system-managed column names."""
+        if is_internal_column_name(column_name):
+            raise ValueError(f"Column {column_name} is reserved for internal use")
+
+    async def _enable_workspace_rls_for_physical_table(
+        self, conn: AsyncConnection, full_table_name: str
+    ) -> None:
+        """Enable workspace RLS policy on a dynamic physical table."""
+        policy_expr = (
+            f"current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}' "
+            f'OR "{DYNAMIC_WORKSPACE_TENANT_COLUMN}" = '
+            f"NULLIF(current_setting('{RLS_WORKSPACE_VAR}', true), '')::uuid"
+        )
+        await conn.execute(
+            sa.DDL("ALTER TABLE %s ENABLE ROW LEVEL SECURITY", full_table_name)
+        )
+        await conn.execute(
+            sa.DDL(
+                f"DROP POLICY IF EXISTS {DYNAMIC_WORKSPACE_RLS_POLICY} ON %s",
+                full_table_name,
+            )
+        )
+        await conn.execute(
+            sa.DDL(
+                f"""
+                CREATE POLICY {DYNAMIC_WORKSPACE_RLS_POLICY} ON %s
+                    FOR ALL
+                    USING ({policy_expr})
+                    WITH CHECK ({policy_expr})
+                """,
+                full_table_name,
+            )
+        )
 
     async def _find_unique_table_name(self, base_name: str) -> str:
         """Find a unique table name by appending numeric suffixes if required."""
@@ -347,6 +421,12 @@ class BaseTablesService(BaseWorkspaceService):
                 nullable=False,
                 server_default=sa.text("now()"),
             ),
+            sa.Column(
+                DYNAMIC_WORKSPACE_TENANT_COLUMN,
+                sa.UUID,
+                nullable=False,
+                server_default=self._workspace_tenant_default_sql(),
+            ),
             schema=schema_name,
         )
 
@@ -356,6 +436,9 @@ class BaseTablesService(BaseWorkspaceService):
 
         # Create the physical table
         await conn.run_sync(new_table.create)
+        await self._enable_workspace_rls_for_physical_table(
+            conn, self._full_table_name(table_name)
+        )
 
         # Create metadata entry
         table = Table(workspace_id=self.ws_uuid, name=table_name)
@@ -451,6 +534,7 @@ class BaseTablesService(BaseWorkspaceService):
         Raises:
             ValueError: If the column type is invalid
         """
+        self._assert_user_column_name_allowed(params.name)
         column_name = validate_identifier(params.name)
         full_table_name = self._full_table_name(table.name)
 
@@ -529,6 +613,12 @@ class BaseTablesService(BaseWorkspaceService):
             ProgrammingError: If the database operation fails
         """
         set_fields = params.model_dump(exclude_unset=True)
+        self._assert_user_column_name_allowed(column.name)
+        if "name" in set_fields:
+            if (requested_name := set_fields["name"]) is None:
+                set_fields.pop("name")
+            else:
+                self._assert_user_column_name_allowed(requested_name)
         full_table_name = self._full_table_name(column.table.name)
         conn = await self.session.connection()
         is_index = set_fields.pop("is_index", False)
@@ -561,7 +651,9 @@ class BaseTablesService(BaseWorkspaceService):
                 set_fields["options"] = None
 
         old_name = self._sanitize_identifier(column.name)
-        new_name = self._sanitize_identifier(set_fields.get("name", column.name))
+        new_name = self._sanitize_identifier(
+            set_fields["name"] if "name" in set_fields else column.name
+        )
         new_type = set_fields.get("type", column.type)
 
         # Handle physical column changes if name or type is being updated
@@ -675,6 +767,7 @@ class BaseTablesService(BaseWorkspaceService):
     @audit_log(resource_type="table_column", action="delete")
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
+        self._assert_user_column_name_allowed(column.name)
         full_table_name = self._full_table_name(column.table.name)
         sanitized_column = self._sanitize_identifier(column.name)
 
@@ -700,7 +793,7 @@ class BaseTablesService(BaseWorkspaceService):
         sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
         stmt = (
-            sa.select("*")
+            sa.select(*self._visible_columns(table))
             .select_from(sa.table(sanitized_table_name, schema=schema_name))
             .where(sa.column("id") == row_id)
         )
@@ -708,7 +801,7 @@ class BaseTablesService(BaseWorkspaceService):
         row = result.mappings().first()
         if row is None:
             raise TracecatNotFoundError(f"Row {row_id} not found in table {table.name}")
-        return row
+        return dict(row)
 
     async def insert_row(
         self,
@@ -751,7 +844,7 @@ class BaseTablesService(BaseWorkspaceService):
             stmt = (
                 sa.insert(sa.table(sanitized_table_name, *cols, schema=schema_name))
                 .values(**value_clauses)
-                .returning(sa.text("*"))
+                .returning(*self._visible_columns(table))
             )
         else:
             # For upsert operations
@@ -786,7 +879,7 @@ class BaseTablesService(BaseWorkspaceService):
                 # Complete the statement with on_conflict_do_update
                 stmt = pg_stmt.on_conflict_do_update(
                     index_elements=index, set_=update_dict
-                ).returning(sa.text("*"))
+                ).returning(*self._visible_columns(table))
 
                 result = await conn.execute(stmt)
                 await self.session.flush()
@@ -876,7 +969,7 @@ class BaseTablesService(BaseWorkspaceService):
             sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
             .where(sa.column("id") == row_id)
             .values(**value_clauses)
-            .returning(sa.text("*"))
+            .returning(*self._visible_columns(table))
         )
 
         result = await conn.execute(stmt)
@@ -975,6 +1068,7 @@ class BaseTablesService(BaseWorkspaceService):
         if len(values) != len(columns):
             raise ValueError("Values and column names must have the same length")
 
+        table = await self.get_table_by_name(table_name)
         schema_name = self._get_schema_name()
         table = await self.get_table_by_name(table_name)
         sanitized_table_name = self._sanitize_identifier(table.name)
@@ -988,7 +1082,7 @@ class BaseTablesService(BaseWorkspaceService):
             for column_name in resolved_columns
         ]
         stmt = (
-            sa.select(sa.text("*"))
+            sa.select(*self._visible_columns(table))
             .select_from(sa.table(sanitized_table_name, schema=schema_name))
             .where(
                 sa.and_(
@@ -1199,7 +1293,7 @@ class BaseTablesService(BaseWorkspaceService):
         conn = await self.session.connection()
 
         # Build the base query
-        stmt = sa.select(sa.text("*")).select_from(
+        stmt = sa.select(*self._visible_columns(table)).select_from(
             sa.table(sanitized_table_name, schema=schema_name)
         )
 
@@ -1815,13 +1909,36 @@ class TableEditorService(BaseWorkspaceService):
         super().__init__(session, role)
         self.table_name = sanitize_identifier(table_name)
         self.schema_name = schema_name
+        self._visible_columns_cache: list[sa.ColumnClause] | None = None
 
     def _full_table_name(self) -> str:
         """Get the full table name for the current role."""
-        return f'"{self.schema_name}".{self.table_name}'
+        return f'"{self.schema_name}"."{self.table_name}"'
 
-    async def get_columns(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
-        """Get all columns for a table."""
+    def _assert_user_column_name_allowed(self, column_name: str) -> None:
+        """Reject operations on internal/system-managed column names."""
+        if is_internal_column_name(column_name):
+            raise ValueError(f"Column {column_name} is reserved for internal use")
+
+    def _invalidate_visible_columns_cache(self) -> None:
+        self._visible_columns_cache = None
+
+    async def _visible_columns(self) -> list[sa.ColumnClause]:
+        if self._visible_columns_cache is None:
+            reflected_columns = await self.get_columns()
+            self._visible_columns_cache = visible_column_clauses(
+                [
+                    column_name
+                    for column in reflected_columns
+                    if isinstance((column_name := column.get("name")), str)
+                ]
+            )
+        return self._visible_columns_cache
+
+    async def _get_physical_columns(
+        self,
+    ) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
+        """Get all physical columns for a table, including internal columns."""
 
         def inspect_columns(
             sync_conn: sa.Connection,
@@ -1832,6 +1949,15 @@ class TableEditorService(BaseWorkspaceService):
         conn = await self.session.connection()
         columns = await conn.run_sync(inspect_columns)
         return columns
+
+    async def get_columns(self) -> Sequence[sa.engine.interfaces.ReflectedColumn]:
+        """Get user-visible columns for a table."""
+        reflected_columns = await self._get_physical_columns()
+        return [
+            column
+            for column in reflected_columns
+            if not is_internal_column_name(column.get("name"))
+        ]
 
     async def create_column(self, params: TableColumnCreate) -> None:
         """Add a new column to an existing table.
@@ -1846,6 +1972,7 @@ class TableEditorService(BaseWorkspaceService):
             ValueError: If the column type is invalid
         """
 
+        self._assert_user_column_name_allowed(params.name)
         column_name = validate_identifier(params.name)
 
         # Validate SQL type first
@@ -1886,6 +2013,7 @@ class TableEditorService(BaseWorkspaceService):
         )
 
         await self.session.flush()
+        self._invalidate_visible_columns_cache()
 
     async def update_column(self, column_name: str, params: TableColumnUpdate) -> None:
         """Update a column in an existing table.
@@ -1900,6 +2028,7 @@ class TableEditorService(BaseWorkspaceService):
             ValueError: If the column type is invalid
             ProgrammingError: If the database operation fails
         """
+        self._assert_user_column_name_allowed(column_name)
         set_fields = params.model_dump(exclude_unset=True)
         conn = await self.session.connection()
 
@@ -1909,13 +2038,17 @@ class TableEditorService(BaseWorkspaceService):
 
         # Execute ALTER statements using safe DDL construction
         if "name" in set_fields:
-            new_name = validate_identifier(set_fields["name"])
-            await conn.execute(
-                sa.DDL(
-                    "ALTER TABLE %s RENAME COLUMN %s TO %s",
-                    (full_table_name, sanitized_column_name, new_name),
+            if (requested_name := set_fields["name"]) is None:
+                set_fields.pop("name")
+            else:
+                self._assert_user_column_name_allowed(requested_name)
+                new_name = validate_identifier(requested_name)
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s RENAME COLUMN %s TO %s",
+                        (full_table_name, sanitized_column_name, new_name),
+                    )
                 )
-            )
         if "type" in set_fields:
             new_type = SqlType(set_fields["type"])
             # Map SELECT -> TEXT, MULTI_SELECT -> JSONB for physical storage
@@ -1966,9 +2099,11 @@ class TableEditorService(BaseWorkspaceService):
                 )
 
         await self.session.flush()
+        self._invalidate_visible_columns_cache()
 
     async def delete_column(self, column_name: str) -> None:
         """Remove a column from an existing table."""
+        self._assert_user_column_name_allowed(column_name)
         sanitized_column = validate_identifier(column_name)
 
         # Drop the column from the physical table using DDL
@@ -1981,6 +2116,7 @@ class TableEditorService(BaseWorkspaceService):
         )
 
         await self.session.flush()
+        self._invalidate_visible_columns_cache()
 
     async def list_rows(
         self,
@@ -1991,7 +2127,7 @@ class TableEditorService(BaseWorkspaceService):
     ) -> CursorPaginatedResponse[dict[str, Any]]:
         """List rows with cursor-based pagination ordered by row ID."""
         conn = await self.session.connection()
-        stmt = sa.select("*").select_from(
+        stmt = sa.select(*await self._visible_columns()).select_from(
             sa.table(self.table_name, schema=self.schema_name)
         )
 
@@ -2042,7 +2178,7 @@ class TableEditorService(BaseWorkspaceService):
         """Get a row by ID."""
         conn = await self.session.connection()
         stmt = (
-            sa.select("*")
+            sa.select(*await self._visible_columns())
             .select_from(sa.table(self.table_name, schema=self.schema_name))
             .where(sa.column("id") == row_id)
         )
@@ -2066,7 +2202,11 @@ class TableEditorService(BaseWorkspaceService):
         conn = await self.session.connection()
 
         row_data = params.data
-        col_map = {c["name"]: c for c in await self.get_columns()}
+        for column_name in row_data:
+            self._assert_user_column_name_allowed(column_name)
+        reflected_columns = await self.get_columns()
+        col_map = {c["name"]: c for c in reflected_columns}
+        visible_columns = visible_column_clauses(list(col_map))
 
         value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
@@ -2091,7 +2231,7 @@ class TableEditorService(BaseWorkspaceService):
         stmt = (
             sa.insert(sa.table(self.table_name, *cols, schema=self.schema_name))
             .values(**value_clauses)
-            .returning(sa.text("*"))
+            .returning(*visible_columns)
         )
         result = await conn.execute(stmt)
         await self.session.flush()
@@ -2112,7 +2252,11 @@ class TableEditorService(BaseWorkspaceService):
             TracecatNotFoundError: If the row does not exist
         """
         conn = await self.session.connection()
-        col_map = {c["name"]: c for c in await self.get_columns()}
+        for column_name in data:
+            self._assert_user_column_name_allowed(column_name)
+        reflected_columns = await self.get_columns()
+        col_map = {c["name"]: c for c in reflected_columns}
+        visible_columns = visible_column_clauses(list(col_map))
 
         # Build update statement using SQLAlchemy
         value_clauses: dict[str, sa.BindParameter] = {}
@@ -2141,7 +2285,7 @@ class TableEditorService(BaseWorkspaceService):
             sa.update(sa.table(self.table_name, *cols, schema=self.schema_name))
             .where(sa.column("id") == row_id)
             .values(**value_clauses)
-            .returning(sa.text("*"))
+            .returning(*visible_columns)
         )
 
         result = await conn.execute(stmt)
@@ -2173,6 +2317,11 @@ def sanitize_identifier(identifier: str) -> str:
     if not (sanitized[0].isalpha() or sanitized[0] == "_"):
         raise ValueError("Identifier must start with a letter or underscore")
     return sanitized.lower()
+
+
+def is_internal_column_name(column_name: str) -> bool:
+    """Check whether a column is internal/system-managed for dynamic schemas."""
+    return column_name.lower().startswith(INTERNAL_COLUMN_PREFIX)
 
 
 def validate_identifier(identifier: str) -> str:

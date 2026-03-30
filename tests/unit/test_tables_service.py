@@ -1,9 +1,11 @@
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,13 +27,22 @@ from tracecat.tables.schemas import (
     TableUpdate,
 )
 from tracecat.tables.service import (
+    DYNAMIC_WORKSPACE_TENANT_COLUMN,
     TableEditorService,
     TablesService,
+    is_internal_column_name,
     sanitize_identifier,
     validate_identifier,
+    visible_column_names,
 )
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def workflow_bucket() -> Iterator[None]:
+    """Disable MinIO-dependent workflow bucket setup for these tests."""
+    yield
 
 
 @pytest.fixture(scope="function")
@@ -143,6 +154,13 @@ async def _list_rows(
 
 @pytest.mark.anyio
 class TestTablesService:
+    async def test_internal_column_name_check_is_case_insensitive(self) -> None:
+        """Internal column detection should normalize case for reserved namespaces."""
+        assert is_internal_column_name("__tc_workspace_id") is True
+        assert is_internal_column_name("__TC_workspace_id") is True
+        assert is_internal_column_name("__tc_shadow") is True
+        assert is_internal_column_name("user_field") is False
+
     async def test_create_and_get_table(self, tables_service: TablesService) -> None:
         """Test creating a table and retrieving it by name and id."""
         # Create a table using TableCreate
@@ -157,6 +175,15 @@ class TestTablesService:
         # Retrieve by id
         retrieved_by_id = await tables_service.get_table(created_table.id)
         assert retrieved_by_id.id == created_table.id
+
+    async def test_create_table_with_keyword_name(
+        self, tables_service: TablesService
+    ) -> None:
+        """Creating a keyword-named table should still succeed."""
+        created_table = await tables_service.create_table(TableCreate(name="user"))
+
+        retrieved_table = await tables_service.get_table_by_name("user")
+        assert retrieved_table.id == created_table.id
 
     async def test_get_table_by_name_rejects_invalid_alias(
         self, tables_service: TablesService
@@ -621,6 +648,29 @@ class TestTableColumns:
         assert retrieved_col.name == "age"
         assert retrieved_col.type == SqlType.INTEGER
 
+    async def test_create_column_rejects_internal_namespace(
+        self, tables_service: TablesService
+    ) -> None:
+        """TablesService should reject creating internal/system-managed columns."""
+        table = await tables_service.create_table(
+            TableCreate(name="create_internal_column_reject")
+        )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await tables_service.create_column(
+                table,
+                TableColumnCreate(
+                    name=DYNAMIC_WORKSPACE_TENANT_COLUMN,
+                    type=SqlType.TEXT,
+                ),
+            )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await tables_service.create_column(
+                table,
+                TableColumnCreate(name="__tc_shadow", type=SqlType.TEXT),
+            )
+
     async def test_delete_column(self, tables_service: TablesService) -> None:
         """Test deleting a column from a table and ensuring it is removed."""
         # Create table and add a column
@@ -671,6 +721,50 @@ class TestTableColumns:
         assert retrieved_column.nullable is False
         assert retrieved_column.default == "default_value"
         assert retrieved_column.type == SqlType.TEXT
+
+    async def test_update_column_rejects_internal_namespace(
+        self, tables_service: TablesService
+    ) -> None:
+        """TablesService should reject operating on internal/system-managed columns."""
+        table = await tables_service.create_table(
+            TableCreate(name="update_internal_column_reject")
+        )
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(name="nickname", type=SqlType.TEXT, nullable=True),
+        )
+
+        column.name = DYNAMIC_WORKSPACE_TENANT_COLUMN
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await tables_service.update_column(
+                column,
+                TableColumnUpdate(name="display_name"),
+            )
+
+        column.name = "nickname"
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await tables_service.update_column(
+                column,
+                TableColumnUpdate(name="__TC_workspace_id"),
+            )
+
+    async def test_update_column_ignores_null_rename(
+        self, tables_service: TablesService
+    ) -> None:
+        """TablesService should treat explicit null rename payloads as no-ops."""
+        table = await tables_service.create_table(
+            TableCreate(name="reject_null_column_rename")
+        )
+        column = await tables_service.create_column(
+            table,
+            TableColumnCreate(name="nickname", type=SqlType.TEXT, nullable=True),
+        )
+
+        updated = await tables_service.update_column(
+            column, TableColumnUpdate(name=None)
+        )
+
+        assert updated.name == "nickname"
 
     async def test_create_column_default_with_single_quote(
         self, tables_service: TablesService
@@ -738,6 +832,89 @@ class TestTableColumns:
 
         inserted = await editor.insert_row(TableRowInsert(data={}))
         assert inserted["nickname"] == "O'Brien"
+
+    async def test_table_editor_create_column_rejects_internal_name(
+        self, tables_service: TablesService
+    ) -> None:
+        """Editor column creation should reject internal/system-managed names."""
+        table = await tables_service.create_table(
+            TableCreate(name="editor_reject_internal_create")
+        )
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await editor.create_column(
+                TableColumnCreate(
+                    name=DYNAMIC_WORKSPACE_TENANT_COLUMN,
+                    type=SqlType.TEXT,
+                )
+            )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await editor.create_column(
+                TableColumnCreate(name="__tc_shadow", type=SqlType.TEXT)
+            )
+
+    async def test_table_editor_update_column_rejects_internal_name(
+        self, tables_service: TablesService
+    ) -> None:
+        """Editor column updates should reject internal/system-managed names."""
+        table = await tables_service.create_table(
+            TableCreate(
+                name="editor_reject_internal_update",
+                columns=[
+                    TableColumnCreate(name="nickname", type=SqlType.TEXT),
+                ],
+            )
+        )
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await editor.update_column(
+                DYNAMIC_WORKSPACE_TENANT_COLUMN,
+                TableColumnUpdate(name="display_name"),
+            )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await editor.update_column(
+                "nickname",
+                TableColumnUpdate(name="__TC_workspace_id"),
+            )
+
+    async def test_table_editor_update_column_ignores_null_rename(
+        self, tables_service: TablesService
+    ) -> None:
+        """TableEditorService should treat explicit null rename payloads as no-ops."""
+        table = await tables_service.create_table(
+            TableCreate(
+                name="editor_reject_null_update",
+                columns=[
+                    TableColumnCreate(name="nickname", type=SqlType.TEXT),
+                ],
+            )
+        )
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        await editor.update_column("nickname", TableColumnUpdate(name=None))
+
+        columns = await editor.get_columns()
+
+        assert any(column["name"] == "nickname" for column in columns)
 
     async def test_update_column_handles_legacy_metadata_name(
         self, tables_service: TablesService
@@ -896,6 +1073,37 @@ class TestTableRows:
         assert retrieved["age"] == 30
         assert "created_at" in retrieved
         assert "updated_at" in retrieved
+
+    async def test_row_payloads_hide_internal_tenant_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Row payloads should hide internal tenant columns."""
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Hidden", "age": 33})
+        )
+
+        assert DYNAMIC_WORKSPACE_TENANT_COLUMN not in inserted
+
+        retrieved = await tables_service.get_row(table, inserted["id"])
+        assert DYNAMIC_WORKSPACE_TENANT_COLUMN not in retrieved
+
+        rows = await _list_rows(tables_service, table)
+        assert all(DYNAMIC_WORKSPACE_TENANT_COLUMN not in row for row in rows)
+
+        conn = await tables_service.session.connection()
+        physical_row = (
+            await conn.execute(
+                sa.text(
+                    f'''
+                    SELECT "{DYNAMIC_WORKSPACE_TENANT_COLUMN}"
+                    FROM "{tables_service._get_schema_name()}"."{table.name}"
+                    WHERE id = :row_id
+                    '''
+                ),
+                {"row_id": inserted["id"]},
+            )
+        ).one()
+        assert physical_row[0] == tables_service.workspace_id
 
     async def test_upsert_single_column_unique_index(
         self, tables_service: TablesService, table: Table
@@ -1184,6 +1392,149 @@ class TestTableRows:
         assert reverse_page.has_previous is False
         assert reverse_page.next_cursor is not None
         assert reverse_page.prev_cursor is None
+
+    async def test_table_editor_row_payloads_hide_internal_tenant_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Editor row payloads should hide internal tenant columns."""
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        inserted = await editor.insert_row(
+            TableRowInsert(data={"name": "Editor hidden", "age": 33})
+        )
+        assert DYNAMIC_WORKSPACE_TENANT_COLUMN not in inserted
+
+        retrieved = await editor.get_row(inserted["id"])
+        assert DYNAMIC_WORKSPACE_TENANT_COLUMN not in retrieved
+
+        page = await editor.list_rows(limit=10)
+        assert all(DYNAMIC_WORKSPACE_TENANT_COLUMN not in row for row in page.items)
+
+    async def test_table_editor_get_columns_hides_internal_tenant_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Editor column listings should hide internal tenant columns."""
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        columns = await editor.get_columns()
+
+        assert DYNAMIC_WORKSPACE_TENANT_COLUMN not in {
+            column["name"] for column in columns
+        }
+
+        conn = await tables_service.session.connection()
+        physical_columns = await conn.run_sync(
+            lambda sync_conn: sa.inspect(sync_conn).get_columns(
+                table.name, schema=tables_service._get_schema_name()
+            )
+        )
+        assert DYNAMIC_WORKSPACE_TENANT_COLUMN in {
+            column["name"] for column in physical_columns
+        }
+
+    async def test_table_editor_visible_columns_refresh_after_create_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Editor visible-column cache should refresh after schema changes."""
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        await editor.list_rows(limit=1)
+        await editor.create_column(TableColumnCreate(name="city", type=SqlType.TEXT))
+
+        inserted = await editor.insert_row(
+            TableRowInsert(data={"name": "Editor city", "age": 4, "city": "NYC"})
+        )
+        assert inserted["city"] == "NYC"
+
+        retrieved = await editor.get_row(inserted["id"])
+        assert retrieved["city"] == "NYC"
+
+    async def test_visible_column_names_preserves_legacy_underscore_names(self) -> None:
+        """Visibility filtering should not reject legacy underscore-prefixed names."""
+        assert visible_column_names(["_legacy_field", "__tc_workspace_id"]) == [
+            "id",
+            "created_at",
+            "updated_at",
+            "_legacy_field",
+        ]
+
+    async def test_table_editor_insert_row_rejects_internal_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Editor inserts should reject internal/system-managed columns."""
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await editor.insert_row(
+                TableRowInsert(
+                    data={
+                        DYNAMIC_WORKSPACE_TENANT_COLUMN: str(
+                            tables_service.workspace_id
+                        )
+                    }
+                )
+            )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await editor.insert_row(
+                TableRowInsert(
+                    data={"__TC_workspace_id": str(tables_service.workspace_id)}
+                )
+            )
+
+    async def test_table_editor_update_row_rejects_internal_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Editor updates should reject internal/system-managed columns."""
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+        inserted = await editor.insert_row(
+            TableRowInsert(data={"name": "Editor", "age": 1})
+        )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await editor.update_row(
+                inserted["id"],
+                {DYNAMIC_WORKSPACE_TENANT_COLUMN: str(tables_service.workspace_id)},
+            )
+
+    async def test_table_editor_delete_column_rejects_internal_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Editor column deletion should reject internal/system-managed columns."""
+        editor = TableEditorService(
+            tables_service.session,
+            tables_service.role,
+            table_name=table.name,
+            schema_name=tables_service._get_schema_name(),
+        )
+
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await editor.delete_column(DYNAMIC_WORKSPACE_TENANT_COLUMN)
 
     async def test_batch_insert_rows(
         self, tables_service: TablesService, table: Table
