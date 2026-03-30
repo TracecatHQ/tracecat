@@ -299,6 +299,7 @@ async def test_proxy_passes_authorized_model_to_anthropic_passthrough(
             *,
             model: str,
             base_url: str | None = None,
+            ingress_headers: dict[str, str] | None = None,
         ):
             del client
             captured["payload_model"] = payload["model"]

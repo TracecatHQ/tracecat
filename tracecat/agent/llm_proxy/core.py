@@ -195,6 +195,7 @@ class TracecatLLMProxy:
         payload: dict[str, Any],
         claims: LLMTokenClaims,
         trace_request_id: str | None = None,
+        ingress_headers: dict[str, str] | None = None,
     ) -> AsyncIterator[bytes]:
         # Eagerly resolve credentials before constructing the lazy generator
         # so that HTTPException is raised before response headers are sent.
@@ -226,6 +227,7 @@ class TracecatLLMProxy:
                         claims.model_settings,
                         model=claims.model,
                         base_url=claims.base_url,
+                        ingress_headers=ingress_headers,
                     ):
                         yield chunk
                     return

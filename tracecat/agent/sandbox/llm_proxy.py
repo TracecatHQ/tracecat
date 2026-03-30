@@ -428,6 +428,7 @@ class LLMSocketProxy:
                         payload=payload,
                         claims=claims,
                         trace_request_id=trace_request_id,
+                        ingress_headers=headers,
                     )
                     await self._write_response(
                         writer,
