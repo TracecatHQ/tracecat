@@ -1,7 +1,7 @@
 """migrate_uuid_and_timestamp_user_types
 
 Revision ID: 7e1a4d9c2b6f
-Revises: bf38f2aa1c77
+Revises: b5fc4168fe22
 Create Date: 2026-03-29 00:00:00.000000
 
 """
@@ -19,7 +19,7 @@ from tracecat.tables.enums import SqlType
 
 # revision identifiers, used by Alembic.
 revision: str = "7e1a4d9c2b6f"
-down_revision: str | None = "bf38f2aa1c77"
+down_revision: str | None = "b5fc4168fe22"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
