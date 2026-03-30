@@ -57,7 +57,9 @@ class AgentExecutorInput(BaseModel):
     role: Role
     # Authentication tokens (minted by workflow before calling activity)
     mcp_auth_token: str
-    llm_gateway_auth_token: str
+    llm_gateway_auth_token: str = Field(
+        validation_alias=AliasChoices("llm_gateway_auth_token", "litellm_auth_token"),
+    )
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     # Session resume data (from previous run, includes tool_result for approval flow)
