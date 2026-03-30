@@ -86,6 +86,7 @@ export function CaseClosureDialog({
   onSubmit,
 }: CaseClosureDialogProps) {
   const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({})
+  const [fieldErrors, setFieldErrors] = useState<Set<string>>(new Set())
   const [dropdownValues, setDropdownValues] = useState<
     Record<string, string | null>
   >({})
@@ -127,6 +128,7 @@ export function CaseClosureDialog({
   ])
 
   const isValid = useMemo(() => {
+    if (fieldErrors.size > 0) return false
     for (const field of requiredFields) {
       if (isFieldValueEmpty(fieldValues[field.id])) return false
     }
@@ -134,7 +136,13 @@ export function CaseClosureDialog({
       if (!dropdownValues[dd.id]) return false
     }
     return true
-  }, [fieldValues, dropdownValues, requiredFields, requiredDropdowns])
+  }, [
+    fieldValues,
+    fieldErrors,
+    dropdownValues,
+    requiredFields,
+    requiredDropdowns,
+  ])
 
   const handleSubmit = useCallback(async () => {
     if (!isValid) return
@@ -190,6 +198,14 @@ export function CaseClosureDialog({
               value={fieldValues[field.id] ?? null}
               onChange={(val) =>
                 setFieldValues((prev) => ({ ...prev, [field.id]: val }))
+              }
+              onValidationChange={(hasError) =>
+                setFieldErrors((prev) => {
+                  const next = new Set(prev)
+                  if (hasError) next.add(field.id)
+                  else next.delete(field.id)
+                  return next
+                })
               }
             />
           ))}
@@ -251,9 +267,15 @@ interface ClosureFieldInputProps {
   field: CaseFieldReadMinimal
   value: unknown
   onChange: (value: unknown) => void
+  onValidationChange?: (hasError: boolean) => void
 }
 
-function ClosureFieldInput({ field, value, onChange }: ClosureFieldInputProps) {
+function ClosureFieldInput({
+  field,
+  value,
+  onChange,
+  onValidationChange,
+}: ClosureFieldInputProps) {
   // Resolve effective type from kind
   if (field.kind === "LONG_TEXT") {
     return <LongTextField label={field.id} value={value} onChange={onChange} />
@@ -363,7 +385,14 @@ function ClosureFieldInput({ field, value, onChange }: ClosureFieldInputProps) {
         <MultiSelectField field={field} value={value} onChange={onChange} />
       )
     case "JSONB":
-      return <JsonField label={field.id} value={value} onChange={onChange} />
+      return (
+        <JsonField
+          label={field.id}
+          value={value}
+          onChange={onChange}
+          onValidationChange={onValidationChange}
+        />
+      )
     default:
       return (
         <div className="space-y-1.5">
@@ -556,10 +585,12 @@ function JsonField({
   label,
   value,
   onChange,
+  onValidationChange,
 }: {
   label: string
   value: unknown
   onChange: (v: unknown) => void
+  onValidationChange?: (hasError: boolean) => void
 }) {
   const serialized =
     value === null || value === undefined ? "" : JSON.stringify(value, null, 2)
@@ -593,15 +624,17 @@ function JsonField({
     if (trimmed === "") {
       onChange(null)
       setError(null)
+      onValidationChange?.(false)
       return
     }
     try {
       const parsed = JSON.parse(trimmed)
       onChange(parsed)
       setError(null)
+      onValidationChange?.(false)
     } catch {
-      onChange(undefined)
       setError("Invalid JSON")
+      onValidationChange?.(true)
     }
   }
 
