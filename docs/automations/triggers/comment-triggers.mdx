@@ -1,0 +1,56 @@
+---
+title: "Comment triggers"
+description: "Run workflows from case comments and replies."
+icon: "lock"
+---
+
+## Overview
+
+You can start a workflow from a case comment or reply by selecting it in the comment composer.
+
+![Comment trigger](/img/triggers/comment-triggers.png)
+
+## Trigger payload
+
+Comment trigger data is available under `${{ TRIGGER }}`.
+
+Fields:
+
+- `${{ TRIGGER.case_id }}`: case ID.
+- `${{ TRIGGER.comment_id }}`: comment ID.
+- `${{ TRIGGER.parent_id }}`: parent comment ID.
+- `${{ TRIGGER.text }}`: comment text.
+- `${{ TRIGGER.triggered_by }}`: actor details.
+- `${{ TRIGGER.event }}`: event details.
+- `${{ TRIGGER.tags }}`: case tags.
+
+Example payload:
+
+```json
+{
+  "case_id": "case_01abc",
+  "comment_id": "cmt_01abc",
+  "parent_id": null,
+  "text": "Escalating to the IAM workflow.",
+  "workspace_id": "ws_01abc",
+  "triggered_by": {
+    "type": "user",
+    "user_id": "usr_01abc",
+    "service_id": null
+  },
+  "event": {
+    "id": "evt_01abc",
+    "type": "comment_created",
+    "created_at": "2026-03-19T14:22:00+00:00",
+    "user_id": "usr_01abc"
+  },
+  "tags": [
+    {
+      "id": "tag_01abc",
+      "ref": "triage",
+      "name": "Triage",
+      "color": null
+    }
+  ]
+}
+```

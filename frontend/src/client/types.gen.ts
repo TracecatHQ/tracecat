@@ -830,6 +830,13 @@ export type AssistantMessage = {
     | "server_error"
     | "unknown"
     | null
+  usage?: {
+    [key: string]: unknown
+  } | null
+  message_id?: string | null
+  stop_reason?: string | null
+  session_id?: string | null
+  uuid?: string | null
 }
 
 /**
@@ -1204,6 +1211,7 @@ export type CaseDropdownDefinitionCreate = {
   ref: string
   icon_name?: string | null
   is_ordered?: boolean
+  required_on_closure?: boolean
   position?: number
   options?: Array<CaseDropdownOptionCreate>
 }
@@ -1217,6 +1225,7 @@ export type CaseDropdownDefinitionRead = {
   ref: string
   icon_name?: string | null
   is_ordered: boolean
+  required_on_closure: boolean
   position: number
   options?: Array<CaseDropdownOptionRead>
 }
@@ -1229,6 +1238,7 @@ export type CaseDropdownDefinitionUpdate = {
   ref?: string | null
   icon_name?: string | null
   is_ordered?: boolean | null
+  required_on_closure?: boolean | null
   position?: number | null
 }
 
@@ -1567,7 +1577,17 @@ export type CaseFieldCreate = {
   nullable?: boolean
   default?: unknown | null
   options?: Array<string> | null
+  kind?: CaseFieldKind | null
+  required_on_closure?: boolean
 }
+
+/**
+ * Semantic kind for case custom fields.
+ *
+ * Controls how the field is rendered in the UI without changing the underlying
+ * SQL storage type.
+ */
+export type CaseFieldKind = "LONG_TEXT" | "URL"
 
 /**
  * Read model for a case field.
@@ -1580,6 +1600,8 @@ export type CaseFieldRead = {
   default: string | null
   reserved: boolean
   options?: Array<string> | null
+  kind?: CaseFieldKind | null
+  required_on_closure?: boolean
   value: unknown
 }
 
@@ -1594,6 +1616,8 @@ export type CaseFieldReadMinimal = {
   default: string | null
   reserved: boolean
   options?: Array<string> | null
+  kind?: CaseFieldKind | null
+  required_on_closure?: boolean
 }
 
 /**
@@ -1621,6 +1645,7 @@ export type CaseFieldUpdate = {
    */
   is_index?: boolean | null
   options?: Array<string> | null
+  required_on_closure?: boolean | null
 }
 
 /**
@@ -1903,6 +1928,7 @@ export type ChatMessage = {
     | SystemMessage
     | ResultMessage
     | StreamEvent
+    | RateLimitEvent
     | null
   /**
    * Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)
@@ -4002,10 +4028,6 @@ export type ModelSecretConfig = {
   optional?: Array<string>
 }
 
-export type OAuth2AuthorizeResponse = {
-  authorization_url: string
-}
-
 /**
  * Grant type for OAuth 2.0.
  */
@@ -4524,6 +4546,33 @@ export type PullResult = {
   message: string
 }
 
+export type RateLimitEvent = {
+  rate_limit_info: RateLimitInfo
+  uuid: string
+  session_id: string
+}
+
+export type RateLimitInfo = {
+  status: "allowed" | "allowed_warning" | "rejected"
+  resets_at?: number | null
+  rate_limit_type?:
+    | "five_hour"
+    | "seven_day"
+    | "seven_day_opus"
+    | "seven_day_sonnet"
+    | "overage"
+    | null
+  utilization?: number | null
+  overage_status?: "allowed" | "allowed_warning" | "rejected" | null
+  overage_resets_at?: number | null
+  overage_disabled_reason?: string | null
+  raw?: {
+    [key: string]: unknown
+  }
+}
+
+export type status3 = "allowed" | "allowed_warning" | "rejected"
+
 export type ReadinessResponse = {
   status: string
   registry: RegistryStatus
@@ -4547,6 +4596,20 @@ export type state = "streaming" | "done"
 
 export type ReceiveInteractionResponse = {
   message: string
+}
+
+/**
+ * Availability metadata for a registry action.
+ */
+export type RegistryActionAvailability = {
+  /**
+   * Whether this action is locked behind an upgraded plan
+   */
+  locked?: boolean
+  /**
+   * Entitlements required to unlock this action
+   */
+  missing_entitlements?: Array<string>
 }
 
 export type RegistryActionInterface = {
@@ -4675,6 +4738,10 @@ export type RegistryActionReadMinimal = {
    * The presentation group of the action
    */
   display_group?: string | null
+  /**
+   * Availability metadata for this action
+   */
+  availability?: RegistryActionAvailability
   /**
    * The full action identifier.
    */
@@ -4812,7 +4879,10 @@ export type RegistrySecret = {
   keys?: Array<string> | null
   optional_keys?: Array<string> | null
   optional?: boolean
+  secret_type?: "custom" | "ssh_key" | "mtls" | "ca_cert"
 }
+
+export type secret_type = "custom" | "ssh_key" | "mtls" | "ca_cert"
 
 export type RegistrySecretType = RegistrySecret | RegistryOAuthSecret
 
@@ -4894,12 +4964,19 @@ export type ResultMessage = {
   is_error: boolean
   num_turns: number
   session_id: string
+  stop_reason?: string | null
   total_cost_usd?: number | null
   usage?: {
     [key: string]: unknown
   } | null
   result?: string | null
   structured_output?: unknown
+  model_usage?: {
+    [key: string]: unknown
+  } | null
+  permission_denials?: Array<unknown> | null
+  errors?: Array<string> | null
+  uuid?: string | null
 }
 
 export type RetryPromptPart = {
@@ -5240,7 +5317,7 @@ export type ScopeSource = "platform" | "custom"
  * - `token`: A token, e.g. API Key, JWT Token (TBC)
  * - `oauth2`: OAuth2 Client Credentials (TBC)
  * - `mtls`: TLS client certificate and key
- * - `ca-cert`: Certificate authority bundle
+ * - `ca_cert`: Certificate authority bundle
  */
 export type SecretCreate = {
   type?: SecretType
@@ -5261,6 +5338,7 @@ export type SecretDefinition = {
   keys: Array<string>
   optional_keys?: Array<string> | null
   optional?: boolean
+  secret_type?: SecretType
   actions: Array<string>
   action_count: number
 }
@@ -5303,10 +5381,10 @@ export type SecretReadMinimal = {
  */
 export type SecretType =
   | "custom"
-  | "ssh-key"
+  | "ssh_key"
   | "mtls"
-  | "ca-cert"
-  | "github-app"
+  | "ca_cert"
+  | "github_app"
 
 /**
  * Update a secret.
@@ -5317,7 +5395,7 @@ export type SecretType =
  * - `token`: A token, e.g. API Key, JWT Token (TBC)
  * - `oauth2`: OAuth2 Client Credentials (TBC)
  * - `mtls`: TLS client certificate and key
- * - `ca-cert`: Certificate authority bundle
+ * - `ca_cert`: Certificate authority bundle
  */
 export type SecretUpdate = {
   type?: SecretType | null
@@ -6414,6 +6492,9 @@ export type UserMessage = {
     | Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
   uuid?: string | null
   parent_tool_use_id?: string | null
+  tool_use_result?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type UserRead = {
@@ -6875,7 +6956,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status3 = "success" | "failure"
+export type status4 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -6934,7 +7015,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status4 = "committed" | "no_op"
+export type status5 = "committed" | "no_op"
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -7252,7 +7333,7 @@ export type WorkflowExecutionRead = {
   interactions?: Array<InteractionRead>
 }
 
-export type status5 =
+export type status6 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -9447,6 +9528,13 @@ export type RegistryRepositoriesGetPreviousRegistryVersionData = {
 export type RegistryRepositoriesGetPreviousRegistryVersionResponse =
   tracecat__registry__repositories__schemas__RegistryVersionRead | null
 
+export type RegistryActionsListRegistryActionsData = {
+  /**
+   * Include actions locked by missing entitlements
+   */
+  includeLocked?: boolean
+}
+
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
 
@@ -10757,21 +10845,6 @@ export type AuthVerifyVerifyData = {
 }
 
 export type AuthVerifyVerifyResponse = UserRead
-
-export type AuthOauthOidcDatabaseAuthorizeData = {
-  scopes?: Array<string>
-}
-
-export type AuthOauthOidcDatabaseAuthorizeResponse = OAuth2AuthorizeResponse
-
-export type AuthOauthOidcDatabaseCallbackData = {
-  code?: string | null
-  codeVerifier?: string | null
-  error?: string | null
-  state?: string | null
-}
-
-export type AuthOauthOidcDatabaseCallbackResponse = unknown
 
 export type AuthSamlDatabaseLoginResponse = SAMLDatabaseLoginResponse
 
@@ -13737,11 +13810,16 @@ export type $OpenApiTs = {
   }
   "/registry/actions": {
     get: {
+      req: RegistryActionsListRegistryActionsData
       res: {
         /**
          * Successful Response
          */
         200: Array<RegistryActionReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }
@@ -16036,40 +16114,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: UserRead
-        /**
-         * Bad Request
-         */
-        400: ErrorModel
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/auth/oauth/authorize": {
-    get: {
-      req: AuthOauthOidcDatabaseAuthorizeData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: OAuth2AuthorizeResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/auth/oauth/callback": {
-    get: {
-      req: AuthOauthOidcDatabaseCallbackData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: unknown
         /**
          * Bad Request
          */

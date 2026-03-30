@@ -310,4 +310,10 @@ locals {
   )
 
   executor_secrets = local.tracecat_base_secrets
+
+  mcp_secrets = concat(
+    local.tracecat_base_secrets,
+    local.oidc_client_id_secret,
+    local.oidc_client_secret_secret,
+  )
 }

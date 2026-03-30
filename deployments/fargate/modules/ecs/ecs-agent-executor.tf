@@ -17,7 +17,7 @@ resource "aws_ecs_task_definition" "agent_executor_task_definition" {
     {
       name    = "TracecatAgentExecutorContainer"
       image   = "${var.tracecat_image}:${local.tracecat_image_tag}"
-      command = ["python", "-m", "tracecat.agent.worker"]
+      command = ["python", "-m", "tracecat.agent.executor_worker"]
       logConfiguration = {
         logDriver = "awslogs"
         options = {

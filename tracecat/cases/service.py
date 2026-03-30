@@ -46,6 +46,8 @@ from tracecat.cases.schemas import (
     CaseCommentWorkflowStatus,
     CaseCreate,
     CaseEventVariant,
+    CaseFieldCreate,
+    CaseFieldUpdate,
     CaseReadMinimal,
     CaseSearchAggregateRead,
     CaseStatusGroupCounts,
@@ -81,7 +83,7 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.cases.triggers.publisher import publish_case_event_payload
 from tracecat.contexts import ctx_run
 from tracecat.custom_fields import CustomFieldsService
-from tracecat.custom_fields.schemas import CustomFieldCreate, CustomFieldUpdate
+from tracecat.custom_fields.schemas import CustomFieldUpdate
 from tracecat.db.models import (
     Case,
     CaseComment,
@@ -117,7 +119,7 @@ from tracecat.pagination import (
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import normalize_column_options
 from tracecat.tables.enums import SqlType
-from tracecat.tables.service import TablesService
+from tracecat.tables.service import DYNAMIC_WORKSPACE_TENANT_COLUMN, TablesService
 from tracecat.tiers.enums import Entitlement
 
 
@@ -137,6 +139,21 @@ def _normalize_filter_values(values: Any) -> list[Any]:
 
 
 _COMMENT_TOMBSTONE_CONTENT = "Comment deleted"
+
+
+def _is_field_value_empty(value: Any) -> bool:
+    """Check if a custom field value is empty for closure validation.
+
+    Empty means None, whitespace-only string, empty list, or empty dict.
+    False and 0 are valid (non-empty) values.
+    """
+    if value is None:
+        return True
+    if isinstance(value, str) and not value.strip():
+        return True
+    if isinstance(value, (list, dict)) and not value:
+        return True
+    return False
 
 
 # Semantic sort order for enum-backed case fields.
@@ -847,6 +864,93 @@ class CasesService(BaseWorkspaceService):
             await self.session.rollback()
             raise
 
+    async def _validate_closure_requirements(
+        self,
+        case: Case,
+        pending_fields: dict[str, Any] | None,
+        pending_dropdown_values: list[dict[str, Any]] | None,
+    ) -> None:
+        """Validate that all required-on-closure fields and dropdowns are non-empty.
+
+        Checks the merged state of current values + pending updates. Only runs
+        when the CASE_ADDONS entitlement is active.
+
+        Args:
+            case: The case being updated.
+            pending_fields: Field values from the update request (merged on top of current).
+            pending_dropdown_values: Dropdown values from the update request.
+
+        Raises:
+            TracecatValidationError: If any required field or dropdown is empty.
+        """
+        if not await self.has_entitlement(Entitlement.CASE_ADDONS):
+            return
+
+        missing_fields: list[str] = []
+        missing_dropdowns: list[str] = []
+
+        # --- Custom fields ---
+        field_schema = await self.fields.get_field_schema()
+        required_field_names = [
+            name
+            for name, meta in field_schema.items()
+            if meta.get("required_on_closure")
+        ]
+        if required_field_names:
+            current_fields = await self.fields.get_fields(case) or {}
+            merged_fields = {**current_fields, **(pending_fields or {})}
+            for name in required_field_names:
+                value = merged_fields.get(name)
+                if _is_field_value_empty(value):
+                    missing_fields.append(name)
+
+        # --- Dropdown definitions ---
+        stmt = (
+            select(CaseDropdownDefinition)
+            .where(
+                CaseDropdownDefinition.workspace_id == self.workspace_id,
+                CaseDropdownDefinition.required_on_closure.is_(True),
+            )
+            .options(selectinload(CaseDropdownDefinition.options))
+        )
+        result = await self.session.execute(stmt)
+        required_defs = result.scalars().all()
+
+        if required_defs:
+            # Build map of current dropdown values for this case
+            current_dropdown_map: dict[uuid.UUID, uuid.UUID | None] = {
+                dv.definition_id: dv.option_id for dv in case.dropdown_values
+            }
+            # Overlay pending dropdown values
+            if pending_dropdown_values:
+                for pdv in pending_dropdown_values:
+                    validated = CaseDropdownValueInput.model_validate(pdv)
+                    def_id = validated.definition_id
+                    if def_id is None:
+                        # Resolve by ref
+                        for rd in required_defs:
+                            if rd.ref == validated.definition_ref:
+                                def_id = rd.id
+                                break
+                    if def_id is not None:
+                        current_dropdown_map[def_id] = validated.option_id
+
+            for defn in required_defs:
+                if not current_dropdown_map.get(defn.id):
+                    missing_dropdowns.append(defn.name)
+
+        if missing_fields or missing_dropdowns:
+            import orjson
+
+            detail = orjson.dumps(
+                {
+                    "code": "closure_requirements_not_met",
+                    "missing_fields": missing_fields,
+                    "missing_dropdowns": missing_dropdowns,
+                }
+            ).decode()
+            raise TracecatValidationError(detail)
+
     @require_scope("case:update")
     @audit_log(resource_type="case", action="update")
     async def update_case(self, case: Case, params: CaseUpdate) -> Case:
@@ -870,6 +974,15 @@ class CasesService(BaseWorkspaceService):
         # Update case parameters if provided
         set_fields = params.model_dump(exclude_unset=True)
         dropdown_values = set_fields.pop("dropdown_values", None)
+
+        # Validate closure requirements before any mutations
+        if (peek_status := set_fields.get("status")) and peek_status != case.status:
+            if peek_status in (CaseStatus.CLOSED, CaseStatus.RESOLVED):
+                await self._validate_closure_requirements(
+                    case,
+                    pending_fields=set_fields.get("fields"),
+                    pending_dropdown_values=dropdown_values,
+                )
 
         # Check for status changes
         if new_status := set_fields.pop("status", None):
@@ -1015,7 +1128,38 @@ class CaseFieldsService(CustomFieldsService):
     # Hardcoded to preserve existing workspace-scoped table names
     # (metadata table was renamed from case_fields to case_field)
     _table = "case_fields"
-    _reserved_columns = {"id", "case_id", "created_at", "updated_at", "workspace_id"}
+    _reserved_columns = {
+        "id",
+        "case_id",
+        "created_at",
+        "updated_at",
+        DYNAMIC_WORKSPACE_TENANT_COLUMN,
+    }
+
+    @require_scope("case:create")
+    async def create_field(self, params: CaseFieldCreate) -> None:  # type: ignore[override]
+        """Create a new case field column and update the schema.
+
+        Extends the parent to persist the optional ``kind`` metadata
+        (e.g. LONG_TEXT, URL) that controls UI rendering.
+        """
+        await self._ensure_schema_ready()
+        params.nullable = True
+        await self.editor.create_column(params)
+
+        field_def: dict[str, Any] = {"type": params.type.value}
+
+        if params.type in (SqlType.SELECT, SqlType.MULTI_SELECT) and params.options:
+            field_def["options"] = normalize_column_options(params.options)
+
+        if params.kind is not None:
+            field_def["kind"] = params.kind.value
+
+        if params.required_on_closure:
+            field_def["required_on_closure"] = True
+
+        await self._update_field_schema(params.name, field_def)
+        await self.session.commit()
 
     def _table_definition(self) -> sa.Table:
         """Return the SQLAlchemy Table definition for the case_fields workspace table."""
@@ -1035,6 +1179,12 @@ class CaseFieldsService(CustomFieldsService):
                 sa.TIMESTAMP(timezone=True),
                 nullable=False,
                 server_default=sa.func.now(),
+            ),
+            sa.Column(
+                DYNAMIC_WORKSPACE_TENANT_COLUMN,
+                UUID(as_uuid=True),
+                nullable=False,
+                server_default=self._workspace_tenant_default_sql(),
             ),
             # Use the actual Case table column to avoid metadata resolution issues
             sa.ForeignKeyConstraint(
@@ -1087,28 +1237,10 @@ class CaseFieldsService(CustomFieldsService):
         flag_modified(definition, "schema")
         await self.session.flush()
 
-    @require_scope("case:create")
-    async def create_field(self, params: CustomFieldCreate) -> None:
-        """Create a new custom field column and update the schema."""
-
-        await self._ensure_schema_ready()
-        params.nullable = True  # Custom fields remain nullable by default
-        await self.editor.create_column(params)
-
-        # Store field metadata in schema
-        # Schema structure: {field_name: {type, options (only for SELECT/MULTI_SELECT)}}
-        field_def: dict[str, Any] = {"type": params.type.value}
-
-        # Only include options for SELECT/MULTI_SELECT types
-        if params.type in (SqlType.SELECT, SqlType.MULTI_SELECT) and params.options:
-            field_def["options"] = normalize_column_options(params.options)
-
-        await self._update_field_schema(params.name, field_def)
-
-        await self.session.commit()
-
     @require_scope("case:update")
-    async def update_field(self, field_id: str, params: CustomFieldUpdate) -> None:
+    async def update_field(
+        self, field_id: str, params: CaseFieldUpdate | CustomFieldUpdate
+    ) -> None:
         """Update a custom field column and update the schema if needed."""
         await self._ensure_schema_ready()
 
@@ -1136,6 +1268,20 @@ class CaseFieldsService(CustomFieldsService):
             elif "options" in current_field_def:
                 # Preserve existing options if not being updated
                 new_field_def["options"] = current_field_def["options"]
+
+            # Preserve kind metadata across updates
+            if "kind" in current_field_def:
+                new_field_def["kind"] = current_field_def["kind"]
+
+            # Handle required_on_closure metadata
+            if (
+                isinstance(params, CaseFieldUpdate)
+                and params.required_on_closure is not None
+            ):
+                if params.required_on_closure:
+                    new_field_def["required_on_closure"] = True
+            elif current_field_def.get("required_on_closure"):
+                new_field_def["required_on_closure"] = True
 
             # If field was renamed, remove old entry
             if new_field_id != field_id:
@@ -1228,6 +1374,8 @@ class CaseFieldsService(CustomFieldsService):
             raise TracecatException(
                 "Cannot upsert case fields without an owning workspace."
             )
+        for field_name in fields:
+            self._assert_user_field_name_allowed(field_name)
         row_id = await self.ensure_workspace_row(case.id)
 
         try:
@@ -1236,6 +1384,8 @@ class CaseFieldsService(CustomFieldsService):
                 await self.session.flush()
                 return res
             return await self.editor.get_row(row_id=row_id)
+        except TracecatValidationError:
+            raise
         except TracecatNotFoundError as e:
             self.logger.error(
                 "Case fields row not found after upsert",

@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { getCaseFieldTypeConfig } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -400,23 +401,39 @@ export function EditCustomFieldDialog({
             <FormField
               control={form.control}
               name="type"
-              render={({ field: fieldInput }) => (
-                <FormItem>
-                  <FormLabel>Data type</FormLabel>
-                  <FormControl>
-                    <div className="flex h-10 items-center rounded-md border border-input px-3 text-xs">
-                      <SqlTypeDisplay
-                        type={fieldInput.value}
-                        labelClassName="text-xs"
-                      />
-                    </div>
-                  </FormControl>
-                  <FormDescription>
-                    Data type is fixed after field creation.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
+              render={({ field: fieldInput }) => {
+                const typeConfig = getCaseFieldTypeConfig(
+                  fieldInput.value,
+                  field?.kind
+                )
+                const Icon = typeConfig?.icon
+                return (
+                  <FormItem>
+                    <FormLabel>Data type</FormLabel>
+                    <FormControl>
+                      <div className="flex h-10 items-center rounded-md border border-input px-3 text-xs">
+                        {field?.kind && Icon ? (
+                          <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                            <Icon className="size-4 shrink-0" />
+                            <span className="text-xs font-normal leading-none whitespace-nowrap">
+                              {typeConfig?.label}
+                            </span>
+                          </span>
+                        ) : (
+                          <SqlTypeDisplay
+                            type={fieldInput.value}
+                            labelClassName="text-xs"
+                          />
+                        )}
+                      </div>
+                    </FormControl>
+                    <FormDescription>
+                      Data type is fixed after field creation.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )
+              }}
             />
 
             {requiresOptions && (

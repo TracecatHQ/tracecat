@@ -14,6 +14,7 @@ from tracecat_registry import RegistrySecret, registry, secrets
 ssh_secret = RegistrySecret(
     name="ssh",
     keys=["PRIVATE_KEY"],
+    secret_type="ssh_key",
 )
 """SSH key secret.
 

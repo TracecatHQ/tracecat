@@ -155,10 +155,6 @@ import type {
   AuthAuthDatabaseLogoutResponse,
   AuthDiscoverAuthMethodData,
   AuthDiscoverAuthMethodResponse,
-  AuthOauthOidcDatabaseAuthorizeData,
-  AuthOauthOidcDatabaseAuthorizeResponse,
-  AuthOauthOidcDatabaseCallbackData,
-  AuthOauthOidcDatabaseCallbackResponse,
   AuthRegisterRegisterData,
   AuthRegisterRegisterResponse,
   AuthResetForgotPasswordData,
@@ -453,6 +449,7 @@ import type {
   RbacUpdateUserAssignmentResponse,
   RegistryActionsGetRegistryActionData,
   RegistryActionsGetRegistryActionResponse,
+  RegistryActionsListRegistryActionsData,
   RegistryActionsListRegistryActionsResponse,
   RegistryRepositoriesCompareRegistryVersionsData,
   RegistryRepositoriesCompareRegistryVersionsResponse,
@@ -6222,16 +6219,25 @@ export const registryRepositoriesGetPreviousRegistryVersion = (
 /**
  * List Registry Actions
  * List all actions from registry index.
+ * @param data The data for the request.
+ * @param data.includeLocked Include actions locked by missing entitlements
  * @returns RegistryActionReadMinimal Successful Response
  * @throws ApiError
  */
-export const registryActionsListRegistryActions =
-  (): CancelablePromise<RegistryActionsListRegistryActionsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/registry/actions",
-    })
-  }
+export const registryActionsListRegistryActions = (
+  data: RegistryActionsListRegistryActionsData = {}
+): CancelablePromise<RegistryActionsListRegistryActionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/registry/actions",
+    query: {
+      include_locked: data.includeLocked,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Get Registry Action
@@ -10480,58 +10486,6 @@ export const authVerifyVerify = (
     url: "/auth/verify",
     body: data.requestBody,
     mediaType: "application/json",
-    errors: {
-      400: "Bad Request",
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Oauth:Oidc.Database.Authorize
- * @param data The data for the request.
- * @param data.scopes
- * @returns OAuth2AuthorizeResponse Successful Response
- * @throws ApiError
- */
-export const authOauthOidcDatabaseAuthorize = (
-  data: AuthOauthOidcDatabaseAuthorizeData = {}
-): CancelablePromise<AuthOauthOidcDatabaseAuthorizeResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/auth/oauth/authorize",
-    query: {
-      scopes: data.scopes,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Oauth:Oidc.Database.Callback
- * The response varies based on the authentication backend used.
- * @param data The data for the request.
- * @param data.code
- * @param data.codeVerifier
- * @param data.state
- * @param data.error
- * @returns unknown Successful Response
- * @throws ApiError
- */
-export const authOauthOidcDatabaseCallback = (
-  data: AuthOauthOidcDatabaseCallbackData = {}
-): CancelablePromise<AuthOauthOidcDatabaseCallbackResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/auth/oauth/callback",
-    query: {
-      code: data.code,
-      code_verifier: data.codeVerifier,
-      state: data.state,
-      error: data.error,
-    },
     errors: {
       400: "Bad Request",
       422: "Validation Error",

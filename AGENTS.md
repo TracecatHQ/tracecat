@@ -282,9 +282,25 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - When resolving merge conflicts in dependencies, ensure exact version pins are preserved
 - Security fixes should update the pinned version to the specific patched version, not use range constraints
 
+### GitHub Actions and CI Security
+- `pull_request_target` is banned in this repository. Do not add it to any workflow. It runs with base-repo privileges and is too easy to misuse in ways that expose secrets, write-scoped tokens, or privileged automation to untrusted PR activity.
+- Use `push`, `pull_request`, and protected branch or tag triggers instead of `pull_request_target`.
+- Treat `workflow_dispatch` as a privileged operator path, not a convenience default. Add it only when a human-triggered run is genuinely required.
+- Any privileged manual workflow must be guarded with the `TRUSTED_CI_ACTORS_JSON` Actions variable. Store it as a JSON array of GitHub usernames, for example `["topher-lo","jordan-umusu"]`.
+- If a guarded `workflow_dispatch` is expected to be triggered by another workflow, explicitly account for `github-actions[bot]` instead of weakening the general allowlist check for everyone.
+- Keep workflow permissions read-only by default. Grant write permissions only at the job level and only for the specific scopes a job actually uses.
+- Do not add `pull-requests: write`, `packages: write`, or `id-token: write` unless a step in that job demonstrably needs that permission.
+- Secret-backed jobs must use protected environments rather than broad repo secrets whenever possible. In this repo, keep `CROSS_REPO_AUTOMATION_APP_PRIVATE_KEY` in the `release` environment and `CUSTOM_REPO_SSH_PRIVATE_KEY` in the `internal-registry-ci` environment.
+- External fork PRs must never reach secret-backed jobs or private-infrastructure jobs. For sensitive PR paths, require `github.event.pull_request.head.repo.full_name == github.repository` before using secrets or private credentials.
+- Release automation must validate trusted inputs before mutating tags, releases, downstream repos, or container registries. Keep branch-name and version validation in the workflow instead of assuming upstream tooling enforced it.
+- Use `concurrency` for workflows that publish releases, move tags, or dispatch downstream automation so duplicate runs cannot race each other.
+- When adding or changing pytest coverage that depends on real third-party credentials, mark those tests with `@pytest.mark.live_secret`, register the marker in `pyproject.toml`, and exclude them from default CI commands with `-m "not live_secret"`.
+- Before merging workflow changes, review `.github/workflows/*.yml` for trigger trust boundaries, secret exposure, repo-owned ref checks, environment usage, and unnecessary permissions. Do not treat a passing YAML parser as a security review.
+
 ### Python Standards
 - Use Python 3.12+ type hints with builtin types (`list`, `dict`, `set`)
 - Follow Google Python style guide
+- **Always write Google-style docstrings** for public functions, methods, and classes. Docstrings improve readability and skimmability, and help catch mismatches between intent and actual implementation during code review. Use the [Google docstring format](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings) with `Args:`, `Returns:`, `Raises:` sections as appropriate. Private/internal helpers (`_`-prefixed) may omit docstrings when the name and signature are self-explanatory.
 - Import statements at top of file only
 - Use `uv run` for executing Python/pytest commands
 - Use `uv pip install` for package installation
@@ -295,6 +311,7 @@ The codebase follows a three-tier type system to separate concerns and reduce ci
 - Always avoid use of `type: ignore` when writing python code
 - You must *NEVER* put import statements in function bodies.
 - If you are facing issues with circular imports you should try use `if TYPE_CHECKING: ...` instead.
+- Prefer combining trivial nested `with` / `async with` blocks into a single statement (for example, `async with a, b, c:`) when there is no behavioral difference. This is especially preferred in tests and setup code.
 - Use PEP 695 generic syntax for new generics: `class Name[T: Bound]` over `TypeVar`
 - **Prefer enum types over plain `str` for finite value sets** in schemas and domain types. When a Pydantic field, function argument, or `types.py` type has a known set of string values, prefer `StrEnum`; `Literal` is acceptable when it fits — use your discretion. For database models representing these finite sets, store values as `String`/`Text` columns rather than Postgres enums unless the value set is truly stable — `ALTER TYPE ... ADD VALUE` migrations are painful and irreversible. Reserve bare `str` for free-form text.
 - Use `frozen=True` dataclasses for immutable value objects
@@ -384,6 +401,7 @@ Available predefined roles:
 - Use "Title case example" over "Title Case Example" for UI text
 - Always use proper TypeScript type hints and avoid using `any` - use `unknown` if necessary
 - Avoid nested ternary statements - use `if/else` or `switch/case` instead
+- **Always write JSDoc comments** (`/** ... */`) for exported functions, components, hooks, and types. Include `@param`, `@returns`, and `@example` tags as appropriate. This improves readability, skimmability, and helps catch mismatches between intent and implementation during review.
 - Place React hooks in `frontend/src/hooks/` directory (e.g., `use-inbox.ts`, `use-auth.ts`)
 - For keyboard shortcut UI, render each key with the `Kbd` component and prefer `parseShortcutKeys` from `frontend/src/lib/tiptap-utils.ts` to ensure consistent macOS symbols (`⌘`, `⇧`) and non-mac labels (`Ctrl`, `Shift`).
 
@@ -415,6 +433,17 @@ Available predefined roles:
 - **Ruff**: Line length 88, comprehensive linting rules
 - **Pre-commit**: Automated hooks for Ruff, Gitleaks, YAML/TOML validation
 - All tests must pass before commits
+
+### Readability and Code Review
+All code should be optimized for the reviewer, not the writer. Assume every change will be read by someone unfamiliar with the context.
+
+- **Keep diffs focused**: One logical concern per change. Do not mix refactors, formatting fixes, or unrelated cleanups with feature or bug-fix logic — split them into separate commits.
+- **Name for intent**: Choose variable, function, and class names that convey *why* something exists, not just *what* it holds. Prefer `remaining_retries` over `n`, `is_workflow_paused` over `flag`.
+- **Prefer explicit over clever**: Avoid dense one-liners, nested comprehensions, or chained ternaries that require mental unpacking. Break complex expressions into named intermediate variables so each step is self-documenting.
+- **Keep functions short and single-purpose**: If a function does more than one thing, split it. A reviewer should be able to understand a function's behavior without scrolling.
+- **Order for scannability**: Within a class or module, group related methods/functions together. Place public API surface before private helpers. Keep parameter order consistent across similar functions.
+- **Limit nesting depth**: Prefer early returns and guard clauses over deeply nested `if`/`else` blocks. Two levels of indentation inside a function body is a good upper bound; three or more is a signal to extract a helper.
+- **Make control flow obvious**: Avoid `bool` tricks (`x and y or z`), implicit falsy checks on non-boolean types, or relying on side effects in expressions. Spell out the logic so a reviewer can verify correctness at a glance.
 
 ## Key Files and Patterns
 
@@ -474,8 +503,10 @@ Available predefined roles:
 - When handling frontend types, don't import variables prefixed with '$' unless you are importing the schema object
 - **NEVER** use `--no-gpg-sign` or `--no-verify` to bypass commit signing. If GPG/SSH signing fails (e.g., 1Password agent not running), stop and ask the user to fix their signing setup rather than creating an unverified commit.
 - **NEVER use PostgreSQL superuser commands** in migrations, queries, or scripts. Deployed environments may use restricted database roles without superuser privileges. All SQL must work under a standard (non-superuser) role. If a migration needs to handle foreign keys, use proper row ordering or `ON DELETE`/`ON UPDATE` clauses instead of bypassing constraints.
+- **NEVER** add `pull_request_target` to any GitHub Actions workflow in this repository.
+- **NEVER** add a new privileged GitHub Actions workflow or job without reviewing trigger trust boundaries, trimming permissions to the minimum required scope, and deciding whether secrets belong in a protected environment instead of repo-level secrets.
 
-- For infrastructure changes, always verify and update all relevant deployment targets together: `docker-compose*.yml`, Terraform Fargate (`deployments/fargate/`), Terraform EKS (`deployments/eks/` and `deployments/eks/modules/eks/`), and Helm (`deployments/helm/`).
+- For infrastructure changes, always verify and update all relevant deployment targets together: `docker-compose*.yml`, Terraform Fargate (`deployments/fargate/`), Terraform EKS (`deployments/k8s/eks/` and `deployments/k8s/eks/modules/eks/`), and Helm (`deployments/k8s/helm/`).
 - As part of that infra review, explicitly check `values.yaml`, `variables.tf`, and `main.tf` in the relevant deployment directories before marking the change complete.
 
 ## Pull Request Description Hygiene

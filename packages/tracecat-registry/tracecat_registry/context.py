@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from tracecat_registry.sdk.agents import AgentsClient
     from tracecat_registry.sdk.cases import CasesClient
     from tracecat_registry.sdk.client import TracecatClient
+    from tracecat_registry.sdk.deduplicate import DeduplicateClient
     from tracecat_registry.sdk.tables import TablesClient
     from tracecat_registry.sdk.variables import VariablesClient
     from tracecat_registry.sdk.workflows import WorkflowsClient
@@ -107,6 +108,11 @@ class RegistryContext:
             token=self.token,
             workspace_id=self.workspace_id,
         )
+
+    @property
+    def deduplicate(self) -> "DeduplicateClient":
+        """Get the Deduplicate API client."""
+        return self.client.deduplicate
 
     @property
     def cases(self) -> "CasesClient":

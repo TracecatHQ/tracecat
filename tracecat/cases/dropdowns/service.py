@@ -94,6 +94,7 @@ class CaseDropdownDefinitionsService(BaseWorkspaceService):
             name=params.name,
             ref=params.ref,
             is_ordered=params.is_ordered,
+            required_on_closure=params.required_on_closure,
             icon_name=params.icon_name,
             position=params.position,
         )

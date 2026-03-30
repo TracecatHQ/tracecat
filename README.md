@@ -21,12 +21,11 @@
 
 ## Introduction
 
-[Tracecat](https://tracecat.com) is the AI-native automation platform for technical operations.
+[Tracecat](https://tracecat.com) is the AI automation platform for built for security teams and agents.
 
-Purpose-built for agents and open source for builders:
-- **Prompt-to-automations**: build end-to-end automations with agents, workflows, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
+- **Prompt-to-automations**: build end-to-end automations with agents, workflows, cases, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
 - **Code-native**: sync custom Python scripts from your Git repo into Tracecat.
-- **All-in-one**: agents, workflows, lookup tables, and case management. Everything technical teams need to automate work in one place. 
+- **All-in-one**: agents, workflows, lookup tables, and case management. Everything technical teams need to automate work in one place.
 - **Self-host anywhere**: Docker, Kubernetes, AWS Fargate.
 
 Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run on [Temporal](https://temporal.io) for security, reliability, and scale.
@@ -74,7 +73,7 @@ Sandboxed-by-default with [`nsjail`](https://github.com/google/nsjail) and run o
 This repo is available under the [AGPL-3.0 license](https://github.com/TracecatHQ/tracecat/blob/main/LICENSE) with the following exceptions:
 
 - `packages/tracecat-ee` directory is under Tracecat's paid EE (Enterprise Edition) license.
-- `deployments/helm` and `deployments/eks` directory is under the source available [PolyForm Shield License](https://polyformproject.org/licenses/shield/1.0.0/). This allows you to use the Tracecat Helm chart and EKS deployment templates for internal use only.
+- `deployments/k8s` is a git submodule under the source available [PolyForm Shield License](https://polyformproject.org/licenses/shield/1.0.0/). It contains the Tracecat Helm chart and EKS deployment templates for internal use only, and its chart releases are published from that repo to public ECR.
 - Any code that gates `ee` features across the repo
 
 Code that fall under the above exceptions must not be redistributed, sold, or otherwise commercialized without permission.

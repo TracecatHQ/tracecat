@@ -254,7 +254,7 @@ class SecretsService(BaseOrgService):
                 " Please double check that the name was correctly input."
             ) from e
 
-    @require_scope("secret:update")
+    @require_scope("secret:create")
     @audit_log(resource_type="secret", action="create")
     async def create_secret(self, params: SecretCreate) -> None:
         """Create a workspace secret."""
@@ -277,7 +277,7 @@ class SecretsService(BaseOrgService):
         self.session.add(secret)
         await self.session.commit()
 
-    @require_scope("secret:create")
+    @require_scope("secret:update")
     @audit_log(resource_type="secret", action="update")
     async def update_secret(self, secret: Secret, params: SecretUpdate) -> None:
         """Update a workspace secret."""

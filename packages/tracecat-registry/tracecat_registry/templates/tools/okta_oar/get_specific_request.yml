@@ -12,7 +12,7 @@ definition:
   expects:
     base_url:
       type: str | None
-      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+      description: Okta domain base URL (e.g., 'https://your-org.okta.com')
       default: null
     request_id:
       type: str

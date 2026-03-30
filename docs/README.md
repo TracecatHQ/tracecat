@@ -1,32 +1,33 @@
-# Mintlify Starter Kit
+# Tracecat docs
 
-Click on `Use this template` to copy the Mintlify starter kit. The starter kit contains examples including
+This directory contains the docs site published at `docs.tracecat.com`.
 
-- Guide pages
-- Navigation
-- Customizations
-- API Reference pages
-- Use of popular components
+## Local preview
 
-### Development
+Install the docs preview CLI:
 
-Install the [Mintlify CLI](https://www.npmjs.com/package/mintlify) to preview the documentation changes locally. To install, use the following command
-
-```
-npm i -g mintlify
+```bash
+npm i -g mint
 ```
 
-Run the following command at the root of your documentation (where mint.json is)
+Start the local preview from this directory:
 
+```bash
+mint dev
 ```
-mintlify dev
+
+The preview runs at `http://localhost:3000`.
+
+## Generated docs
+
+Some pages are generated from source metadata. Regenerate them when you change the underlying registry or reference data:
+
+```bash
+just gen-mcp-docs
+just gen-tool-docs
 ```
 
-### Publishing Changes
+## Troubleshooting
 
-Install our Github App to auto propagate changes from your repo to your deployment. Changes will be deployed to production automatically after pushing to the default branch. Find the link to install on your dashboard.
-
-#### Troubleshooting
-
-- Mintlify dev isn't running - Run `mintlify install` it'll re-install dependencies.
-- Page loads as a 404 - Make sure you are running in a folder with `mint.json`
+- If the preview fails to start, run `mint update`.
+- If a page returns 404, make sure it is registered in `docs/docs.json`.

@@ -1,0 +1,208 @@
+---
+title: "Workflows"
+description: "Build and manage workflows."
+---
+
+## Creating workflows
+
+View and create workflows in the Tracecat UI under the `/workflows` page.
+
+![Create new workflow](/img/automations/workflows/create-new-workflow.png)
+
+## Run workflows manually
+
+You can run a workflow manually by clicking the `Run` button in the top right corner of the workflow builder.
+
+![Run workflow manually](/img/automations/workflows/run-workflow-manually.png)
+
+## Triggers
+
+Workflows can be triggered by:
+
+- [Webhooks](/automations/triggers/webhooks)
+- [Schedules](/automations/triggers/schedules)
+- [Subflow run action](/automations/core-actions/workflow-actions/run-subflow)
+- [Case triggers](/automations/triggers/case-triggers) <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
+- [Task triggers](/automations/triggers/task-triggers) <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
+- [Comment triggers](/automations/triggers/comment-triggers) <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
+
+## Trigger inputs
+
+You can specify trigger inputs in the workflow builder.
+These inputs are passed to the workflow as `${{ TRIGGER }}` expressions.
+
+## View workflow runs
+
+There are three views for workflow runs:
+- Events panel: most recent run in the left part of the workflow builder
+- Runs view: all runs for a specific workflow
+- <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> History view: all runs across all workflows
+
+<br />
+
+<Frame caption="Events panel" hint="We only show runs that you triggered manually or by a trigger. This allows other users to work on the same workflow without seeing your runs.">
+  ![Workflow events panel](/img/automations/workflows/workflow-events-panel.png)
+</Frame>
+
+<br />
+
+<Frame caption="Runs view">
+  ![Workflow runs view](/img/automations/workflows/workflow-runs-view.png)
+</Frame>
+
+<br />
+
+<Frame caption="History view">
+  ![Workflow runs history](/img/automations/workflows/workflow-runs-history.png)
+</Frame>
+
+## Tag workflow
+
+Right click on a workflow in the workflows table then hover over the "Tags" menu item.
+
+![Tag workflow](/img/automations/workflows/tag-workflow.png)
+
+## Draft workflows
+
+Draft workflows are workflows that are currently being edited.
+You can run draft workflows manually by clicking the `Run` button in the top right corner of the workflow builder.
+
+## Published workflows
+
+To deploy a workflow, you must publish it.
+Webhooks, schedules, subflows, and other workflow triggers always run the latest published workflow version.
+
+![Publish workflow](/img/automations/workflows/publish-workflow.png)
+
+## Workflow settings
+
+Click on the workflow canvas to open the workflow settings panel.
+
+![Workflow settings](/img/automations/workflows/workflow-settings.png)
+
+### Workflow alias
+
+Workflow aliases are used to reference the workflow in subflows and error workflows.
+Keep aliases short, descriptive, and snake_case.
+You must define a workflow alias in order to trigger it as a subflow or error workflow.
+
+### Error workflows
+
+You can specify an error workflow to run when a workflow fails.
+Information about the failed workflow run is passed to the error workflow under the `${{ TRIGGER }}` expression.
+
+See [Error workflows](/automations/triggers/error-workflows) for more information.
+
+### Input schema
+
+You can specify an input schema to validate the trigger inputs to the workflow.
+Define the input schema as YAML or JSON-compatible YAML, where each top-level key is an input name.
+
+Each input supports these fields:
+
+- `type` is a Tracecat type expression such as `str`, `int`, `bool`, `float`, `datetime`, `duration`, `list[int]`, `dict[str, Any]`, `str | None`, or `enum["low", "high"]`
+- `description` is an optional description of the input
+- `default` is an optional default value; if you set it, the input becomes optional
+
+For example:
+```yaml
+my_param:
+  type: str
+  description: This is a string
+  default: My default value
+
+my_list:
+  type: list[int]
+  description: This is a list of integers without a default value
+
+my_union:
+  type: str | int | None
+  description: This is a union of a string, an integer, and None
+```
+
+### Output schema
+
+Workflows return `null` by default.
+You can specify a return value for the workflow as an output schema.
+Output schemas support all Tracecat expressions.
+
+For example, assume a workflow has three actions `whoami`, `location`, and `contact`.
+
+The actions return the following results:
+- `whoami`: `{ "name": "John", "age": 30 }`
+- `location`: `{ "city": "New York", "country": "USA" }`
+- `contact`: `{ "email": "john@example.com", "phone": "1234567890" }`
+
+The output schema can be defined as:
+
+```php
+name: ${{ ACTIONS.whoami.result.name }}
+city: ${{ ACTIONS.location.result.city }}
+email: ${{ ACTIONS.contact.result.email }}
+```
+
+### Environments
+
+You can specify a default environment to use for the workflow.
+Actions without an environment override will use the default environment to pull secrets and variables from.
+
+## Export / import workflows
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> users should use Tracecat's Git sync feature to push and pull their workflow definitions directly from a remote Git repository.
+
+<Badge icon="github" color="gray" size="lg" shape="pill">Open Source</Badge> users can export and import workflows directly from the Tracecat UI.
+Exported workflows are called workflow definitions and are saved as YAML files.
+Right click on a workflow in the `/workflows` page to export the draft or published workflow definition:
+
+![Workflow export / import](/img/automations/workflows/workflow-export.png)
+
+Exported workflows can be imported via the "Create new" button in the `/workflows` page:
+
+![Workflow import](/img/automations/workflows/workflow-import.png)
+
+## Cancel / terminate / reset runs
+
+<Danger>
+The Temporal UI exposes all your workflow runs. Do not expose it to the public internet unless you have OIDC SSO enabled.
+</Danger>
+
+<Badge icon="github" color="gray" size="lg" shape="pill">Open Source</Badge> Open up the Temporal UI to view and control all workflow runs.
+
+<AccordionGroup>
+  <Accordion title="Docker Compose" icon="docker">
+    Expose port `8081` in the `temporal_ui` service in the `docker-compose.yml` file and run `docker compose up`.
+    Then access the Temporal UI at `http://localhost:8081`.
+  </Accordion>
+
+  <Accordion title="AWS Fargate" icon="aws">
+    Set the following Terraform variables:
+    - `disable_temporal_ui` to `false`
+    - `temporal_auth_provider_url` to your identity provider's URL
+    - `temporal_auth_client_id` to the OIDC client ID
+    - `temporal_auth_client_secret` to the OIDC client secret
+
+    Then run `terraform apply`. Access the Temporal UI at `http://<your domain>/temporal-admin`.
+  </Accordion>
+</AccordionGroup>
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> You can view, cancel, terminate, and reset all workflow runs directly from the Tracecat UI under the `/runs` page.
+
+![Reset terminate cancel runs](/img/automations/workflows/reset-terminate-cancel-runs.png)
+
+## Copy actions to clipboard
+
+Hover over any action in the events panel or runs view.
+You'll see two icons: <Badge icon="link" size="lg" shape="pill">Link</Badge> and <Badge icon="copy" size="lg" shape="pill">Copy</Badge> next to the action key-value.
+
+The link icon copies the JSONPath reference to the action result. For example, `${{ ACTIONS.first_action.result }}`.
+
+![Copy action reference](/img/automations/workflows/copy-action-reference.png)
+
+The copy icon copies the value of the action result itself.
+
+![Copy action result](/img/automations/workflows/copy-action-result.png)
+
+## Workflow definition
+
+All workflows are stored, exported, and versioned as YAML-based workflow definitions.
+See [Workflow definition](/automations/core-concepts/workflow-definition) for the full specification.

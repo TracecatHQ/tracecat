@@ -1272,7 +1272,14 @@ def mappable(func: F) -> F:
 
 
 FUNCTION_MAPPING = {k: mappable(v) for k, v in _FUNCTION_MAPPING.items()}
-"""Mapping of function names to decorated mappable versions."""
+"""Mapping of function names to decorated mappable versions.
+
+Function results support normal bracket indexing in expressions, such as
+`FN.range(0, 3)[0]` or `FN.zip_map(["a"], ["x"])["a"]`.
+
+Function results do not support JSONPath wildcards or filters. For example,
+`FN.range(0, 3)[*]` is invalid.
+"""
 
 BUILTIN_TYPE_MAPPING = {
     "int": int,

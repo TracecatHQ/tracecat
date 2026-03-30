@@ -73,6 +73,9 @@ class RegistrySecret(BaseModel):
     optional: bool = False
     """Indicates if the secret is optional."""
 
+    secret_type: Literal["custom", "ssh_key", "mtls", "ca_cert"] = "custom"
+    """Declared secret type. Structured types enforce fixed key shapes."""
+
     @model_validator(mode="after")
     def validate_keys(cls, v):
         if isinstance(v.name, str) and v.name.endswith("_oauth"):
@@ -85,6 +88,31 @@ class RegistrySecret(BaseModel):
             raise ValueError(
                 "At least one of 'keys' or 'optional_keys' must be specified"
             )
+
+        # Validate structured secret types have exact key shapes
+        match v.secret_type:
+            case "ssh_key":
+                if v.keys != ["PRIVATE_KEY"]:
+                    raise ValueError(
+                        "ssh_key secrets must declare keys=['PRIVATE_KEY']"
+                    )
+                if v.optional_keys:
+                    raise ValueError("ssh_key secrets cannot have optional_keys")
+            case "mtls":
+                if sorted(v.keys or []) != ["TLS_CERTIFICATE", "TLS_PRIVATE_KEY"]:
+                    raise ValueError(
+                        "mtls secrets must declare "
+                        "keys=['TLS_CERTIFICATE', 'TLS_PRIVATE_KEY']"
+                    )
+                if v.optional_keys:
+                    raise ValueError("mtls secrets cannot have optional_keys")
+            case "ca_cert":
+                if v.keys != ["CA_CERTIFICATE"]:
+                    raise ValueError(
+                        "ca_cert secrets must declare keys=['CA_CERTIFICATE']"
+                    )
+                if v.optional_keys:
+                    raise ValueError("ca_cert secrets cannot have optional_keys")
         return v
 
     def __hash__(self) -> int:
@@ -96,6 +124,7 @@ class RegistrySecret(BaseModel):
                 tuple(self.keys) if self.keys else None,
                 tuple(self.optional_keys) if self.optional_keys else None,
                 self.optional,
+                self.secret_type,
             )
         )
 

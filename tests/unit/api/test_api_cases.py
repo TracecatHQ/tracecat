@@ -364,6 +364,28 @@ async def test_update_case_field_invalid_identifier_returns_400(
 
 
 @pytest.mark.anyio
+async def test_create_case_field_validation_error_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.create_field.side_effect = ValueError(
+            "Field __tc_workspace_id is reserved for internal use"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            "/case-fields",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "__tc_workspace_id", "type": "TEXT"},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "reserved for internal use" in response.json()["detail"]
+
+
+@pytest.mark.anyio
 async def test_delete_case_field_invalid_identifier_returns_400(
     client: TestClient,
     test_admin_role: Role,
@@ -382,6 +404,49 @@ async def test_delete_case_field_invalid_identifier_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "Identifier must" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_update_case_field_tracecat_validation_error_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.update_field.side_effect = TracecatValidationError(
+            "Field nickname is reserved"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.patch(
+            "/case-fields/bad-field",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"default": "value"},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Field nickname is reserved"
+
+
+@pytest.mark.anyio
+async def test_delete_case_field_tracecat_validation_error_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.delete_field.side_effect = TracecatValidationError(
+            "Field nickname is reserved"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.delete(
+            "/case-fields/bad-field",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Field nickname is reserved"
 
 
 @pytest.mark.anyio

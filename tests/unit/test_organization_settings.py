@@ -327,8 +327,10 @@ async def test_update_audit_payload_attribute_setting(
         "git+ssh://git@gitlab.example.com:2222/org/repo.git",
         "git+ssh://git@gitlab.com/org/team/subteam/repo.git",
         "git+ssh://git@github.com/org/repo.git@main",
+        "git+ssh://git@github.com/org/repo.git@feature/custom-branch",
         "git+ssh://git@github.com/org/repo",  # Without .git suffix
         "git+ssh://git@example.com/very/deep/nested/org/repo.git",
+        "git+ssh://someuser@git.example.com/very/deep/nested/org/repo.git",
     ],
 )
 async def test_git_settings_valid_ssh_urls(
@@ -355,7 +357,7 @@ async def test_git_settings_valid_ssh_urls(
     "invalid_url",
     [
         "https://github.com/org/repo.git",  # Wrong protocol
-        "git+ssh://user@github.com/org/repo.git",  # Wrong user
+        "git+ssh://github.com/org/repo.git",  # Missing SSH user
         "git+ssh://git@github.com/",  # No path
         "git+ssh://git@/org/repo.git",  # No host
         "git://git@github.com/org/repo.git",  # Missing +ssh

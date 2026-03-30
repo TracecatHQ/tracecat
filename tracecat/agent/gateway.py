@@ -7,19 +7,24 @@ via JWT tokens minted by the agent executor.
 
 from __future__ import annotations
 
+import logging
+import re
+
+import orjson
 from fastapi import Request
 from litellm.caching.dual_cache import DualCache
 from litellm.integrations.custom_logger import CustomLogger
-from litellm.proxy._types import ProxyException, UserAPIKeyAuth
+from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
 from litellm.types.utils import CallTypesLiteral
 
 from tracecat.agent.litellm_compat import apply_patch
+from tracecat.agent.litellm_observability import get_load_tracker
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.config import TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS
 from tracecat.identifiers import OrganizationID, WorkspaceID
-from tracecat.logger import logger
 
 # Apply monkeypatches for LiteLLM adapter compatibility fixes
 apply_patch()
@@ -27,6 +32,95 @@ apply_patch()
 # -----------------------------------------------------------------------------
 # Credential Fetching via AgentManagementService
 # -----------------------------------------------------------------------------
+
+_UNAUTHENTICATED_HEALTH_ROUTES = {
+    "/health/liveliness",
+    "/health/liveness",
+    "/health/readiness",
+}
+_gateway_load_tracker = get_load_tracker("litellm_gateway")
+_hook_request_counters: dict[int, int] = {}
+_CREDENTIALS_CACHE_PREFIX = "tracecat:litellm:provider-creds"
+_SANITIZED_ERROR_MAX_LENGTH = 512
+_TRACE_REQUEST_ID_HEADER = "x-request-id"
+_gateway_logger = logging.getLogger(__name__)
+_SENSITIVE_ERROR_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+"),
+        r"\1 [REDACTED]",
+    ),
+    (
+        re.compile(
+            r"(?i)(\b(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|secret)\b[^:]{0,40}:\s*)([^\s,;]+)"
+        ),
+        r"\1[REDACTED]",
+    ),
+    (
+        re.compile(
+            r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|password|passwd|secret)=([^&\s]+)"
+        ),
+        r"\1=[REDACTED]",
+    ),
+    (
+        re.compile(r"(?i)(authorization:\s*(?:basic|bearer)\s+)[^\s,;]+"),
+        r"\1[REDACTED]",
+    ),
+    (
+        re.compile(r"(?i)(://[^/\s:@]+:)([^@\s/]+)@"),
+        r"\1[REDACTED]@",
+    ),
+)
+
+
+def _load_fields() -> dict[str, int]:
+    snapshot = _gateway_load_tracker.snapshot()
+    return {
+        "active_gateway_requests": snapshot.active_requests,
+        "gateway_peak_active_requests": snapshot.peak_active_requests,
+    }
+
+
+def _remember_hook_request_counter(data: dict, request_counter: int) -> None:
+    """Track hook request counters out-of-band so they never leak upstream."""
+    _hook_request_counters[id(data)] = request_counter
+
+
+def _pop_hook_request_counter(data: dict) -> int | None:
+    """Return and clear the tracked request counter for a LiteLLM request payload."""
+    return _hook_request_counters.pop(id(data), None)
+
+
+def _credentials_cache_key(
+    *,
+    workspace_id: WorkspaceID,
+    organization_id: OrganizationID,
+    provider: str,
+    use_workspace_creds: bool,
+) -> str:
+    scope = "workspace" if use_workspace_creds else "organization"
+    return (
+        f"{_CREDENTIALS_CACHE_PREFIX}:{organization_id}:{workspace_id}:"
+        f"{scope}:{provider}"
+    )
+
+
+def _sanitize_exception_message(exc: Exception) -> str:
+    sanitized = str(exc).strip()
+    for pattern, replacement in _SENSITIVE_ERROR_PATTERNS:
+        sanitized = pattern.sub(replacement, sanitized)
+    if len(sanitized) > _SANITIZED_ERROR_MAX_LENGTH:
+        return f"{sanitized[:_SANITIZED_ERROR_MAX_LENGTH]}...[truncated]"
+    return sanitized
+
+
+def _gateway_log(level: int, message: str, **fields: object) -> None:
+    if not _gateway_logger.isEnabledFor(level):
+        return
+    if not fields:
+        _gateway_logger.log(level, message)
+        return
+    serialized_fields = orjson.dumps(fields, default=str).decode("utf-8")
+    _gateway_logger.log(level, "%s | %s", message, serialized_fields)
 
 
 async def get_provider_credentials(
@@ -52,21 +146,71 @@ async def get_provider_credentials(
         return await service.get_provider_credentials(provider)
 
 
+async def _get_cached_provider_credentials(
+    *,
+    cache: DualCache,
+    workspace_id: WorkspaceID,
+    organization_id: OrganizationID,
+    provider: str,
+    use_workspace_creds: bool,
+) -> tuple[dict[str, str] | None, bool]:
+    cache_key = _credentials_cache_key(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        provider=provider,
+        use_workspace_creds=use_workspace_creds,
+    )
+
+    cached_creds = await cache.async_get_cache(cache_key, local_only=True)
+    if isinstance(cached_creds, dict) and all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in cached_creds.items()
+    ):
+        return cached_creds.copy(), True
+
+    creds = await get_provider_credentials(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        provider=provider,
+        use_workspace_creds=use_workspace_creds,
+    )
+    if creds:
+        await cache.async_set_cache(
+            cache_key,
+            creds,
+            ttl=TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS,
+            local_only=True,
+        )
+    return creds, False
+
+
 # -----------------------------------------------------------------------------
 # LiteLLM Auth Hooks
 # -----------------------------------------------------------------------------
 
 
-async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
+async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKeyAuth:
     """Validate LLM token from jailed agent runtime.
 
     The api_key parameter is the Bearer token sent by the SDK, which is
     actually our JWT token minted by the agent executor.
     """
+    if request.url.path in _UNAUTHENTICATED_HEALTH_ROUTES:
+        _gateway_log(
+            logging.DEBUG,
+            "Allowing unauthenticated LiteLLM health probe",
+            path=request.url.path,
+            **_load_fields(),
+        )
+        return UserAPIKeyAuth(
+            api_key="health-probe",
+            user_role=LitellmUserRoles.INTERNAL_USER_VIEW_ONLY,
+        )
+
     try:
-        claims = verify_llm_token(api_key)
+        claims = verify_llm_token(api_key or "")
     except ValueError as e:
-        logger.warning("LLM token validation failed")
+        _gateway_log(logging.WARNING, "LLM token validation failed", **_load_fields())
         raise ProxyException(
             message="Invalid or expired token",
             type="auth_error",
@@ -74,14 +218,13 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
             code=401,
         ) from e
 
-    logger.debug("LLM token authenticated")
-
     return UserAPIKeyAuth(
         api_key="llm-token",
         metadata={
             "workspace_id": str(claims.workspace_id),
             "organization_id": str(claims.organization_id),
             "session_id": str(claims.session_id),
+            "trace_request_id": request.headers.get(_TRACE_REQUEST_ID_HEADER),
             "use_workspace_credentials": claims.use_workspace_credentials,
             "model": claims.model,
             "provider": claims.provider,
@@ -111,16 +254,20 @@ class TracecatCallbackHandler(CustomLogger):
         use_workspace_creds: bool = user_api_key_dict.metadata.get(
             "use_workspace_credentials", True
         )
+        workspace = WorkspaceID(workspace_id)
+        organization = OrganizationID(organization_id)
 
         # Use model and provider from token metadata (trusted, required claims)
         model = user_api_key_dict.metadata.get("model")
         provider = user_api_key_dict.metadata.get("provider")
         if not model or not provider:
-            logger.warning(
+            _gateway_log(
+                logging.WARNING,
                 "Model or provider not found in token metadata",
                 workspace_id=workspace_id,
                 model=model,
                 provider=provider,
+                **_load_fields(),
             )
             raise ProxyException(
                 message="Model not specified. Please select a model in the chat settings.",
@@ -130,19 +277,21 @@ class TracecatCallbackHandler(CustomLogger):
             )
         data["model"] = model
 
-        # Fetch credentials via AgentManagementService
-        creds = await get_provider_credentials(
-            workspace_id=WorkspaceID(workspace_id),
-            organization_id=OrganizationID(organization_id),
+        creds, _ = await _get_cached_provider_credentials(
+            cache=cache,
+            workspace_id=workspace,
+            organization_id=organization,
             provider=provider,
             use_workspace_creds=use_workspace_creds,
         )
 
         if not creds:
-            logger.warning(
+            _gateway_log(
+                logging.WARNING,
                 "No credentials configured for provider",
                 workspace_id=workspace_id,
                 provider=provider,
+                **_load_fields(),
             )
             raise ProxyException(
                 message=f"No {provider} API credentials configured. Add them in workspace settings.",
@@ -177,14 +326,47 @@ class TracecatCallbackHandler(CustomLogger):
             }
             data.update(safe_settings)
 
-        logger.info(
-            "Injected credentials for LLM call",
-            workspace_id=workspace_id,
-            provider=provider,
-            model=model,
-        )
+        request_counter, _ = _gateway_load_tracker.begin_request()
+        _remember_hook_request_counter(data, request_counter)
 
         return data
+
+    async def async_post_call_success_hook(
+        self,
+        data: dict,
+        user_api_key_dict: UserAPIKeyAuth,
+        response: object,
+    ) -> object:
+        _gateway_load_tracker.end_request()
+        _pop_hook_request_counter(data)
+        return response
+
+    async def async_post_call_failure_hook(
+        self,
+        request_data: dict,
+        original_exception: Exception,
+        user_api_key_dict: UserAPIKeyAuth,
+        traceback_str: str | None = None,
+    ) -> None:
+        load_snapshot = _gateway_load_tracker.end_request()
+        request_counter = _pop_hook_request_counter(request_data)
+        sanitized_error = _sanitize_exception_message(original_exception)
+        _gateway_log(
+            logging.ERROR,
+            "LiteLLM call failed",
+            request_counter=request_counter,
+            trace_request_id=user_api_key_dict.metadata.get("trace_request_id"),
+            session_id=user_api_key_dict.metadata.get("session_id"),
+            workspace_id=user_api_key_dict.metadata.get("workspace_id"),
+            provider=user_api_key_dict.metadata.get("provider"),
+            model=user_api_key_dict.metadata.get("model"),
+            error=sanitized_error,
+            error_type=type(original_exception).__name__,
+            has_traceback=bool(traceback_str),
+            active_gateway_requests=load_snapshot.active_requests,
+            gateway_peak_active_requests=load_snapshot.peak_active_requests,
+        )
+        return None
 
 
 # Callback handler instance for LiteLLM config
@@ -206,8 +388,10 @@ def _inject_provider_credentials(
         case "openai":
             api_key = creds.get("OPENAI_API_KEY")
             if not api_key:
-                logger.warning(
-                    "Required credential key missing for provider", provider=provider
+                _gateway_log(
+                    logging.WARNING,
+                    "Required credential key missing for provider",
+                    provider=provider,
                 )
                 raise ProxyException(
                     message="Provider credentials incomplete",
@@ -222,8 +406,10 @@ def _inject_provider_credentials(
         case "anthropic":
             api_key = creds.get("ANTHROPIC_API_KEY")
             if not api_key:
-                logger.warning(
-                    "Required credential key missing for provider", provider=provider
+                _gateway_log(
+                    logging.WARNING,
+                    "Required credential key missing for provider",
+                    provider=provider,
                 )
                 raise ProxyException(
                     message="Provider credentials incomplete",
@@ -238,8 +424,10 @@ def _inject_provider_credentials(
         case "gemini":
             api_key = creds.get("GEMINI_API_KEY")
             if not api_key:
-                logger.warning(
-                    "Required credential key missing for provider", provider=provider
+                _gateway_log(
+                    logging.WARNING,
+                    "Required credential key missing for provider",
+                    provider=provider,
                 )
                 raise ProxyException(
                     message="Provider credentials incomplete",
@@ -257,7 +445,8 @@ def _inject_provider_credentials(
             project = creds.get("GOOGLE_CLOUD_PROJECT")
             model_name = creds.get("VERTEX_AI_MODEL")
             if not credentials or not project or not model_name:
-                logger.warning(
+                _gateway_log(
+                    logging.WARNING,
                     "Required Vertex AI config keys missing",
                     provider=provider,
                     has_credentials=bool(credentials),
@@ -291,7 +480,8 @@ def _inject_provider_credentials(
                     if session_token:
                         data["aws_session_token"] = session_token
                 elif access_key or secret_key or session_token:
-                    logger.warning(
+                    _gateway_log(
+                        logging.WARNING,
                         "Partial static AWS credentials configured for Bedrock",
                         provider=provider,
                         has_access_key=bool(access_key),
@@ -305,7 +495,8 @@ def _inject_provider_credentials(
                         code=401,
                     )
                 else:
-                    logger.info(
+                    _gateway_log(
+                        logging.DEBUG,
                         "No static Bedrock AWS credentials configured; using ambient IAM role credentials",
                         provider=provider,
                     )
@@ -334,7 +525,8 @@ def _inject_provider_credentials(
             base_url = creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL")
             model_name = creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")
 
-            logger.info(
+            _gateway_log(
+                logging.DEBUG,
                 "Custom model provider credentials",
                 api_key_set=bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
                 base_url=base_url,
@@ -348,7 +540,8 @@ def _inject_provider_credentials(
                 # Prefix with openai/ for LiteLLM routing
                 data["model"] = f"openai/{model_name}"
 
-            logger.info(
+            _gateway_log(
+                logging.DEBUG,
                 "Injected custom model provider config",
                 data_api_base=data.get("api_base"),
                 data_model=data.get("model"),
@@ -361,7 +554,8 @@ def _inject_provider_credentials(
             deployment = creds.get("AZURE_DEPLOYMENT_NAME")
 
             if not base or not version or not deployment:
-                logger.warning(
+                _gateway_log(
+                    logging.WARNING,
                     "Required Azure OpenAI config keys missing",
                     provider=provider,
                     has_base=bool(base),
@@ -384,7 +578,8 @@ def _inject_provider_credentials(
             elif ad_token:
                 data["azure_ad_token"] = ad_token
             else:
-                logger.warning(
+                _gateway_log(
+                    logging.WARNING,
                     "Azure OpenAI requires either AZURE_API_KEY or AZURE_AD_TOKEN",
                     provider=provider,
                 )
@@ -406,7 +601,8 @@ def _inject_provider_credentials(
             model_name = creds.get("AZURE_AI_MODEL_NAME")
 
             if not base or not api_key or not model_name:
-                logger.warning(
+                _gateway_log(
+                    logging.WARNING,
                     "Required Azure AI config keys missing",
                     provider=provider,
                     has_base=bool(base),
@@ -425,7 +621,11 @@ def _inject_provider_credentials(
             data["model"] = f"azure_ai/{model_name}"
 
         case _:
-            logger.warning("Unsupported provider requested", provider=provider)
+            _gateway_log(
+                logging.WARNING,
+                "Unsupported provider requested",
+                provider=provider,
+            )
             raise ProxyException(
                 message="Invalid provider configuration",
                 type="invalid_request_error",

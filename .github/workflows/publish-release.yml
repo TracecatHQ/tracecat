@@ -5,18 +5,28 @@ on:
     types: [closed]
     branches: [main]
 
-permissions:
-  contents: write
-  actions: write
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
 
 jobs:
   publish-release:
+    permissions:
+      contents: write
+      actions: write
     if: >-
       github.event.pull_request.merged == true &&
-      startsWith(github.event.pull_request.head.ref, 'release/')
+      startsWith(github.event.pull_request.head.ref, 'release/') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(
+        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
+        github.triggering_actor || github.actor
+      )
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Extract version from branch name
         id: version
@@ -28,10 +38,14 @@ jobs:
             echo "Branch '$HEAD_REF' does not follow the release/<version> pattern." >&2
             exit 1
           fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?(\+[0-9A-Za-z.]+)?$ ]]; then
+            echo "Branch '$HEAD_REF' does not contain a valid semver version." >&2
+            exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: main
           fetch-depth: 0
@@ -111,7 +125,7 @@ jobs:
           done
 
       - name: Publish draft release
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           VERSION: ${{ steps.version.outputs.version }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
@@ -145,6 +159,40 @@ jobs:
             core.info(`Published release ${version}`)
 
       - name: Delete release branch
+        if: ${{ always() }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/release/${VERSION}" || true
+
+  trigger-k8s-version-bump:
+    needs: publish-release
+    if: ${{ needs.publish-release.result == 'success' }}
+    continue-on-error: true
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - name: Create cross-repo automation token
+        id: cross-repo-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3
+        with:
+          app-id: ${{ vars.CROSS_REPO_AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.CROSS_REPO_AUTOMATION_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            k8s
+          permission-contents: write
+
+      - name: Trigger k8s version bump
+        env:
+          VERSION: ${{ needs.publish-release.outputs.version }}
+          GH_TOKEN: ${{ steps.cross-repo-token.outputs.token }}
+        run: |
+          gh api \
+            -X POST \
+            repos/TracecatHQ/k8s/dispatches \
+            -f event_type=tracecat-release-published \
+            -F client_payload[version]="$VERSION" \
+            -F client_payload[source_repository]="${{ github.repository }}" \
+            -F client_payload[source_run_id]="${{ github.run_id }}"

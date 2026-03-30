@@ -1,0 +1,55 @@
+---
+title: "Error workflows"
+description: "Run a workflow when another workflow fails."
+---
+
+## Overview
+
+Error workflows run when another workflow fails with an application error.
+
+![Failed workflow](/img/triggers/failed-workflow.png)
+
+## Trigger payload
+
+The failed run is passed into the error workflow under `${{ TRIGGER }}`.
+
+Fields:
+
+- `${{ TRIGGER.message }}`: the top-level failure message.
+- `${{ TRIGGER.orig_wf_id }}`: the failed workflow ID.
+- `${{ TRIGGER.orig_wf_exec_id }}`: the failed workflow execution ID.
+- `${{ TRIGGER.orig_wf_exec_url }}`: the failed workflow execution URL, if available.
+- `${{ TRIGGER.orig_wf_title }}`: the failed workflow title.
+- `${{ TRIGGER.trigger_type }}`: the original trigger type.
+- `${{ TRIGGER.errors }}`: structured action error details, if available.
+
+Example payload:
+
+```json
+{
+  "message": "Action failed",
+  "handler_wf_id": "wf_4itKqkgCZrLhgYiq5L211X",
+  "orig_wf_id": "wf_3mYp8JkL2nQr7sTu9vWx0Z",
+  "orig_wf_exec_id": "wf_3mYp8JkL2nQr7sTu9vWx0Z/exec_7aBcDeFgHiJkLmNoPqRsTu",
+  "orig_wf_exec_url": "https://platform.tracecat.com/workspaces/ws_2xYzAbCdEfGhJkLmNoPqRs/workflows/wf_3mYp8JkL2nQr7sTu9vWx0Z/executions/exec_7aBcDeFgHiJkLmNoPqRsTu",
+  "orig_wf_title": "Investigate alert",
+  "trigger_type": "webhook",
+  "errors": [
+    {
+      "ref": "fetch_alert",
+      "message": "Request returned 500",
+      "type": "HTTPError"
+    }
+  ]
+}
+```
+
+## Configure an error workflow
+
+Set `Error workflow` in the workflow settings panel. Use a workflow ID or alias.
+
+![Error workflow](/img/triggers/error-workflow.png)
+
+## Publish behavior
+
+The workflow must be published for the committed error workflow setting to apply to published runs and schedules.

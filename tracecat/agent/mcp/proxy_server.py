@@ -10,6 +10,7 @@ Handles two types of tools:
 
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Callable, Coroutine
 from typing import Any
@@ -24,6 +25,9 @@ from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import action_name_to_mcp_tool_name
 from tracecat.agent.sandbox.config import TRUSTED_MCP_SOCKET_PATH
 from tracecat.logger import logger
+
+PROXY_TOOL_METADATA_KEY = "__tracecat"
+PROXY_TOOL_CALL_ID_KEY = "tool_call_id"
 
 
 class _UDSClientFactory:
@@ -63,6 +67,74 @@ def _create_uds_transport(socket_path: str) -> StreamableHttpTransport:
     )
 
 
+def _build_proxy_tool_metadata_schema() -> dict[str, Any]:
+    """Build the optional internal metadata schema for registry proxy tools."""
+    return {
+        "type": "object",
+        "properties": {
+            PROXY_TOOL_CALL_ID_KEY: {
+                "type": "string",
+                "description": "Internal Tracecat correlation identifier.",
+            }
+        },
+        "required": [PROXY_TOOL_CALL_ID_KEY],
+        "additionalProperties": False,
+    }
+
+
+def build_registry_proxy_tool_schema(
+    parameters_json_schema: dict[str, Any],
+) -> dict[str, Any]:
+    """Augment a registry tool schema with optional internal Tracecat metadata."""
+    schema: dict[str, Any] = copy.deepcopy(parameters_json_schema)
+    if not schema:
+        schema = {"type": "object"}
+
+    schema_type = schema.get("type")
+    if schema_type not in (None, "object"):
+        raise ValueError(
+            "Registry proxy tools require object-shaped schemas, "
+            f"got type={schema_type!r}"
+        )
+
+    raw_properties = schema.get("properties")
+    if raw_properties is None:
+        properties: dict[str, Any] = {}
+        schema["properties"] = properties
+    elif isinstance(raw_properties, dict):
+        properties = raw_properties
+    else:
+        raise ValueError("Registry proxy tool schema properties must be an object")
+
+    schema.setdefault("type", "object")
+    properties[PROXY_TOOL_METADATA_KEY] = _build_proxy_tool_metadata_schema()
+    return schema
+
+
+def extract_proxy_tool_call_id(args: dict[str, Any]) -> str | None:
+    """Pop internal Tracecat metadata from proxy tool args and return tool_call_id."""
+    raw_metadata = args.pop(PROXY_TOOL_METADATA_KEY, None)
+    if raw_metadata is None:
+        return None
+    if not isinstance(raw_metadata, dict):
+        logger.warning(
+            "Ignoring malformed proxy tool metadata",
+            metadata_type=type(raw_metadata).__name__,
+        )
+        return None
+
+    raw_tool_call_id = raw_metadata.get(PROXY_TOOL_CALL_ID_KEY)
+    if raw_tool_call_id is None:
+        return None
+    if not isinstance(raw_tool_call_id, str) or not raw_tool_call_id:
+        logger.warning(
+            "Ignoring malformed proxy tool call ID",
+            tool_call_id_type=type(raw_tool_call_id).__name__,
+        )
+        return None
+    return raw_tool_call_id
+
+
 def _make_tool_handler(
     trusted_tool_name: str,
     trusted_tool_args: dict[str, Any],
@@ -80,13 +152,24 @@ def _make_tool_handler(
 
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         logger.info("Proxy forwarding tool call", **log_context)
+        forwarded_args = dict(args)
+        tool_call_id = None
+        if trusted_tool_name == "execute_action_tool":
+            tool_call_id = extract_proxy_tool_call_id(forwarded_args)
 
         try:
             transport = _create_uds_transport(str(TRUSTED_MCP_SOCKET_PATH))
             async with Client(transport) as client:
+                payload = {
+                    **trusted_tool_args,
+                    "args": forwarded_args,
+                    "auth_token": auth_token,
+                }
+                if tool_call_id is not None:
+                    payload["tool_call_id"] = tool_call_id
                 call_result = await client.call_tool(
                     trusted_tool_name,
-                    {**trusted_tool_args, "args": args, "auth_token": auth_token},
+                    payload,
                 )
 
             # Extract result text from content
@@ -152,6 +235,7 @@ async def create_proxy_mcp_server(
     tools: list[SdkMcpTool[Any]] = []
 
     for action_name, defn in allowed_actions.items():
+        tool_schema = defn.parameters_json_schema
         # Check if this is a user MCP tool
         parsed = UserMCPClient.parse_user_mcp_tool_name(action_name)
 
@@ -184,6 +268,7 @@ async def create_proxy_mcp_server(
             tool_type = "internal"
         else:
             # Registry action tool
+            tool_schema = build_registry_proxy_tool_schema(defn.parameters_json_schema)
             handler = _make_tool_handler(
                 "execute_action_tool",
                 {"action_name": action_name},
@@ -194,9 +279,7 @@ async def create_proxy_mcp_server(
             mcp_tool_name = action_name_to_mcp_tool_name(action_name)
             tool_type = "registry"
 
-        decorated = tool(mcp_tool_name, defn.description, defn.parameters_json_schema)(
-            handler
-        )
+        decorated = tool(mcp_tool_name, defn.description, tool_schema)(handler)
         tools.append(decorated)
 
         logger.debug(

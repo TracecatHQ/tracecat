@@ -58,7 +58,7 @@ export function UpdateOrgSecretDialog({
   ...props
 }: UpdateOrgSecretDialogProps) {
   const { updateSecretById } = useOrgSecrets()
-  const isSshKey = selectedSecret?.type === "ssh-key"
+  const isSshKey = selectedSecret?.type === "ssh_key"
 
   const methods = useForm<SecretUpdate>({
     resolver: zodResolver(updateOrgSecretSchema),
@@ -74,7 +74,7 @@ export function UpdateOrgSecretDialog({
   React.useEffect(() => {
     if (selectedSecret) {
       const secretKeys =
-        selectedSecret.type === "ssh-key"
+        selectedSecret.type === "ssh_key"
           ? []
           : selectedSecret.keys.map((keyName) => ({
               key: keyName,

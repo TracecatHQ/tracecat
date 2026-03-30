@@ -1,0 +1,59 @@
+---
+title: "Variables"
+description: "Create and use reusable workspace variables in workflows and agents."
+---
+
+## Overview
+
+Variables store reusable non-secret values.
+
+## Using variables in expressions
+
+Access a variable in expressions with:
+
+```yaml
+${{ VARS.<variable_name>.<key> }}
+```
+
+## Variable fields
+
+Each variable has these fields:
+
+- Name: a lowercase snake case name such as `jira` or `api_config`
+- Values: one or more key-value pairs
+- Environment: the Workflow environment where the variable applies
+
+## When to use variables
+
+Use variables for non-sensitive values such as:
+
+- Base URLs
+- Project IDs
+- Queue names
+- Routing rules
+- Tenant-specific defaults
+
+Use a [secret](/automations/core-concepts/secrets) for sensitive values.
+
+## Variable environments
+
+Every variable belongs to a Workflow environment.
+
+- Default source: the workflow default environment in [Workflows](/automations/workflows).
+- Override: per action in [Actions](/automations/actions) control flow.
+- Fallback: `default`.
+
+## Access variables in agents
+
+Agents can use variable expressions in tool arguments and integration configuration. Values are resolved during tool execution and are not fetched directly by the LLM provider.
+
+<CodeGroup>
+```text
+When you call Jira tools, use `${{ VARS.jira.base_url }}` as the base URL and `${{ VARS.jira.project_key }}` as the default project key.
+```
+</CodeGroup>
+
+## Related pages
+
+- See [Secrets](/automations/core-concepts/secrets) for sensitive values such as API keys, passwords, and certificates.
+- See [Expressions](/automations/core-concepts/expressions) for how expressions work across triggers, actions, secrets, and variables.

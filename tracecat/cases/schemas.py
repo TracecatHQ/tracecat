@@ -16,6 +16,7 @@ from tracecat.cases.dropdowns.schemas import (
 )
 from tracecat.cases.enums import (
     CaseEventType,
+    CaseFieldKind,
     CasePriority,
     CaseSeverity,
     CaseStatus,
@@ -120,6 +121,9 @@ class CaseUpdate(Schema):
 class CaseFieldReadMinimal(CustomFieldRead):
     """Minimal read model for a case field."""
 
+    kind: CaseFieldKind | None = Field(default=None)
+    required_on_closure: bool = Field(default=False)
+
     @classmethod
     def from_sa(
         cls,
@@ -138,21 +142,38 @@ class CaseFieldReadMinimal(CustomFieldRead):
         Returns:
             A CaseFieldReadMinimal instance populated from the column data.
         """
+        base = super().from_sa(
+            column,
+            reserved_fields=set(RESERVED_CASE_FIELDS),
+            field_schema=field_schema,
+        )
+        kind: CaseFieldKind | None = None
+        required_on_closure = False
+        if field_schema and (meta := field_schema.get(column["name"])):
+            if kind_str := meta.get("kind"):
+                kind = CaseFieldKind(kind_str)
+            if meta.get("required_on_closure"):
+                required_on_closure = True
         return cls.model_validate(
-            super().from_sa(
-                column,
-                reserved_fields=set(RESERVED_CASE_FIELDS),
-                field_schema=field_schema,
-            )
+            {
+                **base.model_dump(),
+                "kind": kind,
+                "required_on_closure": required_on_closure,
+            }
         )
 
 
 class CaseFieldCreate(CustomFieldCreate):
     """Create a new case field."""
 
+    kind: CaseFieldKind | None = Field(default=None)
+    required_on_closure: bool = Field(default=False)
+
 
 class CaseFieldUpdate(CustomFieldUpdate):
     """Update a case field."""
+
+    required_on_closure: bool | None = Field(default=None)
 
 
 class CaseFieldRead(CaseFieldReadMinimal):

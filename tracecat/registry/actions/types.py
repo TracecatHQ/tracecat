@@ -33,6 +33,7 @@ class IndexEntry:
     doc_url: str | None = None
     author: str | None = None
     deprecated: str | None = None
+    missing_entitlements: tuple[str, ...] = ()
 
 
 @dataclass(slots=True)

@@ -338,13 +338,7 @@ async def get_case(
         f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
         final_fields.append(
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
         )
@@ -408,13 +402,7 @@ async def create_case(
         f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
         final_fields.append(
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
         )
@@ -485,13 +473,7 @@ async def update_case(
         f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
         final_fields.append(
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
         )
@@ -831,13 +813,7 @@ async def get_case_metrics(
         fields = await cases_service.fields.get_fields(case) or {}
         field_reads = [
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
             for f in field_templates

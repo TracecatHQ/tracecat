@@ -5,6 +5,7 @@ Tests the runtime execution with mocked Claude SDK.
 
 from __future__ import annotations
 
+import os
 import tempfile
 import uuid
 from dataclasses import replace
@@ -15,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from claude_agent_sdk.types import (
     HookContext,
-    HookInput,
+    PreToolUseHookInput,
     SyncHookJSONOutput,
 )
 
@@ -29,6 +30,10 @@ from tracecat.agent.common.types import (
 from tracecat.agent.common.types import (
     MCPToolDefinition as SharedMCPToolDefinition,
 )
+from tracecat.agent.mcp.proxy_server import (
+    PROXY_TOOL_CALL_ID_KEY,
+    PROXY_TOOL_METADATA_KEY,
+)
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
 from tracecat.agent.types import AgentConfig
 
@@ -36,7 +41,7 @@ from tracecat.agent.types import AgentConfig
 @pytest.fixture
 def sample_agent_config() -> AgentConfig:
     """Create a sample agent config for testing."""
-    return AgentConfig(
+    return cast(Any, AgentConfig)(
         model_name="claude-3-5-sonnet-20241022",
         model_provider="anthropic",
         instructions="You are a helpful assistant.",
@@ -59,6 +64,7 @@ def sample_tool_definitions() -> dict[str, MCPToolDefinition]:
                     "method": {"type": "string"},
                 },
                 "required": ["url", "method"],
+                "additionalProperties": False,
             },
         ),
     }
@@ -135,8 +141,9 @@ def mock_claude_sdk_client() -> MagicMock:
 def make_hook_input(
     tool_name: str,
     tool_input: dict[str, Any],
-) -> HookInput:
-    """Create a HookInput for testing."""
+    tool_use_id: str,
+) -> PreToolUseHookInput:
+    """Create a PreToolUse hook input for testing."""
     return {
         "session_id": "test-session-id",
         "transcript_path": "/tmp/test-transcript.jsonl",
@@ -144,6 +151,7 @@ def make_hook_input(
         "hook_event_name": "PreToolUse",
         "tool_name": tool_name,
         "tool_input": tool_input,
+        "tool_use_id": tool_use_id,
     }
 
 
@@ -233,7 +241,88 @@ class TestClaudeAgentRuntimeRun:
 
         # Should have called send_stream_event
         mock_socket_writer.send_stream_event.assert_awaited()
-        mock_adapter.to_unified_event.assert_called()
+
+    @pytest.mark.anyio
+    async def test_sets_skip_version_check_before_sdk_connect(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Test that the runtime primes the SDK skip-version-check env var."""
+        monkeypatch.delenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", raising=False)
+        mock_client = MagicMock()
+
+        async def enter_client() -> MagicMock:
+            assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "1"
+            return mock_client
+
+        mock_client.__aenter__ = AsyncMock(side_effect=enter_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.query = AsyncMock()
+        mock_client.interrupt = AsyncMock()
+
+        async def empty_response() -> Any:
+            return
+            yield  # pragma: no cover  # noqa: B901
+
+        mock_client.receive_response = empty_response
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            await runtime.run(sample_init_payload)
+
+        assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "1"
+
+    @pytest.mark.anyio
+    async def test_preserves_existing_skip_version_check_value(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Test that runtime does not overwrite an existing SDK env value."""
+        monkeypatch.setenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "existing")
+        mock_client = MagicMock()
+
+        async def enter_client() -> MagicMock:
+            assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "existing"
+            return mock_client
+
+        mock_client.__aenter__ = AsyncMock(side_effect=enter_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.query = AsyncMock()
+        mock_client.interrupt = AsyncMock()
+
+        async def empty_response() -> Any:
+            return
+            yield  # pragma: no cover  # noqa: B901
+
+        mock_client.receive_response = empty_response
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            await runtime.run(sample_init_payload)
+
+        assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "existing"
 
     @pytest.mark.anyio
     async def test_sends_error_on_exception(
@@ -356,13 +445,17 @@ class TestClaudeAgentRuntimePreToolUseHook:
             input_data=make_hook_input(
                 tool_name="mcp__tracecat-registry__mcp__some_tool",
                 tool_input={"arg": "value"},
+                tool_use_id="call-1",
             ),
             tool_use_id="call-1",
             context=make_hook_context(),
         )
 
         hook_output = get_hook_output(result)
-        assert hook_output.get("permissionDecision") == "allow"
+        assert hook_output == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
 
     @pytest.mark.anyio
     async def test_auto_approve_registry_tool_without_approval(
@@ -380,6 +473,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
                 # MCP tool name format: mcp__tracecat-registry__core__http_request
                 tool_name="mcp__tracecat-registry__core__http_request",
                 tool_input={"url": "https://example.com", "method": "GET"},
+                tool_use_id="call-2",
             ),
             tool_use_id="call-2",
             context=make_hook_context(),
@@ -387,6 +481,59 @@ class TestClaudeAgentRuntimePreToolUseHook:
 
         hook_output = get_hook_output(result)
         assert hook_output.get("permissionDecision") == "allow"
+        assert hook_output["updatedInput"] == {
+            "url": "https://example.com",
+            "method": "GET",
+            PROXY_TOOL_METADATA_KEY: {
+                PROXY_TOOL_CALL_ID_KEY: "call-2",
+            },
+        }
+
+    @pytest.mark.anyio
+    async def test_auto_approve_internal_tool_does_not_inject_metadata(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__tracecat-registry__internal__builder__list_sessions",
+                tool_input={"query": "abc"},
+                tool_use_id="call-internal",
+            ),
+            tool_use_id="call-internal",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
+
+    @pytest.mark.anyio
+    async def test_auto_approve_non_registry_mcp_tool_does_not_inject_metadata(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        result = await runtime._pre_tool_use_hook(
+            input_data=make_hook_input(
+                tool_name="mcp__jira__search",
+                tool_input={"jql": "project = TRACE"},
+                tool_use_id="call-jira",
+            ),
+            tool_use_id="call-jira",
+            context=make_hook_context(),
+        )
+
+        hook_output = get_hook_output(result)
+        assert hook_output == {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+        }
 
     @pytest.mark.anyio
     async def test_tool_requires_approval(
@@ -410,6 +557,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
             input_data=make_hook_input(
                 tool_name="mcp__tracecat-registry__core__http_request",
                 tool_input={"url": "https://example.com"},
+                tool_use_id="call-3",
             ),
             tool_use_id="call-3",
             context=make_hook_context(),

@@ -1,0 +1,114 @@
+---
+title: "YAML templates"
+description: "Build custom YAML actions in Tracecat."
+---
+
+import RegistrySecretsAndOAuth from "/snippets/registry-secrets-and-oauth.mdx";
+
+Use a YAML action template to compose existing actions into a reusable action.
+
+## Template shape
+
+Create a `.yml` file in your registry templates directory. Define inputs in `expects`, run actions in `steps`, and return the final value from `returns`.
+
+```yaml
+type: action
+definition:
+  title: Post message
+  description: Post a message to a Slack channel.
+  display_group: Slack
+  namespace: tools.slack
+  name: post_message
+  expects:
+    channel:
+      type: str
+      description: The Slack channel ID.
+    text:
+      type: str
+      description: The message text.
+  steps:
+    - ref: post_message
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: chat_postMessage
+        params:
+          channel: ${{ inputs.channel }}
+          text: ${{ inputs.text }}
+  returns: ${{ steps.post_message.result }}
+```
+
+- Start every file with `type: action`.
+- Use `tools.<integration>` for the namespace.
+- Set `title`, `description`, `display_group`, `namespace`, and `name` in `definition`.
+- Define inputs in `expects`.
+- Build the action in `steps`.
+- Return the final value from `returns`.
+
+## Expressions
+
+Use `${{ }}` for expressions.
+
+Use `inputs` to read the inputs you defined in `expects`.
+
+Use `steps` to read the result of an earlier step. After a step runs, its output is available at `steps.<ref>.result`.
+
+```yaml Read an input
+args:
+  channel: ${{ inputs.channel }}
+  text: ${{ inputs.text }}
+```
+
+```yaml Read an earlier step result
+returns: ${{ steps.post_message.result }}
+```
+
+```yaml Build one step from another
+steps:
+  - ref: lookup_user
+    action: tools.slack.users.lookup_user_by_email
+    args:
+      email: ${{ inputs.email }}
+  - ref: post_message
+    action: tools.slack.chat.post_message
+    args:
+      channel: ${{ steps.lookup_user.result.id }}
+      text: Hello
+```
+
+You can use:
+
+- `inputs`
+- `steps`
+- `SECRETS`
+- `VARS`
+- `FN.*`
+
+## Secrets
+
+Declare what each template needs under `definition.secrets` (API keys, structured types, or OAuth). That list drives which credentials must exist for the action when the workflow runs. Use the same `${{ SECRETS... }}` paths in `args` as in any other expression.
+
+<RegistrySecretsAndOAuth />
+
+## Limitations
+
+- Template steps only support `ref`, `action`, and `args`.
+- Template steps run in order.
+- Template steps do not support `run_if`, `for_each`, `join_strategy`, `start_delay`, `timeout`, or `max_attempts`.
+- Templates can call tools actions, other templates, and `core.script.run_python`. Other platform actions are not supported inside templates.
+- If a later step fails, you do not get a final result with earlier step outputs. Keep templates short. In practice, do not build templates with more than 2 steps.
+
+## Example templates
+
+All integrations in Tracecat are open source. Browse [template actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/templates/tools) for more examples.
+
+For concrete examples, browse the [Slack templates](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/templates/tools/slack) and [CrowdStrike templates](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/templates/tools/crowdstrike).
+
+## FAQ
+
+### How do `definition.secrets` and `${{ SECRETS... }}` work together?
+
+`definition.secrets` declares which credentials the template needs at runtime. Use `SECRETS` in `args` to pass values into steps (see the **Secrets** and **Expressions** sections above). OAuth entries use `type: oauth` with `provider_id` and `grant_type` matching an integration in your workspace.
+
+### Why does my custom OAuth `provider_id` in YAML not match what I typed?
+
+UI-created **Custom OAuth** providers often get a `custom_` prefix. Use the exact id from Integrations; see the [OAuth FAQ](/automations/integrations/oauth-integrations#faq).
