@@ -1,12 +1,5 @@
 "use client"
 
-import { closeBrackets } from "@codemirror/autocomplete"
-import { history } from "@codemirror/commands"
-import { json } from "@codemirror/lang-json"
-import { bracketMatching } from "@codemirror/language"
-import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
-import { EditorView, keymap } from "@codemirror/view"
-import CodeMirror from "@uiw/react-codemirror"
 import { Check, ChevronsUpDown } from "lucide-react"
 import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -20,7 +13,6 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import { DateTimePicker } from "@/components/ui/date-time-picker"
 import { Input } from "@/components/ui/input"
 import {
   Popover,
@@ -68,7 +60,8 @@ function TextCellEditor({
   onChange,
   onCommit,
   onCancel,
-}: CellEditorProps) {
+  placeholder,
+}: CellEditorProps & { placeholder?: string }) {
   const strValue = value === null || value === undefined ? "" : String(value)
   const ref = useRef<HTMLInputElement>(null)
 
@@ -101,127 +94,116 @@ function TextCellEditor({
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={handleKeyDown}
       onBlur={onCommit}
+      placeholder={placeholder}
       className="h-8 text-xs border-0 rounded-none shadow-none focus-visible:ring-0"
     />
   )
 }
 
-function IntegerCellEditor({
+/**
+ * Text editor that validates on commit. If parsing fails, silently reverts
+ * to the original value instead of showing an error.
+ */
+function ValidatedTextEditor({
   value,
   onChange,
   onCommit,
   onCancel,
-}: CellEditorProps) {
-  const [localStr, setLocalStr] = useState(() =>
-    value === null || value === undefined ? "" : String(value)
-  )
-  const ref = useRef<HTMLInputElement>(null)
+  column,
+  cellWidth,
+  parse,
+  format,
+  placeholder,
+}: CellEditorProps & {
+  parse: (raw: string) => unknown
+  format: (v: unknown) => string
+  placeholder?: string
+}) {
+  const originalValue = useRef(value)
+  // Local string state — not reformatted on every keystroke so the user
+  // can type intermediate values like "1." without losing the dot.
+  const [localStr, setLocalStr] = useState(() => format(value))
 
-  useEffect(() => {
-    ref.current?.focus()
-    ref.current?.select()
+  const handleChange = useCallback((v: unknown) => {
+    setLocalStr(String(v ?? ""))
   }, [])
 
-  const commitValue = useCallback(() => {
-    if (localStr === "" || localStr === "-") {
-      onChange(localStr === "" ? null : value)
-    } else {
-      const parsed = Number.parseInt(localStr, 10)
-      onChange(Number.isNaN(parsed) ? null : parsed)
+  const handleCommit = useCallback(() => {
+    const raw = localStr.trim()
+    if (raw === "") {
+      onChange(null)
+      onCommit()
+      return
+    }
+    try {
+      const parsed = parse(raw)
+      onChange(parsed)
+    } catch {
+      // Revert to original value on invalid input
+      onChange(originalValue.current)
     }
     onCommit()
-  }, [localStr, onChange, onCommit, value])
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault()
-        commitValue()
-      } else if (e.key === "Escape") {
-        e.preventDefault()
-        onCancel()
-      } else if (e.key === "Tab") {
-        e.preventDefault()
-        commitValue()
-      }
-    },
-    [commitValue, onCancel]
-  )
+  }, [localStr, parse, onChange, onCommit])
 
   return (
-    <Input
-      ref={ref}
-      type="number"
-      step="1"
+    <TextCellEditor
       value={localStr}
-      onChange={(e) => setLocalStr(e.target.value)}
-      onKeyDown={handleKeyDown}
-      onBlur={commitValue}
-      className="h-8 text-xs border-0 rounded-none shadow-none focus-visible:ring-0"
-    />
-  )
-}
-
-function NumericCellEditor({
-  value,
-  onChange,
-  onCommit,
-  onCancel,
-}: CellEditorProps) {
-  const formatInitial = () => {
-    if (value === null || value === undefined) return ""
-    const num =
-      typeof value === "number" ? value : Number.parseFloat(String(value))
-    if (Number.isNaN(num)) return String(value)
-    if (!Number.isInteger(num)) {
-      return Number.parseFloat(num.toFixed(4)).toString()
-    }
-    return String(num)
-  }
-
-  const strValue = formatInitial()
-  const ref = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    ref.current?.focus()
-    ref.current?.select()
-  }, [])
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Keep value as a string to match the column data type (API returns
-    // numeric values as strings). The backend handles numeric conversion.
-    onChange(e.target.value === "" ? null : e.target.value)
-  }
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault()
-        onCommit()
-      } else if (e.key === "Escape") {
-        e.preventDefault()
-        onCancel()
-      } else if (e.key === "Tab") {
-        e.preventDefault()
-        onCommit()
-      }
-    },
-    [onCommit, onCancel]
-  )
-
-  return (
-    <Input
-      ref={ref}
-      type="text"
-      inputMode="decimal"
-      defaultValue={strValue}
+      column={column}
       onChange={handleChange}
-      onKeyDown={handleKeyDown}
-      onBlur={onCommit}
-      className="h-8 text-xs border-0 rounded-none shadow-none focus-visible:ring-0"
+      onCommit={handleCommit}
+      onCancel={onCancel}
+      cellWidth={cellWidth}
+      placeholder={placeholder}
     />
   )
 }
+
+// --- Parsers for ValidatedTextEditor ---
+
+function parseInteger(raw: string): number {
+  const parsed = Number.parseInt(raw, 10)
+  if (Number.isNaN(parsed)) throw new Error("Invalid integer")
+  return parsed
+}
+
+function parseNumeric(raw: string): string {
+  const n = Number(raw)
+  if (!Number.isFinite(n)) throw new Error("Invalid number")
+  // Return as string to preserve precision (backend handles conversion)
+  return raw.trim()
+}
+
+function parseDate(raw: string): string {
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) throw new Error("Invalid date")
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${yyyy}-${mm}-${dd}`
+}
+
+function parseTimestamp(raw: string): string {
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) throw new Error("Invalid timestamp")
+  return d.toISOString()
+}
+
+function formatValue(v: unknown): string {
+  if (v === null || v === undefined) return ""
+  return String(v)
+}
+
+function formatNumeric(v: unknown): string {
+  if (v === null || v === undefined) return ""
+  const num = typeof v === "number" ? v : Number.parseFloat(String(v))
+  if (Number.isNaN(num)) return String(v)
+  if (!Number.isInteger(num)) {
+    return Number.parseFloat(num.toFixed(4)).toString()
+  }
+  return String(num)
+}
+
+// --- Editors ---
 
 function BooleanCellEditor({
   value,
@@ -259,231 +241,6 @@ function BooleanCellEditor({
   )
 }
 
-function DateCellEditor({
-  value,
-  onChange,
-  onCommit,
-  onCancel,
-}: CellEditorProps) {
-  const stringValue =
-    typeof value === "string" && value.length > 0 ? value : undefined
-  const parsedDate = stringValue !== undefined ? new Date(stringValue) : null
-  const dateValue =
-    parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault()
-        onCancel()
-      }
-    },
-    [onCancel]
-  )
-
-  return (
-    <div onKeyDown={handleKeyDown}>
-      <DateTimePicker
-        value={dateValue}
-        displayFormat="PPP"
-        placeholder="Select date"
-        hideTime
-        onChange={(next) => {
-          if (next) {
-            const yyyy = next.getFullYear()
-            const mm = String(next.getMonth() + 1).padStart(2, "0")
-            const dd = String(next.getDate()).padStart(2, "0")
-            onChange(`${yyyy}-${mm}-${dd}`)
-          } else {
-            onChange("")
-          }
-          if (next) {
-            setTimeout(onCommit, 0)
-          }
-        }}
-        onBlur={onCommit}
-        buttonProps={{
-          variant: "ghost",
-          className:
-            "w-full h-8 text-xs rounded-none shadow-none focus-visible:ring-0",
-        }}
-      />
-    </div>
-  )
-}
-
-function TimestampCellEditor({
-  value,
-  onChange,
-  onCommit,
-  onCancel,
-}: CellEditorProps) {
-  const stringValue =
-    typeof value === "string" && value.length > 0 ? value : undefined
-  const parsedDate = stringValue !== undefined ? new Date(stringValue) : null
-  const dateValue =
-    parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault()
-        onCancel()
-      }
-    },
-    [onCancel]
-  )
-
-  return (
-    <div onKeyDown={handleKeyDown}>
-      <DateTimePicker
-        value={dateValue}
-        onChange={(next) => {
-          onChange(next ? next.toISOString() : "")
-          if (next) {
-            setTimeout(onCommit, 0)
-          }
-        }}
-        onBlur={onCommit}
-        buttonProps={{
-          variant: "ghost",
-          className:
-            "w-full h-8 text-xs rounded-none shadow-none focus-visible:ring-0",
-        }}
-      />
-    </div>
-  )
-}
-
-function jsonLinter(view: EditorView): Diagnostic[] {
-  const content = view.state.doc.toString()
-  if (!content.trim()) return []
-  try {
-    JSON.parse(content)
-    return []
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Invalid JSON"
-    const posMatch = msg.match(/position (\d+)/)
-    const pos = posMatch ? Number.parseInt(posMatch[1], 10) : 0
-    const from = Math.min(pos, content.length)
-    const to = Math.min(from + 1, content.length)
-    return [{ from, to, severity: "error", message: msg, source: "json" }]
-  }
-}
-
-function JsonCellEditor({
-  value,
-  onChange,
-  onCommit,
-  onCancel,
-}: CellEditorProps) {
-  const strValue =
-    typeof value === "string"
-      ? value
-      : value === null || value === undefined
-        ? ""
-        : JSON.stringify(value, null, 2)
-  const [localValue, setLocalValue] = useState(strValue)
-  const [error, setError] = useState<string | null>(null)
-
-  const validate = useCallback((val: string): boolean => {
-    if (val.trim() === "") return true
-    try {
-      JSON.parse(val)
-      return true
-    } catch {
-      return false
-    }
-  }, [])
-
-  const handleCommitRef = useRef<() => void>(() => {})
-  const onCancelRef = useRef(onCancel)
-  onCancelRef.current = onCancel
-
-  const handleCommit = useCallback(() => {
-    if (!validate(localValue)) {
-      setError("Invalid JSON")
-      return
-    }
-    setError(null)
-    if (localValue.trim() === "") {
-      onChange(null)
-    } else {
-      onChange(JSON.parse(localValue))
-    }
-    onCommit()
-  }, [localValue, validate, onChange, onCommit])
-
-  handleCommitRef.current = handleCommit
-
-  const extensions = useMemo(
-    () => [
-      json(),
-      lintGutter(),
-      linter(jsonLinter),
-      history(),
-      bracketMatching(),
-      closeBrackets(),
-      keymap.of([
-        {
-          key: "Mod-Enter",
-          run: () => {
-            handleCommitRef.current()
-            return true
-          },
-          preventDefault: true,
-        },
-        {
-          key: "Escape",
-          run: () => {
-            onCancelRef.current()
-            return true
-          },
-          preventDefault: true,
-        },
-      ]),
-      EditorView.theme({
-        ".cm-content": { fontFamily: "monospace", fontSize: "12px" },
-        ".cm-scroller": { maxHeight: "300px", overflow: "auto" },
-      }),
-    ],
-    []
-  )
-
-  return (
-    <div className="space-y-1">
-      <CodeMirror
-        value={localValue}
-        onChange={(val) => {
-          setLocalValue(val)
-          if (error) {
-            setError(validate(val) ? null : "Invalid JSON")
-          }
-        }}
-        height="auto"
-        extensions={extensions}
-        theme="light"
-        autoFocus
-        basicSetup={{
-          lineNumbers: true,
-          foldGutter: false,
-          highlightActiveLine: true,
-          bracketMatching: false,
-          closeBrackets: false,
-          history: false,
-          defaultKeymap: true,
-          syntaxHighlighting: true,
-          autocompletion: false,
-        }}
-        className="min-h-[100px] max-h-[300px] overflow-auto rounded-md border font-mono text-xs"
-        onBlur={handleCommit}
-      />
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      <p className="text-xs text-muted-foreground">Cmd/Ctrl+Enter to save</p>
-    </div>
-  )
-}
-
 function SelectCellEditor({
   value,
   column,
@@ -510,6 +267,10 @@ function SelectCellEditor({
           <SelectValue placeholder="Choose a value" />
         </SelectTrigger>
         <SelectContent
+          position="popper"
+          side="bottom"
+          avoidCollisions
+          collisionPadding={8}
           onEscapeKeyDown={(e) => {
             e.preventDefault()
             onCancel()
@@ -602,7 +363,10 @@ function MultiSelectCellEditor({
       <PopoverContent
         className="!w-auto p-0"
         align="start"
+        side="bottom"
         sideOffset={6}
+        avoidCollisions
+        collisionPadding={8}
         style={{
           width: cellWidth
             ? `${cellWidth - 28}px`
@@ -674,7 +438,13 @@ export function CellEditor(props: CellEditorProps) {
     case "BIGINT":
     case "SMALLINT":
     case "SERIAL":
-      return <IntegerCellEditor {...props} />
+      return (
+        <ValidatedTextEditor
+          {...props}
+          parse={parseInteger}
+          format={formatValue}
+        />
+      )
     case "NUMERIC":
     case "DECIMAL":
     case "REAL":
@@ -683,17 +453,34 @@ export function CellEditor(props: CellEditorProps) {
     case "FLOAT8":
     case "DOUBLE":
     case "DOUBLE PRECISION":
-      return <NumericCellEditor {...props} />
+      return (
+        <ValidatedTextEditor
+          {...props}
+          parse={parseNumeric}
+          format={formatNumeric}
+        />
+      )
     case "BOOLEAN":
     case "BOOL":
       return <BooleanCellEditor {...props} />
     case "DATE":
-      return <DateCellEditor {...props} />
+      return (
+        <ValidatedTextEditor
+          {...props}
+          parse={parseDate}
+          format={formatValue}
+          placeholder="YYYY-MM-DD"
+        />
+      )
     case "TIMESTAMPTZ":
-      return <TimestampCellEditor {...props} />
-    case "JSON":
-    case "JSONB":
-      return <JsonCellEditor {...props} />
+      return (
+        <ValidatedTextEditor
+          {...props}
+          parse={parseTimestamp}
+          format={formatValue}
+          placeholder="YYYY-MM-DDTHH:mm:ss.Z"
+        />
+      )
     case "SELECT":
       return <SelectCellEditor {...props} />
     case "MULTI_SELECT":

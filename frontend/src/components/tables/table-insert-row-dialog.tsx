@@ -48,13 +48,29 @@ const createInsertTableRowSchema = (table: TableRead) => {
         break
       case "INTEGER":
         columnValidations[column.name] = z
-          .number()
-          .int(`${column.name} must be an integer`)
+          .string()
+          .min(1, `${column.name} is required`)
+          .refine(
+            (val) => {
+              const n = Number(val)
+              return Number.isInteger(n)
+            },
+            { message: `${column.name} must be an integer` }
+          )
+          .transform((val) => Number(val))
         break
       case "NUMERIC":
         columnValidations[column.name] = z
-          .number()
-          .min(-Infinity, `${column.name} must be a number`)
+          .string()
+          .min(1, `${column.name} is required`)
+          .refine(
+            (val) => {
+              const n = Number(val)
+              return Number.isFinite(n)
+            },
+            { message: `${column.name} must be a number` }
+          )
+          .transform((val) => Number(val))
         break
       case "BOOLEAN":
         // Accept string inputs and transform to boolean
@@ -223,7 +239,7 @@ export function TableInsertRowDialog({
                         <FormControl>
                           <DynamicInput column={column} field={field} />
                         </FormControl>
-                        <FormMessage />
+                        <FormMessage className="text-xs" />
                       </FormItem>
                     )}
                   />

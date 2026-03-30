@@ -49,8 +49,6 @@ const NUMERIC_TYPES = new Set([
 ])
 const DATE_TYPES = new Set(["DATE", "TIMESTAMPTZ", "TIME", "TIMETZ"])
 const BOOLEAN_TYPES = new Set(["BOOL", "BOOLEAN"])
-const POPUP_EDITOR_TYPES = new Set(["JSON", "JSONB"])
-
 function normalizeSqlType(rawType?: string) {
   if (!rawType) return ""
   const [base] = rawType.toUpperCase().split("(")
@@ -74,7 +72,7 @@ function numericValueFormatter(params: ValueFormatterParams): string {
   if (typeof value !== "number") return String(value)
   if (!Number.isFinite(value)) return String(value)
   if (Number.isInteger(value)) return String(value)
-  return parseFloat(value.toFixed(2)).toString()
+  return parseFloat(value.toFixed(4)).toString()
 }
 
 function getColumnWidthPx(rawType?: string): number {
@@ -232,7 +230,7 @@ export function AgGridTable({
     const defs: ColDef[] = [
       ...columns.map((column): ColDef => {
         const normalizedType = normalizeSqlType(column.type)
-        const isPopupEditor = POPUP_EDITOR_TYPES.has(normalizedType)
+        const isJsonColumn = JSON_TYPES.has(normalizedType)
         const isNumeric = NUMERIC_TYPES.has(normalizedType)
         const baseDef: ColDef = {
           field: column.name,
@@ -265,13 +263,15 @@ export function AgGridTable({
           cellRendererParams: {
             tableColumn: column,
           },
-          cellEditor: AgGridCellEditor,
-          cellEditorParams: {
-            tableColumn: column,
-          },
-          cellEditorPopup: isPopupEditor,
-          suppressKeyboardEvent: suppressEditorKeys,
-          editable: true,
+          // JSON columns are edited only via the side panel
+          ...(isJsonColumn
+            ? { editable: false }
+            : {
+                cellEditor: AgGridCellEditor,
+                cellEditorParams: { tableColumn: column },
+                suppressKeyboardEvent: suppressEditorKeys,
+                editable: true,
+              }),
         }
       }),
     ]
@@ -289,12 +289,14 @@ export function AgGridTable({
   }
 
   return (
-    <div className="flex h-full flex-col gap-2">
+    <div className="flex h-full flex-col gap-2 pb-2">
       {isReadOnly ? (
-        <div onKeyDown={(e) => handleGridKeyDown(e, gridApi)}>
+        <div
+          className="flex-1 min-h-0"
+          onKeyDown={(e) => handleGridKeyDown(e, gridApi)}
+        >
           <AgGridReact
             theme={tracecatTheme}
-            domLayout="autoHeight"
             rowData={rowData}
             columnDefs={columnDefs}
             getRowId={(params) => params.data.id}
@@ -308,10 +310,12 @@ export function AgGridTable({
         </div>
       ) : (
         <AgGridContextMenu gridApi={gridApi} columns={columns}>
-          <div onKeyDown={(e) => handleGridKeyDown(e, gridApi)}>
+          <div
+            className="flex-1 min-h-0"
+            onKeyDown={(e) => handleGridKeyDown(e, gridApi)}
+          >
             <AgGridReact
               theme={tracecatTheme}
-              domLayout="autoHeight"
               rowData={rowData}
               columnDefs={columnDefs}
               getRowId={(params) => params.data.id}
@@ -328,7 +332,6 @@ export function AgGridTable({
                 headerCheckbox: true,
                 checkboxes: true,
               }}
-              suppressClickEdit
               suppressContextMenu
               headerHeight={36}
               rowHeight={36}
