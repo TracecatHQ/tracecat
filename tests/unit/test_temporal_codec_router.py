@@ -83,3 +83,14 @@ def test_codec_router_rejects_unauthorized_requests(
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Unauthorized codec request"
+
+
+def test_codec_router_requires_shared_secret_configuration() -> None:
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post("/codec/decode", json={"payloads": []})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Temporal codec server is not configured"

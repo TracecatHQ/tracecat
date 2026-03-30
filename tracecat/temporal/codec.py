@@ -303,7 +303,9 @@ class EncryptionPayloadCodec(PayloadCodec):
             return workspace_id
         if (role := ctx_role.get()) and role.workspace_id is not None:
             return str(role.workspace_id)
-        return TRACECAT_TEMPORAL_GLOBAL_SCOPE
+        raise TemporalPayloadCodecError(
+            "Temporal payload encryption requires an explicit workspace scope"
+        )
 
     async def encode(self, payloads: Iterable[Payload]) -> list[Payload]:
         if not self.enabled:
@@ -342,10 +344,13 @@ class EncryptionPayloadCodec(PayloadCodec):
                 result.append(payload)
                 continue
 
-            workspace_id = (
-                payload.metadata.get("tracecat_workspace_id", b"").decode("utf-8")
-                or TRACECAT_TEMPORAL_GLOBAL_SCOPE
+            workspace_id = payload.metadata.get("tracecat_workspace_id", b"").decode(
+                "utf-8"
             )
+            if not workspace_id:
+                raise TemporalPayloadCodecError(
+                    "Encrypted Temporal payload is missing its workspace scope"
+                )
             key_version = (
                 payload.metadata.get("tracecat_key_version", b"").decode("utf-8")
                 or config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION

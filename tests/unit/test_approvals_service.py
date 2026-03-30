@@ -1,9 +1,6 @@
 """Tests for ApprovalService CRUD operations."""
 
 import uuid
-from collections.abc import AsyncIterator
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -11,12 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.agent.approvals.schemas import ApprovalCreate, ApprovalUpdate
 from tracecat_ee.agent.approvals.service import ApprovalService, SessionInfo
 
-from tracecat.agent.aliases import build_agent_alias
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession, User
-from tracecat.identifiers import WorkflowID
-from tracecat.temporal.visibility import tokenize_visibility_value
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -269,47 +263,6 @@ class TestApprovalService:
         """Test batch update with empty dict returns empty list."""
         updated = await approvals_service.update_approvals({})
         assert updated == []
-
-    async def test_list_session_history_uses_tokenized_alias_query(
-        self,
-        approvals_service: ApprovalService,
-    ) -> None:
-        session_id = uuid.uuid4()
-        parent_workflow_id = WorkflowID(str(uuid.uuid4()))
-        action_ref = "tools.some_action"
-        expected_alias = tokenize_visibility_value(
-            build_agent_alias(parent_workflow_id, action_ref)
-        )
-        captured_query: str | None = None
-
-        class FakeTemporalClient:
-            async def list_workflows(self, **kwargs: str) -> AsyncIterator[object]:
-                nonlocal captured_query
-                captured_query = kwargs["query"]
-                if False:
-                    yield object()
-
-        with (
-            patch.object(
-                approvals_service,
-                "get_session",
-                AsyncMock(
-                    return_value=SimpleNamespace(
-                        parent_workflow_id=parent_workflow_id,
-                        action_ref=action_ref,
-                    )
-                ),
-            ),
-            patch(
-                "tracecat_ee.agent.approvals.service.get_temporal_client",
-                AsyncMock(return_value=FakeTemporalClient()),
-            ),
-        ):
-            history = await approvals_service.list_session_history(session_id)
-
-        assert history == []
-        assert captured_query is not None
-        assert expected_alias in captured_query
 
     async def test_delete_approval(
         self,

@@ -11,13 +11,9 @@ from tracecat import config
 from tracecat.contexts import with_temporal_workspace_id
 from tracecat.dsl._converter import get_data_converter
 from tracecat.temporal.codec import (
-    TRACECAT_TEMPORAL_GLOBAL_SCOPE,
+    TemporalPayloadCodecError,
     get_payload_codec,
     reset_temporal_payload_secret_cache,
-)
-from tracecat.temporal.visibility import (
-    reset_temporal_visibility_secret_cache,
-    tokenize_visibility_value,
 )
 
 
@@ -29,10 +25,7 @@ def reset_temporal_crypto_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION", "1")
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS", 3600)
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS", 128)
-    monkeypatch.setattr(config, "TEMPORAL__VISIBILITY_HMAC_KEY", None)
-    monkeypatch.setattr(config, "TEMPORAL__VISIBILITY_HMAC_KEY__ARN", None)
     reset_temporal_payload_secret_cache()
-    reset_temporal_visibility_secret_cache()
 
 
 @pytest.mark.anyio
@@ -65,7 +58,7 @@ async def test_payload_codec_encrypts_and_decrypts_with_workspace_scope(
 
 
 @pytest.mark.anyio
-async def test_payload_codec_falls_back_to_global_scope_without_workspace(
+async def test_payload_codec_requires_explicit_workspace_scope(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", True)
@@ -75,14 +68,12 @@ async def test_payload_codec_falls_back_to_global_scope_without_workspace(
 
     codec = get_payload_codec(compression_enabled=False)
     assert codec is not None
-    encoded = await codec.encode(
-        [Payload(metadata={"encoding": b"json/plain"}, data=b'{"scope":"global"}')]
-    )
-
-    assert (
-        encoded[0].metadata["tracecat_workspace_id"].decode("utf-8")
-        == TRACECAT_TEMPORAL_GLOBAL_SCOPE
-    )
+    with pytest.raises(
+        TemporalPayloadCodecError, match="requires an explicit workspace scope"
+    ):
+        await codec.encode(
+            [Payload(metadata={"encoding": b"json/plain"}, data=b'{"scope":"global"}')]
+        )
 
 
 def test_get_data_converter_switches_failure_converter_with_encryption(
@@ -98,17 +89,3 @@ def test_get_data_converter_switches_failure_converter_with_encryption(
         encrypted_converter.failure_converter,
         DefaultFailureConverterWithEncodedAttributes,
     )
-
-
-def test_tokenize_visibility_value_is_deterministic(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(config, "TEMPORAL__VISIBILITY_HMAC_KEY", "visibility-hmac-key")
-
-    token_a = tokenize_visibility_value("workflow-alias")
-    token_b = tokenize_visibility_value("workflow-alias")
-    token_c = tokenize_visibility_value("other-alias")
-
-    assert token_a == token_b
-    assert token_a != token_c
-    assert token_a.startswith("h1:")

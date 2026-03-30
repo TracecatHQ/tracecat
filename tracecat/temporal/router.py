@@ -16,7 +16,10 @@ router = APIRouter(prefix="/codec", tags=["public"], include_in_schema=False)
 
 def _verify_codec_auth(authorization: str | None) -> None:
     if not config.TEMPORAL__CODEC_SERVER_SHARED_SECRET:
-        return
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Temporal codec server is not configured",
+        )
     expected = f"Bearer {config.TEMPORAL__CODEC_SERVER_SHARED_SECRET}"
     if authorization is None or not hmac.compare_digest(authorization, expected):
         raise HTTPException(
