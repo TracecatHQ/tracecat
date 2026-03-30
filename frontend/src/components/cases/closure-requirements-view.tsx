@@ -47,8 +47,11 @@ export function ClosureRequirementsView() {
 
   const { caseFields, caseFieldsIsLoading, caseFieldsError } =
     useCaseFields(workspaceId)
-  const { dropdownDefinitions, dropdownDefinitionsIsLoading } =
-    useCaseDropdownDefinitions(workspaceId, caseAddonsEnabled)
+  const {
+    dropdownDefinitions,
+    dropdownDefinitionsIsLoading,
+    dropdownDefinitionsError,
+  } = useCaseDropdownDefinitions(workspaceId, caseAddonsEnabled)
 
   const { mutateAsync: updateField } = useMutation({
     mutationFn: async ({
@@ -141,6 +144,15 @@ export function ClosureRequirementsView() {
 
   if (caseFieldsError) {
     return <AlertNotification level="error" message={caseFieldsError.message} />
+  }
+
+  if (dropdownDefinitionsError) {
+    return (
+      <AlertNotification
+        level="error"
+        message={`Error loading dropdowns: ${dropdownDefinitionsError.message}`}
+      />
+    )
   }
 
   const customFields = (caseFields ?? []).filter((f) => !f.reserved)
