@@ -1,6 +1,73 @@
 from __future__ import annotations
 
+from typing import Any, Self
+
+import sqlalchemy as sa
+
+from tracecat.core.schemas import Schema
+from tracecat.tables.common import parse_postgres_default
+from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableColumnUpdate
+
+
+class CustomFieldRead(Schema):
+    """Compatibility read model for custom fields."""
+
+    id: str
+    type: SqlType
+    description: str
+    nullable: bool
+    default: str | None
+    reserved: bool
+    options: list[str] | None = None
+
+    @classmethod
+    def from_sa(
+        cls,
+        column: sa.engine.interfaces.ReflectedColumn,
+        *,
+        reserved_fields: set[str] | None = None,
+        field_schema: dict[str, Any] | None = None,
+    ) -> Self:
+        """Create a CustomFieldRead from a SQLAlchemy reflected column."""
+        raw_type = column["type"]
+        sql_type: SqlType
+        if isinstance(raw_type, SqlType):
+            sql_type = raw_type
+        else:
+            type_str: str
+            if isinstance(raw_type, str):
+                type_str = raw_type.upper()
+            else:
+                type_str = str(raw_type).upper()
+                if hasattr(raw_type, "timezone"):
+                    type_str = (
+                        "TIMESTAMP WITH TIME ZONE"
+                        if getattr(raw_type, "timezone", False)
+                        else "TIMESTAMP WITHOUT TIME ZONE"
+                    )
+            if type_str == "BIGINT":
+                sql_type = SqlType.INTEGER
+            elif type_str == "TIMESTAMP WITH TIME ZONE":
+                sql_type = SqlType.TIMESTAMPTZ
+            else:
+                sql_type = SqlType(type_str)
+
+        reserved_set = reserved_fields or set()
+        options: list[str] | None = None
+        if field_schema and (schema_metadata := field_schema.get(column["name"])):
+            sql_type = SqlType(schema_metadata["type"])
+            options = schema_metadata.get("options")
+
+        return cls(
+            id=column["name"],
+            type=sql_type,
+            description=column.get("comment") or "",
+            nullable=column["nullable"],
+            default=parse_postgres_default(column.get("default")),
+            reserved=column["name"] in reserved_set,
+            options=options,
+        )
 
 
 class CustomFieldCreate(TableColumnCreate):
@@ -12,6 +79,7 @@ class CustomFieldUpdate(TableColumnUpdate):
 
 
 __all__ = [
+    "CustomFieldRead",
     "CustomFieldCreate",
     "CustomFieldUpdate",
 ]

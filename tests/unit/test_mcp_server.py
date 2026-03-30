@@ -2277,6 +2277,13 @@ async def test_list_case_fields(monkeypatch):
 
     columns = [
         {
+            "name": "case_id",
+            "type": "UUID",
+            "nullable": False,
+            "default": None,
+            "comment": "Case UUID",
+        },
+        {
             "name": "status_reason",
             "type": "TEXT",
             "nullable": True,
@@ -2316,11 +2323,14 @@ async def test_list_case_fields(monkeypatch):
 
     result = await _tool(mcp_server.list_case_fields)(workspace_id=str(uuid.uuid4()))
     payload = _payload(result)
-    assert payload["items"][0]["id"] == "status_reason"
-    assert payload["items"][0]["type"] == "TEXT"
-    assert payload["items"][0]["kind"] == "LONG_TEXT"
-    assert payload["items"][1]["type"] == "SELECT"
-    assert payload["items"][1]["options"] == ["low", "high"]
+    assert payload["items"][0]["id"] == "case_id"
+    assert payload["items"][0]["type"] == "UUID"
+    assert payload["items"][0]["reserved"] is True
+    assert payload["items"][1]["id"] == "status_reason"
+    assert payload["items"][1]["type"] == "TEXT"
+    assert payload["items"][1]["kind"] == "LONG_TEXT"
+    assert payload["items"][2]["type"] == "SELECT"
+    assert payload["items"][2]["options"] == ["low", "high"]
 
 
 @pytest.mark.anyio

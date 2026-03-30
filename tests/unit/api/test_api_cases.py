@@ -370,6 +370,49 @@ async def test_create_case_field_accepts_long_text_kind(
 
 
 @pytest.mark.anyio
+async def test_list_case_fields_preserves_reserved_uuid_type(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.list_fields.return_value = [
+            {
+                "name": "case_id",
+                "type": "UUID",
+                "nullable": False,
+                "default": None,
+                "comment": "Case UUID",
+            },
+            {
+                "name": "details",
+                "type": "TEXT",
+                "nullable": True,
+                "default": None,
+                "comment": "Case details",
+            },
+        ]
+        mock_service.get_field_schema.return_value = {
+            "details": {"type": "TEXT", "kind": "LONG_TEXT"}
+        }
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            "/case-fields",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data[0]["id"] == "case_id"
+    assert data[0]["type"] == "UUID"
+    assert data[0]["reserved"] is True
+    assert data[1]["id"] == "details"
+    assert data[1]["type"] == "TEXT"
+    assert data[1]["kind"] == "LONG_TEXT"
+
+
+@pytest.mark.anyio
 async def test_create_case_field_rejects_invalid_kind_pair(
     client: TestClient,
     test_admin_role: Role,
