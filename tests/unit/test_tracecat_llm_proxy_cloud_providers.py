@@ -1391,7 +1391,6 @@ async def test_bedrock_prepare_retry_request_drops_thinking_on_tool_use_reasonin
             body=orjson.dumps(payload),
             stream=outbound.stream,
         ),
-        attempt=0,
     )
 
     assert retried is not None

@@ -234,11 +234,7 @@ class AzureAIAdapter:
         request: NormalizedMessagesRequest,
         credentials: dict[str, str],
         outbound_request: ProviderHTTPRequest,
-        attempt: int,
     ) -> ProviderHTTPRequest | None:
-        if attempt >= 1:
-            return None
-
         error_text = response.text
         should_drop_params = bool(request.model_settings.get("drop_params", True))
         if not should_retry_llm_api_inside_llm_translation_on_http_error(

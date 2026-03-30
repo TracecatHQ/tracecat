@@ -132,11 +132,9 @@ async def test_proxy_retries_once_with_provider_mutation(
             request: NormalizedMessagesRequest,
             credentials: dict[str, str],
             outbound_request: ProviderHTTPRequest,
-            attempt: int,
         ) -> ProviderHTTPRequest | None:
             del request, credentials
             assert response.status_code == 422
-            assert attempt == 0
             assert outbound_request.json_body is not None
             retry_body = dict(outbound_request.json_body)
             retry_body.pop("bad_field", None)

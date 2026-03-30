@@ -22,7 +22,6 @@ import orjson
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_CONTROL_SOCKET_PATH,
     TRACECAT__AGENT_LLM_SOCKET_PATH,
-    TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import (
@@ -30,7 +29,7 @@ from tracecat.agent.common.socket_io import (
     SocketStreamWriter,
     read_message,
 )
-from tracecat.agent.sandbox.llm_bridge import LLM_BRIDGE_DEFAULT_PORT, LLMBridge
+from tracecat.agent.sandbox.llm_bridge import LLMBridge
 from tracecat.logger import logger
 
 if TYPE_CHECKING:
@@ -73,12 +72,11 @@ async def run_sandboxed_runtime() -> None:
     Connects to orchestrator socket at the well-known jailed path,
     receives init payload, instantiates the runtime, and runs the agent.
 
-    LLM bridge behavior (SDK always uses localhost:4000):
-    - enable_internet_access=False: Network isolated, bridge on port 4000
-      proxies HTTP to gateway via Unix socket.
-    - enable_internet_access=True: Shares host network, SDK connects directly
-      to gateway on port 4000. No bridge needed (would cause port conflicts
-      across concurrent sandboxes).
+    The LLM bridge is always started to proxy SDK HTTP traffic through the
+    Unix socket to the host-side LLMSocketProxy. Port allocation:
+    - NSJail mode + network isolated: Fixed port 4000 (own network namespace)
+    - Otherwise (direct mode, or internet-enabled nsjail sharing host network):
+      Dynamic port (port=0) to avoid clashes between concurrent runs
     """
     socket_path = TRACECAT__AGENT_CONTROL_SOCKET_PATH
     logger.info("Starting sandboxed runtime", socket_path=str(socket_path))
@@ -98,32 +96,15 @@ async def run_sandboxed_runtime() -> None:
         # Parse with orjson + dataclass (lightweight, no Pydantic TypeAdapter)
         payload = RuntimeInitPayload.from_dict(orjson.loads(init_data))
 
-        # Start LLM bridge when network is isolated (no internet access)
-        # Port allocation strategy:
-        # - NSJail mode: Fixed port 4000 (isolated by network namespace)
-        # - Direct mode: Dynamic port (port=0) to avoid clashes between concurrent runs
-        if not payload.config.enable_internet_access:
-            if TRACECAT__DISABLE_NSJAIL:
-                # Direct mode: use dynamic port to avoid clashes with concurrent agents
-                llm_bridge = LLMBridge(
-                    socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH,
-                    port=0,  # OS assigns available port
-                )
-                bridge_port = await llm_bridge.start()
-                # Pass port to runtime via env var (runtime reads it on startup)
-                os.environ["TRACECAT__LLM_BRIDGE_PORT"] = str(bridge_port)
-                logger.info(
-                    "LLM bridge started (direct mode with dynamic port)",
-                    port=bridge_port,
-                )
-            else:
-                # NSJail mode: fixed port 4000 (network namespace isolated)
-                llm_bridge = LLMBridge(
-                    socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH,
-                    port=LLM_BRIDGE_DEFAULT_PORT,
-                )
-                await llm_bridge.start()
-                logger.info("LLM bridge started (nsjail network-isolated mode)")
+        # Always start the LLM bridge — the SDK needs a localhost HTTP endpoint
+        # to reach the host-side LLMSocketProxy via Unix socket.
+        llm_bridge = LLMBridge(
+            socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH,
+            port=0,
+        )
+        bridge_port = await llm_bridge.start()
+        os.environ["TRACECAT__LLM_BRIDGE_PORT"] = str(bridge_port)
+        logger.info("LLM bridge started", port=bridge_port)
         logger.info(
             "Received init payload",
             session_id=str(payload.session_id),

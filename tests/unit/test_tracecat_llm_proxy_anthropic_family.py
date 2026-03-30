@@ -430,7 +430,6 @@ async def test_azure_ai_prepare_retry_request_rewrites_request_shape() -> None:
             "AZURE_AI_MODEL_NAME": "claude-3-5-sonnet",
         },
         outbound_request=outbound,
-        attempt=0,
     )
 
     assert retried is not None

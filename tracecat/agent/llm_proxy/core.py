@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 from fastapi import HTTPException
+from tenacity import retry, retry_if_exception_type, stop_after_attempt
 
 from tracecat.agent.llm_proxy.credentials import (
     AgentManagementCredentialResolver,
@@ -33,6 +34,12 @@ from tracecat.agent.llm_proxy.types import (
 )
 from tracecat.agent.tokens import LLMTokenClaims
 from tracecat.logger import logger
+
+MAX_LLM_PROXY_ATTEMPTS = 2
+
+
+class _RetryableRequestError(RuntimeError):
+    """Raised when a provider adapter rewrites a failed request for retry."""
 
 
 @dataclass(slots=True)
@@ -140,37 +147,39 @@ class TracecatLLMProxy:
         credentials: dict[str, str],
     ) -> NormalizedResponse:
         outbound_request = replace(request, stream=False)
-        outbound = adapter.prepare_request(outbound_request, credentials)
-        response: httpx.Response | None = None
+        outbound_ref = [adapter.prepare_request(outbound_request, credentials)]
+
+        @retry(
+            retry=retry_if_exception_type(_RetryableRequestError),
+            stop=stop_after_attempt(MAX_LLM_PROXY_ATTEMPTS),
+            reraise=True,
+        )
+        async def _send() -> NormalizedResponse:
+            outbound = outbound_ref[0]
+            response = await self.http_client.request(
+                outbound.method,
+                outbound.url,
+                headers=outbound.headers,
+                content=outbound.body,
+                json=outbound.json_body,
+            )
+            if response.status_code < 400:
+                return await adapter.parse_response(response, outbound_request)
+            if not isinstance(adapter, ProviderRetryAdapter):
+                return await adapter.parse_response(response, outbound_request)
+            retry_request = adapter.prepare_retry_request(
+                response=response,
+                request=outbound_request,
+                credentials=credentials,
+                outbound_request=outbound,
+            )
+            if retry_request is None:
+                return await adapter.parse_response(response, outbound_request)
+            outbound_ref[0] = retry_request
+            raise _RetryableRequestError
 
         try:
-            for attempt in range(2):
-                response = await self.http_client.request(
-                    outbound.method,
-                    outbound.url,
-                    headers=outbound.headers,
-                    content=outbound.body,
-                    json=outbound.json_body,
-                )
-                if response.status_code < 400:
-                    return await adapter.parse_response(response, outbound_request)
-                if not isinstance(adapter, ProviderRetryAdapter):
-                    return await adapter.parse_response(response, outbound_request)
-                retry_request = adapter.prepare_retry_request(
-                    response=response,
-                    request=outbound_request,
-                    credentials=credentials,
-                    outbound_request=outbound,
-                    attempt=attempt,
-                )
-                if retry_request is None:
-                    return await adapter.parse_response(response, outbound_request)
-                outbound = retry_request
-            if response is None:
-                raise RuntimeError(
-                    "LLM proxy request failed before any response was received"
-                )
-            return await adapter.parse_response(response, outbound_request)
+            return await _send()
         except Exception as exc:
             logger.exception(
                 "LLM proxy request failed",

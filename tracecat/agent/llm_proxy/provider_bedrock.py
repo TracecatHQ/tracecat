@@ -1093,11 +1093,8 @@ class BedrockAdapter:
         request: NormalizedMessagesRequest,
         credentials: dict[str, str],
         outbound_request: ProviderHTTPRequest,
-        attempt: int,
     ) -> ProviderHTTPRequest | None:
         del credentials, request
-        if attempt >= 1:
-            return None
         if _BEDROCK_TOOL_USE_REASONING_ERROR not in response.text:
             return None
 

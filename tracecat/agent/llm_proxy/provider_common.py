@@ -40,7 +40,7 @@ class ProviderAdapter(Protocol):
 
 @runtime_checkable
 class ProviderRetryAdapter(Protocol):
-    """Provider adapter that can rewrite a failed request and retry it once."""
+    """Provider adapter that can rewrite a failed request for retry."""
 
     def prepare_retry_request(
         self,
@@ -49,7 +49,6 @@ class ProviderRetryAdapter(Protocol):
         request: NormalizedMessagesRequest,
         credentials: dict[str, str],
         outbound_request: ProviderHTTPRequest,
-        attempt: int,
     ) -> ProviderHTTPRequest | None:
         raise NotImplementedError
 

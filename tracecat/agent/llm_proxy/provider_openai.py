@@ -370,10 +370,9 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
         request: NormalizedMessagesRequest,
         credentials: dict[str, str],
         outbound_request: ProviderHTTPRequest,
-        attempt: int,
     ) -> ProviderHTTPRequest | None:
         del request, credentials
-        if attempt > 0 or response.status_code not in {400, 422}:
+        if response.status_code not in {400, 422}:
             return None
         return _mutate_openai_payload_for_retry(
             response=response,

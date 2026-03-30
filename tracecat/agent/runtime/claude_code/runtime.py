@@ -58,25 +58,15 @@ from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
-# Default LLM proxy port for NSJail mode and internet-enabled mode
-# In direct mode with network isolation, the bridge uses a dynamic port
-# passed via TRACECAT__LLM_BRIDGE_PORT environment variable
-LLM_PROXY_DEFAULT_PORT = 4000
-
 
 def get_llm_proxy_url() -> str:
-    """Get the LLM proxy URL based on runtime mode.
-
-    - NSJail mode: Uses fixed port 4000 (network namespace isolated)
-    - Direct mode (network isolated): Uses dynamic port from env var
-    - Internet enabled: Uses default port 4000 (direct gateway access)
-    """
-
-    if TRACECAT__DISABLE_NSJAIL:
-        # Direct mode: check for dynamic port from LLM bridge
-        port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT", str(LLM_PROXY_DEFAULT_PORT))
-        return f"http://127.0.0.1:{port}"
-    return f"http://127.0.0.1:{LLM_PROXY_DEFAULT_PORT}"
+    """Get the LLM proxy URL from the dynamic port assigned by the LLM bridge."""
+    port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT")
+    if not port:
+        raise RuntimeError(
+            "TRACECAT__LLM_BRIDGE_PORT is not set — LLM bridge was not started"
+        )
+    return f"http://127.0.0.1:{port}"
 
 
 def _configure_claude_sdk_process_env() -> None:
