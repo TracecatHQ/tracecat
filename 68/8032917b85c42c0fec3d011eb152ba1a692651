@@ -1,0 +1,57 @@
+tracecat/workflow/executions/schemas.py
+  275b173c3e1af45e 47
+tracecat/logger/hashing.py
+  275b173c3e1af45e 1-113
+tests/unit/test_logger_policy.py
+  275b173c3e1af45e 1-40
+tracecat/logger/redaction.py
+  275b173c3e1af45e 1-361
+tracecat/db/engine.py
+  275b173c3e1af45e 17
+tests/unit/test_logger_security.py
+  275b173c3e1af45e 11-19,26,34-35,46,48,60,72,79-80,96,99
+tracecat/dsl/worker.py
+  275b173c3e1af45e 35
+tracecat/logger/sentry.py
+  275b173c3e1af45e 1-47
+tracecat/logger/_logger.py
+  275b173c3e1af45e 10
+tracecat/dsl/workflow_logging.py
+  275b173c3e1af45e 10
+tracecat/agent/worker.py
+  275b173c3e1af45e 39,107,111
+tracecat/registry/sync/workflow.py
+  275b173c3e1af45e 34,65-67,69-71,86,117,155
+tracecat/dsl/compression.py
+  275b173c3e1af45e 19
+packages/tracecat-admin/tests/conftest.py
+  275b173c3e1af45e 14
+tracecat/logger/context.py
+  275b173c3e1af45e 1-62
+deployments/fargate/main.tf
+  275b173c3e1af45e 86-88
+packages/tracecat-admin/tests/test_cli.py
+  275b173c3e1af45e 42,46
+deployments/fargate/modules/ecs/iam.tf
+  275b173c3e1af45e 248,251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "688032917b85c42c0fec3d011eb152ba1a692651",
+  "prompts": {
+    "275b173c3e1af45e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d0248-ea9e-7482-986e-587a2a3e58af",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim <5508348+daryllimyt@users.noreply.github.com>",
+      "messages": [],
+      "total_additions": 672,
+      "total_deletions": 491,
+      "accepted_lines": 672,
+      "overriden_lines": 0
+    }
+  }
+}
