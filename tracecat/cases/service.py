@@ -1265,7 +1265,7 @@ class CaseFieldsService(CustomFieldsService):
         # dropped.
         if field_type is None:
             for col in await self.editor.get_columns():
-                if col["name"] == field_id:
+                if col["name"] == new_field_id:
                     field_type = _normalize_case_field_read_type(col["type"]).value
                     break
 
