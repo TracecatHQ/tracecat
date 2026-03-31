@@ -31,6 +31,8 @@ import {
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { CodeBlock, CodeBlockCopyButton } from "./code-block"
+import { Response } from "./response"
+import { Source, Sources, SourcesContent, SourcesTrigger } from "./sources"
 
 const MAX_INLINE_PAYLOAD_CHARS = 12_000
 
@@ -163,6 +165,18 @@ type SerializedPayload = {
   extension: "json" | "txt"
 }
 
+type RichToolSource = {
+  title?: string
+  url: string
+}
+
+type RichToolPayload = {
+  response: {
+    text: string
+  }
+  sources: RichToolSource[]
+}
+
 /**
  * Normalize MCP content arrays to the actual payload text when possible.
  * Example: [{ type: "text", text: "[]" }] -> []
@@ -269,6 +283,117 @@ function serializeToolPayload(payload: unknown): SerializedPayload {
   }
 
   return { text: String(payload), extension: "txt" }
+}
+
+function maybeParseJsonPayload(payload: unknown): unknown {
+  if (typeof payload !== "string") {
+    return payload
+  }
+
+  const trimmed = payload.trim()
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+    return payload
+  }
+
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return payload
+  }
+}
+
+function extractRichToolPayload(payload: unknown): RichToolPayload | null {
+  const normalizedPayload = maybeParseJsonPayload(
+    extractMcpTextContent(payload)
+  )
+  if (
+    !normalizedPayload ||
+    typeof normalizedPayload !== "object" ||
+    Array.isArray(normalizedPayload) ||
+    isValidElement(normalizedPayload)
+  ) {
+    return null
+  }
+
+  const payloadRecord = normalizedPayload as Record<string, unknown>
+  const topLevelKeys = Object.keys(payloadRecord)
+  if (
+    topLevelKeys.length === 0 ||
+    topLevelKeys.some((key) => key !== "response" && key !== "sources") ||
+    !("response" in payloadRecord)
+  ) {
+    return null
+  }
+
+  const { response, sources } = payloadRecord
+  if (
+    !response ||
+    typeof response !== "object" ||
+    Array.isArray(response) ||
+    isValidElement(response)
+  ) {
+    return null
+  }
+
+  const responseRecord = response as Record<string, unknown>
+  const responseKeys = Object.keys(responseRecord)
+  if (
+    responseKeys.length !== 1 ||
+    responseKeys[0] !== "text" ||
+    typeof responseRecord.text !== "string"
+  ) {
+    return null
+  }
+  const responseText = responseRecord.text
+
+  if (sources === undefined) {
+    return {
+      response: { text: responseText },
+      sources: [],
+    }
+  }
+
+  if (!Array.isArray(sources)) {
+    return null
+  }
+
+  const parsedSources: RichToolSource[] = []
+  for (const source of sources) {
+    if (
+      !source ||
+      typeof source !== "object" ||
+      Array.isArray(source) ||
+      isValidElement(source)
+    ) {
+      return null
+    }
+
+    const sourceRecord = source as Record<string, unknown>
+    const sourceKeys = Object.keys(sourceRecord)
+    if (
+      sourceKeys.length === 0 ||
+      sourceKeys.some((key) => key !== "title" && key !== "url") ||
+      typeof sourceRecord.url !== "string" ||
+      ("title" in sourceRecord &&
+        sourceRecord.title !== undefined &&
+        typeof sourceRecord.title !== "string")
+    ) {
+      return null
+    }
+    const sourceUrl = sourceRecord.url
+    const sourceTitle =
+      typeof sourceRecord.title === "string" ? sourceRecord.title : undefined
+
+    parsedSources.push({
+      title: sourceTitle,
+      url: sourceUrl,
+    })
+  }
+
+  return {
+    response: { text: responseText },
+    sources: parsedSources,
+  }
 }
 
 function formatBytes(bytes: number): string {
@@ -389,6 +514,7 @@ export const ToolOutput = ({
   ...props
 }: ToolOutputProps) => {
   const hasOutput = output !== undefined && output !== null
+  const richOutput = hasOutput ? extractRichToolPayload(output) : null
   if (!hasOutput && !errorText) {
     return null
   }
@@ -407,6 +533,24 @@ export const ToolOutput = ({
         (isValidElement(output) ? (
           <div className="rounded-md bg-muted/50 p-1.5 text-[11px] text-foreground">
             {output}
+          </div>
+        ) : richOutput ? (
+          <div className="space-y-3 text-sm">
+            <Response>{richOutput.response.text}</Response>
+            {richOutput.sources.length > 0 && (
+              <Sources>
+                <SourcesTrigger count={richOutput.sources.length} />
+                <SourcesContent>
+                  {richOutput.sources.map((source) => (
+                    <Source
+                      key={source.url}
+                      href={source.url}
+                      title={source.title ?? source.url}
+                    />
+                  ))}
+                </SourcesContent>
+              </Sources>
+            )}
           </div>
         ) : (
           <ToolPayload payload={output} downloadName="tool-result" />
