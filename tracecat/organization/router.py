@@ -443,6 +443,32 @@ async def delete_session(
         ) from e
 
 
+@router.get("/sessions/mcp", response_model=list[SessionRead])
+@require_scope("org:member:read")
+async def list_mcp_sessions(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> list[SessionRead]:
+    service = OrgService(session, role=role)
+    return await service.list_mcp_sessions()
+
+
+@router.delete("/sessions/mcp/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:member:remove")
+async def delete_mcp_session(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    session_id: SessionID,
+) -> None:
+    service = OrgService(session, role=role)
+    try:
+        await service.delete_mcp_session(session_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
 # === Invitations ===
 
 

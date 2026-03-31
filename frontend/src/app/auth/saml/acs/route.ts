@@ -12,7 +12,6 @@ import { buildUrl } from "@/lib/ss-utils"
  * @returns
  */
 export async function POST(request: NextRequest) {
-  console.log("POST /auth/saml/acs", request.nextUrl.toString())
   const returnUrl = decodeAndSanitizeReturnUrl(
     request.cookies.get(POST_AUTH_RETURN_URL_COOKIE_NAME)?.value
   )
@@ -25,7 +24,6 @@ export async function POST(request: NextRequest) {
   // Get redirect
   const resp = await fetch(buildUrl("/info"))
   const { public_app_url } = await resp.json()
-  console.log("Public app URL", public_app_url)
 
   if (!samlResponse) {
     console.error("No SAML response found in the request")
@@ -48,19 +46,35 @@ export async function POST(request: NextRequest) {
     "x-tracecat-role-type": "service",
     "x-tracecat-role-service-id": "tracecat-ui",
   }
-  console.log("Headers", headers)
   const backendResponse = await fetch(backendUrl.toString(), {
     method: "POST",
     body: backendFormData,
     headers: headers,
   })
 
+  const setCookieHeader = backendResponse.headers.get("set-cookie")
+  const contentType = backendResponse.headers.get("content-type")
+
+  if (!setCookieHeader && contentType?.startsWith("text/html")) {
+    const response = new NextResponse(await backendResponse.text(), {
+      status: backendResponse.status,
+      headers: {
+        "content-type": contentType,
+      },
+    })
+    response.headers.append(
+      "set-cookie",
+      serializeClearPostAuthReturnUrlCookie(
+        request.nextUrl.protocol === "https:"
+      )
+    )
+    return response
+  }
+
   if (!backendResponse.ok) {
     console.error("Error from backend:", await backendResponse.text())
     return NextResponse.redirect(new URL("/auth/error", public_app_url))
   }
-
-  const setCookieHeader = backendResponse.headers.get("set-cookie")
 
   if (!setCookieHeader) {
     console.error("No set-cookie header found in response")
@@ -68,7 +82,6 @@ export async function POST(request: NextRequest) {
   }
 
   const targetPath = returnUrl ?? "/"
-  console.log(`Redirecting to ${targetPath} with GET`)
   const redirectUrl = new URL(targetPath, public_app_url)
   const redirectResponse = NextResponse.redirect(redirectUrl, {
     status: 303, // Force GET request

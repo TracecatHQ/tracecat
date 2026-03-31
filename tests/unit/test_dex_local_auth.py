@@ -4,7 +4,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi.security import OAuth2PasswordRequestForm
@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.dex import api_pb2
-from tracecat.auth.dex.mode import MCPDexMode
+from tracecat.auth.dex.mode import MCPAuthMode
 from tracecat.auth.dex.service import (
     DexLocalAuthProvisioningError,
     DexLocalAuthProvisioningService,
@@ -186,8 +186,8 @@ async def test_dex_local_auth_service_updates_existing_password() -> None:
 
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
-        "tracecat.auth.dex.service.get_mcp_dex_mode",
-        lambda: MCPDexMode.BASIC,
+        "tracecat.auth.dex.service.get_mcp_auth_mode",
+        lambda: MCPAuthMode.BASIC,
     )
     try:
         await service.upsert_password(
@@ -213,8 +213,8 @@ async def test_dex_local_auth_service_replaces_previous_email_mapping() -> None:
 
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
-        "tracecat.auth.dex.service.get_mcp_dex_mode",
-        lambda: MCPDexMode.BASIC,
+        "tracecat.auth.dex.service.get_mcp_auth_mode",
+        lambda: MCPAuthMode.BASIC,
     )
     try:
         await service.upsert_password(
@@ -241,8 +241,8 @@ async def test_dex_local_auth_service_skips_federated_mode() -> None:
 
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(
-        "tracecat.auth.dex.service.get_mcp_dex_mode",
-        lambda: MCPDexMode.OIDC,
+        "tracecat.auth.dex.service.get_mcp_auth_mode",
+        lambda: MCPAuthMode.OIDC,
     )
     try:
         await service.upsert_password(
@@ -338,6 +338,48 @@ async def test_user_manager_email_update_syncs_previous_email(
     assert len(service.upserts) == 1
     assert service.upserts[0]["email"] == "after@example.com"
     assert service.upserts[0]["previous_email"] == "before@example.com"
+
+
+@pytest.mark.anyio
+async def test_user_manager_on_after_forgot_password_does_not_log_reset_token(
+    session: AsyncSession,
+) -> None:
+    async with user_manager_context(session) as (user_db, user_manager):
+        user = await user_db.create(
+            {
+                "email": "reset@example.com",
+                "hashed_password": user_manager.password_helper.hash(
+                    "this-is-a-strong-password"
+                ),
+                "is_verified": True,
+            }
+        )
+        log_info = Mock()
+        with patch.object(user_manager.logger, "info", log_info):
+            await user_manager.on_after_forgot_password(user, "reset-secret-token")
+
+    log_info.assert_called_once_with("Password reset requested", user_id=str(user.id))
+
+
+@pytest.mark.anyio
+async def test_user_manager_on_after_request_verify_does_not_log_verify_token(
+    session: AsyncSession,
+) -> None:
+    async with user_manager_context(session) as (user_db, user_manager):
+        user = await user_db.create(
+            {
+                "email": "verify@example.com",
+                "hashed_password": user_manager.password_helper.hash(
+                    "this-is-a-strong-password"
+                ),
+                "is_verified": False,
+            }
+        )
+        log_info = Mock()
+        with patch.object(user_manager.logger, "info", log_info):
+            await user_manager.on_after_request_verify(user, "verify-secret-token")
+
+    log_info.assert_called_once_with("Verification requested", user_id=str(user.id))
 
 
 @pytest.mark.anyio

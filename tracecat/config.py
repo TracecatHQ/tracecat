@@ -255,7 +255,7 @@ DEX_ISSUER = os.environ.get("DEX_ISSUER", "").strip().rstrip("/")
 DEX_INTERNAL_ISSUER = os.environ.get("DEX_INTERNAL_ISSUER", "").strip().rstrip("/")
 DEX_TRACECAT_CLIENT_ID = os.environ.get("DEX_TRACECAT_CLIENT_ID", "").strip()
 DEX_TRACECAT_CLIENT_SECRET = os.environ.get("DEX_TRACECAT_CLIENT_SECRET", "").strip()
-MCP_DEX_MODE = os.environ.get("MCP_DEX_MODE", "").strip().lower()
+MCP_AUTH_MODE = (os.environ.get("MCP_AUTH_MODE") or "").strip().lower()
 
 MCP_DEX_GRPC_TARGET = (
     os.environ.get("MCP_DEX_GRPC_TARGET") or os.environ.get("DEX_GRPC_TARGET") or ""

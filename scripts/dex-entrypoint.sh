@@ -4,8 +4,8 @@ set -eu
 template_path="/etc/dex/config.docker.yaml"
 rendered_path="/tmp/dex-config.yaml"
 
-set_default_mcp_dex_mode() {
-  [ -n "${MCP_DEX_MODE-}" ] && return 0
+set_default_mcp_auth_mode() {
+  [ -n "${MCP_AUTH_MODE-}" ] && return 0
 
   auth_types=$(printf '%s' "${TRACECAT__AUTH_TYPES-basic}" | tr '[:upper:]' '[:lower:]')
   auth_types=$(printf ',%s,' "$auth_types" | tr -d '[:space:]')
@@ -15,7 +15,7 @@ set_default_mcp_dex_mode() {
       if [ -n "${OIDC_ISSUER-}" ] \
         && [ -n "${OIDC_CLIENT_ID-}" ] \
         && [ -n "${OIDC_CLIENT_SECRET-}" ]; then
-        export MCP_DEX_MODE="oidc"
+        export MCP_AUTH_MODE="oidc"
         return 0
       fi
       ;;
@@ -23,7 +23,7 @@ set_default_mcp_dex_mode() {
 
   case "$auth_types" in
     *,basic,*)
-      export MCP_DEX_MODE="basic"
+      export MCP_AUTH_MODE="basic"
       ;;
   esac
 }
@@ -55,7 +55,7 @@ set_upstream_oidc_scopes_yaml() {
   export DEX_UPSTREAM_OIDC_SCOPES_YAML="$yaml_lines"
 }
 
-set_default_mcp_dex_mode
+set_default_mcp_auth_mode
 set_default_port_redirect_alias
 set_upstream_oidc_scopes_yaml
 

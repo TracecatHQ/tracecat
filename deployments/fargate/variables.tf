@@ -54,6 +54,12 @@ variable "auth_superadmin_email" {
   default     = null
 }
 
+variable "mcp_auth_mode" {
+  type        = string
+  description = "Explicit external auth override (basic, oidc, or saml). In saml mode, Dex is not on the active login path."
+  default     = "oidc"
+}
+
 ### Images and Versions
 
 variable "tracecat_image" {

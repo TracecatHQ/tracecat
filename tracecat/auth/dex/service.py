@@ -7,7 +7,7 @@ import grpc
 from pwdlib.hashers.bcrypt import BcryptHasher
 
 from tracecat import config
-from tracecat.auth.dex.mode import MCPDexMode, get_mcp_dex_mode
+from tracecat.auth.dex.mode import MCPAuthMode, get_mcp_auth_mode
 
 from . import api_pb2, api_pb2_grpc
 
@@ -94,7 +94,7 @@ class DexLocalAuthProvisioningService:
         )
 
     async def is_local_auth_enabled(self) -> bool:
-        return get_mcp_dex_mode() is MCPDexMode.BASIC
+        return get_mcp_auth_mode() is MCPAuthMode.BASIC
 
     async def upsert_password(
         self,

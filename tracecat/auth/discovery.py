@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role, get_default_organization_id
+from tracecat.auth.dex.mode import login_auth_type_enabled
 from tracecat.auth.enums import AuthType
 from tracecat.auth.oidc import oidc_login_configured
 from tracecat.core.schemas import Schema
@@ -138,7 +139,7 @@ class AuthDiscoveryService(BaseService):
         return self._platform_fallback_method()
 
     async def _org_saml_enabled(self, org_id: OrganizationID) -> bool:
-        if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
+        if not login_auth_type_enabled(AuthType.SAML):
             return False
         value = await get_setting(
             _SAML_SETTING_KEY,
@@ -148,10 +149,10 @@ class AuthDiscoveryService(BaseService):
         return bool(value)
 
     async def _org_oidc_enabled(self, _org_id: OrganizationID) -> bool:
-        return oidc_login_configured()
+        return login_auth_type_enabled(AuthType.OIDC) and oidc_login_configured()
 
     async def _org_basic_enabled(self, _org_id: OrganizationID) -> bool:
-        return AuthType.BASIC in config.TRACECAT__AUTH_TYPES
+        return login_auth_type_enabled(AuthType.BASIC)
 
     async def _unmapped_domain_fallback_method(self) -> AuthDiscoveryMethod:
         """Resolve fallback auth method when no org domain mapping is found."""
@@ -170,11 +171,11 @@ class AuthDiscoveryService(BaseService):
 
     @staticmethod
     def _platform_fallback_method() -> AuthDiscoveryMethod:
-        if oidc_login_configured():
+        if login_auth_type_enabled(AuthType.OIDC) and oidc_login_configured():
             return AuthDiscoveryMethod.OIDC
-        if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
+        if login_auth_type_enabled(AuthType.BASIC):
             return AuthDiscoveryMethod.BASIC
-        if AuthType.SAML in config.TRACECAT__AUTH_TYPES:
+        if login_auth_type_enabled(AuthType.SAML):
             return AuthDiscoveryMethod.SAML
         return AuthDiscoveryMethod.BASIC
 

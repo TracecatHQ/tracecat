@@ -40,6 +40,7 @@ from tracecat.auth.credentials import authenticated_user_only
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
 )
+from tracecat.auth.dex.mode import get_login_auth_types, login_auth_type_enabled
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
 from tracecat.auth.oidc import create_platform_oauth_client, oidc_login_configured
@@ -498,7 +499,12 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(internal_variables_router)
     app.include_router(internal_workflows_router)
 
-    if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
+    basic_login_enabled = login_auth_type_enabled(AuthType.BASIC)
+    oidc_login_enabled = (
+        login_auth_type_enabled(AuthType.OIDC) and oidc_login_configured()
+    )
+
+    if basic_login_enabled:
         app.include_router(
             fastapi_users.get_auth_router(auth_backend),
             prefix="/auth",
@@ -520,7 +526,7 @@ def create_app(**kwargs) -> FastAPI:
             tags=["auth"],
         )
 
-    if oidc_login_configured():
+    if oidc_login_enabled:
         oauth_client = create_platform_oauth_client()
         # This is the frontend URL that the user will be redirected to after authenticating
         redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
@@ -546,7 +552,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(saml_router)
     app.include_router(auth_discovery_router)
 
-    if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
+    if not basic_login_enabled:
         # Need basic auth router for `logout` endpoint
         app.include_router(
             fastapi_users.get_logout_router(auth_backend),
@@ -643,7 +649,7 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
     return AppInfo(
         version=APP_VERSION,
         public_app_url=config.TRACECAT__PUBLIC_APP_URL,
-        auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
+        auth_allowed_types=get_login_auth_types(),
         saml_enabled=keyvalues["saml_enabled"],
         saml_enforced=keyvalues["saml_enforced"],
         ee_multi_tenant=config.TRACECAT__EE_MULTI_TENANT,

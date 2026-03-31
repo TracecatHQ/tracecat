@@ -41,20 +41,18 @@ def test_dex_oidc_connector_uses_configured_scopes() -> None:
     assert 'index .Env "DEX_TRACECAT_MCP_REDIRECT_URI_ALT"' in template
     assert "MCP_DEX_OIDC_SCOPES" in entrypoint
     assert "set_upstream_oidc_scopes_yaml" in entrypoint
-    assert "type: saml" not in template
-    assert "MCP_DEX_SAML" not in template
-    assert "MCP_DEX_SAML" not in entrypoint
-    assert "DEX_SAML_ID_TOKEN_TTL" not in template
-    assert "DEX_SAML_ID_TOKEN_TTL" not in env_example
+    assert ".Env.MCP_AUTH_MODE" in template
+    assert "MCP_AUTH_MODE" in entrypoint
     assert 'OIDC_SCOPES="openid profile email"' in env_example
+    assert 'MCP_AUTH_MODE="oidc"' in env_example
     assert 'MCP_DEX_OIDC_SCOPES="openid profile email offline_access"' in env_example
 
 
-def test_compose_files_do_not_expose_removed_mcp_dex_saml_env() -> None:
+def test_compose_files_wire_mcp_auth_mode_into_caddy_and_dex() -> None:
     for relative_path in COMPOSE_FILES:
         contents = (REPO_ROOT / relative_path).read_text()
-        assert "MCP_DEX_SAML_" not in contents
-        assert "DEX_SAML_ID_TOKEN_TTL" not in contents
+        assert "MCP_AUTH_MODE:" in contents
+        assert "- MCP_AUTH_MODE=${MCP_AUTH_MODE:-}" in contents
 
 
 def test_caddy_routes_dex_assets_under_auth_prefix_only() -> None:
@@ -64,3 +62,5 @@ def test_caddy_routes_dex_assets_under_auth_prefix_only() -> None:
     assert "handle /auth/theme/*" in caddyfile
     assert "handle /static/*" not in caddyfile
     assert "handle /theme/*" not in caddyfile
+    assert 'expression "{$MCP_AUTH_MODE}" == "saml"' in caddyfile
+    assert "redir /sign-in 302" in caddyfile

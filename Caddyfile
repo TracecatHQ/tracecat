@@ -44,6 +44,26 @@
 	handle /consent* {
 		reverse_proxy http://mcp:8099
 	}
+	@dex_routes_disabled_in_saml {
+		expression "{$MCP_AUTH_MODE}" == "saml"
+		path /auth/static/* /auth/theme/*
+		path /auth/.well-known /auth/.well-known/*
+		path /auth/auth /auth/auth/*
+		path /auth/token /auth/token/*
+		path /auth/keys /auth/keys/*
+		path /auth/userinfo /auth/userinfo/*
+		path /auth/device /auth/device/*
+	}
+	handle @dex_routes_disabled_in_saml {
+		respond 404
+	}
+	@dex_callback_disabled_in_saml {
+		expression "{$MCP_AUTH_MODE}" == "saml"
+		path /auth/callback /auth/callback/*
+	}
+	handle @dex_callback_disabled_in_saml {
+		redir /sign-in 302
+	}
 	handle /auth/static/* {
 		reverse_proxy http://dex:5556 {
 			header_up X-Forwarded-For {remote_host}
@@ -77,7 +97,7 @@
 			header_up X-Forwarded-Host {host}
 		}
 	}
-	handle /_/mcp/auth/callback* {
+	handle /_/mcp/auth/* {
 		reverse_proxy http://mcp:8099
 	}
 

@@ -180,6 +180,7 @@ module "ecs" {
   mcp_cpu                         = var.mcp_cpu
   mcp_memory                      = var.mcp_memory
   mcp_desired_count               = var.mcp_desired_count
+  mcp_auth_mode                   = var.mcp_auth_mode
   mcp_rate_limit_rps              = var.mcp_rate_limit_rps
   mcp_rate_limit_burst            = var.mcp_rate_limit_burst
   mcp_tool_timeout_seconds        = var.mcp_tool_timeout_seconds

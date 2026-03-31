@@ -1,5 +1,5 @@
 issuer: {{ .Env.DEX_ISSUER | quote }}
-{{- $mode := .Env.MCP_DEX_MODE }}
+{{- $mode := .Env.MCP_AUTH_MODE }}
 {{- if not $mode }}
   {{- $mode = "" }}
 {{- end }}

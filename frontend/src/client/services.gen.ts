@@ -346,6 +346,8 @@ import type {
   OrganizationAcceptInvitationResponse,
   OrganizationCreateInvitationData,
   OrganizationCreateInvitationResponse,
+  OrganizationDeleteMcpSessionData,
+  OrganizationDeleteMcpSessionResponse,
   OrganizationDeleteOrganizationData,
   OrganizationDeleteOrganizationResponse,
   OrganizationDeleteOrgMemberData,
@@ -361,6 +363,7 @@ import type {
   OrganizationGetOrganizationResponse,
   OrganizationListInvitationsData,
   OrganizationListInvitationsResponse,
+  OrganizationListMcpSessionsResponse,
   OrganizationListMyPendingInvitationsResponse,
   OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
@@ -3649,6 +3652,41 @@ export const organizationDeleteSession = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/organization/sessions/{session_id}",
+    path: {
+      session_id: data.sessionId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Mcp Sessions
+ * @returns SessionRead Successful Response
+ * @throws ApiError
+ */
+export const organizationListMcpSessions =
+  (): CancelablePromise<OrganizationListMcpSessionsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/sessions/mcp",
+    })
+  }
+
+/**
+ * Delete Mcp Session
+ * @param data The data for the request.
+ * @param data.sessionId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationDeleteMcpSession = (
+  data: OrganizationDeleteMcpSessionData
+): CancelablePromise<OrganizationDeleteMcpSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/organization/sessions/mcp/{session_id}",
     path: {
       session_id: data.sessionId,
     },
@@ -10551,7 +10589,6 @@ export const authOauthOidcDatabaseCallback = (
 
 /**
  * Saml:Database.Login
- * Initiate SAML login flow
  * @returns SAMLDatabaseLoginResponse Successful Response
  * @throws ApiError
  */

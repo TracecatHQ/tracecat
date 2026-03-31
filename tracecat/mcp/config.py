@@ -56,3 +56,8 @@ TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS: float = float(
     os.environ.get("TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS", "2")
 )
 """Seconds to wait between MCP startup retries."""
+
+TRACECAT_MCP__SAML_ACCESS_TOKEN_TTL_SECONDS: int = int(
+    os.environ.get("TRACECAT_MCP__SAML_ACCESS_TOKEN_TTL_SECONDS") or "86400"
+)
+"""Lifetime in seconds for Tracecat-issued SAML MCP access tokens (default 24h)."""

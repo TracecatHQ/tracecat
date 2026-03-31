@@ -38,6 +38,7 @@ IDOR hardening note:
 """
 
 import base64
+import html
 import os
 import secrets
 import tempfile
@@ -49,13 +50,14 @@ from typing import Annotated, Any
 
 import defusedxml.ElementTree as ET
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
-from fastapi_users.exceptions import UserAlreadyExists
+from fastapi_users.exceptions import UserAlreadyExists, UserNotExists
 from pydantic import BaseModel
 from saml2 import BINDING_HTTP_POST
 from saml2.client import Saml2Client
 from saml2.config import Config as Saml2Config
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import HTMLResponse
 
 from tracecat.api.common import bootstrap_role, get_default_organization_id
 from tracecat.auth.dependencies import ServiceRole, verify_auth_type
@@ -95,6 +97,12 @@ from tracecat.db.rls import set_rls_context
 from tracecat.identifiers import OrganizationID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.logger import logger
+from tracecat.mcp import config as mcp_config
+from tracecat.mcp.saml_bridge_state import (
+    complete_saml_mcp_transaction,
+    create_saml_bridge_stores,
+    mark_saml_transaction_authenticated,
+)
 from tracecat.organization.domains import normalize_domain
 from tracecat.settings.service import get_setting
 
@@ -172,6 +180,23 @@ class SAMLParser:
             self.attributes = self.parse_to_dict()
         return self.attributes.get(attribute_name, {}).get("value", "")
 
+    def get_name_id(self) -> str:
+        """Extract the assertion subject NameID when no AttributeStatement is present."""
+        self._register_namespaces()
+        try:
+            root = ET.fromstring(self.xml_string)
+        except ET.ParseError as e:
+            logger.error(f"SAML response parsing failed: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid authentication response",
+            ) from e
+
+        name_id = root.find(".//saml2:Subject/saml2:NameID", self.NAMESPACES)
+        if name_id is None or name_id.text is None:
+            return ""
+        return name_id.text.strip()
+
     def parse_to_dict(self) -> dict[str, Any]:
         """Parse SAML XML and return attributes as a dictionary"""
         self._register_namespaces()
@@ -187,11 +212,10 @@ class SAMLParser:
         # Find AttributeStatement
         attr_statement = root.find(".//saml2:AttributeStatement", self.NAMESPACES)
         if attr_statement is None:
-            logger.error("SAML response failed: AttributeStatement not found")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid authentication response",
+            logger.info(
+                "SAML response does not include an AttributeStatement; falling back to NameID"
             )
+            return {}
 
         # Process all attributes
         attributes = {}
@@ -280,9 +304,15 @@ def metadata_cert_tempfile(metadata_cert_data: bytes):
                 pass
 
 
-def build_relay_state(organization_id: OrganizationID) -> str:
+def build_relay_state(
+    organization_id: OrganizationID,
+    *,
+    mcp_transaction_id: str | None = None,
+) -> str:
     """Encode organization context directly into RelayState."""
     token = secrets.token_urlsafe(32)
+    if mcp_transaction_id:
+        return f"{organization_id}:mcp:{mcp_transaction_id}:{token}"
     return f"{organization_id}:{token}"
 
 
@@ -295,6 +325,108 @@ def parse_relay_state_org_id(relay_state: str) -> OrganizationID | None:
         return uuid.UUID(prefix)
     except ValueError:
         return None
+
+
+def parse_relay_state_mcp_transaction_id(relay_state: str) -> str | None:
+    _, _, remainder = relay_state.partition(":")
+    if not remainder.startswith("mcp:"):
+        return None
+    _, _, rest = remainder.partition("mcp:")
+    transaction_id, _, _ = rest.partition(":")
+    return transaction_id or None
+
+
+def _build_mcp_callback_completion_page(callback_url: str) -> HTMLResponse:
+    escaped_url = html.escape(callback_url, quote=True)
+    return HTMLResponse(
+        content=f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Continue to Claude</title>
+    <style>
+      body {{ font-family: ui-sans-serif, system-ui, sans-serif; background: #f5f5f4; color: #1c1917; }}
+      .shell {{ max-width: 480px; margin: 64px auto; padding: 32px; background: white; border: 1px solid #e7e5e4; border-radius: 16px; }}
+      h1 {{ margin: 0 0 8px; font-size: 28px; }}
+      p {{ margin: 0 0 16px; color: #57534e; }}
+      a {{ display: inline-block; border-radius: 10px; padding: 12px 16px; background: #1c1917; color: white; text-decoration: none; }}
+      .link {{ margin-top: 16px; font-size: 14px; word-break: break-all; }}
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <h1>Continue to Claude</h1>
+      <p>Sign-in is complete. Use the button below to hand off back to the local Claude callback.</p>
+      <a href="{escaped_url}">Continue to Claude</a>
+      <p class="link">This step requires a direct browser click in the current client flow.</p>
+    </div>
+  </body>
+</html>""",
+        status_code=status.HTTP_200_OK,
+    )
+
+
+def _build_mcp_callback_error_page(
+    message: str, *, status_code: int = status.HTTP_400_BAD_REQUEST
+) -> HTMLResponse:
+    escaped_message = html.escape(message, quote=True)
+    return HTMLResponse(
+        content=f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tracecat MCP sign in</title>
+    <style>
+      body {{ font-family: ui-sans-serif, system-ui, sans-serif; background: #f5f5f4; color: #1c1917; }}
+      .shell {{ max-width: 480px; margin: 64px auto; padding: 32px; background: white; border: 1px solid #e7e5e4; border-radius: 16px; }}
+      h1 {{ margin: 0 0 8px; font-size: 28px; }}
+      p {{ margin: 0 0 16px; color: #57534e; }}
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <h1>Tracecat MCP sign in</h1>
+      <p>{escaped_message}</p>
+    </div>
+  </body>
+</html>""",
+        status_code=status_code,
+    )
+
+
+async def _resume_authenticated_mcp_transaction(
+    relay_state: str,
+) -> HTMLResponse | None:
+    if not (mcp_transaction_id := parse_relay_state_mcp_transaction_id(relay_state)):
+        return None
+
+    stores = create_saml_bridge_stores()
+    if (
+        not (transaction := await stores.transactions.get(mcp_transaction_id))
+        or transaction.authenticated_at is None
+    ):
+        return None
+
+    logger.info(
+        "Resuming previously authenticated MCP SAML transaction",
+        transaction_id=mcp_transaction_id,
+    )
+    if not (
+        redirect_url := await complete_saml_mcp_transaction(
+            stores=stores,
+            transaction_id=mcp_transaction_id,
+            access_token_ttl_seconds=mcp_config.TRACECAT_MCP__SAML_ACCESS_TOKEN_TTL_SECONDS,
+            auth_code_ttl_seconds=5 * 60,
+        )
+    ):
+        return None
+    logger.info(
+        "Resuming MCP SAML transaction",
+        transaction_id=mcp_transaction_id,
+    )
+    return _build_mcp_callback_completion_page(redirect_url)
 
 
 async def get_org_saml_metadata_url(
@@ -380,6 +512,7 @@ def _extract_candidate_emails(parser: SAMLParser) -> list[str]:
     """Extract candidate emails from known SAML attributes in priority order."""
     candidates = [
         parser.get_attribute_value("email"),
+        parser.get_name_id(),
         # Okta
         parser.get_attribute_value(
             "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
@@ -642,23 +775,22 @@ async def create_saml_client(
         return client
 
 
-@router.get(
-    "/login",
-    name=f"saml:{auth_backend.name}.login",
-)
-async def login(
-    organization_id: Annotated[
-        OrganizationID, Depends(require_saml_login_organization)
-    ],
+async def start_saml_login(
     db_session: AsyncDBSessionBypass,
+    organization_id: OrganizationID,
+    *,
+    mcp_transaction_id: str | None = None,
 ) -> SAMLDatabaseLoginResponse:
-    """Initiate SAML login flow"""
+    """Initiate SAML login flow for app or MCP browser auth."""
     saml_idp_metadata_url = await get_org_saml_metadata_url(db_session, organization_id)
     client = await create_saml_client(saml_idp_metadata_url)
 
     # RelayState carries org context so ACS can resolve org-scoped config without
     # trusting callback query/body org parameters.
-    relay_state = build_relay_state(organization_id)
+    relay_state = build_relay_state(
+        organization_id,
+        mcp_transaction_id=mcp_transaction_id,
+    )
 
     # Prepare the authentication request
     req_id, info = client.prepare_for_authenticate(relay_state=relay_state)
@@ -674,7 +806,9 @@ async def login(
     await db_session.commit()
 
     logger.info(
-        f"SAML login initiated with request ID: {req_id}, relay_state: {relay_state}, expires_at: {expires_at}"
+        "SAML login initiated",
+        request_id=req_id,
+        expires_at=expires_at.isoformat(),
     )
 
     try:
@@ -688,6 +822,19 @@ async def login(
         ) from e
 
     return SAMLDatabaseLoginResponse(redirect_url=redirect_url)
+
+
+@router.get(
+    "/login",
+    name=f"saml:{auth_backend.name}.login",
+)
+async def login(
+    organization_id: Annotated[
+        OrganizationID, Depends(require_saml_login_organization)
+    ],
+    db_session: AsyncDBSessionBypass,
+) -> SAMLDatabaseLoginResponse:
+    return await start_saml_login(db_session, organization_id)
 
 
 @router.post("/acs")
@@ -714,10 +861,9 @@ async def sso_acs(
         )
 
     logger.info("SAML ACS endpoint called")
-    logger.info(f"Configured SAML ACS URL: {SAML_PUBLIC_ACS_URL}")
-    logger.info(f"Received RelayState: '{relay_state}' (type: {type(relay_state)})")
 
     organization_id = parse_relay_state_org_id(relay_state)
+    mcp_transaction_id = parse_relay_state_mcp_transaction_id(relay_state)
     if organization_id is None:
         # Backward-compatible fallback for legacy RelayState values that predate
         # org-prefixed RelayState format.
@@ -734,6 +880,10 @@ async def sso_acs(
         await db_session.execute(relay_lookup_stmt)
     ).scalar_one_or_none()
     if matched_request_id is None:
+        if existing_mcp_response := await _resume_authenticated_mcp_transaction(
+            relay_state
+        ):
+            return existing_mcp_response
         logger.error("Unknown or expired SAML relay state")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -886,6 +1036,11 @@ async def sso_acs(
     )
     if email is None:
         logger.warning("SAML login denied by org domain allowlist/invitation checks")
+        if mcp_transaction_id:
+            return _build_mcp_callback_error_page(
+                "This SAML account is not allowed for the selected organization.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Authentication failed",
@@ -904,6 +1059,23 @@ async def sso_acs(
         pending_invitation=pending_invitation,
         is_first_superadmin_bootstrap=is_first_superadmin_bootstrap,
     )
+    if not allow_user_auto_provisioning:
+        try:
+            await user_manager.get_by_email(email)
+        except UserNotExists as e:
+            logger.warning(
+                "SAML login denied: user does not exist and auto-provisioning is disabled",
+                email=email,
+            )
+            if mcp_transaction_id:
+                return _build_mcp_callback_error_page(
+                    "No Tracecat account exists for this email. Ask an organization admin to invite you.",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Authentication failed",
+            ) from e
 
     try:
         user = await user_manager.saml_callback(
@@ -922,6 +1094,11 @@ async def sso_acs(
 
     if not user.is_active:
         logger.error("Inactive user attempted SAML login")
+        if mcp_transaction_id:
+            return _build_mcp_callback_error_page(
+                "Your Tracecat account is inactive. Ask an administrator to restore access.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Authentication failed",
@@ -947,6 +1124,11 @@ async def sso_acs(
             "SAML login denied: user has no org membership and no pending invitation",
             email=email,
         )
+        if mcp_transaction_id:
+            return _build_mcp_callback_error_page(
+                "Your account is not a member of this organization. Ask an organization admin to invite you.",
+                status_code=status.HTTP_403_FORBIDDEN,
+            )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Authentication failed",
@@ -960,6 +1142,50 @@ async def sso_acs(
             "Allowing SAML login for first-user superadmin bootstrap without org membership",
             email=email,
         )
+
+    if mcp_transaction_id:
+        stores = create_saml_bridge_stores()
+        transaction = await mark_saml_transaction_authenticated(
+            stores=stores,
+            transaction_id=mcp_transaction_id,
+            user_id=user.id,
+            organization_id=organization_id,
+            email=email,
+        )
+        if transaction is None:
+            logger.error(
+                "SAML MCP transaction not found during ACS completion",
+                transaction_id=mcp_transaction_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Authentication failed",
+            )
+        logger.info(
+            "SAML ACS completed for MCP transaction",
+            transaction_id=mcp_transaction_id,
+        )
+        if not (
+            redirect_url := await complete_saml_mcp_transaction(
+                stores=stores,
+                transaction_id=mcp_transaction_id,
+                access_token_ttl_seconds=mcp_config.TRACECAT_MCP__SAML_ACCESS_TOKEN_TTL_SECONDS,
+                auth_code_ttl_seconds=5 * 60,
+            )
+        ):
+            logger.error(
+                "SAML MCP transaction could not be finalized",
+                transaction_id=mcp_transaction_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Authentication failed",
+            )
+        logger.info(
+            "SAML ACS redirecting MCP transaction to client callback",
+            transaction_id=mcp_transaction_id,
+        )
+        return _build_mcp_callback_completion_page(redirect_url)
 
     response = await auth_backend.login(strategy, user)
     await user_manager.on_after_login(user, request, response)

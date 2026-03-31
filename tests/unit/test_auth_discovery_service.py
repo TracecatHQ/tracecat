@@ -59,6 +59,7 @@ def configure_auth_policy(
     saml_enabled: bool | None = None,
 ) -> None:
     monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", auth_types)
+    monkeypatch.setattr(config, "MCP_AUTH_MODE", "")
     monkeypatch.setattr(config, "OIDC_ISSUER", oidc_issuer)
     monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", multi_tenant)
     if saml_enabled is not None:
@@ -184,6 +185,26 @@ async def test_discovery_unknown_domains_fallback_to_oidc_in_multi_tenant_with_s
     response = await service.discover("user@unknown-domain.example")
 
     assert response.method == AuthDiscoveryMethod.OIDC
+
+
+@pytest.mark.anyio
+async def test_discovery_explicit_saml_mode_disables_oidc_fallback(
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configure_auth_policy(
+        monkeypatch,
+        auth_types={AuthType.BASIC, AuthType.OIDC, AuthType.SAML},
+        oidc_issuer="https://auth.example.com",
+        saml_enabled=True,
+    )
+    monkeypatch.setattr(config, "MCP_AUTH_MODE", "saml")
+    service = AuthDiscoveryService(session)
+
+    response = await service.discover("user@unknown-domain.example")
+
+    assert response.method == AuthDiscoveryMethod.SAML
+    assert response.next_url is None
 
 
 @pytest.mark.anyio

@@ -543,16 +543,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None
     ) -> None:
-        self.logger.info(
-            f"User {user.id} has forgot their password. Reset token: {token}"
-        )
+        self.logger.info("Password reset requested", user_id=str(user.id))
 
     async def on_after_request_verify(
         self, user: User, token: str, request: Request | None = None
     ) -> None:
-        self.logger.info(
-            f"Verification requested for user {user.id}. Verification token: {token}"
-        )
+        self.logger.info("Verification requested", user_id=str(user.id))
 
     async def on_after_reset_password(
         self, user: User, request: Request | None = None

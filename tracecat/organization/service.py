@@ -38,6 +38,11 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import OrganizationID, SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.mcp.saml_bridge_state import (
+    create_saml_bridge_stores,
+    delete_saml_bridge_session,
+    list_saml_bridge_sessions,
+)
 from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
@@ -405,6 +410,42 @@ class OrgService(BaseOrgService):
         db_token = result.scalar_one()
         await self.session.delete(db_token)
         await self.session.commit()
+
+    async def list_mcp_sessions(self) -> list[SessionRead]:
+        """List active MCP SAML bridge sessions for this organization."""
+        stores = create_saml_bridge_stores()
+        sessions = [
+            session
+            for session in await list_saml_bridge_sessions(stores)
+            if session.organization_id == self.organization_id
+        ]
+        sessions.sort(
+            key=lambda session: (session.created_at, session.id), reverse=True
+        )
+        return [
+            SessionRead(
+                id=uuid.UUID(session.id),
+                created_at=datetime.fromtimestamp(session.created_at, tz=UTC),
+                user_id=session.user_id,
+                user_email=session.user_email,
+            )
+            for session in sessions
+        ]
+
+    @require_scope("org:member:remove")
+    @audit_log(resource_type="organization_session", action="delete")
+    async def delete_mcp_session(self, session_id: SessionID) -> None:
+        """Delete an MCP SAML bridge session by its ID."""
+        stores = create_saml_bridge_stores()
+        session_id_str = str(session_id)
+        for bridge_session in await list_saml_bridge_sessions(stores):
+            if bridge_session.id != session_id_str:
+                continue
+            if bridge_session.organization_id != self.organization_id:
+                raise TracecatNotFoundError("MCP session not found")
+            await delete_saml_bridge_session(stores, session_id_str)
+            return
+        raise TracecatNotFoundError("MCP session not found")
 
     # === Manage invitations ===
 

@@ -189,6 +189,7 @@ locals {
       local.tracecat_db_configs,
       {
         TRACECAT__DB_ENDPOINT                     = local.core_db_hostname
+        MCP_AUTH_MODE                             = var.mcp_auth_mode
         OIDC_ISSUER                               = var.oidc_issuer
         OIDC_SCOPES                               = var.oidc_scopes
         TRACECAT_MCP__HOST                        = "0.0.0.0"

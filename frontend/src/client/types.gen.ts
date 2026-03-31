@@ -8714,6 +8714,14 @@ export type OrganizationDeleteSessionData = {
 
 export type OrganizationDeleteSessionResponse = void
 
+export type OrganizationListMcpSessionsResponse = Array<SessionRead>
+
+export type OrganizationDeleteMcpSessionData = {
+  sessionId: string
+}
+
+export type OrganizationDeleteMcpSessionResponse = void
+
 export type OrganizationCreateInvitationData = {
   requestBody: OrgInvitationCreate
 }
@@ -12307,6 +12315,31 @@ export type $OpenApiTs = {
   "/organization/sessions/{session_id}": {
     delete: {
       req: OrganizationDeleteSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/sessions/mcp": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<SessionRead>
+      }
+    }
+  }
+  "/organization/sessions/mcp/{session_id}": {
+    delete: {
+      req: OrganizationDeleteMcpSessionData
       res: {
         /**
          * Successful Response
