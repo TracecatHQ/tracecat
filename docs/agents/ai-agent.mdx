@@ -260,3 +260,50 @@ Default: `null`.
       ${{ TRIGGER.incident }}
     max_tool_calls: 8
 ```
+
+## FAQ
+
+### When should I use `ai.action`, `ai.agent`, or `ai.preset_agent`?
+
+- Use `ai.action` when you only need one model response and no tools.
+- Use `ai.agent` when the model must call Tracecat actions during the run.
+- Use `ai.preset_agent` when you want a reusable saved configuration, especially for shared instructions, approvals, or MCP integrations.
+
+<CodeGroup>
+```yaml Use ai.agent for tool calls
+- ref: analyze_input
+  action: ai.agent
+  args:
+    model_name: gpt-4.1-mini
+    model_provider: openai
+    instructions: |
+      Investigate the alert and summarize the next step.
+    user_prompt: |
+      Review this alert:
+
+      ${{ TRIGGER.alert }}
+    actions:
+      - tools.github.search_code
+      - core.cases.create_comment
+    max_tool_calls: 4
+```
+
+```yaml Use ai.preset_agent for saved configuration
+- ref: analyze_with_preset
+  action: ai.preset_agent
+  args:
+    preset: security-analyst
+    user_prompt: |
+      Review this alert and write a short analyst summary:
+
+      ${{ TRIGGER.alert }}
+```
+</CodeGroup>
+
+### Why does `ai.agent` not accept MCP servers directly, and where do I configure MCP instead?
+
+MCP integrations are configured on the preset, not on the `ai.agent` workflow action itself.
+If the run needs MCP tools, create or update an agent preset, attach the MCP integrations there, and execute it with `ai.preset_agent`.
+
+Use `ai.agent` when Tracecat workflow actions alone are enough.
+Use `ai.preset_agent` when the agent needs access to MCP servers in addition to regular Tracecat actions.
