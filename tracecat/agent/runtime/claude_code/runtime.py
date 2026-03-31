@@ -26,14 +26,12 @@ from claude_agent_sdk import (
     SandboxSettings,
 )
 from claude_agent_sdk.types import (
-    AssistantMessage,
     HookContext,
     HookInput,
     PreToolUseHookSpecificOutput,
     ResultMessage,
     StreamEvent,
     SyncHookJSONOutput,
-    SystemMessage,
     ToolResultBlock,
     UserMessage,
 )
@@ -686,47 +684,6 @@ class ClaudeAgentRuntime:
                             unified = self._stream_adapter.to_unified_event(message)
                             await self._socket_writer.send_stream_event(unified)
 
-                        elif isinstance(message, AssistantMessage):
-                            # Emit new JSONL lines for persistence (with full envelope)
-                            await self._emit_new_session_lines()
-
-                            # Also stream tool results for UI
-                            # (keep send_message for backward compat / UI events)
-                            await self._socket_writer.send_message(message)
-
-                        elif isinstance(message, UserMessage):
-                            # Emit new JSONL lines for persistence (with full envelope)
-                            await self._emit_new_session_lines()
-
-                            # Also send message for UI events
-                            await self._socket_writer.send_message(message)
-
-                            # Stream tool results for UI
-                            if isinstance(message.content, list):
-                                for block in message.content:
-                                    if isinstance(block, ToolResultBlock):
-                                        # Skip denial results for pending approvals
-                                        if (
-                                            block.tool_use_id
-                                            in self._pending_approval_tool_ids
-                                        ):
-                                            continue
-                                        await self._socket_writer.send_stream_event(
-                                            UnifiedStreamEvent(
-                                                type=StreamEventType.TOOL_RESULT,
-                                                tool_call_id=block.tool_use_id,
-                                                tool_output=block.content,
-                                                is_error=block.is_error or False,
-                                            )
-                                        )
-
-                        elif isinstance(message, SystemMessage):
-                            # Emit new JSONL lines for persistence (with full envelope)
-                            await self._emit_new_session_lines()
-
-                            # Also send message for backward compat
-                            await self._socket_writer.send_message(message)
-
                         elif isinstance(message, ResultMessage):
                             # Final result - emit any remaining lines
                             await self._emit_new_session_lines()
@@ -748,12 +705,39 @@ class ClaudeAgentRuntime:
                                 duration_ms=message.duration_ms,
                                 output=result_output,
                             )
+
+                        else:
+                            # AssistantMessage, UserMessage, SystemMessage, etc.
+                            await self._emit_new_session_lines()
+
+                            # Stream tool results for UI
+                            if isinstance(message, UserMessage) and isinstance(
+                                message.content, list
+                            ):
+                                for block in message.content:
+                                    if isinstance(block, ToolResultBlock):
+                                        if (
+                                            block.tool_use_id
+                                            in self._pending_approval_tool_ids
+                                        ):
+                                            continue
+                                        await self._socket_writer.send_stream_event(
+                                            UnifiedStreamEvent(
+                                                type=StreamEventType.TOOL_RESULT,
+                                                tool_call_id=block.tool_use_id,
+                                                tool_output=block.content,
+                                                is_error=block.is_error or False,
+                                            )
+                                        )
                 finally:
                     stderr_task.cancel()
                     try:
                         await stderr_task
                     except asyncio.CancelledError:
                         pass
+
+            # CLI has exited — session file is fully flushed.
+            await self._emit_new_session_lines()
 
         except Exception as e:
             await self._socket_writer.send_log(
