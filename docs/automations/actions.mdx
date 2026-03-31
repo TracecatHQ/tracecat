@@ -148,3 +148,34 @@ Defaults to 300 seconds.
 
 Use `max_attempts` to control how many times Tracecat retries the action if it fails.
 Defaults to 1 attempt.
+
+## FAQ
+
+### Why does my `run_if` or `for_each` expression fail validation?
+
+Most validation errors come from expression shape rather than action behavior:
+
+- Wrap the whole expression once as `${{ ... }}`. Do not split one condition across multiple expression blocks.
+- `run_if` must evaluate to a boolean value such as `${{ TRIGGER.severity == "high" }}`.
+- Use comparison operators such as `==` and `!=`. A single `=` is not a valid comparison.
+- `for_each` must use the iteration form `${{ for var.item in ... }}` and the value on the right side must be a list.
+
+<CodeGroup>
+```yaml Valid run_if
+- ref: notify_team
+  action: tools.slack.post_message
+  run_if: ${{ TRIGGER.severity == "high" && TRIGGER.status != "closed" }}
+  args:
+    channel: ${{ SECRETS.slack.SECURITY_CHANNEL }}
+    text: "High-severity alert: ${{ TRIGGER.alert_id }}"
+```
+
+```yaml Valid for_each
+- ref: create_comment
+  action: core.cases.create_comment
+  for_each: ${{ for var.item in TRIGGER.findings }}
+  args:
+    case_id: ${{ TRIGGER.case_id }}
+    comment: "Finding: ${{ var.item.title }}"
+```
+</CodeGroup>
