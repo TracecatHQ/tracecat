@@ -137,7 +137,7 @@ class ClaudeAgentRuntime:
         self._was_interrupted: bool = False
         # For incremental JSONL line tracking
         self._sdk_session_id: str | None = None
-        self._last_seen_line_index: int = 0
+        self._last_seen_byte_offset: int = 0
         # Flag to mark continuation prompt as internal (consumed after first use)
         self._is_continuation: bool = False
         # Adapter for converting Claude SDK events - must be reused to track state
@@ -304,13 +304,11 @@ class ClaudeAgentRuntime:
     async def _emit_new_session_lines(self) -> None:
         """Read and emit new JSONL lines from the SDK session file.
 
-        This reads the session file written by Claude SDK and emits any new lines
-        (past _last_seen_line_index) to the orchestrator for persistence.
-        The lines contain the full JSONL envelope (uuid, timestamp, parentUuid, etc.)
-        needed for proper resume.
+        Uses a byte offset to seek directly to unread data, making each call
+        O(new bytes) instead of O(total file size).
 
         If a line fails to parse (e.g., incomplete write by SDK), we stop processing
-        at that point and keep the index there. The incomplete line will be retried
+        at that point and keep the offset there. The incomplete line will be retried
         on the next call once the SDK finishes writing it.
 
         Race condition handling: If called before _sdk_session_id is set (i.e., before
@@ -321,29 +319,53 @@ class ClaudeAgentRuntime:
             return
 
         session_file = self._get_session_file_path(self._sdk_session_id)
-        if not session_file.exists():
+
+        try:
+            file_size = session_file.stat().st_size
+        except FileNotFoundError:
+            return
+
+        if file_size <= self._last_seen_byte_offset:
             return
 
         try:
-            file_content = await asyncio.to_thread(session_file.read_text)
-            lines = file_content.splitlines()
-            new_lines = lines[self._last_seen_line_index :]
 
-            for line in new_lines:
-                if not line.strip():
-                    # Empty line - advance index and continue
-                    self._last_seen_line_index += 1
+            def _read_tail() -> bytes:
+                with open(session_file, "rb") as f:
+                    f.seek(self._last_seen_byte_offset)
+                    return f.read()
+
+            tail_bytes = await asyncio.to_thread(_read_tail)
+            if not tail_bytes:
+                return
+
+            # Walk complete newline-terminated lines in the tail
+            pos = 0
+            while pos < len(tail_bytes):
+                newline_idx = tail_bytes.find(b"\n", pos)
+                if newline_idx == -1:
+                    # No newline found — incomplete line, stop and retry next call
+                    logger.debug(
+                        "Stopping at incomplete session line, will retry",
+                        byte_offset=self._last_seen_byte_offset + pos,
+                    )
+                    break
+
+                line_bytes = tail_bytes[pos:newline_idx]
+                line_end = newline_idx + 1  # past the \n
+
+                if not line_bytes.strip():
+                    pos = line_end
                     continue
 
                 # Parse to determine visibility, but send raw line for SDK resume
                 try:
-                    line_data = orjson.loads(line)
+                    line_data = orjson.loads(line_bytes)
                 except orjson.JSONDecodeError:
-                    # Stop at the first decode failure - this line may be incomplete
-                    # because the SDK is still writing it. We'll retry on the next pass.
+                    # Incomplete JSON — stop here, will retry next call
                     logger.debug(
-                        "Stopping at incomplete session line, will retry",
-                        line_index=self._last_seen_line_index,
+                        "Stopping at unparseable session line, will retry",
+                        byte_offset=self._last_seen_byte_offset + pos,
                     )
                     break
 
@@ -355,11 +377,15 @@ class ClaudeAgentRuntime:
                     self._is_continuation = False
 
                 await self._socket_writer.send_session_line(
-                    self._sdk_session_id, line, internal=internal
+                    self._sdk_session_id,
+                    line_bytes.decode("utf-8"),
+                    internal=internal,
                 )
 
-                # Only advance the index after successfully processing the line
-                self._last_seen_line_index += 1
+                pos = line_end
+
+            # Advance offset by the bytes we fully consumed
+            self._last_seen_byte_offset += pos
 
         except Exception as e:
             logger.warning("Failed to read session file", error=str(e))
@@ -506,15 +532,17 @@ class ClaudeAgentRuntime:
             resume_session_id = payload.sdk_session_id
             # If forking, tell the SDK to create a new session from the parent's history
             fork_session = payload.is_fork
-            # For a normal resume (non-fork), seed line tracking *before* we send the
-            # new query. The CLI can append new JSONL lines for this turn before the
-            # first StreamEvent arrives; if we only set `_last_seen_line_index` after
-            # the first StreamEvent, we can permanently skip those lines and corrupt
-            # persisted history (leading to flaky resume crashes).
+            # For a normal resume (non-fork), seed byte tracking *before* we send
+            # the new query. The CLI can append new JSONL lines for this turn
+            # before the first StreamEvent arrives; if we only set the offset
+            # after the first StreamEvent, we can permanently skip those lines
+            # and corrupt persisted history (leading to flaky resume crashes).
             if not fork_session:
                 self._sdk_session_id = resume_session_id
-                # Count lines from the session data we just wrote to disk (avoid I/O).
-                self._last_seen_line_index = len(payload.sdk_session_data.splitlines())
+                # Byte length of the data we just wrote to disk (avoids extra I/O).
+                self._last_seen_byte_offset = len(
+                    payload.sdk_session_data.encode("utf-8")
+                )
 
         try:
             # Build MCP servers config for registry actions and stdio servers
@@ -657,8 +685,8 @@ class ClaudeAgentRuntime:
                                 previous = self._sdk_session_id
                                 self._sdk_session_id = message.session_id
                                 # If the CLI started a different session (e.g. fork), avoid
-                                # re-persisting old history by jumping to current file length.
-                                # For normal resumes we pre-seed `_last_seen_line_index` above.
+                                # re-persisting old history by jumping to current file size.
+                                # For normal resumes we pre-seed the byte offset above.
                                 if (
                                     previous is None
                                     and resume_session_id
@@ -667,13 +695,12 @@ class ClaudeAgentRuntime:
                                     session_file = self._get_session_file_path(
                                         self._sdk_session_id
                                     )
-                                    if session_file.exists():
-                                        file_content = await asyncio.to_thread(
-                                            session_file.read_text
+                                    try:
+                                        self._last_seen_byte_offset = (
+                                            session_file.stat().st_size
                                         )
-                                        self._last_seen_line_index = len(
-                                            file_content.splitlines()
-                                        )
+                                    except FileNotFoundError:
+                                        pass
                                 logger.debug(
                                     "Captured SDK session ID",
                                     sdk_session_id=self._sdk_session_id,
