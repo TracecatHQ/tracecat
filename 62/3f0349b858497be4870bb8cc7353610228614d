@@ -1,0 +1,23 @@
+tests/unit/test_worker_activity_registration.py
+  2de59430b39e8e44 5,120,133,139,174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "623f0349b858497be4870bb8cc7353610228614d",
+  "prompts": {
+    "2de59430b39e8e44": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d45bd-e6ef-78a3-b188-ce77c0cf006d",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 1,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}
