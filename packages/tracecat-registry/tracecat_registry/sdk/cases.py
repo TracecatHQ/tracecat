@@ -1027,3 +1027,35 @@ class CasesClient:
             f"/cases/{case_id}/rows/insert",
             json={"table_id": table_id, "row": {"data": row}},
         )
+
+    # -- Aggregate --
+
+    async def aggregate(
+        self,
+        *,
+        agg: list[dict[str, Any]],
+        group_by: list[str] | Unset = UNSET,
+        filter: list[dict[str, Any]] | Unset = UNSET,
+        search: str | None | Unset = UNSET,
+        limit: int = 1000,
+    ) -> types.AggregateResponse:
+        """Run an aggregate query over cases.
+
+        Args:
+            agg: List of aggregate expressions, e.g. [{"func": "count"}].
+            group_by: Field names to group by.
+            filter: List of filter clauses, e.g. [{"field": "status", "op": "eq", "value": "new"}].
+            search: Text search term.
+            limit: Maximum result rows (1-10000).
+
+        Returns:
+            Aggregate response with items.
+        """
+        data: dict[str, Any] = {"agg": agg, "limit": limit}
+        if is_set(group_by):
+            data["group_by"] = group_by
+        if is_set(filter):
+            data["filter"] = filter
+        if is_set(search):
+            data["search"] = search
+        return await self._client.post("/cases/aggregate", json=data)
