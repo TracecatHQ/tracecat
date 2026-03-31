@@ -6,6 +6,7 @@ import asyncio
 import os
 import signal
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import uvloop
@@ -92,6 +93,7 @@ async def main() -> None:
                 max_concurrent_activities=max_concurrent,
                 disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
                 activity_executor=executor,
+                graceful_shutdown_timeout=timedelta(minutes=5),
             ):
                 logger.info("AgentExecutorWorker started, ctrl+c to exit")
                 await interrupt_event.wait()
