@@ -224,6 +224,55 @@ class TestCaseFieldsService:
             # Verify the method was called with the right parameters
             mock_update_column.assert_called_once_with("test_field", field_update)
 
+    async def test_update_field_required_on_closure_without_schema_entry(
+        self, case_fields_service: CaseFieldsService
+    ) -> None:
+        """required_on_closure must persist even when the field has no schema entry.
+
+        Regression: when a field existed physically but had no entry in the
+        CaseFields.schema JSONB, update_field silently skipped the schema
+        write because field_type resolved to None.
+        """
+        reflected_column: ReflectedColumn = {
+            "name": "my_field",
+            "type": sa.Text(),
+            "nullable": True,
+            "default": None,
+            "comment": None,
+            "autoincrement": False,
+        }
+
+        with (
+            patch.object(
+                case_fields_service,
+                "get_field_schema",
+                return_value={},
+            ),
+            patch.object(
+                case_fields_service.editor,
+                "update_column",
+            ),
+            patch.object(
+                case_fields_service.editor,
+                "get_columns",
+                return_value=[reflected_column],
+            ),
+            patch.object(
+                case_fields_service,
+                "_update_field_schema",
+            ) as mock_update_schema,
+            patch.object(case_fields_service.session, "commit"),
+        ):
+            await case_fields_service.update_field(
+                "my_field",
+                CaseFieldUpdate(required_on_closure=True),
+            )
+
+            mock_update_schema.assert_called_once_with(
+                "my_field",
+                {"type": "TEXT", "required_on_closure": True},
+            )
+
     async def test_update_field_rejects_internal_name(
         self, case_fields_service: CaseFieldsService
     ) -> None:

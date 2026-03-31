@@ -1192,7 +1192,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
           if (!open) setCommentText("")
         }}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add comment</DialogTitle>
             <DialogDescription>
@@ -1239,7 +1239,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
           if (!open) setAppendText("")
         }}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Append to description</DialogTitle>
             <DialogDescription>
