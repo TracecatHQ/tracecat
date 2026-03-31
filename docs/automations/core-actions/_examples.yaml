@@ -621,9 +621,9 @@ examples:
           name: asset_inventory
           columns:
             - name: hostname
-              type: text
+              type: TEXT
             - name: owner
-              type: text
+              type: TEXT
           raise_on_duplicate: false
       - ref: list_tables
         action: core.table.list_tables

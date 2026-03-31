@@ -102,7 +102,7 @@ def sample_init_payload(
         mcp_auth_token="test-jwt-token",
         config=sample_sandbox_config,
         user_prompt="Hello, how are you?",
-        litellm_auth_token="test-litellm-token",
+        llm_gateway_auth_token="test-llm-token",
         allowed_actions=sample_shared_tool_definitions,
     )
 
@@ -167,6 +167,11 @@ def get_hook_output(result: SyncHookJSONOutput) -> dict[str, Any]:
 
 class TestClaudeAgentRuntimeRun:
     """Tests for ClaudeAgentRuntime.run()."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_llm_bridge_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Set the LLM bridge port env var so get_llm_proxy_url() succeeds."""
+        monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "12345")
 
     @pytest.mark.anyio
     async def test_sends_done_on_completion(

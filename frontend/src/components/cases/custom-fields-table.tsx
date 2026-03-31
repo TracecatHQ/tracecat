@@ -10,7 +10,6 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
-import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +29,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import type { SqlType } from "@/lib/data-type"
 import { getCaseFieldTypeConfig } from "@/lib/data-type"
 
 interface CustomFieldsTableProps {
@@ -89,12 +87,11 @@ export function CustomFieldsTable({
                 />
               ),
               cell: ({ row }) => {
-                const fieldType = row.getValue<CaseFieldReadMinimal["type"]>(
-                  "type"
-                ) as SqlType
+                const fieldType =
+                  row.getValue<CaseFieldReadMinimal["type"]>("type")
                 const fieldKind = row.original.kind
                 const config = getCaseFieldTypeConfig(fieldType, fieldKind)
-                if (fieldKind && config) {
+                if (config) {
                   const Icon = config.icon
                   return (
                     <Badge
@@ -110,7 +107,7 @@ export function CustomFieldsTable({
                     </Badge>
                   )
                 }
-                return <SqlTypeBadge type={fieldType} />
+                return <div className="text-xs">{fieldType}</div>
               },
               enableSorting: true,
               enableHiding: false,
@@ -167,11 +164,11 @@ export function CustomFieldsTable({
                   return <div className="text-xs">-</div>
                 }
 
-                // Handle TIMESTAMP/TIMESTAMPTZ with date formatting
+                // Handle TIMESTAMPTZ defaults with date formatting
                 const parsedDate =
                   typeof defaultValue === "string" &&
                   defaultValue &&
-                  (fieldType === "TIMESTAMP" || fieldType === "TIMESTAMPTZ")
+                  fieldType === "TIMESTAMPTZ"
                     ? new Date(defaultValue)
                     : null
                 const isValidDate =

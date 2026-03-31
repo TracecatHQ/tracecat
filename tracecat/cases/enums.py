@@ -110,3 +110,18 @@ class CaseFieldKind(StrEnum):
 
     LONG_TEXT = "LONG_TEXT"
     URL = "URL"
+
+
+class CaseFieldReadType(StrEnum):
+    """Read-only type for case field metadata."""
+
+    TEXT = "TEXT"
+    INTEGER = "INTEGER"
+    NUMERIC = "NUMERIC"
+    DATE = "DATE"
+    BOOLEAN = "BOOLEAN"
+    TIMESTAMPTZ = "TIMESTAMPTZ"
+    JSONB = "JSONB"
+    SELECT = "SELECT"
+    MULTI_SELECT = "MULTI_SELECT"
+    UUID = "UUID"

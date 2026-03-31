@@ -9,7 +9,6 @@ import { ApiError, type CaseFieldKind, casesCreateField } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
-import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   Dialog,
   DialogContent,
@@ -226,8 +225,18 @@ export function AddCustomFieldDialog({
             break
           }
           case "NUMERIC": {
+            const normalized =
+              typeof rawDefault === "string" ? rawDefault.trim() : rawDefault
+            if (typeof normalized === "string" && normalized.length === 0) {
+              form.setError("default", {
+                type: "manual",
+                message: "Default must be a number",
+              })
+              setIsSubmitting(false)
+              return
+            }
             const parsed =
-              typeof rawDefault === "number" ? rawDefault : Number(rawDefault)
+              typeof normalized === "number" ? normalized : Number(normalized)
             if (Number.isNaN(parsed)) {
               form.setError("default", {
                 type: "manual",
@@ -528,8 +537,8 @@ function DefaultValueInput({
     case "INTEGER":
       return (
         <Input
-          type="number"
-          step={1}
+          type="text"
+          inputMode="numeric"
           value={field.value ?? ""}
           onChange={(event) => field.onChange(event.target.value)}
           placeholder="Enter an integer"
@@ -538,8 +547,8 @@ function DefaultValueInput({
     case "NUMERIC":
       return (
         <Input
-          type="number"
-          step="any"
+          type="text"
+          inputMode="decimal"
           value={field.value ?? ""}
           onChange={(event) => field.onChange(event.target.value)}
           placeholder="Enter a number"
@@ -554,25 +563,15 @@ function DefaultValueInput({
           placeholder="true, false, 1, or 0"
         />
       )
-    case "TIMESTAMPTZ": {
-      const stringValue =
-        typeof field.value === "string" && field.value.length > 0
-          ? field.value
-          : undefined
-      const parsedDate =
-        stringValue !== undefined ? new Date(stringValue) : null
-      const dateValue =
-        parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
-
+    case "TIMESTAMPTZ":
       return (
-        <DateTimePicker
-          value={dateValue}
-          onChange={(next) => field.onChange(next ? next.toISOString() : "")}
-          onBlur={field.onBlur}
-          buttonProps={{ className: "w-full" }}
+        <Input
+          type="text"
+          value={field.value ?? ""}
+          onChange={(event) => field.onChange(event.target.value)}
+          placeholder="YYYY-MM-DDTHH:mm:ss.Z"
         />
       )
-    }
     case "SELECT":
       return (
         <Select

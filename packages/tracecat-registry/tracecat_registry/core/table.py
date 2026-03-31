@@ -284,7 +284,12 @@ async def create_table(
     columns: Annotated[
         list[dict[str, Any]] | None,
         Doc(
-            "List of column definitions. Each column should have 'name', 'type', and optionally 'nullable' and 'default' fields."
+            "List of column definitions. Each item is an object with required "
+            "`name` and uppercase `type`, plus optional `nullable`, `default`, "
+            "and `options` fields. Use `TEXT`, `INTEGER`, `NUMERIC`, "
+            "`BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, or "
+            "`MULTI_SELECT`. `options` is required for `SELECT` and "
+            "`MULTI_SELECT`, and invalid for other types."
         ),
     ] = None,
     raise_on_duplicate: Annotated[

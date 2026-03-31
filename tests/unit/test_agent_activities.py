@@ -344,7 +344,7 @@ class TestRunAgentActivity:
             config=mock_agent_config,
             role=mock_role,
             mcp_auth_token="mock-jwt-token",
-            litellm_auth_token="mock-llm-token",
+            llm_gateway_auth_token="mock-llm-token",
         )
 
     @pytest.mark.anyio

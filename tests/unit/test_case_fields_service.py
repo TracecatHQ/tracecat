@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import (
+    CaseFieldReadType,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
 from tracecat.cases.schemas import (
     CaseFieldCreate,
     CaseFieldReadMinimal,
@@ -97,20 +102,6 @@ class TestCaseFieldsService:
             assert fields == mock_columns
             mock_get_columns.assert_called_once()
 
-    async def test_case_field_read_accepts_timestamp_type(self) -> None:
-        """Ensure TIMESTAMP columns can be read for reserved fields."""
-        column = ReflectedColumn(
-            name="created_at",
-            type=sa.types.TIMESTAMP(),
-            nullable=False,
-            default=None,
-            comment=None,
-        )
-
-        field = CaseFieldReadMinimal.from_sa(column)
-        assert field.type is SqlType.TIMESTAMP
-        assert field.reserved is True
-
     async def test_case_field_read_accepts_timestamptz_type(self) -> None:
         """Ensure TIMESTAMPTZ columns can be read for custom fields."""
         column = ReflectedColumn(
@@ -122,7 +113,7 @@ class TestCaseFieldsService:
         )
 
         field = CaseFieldReadMinimal.from_sa(column)
-        assert field.type is SqlType.TIMESTAMPTZ
+        assert field.type is CaseFieldReadType.TIMESTAMPTZ
         assert field.reserved is False
 
     async def test_case_field_read_normalises_timestamptz_string(self) -> None:
@@ -136,8 +127,44 @@ class TestCaseFieldsService:
         )
 
         field = CaseFieldReadMinimal.from_sa(column)
-        assert field.type is SqlType.TIMESTAMPTZ
+        assert field.type is CaseFieldReadType.TIMESTAMPTZ
         assert field.reserved is False
+
+    async def test_case_field_read_preserves_reserved_uuid_type(self) -> None:
+        """Ensure reserved UUID columns remain UUID in read metadata."""
+        column = ReflectedColumn(
+            name="case_id",
+            type=sa.types.UUID(),
+            nullable=False,
+            default=None,
+            comment=None,
+        )
+
+        field = CaseFieldReadMinimal.from_sa(column)
+        assert field.type is CaseFieldReadType.UUID
+        assert field.reserved is True
+
+    async def test_case_field_read_prefers_schema_type_metadata(self) -> None:
+        """Ensure user-defined field metadata drives the public read type."""
+        column = ReflectedColumn(
+            name="severity_band",
+            type=sa.types.String(),
+            nullable=True,
+            default=None,
+            comment=None,
+        )
+
+        field = CaseFieldReadMinimal.from_sa(
+            column,
+            field_schema={
+                "severity_band": {
+                    "type": "SELECT",
+                    "options": ["low", "high"],
+                }
+            },
+        )
+        assert field.type is CaseFieldReadType.SELECT
+        assert field.options == ["low", "high"]
 
     async def test_create_field(self, case_fields_service: CaseFieldsService) -> None:
         """Test creating a case field."""
@@ -196,6 +223,55 @@ class TestCaseFieldsService:
 
             # Verify the method was called with the right parameters
             mock_update_column.assert_called_once_with("test_field", field_update)
+
+    async def test_update_field_required_on_closure_without_schema_entry(
+        self, case_fields_service: CaseFieldsService
+    ) -> None:
+        """required_on_closure must persist even when the field has no schema entry.
+
+        Regression: when a field existed physically but had no entry in the
+        CaseFields.schema JSONB, update_field silently skipped the schema
+        write because field_type resolved to None.
+        """
+        reflected_column: ReflectedColumn = {
+            "name": "my_field",
+            "type": sa.Text(),
+            "nullable": True,
+            "default": None,
+            "comment": None,
+            "autoincrement": False,
+        }
+
+        with (
+            patch.object(
+                case_fields_service,
+                "get_field_schema",
+                return_value={},
+            ),
+            patch.object(
+                case_fields_service.editor,
+                "update_column",
+            ),
+            patch.object(
+                case_fields_service.editor,
+                "get_columns",
+                return_value=[reflected_column],
+            ),
+            patch.object(
+                case_fields_service,
+                "_update_field_schema",
+            ) as mock_update_schema,
+            patch.object(case_fields_service.session, "commit"),
+        ):
+            await case_fields_service.update_field(
+                "my_field",
+                CaseFieldUpdate(required_on_closure=True),
+            )
+
+            mock_update_schema.assert_called_once_with(
+                "my_field",
+                {"type": "TEXT", "required_on_closure": True},
+            )
 
     async def test_update_field_rejects_internal_name(
         self, case_fields_service: CaseFieldsService

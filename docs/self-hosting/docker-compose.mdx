@@ -140,3 +140,24 @@ For example, if you've deployed Tracecat into a VM and exposed it to your browse
 you must set:
 - `PUBLIC_APP_URL` to `https://my-tracecat-instance.com`
 - `PUBLIC_API_URL` to `https://my-tracecat-instance.com/api`
+
+### What should `PUBLIC_APP_URL` and `PUBLIC_API_URL` be, and how do I fix login or CORS issues?
+
+Set both values to the exact browser-reachable URLs for your deployment, including the scheme:
+
+- Local example:
+  - `PUBLIC_APP_URL=http://localhost:8000`
+  - `PUBLIC_API_URL=http://localhost:8000/api`
+- Reverse proxy or public domain example:
+  - `PUBLIC_APP_URL=https://tracecat.example.com`
+  - `PUBLIC_API_URL=https://tracecat.example.com/api`
+
+Use full URLs once.
+Do not prepend `http://` or `https://` twice, and do not use addresses that only work inside Docker such as `0.0.0.0` or internal container hostnames.
+
+If sign-in still fails:
+
+- Verify that the domain in your browser exactly matches `PUBLIC_APP_URL`.
+- Verify that `PUBLIC_API_URL` is the same origin plus `/api`.
+- Run `docker compose ps` and check that `api`, `worker`, and `temporal` are healthy.
+- Review `docker compose logs api` for startup, auth, or CORS errors.

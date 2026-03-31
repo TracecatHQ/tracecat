@@ -3,6 +3,8 @@ title: "Python UDFs"
 description: "Build custom Python actions in Tracecat."
 ---
 
+import RegistrySecretsAndOAuth from "/snippets/registry-secrets-and-oauth.mdx";
+
 Tracecat makes it easy to turn your Python scripts into actions for agents and workflows. All you need is:
 
 - A single Python decorator, `@registry.register`
@@ -109,8 +111,20 @@ api_secret = RegistrySecret(
 `secret_type` uses snake_case everywhere — Python declarations, the API, and the UI all use the same values (`ssh_key`, `ca_cert`, `mtls`, `custom`).
 </Note>
 
+<RegistrySecretsAndOAuth />
+
 ## Example actions
 
 You can browse all open-source integrations in Tracecat in [tools actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/integrations). Use [template actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/templates/tools) to see how actions are composed, and use [core actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/core) to inspect built-in implementations.
 
 For concrete examples, browse the [Slack](https://github.com/TracecatHQ/tracecat/blob/main/packages/tracecat-registry/tracecat_registry/integrations/slack_sdk.py), [AWS Boto3](https://github.com/TracecatHQ/tracecat/blob/main/packages/tracecat-registry/tracecat_registry/integrations/aws_boto3.py), and [FalconPy](https://github.com/TracecatHQ/tracecat/blob/main/packages/tracecat-registry/tracecat_registry/integrations/crowdstrike_falconpy.py) integrations.
+
+## FAQ
+
+### Why does `secrets.get` use names like `GOOGLE_DRIVE_USER_TOKEN`?
+
+UDFs read **injected key names**, not `${{ SECRETS... }}` strings. Those keys match the token names for your declared secrets (for OAuth, the uppercase `provider_id` plus `_USER_TOKEN` or `_SERVICE_TOKEN`). See the imported section above (OAuth token paths and **Python UDFs**), and the [OAuth FAQ](/automations/integrations/oauth-integrations#faq) for custom `provider_id` values.
+
+### Where are example UDFs for OAuth and structured secrets?
+
+See **Repo examples** in the registry section above, or browse [tools integrations](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/integrations) on GitHub.

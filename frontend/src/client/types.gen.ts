@@ -1594,7 +1594,7 @@ export type CaseFieldKind = "LONG_TEXT" | "URL"
  */
 export type CaseFieldRead = {
   id: string
-  type: SqlType
+  type: CaseFieldReadType
   description: string
   nullable: boolean
   default: string | null
@@ -1610,7 +1610,7 @@ export type CaseFieldRead = {
  */
 export type CaseFieldReadMinimal = {
   id: string
-  type: SqlType
+  type: CaseFieldReadType
   description: string
   nullable: boolean
   default: string | null
@@ -1619,6 +1619,21 @@ export type CaseFieldReadMinimal = {
   kind?: CaseFieldKind | null
   required_on_closure?: boolean
 }
+
+/**
+ * Read-only type for case field metadata.
+ */
+export type CaseFieldReadType =
+  | "TEXT"
+  | "INTEGER"
+  | "NUMERIC"
+  | "DATE"
+  | "BOOLEAN"
+  | "TIMESTAMPTZ"
+  | "JSONB"
+  | "SELECT"
+  | "MULTI_SELECT"
+  | "UUID"
 
 /**
  * Update a case field.
@@ -5578,10 +5593,8 @@ export type SqlType =
   | "NUMERIC"
   | "DATE"
   | "BOOLEAN"
-  | "TIMESTAMP"
   | "TIMESTAMPTZ"
   | "JSONB"
-  | "UUID"
   | "SELECT"
   | "MULTI_SELECT"
 

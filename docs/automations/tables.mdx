@@ -20,18 +20,24 @@ Use tables when you want to:
 
 Each table has a schema that defines its columns.
 Choose column types based on the data you want to store and query.
+When you define columns in the UI or in `core.table.create_table`, use the same uppercase `type` values exposed in the custom tables picker:
 
 You can create tables with the following column types:
 - TEXT
 - INTEGER
-- BOOLEAN
 - NUMERIC
-- JSONB
+- BOOLEAN
+- DATE
 - TIMESTAMPTZ
-- UUID
+- JSONB
+- SELECT
+- MULTI_SELECT
 
-Use `TEXT`, `INTEGER`, `BOOLEAN`, and `NUMERIC` for simple fields.
-Use `JSONB` when you need to store nested structured data, and use `TIMESTAMPTZ` or `UUID` for timestamps and identifiers.
+Use `TEXT`, `INTEGER`, `NUMERIC`, and `BOOLEAN` for simple fields.
+Use `DATE` or `TIMESTAMPTZ` for time-based values, `JSONB` for nested structured data, and `SELECT` or `MULTI_SELECT` when the value must come from a fixed list.
+
+Case custom fields use the same storage type family: `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, and `MULTI_SELECT`.
+In the case field picker, raw `JSONB` is currently surfaced through the `URL` kind, and `Long text` is layered on top of `TEXT`.
 
 ## Rows
 
@@ -92,6 +98,15 @@ Use `core.table.*` actions when you want your workflows to work with tables dire
 - [Tables](/automations/core-actions/memory-actions/tables) to create tables, inspect metadata, insert rows, search rows, and export data
 - Use `core.table.insert_row` with `upsert: true` when you want to update an existing row that matches a unique index
 
+`core.table.create_table` takes `columns` as a JSON array of column objects.
+This is the same schema you use for tables that you later link to cases.
+
+- `name`: Required string. Use letters, numbers, and underscores, and start with a letter or underscore.
+- `type`: Required uppercase string. Use `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, or `MULTI_SELECT`.
+- `nullable`: Optional boolean. Defaults to `true`.
+- `default`: Optional value. It must match the column type.
+- `options`: Optional array of strings. Required for `SELECT` and `MULTI_SELECT`, and invalid for other types.
+
 For example:
 
 ```yaml
@@ -101,9 +116,9 @@ For example:
     name: asset_inventory
     columns:
       - name: hostname
-        type: text
+        type: TEXT
       - name: owner
-        type: text
+        type: TEXT
     raise_on_duplicate: false
 - ref: upsert_asset
   action: core.table.insert_row

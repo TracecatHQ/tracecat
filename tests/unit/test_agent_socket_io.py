@@ -38,13 +38,18 @@ def make_init_payload() -> RuntimeInitPayload:
             instructions="You are a test assistant.",
         ),
         user_prompt="Say hello",
-        litellm_auth_token="test-litellm-token",
+        llm_gateway_auth_token="test-llm-token",
         allowed_actions={},
     )
 
 
 class TestRuntimeSocketCommunication:
     """Unit tests for runtime socket communication."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_llm_bridge_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Set the LLM bridge port env var so get_llm_proxy_url() succeeds."""
+        monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "12345")
 
     @pytest.fixture
     def mock_claude_sdk_client(self) -> MagicMock:

@@ -259,7 +259,7 @@ class BaseTablesService(BaseWorkspaceService):
                 )
                 continue
 
-            if sql_type in {SqlType.TIMESTAMP, SqlType.TIMESTAMPTZ}:
+            if sql_type is SqlType.TIMESTAMPTZ:
                 normalised[column_name] = coerce_to_utc_datetime(value)
             elif sql_type is SqlType.DATE and value is not None:
                 normalised[column_name] = coerce_to_date(value)
@@ -281,12 +281,10 @@ class BaseTablesService(BaseWorkspaceService):
                 return sa.Date()
             case SqlType.BOOLEAN:
                 return sa.Boolean()
-            case SqlType.TIMESTAMP | SqlType.TIMESTAMPTZ:
+            case SqlType.TIMESTAMPTZ:
                 return sa.TIMESTAMP(timezone=True)
             case SqlType.JSONB | SqlType.MULTI_SELECT:
                 return JSONB()
-            case SqlType.UUID:
-                return sa.UUID()
             case _:
                 return sa.String()
 
@@ -575,7 +573,7 @@ class BaseTablesService(BaseWorkspaceService):
             column_type_sql = (
                 "BIGINT" if sql_type == SqlType.INTEGER else sql_type.value
             )
-        column_def = [f"{column_name} {column_type_sql}"]
+        column_def = [f"{quote_identifier(column_name)} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
         if rendered_default is not None:
@@ -668,7 +666,11 @@ class BaseTablesService(BaseWorkspaceService):
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s RENAME COLUMN %s TO %s",
-                        (full_table_name, old_name, new_name),
+                        (
+                            full_table_name,
+                            quote_identifier(old_name),
+                            quote_identifier(new_name),
+                        ),
                     )
                 )
             if "type" in set_fields:
@@ -684,7 +686,7 @@ class BaseTablesService(BaseWorkspaceService):
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                        (full_table_name, new_name, physical_type),
+                        (full_table_name, quote_identifier(new_name), physical_type),
                     )
                 )
         if "nullable" in set_fields:
@@ -694,7 +696,7 @@ class BaseTablesService(BaseWorkspaceService):
                     # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
                     # No user input is interpolated here - only predefined SQL keywords
                     f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
-                    (full_table_name, new_name),
+                    (full_table_name, quote_identifier(new_name)),
                 )
             )
         if "default" in set_fields:
@@ -703,7 +705,7 @@ class BaseTablesService(BaseWorkspaceService):
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
-                        (full_table_name, new_name),
+                        (full_table_name, quote_identifier(new_name)),
                     )
                 )
             else:
@@ -716,7 +718,7 @@ class BaseTablesService(BaseWorkspaceService):
                     sa.DDL(
                         # SAFE f-string: formatted_default is compiler-rendered from a typed value.
                         f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
-                        (full_table_name, new_name),
+                        (full_table_name, quote_identifier(new_name)),
                     )
                 )
 
@@ -758,7 +760,7 @@ class BaseTablesService(BaseWorkspaceService):
                 (
                     index_name,  # Name of the index
                     full_table_name,  # Table to create index on
-                    sanitized_column,  # Column to index
+                    quote_identifier(sanitized_column),  # Column to index
                 ),
             )
         )
@@ -781,7 +783,7 @@ class BaseTablesService(BaseWorkspaceService):
         await conn.execute(
             sa.DDL(
                 "ALTER TABLE %s DROP COLUMN %s",
-                (full_table_name, sanitized_column),
+                (full_table_name, quote_identifier(sanitized_column)),
             )
         )
 
@@ -1997,7 +1999,7 @@ class TableEditorService(BaseWorkspaceService):
             column_type_sql = SqlType.JSONB.value
         else:
             column_type_sql = params.type.value
-        column_def = [f"{column_name} {column_type_sql}"]
+        column_def = [f"{quote_identifier(column_name)} {column_type_sql}"]
         if not params.nullable:
             column_def.append("NOT NULL")
         if rendered_default is not None:
@@ -2048,7 +2050,11 @@ class TableEditorService(BaseWorkspaceService):
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s RENAME COLUMN %s TO %s",
-                        (full_table_name, sanitized_column_name, new_name),
+                        (
+                            full_table_name,
+                            quote_identifier(sanitized_column_name),
+                            quote_identifier(new_name),
+                        ),
                     )
                 )
         if "type" in set_fields:
@@ -2065,7 +2071,7 @@ class TableEditorService(BaseWorkspaceService):
             await conn.execute(
                 sa.DDL(
                     "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
-                    (full_table_name, new_name, column_type_sql),
+                    (full_table_name, quote_identifier(new_name), column_type_sql),
                 )
             )
         if "nullable" in set_fields:
@@ -2075,7 +2081,7 @@ class TableEditorService(BaseWorkspaceService):
                     # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
                     # No user input is interpolated here - only predefined SQL keywords
                     f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
-                    (full_table_name, new_name),
+                    (full_table_name, quote_identifier(new_name)),
                 )
             )
         if "default" in set_fields:
@@ -2084,7 +2090,7 @@ class TableEditorService(BaseWorkspaceService):
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
-                        (full_table_name, new_name),
+                        (full_table_name, quote_identifier(new_name)),
                     )
                 )
             else:
@@ -2096,7 +2102,7 @@ class TableEditorService(BaseWorkspaceService):
                     sa.DDL(
                         # SAFE f-string: formatted_default is compiler-rendered from a typed value.
                         f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
-                        (full_table_name, new_name),
+                        (full_table_name, quote_identifier(new_name)),
                     )
                 )
 
@@ -2113,7 +2119,7 @@ class TableEditorService(BaseWorkspaceService):
         await conn.execute(
             sa.DDL(
                 "ALTER TABLE %s DROP COLUMN %s",
-                (self._full_table_name(), sanitized_column),
+                (self._full_table_name(), quote_identifier(sanitized_column)),
             )
         )
 
@@ -2319,6 +2325,17 @@ def sanitize_identifier(identifier: str) -> str:
     if not (sanitized[0].isalpha() or sanitized[0] == "_"):
         raise ValueError("Identifier must start with a letter or underscore")
     return sanitized.lower()
+
+
+def quote_identifier(identifier: str) -> str:
+    """Double-quote a SQL identifier for safe use in DDL statements.
+
+    Prevents syntax errors when identifier names collide with SQL reserved
+    keywords (e.g. ``select``, ``order``, ``group``).  Safe to use because
+    all callers pass values already restricted to ``[a-zA-Z0-9_]`` by
+    ``validate_identifier`` / ``sanitize_identifier``.
+    """
+    return f'"{identifier}"'
 
 
 def is_internal_column_name(column_name: str) -> bool:

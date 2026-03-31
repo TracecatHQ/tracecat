@@ -183,10 +183,12 @@
     <ResponseField name="cases_list_case_fields" type="tool">
   List case field definitions in a workspace.
 
-  Returns a JSON array of field objects with `id`, `type`, `description`, `nullable`, `default`, `reserved`, and `options`.
+  Returns a JSON array of field objects with `id`, `type`, `description`, `nullable`, `default`, `reserved`, `options`, and optional `kind`.
     </ResponseField>
     <ResponseField name="cases_create_case_field" type="tool">
   Create a case field definition.
+
+  Supports optional create-only `kind`: `LONG_TEXT` requires `type="TEXT"` and `URL` requires `type="JSONB"`.
     </ResponseField>
     <ResponseField name="cases_update_case_field" type="tool">
   Update a case field definition.

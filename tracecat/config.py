@@ -57,6 +57,12 @@ class RLSMode(StrEnum):
     ENFORCE = "enforce"
 
 
+class LLMExecutionBackend(StrEnum):
+    """Execution backend for the agent LLM runtime path."""
+
+    TRACECAT_PROXY = "tracecat_proxy"
+
+
 # === Internal Services === #
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = cast(
     Literal["development", "staging", "production"],
@@ -626,61 +632,66 @@ TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
 )
 """Read timeout for the LLM socket proxy in seconds (default: 5 minutes)."""
 
+try:
+    TRACECAT__LLM_EXECUTION_BACKEND = LLMExecutionBackend(
+        (os.environ.get("TRACECAT__LLM_EXECUTION_BACKEND") or "tracecat_proxy").strip()
+    )
+except ValueError:
+    valid = ", ".join(f"'{backend.value}'" for backend in LLMExecutionBackend)
+    raise ValueError(
+        f"Invalid TRACECAT__LLM_EXECUTION_BACKEND. Valid values: {valid}"
+    ) from None
+"""Execution backend for the agent LLM runtime path."""
 
-TRACECAT__LITELLM_NUM_WORKERS = max(
-    1,
-    int(os.environ.get("TRACECAT__LITELLM_NUM_WORKERS") or 4),
-)
-"""Number of LiteLLM proxy workers to run per agent-executor sidecar."""
 
-TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS = float(
-    os.environ.get("TRACECAT__LITELLM_CREDENTIAL_CACHE_TTL_SECONDS") or 60.0
+TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS") or 60.0
 )
-"""TTL for process-local LiteLLM credential cache entries in seconds."""
+"""TTL for process-local LLM gateway credential cache entries in seconds."""
 
-TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS = float(
-    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_INTERVAL_SECONDS") or 30.0
+TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS") or 30.0
 )
-"""Interval between LiteLLM readiness checks in seconds."""
+"""Interval between LLM gateway readiness checks in seconds."""
 
-TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS = float(
-    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS") or 2.0
+TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS") or 2.0
 )
-"""Legacy default timeout for LiteLLM readiness checks in seconds."""
+"""Default timeout for LLM gateway readiness checks in seconds."""
 
-TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS = float(
-    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_CONNECT_TIMEOUT_SECONDS")
-    or TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS
+TRACECAT__LLM_GATEWAY_CONNECT_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_CONNECT_TIMEOUT_SECONDS")
+    or TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS
 )
-"""Connect timeout for LiteLLM readiness checks in seconds."""
+"""Connect timeout for LLM gateway requests in seconds."""
 
-TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS = float(
-    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_READ_TIMEOUT_SECONDS")
-    or TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS
+TRACECAT__LLM_GATEWAY_READ_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_READ_TIMEOUT_SECONDS")
+    or TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS
 )
-"""Read timeout for LiteLLM readiness checks in seconds."""
+"""Read timeout for LLM gateway requests in seconds."""
 
-TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS = float(
-    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_WRITE_TIMEOUT_SECONDS")
-    or TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS
+TRACECAT__LLM_GATEWAY_WRITE_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_WRITE_TIMEOUT_SECONDS")
+    or TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS
 )
-"""Write timeout for LiteLLM readiness checks in seconds."""
+"""Write timeout for LLM gateway requests in seconds."""
 
-TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS = float(
-    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_POOL_TIMEOUT_SECONDS")
-    or TRACECAT__LITELLM_HEALTHCHECK_TIMEOUT_SECONDS
+TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS")
+    or TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS
 )
-"""Pool timeout for LiteLLM readiness checks in seconds."""
+"""Pool timeout for LLM gateway requests in seconds."""
 
-TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD = int(
-    os.environ.get("TRACECAT__LITELLM_HEALTHCHECK_FAILURE_THRESHOLD") or 3
+TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD = int(
+    os.environ.get("TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD") or 3
 )
-"""Number of consecutive LiteLLM readiness failures before failing the worker."""
+"""Number of consecutive LLM gateway failures before failing the worker."""
 
-TRACECAT__LITELLM_STATUS_LOG_INTERVAL_SECONDS = float(
-    os.environ.get("TRACECAT__LITELLM_STATUS_LOG_INTERVAL_SECONDS") or 30.0
+TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS") or 30.0
 )
-"""Interval between periodic LiteLLM status heartbeat logs in seconds."""
+"""Interval between periodic LLM gateway status heartbeat logs in seconds."""
 
 TRACECAT__AGENT_QUEUE = os.environ.get("TRACECAT__AGENT_QUEUE", "shared-agent-queue")
 """Task queue for the AgentWorker (Temporal workflow queue).

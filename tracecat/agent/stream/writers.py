@@ -163,14 +163,16 @@ class HttpStreamWriter(StreamWriter):
                 if TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED:
                     # Unified streaming: convert to UnifiedStreamEvent
                     unified_event = PydanticAIAdapter().to_unified_event(event)
-                    logger.warning("STREAM EVENT", event=unified_event)
                     json_payload = {"event": unified_event.to_dict()}
                 else:
                     # Legacy streaming: pass through raw AgentStreamEvent
-                    logger.warning("STREAM EVENT", event=event)
                     json_payload = {
                         "event": AgentStreamEventTA.dump_python(event, mode="json")
                     }
                 # Make a post request to the API to stream the event
                 async with session.post(self.url, json=json_payload) as response:
-                    logger.warning("STREAM RESPONSE", response=response.status)
+                    if response.status >= 400:
+                        logger.warning(
+                            "Stream writer request failed",
+                            status=response.status,
+                        )

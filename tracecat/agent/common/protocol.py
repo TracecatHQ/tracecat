@@ -37,7 +37,7 @@ class RuntimeInitPayload:
     mcp_auth_token: str  # JWT for MCP auth
     config: SandboxAgentConfig
     user_prompt: str
-    litellm_auth_token: str
+    llm_gateway_auth_token: str
 
     # Resolved tool definitions (orchestrator resolves action names → full definitions)
     allowed_actions: dict[str, MCPToolDefinition] | None = None
@@ -71,7 +71,7 @@ class RuntimeInitPayload:
             mcp_auth_token=data["mcp_auth_token"],
             config=config,
             user_prompt=data["user_prompt"],
-            litellm_auth_token=data["litellm_auth_token"],
+            llm_gateway_auth_token=data["llm_gateway_auth_token"],
             allowed_actions=allowed_actions,
             sdk_session_id=data.get("sdk_session_id"),
             sdk_session_data=data.get("sdk_session_data"),
@@ -87,7 +87,7 @@ class RuntimeInitPayload:
             "mcp_auth_token": self.mcp_auth_token,
             "config": self.config.to_dict(),
             "user_prompt": self.user_prompt,
-            "litellm_auth_token": self.litellm_auth_token,
+            "llm_gateway_auth_token": self.llm_gateway_auth_token,
             "is_approval_continuation": self.is_approval_continuation,
             "is_fork": self.is_fork,
         }

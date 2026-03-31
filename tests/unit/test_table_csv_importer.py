@@ -368,7 +368,7 @@ class TestCSVSchemaInferer:
         assert type_map["active"] is SqlType.BOOLEAN
         assert type_map["score"] is SqlType.NUMERIC
         assert type_map["joined"] is SqlType.TIMESTAMPTZ
-        assert type_map["identifier"] is SqlType.UUID
+        assert type_map["identifier"] is SqlType.TEXT
         assert type_map["metadata"] is SqlType.JSONB
 
     def test_handles_duplicate_and_invalid_headers(self) -> None:
