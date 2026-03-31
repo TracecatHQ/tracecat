@@ -3,6 +3,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowUpRight, ShieldCheck } from "lucide-react"
 import {
+  type CaseDropdownDefinitionRead,
+  type CaseFieldReadMinimal,
   caseDropdownsUpdateDropdownDefinition,
   casesUpdateField,
 } from "@/client"
@@ -67,7 +69,34 @@ export function ClosureRequirementsView() {
         requestBody: { required_on_closure: requiredOnClosure },
       })
     },
-    onSuccess: () => {
+    onMutate: async ({ fieldId, requiredOnClosure }) => {
+      await queryClient.cancelQueries({
+        queryKey: ["case-fields", workspaceId],
+      })
+      const previousFields = queryClient.getQueryData<CaseFieldReadMinimal[]>([
+        "case-fields",
+        workspaceId,
+      ])
+      queryClient.setQueryData<CaseFieldReadMinimal[]>(
+        ["case-fields", workspaceId],
+        (old) =>
+          old?.map((f) =>
+            f.id === fieldId
+              ? { ...f, required_on_closure: requiredOnClosure }
+              : f
+          )
+      )
+      return { previousFields }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousFields) {
+        queryClient.setQueryData(
+          ["case-fields", workspaceId],
+          context.previousFields
+        )
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["case-fields", workspaceId] })
     },
   })
@@ -86,7 +115,33 @@ export function ClosureRequirementsView() {
         requestBody: { required_on_closure: requiredOnClosure },
       })
     },
-    onSuccess: () => {
+    onMutate: async ({ definitionId, requiredOnClosure }) => {
+      await queryClient.cancelQueries({
+        queryKey: ["case-dropdown-definitions", workspaceId],
+      })
+      const previousDropdowns = queryClient.getQueryData<
+        CaseDropdownDefinitionRead[]
+      >(["case-dropdown-definitions", workspaceId])
+      queryClient.setQueryData<CaseDropdownDefinitionRead[]>(
+        ["case-dropdown-definitions", workspaceId],
+        (old) =>
+          old?.map((d) =>
+            d.id === definitionId
+              ? { ...d, required_on_closure: requiredOnClosure }
+              : d
+          )
+      )
+      return { previousDropdowns }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousDropdowns) {
+        queryClient.setQueryData(
+          ["case-dropdown-definitions", workspaceId],
+          context.previousDropdowns
+        )
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: ["case-dropdown-definitions", workspaceId],
       })

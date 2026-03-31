@@ -77,6 +77,7 @@ from tracecat.cases.schemas import (
     TaskStatusChangedEvent,
     TaskWorkflowChangedEvent,
     UpdatedEvent,
+    _normalize_case_field_read_type,
 )
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
@@ -1257,6 +1258,17 @@ class CaseFieldsService(CustomFieldsService):
         # Build updated field definition
         # Preserve the type from current schema, or use params.type if provided
         field_type = params.type.value if params.type else current_field_def.get("type")
+
+        # If field_type is still unknown (field exists physically but has no
+        # schema entry), resolve from the physical column so that
+        # metadata-only updates (e.g. required_on_closure) are not silently
+        # dropped.
+        if field_type is None:
+            for col in await self.editor.get_columns():
+                if col["name"] == field_id:
+                    field_type = _normalize_case_field_read_type(col["type"]).value
+                    break
+
         if field_type:
             new_field_def: dict[str, Any] = {"type": field_type}
 
