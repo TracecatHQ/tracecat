@@ -24,6 +24,7 @@ from tracecat.agent.llm_proxy.anthropic_compat import (
     truncate_tool_name,
 )
 from tracecat.agent.llm_proxy.requests import (
+    clamp_max_tokens,
     filter_allowed_model_settings,
     messages_request_to_anthropic_payload,
     messages_request_to_openai_payload,
@@ -205,6 +206,7 @@ class AnthropicAdapter:
             outbound_payload.update(allowed)
         outbound_payload["stream"] = True
         outbound_payload["model"] = model
+        clamp_max_tokens(outbound_payload)
 
         async with client.stream(
             "POST",

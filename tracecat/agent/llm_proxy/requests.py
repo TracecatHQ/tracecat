@@ -74,6 +74,24 @@ def _allowed_model_setting_keys(provider: str | None) -> set[str]:
     return keys
 
 
+_TOKEN_LIMIT_KEYS = {"max_tokens", "max_completion_tokens"}
+
+
+def clamp_max_tokens(payload: dict[str, Any]) -> None:
+    """Clamp max_tokens / max_completion_tokens to at least 1 in-place.
+
+    The Claude Code CLI computes ``max_tokens = context_window - prompt_tokens``
+    before sending the request.  When the conversation context exceeds the
+    window the SDK may send a negative value which upstream providers reject.
+    Clamping to 1 lets the provider return a normal "context too long" error
+    instead of a confusing "max_tokens must be at least 1" 400.
+    """
+    for key in _TOKEN_LIMIT_KEYS:
+        if (val := payload.get(key)) is not None and isinstance(val, (int, float)):
+            if val < 1:
+                payload[key] = 1
+
+
 def filter_allowed_model_settings(
     model_settings: dict[str, Any],
     *,
@@ -81,7 +99,11 @@ def filter_allowed_model_settings(
 ) -> dict[str, Any]:
     """Keep only model settings supported by the selected provider family."""
     allowed_keys = _allowed_model_setting_keys(provider)
-    return {key: value for key, value in model_settings.items() if key in allowed_keys}
+    filtered = {
+        key: value for key, value in model_settings.items() if key in allowed_keys
+    }
+    clamp_max_tokens(filtered)
+    return filtered
 
 
 def _safe_dict(value: Any) -> dict[str, Any]:
