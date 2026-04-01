@@ -9,7 +9,6 @@ from temporalio.exceptions import TemporalError
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.contexts import with_temporal_workspace_id
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleUUID, WorkflowID
@@ -84,28 +83,27 @@ async def create_schedule(
             temporalio.client.ScheduleIntervalSpec(every=every, offset=offset)
         ]
 
-    with with_temporal_workspace_id(role.workspace_id):
-        return await client.create_schedule(
-            id=temporal_schedule_id,
-            schedule=temporalio.client.Schedule(
-                action=temporalio.client.ScheduleActionStartWorkflow(
-                    DSLWorkflow.run,
-                    # Scheduled workflow only needs to know the workflow ID
-                    # and the role of the user who scheduled it. Everything else
-                    # is pulled inside the workflow itself.
-                    # Pass the native ScheduleUUID (UUID) - it will be serialized as UUID string
-                    DSLRunArgs(role=role, wf_id=workflow_id, schedule_id=schedule_uuid),
-                    id=workflow_schedule_id,
-                    task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-                    typed_search_attributes=build_schedule_search_attributes(role),
-                    **schedule_kwargs,
-                ),
-                spec=temporalio.client.ScheduleSpec(**spec_kwargs),
-                policy=temporalio.client.SchedulePolicy(
-                    overlap=temporalio.client.ScheduleOverlapPolicy.ALLOW_ALL,
-                ),
+    return await client.create_schedule(
+        id=temporal_schedule_id,
+        schedule=temporalio.client.Schedule(
+            action=temporalio.client.ScheduleActionStartWorkflow(
+                DSLWorkflow.run,
+                # Scheduled workflow only needs to know the workflow ID
+                # and the role of the user who scheduled it. Everything else
+                # is pulled inside the workflow itself.
+                # Pass the native ScheduleUUID (UUID) - it will be serialized as UUID string
+                DSLRunArgs(role=role, wf_id=workflow_id, schedule_id=schedule_uuid),
+                id=workflow_schedule_id,
+                task_queue=config.TEMPORAL__CLUSTER_QUEUE,
+                typed_search_attributes=build_schedule_search_attributes(role),
+                **schedule_kwargs,
             ),
-        )
+            spec=temporalio.client.ScheduleSpec(**spec_kwargs),
+            policy=temporalio.client.SchedulePolicy(
+                overlap=temporalio.client.ScheduleOverlapPolicy.ALLOW_ALL,
+            ),
+        ),
+    )
 
 
 async def delete_schedule(schedule_id: AnyScheduleID) -> None:
@@ -207,5 +205,4 @@ async def update_schedule(
         return temporalio.client.ScheduleUpdate(schedule=input.description.schedule)
 
     handle = await _get_handle(schedule_id)
-    with with_temporal_workspace_id(role.workspace_id if role else None):
-        return await handle.update(_update_schedule)
+    return await handle.update(_update_schedule)
