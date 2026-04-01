@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+
 import pytest
 from temporalio.api.common.v1 import Payload
 from temporalio.converter import (
@@ -10,6 +12,7 @@ from temporalio.converter import (
 from tracecat import config
 from tracecat.contexts import with_temporal_workspace_id
 from tracecat.dsl._converter import get_data_converter
+from tracecat.temporal import codec as temporal_codec
 from tracecat.temporal.codec import (
     TemporalPayloadCodecError,
     get_payload_codec,
@@ -74,6 +77,49 @@ async def test_payload_codec_requires_explicit_workspace_scope(
         await codec.encode(
             [Payload(metadata={"encoding": b"json/plain"}, data=b'{"scope":"global"}')]
         )
+
+
+@pytest.mark.anyio
+async def test_payload_codec_retrieves_root_key_from_secret_arn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", True)
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", None)
+    monkeypatch.setattr(
+        config,
+        "TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:tracecat",
+    )
+
+    calls = 0
+
+    class SecretsManagerClient:
+        def get_secret_value(self, *, SecretId: str) -> dict[str, bytes]:
+            nonlocal calls
+            calls += 1
+            assert SecretId == config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN
+            return {"SecretBinary": base64.b64encode(b"unit-test-root-key")}
+
+    class Session:
+        def client(self, *, service_name: str) -> SecretsManagerClient:
+            assert service_name == "secretsmanager"
+            return SecretsManagerClient()
+
+    monkeypatch.setattr(temporal_codec.boto3.session, "Session", lambda: Session())
+
+    codec = get_payload_codec(compression_enabled=False)
+    assert codec is not None
+
+    payload = Payload(
+        metadata={"encoding": b"json/plain"},
+        data=b'{"secret":"sensitive"}',
+    )
+    with with_temporal_workspace_id("workspace-123"):
+        encoded = await codec.encode([payload])
+
+    decoded = await codec.decode(encoded)
+    assert decoded[0].data == payload.data
+    assert calls == 1
 
 
 def test_get_data_converter_switches_failure_converter_with_encryption(
