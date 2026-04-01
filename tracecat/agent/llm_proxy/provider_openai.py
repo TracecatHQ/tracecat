@@ -146,6 +146,11 @@ def _normalize_openai_unsupported_params(
 def _normalize_custom_model_provider_payload(payload: dict[str, Any]) -> None:
     if "max_completion_tokens" in payload and "max_tokens" not in payload:
         payload["max_tokens"] = payload.pop("max_completion_tokens")
+    # parallel_tool_calls is not part of the OpenAI spec and causes LiteLLM to
+    # generate a malformed tool_choice when routing to Bedrock (missing the
+    # required `type` field).  Drop it for custom providers since we cannot
+    # control how the downstream proxy translates it.
+    payload.pop("parallel_tool_calls", None)
 
 
 def _normalize_openai_payload(
