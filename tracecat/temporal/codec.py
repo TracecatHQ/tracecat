@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import os
 import time
@@ -206,48 +207,54 @@ class TemporalEncryptionKeyring:
     def _coerce_root_secret(self, secret: str) -> bytes:
         return secret.encode("utf-8")
 
-    def _retrieve_root_secret(self) -> bytes:
+    def _retrieve_root_secret_from_aws(self, arn: str) -> bytes:
+        """Retrieve the Temporal payload root secret from AWS Secrets Manager."""
+        try:
+            session = boto3.session.Session()
+            client = session.client(service_name="secretsmanager")
+            response = client.get_secret_value(SecretId=arn)
+        except ClientError as e:
+            raise TemporalPayloadCodecError(
+                "Failed to retrieve Temporal payload encryption root key"
+            ) from e
+
+        match response:
+            case {"SecretString": str(secret_string)} if secret_string:
+                return self._coerce_root_secret(secret_string)
+            case {"SecretBinary": bytes(secret_binary)}:
+                if secret_string := base64.b64decode(secret_binary).decode("utf-8"):
+                    return self._coerce_root_secret(secret_string)
+
+        raise TemporalPayloadCodecError(
+            "Temporal payload encryption root key secret is empty"
+        )
+
+    async def _retrieve_root_secret(self) -> bytes:
         global _ROOT_SECRET_CACHE
         with _ROOT_SECRET_LOCK:
             if _ROOT_SECRET_CACHE is not None:
                 return _ROOT_SECRET_CACHE
 
-            secret = config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY
-            if secret:
-                _ROOT_SECRET_CACHE = self._coerce_root_secret(secret)
+        if secret := config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY:
+            secret_bytes = self._coerce_root_secret(secret)
+            with _ROOT_SECRET_LOCK:
+                if _ROOT_SECRET_CACHE is None:
+                    _ROOT_SECRET_CACHE = secret_bytes
                 return _ROOT_SECRET_CACHE
 
-            if not config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN:
-                raise TemporalPayloadCodecError(
-                    "Temporal payload encryption is enabled but no root key is configured"
-                )
+        if not (arn := config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN):
+            raise TemporalPayloadCodecError(
+                "Temporal payload encryption is enabled but no root key is configured"
+            )
 
-            try:
-                session = boto3.session.Session()
-                client = session.client(service_name="secretsmanager")
-                response = client.get_secret_value(
-                    SecretId=config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN
-                )
-            except ClientError as e:
-                raise TemporalPayloadCodecError(
-                    "Failed to retrieve Temporal payload encryption root key"
-                ) from e
-
-            secret_string = response.get("SecretString")
-            if not secret_string and response.get("SecretBinary"):
-                secret_string = base64.b64decode(response["SecretBinary"]).decode(
-                    "utf-8"
-                )
-            if not secret_string:
-                raise TemporalPayloadCodecError(
-                    "Temporal payload encryption root key secret is empty"
-                )
-
-            _ROOT_SECRET_CACHE = self._coerce_root_secret(secret_string)
+        secret_bytes = await asyncio.to_thread(self._retrieve_root_secret_from_aws, arn)
+        with _ROOT_SECRET_LOCK:
+            if _ROOT_SECRET_CACHE is None:
+                _ROOT_SECRET_CACHE = secret_bytes
             return _ROOT_SECRET_CACHE
 
-    def _derive_key(self, workspace_id: str, key_version: str) -> bytes:
-        root_secret = self._retrieve_root_secret()
+    async def _derive_key(self, workspace_id: str, key_version: str) -> bytes:
+        root_secret = await self._retrieve_root_secret()
         salt = f"tracecat-temporal-payload:{key_version}".encode()
         info = workspace_id.encode("utf-8")
         hkdf = HKDF(
@@ -258,7 +265,7 @@ class TemporalEncryptionKeyring:
         )
         return hkdf.derive(root_secret)
 
-    def get_key(self, workspace_id: str, key_version: str) -> bytes:
+    async def get_key(self, workspace_id: str, key_version: str) -> bytes:
         cache_key = (workspace_id, key_version)
         max_items, ttl_seconds = self._cache_settings()
         now = time.monotonic()
@@ -270,7 +277,16 @@ class TemporalEncryptionKeyring:
                     return key
                 self._cache.pop(cache_key, None)
 
-            key = self._derive_key(workspace_id, key_version)
+        key = await self._derive_key(workspace_id, key_version)
+        now = time.monotonic()
+        with self._lock:
+            if cache_entry := self._cache.get(cache_key):
+                cached_key, expires_at = cache_entry
+                if expires_at > now:
+                    self._cache.move_to_end(cache_key)
+                    return cached_key
+                self._cache.pop(cache_key, None)
+
             self._cache[cache_key] = (key, now + ttl_seconds)
             while len(self._cache) > max_items:
                 self._cache.popitem(last=False)
@@ -313,7 +329,7 @@ class EncryptionPayloadCodec(PayloadCodec):
 
         workspace_id = self._resolve_workspace_scope()
         key_version = config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION
-        aesgcm = AESGCM(self.keyring.get_key(workspace_id, key_version))
+        aesgcm = AESGCM(await self.keyring.get_key(workspace_id, key_version))
         result: list[Payload] = []
         async for payload in cooperative(payloads):
             encoding = payload.metadata.get("encoding", b"")
@@ -361,7 +377,7 @@ class EncryptionPayloadCodec(PayloadCodec):
                     "Encrypted Temporal payload is missing its nonce"
                 )
 
-            aesgcm = AESGCM(self.keyring.get_key(workspace_id, key_version))
+            aesgcm = AESGCM(await self.keyring.get_key(workspace_id, key_version))
             aad = b"|".join((workspace_id.encode("utf-8"), key_version.encode("utf-8")))
             try:
                 plaintext = aesgcm.decrypt(
