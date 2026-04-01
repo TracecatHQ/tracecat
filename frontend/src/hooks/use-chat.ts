@@ -6,7 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { DefaultChatTransport, type UIMessage } from "ai"
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import {
   type AgentSessionCreate,
   type AgentSessionEntity,
@@ -452,7 +452,7 @@ export function useVercelChat({
   return {
     ...chat,
     lastError,
-    clearError: () => setLastError(null),
+    clearError: useCallback(() => setLastError(null), []),
   }
 }
 
