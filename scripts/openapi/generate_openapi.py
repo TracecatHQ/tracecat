@@ -7,6 +7,14 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+# Set env vars BEFORE any tracecat imports.  `tracecat.config` evaluates
+# module-level constants (e.g. TRACECAT__AUTH_TYPES) at import time, so the
+# environment must already contain the desired values by then.
+os.environ["TRACECAT__AUTH_TYPES"] = "basic,oidc"
+os.environ["OIDC_ISSUER"] = "https://issuer.example.com"
+os.environ["OIDC_CLIENT_ID"] = "openapi-client"
+os.environ["OIDC_CLIENT_SECRET"] = "openapi-client-secret"
+
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -48,10 +56,12 @@ class _OpenAPIOpenIDStub(BaseOAuth2[dict[str, str]]):
 
 def main() -> None:
     """Generate OpenAPI spec and write to stdout or file."""
-    os.environ["TRACECAT__AUTH_TYPES"] = "basic,oidc"
-    os.environ["OIDC_ISSUER"] = "https://issuer.example.com"
-    os.environ["OIDC_CLIENT_ID"] = "openapi-client"
-    os.environ["OIDC_CLIENT_SECRET"] = "openapi-client-secret"
+    # Defence-in-depth: if config was already imported (e.g. via logger),
+    # force the cached constant to include OIDC so the OAuth router mounts.
+    from tracecat import config
+    from tracecat.auth.enums import AuthType
+
+    config.TRACECAT__AUTH_TYPES = {AuthType.BASIC, AuthType.OIDC}
 
     with patch("tracecat.auth.oidc.OpenID", _OpenAPIOpenIDStub):
         from tracecat.api.app import app

@@ -76,6 +76,15 @@ TRACECAT__PUBLIC_API_URL = os.environ.get(
 TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
+TRACECAT__LOG_REDACTION_HMAC_KEY = (
+    os.environ.get("TRACECAT__LOG_REDACTION_HMAC_KEY") or None
+)
+TRACECAT__LOG_REDACTION_HMAC_KEY__ARN = (
+    os.environ.get("TRACECAT__LOG_REDACTION_HMAC_KEY__ARN") or None
+)
+TRACECAT__UNSAFE_ENABLE_VERBOSE_LOG_PAYLOADS = os.environ.get(
+    "TRACECAT__UNSAFE_ENABLE_VERBOSE_LOG_PAYLOADS", ""
+).lower() in ("true", "1")
 
 TRACECAT__LOOP_MAX_BATCH_SIZE = int(
     os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZE") or 64

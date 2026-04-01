@@ -1,6 +1,5 @@
 "use client"
 
-import { authOauthOidcDatabaseAuthorize } from "@/client"
 import {
   sanitizeReturnUrl,
   serializeClearPostAuthReturnUrlCookie,
@@ -17,6 +16,14 @@ export function setPostAuthReturnUrlCookie(returnUrl?: string | null): void {
 
 export async function startOidcLogin(returnUrl?: string | null): Promise<void> {
   setPostAuthReturnUrlCookie(returnUrl)
-  const { authorization_url } = await authOauthOidcDatabaseAuthorize()
+  const response = await fetch("/api/auth/oauth/authorize", {
+    credentials: "include",
+  })
+  if (!response.ok) {
+    throw new Error(`OIDC login request failed: ${response.status}`)
+  }
+  const { authorization_url } = (await response.json()) as {
+    authorization_url: string
+  }
   window.location.href = authorization_url
 }
