@@ -122,12 +122,18 @@ class ExecutorActivities:
 
         heartbeat_interval = config.TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL
 
+        # Run a background heartbeat task for the full activity lifetime
+        # (including tenacity backoff sleeps) so Temporal can detect a dead
+        # worker without waiting for start_to_close_timeout.
+        heartbeat_task: asyncio.Task[None] | None = None
+        if heartbeat_interval > 0:
+            activity.heartbeat(f"{action_name} ({task.ref}) starting")
+            heartbeat_task = asyncio.create_task(
+                _heartbeat_loop(heartbeat_interval, task.ref, action_name)
+            )
+
         try:
             backend = get_executor_backend()
-
-            # Signal that the activity is alive before entering the retry loop
-            if heartbeat_interval > 0:
-                activity.heartbeat(f"{action_name} ({task.ref}) starting")
 
             async for attempt_manager in AsyncRetrying(
                 retry=retry_if_exception_type(RateLimitExceeded),
@@ -139,25 +145,9 @@ class ExecutorActivities:
                         "Begin action attempt",
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
-
-                    # Run a background heartbeat task during dispatch so Temporal
-                    # can detect a dead worker without waiting for start_to_close_timeout.
-                    heartbeat_task: asyncio.Task[None] | None = None
-                    if heartbeat_interval > 0:
-                        heartbeat_task = asyncio.create_task(
-                            _heartbeat_loop(heartbeat_interval, task.ref, action_name)
-                        )
-                    try:
-                        result = await dispatch_action(
-                            backend=backend, input=materialized_input
-                        )
-                    finally:
-                        if heartbeat_task is not None:
-                            heartbeat_task.cancel()
-                            try:
-                                await heartbeat_task
-                            except asyncio.CancelledError:
-                                pass
+                    result = await dispatch_action(
+                        backend=backend, input=materialized_input
+                    )
 
                     if heartbeat_interval > 0:
                         activity.heartbeat(
@@ -275,6 +265,13 @@ class ExecutorActivities:
             raise ApplicationError(
                 err_msg, err_info, type=kind, non_retryable=True
             ) from e
+        finally:
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
 
         # Unreachable: AsyncRetrying either returns in the loop or raises RetryError
         # (caught by Exception handler above) when retries are exhausted
