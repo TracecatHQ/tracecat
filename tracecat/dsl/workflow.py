@@ -1714,6 +1714,11 @@ class DSLWorkflow:
             start_to_close_timeout=timedelta(
                 seconds=task.start_delay + task.retry_policy.timeout
             ),
+            heartbeat_timeout=timedelta(
+                seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT
+            )
+            if config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT > 0
+            else None,
             retry_policy=RetryPolicy(
                 maximum_attempts=task.retry_policy.max_attempts,
             ),

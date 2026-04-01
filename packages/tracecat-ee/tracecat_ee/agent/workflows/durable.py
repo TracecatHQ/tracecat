@@ -690,6 +690,11 @@ class DurableAgentWorkflow:
                     start_to_close_timeout=timedelta(
                         seconds=int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
                     ),
+                    heartbeat_timeout=timedelta(
+                        seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT
+                    )
+                    if config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT > 0
+                    else None,
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
                     priority=AGENT_TOOL_PRIORITY,
                 )

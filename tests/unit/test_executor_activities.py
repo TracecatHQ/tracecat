@@ -112,6 +112,7 @@ class TestExecuteActionActivity:
             ) as mock_materialize,
         ):
             mock_activity.info.return_value = MagicMock(attempt=1)
+            mock_activity.heartbeat = MagicMock()
             mock_backend.return_value = MagicMock()
             mock_dispatch.return_value = expected_result
             # Return the same exec_context to preserve the input
@@ -126,6 +127,8 @@ class TestExecuteActionActivity:
             mock_dispatch.assert_called_once_with(
                 backend=mock_backend.return_value, input=mock_run_action_input
             )
+            # Heartbeats sent at start and after completion
+            assert mock_activity.heartbeat.call_count >= 2
 
     @pytest.mark.anyio
     async def test_execution_error_raises_application_error(
