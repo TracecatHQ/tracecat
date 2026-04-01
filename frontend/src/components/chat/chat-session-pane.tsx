@@ -762,31 +762,24 @@ export function ChatSessionPane({
             {transformedMessages.map(({ id, role, parts }) => {
               // Track whether this message is the latest entry so we can keep its actions visible.
               const isLastMessage = id === messages[messages.length - 1].id
+              const sourceUrlParts = parts?.filter(
+                (part) => part.type === "source-url"
+              )
               return (
                 <div key={id} className="group relative">
                   {role === "assistant" &&
-                    parts &&
-                    parts.filter((part) => part.type === "source-url").length >
-                      0 && (
+                    sourceUrlParts &&
+                    sourceUrlParts.length > 0 && (
                       <Sources>
-                        <SourcesTrigger
-                          count={
-                            parts.filter((part) => part.type === "source-url")
-                              .length
-                          }
-                        />
-                        {parts
-                          .filter((part) => part.type === "source-url")
-                          .map((part, partIdx) => (
-                            <SourcesContent
-                              key={`${id}-${part.type}-${partIdx}`}
-                            >
-                              <Source
-                                href={"url" in part ? part.url : "#"}
-                                title={"url" in part ? part.url : "Source"}
-                              />
-                            </SourcesContent>
-                          ))}
+                        <SourcesTrigger count={sourceUrlParts.length} />
+                        {sourceUrlParts.map((part, partIdx) => (
+                          <SourcesContent key={`${id}-${part.type}-${partIdx}`}>
+                            <Source
+                              href={"url" in part ? part.url : "#"}
+                              title={"url" in part ? part.url : "Source"}
+                            />
+                          </SourcesContent>
+                        ))}
                       </Sources>
                     )}
 
