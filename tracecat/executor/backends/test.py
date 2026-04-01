@@ -198,7 +198,9 @@ class TestBackend(ExecutorBackend):
             action_name=action_name,
         )
 
-        flattened_secrets = secrets_manager.flatten_secrets(resolved_context.secrets)
+        flattened_secrets = secrets_manager.flatten_secrets(
+            resolved_context.execution_secrets or resolved_context.secrets
+        )
         secrets_token = registry_secrets.set_context(flattened_secrets)
 
         try:

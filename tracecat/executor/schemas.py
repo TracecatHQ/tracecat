@@ -138,7 +138,19 @@ class ResolvedContext(BaseModel):
     """
 
     secrets: dict[str, Any] = {}
-    """Pre-resolved secrets keyed by secret name."""
+    """Pre-resolved secrets keyed by secret name.
+
+    Used for expression evaluation (e.g. ``${{ SECRETS.aws.AWS_ROLE_ARN }}``).
+    Never mutated by host-side credential resolution.
+    """
+
+    execution_secrets: dict[str, Any] = {}
+    """Runtime-only secrets used for environment/registry injection.
+
+    For AWS actions this contains temporary STS credentials obtained by
+    assuming the customer role on the host before sandbox entry.  For all
+    other actions this is an identical deep-copy of ``secrets``.
+    """
 
     variables: dict[str, Any] = {}
     """Pre-resolved workspace variables keyed by variable name."""

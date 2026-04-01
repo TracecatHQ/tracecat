@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import tracecat_registry.integrations.aws_boto3 as aws_boto3
+from tracecat_registry import SecretNotFoundError
 
 
 def test_get_sync_temporary_credentials_uses_external_id_and_default_session_name() -> (
@@ -47,13 +48,15 @@ def test_get_sync_temporary_credentials_uses_external_id_and_default_session_nam
     assert creds["AccessKeyId"] == "access"
 
 
-def test_get_sync_session_uses_region_with_aws_profile() -> None:
+def test_get_sync_session_with_static_keys() -> None:
+    """Static AWS credentials produce a session without STS calls."""
     with (
         patch.object(
             aws_boto3.secrets,
             "get_or_default",
             side_effect=lambda key, default=None: {
-                "AWS_PROFILE": "customer-profile",
+                "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+                "AWS_SECRET_ACCESS_KEY": "secret_test",
                 "AWS_REGION": "us-east-1",
             }.get(key, default),
         ),
@@ -62,20 +65,61 @@ def test_get_sync_session_uses_region_with_aws_profile() -> None:
         aws_boto3.get_sync_session()
 
     session_cls.assert_called_once_with(
-        profile_name="customer-profile",
+        aws_access_key_id="AKIA_TEST",
+        aws_secret_access_key="secret_test",
         region_name="us-east-1",
     )
 
 
-@pytest.mark.anyio
-async def test_get_session_uses_region_with_aws_profile() -> None:
+def test_get_sync_session_with_session_token() -> None:
+    """Session credentials (key + secret + token) produce a session."""
     with (
         patch.object(
             aws_boto3.secrets,
             "get_or_default",
             side_effect=lambda key, default=None: {
-                "AWS_PROFILE": "customer-profile",
-                "AWS_REGION": "us-east-1",
+                "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+                "AWS_SECRET_ACCESS_KEY": "secret_test",
+                "AWS_SESSION_TOKEN": "token_test",
+                "AWS_REGION": "us-west-2",
+            }.get(key, default),
+        ),
+        patch.object(aws_boto3.boto3, "Session") as session_cls,
+    ):
+        aws_boto3.get_sync_session()
+
+    session_cls.assert_called_once_with(
+        aws_access_key_id="AKIA_TEST",
+        aws_secret_access_key="secret_test",
+        aws_session_token="token_test",
+        region_name="us-west-2",
+    )
+
+
+def test_get_sync_session_no_credentials_raises() -> None:
+    """Missing all credential types raises SecretNotFoundError."""
+    with (
+        patch.object(
+            aws_boto3.secrets,
+            "get_or_default",
+            return_value=None,
+        ),
+        pytest.raises(SecretNotFoundError, match="No AWS credentials found"),
+    ):
+        aws_boto3.get_sync_session()
+
+
+@pytest.mark.anyio
+async def test_get_session_with_static_keys() -> None:
+    """Static AWS credentials produce an async session."""
+    with (
+        patch.object(
+            aws_boto3.secrets,
+            "get_or_default",
+            side_effect=lambda key, default=None: {
+                "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+                "AWS_SECRET_ACCESS_KEY": "secret_test",
+                "AWS_REGION": "eu-west-1",
             }.get(key, default),
         ),
         patch.object(aws_boto3.aioboto3, "Session") as session_cls,
@@ -83,6 +127,7 @@ async def test_get_session_uses_region_with_aws_profile() -> None:
         await aws_boto3.get_session()
 
     session_cls.assert_called_once_with(
-        profile_name="customer-profile",
-        region_name="us-east-1",
+        aws_access_key_id="AKIA_TEST",
+        aws_secret_access_key="secret_test",
+        region_name="eu-west-1",
     )
