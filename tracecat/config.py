@@ -135,6 +135,21 @@ TRACECAT__EXECUTOR_QUEUE = os.environ.get(
 )
 """Task queue for the ExecutorWorker (Temporal activity queue)."""
 
+TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT = int(
+    os.environ.get("TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT") or 60
+)
+"""Heartbeat timeout in seconds for executor activities.
+
+If Temporal does not receive a heartbeat within this window, the activity
+is considered failed and can be retried on a healthy worker. Set to 0 to disable."""
+
+TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL = int(
+    os.environ.get("TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL") or 30
+)
+"""Interval in seconds between heartbeat signals sent by executor activities.
+
+Should be less than TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT (recommended: half)."""
+
 TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = os.environ.get(
     "TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR", "/tmp/tracecat/registry-cache"
 )
