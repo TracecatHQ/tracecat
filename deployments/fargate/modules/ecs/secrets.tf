@@ -321,7 +321,6 @@ locals {
 
   mcp_secrets = concat(
     local.tracecat_base_secrets,
-    local.oidc_client_id_secret,
-    local.oidc_client_secret_secret,
+    local.user_auth_secret_secret,
   )
 }
