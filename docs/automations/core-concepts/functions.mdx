@@ -3,8 +3,6 @@ title: "Functions"
 description: "In-line utility functions."
 ---
 
-import FunctionsReference from "/snippets/functions-reference.mdx";
-
 ## Overview
 
 Tracecat expressions can call built-in functions with the `FN.<name>(...)` syntax.
@@ -48,55 +46,7 @@ end_time: ${{ FN.to_isoformat(FN.now()) }}
 ```
 </CodeGroup>
 
-Deserialize or serialize JSON:
+## Related pages
 
-<CodeGroup>
-```yaml Expression
-parsed: ${{ FN.deserialize_json(TRIGGER.raw_json) }}
-serialized: ${{ FN.serialize_json({"status": "ok", "count": 3}) }}
-```
-
-```json Result
-{
-  "parsed": {
-    "status": "open",
-    "count": 3
-  },
-  "serialized": "{\"status\":\"ok\",\"count\":3}"
-}
-```
-</CodeGroup>
-
-Format rows into a Markdown table:
-
-<CodeGroup>
-```yaml Expression
-table: ${{ FN.to_markdown_table(ACTIONS.list_findings.result) }}
-```
-
-```json Result
-{
-  "table": "| id | severity |\\n| --- | --- |\\n| f-1 | high |\\n| f-2 | medium |"
-}
-```
-</CodeGroup>
-
-Count or reshape a small value:
-
-<CodeGroup>
-```yaml Expression
-count: ${{ FN.length(ACTIONS.gather_results.result) }}
-unique_tags: ${{ FN.unique(TRIGGER.tags) }}
-```
-
-```json Result
-{
-  "count": 3,
-  "unique_tags": ["auth", "critical"]
-}
-```
-</CodeGroup>
-
-This page is generated from `tracecat/expressions/functions.py`.
-
-<FunctionsReference />
+- See the [Functions cheatsheet](/cheatsheets/functions) for the full function reference and more examples.
+- See [Expressions](/automations/core-concepts/expressions) for expression syntax and contexts.

@@ -92,6 +92,9 @@ gen-mcp-docs:
 gen-tool-docs:
 	uv run python scripts/generate_tool_docs.py
 
+gen-functions-docs:
+	uv run python scripts/generate_functions_docs.py
+
 # Update version number. If no version is provided, increments patch version.
 update-version *after='':
 	@-./scripts/update-version.sh {{after}}
