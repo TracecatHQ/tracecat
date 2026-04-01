@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -116,7 +117,7 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
 ) -> None:
     from tracecat.agent import executor_worker
 
-    captured: dict[str, int | str] = {}
+    captured: dict[str, int | str | timedelta] = {}
 
     class _FakeWorker:
         def __init__(
@@ -129,11 +130,13 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
             max_concurrent_activities: int,
             disable_eager_activity_execution: bool,
             activity_executor: ThreadPoolExecutor,
+            graceful_shutdown_timeout: timedelta,
         ) -> None:
             del client, activities, workflow_runner, disable_eager_activity_execution
             captured["task_queue"] = task_queue
             captured["max_concurrent_activities"] = max_concurrent_activities
             captured["threadpool_max_workers"] = activity_executor._max_workers
+            captured["graceful_shutdown_timeout"] = graceful_shutdown_timeout
 
         async def __aenter__(self) -> _FakeWorker:
             executor_worker.interrupt_event.set()
@@ -168,6 +171,7 @@ async def test_agent_executor_worker_treats_empty_numeric_env_vars_as_defaults(
         "task_queue": "test-agent-executor-queue",
         "max_concurrent_activities": 1,
         "threadpool_max_workers": 100,
+        "graceful_shutdown_timeout": timedelta(minutes=5),
     }
 
 

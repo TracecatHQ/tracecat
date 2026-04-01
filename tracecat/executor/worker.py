@@ -42,6 +42,7 @@ import dataclasses
 import os
 import signal
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.worker import Worker
@@ -153,6 +154,7 @@ async def main() -> None:
                 activity_executor=executor,
                 max_concurrent_activities=max_concurrent,
                 workflow_runner=new_sandbox_runner(),
+                graceful_shutdown_timeout=timedelta(minutes=5),
             ):
                 logger.info(
                     "ExecutorWorker started, ctrl+c to exit",

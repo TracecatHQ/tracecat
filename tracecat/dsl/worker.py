@@ -4,6 +4,7 @@ import os
 import signal
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.worker import Worker
@@ -156,6 +157,7 @@ async def main() -> None:
             interceptors=interceptors,
             disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
             activity_executor=executor,
+            graceful_shutdown_timeout=timedelta(seconds=30),
         ):
             logger.info(
                 "Worker started, ctrl+c to exit",
