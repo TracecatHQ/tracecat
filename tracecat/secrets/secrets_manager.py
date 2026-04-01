@@ -116,9 +116,12 @@ def _should_inject_aws_external_id(secrets: dict[str, Any]) -> bool:
 
 
 def _inject_runtime_aws_external_id(secrets: dict[str, Any]) -> None:
+    """Inject workspace-scoped AWS external ID into secrets when AWS_ROLE_ARN is present.
+
+    Always overwrites any existing value to ensure the external ID matches the
+    current workspace context.
+    """
     if not _should_inject_aws_external_id(secrets):
-        return
-    if _AWS_EXTERNAL_ID_SECRET_KEY in secrets:
         return
     if not (role := ctx_role.get()) or role.workspace_id is None:
         return

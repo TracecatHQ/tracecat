@@ -37,8 +37,8 @@ s3_secret = RegistrySecret(
     optional_keys=[
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
         "AWS_REGION",
-        "AWS_PROFILE",
         "AWS_ROLE_ARN",
     ],
     optional=True,  # Might be Minio etc.
@@ -48,12 +48,11 @@ s3_secret = RegistrySecret(
 - name: `amazon_s3`
 - optional_keys:
     Either:
+        - `AWS_ROLE_ARN` (recommended; Tracecat assumes the role on the host)
+    Or:
         - `AWS_ACCESS_KEY_ID`
         - `AWS_SECRET_ACCESS_KEY`
-    Or:
-        - `AWS_PROFILE`
-    Or:
-        - `AWS_ROLE_ARN`
+        - `AWS_SESSION_TOKEN` (optional)
     And:
         - `AWS_REGION`
 

@@ -99,8 +99,8 @@ async def run_action_untrusted(
     task = input.task
     action_name = task.action
 
-    # Get pre-resolved secrets from resolved_context
-    secrets = resolved_context.secrets
+    # Use execution_secrets for runtime injection (has pre-assumed AWS creds)
+    secrets = resolved_context.execution_secrets or resolved_context.secrets
 
     log.info(
         "Run action (untrusted mode)",

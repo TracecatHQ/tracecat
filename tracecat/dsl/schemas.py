@@ -64,7 +64,10 @@ class TemplateExecutionContext(TypedDict):
     """Environment metadata about the workflow."""
 
     SECRETS: NotRequired[dict[str, Any]]
-    """Secrets context."""
+    """Raw secrets context for expression evaluation."""
+
+    EXECUTION_SECRETS: NotRequired[dict[str, Any]]
+    """Runtime secrets with pre-assumed AWS credentials for UDF injection."""
 
     VARS: NotRequired[dict[str, Any]]
     """Workspace variables."""
