@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime
 
@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import ROOT_STREAM, RunContext, StreamID
-from tracecat.identifiers import WorkspaceID
 from tracecat.interactions.schemas import InteractionContext
 
 __all__ = [
@@ -22,8 +21,6 @@ __all__ = [
     "ctx_session",
     "ctx_client_ip",
     "ctx_logical_time",
-    "ctx_temporal_workspace_id",
-    "with_temporal_workspace_id",
     "get_env",
 ]
 
@@ -42,10 +39,6 @@ ctx_session_id: ContextVar[uuid.UUID | None] = ContextVar("session-id", default=
 
 ctx_logical_time: ContextVar[datetime | None] = ContextVar("logical-time", default=None)
 """Current logical time = time_anchor + elapsed workflow time. Used by FN.now()."""
-ctx_temporal_workspace_id: ContextVar[str | None] = ContextVar(
-    "temporal-workspace-id", default=None
-)
-"""Explicit workspace scope override for Temporal payload encode/decode."""
 
 
 @asynccontextmanager
@@ -56,18 +49,6 @@ async def with_session(session: AsyncSession):
         yield
     finally:
         ctx_session.reset(token)
-
-
-@contextmanager
-def with_temporal_workspace_id(workspace_id: WorkspaceID | str | None):
-    """Temporarily override the workspace scope used for Temporal payload codecs."""
-    token = ctx_temporal_workspace_id.set(
-        None if workspace_id is None else str(workspace_id)
-    )
-    try:
-        yield
-    finally:
-        ctx_temporal_workspace_id.reset(token)
 
 
 def get_env() -> dict[str, str]:

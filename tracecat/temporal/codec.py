@@ -20,7 +20,7 @@ from temporalio.converter import PayloadCodec
 
 from tracecat import config
 from tracecat.concurrency import cooperative
-from tracecat.contexts import ctx_role, ctx_temporal_workspace_id
+from tracecat.contexts import ctx_role
 
 TRACECAT_TEMPORAL_ENCODING: Final[bytes] = b"binary/tracecat-aes256gcm"
 TRACECAT_TEMPORAL_GLOBAL_SCOPE: Final[str] = "__global__"
@@ -315,13 +315,15 @@ class EncryptionPayloadCodec(PayloadCodec):
 
     @staticmethod
     def _resolve_workspace_scope() -> str:
-        if workspace_id := ctx_temporal_workspace_id.get():
-            return workspace_id
+        """Resolve the workspace scope for payload encryption.
+
+        Uses ctx_role.workspace_id when set; falls back to
+        TRACECAT_TEMPORAL_GLOBAL_SCOPE for platform-scoped operations
+        (e.g. registry sync) where the role has no workspace.
+        """
         if (role := ctx_role.get()) and role.workspace_id is not None:
             return str(role.workspace_id)
-        raise TemporalPayloadCodecError(
-            "Temporal payload encryption requires an explicit workspace scope"
-        )
+        return TRACECAT_TEMPORAL_GLOBAL_SCOPE
 
     async def encode(self, payloads: Iterable[Payload]) -> list[Payload]:
         if not self.enabled:

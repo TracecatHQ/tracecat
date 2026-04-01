@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import uuid
 
 import pytest
 from temporalio.api.common.v1 import Payload
@@ -10,14 +11,17 @@ from temporalio.converter import (
 )
 
 from tracecat import config
-from tracecat.contexts import with_temporal_workspace_id
+from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
 from tracecat.dsl._converter import get_data_converter
 from tracecat.temporal import codec as temporal_codec
 from tracecat.temporal.codec import (
-    TemporalPayloadCodecError,
+    TRACECAT_TEMPORAL_GLOBAL_SCOPE,
     get_payload_codec,
     reset_temporal_payload_secret_cache,
 )
+
+WORKSPACE_ID = uuid.uuid4()
 
 
 @pytest.fixture(autouse=True)
@@ -29,6 +33,17 @@ def reset_temporal_crypto_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS", 3600)
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS", 128)
     reset_temporal_payload_secret_cache()
+
+
+def _set_workspace_role(workspace_id: uuid.UUID = WORKSPACE_ID):
+    """Set ctx_role with a workspace-scoped service role and return the token."""
+    return ctx_role.set(
+        Role(
+            type="service",
+            service_id="tracecat-service",
+            workspace_id=workspace_id,
+        )
+    )
 
 
 @pytest.mark.anyio
@@ -47,12 +62,15 @@ async def test_payload_codec_encrypts_and_decrypts_with_workspace_scope(
         data=b'{"secret":"sensitive"}',
     )
 
-    with with_temporal_workspace_id("workspace-123"):
+    token = _set_workspace_role()
+    try:
         encoded = await codec.encode([payload])
+    finally:
+        ctx_role.reset(token)
 
     encrypted = encoded[0]
     assert encrypted.metadata["encoding"] == b"binary/tracecat-aes256gcm"
-    assert encrypted.metadata["tracecat_workspace_id"] == b"workspace-123"
+    assert encrypted.metadata["tracecat_workspace_id"] == str(WORKSPACE_ID).encode()
     assert encrypted.data != payload.data
 
     decoded = await codec.decode(encoded)
@@ -61,9 +79,10 @@ async def test_payload_codec_encrypts_and_decrypts_with_workspace_scope(
 
 
 @pytest.mark.anyio
-async def test_payload_codec_requires_explicit_workspace_scope(
+async def test_payload_codec_falls_back_to_global_scope_without_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """When no workspace is set on the role, the codec uses the global scope."""
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", True)
     monkeypatch.setattr(
         config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", "unit-test-root-key"
@@ -71,12 +90,21 @@ async def test_payload_codec_requires_explicit_workspace_scope(
 
     codec = get_payload_codec(compression_enabled=False)
     assert codec is not None
-    with pytest.raises(
-        TemporalPayloadCodecError, match="requires an explicit workspace scope"
-    ):
-        await codec.encode(
+
+    # Role without workspace_id (platform-scoped)
+    token = ctx_role.set(Role(type="service", service_id="tracecat-service"))
+    try:
+        encoded = await codec.encode(
             [Payload(metadata={"encoding": b"json/plain"}, data=b'{"scope":"global"}')]
         )
+    finally:
+        ctx_role.reset(token)
+
+    encrypted = encoded[0]
+    assert (
+        encrypted.metadata["tracecat_workspace_id"]
+        == TRACECAT_TEMPORAL_GLOBAL_SCOPE.encode()
+    )
 
 
 @pytest.mark.anyio
@@ -114,8 +142,11 @@ async def test_payload_codec_retrieves_root_key_from_secret_arn(
         metadata={"encoding": b"json/plain"},
         data=b'{"secret":"sensitive"}',
     )
-    with with_temporal_workspace_id("workspace-123"):
+    token = _set_workspace_role()
+    try:
         encoded = await codec.encode([payload])
+    finally:
+        ctx_role.reset(token)
 
     decoded = await codec.decode(encoded)
     assert decoded[0].data == payload.data

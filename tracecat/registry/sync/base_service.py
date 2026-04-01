@@ -18,7 +18,7 @@ from temporalio.exceptions import ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
-from tracecat.contexts import ctx_role, with_temporal_workspace_id
+from tracecat.contexts import ctx_role
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
     RegistryActionValidationErrorInfo,
@@ -44,7 +44,6 @@ from tracecat.registry.versions.schemas import (
 )
 from tracecat.service import BaseService
 from tracecat.storage import blob
-from tracecat.temporal.codec import TRACECAT_TEMPORAL_GLOBAL_SCOPE
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -626,20 +625,17 @@ class BaseRegistrySyncService[
         )
 
         try:
-            # Registry sync is platform/org scoped rather than workspace scoped, so
-            # keep its encryption scope explicit instead of relying on implicit fallback.
-            with with_temporal_workspace_id(TRACECAT_TEMPORAL_GLOBAL_SCOPE):
-                workflow_result = await client.execute_workflow(
-                    RegistrySyncWorkflow.run,
-                    request,
-                    id=workflow_id,
-                    task_queue=config.TRACECAT__EXECUTOR_QUEUE,
-                    execution_timeout=timedelta(minutes=20),
-                    retry_policy=RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(seconds=5),
-                    ),
-                )
+            workflow_result = await client.execute_workflow(
+                RegistrySyncWorkflow.run,
+                request,
+                id=workflow_id,
+                task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+                execution_timeout=timedelta(minutes=20),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(seconds=5),
+                ),
+            )
         except WorkflowFailureError as exc:
             failure = exc.cause
             while isinstance(failure, BaseException):

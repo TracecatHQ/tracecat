@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -7,12 +9,15 @@ from google.protobuf.json_format import MessageToDict
 from temporalio.api.common.v1 import Payload, Payloads
 
 from tracecat import config
-from tracecat.contexts import with_temporal_workspace_id
+from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
 from tracecat.temporal.codec import (
     get_payload_codec,
     reset_temporal_payload_secret_cache,
 )
 from tracecat.temporal.router import router
+
+WORKSPACE_ID = uuid.uuid4()
 
 
 @pytest.fixture(autouse=True)
@@ -38,7 +43,14 @@ async def test_codec_router_decodes_encrypted_payloads(
     codec = get_payload_codec(compression_enabled=False)
     assert codec is not None
 
-    with with_temporal_workspace_id("workspace-123"):
+    token = ctx_role.set(
+        Role(
+            type="service",
+            service_id="tracecat-service",
+            workspace_id=WORKSPACE_ID,
+        )
+    )
+    try:
         encoded_payloads = await codec.encode(
             [
                 Payload(
@@ -47,6 +59,8 @@ async def test_codec_router_decodes_encrypted_payloads(
                 )
             ]
         )
+    finally:
+        ctx_role.reset(token)
 
     app = FastAPI()
     app.include_router(router)
