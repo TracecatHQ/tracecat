@@ -118,8 +118,8 @@ override-dependencies = [
 admin = ["tracecat-admin"]
 lint = [
     "basedpyright==1.37.1",
-    "types-aioboto3[sts,s3]==15.5.0",
-    "types-boto3[sts,s3]==1.42.25",
+    "types-aioboto3[sts,s3,secretsmanager]==15.5.0",
+    "types-boto3[sts,s3,secretsmanager]==1.42.25",
 ]
 dev = [
     "pre-commit==4.1.0",
