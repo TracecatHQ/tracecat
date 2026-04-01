@@ -107,7 +107,6 @@ from tracecat.integrations.router import (
     providers_router,
 )
 from tracecat.logger import logger
-from tracecat.mcp.oidc import router as mcp_oidc_router
 from tracecat.middleware import (
     AuthorizationCacheMiddleware,
     RequestLoggingMiddleware,
@@ -460,7 +459,6 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(integrations_router)
     app.include_router(providers_router)
     app.include_router(mcp_router)
-    app.include_router(mcp_oidc_router)
     app.include_router(feature_flags_router)
     app.include_router(vcs_router)
     # RBAC routers - user scopes + role listing + user role assignments are always included (OSS)

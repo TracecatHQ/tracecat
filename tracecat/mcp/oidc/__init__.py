@@ -14,5 +14,5 @@ from fastapi import APIRouter
 
 from tracecat.mcp.oidc.endpoints import router as _endpoints_router
 
-router = APIRouter(prefix="/mcp-oidc", tags=["mcp-oidc"], include_in_schema=False)
+router = APIRouter(prefix="/mcp-oidc", tags=["mcp-oidc"])
 router.include_router(_endpoints_router)
