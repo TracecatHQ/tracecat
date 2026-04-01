@@ -122,6 +122,8 @@ type ToolMentionState = ToolMentionToken & {
   activeIndex: number
 }
 
+const TOOL_ICON_PROPS = { className: "size-5 p-[3px]" } as const
+
 type ToolSuggestion = {
   value: string
   label: string
@@ -1202,9 +1204,7 @@ export function MessagePart({
           title={toolName}
           type={part.type}
           state={derivedState}
-          icon={getIcon(toolName, {
-            className: "size-5 p-[3px]",
-          })}
+          icon={getIcon(toolName, TOOL_ICON_PROPS)}
         />
         <ToolContent>
           <ToolInput input={part.input} />
@@ -1377,9 +1377,7 @@ function ApprovalRequestPart({
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2.5">
-                    {getIcon(actionId, {
-                      className: "size-5 p-[3px]",
-                    })}
+                    {getIcon(actionId, TOOL_ICON_PROPS)}
                     <p className="font-medium text-sm">{actionId}</p>
                     {getStatusBadge("approval-requested")}
                   </div>
