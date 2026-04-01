@@ -43,6 +43,13 @@
                 ]
               },
               {
+                "group": "Cheatsheets",
+                "pages": [
+                  "cheatsheets/functions",
+                  "cheatsheets/jsonpath"
+                ]
+              },
+              {
                 "group": "Core actions",
                 "pages": [
                   {
