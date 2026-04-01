@@ -23,6 +23,7 @@ import { motion } from "motion/react"
 import {
   type ChangeEvent,
   type KeyboardEvent,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -790,7 +791,7 @@ export function ChatSessionPane({
                     )}
 
                   {parts?.map((part, partIdx) => (
-                    <MessagePart
+                    <MemoizedMessagePart
                       key={`${id}-${part.type}-${partIdx}`}
                       part={part}
                       partIdx={partIdx}
@@ -1222,6 +1223,48 @@ export function MessagePart({
 
   return null
 }
+
+const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
+  if (
+    prev.partIdx !== next.partIdx ||
+    prev.id !== next.id ||
+    prev.role !== next.role ||
+    prev.status !== next.status ||
+    prev.isLastMessage !== next.isLastMessage ||
+    prev.onSubmitApprovals !== next.onSubmitApprovals
+  ) {
+    return false
+  }
+
+  const prevPart = prev.part
+  const nextPart = next.part
+
+  if (prevPart.type !== nextPart.type) {
+    return false
+  }
+
+  if (prevPart.type === "text" || prevPart.type === "reasoning") {
+    return prevPart.text === (nextPart as typeof prevPart).text
+  }
+
+  if (isToolUIPart(prevPart) && isToolUIPart(nextPart)) {
+    return (
+      prevPart.toolCallId === nextPart.toolCallId &&
+      prevPart.state === nextPart.state &&
+      prevPart.input === nextPart.input &&
+      prevPart.output === nextPart.output &&
+      ("errorText" in prevPart
+        ? (prevPart as { errorText?: string }).errorText
+        : undefined) ===
+        ("errorText" in nextPart
+          ? (nextPart as { errorText?: string }).errorText
+          : undefined)
+    )
+  }
+
+  return prevPart === nextPart
+})
+MemoizedMessagePart.displayName = "MessagePart"
 
 type DecisionState = {
   action: ApprovalDecision["action"] | undefined
