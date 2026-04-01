@@ -1275,9 +1275,14 @@ function ApprovalRequestPart({
   const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
   const [submitting, setSubmitting] = useState(false)
 
+  const approvalsKey = useMemo(
+    () => approvals.map((a) => a.tool_call_id).join(":"),
+    [approvals]
+  )
+
   useEffect(() => {
     setDecisions({})
-  }, [approvals.map((a) => a.tool_call_id).join(":")])
+  }, [approvalsKey])
 
   const readyToSubmit =
     approvals.length > 0 &&
