@@ -35,10 +35,7 @@ async def decode_codec_payloads(
 ) -> dict[str, Any]:
     payloads = Payloads()
     ParseDict(await request.json(), payloads)
-    decoded_payloads = await decode_payloads(
-        payloads.payloads,
-        compression_enabled=config.TRACECAT__CONTEXT_COMPRESSION_ENABLED,
-    )
+    decoded_payloads = await decode_payloads(payloads.payloads)
     logger.info(
         "Decoded Temporal codec payloads",
         namespace=x_namespace,

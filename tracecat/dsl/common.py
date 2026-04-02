@@ -1084,9 +1084,7 @@ class AgentActionMemo(BaseModel):
         data: dict[str, Any] = {}
         for key, value in memo.fields.items():
             try:
-                decoded_value = (
-                    await decode_payloads([value], compression_enabled=True)
-                )[0]
+                decoded_value = (await decode_payloads([value]))[0]
                 data[key] = _memo_payload_converter.from_payload(decoded_value)
             except Exception as e:
                 logger.warning(
@@ -1127,9 +1125,7 @@ class ChildWorkflowMemo(BaseModel):
         decoded_fields = dict(
             zip(
                 memo.fields,
-                await decode_payloads(
-                    list(memo.fields.values()), compression_enabled=True
-                ),
+                await decode_payloads(list(memo.fields.values())),
                 strict=False,
             )
         )

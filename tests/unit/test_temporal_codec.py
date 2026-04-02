@@ -24,6 +24,7 @@ from tracecat.temporal.codec import (
     EncryptionPayloadCodec,
     TemporalEncryptionKeyring,
     TemporalPayloadCodecError,
+    decode_payloads,
     get_payload_codec,
     reset_temporal_payload_secret_cache,
 )
@@ -455,33 +456,24 @@ async def test_compression_codec_disabled_is_passthrough() -> None:
 # --- CompositePayloadCodec / get_payload_codec factory tests ---
 
 
-def test_get_payload_codec_returns_none_when_nothing_enabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", False)
-    assert get_payload_codec(compression_enabled=False) is None
-
-
-def test_get_payload_codec_returns_composite_with_encryption_only(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _enable_encryption(monkeypatch)
+def test_get_payload_codec_always_returns_composite() -> None:
+    """get_payload_codec always includes both codecs for decode compatibility."""
     codec = get_payload_codec(compression_enabled=False)
-    assert isinstance(codec, CompositePayloadCodec)
-    assert len(codec.codecs) == 1
-    assert isinstance(codec.codecs[0], EncryptionPayloadCodec)
-
-
-def test_get_payload_codec_returns_composite_with_both(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _enable_encryption(monkeypatch)
-    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", True)
-    codec = get_payload_codec(compression_enabled=True)
     assert isinstance(codec, CompositePayloadCodec)
     assert len(codec.codecs) == 2
     assert isinstance(codec.codecs[0], CompressionPayloadCodec)
     assert isinstance(codec.codecs[1], EncryptionPayloadCodec)
+
+
+def test_get_payload_codec_compression_flag_controls_encode_only() -> None:
+    """compression_enabled=False disables encode but codec is still present for decode."""
+    codec = get_payload_codec(compression_enabled=False)
+    assert isinstance(codec, CompositePayloadCodec)
+    assert not codec.codecs[0].enabled  # type: ignore[union-attr]
+
+    codec_on = get_payload_codec(compression_enabled=True)
+    assert isinstance(codec_on, CompositePayloadCodec)
+    assert codec_on.codecs[0].enabled  # type: ignore[union-attr]
 
 
 @pytest.mark.anyio
@@ -509,3 +501,74 @@ async def test_composite_codec_compress_then_encrypt_roundtrip(
     decoded = await codec.decode(encoded)
     assert decoded[0].data == large_data
     assert decoded[0].metadata.get("encoding") == b"json/plain"
+
+
+# --- Decode-path regression tests (issues #4 and #5) ---
+
+
+@pytest.mark.anyio
+async def test_decode_payloads_decrypts_when_encryption_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Historical encrypted payloads are decoded even when encryption is disabled."""
+    _enable_encryption(monkeypatch)
+    codec = EncryptionPayloadCodec(enabled=True)
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=b'{"secret":"data"}')
+
+    token = _set_workspace_role()
+    try:
+        encrypted = await codec.encode([payload])
+    finally:
+        ctx_role.reset(token)
+
+    # Disable encryption — simulates config change / rollback
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", False)
+
+    result = await decode_payloads(encrypted)
+    assert result[0].data == payload.data
+    assert result[0].metadata["encoding"] == b"json/plain"
+
+
+@pytest.mark.anyio
+async def test_decode_payloads_decompresses_when_compression_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Historical compressed payloads are decoded even when compression is disabled."""
+    compress_codec = CompressionPayloadCodec(
+        threshold_bytes=1, algorithm="zstd", enabled=True
+    )
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=b'{"key":"value"}')
+    compressed = await compress_codec.encode([payload])
+    assert compressed[0].metadata["encoding"] == b"binary/zstd"
+
+    # Disable compression — simulates config change
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
+
+    result = await decode_payloads(compressed)
+    assert result[0].data == payload.data
+    assert result[0].metadata.get("encoding") == b"json/plain"
+
+
+@pytest.mark.anyio
+async def test_decode_payloads_handles_compressed_then_encrypted_when_both_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Historical compress+encrypt payloads are decoded when both flags are off."""
+    _enable_encryption(monkeypatch)
+    codec = get_payload_codec(compression_enabled=True)
+    large_data = b'{"key":"' + b"x" * 200 + b'"}'
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=large_data)
+
+    token = _set_workspace_role()
+    try:
+        encoded = await codec.encode([payload])
+    finally:
+        ctx_role.reset(token)
+
+    # Disable both — simulates full rollback
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", False)
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
+
+    result = await decode_payloads(encoded)
+    assert result[0].data == large_data
+    assert result[0].metadata.get("encoding") == b"json/plain"

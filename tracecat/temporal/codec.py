@@ -458,23 +458,25 @@ class CompositePayloadCodec(PayloadCodec):
         return current
 
 
-def get_payload_codec(*, compression_enabled: bool = False) -> PayloadCodec | None:
-    codecs: list[PayloadCodec] = []
-    if compression_enabled:
-        codecs.append(CompressionPayloadCodec())
-    if config.TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED:
-        codecs.append(EncryptionPayloadCodec())
-    if not codecs:
-        return None
-    return CompositePayloadCodec(codecs)
+def get_payload_codec(*, compression_enabled: bool = False) -> PayloadCodec:
+    """Build the payload codec chain.
+
+    Encode is gated by each codec's ``enabled`` flag (driven by config).
+    Decode always includes all codecs so historical payloads remain readable
+    regardless of current config — each codec's ``decode`` checks the encoding
+    marker and is a no-op for payloads it didn't produce.
+    """
+    return CompositePayloadCodec(
+        [
+            CompressionPayloadCodec(enabled=compression_enabled),
+            EncryptionPayloadCodec(),
+        ]
+    )
 
 
-async def decode_payloads(
-    payloads: Sequence[Payload], *, compression_enabled: bool = False
-) -> list[Payload]:
-    codec = get_payload_codec(compression_enabled=compression_enabled)
-    if codec is None:
-        return list(payloads)
+async def decode_payloads(payloads: Sequence[Payload]) -> list[Payload]:
+    """Decode payloads using all codecs, regardless of current config."""
+    codec = get_payload_codec(compression_enabled=True)
     return await codec.decode(payloads)
 
 
