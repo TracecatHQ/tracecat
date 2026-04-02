@@ -329,25 +329,26 @@ class TestWorkflowTagsService:
         assert retrieved_wf_tag.workflow_id == workflow_id
         assert retrieved_wf_tag.tag_id == tag.id
 
-    async def test_add_workflow_tag_duplicate_preserves_single_link(
+    async def test_add_workflow_tag_is_idempotent(
         self,
         workflow_tags_service: WorkflowTagsService,
         tags_service: TagsService,
         tag_create_params: TagCreate,
         workflow_id: WorkflowID,
     ) -> None:
-        """Duplicate adds should fail without creating an extra association."""
+        """Duplicate adds should return the same association without duplicates."""
         tag = await tags_service.create_tag(tag_create_params)
 
         first_link = await workflow_tags_service.add_workflow_tag(workflow_id, tag.id)
         assert first_link.workflow_id == workflow_id
         assert first_link.tag_id == tag.id
-        with pytest.raises(ValueError, match="already assigned"):
-            await workflow_tags_service.add_workflow_tag(workflow_id, tag.id)
+        second_link = await workflow_tags_service.add_workflow_tag(workflow_id, tag.id)
 
         workflow_tags = await workflow_tags_service.list_tags_for_workflow(workflow_id)
         assert len(workflow_tags) == 1
         assert workflow_tags[0].id == tag.id
+        assert second_link.workflow_id == workflow_id
+        assert second_link.tag_id == tag.id
 
     async def test_list_tags_for_workflow(
         self,
@@ -391,20 +392,6 @@ class TestWorkflowTagsService:
         # Verify tag was removed
         workflow_tags = await workflow_tags_service.list_tags_for_workflow(workflow_id)
         assert len(workflow_tags) == 0
-
-    async def test_add_workflow_tag_duplicate_raises_value_error(
-        self,
-        workflow_tags_service: WorkflowTagsService,
-        tags_service: TagsService,
-        tag_create_params: TagCreate,
-        workflow_id: WorkflowID,
-    ) -> None:
-        """Adding the same tag twice to a workflow should raise a conflict error."""
-        tag = await tags_service.create_tag(tag_create_params)
-        await workflow_tags_service.add_workflow_tag(workflow_id, tag.id)
-
-        with pytest.raises(ValueError, match="already assigned"):
-            await workflow_tags_service.add_workflow_tag(workflow_id, tag.id)
 
     async def test_list_tags_for_workflow_enforces_workspace_scope(
         self,

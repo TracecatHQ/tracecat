@@ -13,19 +13,16 @@ from tracecat.workflow.tags import router as workflow_tags_router
 
 
 @pytest.mark.anyio
-async def test_add_tag_conflict_on_duplicate_assignment(
+async def test_add_tag_is_idempotent_on_duplicate_assignment(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """POST /workflows/{workflow_id}/tags returns 409 on duplicate assignment."""
+    """POST /workflows/{workflow_id}/tags remains successful on duplicates."""
     workflow_id = uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa")
     tag_id = uuid.UUID("bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb")
 
     with patch.object(workflow_tags_router, "WorkflowTagsService") as mock_service_cls:
         mock_service = AsyncMock()
-        mock_service.add_workflow_tag.side_effect = ValueError(
-            "Tag already assigned to workflow"
-        )
         mock_service_cls.return_value = mock_service
 
         response = client.post(
@@ -34,8 +31,7 @@ async def test_add_tag_conflict_on_duplicate_assignment(
             json={"tag_id": str(tag_id)},
         )
 
-    assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json()["detail"] == "Tag already assigned to workflow"
+    assert response.status_code == status.HTTP_201_CREATED
 
 
 @pytest.mark.anyio

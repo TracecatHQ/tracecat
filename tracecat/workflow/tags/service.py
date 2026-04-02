@@ -80,8 +80,7 @@ class WorkflowTagsService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         wf_tag = result.scalar_one_or_none()
         if wf_tag is None:
-            await self.session.rollback()
-            raise ValueError("Tag already assigned to workflow")
+            wf_tag = await self.get_workflow_tag(wf_id, tag_id)
         await self.session.commit()
         return wf_tag
 
