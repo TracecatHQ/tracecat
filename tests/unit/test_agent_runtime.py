@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import orjson
 import pytest
 from claude_agent_sdk.types import (
     HookContext,
@@ -246,6 +247,166 @@ class TestClaudeAgentRuntimeRun:
 
         # Should have called send_stream_event
         mock_socket_writer.send_stream_event.assert_awaited()
+
+    @pytest.mark.anyio
+    async def test_emit_new_session_lines_persists_thinking_blocks(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test raw Claude session lines with thinking blocks are forwarded."""
+        monkeypatch.setattr(
+            "tracecat.agent.runtime.claude_code.runtime.Path.home",
+            lambda: tmp_path,
+        )
+
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        runtime._cwd = tmp_path / "claude-session-workdir"
+        runtime._sdk_session_id = "sess_123"
+
+        session_file = runtime._get_session_file_path(runtime._sdk_session_id)
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+        session_line = orjson.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "Analyzing the request.",
+                            "signature": "sig-123",
+                        }
+                    ]
+                },
+            }
+        ).decode()
+        session_file.write_text(f"{session_line}\n")
+
+        await runtime._emit_new_session_lines()
+
+        mock_socket_writer.send_session_line.assert_awaited_once_with(
+            "sess_123",
+            session_line,
+            internal=False,
+        )
+
+    @pytest.mark.anyio
+    async def test_emit_session_lines_detects_in_place_updates(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test that in-place line updates are re-emitted.
+
+        With extended thinking, the SDK rewrites JSONL lines as content blocks
+        arrive (e.g., thinking-only → thinking+text).  The runtime must detect
+        this and re-emit the updated line for persistence.
+        """
+        monkeypatch.setattr(
+            "tracecat.agent.runtime.claude_code.runtime.Path.home",
+            lambda: tmp_path,
+        )
+
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        runtime._cwd = tmp_path / "claude-session-workdir"
+        runtime._sdk_session_id = "sess_123"
+
+        session_file = runtime._get_session_file_path(runtime._sdk_session_id)
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Step 1: SDK writes thinking-only line
+        thinking_only = orjson.dumps(
+            {
+                "uuid": "msg-uuid-1",
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "Let me analyze this.",
+                            "signature": "sig-1",
+                        }
+                    ],
+                    "model": "claude-haiku-4-5-20251001",
+                },
+            }
+        ).decode()
+        session_file.write_text(f"{thinking_only}\n")
+
+        await runtime._emit_new_session_lines()
+        assert mock_socket_writer.send_session_line.await_count == 1
+
+        # Step 2: SDK rewrites the same line with thinking + text
+        thinking_and_text = orjson.dumps(
+            {
+                "uuid": "msg-uuid-1",
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "Let me analyze this.",
+                            "signature": "sig-1",
+                        },
+                        {
+                            "type": "text",
+                            "text": "Here is my analysis.",
+                        },
+                    ],
+                    "model": "claude-haiku-4-5-20251001",
+                    "stop_reason": "end_turn",
+                },
+            }
+        ).decode()
+        session_file.write_text(f"{thinking_and_text}\n")
+
+        await runtime._emit_new_session_lines()
+
+        # The updated line should be re-emitted (total 2 calls)
+        assert mock_socket_writer.send_session_line.await_count == 2
+        mock_socket_writer.send_session_line.assert_awaited_with(
+            "sess_123",
+            thinking_and_text,
+            internal=False,
+        )
+
+    @pytest.mark.anyio
+    async def test_emit_session_lines_skips_unchanged(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test that unchanged lines are not re-emitted on subsequent reads."""
+        monkeypatch.setattr(
+            "tracecat.agent.runtime.claude_code.runtime.Path.home",
+            lambda: tmp_path,
+        )
+
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        runtime._cwd = tmp_path / "claude-session-workdir"
+        runtime._sdk_session_id = "sess_123"
+
+        session_file = runtime._get_session_file_path(runtime._sdk_session_id)
+        session_file.parent.mkdir(parents=True, exist_ok=True)
+
+        line = orjson.dumps(
+            {
+                "uuid": "msg-1",
+                "type": "user",
+                "message": {"content": "hello"},
+            }
+        ).decode()
+        session_file.write_text(f"{line}\n")
+
+        await runtime._emit_new_session_lines()
+        assert mock_socket_writer.send_session_line.await_count == 1
+
+        # Read again — same content, should not re-emit
+        await runtime._emit_new_session_lines()
+        assert mock_socket_writer.send_session_line.await_count == 1
 
     @pytest.mark.anyio
     async def test_sets_skip_version_check_before_sdk_connect(

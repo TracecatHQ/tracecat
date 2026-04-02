@@ -81,11 +81,16 @@ class InputJsonDelta(TypedDict):
     partial_json: str
 
 
+class SignatureDelta(TypedDict):
+    type: Literal["signature_delta"]
+    signature: str
+
+
 class UnknownDelta(TypedDict):
     type: str
 
 
-Delta = TextDelta | ThinkingDelta | InputJsonDelta | UnknownDelta
+Delta = TextDelta | ThinkingDelta | SignatureDelta | InputJsonDelta | UnknownDelta
 
 
 class ContentBlockDeltaEvent(TypedDict):
@@ -208,6 +213,13 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
                 type=StreamEventType.THINKING_DELTA,
                 part_id=index,
                 thinking=delta.get("thinking", ""),
+            )
+        elif delta_type == "signature_delta":
+            # Signature deltas carry replay metadata only; they are not visible
+            # content and must not be treated as text.
+            return UnifiedStreamEvent(
+                type=StreamEventType.MESSAGE_START,
+                part_id=index,
             )
         elif delta_type == "input_json_delta":
             partial_json = delta.get("partial_json", "")

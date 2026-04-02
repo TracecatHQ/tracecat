@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Sequence
-from typing import cast
+from typing import Any, cast
 
 import sqlalchemy as sa
 from slugify import slugify
@@ -1037,8 +1037,7 @@ class AgentPresetService(BaseWorkspaceService):
         self, version: AgentPresetVersion
     ) -> AgentConfig:
         mcp_servers = await self._resolve_mcp_integrations(version.mcp_integrations)
-        # Only disable parallel tool calls if tools will be present
-        model_settings = {}
+        model_settings: dict[str, Any] = {"reasoning_effort": "medium"}
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
         return AgentConfig(

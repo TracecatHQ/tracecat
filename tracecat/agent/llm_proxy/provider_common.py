@@ -211,6 +211,63 @@ def anthropic_text_delta_event(index: int, text: str) -> AnthropicStreamEvent:
     )
 
 
+def anthropic_thinking_block(
+    *,
+    thinking: str = "",
+    signature: str = "",
+) -> dict[str, Any]:
+    """Build a canonical Anthropic-style thinking block."""
+    return {
+        "type": "thinking",
+        "thinking": thinking,
+        "signature": signature,
+    }
+
+
+def is_anthropic_thinking_block(block: Any) -> bool:
+    """Return True when the block is an Anthropic-style thinking block."""
+    return isinstance(block, dict) and block.get("type") == "thinking"
+
+
+def anthropic_thinking_block_start_event(index: int) -> AnthropicStreamEvent:
+    return AnthropicStreamEvent(
+        "content_block_start",
+        {
+            "type": "content_block_start",
+            "index": index,
+            "content_block": anthropic_thinking_block(),
+        },
+    )
+
+
+def anthropic_thinking_delta_event(index: int, text: str) -> AnthropicStreamEvent:
+    return AnthropicStreamEvent(
+        "content_block_delta",
+        {
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {
+                "type": "thinking_delta",
+                "thinking": text,
+            },
+        },
+    )
+
+
+def anthropic_signature_delta_event(index: int, signature: str) -> AnthropicStreamEvent:
+    return AnthropicStreamEvent(
+        "content_block_delta",
+        {
+            "type": "content_block_delta",
+            "index": index,
+            "delta": {
+                "type": "signature_delta",
+                "signature": signature,
+            },
+        },
+    )
+
+
 def anthropic_tool_block_start_event(
     *,
     index: int,

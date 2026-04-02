@@ -96,17 +96,66 @@ def _tool_arguments(arguments: Any) -> Any:
     return arguments
 
 
+def _google_thought_signature(part: dict[str, Any]) -> str:
+    signature = part.get("thoughtSignature")
+    if signature is None:
+        signature = part.get("signature")
+    if signature is None:
+        return ""
+    return str(signature)
+
+
+def _google_thought_part(
+    text: Any,
+    *,
+    signature: str = "",
+) -> dict[str, Any]:
+    part: dict[str, Any] = {"text": str(text), "thought": True}
+    if signature:
+        part["thoughtSignature"] = signature
+    return part
+
+
+def _google_function_call_part(
+    name: str,
+    arguments: Any,
+    *,
+    thought_signature: str = "",
+) -> dict[str, Any]:
+    part: dict[str, Any] = {
+        "functionCall": {
+            "name": name,
+            "args": _tool_arguments(arguments),
+        }
+    }
+    if thought_signature:
+        part["thoughtSignature"] = thought_signature
+    return part
+
+
 def _content_item_to_part(item: Any) -> dict[str, Any]:
     match item:
         case {"type": "text", "text": str(text)}:
             return _text_part(text)
         case {"type": "tool_use", "name": str(name), "input": arguments, **_rest}:
-            return {
-                "functionCall": {
-                    "name": name,
-                    "args": _tool_arguments(arguments),
-                }
-            }
+            thought_signature = ""
+            if isinstance(_rest.get("thoughtSignature"), str):
+                thought_signature = _rest["thoughtSignature"]
+            elif isinstance(_rest.get("signature"), str):
+                thought_signature = _rest["signature"]
+            return _google_function_call_part(
+                name,
+                arguments,
+                thought_signature=thought_signature,
+            )
+        case {"type": "thinking", **rest}:
+            text = str(rest["thinking"]) if rest.get("thinking") else ""
+            signature = ""
+            if isinstance(rest.get("signature"), str):
+                signature = rest["signature"]
+            elif isinstance(rest.get("thoughtSignature"), str):
+                signature = rest["thoughtSignature"]
+            return _google_thought_part(text, signature=signature)
         case {"type": "image_url", "image_url": {"url": str(url), **image_info}}:
             return _media_part_from_reference(
                 url,
@@ -141,12 +190,66 @@ def _content_item_to_part(item: Any) -> dict[str, Any]:
             return _text_part(item)
 
 
+def _anthropic_blocks_to_google_parts(
+    blocks: Sequence[Any],
+) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = []
+    pending_thought_signature = ""
+    index = 0
+    while index < len(blocks):
+        item = blocks[index]
+        next_item = blocks[index + 1] if index + 1 < len(blocks) else None
+        if not isinstance(item, dict):
+            parts.append(_text_part(item))
+            index += 1
+            continue
+
+        match item.get("type"):
+            case "thinking":
+                text = str(item.get("thinking", ""))
+                signature = _google_thought_signature(item)
+                next_is_tool_use = (
+                    isinstance(next_item, dict) and next_item.get("type") == "tool_use"
+                )
+                if next_is_tool_use:
+                    if text:
+                        parts.append(_google_thought_part(text))
+                    pending_thought_signature = signature
+                else:
+                    parts.append(_google_thought_part(text, signature=signature))
+                    pending_thought_signature = ""
+            case "tool_use":
+                tool_use_part = _content_item_to_part(item)
+                if pending_thought_signature:
+                    tool_use_part["thoughtSignature"] = pending_thought_signature
+                    pending_thought_signature = ""
+                parts.append(tool_use_part)
+            case _:
+                parts.append(_content_item_to_part(item))
+                pending_thought_signature = ""
+        index += 1
+
+    return parts
+
+
 def _anthropic_content_blocks_from_message(
     message: NormalizedMessage,
 ) -> list[Any] | None:
     blocks = message.metadata.get(ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY)
     if isinstance(blocks, list):
         return blocks
+    return None
+
+
+def _message_blocks_for_google(message: NormalizedMessage) -> list[Any] | None:
+    """Return Anthropic-style blocks when Google replay should preserve order."""
+    if blocks := _anthropic_content_blocks_from_message(message):
+        return blocks
+    if isinstance(message.content, list) and any(
+        isinstance(item, dict) and item.get("type") in {"thinking", "tool_use"}
+        for item in message.content
+    ):
+        return message.content
     return None
 
 
@@ -183,8 +286,8 @@ def _message_to_parts(message: NormalizedMessage) -> list[dict[str, Any]]:
             }
         ]
 
-    if anthropic_blocks := _anthropic_content_blocks_from_message(message):
-        return [_content_item_to_part(item) for item in anthropic_blocks]
+    if anthropic_blocks := _message_blocks_for_google(message):
+        return _anthropic_blocks_to_google_parts(anthropic_blocks)
 
     parts: list[dict[str, Any]] = []
     if isinstance(message.content, list):
@@ -456,22 +559,32 @@ def _response_format_to_generation_config(
     return generation_config
 
 
+def _is_gemini_3_model(model: str) -> bool:
+    """Return True for Gemini 3.x models (which use thinkingLevel)."""
+    name = model.lower().split("/")[-1]
+    return "gemini-3" in name
+
+
 def _thinking_config_from_reasoning_effort(
     reasoning_effort: str,
+    *,
+    model: str,
 ) -> dict[str, Any] | None:
+    """Build thinkingConfig for Gemini models.
+
+    Gemini 3.x uses thinkingLevel; Gemini 2.5 uses thinkingBudget.
+    The two are mutually exclusive.
+    """
     level = reasoning_effort.lower()
     if level not in {"minimal", "low", "medium", "high"}:
         return None
-    budget_map = {
-        "minimal": 1024,
-        "low": 1024,
-        "medium": 2048,
-        "high": 4096,
-    }
+    if _is_gemini_3_model(model):
+        return {"includeThoughts": True, "thinkingLevel": level.upper()}
     return {
         "includeThoughts": True,
-        "thinkingBudget": budget_map[level],
-        "thinkingLevel": level,
+        "thinkingBudget": {"minimal": 1024, "low": 1024, "medium": 2048, "high": 4096}[
+            level
+        ],
     }
 
 
@@ -499,7 +612,8 @@ def _generation_config_from_request(
 
     if reasoning_effort := settings.get("reasoning_effort"):
         if thinking_config := _thinking_config_from_reasoning_effort(
-            str(reasoning_effort)
+            str(reasoning_effort),
+            model=request.model,
         ):
             config["thinkingConfig"] = thinking_config
 
@@ -576,15 +690,61 @@ def _parse_google_response(
     parts = content.get("parts") or []
 
     text_parts: list[str] = []
+    content_blocks: list[dict[str, Any]] = []
     tool_calls: list[NormalizedToolCall] = []
+    reasoning_seen = False
+
+    def _promote_text_parts() -> None:
+        nonlocal text_parts
+        if not text_parts:
+            return
+        content_blocks.extend({"type": "text", "text": text} for text in text_parts)
+        text_parts = []
+
+    def _append_reasoning_block(
+        text: str,
+        *,
+        signature: str = "",
+    ) -> None:
+        nonlocal reasoning_seen
+        reasoning_seen = True
+        content_blocks.append(
+            {
+                "type": "thinking",
+                "thinking": text,
+                "signature": signature,
+            }
+        )
+
     for index, part in enumerate(parts):
         if not isinstance(part, dict):
+            if reasoning_seen:
+                content_blocks.append({"type": "text", "text": str(part)})
+            else:
+                text_parts.append(str(part))
             continue
-        if text := part.get("text"):
-            text_parts.append(str(text))
+
+        if part.get("thought") is True and "text" in part:
+            _promote_text_parts()
+            _append_reasoning_block(
+                str(part.get("text", "")),
+                signature=_google_thought_signature(part),
+            )
             continue
+
         function_call = part.get("functionCall") or part.get("function_call")
         if isinstance(function_call, dict):
+            thought_signature = _google_thought_signature(part)
+            if thought_signature:
+                _promote_text_parts()
+                if (
+                    content_blocks
+                    and content_blocks[-1].get("type") == "thinking"
+                    and not content_blocks[-1].get("signature")
+                ):
+                    content_blocks[-1]["signature"] = thought_signature
+                else:
+                    _append_reasoning_block("", signature=thought_signature)
             name = str(function_call.get("name", ""))
             arguments = _tool_arguments(
                 function_call.get("args") or function_call.get("arguments")
@@ -596,12 +756,40 @@ def _parse_google_response(
                     arguments=arguments,
                 )
             )
+            continue
+
+        if text := part.get("text"):
+            if part.get("thought") is True:
+                _promote_text_parts()
+                _append_reasoning_block(
+                    str(text),
+                    signature=_google_thought_signature(part),
+                )
+            elif reasoning_seen:
+                content_blocks.append({"type": "text", "text": str(text)})
+            else:
+                text_parts.append(str(text))
+            continue
+
+        if reasoning_seen:
+            content_blocks.append(dict(part))
+        else:
+            text_parts.append(str(part))
 
     usage_metadata = payload.get("usageMetadata") or {}
+    if reasoning_seen:
+        _promote_text_parts()
+        normalized_content: Any = content_blocks
+    elif len(text_parts) == 1:
+        normalized_content = text_parts[0]
+    elif text_parts:
+        normalized_content = text_parts
+    else:
+        normalized_content = None
     return NormalizedResponse(
         provider=provider,
         model=str(payload.get("model", "")),
-        content="\n".join(text_parts) if text_parts else None,
+        content=normalized_content,
         tool_calls=tuple(tool_calls),
         finish_reason=str(candidate.get("finishReason"))
         if candidate.get("finishReason")

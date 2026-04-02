@@ -65,6 +65,34 @@ def anthropic_request_to_openai_payload(
 
 _DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
 
+_REASONING_EFFORT_BUDGET: dict[str, int] = {
+    "minimal": 1024,
+    "low": 1024,
+    "medium": 2048,
+    "high": 4096,
+    "xhigh": 8192,
+}
+_DEFAULT_THINKING_BUDGET = 2048
+
+
+def _reasoning_effort_to_budget(reasoning_effort: str) -> int:
+    """Map a reasoning_effort level to an Anthropic thinking budget_tokens value."""
+    return _REASONING_EFFORT_BUDGET.get(
+        reasoning_effort.lower(), _DEFAULT_THINKING_BUDGET
+    )
+
+
+def _convert_reasoning_effort_to_thinking(payload: dict[str, Any]) -> None:
+    """Replace reasoning_effort with Anthropic's thinking parameter in-place."""
+    reasoning_effort = payload.pop("reasoning_effort", None)
+    if reasoning_effort is None:
+        return
+    if "thinking" not in payload:
+        payload["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": _reasoning_effort_to_budget(str(reasoning_effort)),
+        }
+
 
 def _anthropic_messages_url(base_url: str) -> str:
     base_url = base_url.rstrip("/")
@@ -149,6 +177,7 @@ class AnthropicAdapter:
         self, request: NormalizedMessagesRequest, credentials: dict[str, str]
     ) -> ProviderHTTPRequest:
         payload = messages_request_to_anthropic_payload(request)
+        _convert_reasoning_effort_to_thinking(payload)
         base_url = request.base_url or _DEFAULT_ANTHROPIC_BASE_URL
         return ProviderHTTPRequest(
             method="POST",
@@ -204,6 +233,8 @@ class AnthropicAdapter:
             provider=self.provider,
         ):
             outbound_payload.update(allowed)
+
+        _convert_reasoning_effort_to_thinking(outbound_payload)
         outbound_payload["stream"] = True
         outbound_payload["model"] = model
         clamp_max_tokens(outbound_payload)

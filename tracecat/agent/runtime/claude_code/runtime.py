@@ -138,6 +138,7 @@ class ClaudeAgentRuntime:
         # For incremental JSONL line tracking
         self._sdk_session_id: str | None = None
         self._last_seen_line_index: int = 0
+        self._emitted_lines: dict[int, str] = {}
         # Flag to mark continuation prompt as internal (consumed after first use)
         self._is_continuation: bool = False
         # Adapter for converting Claude SDK events - must be reused to track state
@@ -306,6 +307,8 @@ class ClaudeAgentRuntime:
 
         This reads the session file written by Claude SDK and emits any new lines
         (past _last_seen_line_index) to the orchestrator for persistence.
+        It also detects in-place rewrites of previously emitted lines, which the
+        SDK performs while extended thinking blocks are still being assembled.
         The lines contain the full JSONL envelope (uuid, timestamp, parentUuid, etc.)
         needed for proper resume.
 
@@ -327,12 +330,21 @@ class ClaudeAgentRuntime:
         try:
             file_content = await asyncio.to_thread(session_file.read_text)
             lines = file_content.splitlines()
-            new_lines = lines[self._last_seen_line_index :]
-
-            for line in new_lines:
-                if not line.strip():
+            for line_index, line in enumerate(lines):
+                if line_index < self._last_seen_line_index:
+                    if (previous_line := self._emitted_lines.get(line_index)) is None:
+                        # Historical lines from a resumed session were already persisted.
+                        self._emitted_lines[line_index] = line
+                        continue
+                    if previous_line == line:
+                        continue
+                elif not line.strip():
                     # Empty line - advance index and continue
+                    self._emitted_lines[line_index] = line
                     self._last_seen_line_index += 1
+                    continue
+
+                if not line.strip():
                     continue
 
                 # Parse to determine visibility, but send raw line for SDK resume
@@ -357,9 +369,11 @@ class ClaudeAgentRuntime:
                 await self._socket_writer.send_session_line(
                     self._sdk_session_id, line, internal=internal
                 )
+                self._emitted_lines[line_index] = line
 
-                # Only advance the index after successfully processing the line
-                self._last_seen_line_index += 1
+                # Only advance the index after successfully processing new lines.
+                if line_index >= self._last_seen_line_index:
+                    self._last_seen_line_index += 1
 
         except Exception as e:
             logger.warning("Failed to read session file", error=str(e))
@@ -514,7 +528,9 @@ class ClaudeAgentRuntime:
             if not fork_session:
                 self._sdk_session_id = resume_session_id
                 # Count lines from the session data we just wrote to disk (avoid I/O).
-                self._last_seen_line_index = len(payload.sdk_session_data.splitlines())
+                resume_lines = payload.sdk_session_data.splitlines()
+                self._last_seen_line_index = len(resume_lines)
+                self._emitted_lines = dict(enumerate(resume_lines))
 
         try:
             # Build MCP servers config for registry actions and stdio servers
@@ -671,8 +687,10 @@ class ClaudeAgentRuntime:
                                         file_content = await asyncio.to_thread(
                                             session_file.read_text
                                         )
-                                        self._last_seen_line_index = len(
-                                            file_content.splitlines()
+                                        forked_lines = file_content.splitlines()
+                                        self._last_seen_line_index = len(forked_lines)
+                                        self._emitted_lines = dict(
+                                            enumerate(forked_lines)
                                         )
                                 logger.debug(
                                     "Captured SDK session ID",

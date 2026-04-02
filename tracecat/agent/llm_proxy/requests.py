@@ -19,6 +19,12 @@ from tracecat.agent.llm_proxy.anthropic_compat import (
     tool_result_to_anthropic_block,
     truncate_tool_call_id,
 )
+from tracecat.agent.llm_proxy.provider_common import (
+    anthropic_signature_delta_event,
+    anthropic_thinking_block_start_event,
+    anthropic_thinking_delta_event,
+    is_anthropic_thinking_block,
+)
 from tracecat.agent.llm_proxy.types import (
     AnthropicStreamEvent,
     IngressFormat,
@@ -128,16 +134,163 @@ def _parse_json_value(value: Any) -> Any:
     return value
 
 
+# ---------------------------------------------------------------------------
+# Claude-specific content block translation
+# ---------------------------------------------------------------------------
+#
+# Anthropic's API includes server-managed content block types that other
+# providers do not recognise (server_tool_use, web_search_tool_result, etc.).
+# The helpers below rewrite these into standard tool_use / tool_result blocks
+# so the normalised representation and the metadata-stashed blocks both carry
+# only universally understood types.
+
+# Block types that map to tool_use (assistant invoking a tool)
+_SERVER_TOOL_USE_TYPES = frozenset(
+    {
+        "server_tool_use",
+        "mcp_tool_use",
+        "container_tool_use",
+    }
+)
+
+# Block types that map to tool_result (result returned from a tool)
+_SERVER_TOOL_RESULT_TYPES = frozenset(
+    {
+        "web_search_tool_result",
+        "code_execution_tool_result",
+        "mcp_tool_result",
+        "container_tool_result",
+    }
+)
+
+
+def _format_web_search_result_content(content: Any) -> str:
+    """Extract readable text from a web_search_tool_result content field."""
+    if isinstance(content, dict):
+        # Error case: {"type": "web_search_tool_result_error", "error_code": ...}
+        error_code = content.get("error_code", "unknown_error")
+        return f"[Web search error: {error_code}]"
+    if isinstance(content, list):
+        parts: list[str] = []
+        for result in content:
+            if not isinstance(result, dict):
+                continue
+            title = result.get("title", "")
+            url = result.get("url", "")
+            # encrypted_content is opaque; include title + URL which are readable
+            parts.append(f"- {title}\n  {url}")
+        return "\n".join(parts) if parts else "[No search results]"
+    return str(content) if content else "[No search results]"
+
+
+def _format_code_execution_result_content(content: Any) -> str:
+    """Extract readable text from a code_execution_tool_result content field."""
+    if not isinstance(content, dict):
+        return str(content) if content else "[No execution output]"
+    content_type = content.get("type", "")
+    if content_type == "code_execution_tool_result_error":
+        error_code = content.get("error_code", "unknown_error")
+        return f"[Code execution error: {error_code}]"
+    # code_execution_result: has stdout, stderr, return_code
+    stdout = content.get("stdout", "")
+    stderr = content.get("stderr", "")
+    return_code = content.get("return_code")
+    parts: list[str] = []
+    if stdout:
+        parts.append(stdout)
+    if stderr:
+        parts.append(f"[stderr] {stderr}")
+    if return_code is not None and return_code != 0:
+        parts.append(f"[exit code: {return_code}]")
+    return "\n".join(parts) if parts else "[No execution output]"
+
+
+def _format_mcp_tool_result_content(content: Any) -> Any:
+    """Normalise mcp_tool_result content (str or list of text blocks)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(str(item.get("text", "")))
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(parts) if parts else content
+    return content
+
+
+def _format_server_tool_result_content(block_type: str, content: Any) -> Any:
+    """Format the content of a server tool result block into plain text/data."""
+    match block_type:
+        case "web_search_tool_result":
+            return _format_web_search_result_content(content)
+        case "code_execution_tool_result":
+            return _format_code_execution_result_content(content)
+        case "mcp_tool_result":
+            return _format_mcp_tool_result_content(content)
+        case _:
+            # container_tool_result or unknown — pass through
+            return content
+
+
+def _translate_anthropic_content_block(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Rewrite a Claude-specific block into a standard block, or return as-is.
+
+    Returns None for blocks that should be dropped entirely (tool_reference).
+    """
+    block_type = item.get("type")
+
+    if block_type == "tool_reference":
+        # Content-free pointer to a tool name — not needed by any provider.
+        return None
+
+    if block_type in _SERVER_TOOL_USE_TYPES:
+        # Rewrite as a standard tool_use block.
+        return {
+            "type": "tool_use",
+            "id": str(item.get("id", "")),
+            "name": str(item.get("name", "")),
+            "input": item.get("input", {}),
+        }
+
+    if block_type in _SERVER_TOOL_RESULT_TYPES:
+        # Rewrite as a standard tool_result block.
+        content = _format_server_tool_result_content(block_type, item.get("content"))
+        return {
+            "type": "tool_result",
+            "tool_use_id": str(item.get("tool_use_id", "")),
+            "content": content,
+            "is_error": bool(item.get("is_error", False)),
+        }
+
+    # Standard block type — keep as-is.
+    return {str(key): value for key, value in item.items()}
+
+
 def _metadata_with_anthropic_content_blocks(
     metadata: dict[str, Any],
     content: list[Any],
 ) -> dict[str, Any]:
-    """Attach original Anthropic content blocks for exact provider replay."""
+    """Attach Anthropic content blocks for provider replay.
+
+    Claude-specific block types (server_tool_use, web_search_tool_result, etc.)
+    are rewritten into standard tool_use/tool_result blocks so that downstream
+    providers (OpenAI Responses API, Bedrock, Google) can consume them without
+    encountering unknown types.  tool_reference blocks are dropped entirely
+    (they are content-free pointers).
+    """
+    translated: list[Any] = []
+    for item in content:
+        if not isinstance(item, dict):
+            translated.append(item)
+            continue
+        block = _translate_anthropic_content_block(item)
+        if block is not None:
+            translated.append(block)
     return {
         **metadata,
-        ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY: [
-            dict(item) if isinstance(item, dict) else item for item in content
-        ],
+        ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY: translated,
     }
 
 
@@ -410,18 +563,20 @@ def _normalized_messages_from_anthropic_message(
         _safe_dict(data.get("metadata")),
         content,
     )
-    text_parts: list[Any] = []
+    content_parts: list[Any] = []
     tool_calls: list[NormalizedToolCall] = []
     tool_results: list[NormalizedMessage] = []
 
     for item in content:
         if not isinstance(item, dict):
-            text_parts.append(item)
+            content_parts.append(item)
             continue
 
         match item.get("type"):
             case "text":
-                text_parts.append(item.get("text", ""))
+                content_parts.append(item.get("text", ""))
+            case "thinking":
+                content_parts.append({str(key): value for key, value in item.items()})
             case "tool_use":
                 tool_calls.append(
                     NormalizedToolCall(
@@ -439,12 +594,42 @@ def _normalized_messages_from_anthropic_message(
                         metadata={"is_error": bool(item.get("is_error", False))},
                     )
                 )
+            case "tool_reference":
+                # Content-free pointer to a tool name — drop.
+                continue
+            case block_type if block_type in _SERVER_TOOL_USE_TYPES:
+                # server_tool_use, mcp_tool_use, container_tool_use
+                # → normalise as a regular tool call.
+                tool_calls.append(
+                    NormalizedToolCall(
+                        id=str(item.get("id", "")),
+                        name=str(item.get("name", "")),
+                        arguments=_parse_json_value(item.get("input")),
+                    )
+                )
+            case block_type if block_type in _SERVER_TOOL_RESULT_TYPES:
+                # web_search_tool_result, code_execution_tool_result,
+                # mcp_tool_result, container_tool_result
+                # → normalise as a regular tool result.
+                content = _format_server_tool_result_content(
+                    block_type, item.get("content")
+                )
+                tool_results.append(
+                    NormalizedMessage(
+                        role="tool",
+                        content=content,
+                        tool_call_id=str(item.get("tool_use_id", "")),
+                        metadata={
+                            "is_error": bool(item.get("is_error", False)),
+                        },
+                    )
+                )
             case _:
-                text_parts.append(item)
+                content_parts.append(item)
 
     text_content: Any = None
-    if text_parts:
-        text_content = text_parts[0] if len(text_parts) == 1 else text_parts
+    if content_parts:
+        text_content = content_parts[0] if len(content_parts) == 1 else content_parts
 
     messages: list[NormalizedMessage] = []
     if role == "assistant":
@@ -598,6 +783,19 @@ def anthropic_stream_events_from_response(
         if not isinstance(block, dict):
             block = {"type": "text", "text": str(block)}
         block_type = block.get("type")
+        if block_type == "thinking":
+            events.append(anthropic_thinking_block_start_event(index))
+            if isinstance(thinking := block.get("thinking"), str) and thinking:
+                events.append(anthropic_thinking_delta_event(index, thinking))
+            if isinstance(signature := block.get("signature"), str) and signature:
+                events.append(anthropic_signature_delta_event(index, signature))
+            events.append(
+                AnthropicStreamEvent(
+                    "content_block_stop",
+                    {"type": "content_block_stop", "index": index},
+                )
+            )
+            continue
         if block_type == "tool_use":
             partial_json = _tool_arguments_to_openai(block.get("input", {}))
             events.extend(
@@ -734,6 +932,8 @@ def normalize_anthropic_response(payload: dict[str, Any]) -> NormalizedResponse:
                 )
             elif item_type == "text":
                 text_parts.append(item.get("text", ""))
+            elif is_anthropic_thinking_block(item):
+                text_parts.append({str(key): value for key, value in item.items()})
             else:
                 text_parts.append(item)
     elif content is not None:

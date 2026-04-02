@@ -11,7 +11,10 @@ from typing import Any, NoReturn
 import httpx
 import orjson
 
-from tracecat.agent.llm_proxy.requests import messages_request_to_anthropic_payload
+from tracecat.agent.llm_proxy.requests import (
+    messages_request_to_anthropic_payload,
+    normalize_anthropic_response,
+)
 from tracecat.agent.llm_proxy.types import (
     NormalizedMessagesRequest,
     NormalizedResponse,
@@ -223,12 +226,14 @@ class AzureAIAdapter:
         if response.status_code >= 400:
             raise _provider_http_error(response, self.provider)
         payload = response.json()
+        normalized = normalize_anthropic_response(payload)
         return NormalizedResponse(
             provider=self.provider,
-            model=str(payload.get("model", "")),
-            content=payload.get("content"),
-            finish_reason=payload.get("stop_reason"),
-            usage=_extract_usage(payload),
+            model=normalized.model,
+            content=normalized.content,
+            tool_calls=normalized.tool_calls,
+            finish_reason=normalized.finish_reason,
+            usage=normalized.usage or _extract_usage(payload),
             raw=payload,
         )
 

@@ -19,6 +19,7 @@ from tracecat.agent.llm_proxy.types import (
     NormalizedMessage,
     NormalizedMessagesRequest,
     NormalizedToolCall,
+    ProviderHTTPRequest,
 )
 from tracecat.cases.schemas import CaseCreate
 
@@ -50,6 +51,10 @@ class _FakeBedrockStreamResponse:
     async def aread(self) -> bytes:
         return b"".join(self._chunks)
 
+    @property
+    def text(self) -> str:
+        return b"".join(self._chunks).decode("utf-8", errors="ignore")
+
 
 class _FakeBedrockStreamContext:
     def __init__(self, response: _FakeBedrockStreamResponse) -> None:
@@ -63,8 +68,10 @@ class _FakeBedrockStreamContext:
 
 
 class _FakeBedrockStreamingClient:
-    def __init__(self, response: _FakeBedrockStreamResponse) -> None:
-        self.response = response
+    def __init__(
+        self, response: _FakeBedrockStreamResponse | list[_FakeBedrockStreamResponse]
+    ) -> None:
+        self.responses = response if isinstance(response, list) else [response]
         self.calls: list[dict[str, object]] = []
 
     def stream(
@@ -75,6 +82,7 @@ class _FakeBedrockStreamingClient:
         headers: dict[str, str] | None = None,
         content: bytes | None = None,
     ) -> _FakeBedrockStreamContext:
+        response = self.responses[min(len(self.calls), len(self.responses) - 1)]
         self.calls.append(
             {
                 "method": method,
@@ -83,7 +91,7 @@ class _FakeBedrockStreamingClient:
                 "content": content,
             }
         )
-        return _FakeBedrockStreamContext(self.response)
+        return _FakeBedrockStreamContext(response)
 
 
 class _FakeRawBedrockEvent:
@@ -220,7 +228,6 @@ def test_gemini_request_normalizes_system_instruction_tools_and_response_format(
     assert request_http.json_body["generationConfig"]["thinkingConfig"] == {
         "includeThoughts": True,
         "thinkingBudget": 2048,
-        "thinkingLevel": "medium",
     }
     assert (
         request_http.json_body["generationConfig"]["responseMimeType"]
@@ -287,6 +294,26 @@ def test_gemini_request_preserves_assistant_text_with_tool_calls() -> None:
             }
         },
     ]
+
+
+def test_gemini_3_request_uses_thinking_level_for_reasoning_effort() -> None:
+    request = _base_request(
+        provider="gemini",
+        model="gemini-3-flash-preview",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        model_settings={"reasoning_effort": "medium"},
+    )
+
+    request_http = GeminiAdapter().prepare_request(
+        request,
+        {"GEMINI_API_KEY": "gem-key"},
+    )
+
+    assert request_http.json_body is not None
+    assert request_http.json_body["generationConfig"]["thinkingConfig"] == {
+        "includeThoughts": True,
+        "thinkingLevel": "MEDIUM",
+    }
 
 
 def test_gemini_request_sanitizes_unsupported_schema_keywords() -> None:
@@ -517,6 +544,64 @@ def test_gemini_request_from_anthropic_payload_preserves_mixed_block_order() -> 
     ]
 
 
+def test_gemini_request_from_anthropic_payload_attaches_thought_signature_to_tool_use() -> (
+    None
+):
+    request = normalize_anthropic_request(
+        {
+            "model": "claude-sonnet-4-5-20250929",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "I should inspect the record first.",
+                            "signature": "sig-thought-1",
+                        },
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_123",
+                            "name": "lookup",
+                            "input": {"query": "status"},
+                        },
+                    ],
+                }
+            ],
+        },
+        provider="gemini",
+        model="gemini-2.5-pro",
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+    )
+
+    request_http = GeminiAdapter().prepare_request(
+        request,
+        {"GEMINI_API_KEY": "gem-key"},
+    )
+
+    assert request_http.json_body is not None
+    assert request_http.json_body["contents"] == [
+        {
+            "role": "model",
+            "parts": [
+                {
+                    "text": "I should inspect the record first.",
+                    "thought": True,
+                },
+                {
+                    "functionCall": {
+                        "name": "lookup",
+                        "args": {"query": "status"},
+                    },
+                    "thoughtSignature": "sig-thought-1",
+                },
+            ],
+        }
+    ]
+
+
 def test_gemini_request_preserves_array_items_after_schema_cleanup() -> None:
     case_create_schema = CaseCreate.model_json_schema()
     request = _base_request(
@@ -566,7 +651,7 @@ def test_gemini_request_preserves_array_items_after_schema_cleanup() -> None:
 
 
 @pytest.mark.anyio
-async def test_gemini_response_parses_text_and_tool_calls() -> None:
+async def test_gemini_response_parses_text_reasoning_and_tool_calls() -> None:
     response = httpx.Response(
         200,
         json={
@@ -578,10 +663,15 @@ async def test_gemini_response_parses_text_and_tool_calls() -> None:
                         "parts": [
                             {"text": "hello"},
                             {
+                                "text": "I should check the record first.",
+                                "thought": True,
+                            },
+                            {
                                 "functionCall": {
                                     "name": "lookup",
                                     "args": {"query": "status"},
-                                }
+                                },
+                                "thoughtSignature": "sig-thought-1",
                             },
                         ]
                     },
@@ -603,12 +693,19 @@ async def test_gemini_response_parses_text_and_tool_calls() -> None:
         ),
     )
 
-    assert parsed.content == "hello"
+    assert parsed.content == [
+        {"type": "text", "text": "hello"},
+        {
+            "type": "thinking",
+            "thinking": "I should check the record first.",
+            "signature": "sig-thought-1",
+        },
+    ]
     assert parsed.finish_reason == "STOP"
     assert parsed.usage == {"input_tokens": 7, "output_tokens": 3}
     assert parsed.tool_calls == (
         NormalizedToolCall(
-            id="lookup-1",
+            id="lookup-2",
             name="lookup",
             arguments={"query": "status"},
         ),
@@ -721,7 +818,7 @@ def test_vertex_request_uses_location_specific_endpoint(
 
 
 @pytest.mark.anyio
-async def test_vertex_response_parses_text_and_tool_calls(
+async def test_vertex_response_parses_text_reasoning_and_tool_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -739,10 +836,15 @@ async def test_vertex_response_parses_text_and_tool_calls(
                         "parts": [
                             {"text": "hello"},
                             {
+                                "text": "I should check the record first.",
+                                "thought": True,
+                            },
+                            {
                                 "functionCall": {
                                     "name": "lookup",
                                     "args": {"query": "status"},
-                                }
+                                },
+                                "thoughtSignature": "sig-thought-1",
                             },
                         ]
                     },
@@ -764,16 +866,90 @@ async def test_vertex_response_parses_text_and_tool_calls(
         ),
     )
 
-    assert parsed.content == "hello"
+    assert parsed.content == [
+        {"type": "text", "text": "hello"},
+        {
+            "type": "thinking",
+            "thinking": "I should check the record first.",
+            "signature": "sig-thought-1",
+        },
+    ]
     assert parsed.finish_reason == "STOP"
     assert parsed.tool_calls == (
         NormalizedToolCall(
-            id="lookup-1",
+            id="lookup-2",
             name="lookup",
             arguments={"query": "status"},
         ),
     )
     assert parsed.usage == {"input_tokens": 5, "output_tokens": 2}
+
+
+def test_vertex_request_from_anthropic_payload_attaches_thought_signature_to_tool_use(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "google.oauth2.service_account.Credentials.from_service_account_info",
+        lambda *args, **kwargs: _FakeServiceAccountCredentials(),
+    )
+    request = normalize_anthropic_request(
+        {
+            "model": "claude-sonnet-4-5-20250929",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "I should inspect the record first.",
+                            "signature": "sig-thought-1",
+                        },
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_123",
+                            "name": "lookup",
+                            "input": {"query": "status"},
+                        },
+                    ],
+                }
+            ],
+        },
+        provider="vertex_ai",
+        model="gemini-2.5-pro",
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+    )
+
+    request_http = VertexAIAdapter().prepare_request(
+        request,
+        {
+            "VERTEX_AI_BEARER_TOKEN": "vertex-token",
+            "GOOGLE_CLOUD_PROJECT": "tracecat",
+            "GOOGLE_CLOUD_LOCATION": "us-central1",
+            "VERTEX_AI_MODEL": "gemini-2.5-pro",
+        },
+    )
+
+    assert request_http.json_body is not None
+    assert request_http.json_body["contents"] == [
+        {
+            "role": "model",
+            "parts": [
+                {
+                    "text": "I should inspect the record first.",
+                    "thought": True,
+                },
+                {
+                    "functionCall": {
+                        "name": "lookup",
+                        "args": {"query": "status"},
+                    },
+                    "thoughtSignature": "sig-thought-1",
+                },
+            ],
+        }
+    ]
 
 
 def test_bedrock_request_normalizes_system_tools_and_inference_config() -> None:
@@ -875,7 +1051,36 @@ def test_bedrock_request_normalizes_system_tools_and_inference_config() -> None:
                 }
             }
         ],
-        "toolChoice": {"auto": {}},
+        "toolChoice": {"tool": {"name": "lookup"}},
+    }
+
+
+def test_bedrock_request_uses_resolved_claude_target_for_reasoning_translation() -> (
+    None
+):
+    request = _base_request(
+        provider="bedrock",
+        model="bedrock",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        model_settings={"reasoning_effort": "medium"},
+    )
+
+    request_http = BedrockAdapter().prepare_request(
+        request,
+        {
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+            "AWS_REGION": "us-east-1",
+            "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        },
+    )
+
+    assert request_http.body is not None
+    payload = orjson.loads(request_http.body)
+    assert payload["additionalModelRequestFields"] == {
+        "thinking": {
+            "type": "enabled",
+            "budget_tokens": 2048,
+        }
     }
 
 
@@ -973,6 +1178,51 @@ def test_bedrock_request_from_anthropic_payload_preserves_mixed_block_order() ->
     ]
 
 
+def test_bedrock_request_maps_anthropic_thinking_blocks_to_reasoning_content() -> None:
+    request = normalize_anthropic_request(
+        {
+            "model": "claude-sonnet-4-5-20250929",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "I should inspect the record first.",
+                            "signature": "sig_123",
+                        },
+                        {"type": "text", "text": "I will look that up."},
+                    ],
+                }
+            ],
+            "stream": True,
+        },
+        provider="bedrock",
+        model="anthropic.claude-3-7-sonnet",
+    )
+
+    request_http = BedrockAdapter().prepare_request(
+        request,
+        {
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+            "AWS_REGION": "us-east-1",
+            "AWS_MODEL_ID": "anthropic.claude-3-7-sonnet",
+        },
+    )
+
+    assert request_http.body is not None
+    payload = orjson.loads(request_http.body)
+    assert payload["messages"][0]["content"] == [
+        {
+            "reasoningContent": {
+                "text": "I should inspect the record first.",
+                "signature": "sig_123",
+            }
+        },
+        {"text": "I will look that up."},
+    ]
+
+
 def test_bedrock_request_uses_data_uri_payload_for_inline_images() -> None:
     request = _base_request(
         provider="bedrock",
@@ -1058,7 +1308,7 @@ async def test_bedrock_response_parses_text_and_tool_calls() -> None:
     )
 
 
-def test_bedrock_request_downgrades_forced_tool_choice_when_reasoning_enabled() -> None:
+def test_bedrock_request_drops_thinking_for_forced_tool_choice() -> None:
     request = _base_request(
         provider="bedrock",
         model="anthropic.claude-3-7-sonnet",
@@ -1084,10 +1334,48 @@ def test_bedrock_request_downgrades_forced_tool_choice_when_reasoning_enabled() 
 
     assert request_http.body is not None
     payload = orjson.loads(request_http.body)
-    assert payload["toolConfig"]["toolChoice"] == {"auto": {}}
+    assert payload["toolConfig"]["toolChoice"] == {"tool": {"name": "lookup"}}
+    assert "additionalModelRequestFields" not in payload
+
+
+def test_bedrock_request_keeps_auto_tool_choice_when_reasoning_enabled() -> None:
+    request = _base_request(
+        provider="bedrock",
+        model="anthropic.claude-haiku-4-5-20251001-v1:0",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        model_settings={"reasoning_effort": "medium"},
+        tools=(
+            {
+                "name": "lookup",
+                "input_schema": {"type": "object"},
+            },
+        ),
+    )
+
+    request_http = BedrockAdapter().prepare_request(
+        request,
+        {
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+            "AWS_REGION": "us-east-1",
+            "AWS_MODEL_ID": "anthropic.claude-haiku-4-5-20251001-v1:0",
+        },
+    )
+
+    assert request_http.body is not None
+    payload = orjson.loads(request_http.body)
+    assert payload["toolConfig"] == {
+        "tools": [
+            {
+                "toolSpec": {
+                    "name": "lookup",
+                    "inputSchema": {"json": {"type": "object"}},
+                }
+            }
+        ]
+    }
     assert payload["additionalModelRequestFields"]["thinking"] == {
         "type": "enabled",
-        "budget_tokens": 4096,
+        "budget_tokens": 2048,
     }
 
 
@@ -1397,6 +1685,323 @@ async def test_bedrock_prepare_retry_request_drops_thinking_on_tool_use_reasonin
     assert retried.body is not None
     retried_payload = orjson.loads(retried.body)
     assert "additionalModelRequestFields" not in retried_payload
+
+
+@pytest.mark.anyio
+async def test_bedrock_prepare_retry_request_drops_thinking_on_forced_tool_choice_error() -> (
+    None
+):
+    request = _base_request(
+        provider="bedrock",
+        model="anthropic.claude-3-7-sonnet",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+    )
+    outbound = ProviderHTTPRequest(
+        method="POST",
+        url="https://bedrock.invalid/model/anthropic.claude-3-7-sonnet/converse",
+        headers={"Content-Type": "application/json"},
+        body=orjson.dumps(
+            {
+                "messages": [{"role": "user", "content": [{"text": "hello"}]}],
+                "additionalModelRequestFields": {
+                    "thinking": {"type": "enabled", "budget_tokens": 2048}
+                },
+                "toolConfig": {"toolChoice": {"tool": {"name": "lookup"}}},
+            }
+        ),
+        stream=False,
+    )
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", outbound.url),
+        content=(
+            b'{"message":"The model returned the following errors: '
+            b'Thinking may not be enabled when tool_choice forces tool use."}'
+        ),
+    )
+
+    retried = BedrockAdapter().prepare_retry_request(
+        response=response,
+        request=request,
+        credentials={
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+            "AWS_REGION": "us-east-1",
+            "AWS_MODEL_ID": "anthropic.claude-3-7-sonnet",
+        },
+        outbound_request=outbound,
+    )
+
+    assert retried is not None
+    assert retried.body is not None
+    retried_payload = orjson.loads(retried.body)
+    assert "additionalModelRequestFields" not in retried_payload
+    assert retried_payload["toolConfig"]["toolChoice"] == {"tool": {"name": "lookup"}}
+
+
+@pytest.mark.anyio
+async def test_bedrock_prepare_retry_request_drops_reasoning_effort_on_validation_error() -> (
+    None
+):
+    request = _base_request(
+        provider="bedrock",
+        model="bedrock",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+    )
+    outbound = ProviderHTTPRequest(
+        method="POST",
+        url="https://bedrock.invalid/model/bedrock/converse",
+        headers={"Content-Type": "application/json"},
+        body=orjson.dumps(
+            {
+                "messages": [{"role": "user", "content": [{"text": "hello"}]}],
+                "additionalModelRequestFields": {"reasoning_effort": "medium"},
+            }
+        ),
+        stream=False,
+    )
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", outbound.url),
+        content=(
+            b'{"message":"The model returned the following errors: '
+            b'reasoning_effort: Extra inputs are not permitted"}'
+        ),
+    )
+
+    retried = BedrockAdapter().prepare_retry_request(
+        response=response,
+        request=request,
+        credentials={
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+            "AWS_REGION": "us-east-1",
+            "AWS_MODEL_ID": "bedrock",
+        },
+        outbound_request=outbound,
+    )
+
+    assert retried is not None
+    assert retried.body is not None
+    retried_payload = orjson.loads(retried.body)
+    assert "additionalModelRequestFields" not in retried_payload
+
+
+@pytest.mark.anyio
+async def test_bedrock_streaming_adapter_retries_reasoning_effort_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_iter_events(_: httpx.Response):
+        for event in (
+            {"messageStart": {"conversationId": "conv-1"}},
+            {"contentBlockStart": {"contentBlockIndex": 0, "start": {}}},
+            {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "ok"}}},
+            {"contentBlockStop": {"contentBlockIndex": 0}},
+            {"messageStop": {"stopReason": "end_turn"}},
+            {"metadata": {"usage": {"outputTokens": 3}}},
+        ):
+            yield event
+
+    def _fake_request_components(
+        _: NormalizedMessagesRequest,
+        __: dict[str, str],
+        *,
+        stream: bool,
+    ) -> tuple[str, bytes]:
+        assert stream is True
+        return (
+            "https://bedrock.invalid/model/bedrock/converse-stream",
+            orjson.dumps(
+                {
+                    "messages": [{"role": "user", "content": [{"text": "hello"}]}],
+                    "additionalModelRequestFields": {"reasoning_effort": "medium"},
+                }
+            ),
+        )
+
+    def _fake_signed_request(
+        *,
+        request: NormalizedMessagesRequest,
+        credentials: dict[str, str],
+        url: str,
+        body: bytes,
+    ) -> ProviderHTTPRequest:
+        del request, credentials
+        return ProviderHTTPRequest(
+            method="POST",
+            url=url,
+            headers={"Content-Type": "application/json"},
+            body=body,
+            stream=True,
+        )
+
+    monkeypatch.setattr(
+        provider_bedrock, "_iter_bedrock_stream_events", _fake_iter_events
+    )
+    monkeypatch.setattr(
+        provider_bedrock, "_bedrock_request_components", _fake_request_components
+    )
+    monkeypatch.setattr(
+        provider_bedrock, "_signed_bedrock_request", _fake_signed_request
+    )
+
+    request = _base_request(
+        provider="bedrock",
+        model="bedrock",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        model_settings={"reasoning_effort": "medium"},
+    )
+    client = _FakeBedrockStreamingClient(
+        [
+            _FakeBedrockStreamResponse(
+                400,
+                headers={"content-type": "application/json"},
+                chunks=[
+                    b'{"message":"The model returned the following errors: '
+                    b'reasoning_effort: Extra inputs are not permitted"}'
+                ],
+            ),
+            _FakeBedrockStreamResponse(
+                200,
+                headers={"content-type": "application/vnd.amazon.eventstream"},
+            ),
+        ]
+    )
+
+    events = [
+        event
+        async for event in BedrockAdapter().stream_anthropic(
+            cast(httpx.AsyncClient, client),
+            request,
+            {
+                "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+                "AWS_REGION": "us-east-1",
+                "AWS_MODEL_ID": "bedrock",
+            },
+        )
+    ]
+
+    assert len(client.calls) == 2
+    first_payload = orjson.loads(cast(bytes, client.calls[0]["content"]))
+    second_payload = orjson.loads(cast(bytes, client.calls[1]["content"]))
+    assert first_payload["additionalModelRequestFields"] == {
+        "reasoning_effort": "medium"
+    }
+    assert "additionalModelRequestFields" not in second_payload
+    assert events[0].event == "message_start"
+
+
+@pytest.mark.anyio
+async def test_bedrock_streaming_adapter_retries_forced_tool_choice_thinking_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _fake_iter_events(_: httpx.Response):
+        for event in (
+            {"messageStart": {"conversationId": "conv-1"}},
+            {"contentBlockStart": {"contentBlockIndex": 0, "start": {}}},
+            {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "ok"}}},
+            {"contentBlockStop": {"contentBlockIndex": 0}},
+            {"messageStop": {"stopReason": "end_turn"}},
+            {"metadata": {"usage": {"outputTokens": 3}}},
+        ):
+            yield event
+
+    def _fake_request_components(
+        _: NormalizedMessagesRequest,
+        __: dict[str, str],
+        *,
+        stream: bool,
+    ) -> tuple[str, bytes]:
+        assert stream is True
+        return (
+            "https://bedrock.invalid/model/bedrock/converse-stream",
+            orjson.dumps(
+                {
+                    "messages": [{"role": "user", "content": [{"text": "hello"}]}],
+                    "additionalModelRequestFields": {
+                        "thinking": {"type": "enabled", "budget_tokens": 2048}
+                    },
+                    "toolConfig": {"toolChoice": {"tool": {"name": "lookup"}}},
+                }
+            ),
+        )
+
+    def _fake_signed_request(
+        *,
+        request: NormalizedMessagesRequest,
+        credentials: dict[str, str],
+        url: str,
+        body: bytes,
+    ) -> ProviderHTTPRequest:
+        del request, credentials
+        return ProviderHTTPRequest(
+            method="POST",
+            url=url,
+            headers={"Content-Type": "application/json"},
+            body=body,
+            stream=True,
+        )
+
+    monkeypatch.setattr(
+        provider_bedrock, "_iter_bedrock_stream_events", _fake_iter_events
+    )
+    monkeypatch.setattr(
+        provider_bedrock, "_bedrock_request_components", _fake_request_components
+    )
+    monkeypatch.setattr(
+        provider_bedrock, "_signed_bedrock_request", _fake_signed_request
+    )
+
+    request = _base_request(
+        provider="bedrock",
+        model="bedrock",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        model_settings={"thinking": {"type": "enabled", "budget_tokens": 2048}},
+        tools=(
+            {
+                "name": "lookup",
+                "input_schema": {"type": "object"},
+            },
+        ),
+        tool_choice={"type": "tool", "name": "lookup"},
+    )
+    client = _FakeBedrockStreamingClient(
+        [
+            _FakeBedrockStreamResponse(
+                400,
+                headers={"content-type": "application/json"},
+                chunks=[
+                    b'{"message":"The model returned the following errors: '
+                    b'Thinking may not be enabled when tool_choice forces tool use."}'
+                ],
+            ),
+            _FakeBedrockStreamResponse(
+                200,
+                headers={"content-type": "application/vnd.amazon.eventstream"},
+            ),
+        ]
+    )
+
+    events = [
+        event
+        async for event in BedrockAdapter().stream_anthropic(
+            cast(httpx.AsyncClient, client),
+            request,
+            {
+                "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+                "AWS_REGION": "us-east-1",
+                "AWS_MODEL_ID": "bedrock",
+            },
+        )
+    ]
+
+    assert len(client.calls) == 2
+    first_payload = orjson.loads(cast(bytes, client.calls[0]["content"]))
+    second_payload = orjson.loads(cast(bytes, client.calls[1]["content"]))
+    assert first_payload["additionalModelRequestFields"] == {
+        "thinking": {"type": "enabled", "budget_tokens": 2048}
+    }
+    assert "additionalModelRequestFields" not in second_payload
+    assert second_payload["toolConfig"]["toolChoice"] == {"tool": {"name": "lookup"}}
+    assert events[0].event == "message_start"
 
 
 @pytest.mark.anyio

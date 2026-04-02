@@ -21,9 +21,11 @@ from tracecat.agent.llm_proxy.credentials import (
 from tracecat.agent.llm_proxy.providers import (
     AnthropicAdapter,
     AzureAIAdapter,
+    AzureOpenAIAdapter,
     BedrockAdapter,
     GeminiAdapter,
     OpenAICompatibleAdapter,
+    OpenAIFamilyAdapter,
     VertexAIAdapter,
 )
 from tracecat.agent.llm_proxy.requests import (
@@ -567,14 +569,16 @@ def test_provider_adapters_build_expected_requests() -> None:
         {"OPENAI_API_KEY": "sk-test"},
     )
     assert openai_request.json_body is not None
-    assert openai_request.url.endswith("/v1/chat/completions")
+    assert openai_request.url.endswith("/v1/responses")
     assert openai_request.headers["Authorization"] == "Bearer sk-test"
-    assert (
-        openai_request.json_body["messages"][1]["tool_calls"][0]["function"][
-            "arguments"
-        ]
-        == orjson.dumps({"query": "status"}).decode()
-    )
+    assert openai_request.json_body["instructions"] == "system"
+    assert openai_request.json_body["input"] == [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "hello"}],
+        }
+    ]
 
     custom_request = OpenAICompatibleAdapter("custom-model-provider").prepare_request(
         request,
@@ -586,9 +590,9 @@ def test_provider_adapters_build_expected_requests() -> None:
     assert custom_request.json_body is not None
     assert custom_request.headers.get("Authorization") is None
     assert custom_request.json_body["model"] == "custom-chat"
-    assert custom_request.url == "https://custom.example/v1/chat/completions"
+    assert custom_request.url == "https://custom.example/v1/responses"
 
-    azure_request = OpenAICompatibleAdapter("azure_openai").prepare_request(
+    azure_request = AzureOpenAIAdapter().prepare_request(
         request,
         {
             "AZURE_API_BASE": "https://azure.example",
@@ -655,7 +659,7 @@ def test_provider_adapters_build_expected_requests() -> None:
     assert azure_ai_request.headers["anthropic-version"] == "2023-06-01"
 
 
-def test_openai_compatible_adapter_uses_max_completion_tokens_for_gpt5_models() -> None:
+def test_openai_compatible_adapter_uses_max_output_tokens_for_gpt5_models() -> None:
     request = NormalizedMessagesRequest(
         provider="openai",
         model="gpt-5.2",
@@ -671,11 +675,12 @@ def test_openai_compatible_adapter_uses_max_completion_tokens_for_gpt5_models() 
     )
 
     assert openai_request.json_body is not None
-    assert openai_request.json_body["max_completion_tokens"] == 128
+    assert openai_request.json_body["max_output_tokens"] == 128
+    assert "max_completion_tokens" not in openai_request.json_body
     assert "max_tokens" not in openai_request.json_body
 
 
-def test_openai_compatible_adapter_prefers_explicit_max_completion_tokens() -> None:
+def test_openai_compatible_adapter_prefers_explicit_max_output_tokens() -> None:
     request = NormalizedMessagesRequest(
         provider="openai",
         model="gpt-5.2",
@@ -691,7 +696,8 @@ def test_openai_compatible_adapter_prefers_explicit_max_completion_tokens() -> N
     )
 
     assert openai_request.json_body is not None
-    assert openai_request.json_body["max_completion_tokens"] == 64
+    assert openai_request.json_body["max_output_tokens"] == 64
+    assert "max_completion_tokens" not in openai_request.json_body
     assert "max_tokens" not in openai_request.json_body
 
 
@@ -712,7 +718,8 @@ def test_openai_compatible_adapter_keeps_supported_gpt_5_2_temperature() -> None
 
     assert openai_request.json_body is not None
     assert openai_request.json_body["temperature"] == 0.2
-    assert openai_request.json_body["reasoning_effort"] == "none"
+    assert openai_request.json_body["reasoning"] == {"effort": "none"}
+    assert "reasoning_effort" not in openai_request.json_body
 
 
 def test_openai_compatible_adapter_drops_unsupported_gpt_5_params() -> None:
@@ -738,12 +745,299 @@ def test_openai_compatible_adapter_drops_unsupported_gpt_5_params() -> None:
     )
 
     assert openai_request.json_body is not None
+    assert openai_request.url.endswith("/v1/responses")
     assert "temperature" not in openai_request.json_body
     assert "top_p" not in openai_request.json_body
     assert "presence_penalty" not in openai_request.json_body
     assert "frequency_penalty" not in openai_request.json_body
     assert "stop" not in openai_request.json_body
-    assert "reasoning_effort" not in openai_request.json_body
+    assert "reasoning" not in openai_request.json_body
+
+
+def test_openai_family_adapter_uses_responses_without_reasoning() -> None:
+    request = NormalizedMessagesRequest(
+        provider="openai",
+        model="gpt-5-mini",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=False,
+    )
+
+    openai_request = OpenAIFamilyAdapter("openai").prepare_request(
+        request,
+        {"OPENAI_API_KEY": "sk-test"},
+    )
+
+    assert openai_request.url.endswith("/v1/responses")
+    assert openai_request.json_body is not None
+    assert "messages" not in openai_request.json_body
+    assert openai_request.json_body["input"] == [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "hello"}],
+        }
+    ]
+    assert "reasoning" not in openai_request.json_body
+
+
+def test_openai_family_adapter_uses_responses_for_reasoning_effort() -> None:
+    request = NormalizedMessagesRequest(
+        provider="openai",
+        model="gpt-5-mini",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=False,
+        model_settings={"reasoning_effort": "medium"},
+    )
+
+    openai_request = OpenAIFamilyAdapter("openai").prepare_request(
+        request,
+        {"OPENAI_API_KEY": "sk-test"},
+    )
+
+    assert openai_request.url.endswith("/v1/responses")
+    assert openai_request.json_body is not None
+    assert "messages" not in openai_request.json_body
+    assert openai_request.json_body["input"][0]["role"] == "user"
+    assert openai_request.json_body["reasoning"] == {"effort": "medium"}
+
+
+def test_openai_family_adapter_uses_responses_for_reasoning_history() -> None:
+    request = NormalizedMessagesRequest(
+        provider="openai",
+        model="gpt-5-mini",
+        messages=(
+            NormalizedMessage(
+                role="assistant",
+                content=[
+                    {
+                        "type": "thinking",
+                        "thinking": "I should inspect the record first.",
+                        "signature": "opaque-reasoning-token",
+                    },
+                    {
+                        "type": "tool_use",
+                        "id": "call_1",
+                        "name": "lookup",
+                        "input": {"query": "status"},
+                    },
+                ],
+            ),
+            NormalizedMessage(
+                role="tool",
+                tool_call_id="call_1",
+                content={"status": "ok"},
+            ),
+        ),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=True,
+    )
+
+    openai_request = OpenAIFamilyAdapter("openai").prepare_request(
+        request,
+        {"OPENAI_API_KEY": "sk-test"},
+    )
+
+    assert openai_request.url.endswith("/v1/responses")
+    assert openai_request.json_body is not None
+    assert openai_request.json_body["input"] == [
+        {
+            "type": "reasoning",
+            "content": [
+                {
+                    "type": "reasoning_text",
+                    "text": "I should inspect the record first.",
+                }
+            ],
+            "status": "completed",
+            "encrypted_content": "opaque-reasoning-token",
+        },
+        {
+            "type": "function_call",
+            "id": "call_1",
+            "call_id": "call_1",
+            "name": "lookup",
+            "arguments": '{"query":"status"}',
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": '{"status":"ok"}',
+        },
+    ]
+
+
+def test_openai_family_adapter_uses_output_text_for_assistant_history() -> None:
+    request = NormalizedMessagesRequest(
+        provider="openai",
+        model="gpt-5-mini",
+        messages=(
+            NormalizedMessage(role="user", content="hello"),
+            NormalizedMessage(role="assistant", content="I will look that up."),
+            NormalizedMessage(role="user", content="thanks"),
+        ),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=False,
+        model_settings={"reasoning_effort": "medium"},
+    )
+
+    openai_request = OpenAIFamilyAdapter("openai").prepare_request(
+        request,
+        {"OPENAI_API_KEY": "sk-test"},
+    )
+
+    assert openai_request.url.endswith("/v1/responses")
+    assert openai_request.json_body is not None
+    assert openai_request.json_body["input"] == [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "hello"}],
+        },
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "I will look that up."}],
+        },
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "thanks"}],
+        },
+    ]
+
+
+@pytest.mark.anyio
+async def test_openai_family_parse_response_preserves_reasoning_blocks() -> None:
+    request = NormalizedMessagesRequest(
+        provider="openai",
+        model="gpt-5-mini",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=False,
+        model_settings={"reasoning_effort": "high"},
+    )
+    response = httpx.Response(
+        200,
+        json={
+            "id": "resp_123",
+            "model": "gpt-5-mini",
+            "output": [
+                {
+                    "id": "rs_123",
+                    "type": "reasoning",
+                    "status": "completed",
+                    "encrypted_content": "opaque-reasoning-token",
+                    "content": [
+                        {
+                            "type": "reasoning_text",
+                            "text": "I should inspect the record first.",
+                        }
+                    ],
+                },
+                {
+                    "id": "fc_123",
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "lookup",
+                    "arguments": '{"query":"status"}',
+                    "status": "completed",
+                },
+            ],
+            "usage": {"input_tokens": 7, "output_tokens": 3},
+        },
+    )
+
+    parsed = await OpenAIFamilyAdapter("openai").parse_response(response, request)
+
+    assert isinstance(parsed.content, list)
+    assert parsed.content[0]["type"] == "thinking"
+    assert parsed.content[0]["thinking"] == "I should inspect the record first."
+    assert parsed.content[0]["signature"].startswith("tcsig:v1:")
+    assert parsed.tool_calls == (
+        NormalizedToolCall(
+            id="call_1",
+            name="lookup",
+            arguments={"query": "status"},
+        ),
+    )
+    assert parsed.finish_reason == "tool_use"
+    assert parsed.usage == {"input_tokens": 7, "output_tokens": 3}
+
+
+@pytest.mark.anyio
+async def test_openai_family_streaming_adapter_translates_responses_reasoning() -> None:
+    adapter = OpenAIFamilyAdapter("openai")
+    request = NormalizedMessagesRequest(
+        provider="openai",
+        model="gpt-5-mini",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=True,
+        model_settings={"reasoning_effort": "high"},
+    )
+    client = cast(
+        httpx.AsyncClient,
+        _FakeStreamingClient(
+            _FakeStreamingResponse(
+                lines=[
+                    "event: response.created",
+                    'data: {"response":{"id":"resp_1","model":"gpt-5-mini","usage":{"input_tokens":3,"output_tokens":0}}}',
+                    "",
+                    "event: response.reasoning_text.delta",
+                    'data: {"item_id":"rs_1","output_index":0,"delta":"Need to inspect the record."}',
+                    "",
+                    "event: response.output_item.done",
+                    'data: {"item":{"id":"rs_1","type":"reasoning","status":"completed","encrypted_content":"opaque-reasoning-token","content":[{"type":"reasoning_text","text":"Need to inspect the record."}]}}',
+                    "",
+                    "event: response.output_text.delta",
+                    'data: {"item_id":"msg_1","output_index":1,"delta":"hello"}',
+                    "",
+                    "event: response.output_item.done",
+                    'data: {"item":{"id":"msg_1","type":"message","content":[{"type":"output_text","text":"hello"}]}}',
+                    "",
+                    "event: response.completed",
+                    'data: {"response":{"id":"resp_1","model":"gpt-5-mini","usage":{"input_tokens":3,"output_tokens":5}}}',
+                    "",
+                    "data: [DONE]",
+                    "",
+                ]
+            )
+        ),
+    )
+
+    events = [
+        event
+        async for event in adapter.stream_anthropic(
+            client,
+            request,
+            {"OPENAI_API_KEY": "sk-test"},
+        )
+    ]
+
+    assert [event.event for event in events] == [
+        "message_start",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_delta",
+        "content_block_stop",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_stop",
+        "message_delta",
+        "message_stop",
+    ]
+    assert events[1].payload["content_block"]["type"] == "thinking"
+    assert events[2].payload["delta"] == {
+        "type": "thinking_delta",
+        "thinking": "Need to inspect the record.",
+    }
+    assert events[3].payload["delta"]["type"] == "signature_delta"
+    assert events[3].payload["delta"]["signature"].startswith("tcsig:v1:")
+    assert events[5].payload["content_block"]["type"] == "text"
+    assert events[6].payload["delta"]["text"] == "hello"
+    assert events[8].payload["delta"]["stop_reason"] == "end_turn"
 
 
 @pytest.mark.anyio
@@ -761,9 +1055,20 @@ async def test_openai_streaming_adapter_translates_text_deltas() -> None:
         _FakeStreamingClient(
             _FakeStreamingResponse(
                 lines=[
-                    'data: {"id":"chatcmpl-1","model":"gpt-5-mini","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"},"finish_reason":null}]}',
+                    "event: response.created",
+                    'data: {"response":{"id":"resp_1","model":"gpt-5-mini","usage":{"input_tokens":3,"output_tokens":0}}}',
                     "",
-                    'data: {"id":"chatcmpl-1","model":"gpt-5-mini","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":"stop"}]}',
+                    "event: response.output_text.delta",
+                    'data: {"item_id":"msg_1","output_index":0,"delta":"Hel"}',
+                    "",
+                    "event: response.output_text.delta",
+                    'data: {"item_id":"msg_1","output_index":0,"delta":"lo"}',
+                    "",
+                    "event: response.output_item.done",
+                    'data: {"item":{"id":"msg_1","type":"message","content":[{"type":"output_text","text":"Hello"}]}}',
+                    "",
+                    "event: response.completed",
+                    'data: {"response":{"id":"resp_1","model":"gpt-5-mini","usage":{"input_tokens":3,"output_tokens":2}}}',
                     "",
                     "data: [DONE]",
                     "",
@@ -796,6 +1101,139 @@ async def test_openai_streaming_adapter_translates_text_deltas() -> None:
 
 
 @pytest.mark.anyio
+async def test_custom_model_streaming_adapter_translates_reasoning_before_text() -> (
+    None
+):
+    adapter = OpenAICompatibleAdapter("custom-model-provider")
+    request = NormalizedMessagesRequest(
+        provider="custom-model-provider",
+        model="gpt-oss-120b",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=True,
+    )
+    client = cast(
+        httpx.AsyncClient,
+        _FakeStreamingClient(
+            _FakeStreamingResponse(
+                lines=[
+                    "event: response.created",
+                    'data: {"response":{"id":"resp_1","model":"gpt-oss-120b","usage":{"input_tokens":3,"output_tokens":0}}}',
+                    "",
+                    "event: response.reasoning_text.delta",
+                    'data: {"item_id":"rs_1","output_index":0,"delta":"Need to inspect "}',
+                    "",
+                    "event: response.reasoning_text.delta",
+                    'data: {"item_id":"rs_1","output_index":0,"delta":"the record first."}',
+                    "",
+                    "event: response.output_item.done",
+                    'data: {"item":{"id":"rs_1","type":"reasoning","status":"completed","content":[{"type":"reasoning_text","text":"Need to inspect the record first."}]}}',
+                    "",
+                    "event: response.output_text.delta",
+                    'data: {"item_id":"msg_1","output_index":1,"delta":"hello"}',
+                    "",
+                    "event: response.output_item.done",
+                    'data: {"item":{"id":"msg_1","type":"message","content":[{"type":"output_text","text":"hello"}]}}',
+                    "",
+                    "event: response.completed",
+                    'data: {"response":{"id":"resp_1","model":"gpt-oss-120b","usage":{"input_tokens":3,"output_tokens":5}}}',
+                    "",
+                    "data: [DONE]",
+                    "",
+                ]
+            )
+        ),
+    )
+
+    events = [
+        event
+        async for event in adapter.stream_anthropic(
+            client,
+            request,
+            {"CUSTOM_MODEL_PROVIDER_BASE_URL": "https://example.invalid"},
+        )
+    ]
+
+    assert [event.event for event in events] == [
+        "message_start",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_delta",
+        "content_block_stop",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_stop",
+        "message_delta",
+        "message_stop",
+    ]
+    assert events[1].payload["content_block"]["type"] == "thinking"
+    assert events[2].payload["delta"]["thinking"] == "Need to inspect "
+    assert events[3].payload["delta"]["thinking"] == "the record first."
+    assert events[5].payload["content_block"]["type"] == "text"
+    assert events[6].payload["delta"]["text"] == "hello"
+    assert events[8].payload["delta"]["stop_reason"] == "end_turn"
+
+
+@pytest.mark.anyio
+async def test_custom_model_streaming_adapter_closes_reasoning_only_turns() -> None:
+    adapter = OpenAICompatibleAdapter("custom-model-provider")
+    request = NormalizedMessagesRequest(
+        provider="custom-model-provider",
+        model="gpt-oss-120b",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=True,
+    )
+    client = cast(
+        httpx.AsyncClient,
+        _FakeStreamingClient(
+            _FakeStreamingResponse(
+                lines=[
+                    "event: response.created",
+                    'data: {"response":{"id":"resp_1","model":"gpt-oss-120b","usage":{"input_tokens":3,"output_tokens":0}}}',
+                    "",
+                    "event: response.reasoning_text.delta",
+                    'data: {"item_id":"rs_1","output_index":0,"delta":"Need to inspect first."}',
+                    "",
+                    "event: response.output_item.done",
+                    'data: {"item":{"id":"rs_1","type":"reasoning","status":"completed","content":[{"type":"reasoning_text","text":"Need to inspect first."}]}}',
+                    "",
+                    "event: response.completed",
+                    'data: {"response":{"id":"resp_1","model":"gpt-oss-120b","usage":{"input_tokens":3,"output_tokens":1}}}',
+                    "",
+                    "data: [DONE]",
+                    "",
+                ]
+            )
+        ),
+    )
+
+    events = [
+        event
+        async for event in adapter.stream_anthropic(
+            client,
+            request,
+            {"CUSTOM_MODEL_PROVIDER_BASE_URL": "https://example.invalid"},
+        )
+    ]
+
+    assert [event.event for event in events] == [
+        "message_start",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_stop",
+        "message_delta",
+        "message_stop",
+    ]
+    assert events[1].payload["content_block"]["type"] == "thinking"
+    assert events[2].payload["delta"] == {
+        "type": "thinking_delta",
+        "thinking": "Need to inspect first.",
+    }
+    assert events[4].payload["delta"]["stop_reason"] == "end_turn"
+
+
+@pytest.mark.anyio
 async def test_openai_streaming_adapter_translates_tool_calls() -> None:
     adapter = OpenAICompatibleAdapter("openai")
     request = NormalizedMessagesRequest(
@@ -810,9 +1248,14 @@ async def test_openai_streaming_adapter_translates_tool_calls() -> None:
         _FakeStreamingClient(
             _FakeStreamingResponse(
                 lines=[
-                    'data: {"id":"chatcmpl-1","model":"gpt-5-mini","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\\"query\\":"}}]},"finish_reason":null}]}',
+                    "event: response.created",
+                    'data: {"response":{"id":"resp_1","model":"gpt-5-mini","usage":{"input_tokens":3,"output_tokens":0}}}',
                     "",
-                    'data: {"id":"chatcmpl-1","model":"gpt-5-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"status\\"}"}}]},"finish_reason":"tool_calls"}]}',
+                    "event: response.output_item.done",
+                    'data: {"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"lookup","arguments":"{\\"query\\":\\"status\\"}","status":"completed"}}',
+                    "",
+                    "event: response.completed",
+                    'data: {"response":{"id":"resp_1","model":"gpt-5-mini","usage":{"input_tokens":3,"output_tokens":2}}}',
                     "",
                     "data: [DONE]",
                     "",
@@ -834,15 +1277,34 @@ async def test_openai_streaming_adapter_translates_tool_calls() -> None:
         "message_start",
         "content_block_start",
         "content_block_delta",
-        "content_block_delta",
         "content_block_stop",
         "message_delta",
         "message_stop",
     ]
     assert events[1].payload["content_block"]["type"] == "tool_use"
-    assert events[2].payload["delta"]["partial_json"] == '{"query":'
-    assert events[3].payload["delta"]["partial_json"] == '"status"}'
-    assert events[5].payload["delta"]["stop_reason"] == "tool_use"
+    assert events[2].payload["delta"]["partial_json"] == '{"query":"status"}'
+    assert events[4].payload["delta"]["stop_reason"] == "tool_use"
+
+
+def test_openai_family_adapter_does_not_retry_responses_requests() -> None:
+    adapter = OpenAIFamilyAdapter("openai")
+    request = NormalizedMessagesRequest(
+        provider="openai",
+        model="gpt-5-mini",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=False,
+    )
+    outbound = adapter.prepare_request(request, {"OPENAI_API_KEY": "sk-test"})
+    response = httpx.Response(
+        404,
+        request=httpx.Request("POST", outbound.url),
+        text="responses not found",
+    )
+
+    del response, request, outbound
+
+    assert not hasattr(adapter, "prepare_retry_request")
 
 
 @pytest.mark.anyio
@@ -1196,3 +1658,681 @@ async def test_proxy_uses_token_model_settings_and_restricts_base_url(
 def test_build_proxy_uses_agent_management_resolver() -> None:
     proxy = TracecatLLMProxy.build()
     assert isinstance(proxy.credential_resolver, AgentManagementCredentialResolver)
+
+
+# ---------------------------------------------------------------------------
+# Claude-specific content block translation
+# ---------------------------------------------------------------------------
+
+
+class TestServerToolUseTranslation:
+    """server_tool_use blocks should normalise as regular tool calls."""
+
+    def test_server_tool_use_normalises_as_tool_call(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "server_tool_use",
+                            "id": "stu_web_001",
+                            "name": "web_search",
+                            "input": {"query": "tracecat security automation"},
+                        }
+                    ],
+                }
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        assistant_msg = normalized.messages[0]
+        assert assistant_msg.role == "assistant"
+        assert len(assistant_msg.tool_calls) == 1
+        tc = assistant_msg.tool_calls[0]
+        assert tc.id == "stu_web_001"
+        assert tc.name == "web_search"
+        assert tc.arguments == {"query": "tracecat security automation"}
+
+    def test_server_tool_use_renders_in_openai_payload(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Let me search."},
+                        {
+                            "type": "server_tool_use",
+                            "id": "stu_001",
+                            "name": "web_search",
+                            "input": {"query": "test"},
+                        },
+                    ],
+                }
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        rendered = messages_request_to_openai_payload(normalized)
+        msg = rendered["messages"][0]
+        assert msg["role"] == "assistant"
+        assert msg["tool_calls"][0]["function"]["name"] == "web_search"
+
+    def test_server_tool_use_renders_in_anthropic_payload(self) -> None:
+        payload = {
+            "model": "claude-sonnet-4-5-20250929",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "server_tool_use",
+                            "id": "stu_002",
+                            "name": "code_execution",
+                            "input": {"code": "print(1)"},
+                        }
+                    ],
+                }
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="anthropic",
+            model="claude-sonnet-4-5-20250929",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        rendered = messages_request_to_anthropic_payload(normalized)
+        content = rendered["messages"][0]["content"]
+        assert any(
+            block.get("type") == "tool_use" and block.get("id") == "stu_002"
+            for block in content
+        )
+
+
+class TestWebSearchToolResultTranslation:
+    """web_search_tool_result blocks should normalise as tool results."""
+
+    def test_web_search_result_normalises_as_tool_message(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "server_tool_use",
+                            "id": "stu_ws_001",
+                            "name": "web_search",
+                            "input": {"query": "test"},
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "web_search_tool_result",
+                            "tool_use_id": "stu_ws_001",
+                            "content": [
+                                {
+                                    "type": "web_search_result",
+                                    "title": "Tracecat Docs",
+                                    "url": "https://docs.tracecat.com",
+                                    "encrypted_content": "enc_abc",
+                                },
+                                {
+                                    "type": "web_search_result",
+                                    "title": "GitHub",
+                                    "url": "https://github.com/tracecathq/tracecat",
+                                    "encrypted_content": "enc_def",
+                                },
+                            ],
+                        }
+                    ],
+                },
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        tool_msg = normalized.messages[1]
+        assert tool_msg.role == "tool"
+        assert tool_msg.tool_call_id == "stu_ws_001"
+        assert "Tracecat Docs" in str(tool_msg.content)
+        assert "https://docs.tracecat.com" in str(tool_msg.content)
+
+    def test_web_search_error_normalises_as_tool_message(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "server_tool_use",
+                            "id": "stu_ws_err",
+                            "name": "web_search",
+                            "input": {"query": "fail"},
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "web_search_tool_result",
+                            "tool_use_id": "stu_ws_err",
+                            "content": {
+                                "type": "web_search_tool_result_error",
+                                "error_code": "max_results_reached",
+                            },
+                        }
+                    ],
+                },
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        tool_msg = normalized.messages[1]
+        assert tool_msg.role == "tool"
+        assert "max_results_reached" in str(tool_msg.content)
+
+
+class TestCodeExecutionToolResultTranslation:
+    """code_execution_tool_result blocks should normalise as tool results."""
+
+    def test_code_execution_result_normalises_as_tool_message(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "server_tool_use",
+                            "id": "stu_ce_001",
+                            "name": "code_execution",
+                            "input": {"code": "print('hello')"},
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "code_execution_tool_result",
+                            "tool_use_id": "stu_ce_001",
+                            "content": {
+                                "type": "code_execution_result",
+                                "stdout": "hello\n",
+                                "stderr": "",
+                                "return_code": 0,
+                                "content": [],
+                            },
+                        }
+                    ],
+                },
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        tool_msg = normalized.messages[1]
+        assert tool_msg.role == "tool"
+        assert tool_msg.tool_call_id == "stu_ce_001"
+        assert "hello" in str(tool_msg.content)
+
+    def test_code_execution_error_normalises_as_tool_message(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "server_tool_use",
+                            "id": "stu_ce_err",
+                            "name": "code_execution",
+                            "input": {"code": "bad"},
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "code_execution_tool_result",
+                            "tool_use_id": "stu_ce_err",
+                            "content": {
+                                "type": "code_execution_tool_result_error",
+                                "error_code": "timeout",
+                            },
+                        }
+                    ],
+                },
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        tool_msg = normalized.messages[1]
+        assert tool_msg.role == "tool"
+        assert "timeout" in str(tool_msg.content)
+
+
+class TestMcpToolTranslation:
+    """mcp_tool_use/mcp_tool_result blocks should normalise as tool call/results."""
+
+    def test_mcp_tool_use_normalises_as_tool_call(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "mcp_tool_use",
+                            "id": "mcp_001",
+                            "name": "slack_post",
+                            "server_name": "slack-server",
+                            "input": {"channel": "#general", "text": "hi"},
+                        }
+                    ],
+                }
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        tc = normalized.messages[0].tool_calls[0]
+        assert tc.id == "mcp_001"
+        assert tc.name == "slack_post"
+        assert tc.arguments == {"channel": "#general", "text": "hi"}
+
+    def test_mcp_tool_result_normalises_as_tool_message(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "mcp_tool_use",
+                            "id": "mcp_002",
+                            "name": "slack_post",
+                            "server_name": "slack-server",
+                            "input": {"channel": "#general", "text": "hi"},
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "mcp_tool_result",
+                            "tool_use_id": "mcp_002",
+                            "content": "Message posted successfully",
+                            "is_error": False,
+                        }
+                    ],
+                },
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        tool_msg = normalized.messages[1]
+        assert tool_msg.role == "tool"
+        assert tool_msg.tool_call_id == "mcp_002"
+        assert tool_msg.content == "Message posted successfully"
+
+    def test_mcp_tool_result_with_text_blocks(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "mcp_tool_use",
+                            "id": "mcp_003",
+                            "name": "read_file",
+                            "server_name": "fs-server",
+                            "input": {"path": "/tmp/test.txt"},
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "mcp_tool_result",
+                            "tool_use_id": "mcp_003",
+                            "content": [
+                                {"type": "text", "text": "line 1"},
+                                {"type": "text", "text": "line 2"},
+                            ],
+                            "is_error": False,
+                        }
+                    ],
+                },
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        tool_msg = normalized.messages[1]
+        assert tool_msg.role == "tool"
+        assert "line 1" in str(tool_msg.content)
+        assert "line 2" in str(tool_msg.content)
+
+    def test_mcp_tool_result_error(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "mcp_tool_use",
+                            "id": "mcp_err",
+                            "name": "fail_tool",
+                            "server_name": "test",
+                            "input": {},
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "mcp_tool_result",
+                            "tool_use_id": "mcp_err",
+                            "content": "Connection refused",
+                            "is_error": True,
+                        }
+                    ],
+                },
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        tool_msg = normalized.messages[1]
+        assert tool_msg.role == "tool"
+        assert tool_msg.metadata.get("is_error") is True
+
+
+class TestContainerToolTranslation:
+    """container_tool_use/container_tool_result should normalise like tool calls."""
+
+    def test_container_tool_use_normalises_as_tool_call(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "container_tool_use",
+                            "id": "ctu_001",
+                            "name": "run_sandbox",
+                            "input": {"command": "ls -la"},
+                        }
+                    ],
+                }
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        tc = normalized.messages[0].tool_calls[0]
+        assert tc.id == "ctu_001"
+        assert tc.name == "run_sandbox"
+
+    def test_container_tool_result_normalises_as_tool_message(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "container_tool_use",
+                            "id": "ctu_002",
+                            "name": "run_sandbox",
+                            "input": {"command": "echo ok"},
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "container_tool_result",
+                            "tool_use_id": "ctu_002",
+                            "content": "ok\n",
+                        }
+                    ],
+                },
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        tool_msg = normalized.messages[1]
+        assert tool_msg.role == "tool"
+        assert tool_msg.tool_call_id == "ctu_002"
+
+
+class TestToolReferenceDropped:
+    """tool_reference blocks should be silently dropped."""
+
+    def test_tool_reference_is_dropped(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "tool_reference", "tool_name": "web_search"},
+                        {"type": "text", "text": "Using web search."},
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_ref",
+                            "name": "web_search",
+                            "input": {"query": "test"},
+                        },
+                    ],
+                }
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        msg = normalized.messages[0]
+        assert msg.role == "assistant"
+        # Text and tool_use should be present, tool_reference should not
+        assert msg.content == "Using web search."
+        assert len(msg.tool_calls) == 1
+        assert msg.tool_calls[0].name == "web_search"
+
+    def test_tool_reference_stripped_from_metadata_stash(self) -> None:
+        """The _anthropic_content_blocks metadata should not contain tool_reference."""
+        from tracecat.agent.llm_proxy.requests import (
+            ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY,
+        )
+
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "tool_reference", "tool_name": "web_search"},
+                        {"type": "text", "text": "Searching."},
+                    ],
+                }
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        stash = normalized.messages[0].metadata.get(
+            ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY, []
+        )
+        assert all(block.get("type") != "tool_reference" for block in stash)
+
+
+class TestMetadataStashRewritesServerBlocks:
+    """The _anthropic_content_blocks metadata stash should contain only standard types."""
+
+    def test_server_tool_use_rewritten_in_stash(self) -> None:
+        from tracecat.agent.llm_proxy.requests import (
+            ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY,
+        )
+
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Searching..."},
+                        {
+                            "type": "server_tool_use",
+                            "id": "stu_stash",
+                            "name": "web_search",
+                            "input": {"query": "test"},
+                        },
+                    ],
+                }
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        stash = normalized.messages[0].metadata.get(
+            ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY, []
+        )
+        types_in_stash = [b.get("type") for b in stash if isinstance(b, dict)]
+        assert "server_tool_use" not in types_in_stash
+        assert "tool_use" in types_in_stash
+
+    def test_web_search_result_rewritten_in_stash(self) -> None:
+        payload = {
+            "model": "gpt-5-mini",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "web_search_tool_result",
+                            "tool_use_id": "stu_ws_stash",
+                            "content": [
+                                {
+                                    "type": "web_search_result",
+                                    "title": "Test",
+                                    "url": "https://example.com",
+                                    "encrypted_content": "enc",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+        normalized = normalize_anthropic_request(
+            payload,
+            provider="openai",
+            model="gpt-5-mini",
+            workspace_id=uuid4(),
+            organization_id=uuid4(),
+            session_id=uuid4(),
+        )
+        # The web_search_tool_result gets split into a tool message
+        tool_msg = normalized.messages[0]
+        assert tool_msg.role == "tool"
+        assert tool_msg.tool_call_id == "stu_ws_stash"
