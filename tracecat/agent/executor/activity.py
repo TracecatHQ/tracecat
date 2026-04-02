@@ -308,7 +308,7 @@ class SandboxedAgentExecutor:
                 loopback_prepare_task = tg.create_task(handler.prepare())
                 server_task = tg.create_task(start_control_socket_server())
 
-            _ = init_payload_task.result()
+            init_payload_path = init_payload_task.result()
             _ = llm_proxy_task.result()
             _ = loopback_prepare_task.result()
             server = server_task.result()
@@ -317,6 +317,7 @@ class SandboxedAgentExecutor:
                 runtime_result = await spawn_jailed_runtime(
                     socket_dir=socket_dir,
                     llm_socket_path=llm_socket_path,
+                    init_payload_path=init_payload_path,
                     enable_internet_access=self.input.config.enable_internet_access,
                 )
                 self._process = runtime_result.process
