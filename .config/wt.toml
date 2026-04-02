@@ -3,5 +3,5 @@
 # See: https://worktrunk.dev/hook/
 
 # Post-Create: Install dependencies after worktree creation
-[post-create]
+[pre-start]
 deps = "uv sync --group admin & pnpm -C frontend i & wait"
