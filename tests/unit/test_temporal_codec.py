@@ -223,10 +223,10 @@ async def test_encryption_codec_passes_through_empty_data_payload(
 
 
 @pytest.mark.anyio
-async def test_encryption_codec_decode_raises_on_missing_workspace_id(
+async def test_encryption_codec_decode_passes_through_on_missing_workspace_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Decode raises TemporalPayloadCodecError when workspace ID is missing."""
+    """Decode passes through as-is when workspace ID is missing (fail-open)."""
     _enable_encryption(monkeypatch)
     codec = EncryptionPayloadCodec(enabled=True)
 
@@ -239,15 +239,16 @@ async def test_encryption_codec_decode_raises_on_missing_workspace_id(
         data=b"ciphertext",
     )
 
-    with pytest.raises(TemporalPayloadCodecError, match="missing its workspace scope"):
-        await codec.decode([bad_payload])
+    result = await codec.decode([bad_payload])
+    assert len(result) == 1
+    assert result[0].data == b"ciphertext"
 
 
 @pytest.mark.anyio
-async def test_encryption_codec_decode_raises_on_missing_nonce(
+async def test_encryption_codec_decode_passes_through_on_missing_nonce(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Decode raises TemporalPayloadCodecError when nonce is missing."""
+    """Decode passes through as-is when nonce is missing (fail-open)."""
     _enable_encryption(monkeypatch)
     codec = EncryptionPayloadCodec(enabled=True)
 
@@ -260,15 +261,16 @@ async def test_encryption_codec_decode_raises_on_missing_nonce(
         data=b"ciphertext",
     )
 
-    with pytest.raises(TemporalPayloadCodecError, match="missing its nonce"):
-        await codec.decode([bad_payload])
+    result = await codec.decode([bad_payload])
+    assert len(result) == 1
+    assert result[0].data == b"ciphertext"
 
 
 @pytest.mark.anyio
-async def test_encryption_codec_decode_raises_on_tampered_ciphertext(
+async def test_encryption_codec_decode_passes_through_on_tampered_ciphertext(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Decode raises TemporalPayloadCodecError when ciphertext is tampered with."""
+    """Decode passes through as-is when ciphertext is tampered with (fail-open)."""
     _enable_encryption(monkeypatch)
     codec = EncryptionPayloadCodec(enabled=True)
 
@@ -285,15 +287,16 @@ async def test_encryption_codec_decode_raises_on_tampered_ciphertext(
         data=b"\xff" * len(encoded[0].data),
     )
 
-    with pytest.raises(TemporalPayloadCodecError, match="Failed to decrypt"):
-        await codec.decode([tampered])
+    result = await codec.decode([tampered])
+    assert len(result) == 1
+    assert result[0].data == tampered.data
 
 
 @pytest.mark.anyio
-async def test_encryption_codec_cross_workspace_isolation(
+async def test_encryption_codec_cross_workspace_decode_passes_through(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Payload encrypted under workspace A cannot be decrypted by workspace B."""
+    """Payload encrypted under workspace A passes through on workspace B decode (fail-open)."""
     _enable_encryption(monkeypatch)
     codec = EncryptionPayloadCodec(enabled=True)
     payload = Payload(metadata={"encoding": b"json/plain"}, data=b'{"ws":"a"}')
@@ -310,8 +313,35 @@ async def test_encryption_codec_cross_workspace_isolation(
     tampered_metadata["tracecat_workspace_id"] = str(WORKSPACE_ID_B).encode()
     wrong_ws_payload = Payload(metadata=tampered_metadata, data=encoded[0].data)
 
-    with pytest.raises(TemporalPayloadCodecError, match="Failed to decrypt"):
-        await codec.decode([wrong_ws_payload])
+    result = await codec.decode([wrong_ws_payload])
+    assert len(result) == 1
+    assert result[0].data == wrong_ws_payload.data
+
+
+# --- Encode fail-open tests ---
+
+
+@pytest.mark.anyio
+async def test_encryption_codec_encode_passes_through_on_key_init_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Encode passes through unencrypted when key initialization fails (fail-open)."""
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", True)
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", None)
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN", None)
+
+    codec = EncryptionPayloadCodec(enabled=True)
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=b'{"ok":true}')
+
+    token = _set_workspace_role()
+    try:
+        result = await codec.encode([payload])
+    finally:
+        ctx_role.reset(token)
+
+    assert len(result) == 1
+    assert result[0].data == payload.data
+    assert result[0].metadata["encoding"] == b"json/plain"
 
 
 # --- Keyring tests ---

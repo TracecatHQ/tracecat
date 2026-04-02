@@ -326,12 +326,21 @@ class EncryptionPayloadCodec(PayloadCodec):
         return TRACECAT_TEMPORAL_GLOBAL_SCOPE
 
     async def encode(self, payloads: Iterable[Payload]) -> list[Payload]:
+        """Encrypt payloads. Fail-open: passes through unencrypted on error."""
         if not self.enabled:
             return list(payloads)
 
-        workspace_id = self._resolve_workspace_scope()
-        key_version = config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION
-        aesgcm = AESGCM(await self.keyring.get_key(workspace_id, key_version))
+        try:
+            workspace_id = self._resolve_workspace_scope()
+            key_version = config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION
+            aesgcm = AESGCM(await self.keyring.get_key(workspace_id, key_version))
+        except Exception as e:
+            logger.error(
+                "Encryption key initialization failed, passing payloads through unencrypted",
+                error=type(e).__name__,
+            )
+            return list(payloads)
+
         result: list[Payload] = []
         async for payload in cooperative(payloads):
             encoding = payload.metadata.get("encoding", b"")
@@ -339,75 +348,94 @@ class EncryptionPayloadCodec(PayloadCodec):
                 result.append(payload)
                 continue
 
-            nonce = os.urandom(12)
-            aad = b"|".join((workspace_id.encode("utf-8"), key_version.encode("utf-8")))
-            ciphertext = aesgcm.encrypt(nonce, payload.data, aad)
-            metadata = dict(payload.metadata)
-            metadata.update(
-                {
-                    "encoding": TRACECAT_TEMPORAL_ENCODING,
-                    "tracecat_original_encoding": encoding,
-                    "tracecat_workspace_id": workspace_id.encode("utf-8"),
-                    "tracecat_key_version": key_version.encode("utf-8"),
-                    "tracecat_nonce": base64.urlsafe_b64encode(nonce),
-                }
-            )
-            result.append(Payload(metadata=metadata, data=ciphertext))
+            try:
+                nonce = os.urandom(12)
+                aad = b"|".join(
+                    (workspace_id.encode("utf-8"), key_version.encode("utf-8"))
+                )
+                ciphertext = aesgcm.encrypt(nonce, payload.data, aad)
+                metadata = dict(payload.metadata)
+                metadata.update(
+                    {
+                        "encoding": TRACECAT_TEMPORAL_ENCODING,
+                        "tracecat_original_encoding": encoding,
+                        "tracecat_workspace_id": workspace_id.encode("utf-8"),
+                        "tracecat_key_version": key_version.encode("utf-8"),
+                        "tracecat_nonce": base64.urlsafe_b64encode(nonce),
+                    }
+                )
+                result.append(Payload(metadata=metadata, data=ciphertext))
+            except Exception as e:
+                logger.error(
+                    "Failed to encrypt payload, passing through unencrypted",
+                    error=type(e).__name__,
+                    payload_size=len(payload.data),
+                )
+                result.append(payload)
+
         return result
 
     async def decode(self, payloads: Iterable[Payload]) -> list[Payload]:
+        """Decrypt payloads. Fail-open: passes through as-is on error."""
         result: list[Payload] = []
         async for payload in cooperative(payloads):
             if payload.metadata.get("encoding", b"") != TRACECAT_TEMPORAL_ENCODING:
                 result.append(payload)
                 continue
 
-            workspace_id = payload.metadata.get("tracecat_workspace_id", b"").decode(
-                "utf-8"
-            )
-            if not workspace_id:
-                raise TemporalPayloadCodecError(
-                    "Encrypted Temporal payload is missing its workspace scope"
-                )
-            key_version = (
-                payload.metadata.get("tracecat_key_version", b"").decode("utf-8")
-                or config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION
-            )
-            nonce_b64 = payload.metadata.get("tracecat_nonce")
-            if nonce_b64 is None:
-                raise TemporalPayloadCodecError(
-                    "Encrypted Temporal payload is missing its nonce"
-                )
-
-            aesgcm = AESGCM(await self.keyring.get_key(workspace_id, key_version))
-            aad = b"|".join((workspace_id.encode("utf-8"), key_version.encode("utf-8")))
             try:
+                workspace_id = payload.metadata.get(
+                    "tracecat_workspace_id", b""
+                ).decode("utf-8")
+                if not workspace_id:
+                    raise TemporalPayloadCodecError(
+                        "Encrypted Temporal payload is missing its workspace scope"
+                    )
+                key_version = (
+                    payload.metadata.get("tracecat_key_version", b"").decode("utf-8")
+                    or config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION
+                )
+                nonce_b64 = payload.metadata.get("tracecat_nonce")
+                if nonce_b64 is None:
+                    raise TemporalPayloadCodecError(
+                        "Encrypted Temporal payload is missing its nonce"
+                    )
+
+                aesgcm = AESGCM(await self.keyring.get_key(workspace_id, key_version))
+                aad = b"|".join(
+                    (workspace_id.encode("utf-8"), key_version.encode("utf-8"))
+                )
                 plaintext = aesgcm.decrypt(
                     base64.urlsafe_b64decode(nonce_b64),
                     payload.data,
                     aad,
                 )
-            except Exception as e:
-                raise TemporalPayloadCodecError(
-                    "Failed to decrypt Temporal payload"
-                ) from e
 
-            metadata = {
-                key: value
-                for key, value in payload.metadata.items()
-                if key
-                not in {
-                    "encoding",
-                    "tracecat_original_encoding",
-                    "tracecat_workspace_id",
-                    "tracecat_key_version",
-                    "tracecat_nonce",
+                metadata = {
+                    key: value
+                    for key, value in payload.metadata.items()
+                    if key
+                    not in {
+                        "encoding",
+                        "tracecat_original_encoding",
+                        "tracecat_workspace_id",
+                        "tracecat_key_version",
+                        "tracecat_nonce",
+                    }
                 }
-            }
-            original_encoding = payload.metadata.get("tracecat_original_encoding", b"")
-            if original_encoding:
-                metadata["encoding"] = original_encoding
-            result.append(Payload(metadata=metadata, data=plaintext))
+                original_encoding = payload.metadata.get(
+                    "tracecat_original_encoding", b""
+                )
+                if original_encoding:
+                    metadata["encoding"] = original_encoding
+                result.append(Payload(metadata=metadata, data=plaintext))
+            except Exception as e:
+                logger.error(
+                    "Failed to decrypt payload, passing through as-is",
+                    error=type(e).__name__,
+                    payload_size=len(payload.data),
+                )
+                result.append(payload)
         return result
 
 
