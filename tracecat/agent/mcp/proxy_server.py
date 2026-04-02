@@ -21,13 +21,15 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 
 from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.mcp.metadata import (
+    PROXY_TOOL_CALL_ID_KEY,
+    PROXY_TOOL_METADATA_KEY,
+    extract_proxy_tool_call_id,
+)
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import action_name_to_mcp_tool_name
 from tracecat.agent.sandbox.config import TRUSTED_MCP_SOCKET_PATH
 from tracecat.logger import logger
-
-PROXY_TOOL_METADATA_KEY = "__tracecat"
-PROXY_TOOL_CALL_ID_KEY = "tool_call_id"
 
 
 class _UDSClientFactory:
@@ -109,30 +111,6 @@ def build_registry_proxy_tool_schema(
     schema.setdefault("type", "object")
     properties[PROXY_TOOL_METADATA_KEY] = _build_proxy_tool_metadata_schema()
     return schema
-
-
-def extract_proxy_tool_call_id(args: dict[str, Any]) -> str | None:
-    """Pop internal Tracecat metadata from proxy tool args and return tool_call_id."""
-    raw_metadata = args.pop(PROXY_TOOL_METADATA_KEY, None)
-    if raw_metadata is None:
-        return None
-    if not isinstance(raw_metadata, dict):
-        logger.warning(
-            "Ignoring malformed proxy tool metadata",
-            metadata_type=type(raw_metadata).__name__,
-        )
-        return None
-
-    raw_tool_call_id = raw_metadata.get(PROXY_TOOL_CALL_ID_KEY)
-    if raw_tool_call_id is None:
-        return None
-    if not isinstance(raw_tool_call_id, str) or not raw_tool_call_id:
-        logger.warning(
-            "Ignoring malformed proxy tool call ID",
-            tool_call_id_type=type(raw_tool_call_id).__name__,
-        )
-        return None
-    return raw_tool_call_id
 
 
 def _make_tool_handler(

@@ -25,6 +25,7 @@ from tracecat_registry._internal.exceptions import SecretNotFoundError
 import tracecat.agent.adapter.vercel
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import RunAgentArgs
@@ -1523,13 +1524,16 @@ class AgentSessionService(BaseWorkspaceService):
             if not inner_message:
                 inner_message = content
 
+            # Strip internal proxy metadata before returning persisted tool inputs.
+            sanitized_message = sanitize_message_tool_inputs(inner_message)
+
             # Deserialize the content using Claude SDK TypeAdapter
-            message = ClaudeSDKMessageTA.validate_python(inner_message)
+            message = ClaudeSDKMessageTA.validate_python(sanitized_message)
             messages.append(ChatMessage(id=str(entry.id), message=message))
 
             # For assistant messages, check for tool calls needing approval bubbles
             if msg_type == "assistant":
-                tool_uses = self._extract_tool_uses_from_message(inner_message)
+                tool_uses = self._extract_tool_uses_from_message(sanitized_message)
                 for tool_use in tool_uses:
                     tool_use_id = tool_use.get("id")
                     if tool_use_id and (

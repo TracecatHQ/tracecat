@@ -130,6 +130,21 @@ def test_redact_tool_call_args_summarizes_nested_objects() -> None:
     assert filters_meta["keys"] == ["status", "limit"]
 
 
+def test_redact_tool_call_args_ignores_internal_proxy_metadata() -> None:
+    result = redact_tool_call_args(
+        {
+            "query": "find me",
+            "__tracecat": {"tool_call_id": "toolu_123"},
+        }
+    )
+
+    assert result["arg_count"] == 1
+    assert result["keys"] == ["query"]
+    args = result["args"]
+    assert isinstance(args, dict)
+    assert "__tracecat" not in args
+
+
 def test_sanitize_error_redacted_truncates_long_values() -> None:
     long_message = "x" * 2100
     sanitized = _sanitize_error_redacted(long_message)

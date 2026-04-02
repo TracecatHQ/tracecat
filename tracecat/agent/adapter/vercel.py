@@ -60,6 +60,7 @@ from pydantic_ai.messages import (
 from pydantic_core import to_json
 
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.stream.events import (
     StreamDelta,
@@ -671,6 +672,10 @@ class ToolInputAvailableEventPayload:
     toolName: str
     input: Any
 
+    def __post_init__(self) -> None:
+        if isinstance(self.input, dict):
+            self.input = strip_proxy_tool_metadata(self.input)
+
 
 @dataclasses.dataclass(slots=True, kw_only=True)
 class ToolOutputAvailableEventPayload:
@@ -908,7 +913,7 @@ class VercelStreamContext:
                 tool_call = ToolCallPart(
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
-                    args=event.tool_input or {},
+                    args=strip_proxy_tool_metadata(event.tool_input or {}),
                 )
                 state = self._create_part_state(
                     event.part_id or 0, "tool", tool_call=tool_call
@@ -935,13 +940,11 @@ class VercelStreamContext:
                         tool_call_id = state.tool_call.tool_call_id
                         if not self.tool_input_emitted.get(tool_call_id, False):
                             # Emit final tool input
-                            tool_input = (
-                                event.tool_input or state.tool_call.args_as_dict()
-                            )
                             yield ToolInputAvailableEventPayload(
                                 toolCallId=tool_call_id,
                                 toolName=event.tool_name or state.tool_call.tool_name,
-                                input=tool_input,
+                                input=event.tool_input
+                                or state.tool_call.args_as_dict(),
                             )
                             self.tool_input_emitted[tool_call_id] = True
                     for message in self._finalize_part(event.part_id):
@@ -961,11 +964,10 @@ class VercelStreamContext:
                     tool_name = self.approval_tool_name.get(
                         tool_call_id, event.tool_name or "tool"
                     )
-                    input_payload: Any = self.approval_input.get(tool_call_id, {})
                     yield ToolInputAvailableEventPayload(
                         toolCallId=tool_call_id,
                         toolName=str(tool_name),
-                        input=input_payload,
+                        input=self.approval_input.get(tool_call_id, {}),
                     )
                     self.tool_input_emitted[tool_call_id] = True
 
@@ -1216,6 +1218,10 @@ class MutableToolPart:
     output: Any | None = None
     error_text: str | None = None
 
+    def __post_init__(self) -> None:
+        if isinstance(self.input, dict):
+            self.input = strip_proxy_tool_metadata(self.input)
+
     def set_result(
         self,
         content: Any,
@@ -1334,7 +1340,7 @@ def _extract_approval_payload_from_message(
                             ToolCallPart(
                                 tool_name=part.tool_name,
                                 tool_call_id=part.tool_call_id,
-                                args=part.args_as_dict(),
+                                args=strip_proxy_tool_metadata(part.args_as_dict()),
                             )
                         )
                 return approvals if approvals else None
@@ -1360,7 +1366,7 @@ def _extract_approval_payload_from_message(
                     ToolCallPart(
                         tool_name=block.name,
                         tool_call_id=block.id,
-                        args=block.input or {},
+                        args=strip_proxy_tool_metadata(block.input or {}),
                     )
                 )
         return approvals if approvals else None
