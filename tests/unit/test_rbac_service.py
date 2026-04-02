@@ -366,7 +366,9 @@ class TestRBACServiceGroups:
             organization_id=other_org.id,
             created_by=other_user.id,
         )
-        session.add_all([other_org, other_user, other_group])
+        session.add_all([other_org, other_user])
+        await session.flush()
+        session.add(other_group)
         await session.flush()
         session.add(
             GroupMember(
@@ -411,7 +413,9 @@ class TestRBACServiceGroups:
             organization_id=other_org.id,
             created_by=other_user.id,
         )
-        session.add_all([other_org, other_user, other_group])
+        session.add_all([other_org, other_user])
+        await session.flush()
+        session.add(other_group)
         await session.flush()
         session.add(
             GroupMember(

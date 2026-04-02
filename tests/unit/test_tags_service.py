@@ -329,21 +329,21 @@ class TestWorkflowTagsService:
         assert retrieved_wf_tag.workflow_id == workflow_id
         assert retrieved_wf_tag.tag_id == tag.id
 
-    async def test_add_workflow_tag_is_idempotent(
+    async def test_add_workflow_tag_duplicate_preserves_single_link(
         self,
         workflow_tags_service: WorkflowTagsService,
         tags_service: TagsService,
         tag_create_params: TagCreate,
         workflow_id: WorkflowID,
     ) -> None:
-        """Test adding the same workflow tag twice is a no-op."""
+        """Duplicate adds should fail without creating an extra association."""
         tag = await tags_service.create_tag(tag_create_params)
 
         first_link = await workflow_tags_service.add_workflow_tag(workflow_id, tag.id)
-        second_link = await workflow_tags_service.add_workflow_tag(workflow_id, tag.id)
-
-        assert first_link.workflow_id == second_link.workflow_id
-        assert first_link.tag_id == second_link.tag_id
+        assert first_link.workflow_id == workflow_id
+        assert first_link.tag_id == tag.id
+        with pytest.raises(ValueError, match="already assigned"):
+            await workflow_tags_service.add_workflow_tag(workflow_id, tag.id)
 
         workflow_tags = await workflow_tags_service.list_tags_for_workflow(workflow_id)
         assert len(workflow_tags) == 1

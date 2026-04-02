@@ -10,7 +10,7 @@ from tracecat.auth.types import Role
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.service import CaseCreate, CasesService
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import Case, CaseTrigger, Workflow, Workspace
+from tracecat.db.models import Case, CaseTagLink, CaseTrigger, Workflow, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.tags.schemas import TagCreate, TagUpdate
 
@@ -311,6 +311,24 @@ class TestCaseTagsService:  # noqa: D101
         assert case_tag.tag_id == tag.id
 
     @pytest.mark.anyio
+    async def test_get_case_tag_excludes_stale_cross_workspace_links(
+        self,
+        session: AsyncSession,
+        case_tags_service: CaseTagsService,
+        other_case_tags_service: CaseTagsService,
+        case_id: uuid.UUID,
+    ) -> None:
+        """Association lookup should ignore foreign-workspace tags on stale links."""
+        other_tag = await other_case_tags_service.create_tag(
+            TagCreate(name="Foreign Association Tag", color="#11CC77")
+        )
+        session.add(CaseTagLink(case_id=case_id, tag_id=other_tag.id))
+        await session.commit()
+
+        case_tag = await case_tags_service.get_case_tag(case_id, other_tag.id)
+        assert case_tag is None
+
+    @pytest.mark.anyio
     async def test_remove_nonexistent_tag_raises_error(
         self,
         case_tags_service: CaseTagsService,
@@ -426,4 +444,22 @@ class TestCaseTagsService:  # noqa: D101
         await other_case_tags_service.add_case_tag(other_case_id, str(other_tag.id))
 
         leaked_tags = await case_tags_service.list_tags_for_case(other_case_id)
+        assert leaked_tags == []
+
+    @pytest.mark.anyio
+    async def test_list_tags_for_case_filters_stale_cross_workspace_tag_links(
+        self,
+        session: AsyncSession,
+        case_tags_service: CaseTagsService,
+        other_case_tags_service: CaseTagsService,
+        case_id: uuid.UUID,
+    ) -> None:
+        """Listing tags should exclude foreign-workspace tags on stale link rows."""
+        other_tag = await other_case_tags_service.create_tag(
+            TagCreate(name="Foreign Workspace Tag", color="#AA22CC")
+        )
+        session.add(CaseTagLink(case_id=case_id, tag_id=other_tag.id))
+        await session.commit()
+
+        leaked_tags = await case_tags_service.list_tags_for_case(case_id)
         assert leaked_tags == []
