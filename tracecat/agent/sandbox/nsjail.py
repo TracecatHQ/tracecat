@@ -249,6 +249,8 @@ async def _spawn_direct_runtime(
         "TRACECAT__DISABLE_NSJAIL": "true",
         # Point the runtime at the orchestrator's per-job control socket
         "TRACECAT__AGENT_CONTROL_SOCKET_PATH": str(control_socket_path),
+        # Point the runtime at the per-job init payload file without changing cwd.
+        "TRACECAT__AGENT_INIT_PAYLOAD_PATH": str(init_payload_path),
         # Use host's HOME for Claude SDK session storage
         "HOME": os.environ.get("HOME", "/tmp"),
     }
@@ -267,7 +269,6 @@ async def _spawn_direct_runtime(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
-        cwd=str(init_payload_path.parent),
     )
 
     return SpawnedRuntime(process=process, job_dir=None)
