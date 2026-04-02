@@ -173,7 +173,7 @@ class DurableAgentWorkflow:
         self.max_tool_calls = args.agent_args.max_tool_calls
         # Session state for Claude SDK resume
         self._sdk_session_id: str | None = None
-        self._sdk_session_data: str | None = None
+        self._resume_source_session_id: uuid.UUID | None = None
         # Registry lock for action resolution (set after build_tool_definitions)
         self._registry_lock: RegistryLock | None = None
 
@@ -422,13 +422,14 @@ class DurableAgentWorkflow:
         )
 
         is_fork = False
-        if load_result.found and load_result.sdk_session_data:
+        if load_result.found and load_result.sdk_session_id:
             self._sdk_session_id = load_result.sdk_session_id
-            self._sdk_session_data = load_result.sdk_session_data
+            self._resume_source_session_id = load_result.resume_source_session_id
             is_fork = load_result.is_fork
             logger.info(
                 "Resuming from existing session",
                 sdk_session_id=self._sdk_session_id,
+                resume_source_session_id=self._resume_source_session_id,
                 is_fork=is_fork,
             )
 
@@ -469,7 +470,7 @@ class DurableAgentWorkflow:
             llm_gateway_auth_token=llm_gateway_auth_token,
             allowed_actions=allowed_actions,
             sdk_session_id=self._sdk_session_id,
-            sdk_session_data=self._sdk_session_data,
+            resume_source_session_id=self._resume_source_session_id,
             is_fork=is_fork,
         )
 
@@ -539,12 +540,15 @@ class DurableAgentWorkflow:
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
-                if reload_result.found and reload_result.sdk_session_data:
+                if reload_result.found and reload_result.sdk_session_id:
                     self._sdk_session_id = reload_result.sdk_session_id
-                    self._sdk_session_data = reload_result.sdk_session_data
+                    self._resume_source_session_id = (
+                        reload_result.resume_source_session_id
+                    )
                     logger.info(
                         "Reloaded session data for continuation",
                         sdk_session_id=self._sdk_session_id,
+                        resume_source_session_id=self._resume_source_session_id,
                     )
 
                 # Update executor input for resume (history now has proper tool_result)
@@ -558,7 +562,7 @@ class DurableAgentWorkflow:
                     llm_gateway_auth_token=llm_gateway_auth_token,
                     allowed_actions=allowed_actions,
                     sdk_session_id=self._sdk_session_id,
-                    sdk_session_data=self._sdk_session_data,
+                    resume_source_session_id=self._resume_source_session_id,
                     is_approval_continuation=True,
                 )
                 self._turn += 1

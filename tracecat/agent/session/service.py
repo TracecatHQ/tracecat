@@ -79,12 +79,12 @@ AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
 
 
-@dataclass
-class SessionHistoryData:
-    """Data structure for session history loaded from DB."""
+@dataclass(frozen=True)
+class SessionResumeDescriptor:
+    """Lightweight resume metadata for a Claude SDK session."""
 
     sdk_session_id: str
-    sdk_session_data: str
+    source_session_id: uuid.UUID
     is_fork: bool = False  # If True, SDK should use fork_session=True
 
 
@@ -527,27 +527,24 @@ class AgentSessionService(BaseWorkspaceService):
     # Session History Management (for Claude SDK session persistence)
     # =========================================================================
 
-    async def load_session_history(
+    async def get_session_resume_context(
         self,
         session_id: uuid.UUID,
-    ) -> SessionHistoryData | None:
-        """Load session history for resume.
+    ) -> SessionResumeDescriptor | None:
+        """Resolve the source session and SDK context for resuming Claude SDK state.
 
-        Reconstructs the SDK session JSONL from stored history entries.
-        Returns None if no history exists or no sdk_session_id is set.
+        Returns lightweight metadata only. The actual JSONL session history is
+        materialized separately when the executor stages a resume file.
 
-        For forked sessions (with parent_session_id), loads the parent's history
+        For forked sessions (with parent_session_id), loads the parent's context
         and sets is_fork=True so the runtime uses fork_session=True with the SDK.
-
-        The sdk_session_id is stored on the AgentSession model (not in the
-        JSONL content) to keep the history entries pristine for SDK resume.
 
         Args:
             session_id: The session UUID.
 
         Returns:
-            SessionHistoryData with sdk_session_id and reconstructed JSONL,
-            or None if no history found or sdk_session_id not set.
+            SessionResumeDescriptor with the SDK session ID and source session,
+            or None if no resumable session context exists.
         """
         # First get the AgentSession to check for fork and retrieve sdk_session_id
         agent_session = await self.get_session(session_id)
@@ -585,12 +582,28 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return None
 
-        # Load history entries from source session
+        return SessionResumeDescriptor(
+            sdk_session_id=sdk_session_id,
+            source_session_id=source_session_id,
+            is_fork=is_fork,
+        )
+
+    async def materialize_session_history(
+        self,
+        session_id: uuid.UUID,
+    ) -> str | None:
+        """Reconstruct JSONL session history from persisted session rows.
+
+        Args:
+            session_id: Session UUID whose persisted history should be
+                reconstructed into Claude SDK JSONL.
+
+        Returns:
+            Reconstructed JSONL content, or None if no history entries exist.
+        """
         stmt = (
             select(AgentSessionHistory)
-            .where(
-                AgentSessionHistory.session_id == source_session_id,
-            )
+            .where(AgentSessionHistory.session_id == session_id)
             .order_by(AgentSessionHistory.surrogate_id)
         )
         result = await self.session.execute(stmt)
@@ -598,9 +611,8 @@ class AgentSessionService(BaseWorkspaceService):
 
         if not history_entries:
             logger.warning(
-                "sdk_session_id set but no history entries",
-                session_id=source_session_id,
-                sdk_session_id=sdk_session_id,
+                "No persisted session history found",
+                session_id=session_id,
             )
             return None
 
@@ -610,13 +622,7 @@ class AgentSessionService(BaseWorkspaceService):
             line = orjson.dumps(entry.content).decode("utf-8")
             lines.append(line)
 
-        sdk_session_data = "\n".join(lines)
-
-        return SessionHistoryData(
-            sdk_session_id=sdk_session_id,
-            sdk_session_data=sdk_session_data,
-            is_fork=is_fork,
-        )
+        return "\n".join(lines)
 
     async def get_session_history(
         self,
