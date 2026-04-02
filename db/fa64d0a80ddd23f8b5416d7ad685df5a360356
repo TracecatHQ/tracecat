@@ -1,0 +1,48 @@
+tests/unit/test_agent_executor_loopback.py
+  98e7ffc038c89b69 141-157
+tests/unit/test_agent_sandbox_entrypoint.py
+  98e7ffc038c89b69 1-34
+tests/unit/test_agent_activities.py
+  98e7ffc038c89b69 11,14,17,22,447-498
+tracecat/agent/executor/activity.py
+  98e7ffc038c89b69 13,23,25,146-147,161-194,196,210,282-301,303-305,307-314
+tracecat/agent/runtime/claude_code/runtime.py
+  98e7ffc038c89b69 217-258,544-545
+tracecat/agent/sandbox/entrypoint.py
+  98e7ffc038c89b69 18,28,39,67-73,75-77,79,83-84,99,107-113,117
+tracecat/agent/executor/loopback.py
+  98e7ffc038c89b69 4-7,31-32,38,59-60,198-200,258-262,300,312-313,323
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "dbfa64d0a80ddd23f8b5416d7ad685df5a360356",
+  "prompts": {
+    "306083de0c887bda": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "15a5e81a-4b42-414b-8bd9-fe162da7a834",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 537,
+      "total_deletions": 17,
+      "accepted_lines": 520,
+      "overriden_lines": 4
+    },
+    "98e7ffc038c89b69": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d4fb8-993e-7df1-819b-907dcd16d1c1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 276,
+      "total_deletions": 117,
+      "accepted_lines": 275,
+      "overriden_lines": 2
+    }
+  }
+}
