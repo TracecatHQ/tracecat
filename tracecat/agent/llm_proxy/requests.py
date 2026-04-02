@@ -365,6 +365,10 @@ def _normalized_messages_from_anthropic_message(
                     metadata=metadata,
                 )
             )
+        # Emit server tool results that appeared inline in the assistant turn
+        # so they are not silently dropped during cross-provider normalization.
+        if tool_results:
+            messages.extend(tool_results)
     elif tool_results:
         messages.extend(tool_results)
         if text_content is not None:

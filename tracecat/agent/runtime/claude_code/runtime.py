@@ -461,11 +461,10 @@ class ClaudeAgentRuntime:
         """Build the system prompt for the agent."""
         base = (
             "If asked about your identity, you are a Tracecat automation assistant.\n\n"
-            "If a structured output tool is provided and configured, you MUST call it"
-            " as the very last action in EVERY turn — including follow-up turns."
-            " Produce only the structured output call with no additional commentary,"
-            " explanation, or text after it. If no structured output tool is"
-            " configured, respond normally."
+            "If a structured output schema is configured, you MUST produce structured"
+            " output as the very last thing in EVERY turn — including follow-up turns."
+            " Do not add any commentary, explanation, or text after the structured"
+            " output. This applies to every response, not just the first one."
         )
         return f"{base}\n\n{instructions}" if instructions else base
 

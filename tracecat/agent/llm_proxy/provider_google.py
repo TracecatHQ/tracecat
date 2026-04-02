@@ -857,13 +857,7 @@ def _parse_google_response(
             continue
 
         if text := part.get("text"):
-            if part.get("thought") is True:
-                _promote_text_parts()
-                _append_reasoning_block(
-                    str(text),
-                    signature=_google_thought_signature(part),
-                )
-            elif reasoning_seen:
+            if reasoning_seen:
                 content_blocks.append({"type": "text", "text": str(text)})
             else:
                 text_parts.append(str(text))

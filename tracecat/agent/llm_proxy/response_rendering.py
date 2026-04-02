@@ -37,7 +37,8 @@ def _tool_arguments_to_openai(arguments: Any) -> str:
 
 
 def _normalized_tool_call_from_dict(data: dict[str, Any]) -> NormalizedToolCall:
-    function = data.get("function") or {}
+    raw_function = data.get("function")
+    function = raw_function if isinstance(raw_function, dict) else {}
     return NormalizedToolCall(
         id=str(data.get("id", "")),
         name=str(function.get("name", data.get("name", ""))),
@@ -70,13 +71,21 @@ def normalize_openai_response(payload: dict[str, Any]) -> NormalizedResponse:
         for item in message.get("tool_calls", [])
         if isinstance(item, dict)
     )
+    usage = payload.get("usage") or {}
     return NormalizedResponse(
         provider="openai",
         model=str(payload.get("model", "")),
         content=message.get("content"),
         tool_calls=tool_calls,
         finish_reason=choice.get("finish_reason"),
-        usage=payload.get("usage") or {},
+        usage={
+            "input_tokens": int(
+                usage.get("input_tokens", usage.get("prompt_tokens", 0))
+            ),
+            "output_tokens": int(
+                usage.get("output_tokens", usage.get("completion_tokens", 0))
+            ),
+        },
         raw=payload,
     )
 
@@ -108,16 +117,22 @@ def normalize_anthropic_response(payload: dict[str, Any]) -> NormalizedResponse:
                 text_parts.append(item)
     elif content is not None:
         text_parts.append(content)
+    raw_usage = payload.get("usage")
+    usage = (
+        {
+            "input_tokens": int(raw_usage.get("input_tokens", 0)),
+            "output_tokens": int(raw_usage.get("output_tokens", 0)),
+        }
+        if isinstance(raw_usage, dict)
+        else {}
+    )
     return NormalizedResponse(
         provider="anthropic",
         model=str(payload.get("model", "")),
         content=text_parts if len(text_parts) != 1 else text_parts[0],
         tool_calls=tuple(tool_calls),
         finish_reason=payload.get("stop_reason"),
-        usage={
-            "input_tokens": int(payload.get("usage", {}).get("input_tokens", 0)),
-            "output_tokens": int(payload.get("usage", {}).get("output_tokens", 0)),
-        },
+        usage=usage,
         raw=payload,
     )
 

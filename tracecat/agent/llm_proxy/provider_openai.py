@@ -432,12 +432,22 @@ def _normalize_responses_response(payload: dict[str, Any]) -> NormalizedResponse
                 )
             )
 
+    # Map Responses API status to Anthropic-style finish reason.
+    if tool_calls:
+        finish_reason = "tool_use"
+    else:
+        match payload.get("status"):
+            case "incomplete":
+                finish_reason = "max_tokens"
+            case _:
+                finish_reason = "end_turn"
+
     return NormalizedResponse(
         provider="openai",
         model=str(payload.get("model", "")),
         content=_normalized_responses_content(payload),
         tool_calls=tuple(tool_calls),
-        finish_reason="tool_use" if tool_calls else "end_turn",
+        finish_reason=finish_reason,
         usage=_responses_usage(payload),
         raw=payload,
     )
@@ -681,7 +691,8 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
                 if item_type == "reasoning":
                     item_id = str(item.get("id", ""))
                     content_index = allocate_content_index(thinking_indices, item_id)
-                    if item_id not in started_thinking_ids:
+                    had_started_thinking = item_id in started_thinking_ids
+                    if not had_started_thinking:
                         yield AnthropicStreamEvent(
                             "content_block_start",
                             {
@@ -694,6 +705,28 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
                             },
                         )
                         started_thinking_ids.add(item_id)
+                    # Extract reasoning text from the completed item if
+                    # delta events were not sent (mirrors non-streaming
+                    # _normalized_responses_content logic).
+                    if not had_started_thinking:
+                        thinking = "".join(
+                            str(part.get("text", ""))
+                            for part in item.get("content", [])
+                            if isinstance(part, dict)
+                            and part.get("type") == "reasoning_text"
+                        )
+                        if not thinking and isinstance(
+                            summary := item.get("summary"), list
+                        ):
+                            thinking = "".join(
+                                str(part.get("text", ""))
+                                for part in summary
+                                if isinstance(part, dict)
+                            )
+                        if thinking:
+                            yield anthropic_thinking_delta_event(
+                                content_index, thinking
+                            )
                     yield anthropic_block_stop_event(content_index)
                     continue
 
