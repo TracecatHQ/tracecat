@@ -114,6 +114,7 @@ def _get_tracecat_pkg_dir() -> Path:
 async def spawn_jailed_runtime(
     socket_dir: Path,
     llm_socket_path: Path | None = None,
+    init_payload_path: Path | None = None,
     config: AgentSandboxConfig | None = None,
     nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
     rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
@@ -184,6 +185,7 @@ async def spawn_jailed_runtime(
         return await _spawn_direct_runtime(
             socket_dir=socket_dir,
             llm_socket_path=llm_socket_path,
+            init_payload_path=init_payload_path,
         )
 
     # NSJail mode for production - isolated runs require the per-job LLM socket.
@@ -196,6 +198,7 @@ async def spawn_jailed_runtime(
     return await _spawn_nsjail_runtime(
         socket_dir=socket_dir,
         llm_socket_path=llm_socket_path,
+        init_payload_path=init_payload_path,
         config=config,
         nsjail_path=nsjail_path,
         rootfs_path=rootfs_path,
@@ -207,6 +210,7 @@ async def _spawn_direct_runtime(
     *,
     socket_dir: Path,
     llm_socket_path: Path | None,
+    init_payload_path: Path | None,
 ) -> SpawnedRuntime:
     """Spawn the agent runtime as a direct subprocess (for development/testing).
 
@@ -256,11 +260,17 @@ async def _spawn_direct_runtime(
         if value := os.environ.get(key):
             env[key] = value
 
+    if init_payload_path is None:
+        raise AgentSandboxExecutionError(
+            "init_payload_path is required in direct subprocess mode"
+        )
+
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
+        cwd=str(init_payload_path.parent),
     )
 
     return SpawnedRuntime(process=process, job_dir=None)
@@ -269,6 +279,7 @@ async def _spawn_direct_runtime(
 async def _spawn_nsjail_runtime(
     socket_dir: Path,
     llm_socket_path: Path | None,
+    init_payload_path: Path | None,
     config: AgentSandboxConfig,
     nsjail_path: str,
     rootfs_path: str,
@@ -299,9 +310,15 @@ async def _spawn_nsjail_runtime(
     # Create temp directory for nsjail job
     job_id = uuid.uuid4().hex[:12]
     job_dir = Path(tempfile.mkdtemp(prefix=f"agent-nsjail-{job_id}-"))
+    jailed_init_payload_path = job_dir / "init.json"
 
     try:
         # Build nsjail config (socket paths are derived from socket_dir internally)
+        if init_payload_path is not None:
+            await asyncio.to_thread(
+                shutil.copy2, init_payload_path, jailed_init_payload_path
+            )
+
         nsjail_config = build_agent_nsjail_config(
             rootfs=rootfs,
             job_dir=job_dir,

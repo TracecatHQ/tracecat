@@ -23,6 +23,7 @@ import orjson
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_CONTROL_SOCKET_PATH,
     TRACECAT__AGENT_LLM_SOCKET_PATH,
+    TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
@@ -36,7 +37,9 @@ if TYPE_CHECKING:
 RUNTIME_REGISTRY: dict[str, str] = {
     "claude_code": "tracecat.agent.runtime.claude_code.runtime.ClaudeAgentRuntime",
 }
-INIT_PAYLOAD_PATH = Path("/work/init.json")
+INIT_PAYLOAD_PATH = (
+    Path("init.json") if TRACECAT__DISABLE_NSJAIL else Path("/work/init.json")
+)
 
 
 def _load_runtime(runtime_type: str) -> type[BaseRuntime]:
