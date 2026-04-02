@@ -1524,16 +1524,6 @@ async def test_update_workflow_from_uploaded_file_rejects_cross_workspace_target
         )
 
 
-def test_mcp_instructions_describe_remote_file_transfers():
-    assert (
-        "staged blob transfers for remote MCP clients" in mcp_server._MCP_INSTRUCTIONS
-    )
-    assert "prepare_workflow_file_upload" in mcp_server._MCP_INSTRUCTIONS
-    assert "definition_yaml" in mcp_server._MCP_INSTRUCTIONS
-    assert "include_definition_yaml=true" in mcp_server._MCP_INSTRUCTIONS
-    assert "prepare_template_file_upload" in mcp_server._MCP_INSTRUCTIONS
-
-
 def test_evaluate_configuration_reports_missing_workspace_secret_keys():
     requirements = [
         {

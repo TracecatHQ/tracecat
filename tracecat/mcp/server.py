@@ -1738,7 +1738,7 @@ _CASE_EVENT_TYPE_VALUES_JSON = json.dumps(
 # Server instructions — sent to every MCP client on connection
 # ---------------------------------------------------------------------------
 
-_MCP_INSTRUCTIONS = f"""\
+_MCP_INSTRUCTIONS = """\
 Tracecat workflow management server.
 
 ## MCP tool namespaces
