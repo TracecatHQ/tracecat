@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import tempfile
 import uuid
 from dataclasses import dataclass, field
@@ -319,13 +320,26 @@ class SandboxedAgentExecutor:
                     socket_path=str(llm_socket_path),
                 )
 
-            async with asyncio.TaskGroup() as tg:
-                init_payload_task = tg.create_task(
-                    self._write_runtime_init_payload(init_payload)
-                )
-                llm_proxy_task = tg.create_task(start_llm_proxy())
-                loopback_prepare_task = tg.create_task(handler.prepare())
-                server_task = tg.create_task(start_control_socket_server())
+            server_task: asyncio.Task[asyncio.Server] | None = None
+            try:
+                async with asyncio.TaskGroup() as tg:
+                    init_payload_task = tg.create_task(
+                        self._write_runtime_init_payload(init_payload)
+                    )
+                    llm_proxy_task = tg.create_task(start_llm_proxy())
+                    loopback_prepare_task = tg.create_task(handler.prepare())
+                    server_task = tg.create_task(start_control_socket_server())
+            except* Exception:
+                if (
+                    server_task is not None
+                    and server_task.done()
+                    and not server_task.cancelled()
+                ):
+                    with contextlib.suppress(Exception):
+                        server = server_task.result()
+                        server.close()
+                        await server.wait_closed()
+                raise
 
             init_payload_path = init_payload_task.result()
             _ = llm_proxy_task.result()
