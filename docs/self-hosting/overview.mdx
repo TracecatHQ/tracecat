@@ -1,0 +1,96 @@
+---
+title: "Self-hosting"
+description: "Deploy Tracecat on your own infrastructure."
+---
+
+import DockerComposeRequirements from "/snippets/self-hosting-requirements.mdx";
+
+Deploy Tracecat on your own infrastructure.
+
+Run Tracecat with Docker Compose, deploy it on AWS ECS Fargate, or contact us about the Enterprise Kubernetes deployment.
+
+## Requirements
+
+The baseline requirements below are the recommended starting point for the Docker Compose stack.
+
+<DockerComposeRequirements />
+
+## Quick start
+
+Start with Docker Compose if you want the fastest self-serve deployment.
+
+```bash
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/.env.example
+chmod +x env.sh && ./env.sh
+
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/Caddyfile
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.35/docker-compose.yml
+
+docker compose up -d
+```
+
+After the stack is healthy, open `http://localhost` or your configured public URL.
+
+## Deployment options
+
+<Columns cols={3}>
+  <Card title="Docker" icon="container" href="/self-hosting/docker-compose">
+    Deploy Tracecat with Docker Compose on a single host.
+  </Card>
+  <Card title="AWS Fargate" icon="cloud" href="/self-hosting/aws-fargate">
+    Deploy Tracecat on AWS ECS Fargate with Terraform-managed infrastructure.
+  </Card>
+  <Card title="Kubernetes" icon="boxes">
+    Contact us about the Enterprise Kubernetes deployment for larger or more specialized environments.
+  </Card>
+</Columns>
+
+## Required secrets
+
+<Warning>
+  Every secret below must be cryptographically secure and non-empty.
+  Do not use placeholders, reused values, or human-generated strings.
+</Warning>
+
+These secrets are required in every self-hosted deployment:
+
+- `TRACECAT__DB_ENCRYPTION_KEY`: Encrypts secrets and sensitive values stored in the database.
+- `TRACECAT__SERVICE_KEY`: Authenticates internal Tracecat services.
+- `TRACECAT__SIGNING_SECRET`: Derives private webhook secrets and signing values.
+
+These additional secrets are required:
+
+- `USER_AUTH_SECRET`: Signs password reset tokens, email verification tokens, and OIDC/OAuth state tokens.
+- `OIDC_CLIENT_SECRET`: Required when `TRACECAT__AUTH_TYPES` includes `oidc`.
+
+Generate secrets with a cryptographically secure generator:
+
+```bash
+# Fernet-compatible database encryption key
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Hex secrets for service auth, webhook signing, and user auth
+openssl rand -hex 32
+```
+
+Generate a different value for each secret.
+If any required secret is empty or weak, your deployment can fail or silently weaken authentication, webhook validation, or secret decryption.
+
+## Common questions
+
+### Which self-hosting option should you choose?
+
+Use Docker Compose for the simplest deployment.
+Use AWS ECS Fargate when you want a managed AWS path.
+Contact us about the Enterprise Kubernetes deployment when you need more than the single-host limits above.
+
+### Is Kubernetes supported?
+
+Yes.
+We offer an Enterprise Kubernetes deployment as an OCI-compatible Helm chart. Contact us on [Discord](https://discord.gg/n3GF4qxFU8) or email [founders@tracecat.com](mailto:founders@tracecat.com).
+
+### Which authentication method should you use in production?
+
+Use [SAML](/authentication/saml) or [OIDC](/authentication/oidc) for production self-hosted deployments.
+Basic email and password is better suited to local development and smaller internal deployments.

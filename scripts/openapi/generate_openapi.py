@@ -7,6 +7,26 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+from cryptography.fernet import Fernet
+
+
+def _configure_openapi_env() -> None:
+    """Seed deterministic placeholder config for offline schema generation."""
+    # OpenAPI generation should not depend on a developer's local .env or any
+    # production secrets. These values are fake, process-local placeholders
+    # used only so config import and route construction can succeed.
+    os.environ["TRACECAT__DB_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+    os.environ["TRACECAT__SERVICE_KEY"] = "openapi-service-key"
+    os.environ["TRACECAT__SIGNING_SECRET"] = "openapi-signing-secret"
+    os.environ["USER_AUTH_SECRET"] = "openapi-user-auth-secret"
+    os.environ["TRACECAT__AUTH_TYPES"] = "basic,oidc"
+    os.environ["OIDC_ISSUER"] = "https://issuer.example.com"
+    os.environ["OIDC_CLIENT_ID"] = "openapi-client"
+    os.environ["OIDC_CLIENT_SECRET"] = "openapi-client-secret"
+
+
+_configure_openapi_env()
+
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -48,11 +68,6 @@ class _OpenAPIOpenIDStub(BaseOAuth2[dict[str, str]]):
 
 def main() -> None:
     """Generate OpenAPI spec and write to stdout or file."""
-    os.environ["TRACECAT__AUTH_TYPES"] = "basic,oidc"
-    os.environ["OIDC_ISSUER"] = "https://issuer.example.com"
-    os.environ["OIDC_CLIENT_ID"] = "openapi-client"
-    os.environ["OIDC_CLIENT_SECRET"] = "openapi-client-secret"
-
     with patch("tracecat.auth.oidc.OpenID", _OpenAPIOpenIDStub):
         from tracecat.api.app import app
 

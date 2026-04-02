@@ -49,6 +49,17 @@ def bound_env[T: int | float](
     return bounded
 
 
+def _require_non_empty_config(
+    var: str, value: str | None, *, when: str | None = None
+) -> str:
+    normalized = value.strip() if value else ""
+    if normalized:
+        return normalized
+    if when is None:
+        raise KeyError(f"{var} must be set")
+    raise KeyError(f"{var} must be set when {when}")
+
+
 class RLSMode(StrEnum):
     """Runtime mode for application-level RLS session behavior."""
 
@@ -253,17 +264,12 @@ TRACECAT__AUTH_SUPERADMIN_EMAIL = os.environ.get("TRACECAT__AUTH_SUPERADMIN_EMAI
 OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "").strip().rstrip("/")
 """OIDC issuer URL (without trailing slash). Required when oidc auth is enabled."""
 
-if TRACECAT__AUTH_TYPES == {AuthType.OIDC} and not OIDC_ISSUER:
-    raise ValueError(
-        "OIDC_ISSUER must be set when TRACECAT__AUTH_TYPES includes 'oidc'"
-    )
-
 OIDC_CLIENT_ID = (
     os.environ.get("OIDC_CLIENT_ID") or os.environ.get("OAUTH_CLIENT_ID") or ""
-)
+).strip()
 OIDC_CLIENT_SECRET = (
     os.environ.get("OIDC_CLIENT_SECRET") or os.environ.get("OAUTH_CLIENT_SECRET") or ""
-)
+).strip()
 OIDC_SCOPES = tuple(
     scope
     for scope in (
@@ -275,9 +281,9 @@ OIDC_SCOPES = tuple(
 # Backward-compatible aliases for legacy config names.
 OAUTH_CLIENT_ID = OIDC_CLIENT_ID
 OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
-USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET", "")
-TRACECAT__DB_ENCRYPTION_KEY = os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
-TRACECAT__SIGNING_SECRET = os.environ.get("TRACECAT__SIGNING_SECRET")
+USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET", "").strip()
+TRACECAT__DB_ENCRYPTION_KEY = os.environ.get("TRACECAT__DB_ENCRYPTION_KEY", "").strip()
+TRACECAT__SIGNING_SECRET = os.environ.get("TRACECAT__SIGNING_SECRET", "").strip()
 TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID = os.environ.get(
     "TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID"
 )
@@ -385,11 +391,47 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(
 """
 
 # === M2M config === #
-TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY")
+TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY", "").strip()
 TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS = int(
     os.environ.get("TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS") or 900
 )
 """Executor JWT TTL in seconds (default: 900 seconds)."""
+
+if AuthType.OIDC in TRACECAT__AUTH_TYPES:
+    if not OIDC_ISSUER:
+        raise ValueError(
+            "OIDC_ISSUER must be set when TRACECAT__AUTH_TYPES includes 'oidc'"
+        )
+    OIDC_CLIENT_ID = _require_non_empty_config(
+        "OIDC_CLIENT_ID",
+        OIDC_CLIENT_ID,
+        when="TRACECAT__AUTH_TYPES includes 'oidc'",
+    )
+    OIDC_CLIENT_SECRET = _require_non_empty_config(
+        "OIDC_CLIENT_SECRET",
+        OIDC_CLIENT_SECRET,
+        when="TRACECAT__AUTH_TYPES includes 'oidc'",
+    )
+    OAUTH_CLIENT_ID = OIDC_CLIENT_ID
+    OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
+
+USER_AUTH_SECRET = _require_non_empty_config(
+    "USER_AUTH_SECRET",
+    USER_AUTH_SECRET,
+)
+
+TRACECAT__DB_ENCRYPTION_KEY = _require_non_empty_config(
+    "TRACECAT__DB_ENCRYPTION_KEY",
+    TRACECAT__DB_ENCRYPTION_KEY,
+)
+TRACECAT__SIGNING_SECRET = _require_non_empty_config(
+    "TRACECAT__SIGNING_SECRET",
+    TRACECAT__SIGNING_SECRET,
+)
+TRACECAT__SERVICE_KEY = _require_non_empty_config(
+    "TRACECAT__SERVICE_KEY",
+    TRACECAT__SERVICE_KEY,
+)
 
 # === Remote registry === #
 TRACECAT__ALLOWED_GIT_DOMAINS = set(

@@ -149,6 +149,7 @@
             "group": "Self-hosting",
             "icon": "server",
             "pages": [
+              "self-hosting/overview",
               "self-hosting/docker-compose",
               "self-hosting/aws-fargate"
             ]

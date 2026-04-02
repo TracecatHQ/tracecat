@@ -2,6 +2,7 @@
 # 1. TRACECAT__DB_ENCRYPTION_KEY
 # 2. TRACECAT__SERVICE_KEY
 # 3. TRACECAT__SIGNING_SECRET
+# 4. USER_AUTH_SECRET
 #
 # Optional secrets:
 # 1. OAUTH_CLIENT_ID (legacy OIDC alias)
@@ -18,6 +19,10 @@ data "aws_secretsmanager_secret" "tracecat_service_key" {
 
 data "aws_secretsmanager_secret" "tracecat_signing_secret" {
   arn = var.tracecat_signing_secret_arn
+}
+
+data "aws_secretsmanager_secret" "user_auth_secret" {
+  arn = var.user_auth_secret_arn
 }
 
 ### Optional secrets
@@ -42,11 +47,6 @@ data "aws_secretsmanager_secret" "oidc_client_id" {
 data "aws_secretsmanager_secret" "oidc_client_secret" {
   count = var.oidc_client_secret_arn != null ? 1 : 0
   arn   = var.oidc_client_secret_arn
-}
-
-data "aws_secretsmanager_secret" "user_auth_secret" {
-  count = var.user_auth_secret_arn != null ? 1 : 0
-  arn   = var.user_auth_secret_arn
 }
 
 data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
@@ -97,6 +97,10 @@ data "aws_secretsmanager_secret_version" "tracecat_signing_secret" {
   secret_id = data.aws_secretsmanager_secret.tracecat_signing_secret.id
 }
 
+data "aws_secretsmanager_secret_version" "user_auth_secret" {
+  secret_id = data.aws_secretsmanager_secret.user_auth_secret.id
+}
+
 data "aws_secretsmanager_secret_version" "oauth_client_id" {
   count     = var.oauth_client_id_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.oauth_client_id[0].id
@@ -115,11 +119,6 @@ data "aws_secretsmanager_secret_version" "oidc_client_id" {
 data "aws_secretsmanager_secret_version" "oidc_client_secret" {
   count     = var.oidc_client_secret_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.oidc_client_secret[0].id
-}
-
-data "aws_secretsmanager_secret_version" "user_auth_secret" {
-  count     = var.user_auth_secret_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.user_auth_secret[0].id
 }
 
 data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
@@ -236,12 +235,12 @@ locals {
     }
   ] : []
 
-  user_auth_secret_secret = var.user_auth_secret_arn != null ? [
+  user_auth_secret_secret = [
     {
       name      = "USER_AUTH_SECRET"
-      valueFrom = data.aws_secretsmanager_secret_version.user_auth_secret[0].arn
+      valueFrom = data.aws_secretsmanager_secret_version.user_auth_secret.arn
     }
-  ] : []
+  ]
 
   saml_idp_metadata_url_secret = var.saml_idp_metadata_url_arn != null ? [
     {

@@ -11,6 +11,14 @@ from tracecat.auth.enums import AuthType
 from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enabled
 
 
+@pytest.fixture(autouse=True)
+def required_base_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRACECAT__DB_ENCRYPTION_KEY", "test-db-encryption-key")
+    monkeypatch.setenv("TRACECAT__SERVICE_KEY", "test-service-key")
+    monkeypatch.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
+    monkeypatch.setenv("USER_AUTH_SECRET", "test-user-auth-secret")
+
+
 def test_oidc_auth_type_enabled(monkeypatch) -> None:
     monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC})
     assert oidc_auth_type_enabled() is False
@@ -114,6 +122,8 @@ def test_config_requires_issuer_when_oidc_enabled(monkeypatch) -> None:
     with monkeypatch.context() as env:
         env.setenv("TRACECAT__AUTH_TYPES", "oidc")
         env.delenv("OIDC_ISSUER", raising=False)
+        env.setenv("OIDC_CLIENT_ID", "oidc-client-id")
+        env.setenv("OIDC_CLIENT_SECRET", "oidc-client-secret")
         with pytest.raises(
             ValueError,
             match="OIDC_ISSUER must be set when TRACECAT__AUTH_TYPES includes 'oidc'",
@@ -136,6 +146,55 @@ def test_config_keeps_oauth_aliases_for_oidc_credentials(monkeypatch) -> None:
 
         assert config.OIDC_CLIENT_ID == "legacy-client-id"
         assert config.OIDC_CLIENT_SECRET == "legacy-client-secret"
+
+    importlib.reload(config)
+
+
+def test_config_requires_user_auth_secret_unconditionally(monkeypatch) -> None:
+    with monkeypatch.context() as env:
+        env.setenv("TRACECAT__AUTH_TYPES", "saml")
+        env.delenv("USER_AUTH_SECRET", raising=False)
+        with pytest.raises(
+            KeyError,
+            match="USER_AUTH_SECRET must be set",
+        ):
+            importlib.reload(config)
+
+    importlib.reload(config)
+
+
+def test_config_requires_oidc_client_secret_when_oidc_enabled(monkeypatch) -> None:
+    with monkeypatch.context() as env:
+        env.setenv("TRACECAT__AUTH_TYPES", "oidc")
+        env.setenv("OIDC_ISSUER", "https://auth.example.com")
+        env.setenv("OIDC_CLIENT_ID", "oidc-client-id")
+        env.delenv("OIDC_CLIENT_SECRET", raising=False)
+        env.delenv("OAUTH_CLIENT_SECRET", raising=False)
+        with pytest.raises(
+            KeyError,
+            match="OIDC_CLIENT_SECRET must be set when TRACECAT__AUTH_TYPES includes 'oidc'",
+        ):
+            importlib.reload(config)
+
+    importlib.reload(config)
+
+
+@pytest.mark.parametrize(
+    ("var_name", "expected_message"),
+    [
+        ("USER_AUTH_SECRET", "USER_AUTH_SECRET must be set"),
+        ("TRACECAT__DB_ENCRYPTION_KEY", "TRACECAT__DB_ENCRYPTION_KEY must be set"),
+        ("TRACECAT__SIGNING_SECRET", "TRACECAT__SIGNING_SECRET must be set"),
+        ("TRACECAT__SERVICE_KEY", "TRACECAT__SERVICE_KEY must be set"),
+    ],
+)
+def test_config_requires_core_tracecat_secrets(
+    monkeypatch, var_name: str, expected_message: str
+) -> None:
+    with monkeypatch.context() as env:
+        env.delenv(var_name, raising=False)
+        with pytest.raises(KeyError, match=expected_message):
+            importlib.reload(config)
 
     importlib.reload(config)
 

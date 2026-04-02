@@ -12,6 +12,12 @@ from unittest.mock import patch
 # test_workflows.py was written when we returned the full context by default
 # This must happen before any tracecat imports to ensure config reads the correct value
 os.environ.setdefault("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+os.environ.setdefault(
+    "TRACECAT__DB_ENCRYPTION_KEY", "gp4w6IyHU-lmOzkMYHo39gzg7z-DUro9nsABhTiBLZk="
+)
+os.environ.setdefault("TRACECAT__SERVICE_KEY", "test-service-key")
+os.environ.setdefault("TRACECAT__SIGNING_SECRET", "test-signing-secret")
+os.environ.setdefault("USER_AUTH_SECRET", "test-user-auth-secret")
 
 import aioboto3
 import pytest

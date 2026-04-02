@@ -3,6 +3,8 @@ title: Docker Compose
 description: Deploy Tracecat using Docker Compose.
 ---
 
+import DockerComposeRequirements from "/snippets/self-hosting-requirements.mdx";
+
 <Warning>
   Docker Compose deployments default to basic email / password authentication.
   Production deployments should use [OIDC](/authentication/oidc) or [SAML](/authentication/saml) SSO.
@@ -98,25 +100,13 @@ After the stack starts, verify that your containers are healthy and that you can
 Docker Compose runs all services on a single host.
 These are recommended minimums for different workload sizes.
 
-| Resource | Small | Standard | Production |
-| :------- | :---- | :------- | :--------- |
-| CPU | 8 cores | 16 cores | 32+ cores |
-| RAM | 16 GB | 32 GB | 64+ GB |
-| Storage | 20 GB SSD | 50 GB SSD | 100+ GB SSD |
-| Docker | 26.0.0+ | 26.0.0+ | 26.0.0+ |
-| Workflow starts/sec | ~5 | ~15 | ~40 |
-| Concurrent seats | 1-10 | 10-50 | 50+ |
-| Concurrent agents/sec | 1-2 | 5-10 | 10+ |
+<DockerComposeRequirements />
 
-- **Small**: Development, testing, small teams (1-10 users)
-- **Standard**: Mid-size teams (10-50 users), moderate workflow execution
-- **Production**: Large teams (50+ users), high throughput
-
-Memory is typically the constraining factor.
-Workflow throughput is lower than dedicated Kubernetes deployments where services have guaranteed resources and can scale independently.
+Workflow throughput is lower than dedicated clustered deployments where services have guaranteed resources and can scale independently.
 
 <Note>
-  For production workloads that exceed single-host capacity, consider [converting to Docker Swarm](#convert-to-docker-swarm) or deploying on Kubernetes.
+  If you need more than the limits above, contact us about the Enterprise Kubernetes deployment.
+  For larger single-host deployments, you can also consider [converting to Docker Swarm](#convert-to-docker-swarm).
 </Note>
 
 ## Convert to Docker Swarm
