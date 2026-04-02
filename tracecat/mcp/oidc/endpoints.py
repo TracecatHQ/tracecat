@@ -112,18 +112,28 @@ def _parse_basic_auth(authorization: str) -> tuple[str, str] | None:
 
 
 @router.get("/.well-known/openid-configuration")
-async def openid_configuration() -> dict[str, Any]:
-    """OpenID Connect discovery document."""
+async def openid_configuration(request: Request) -> dict[str, Any]:
+    """OpenID Connect discovery document.
+
+    The ``token_endpoint`` and ``userinfo_endpoint`` use the request's own
+    origin so that server-to-server callers (the MCP proxy) can reach them
+    without hairpin NAT issues, while browser-initiated flows use the same
+    origin they arrived on.
+    """
     issuer = oidc_config.get_issuer_url()
+    # Build a base URL from the incoming request so the token endpoint is
+    # reachable by whoever fetched this discovery document.
+    request_base = f"{request.base_url.scheme}://{request.base_url.netloc}"
+    request_issuer = f"{request_base}{oidc_config.ISSUER_PATH_PREFIX}"
     return {
         "issuer": issuer,
         "authorization_endpoint": f"{issuer}/authorize",
-        "token_endpoint": f"{issuer}/token",
-        "userinfo_endpoint": f"{issuer}/userinfo",
-        "jwks_uri": f"{issuer}/.well-known/jwks.json",
+        "token_endpoint": f"{request_issuer}/token",
+        "userinfo_endpoint": f"{request_issuer}/userinfo",
+        "jwks_uri": f"{request_issuer}/.well-known/jwks.json",
         "response_types_supported": ["code"],
         "subject_types_supported": ["public"],
-        "id_token_signing_alg_values_supported": ["EdDSA"],
+        "id_token_signing_alg_values_supported": ["ES256"],
         "scopes_supported": ["openid", "profile", "email"],
         "token_endpoint_auth_methods_supported": [
             "client_secret_basic",
@@ -152,6 +162,13 @@ async def jwks() -> dict[str, list[dict[str, str]]]:
 # ---------------------------------------------------------------------------
 
 
+def _default_resource() -> str:
+    """Return the default OAuth resource identifier (the MCP endpoint URL)."""
+    from tracecat.mcp.config import TRACECAT_MCP__BASE_URL
+
+    return f"{TRACECAT_MCP__BASE_URL.rstrip('/')}/mcp"
+
+
 async def _handle_authorize(
     request: Request,
     user: User | None,
@@ -162,7 +179,7 @@ async def _handle_authorize(
     code_challenge_method: str,
     scope: str,
     state: str,
-    resource: str,
+    resource: str | None,
     nonce: str | None,
 ) -> Response:
     """Core authorization logic shared between /authorize and /authorize/resume."""
@@ -183,8 +200,11 @@ async def _handle_authorize(
         )
     if not code_challenge:
         return _error_response("invalid_request", "code_challenge is required")
+
+    # Default resource to the MCP endpoint URL when not provided
+    # (FastMCP's OIDCProxy does not forward the RFC 8707 resource parameter).
     if not resource:
-        return _error_response("invalid_request", "resource parameter is required")
+        resource = _default_resource()
 
     ip_hash = _hash_ip(request)
 
@@ -280,7 +300,7 @@ async def authorize(
     code_challenge_method: str = Query(default="S256"),
     scope: str = Query(default="openid"),
     state: str = Query(...),
-    resource: str = Query(...),
+    resource: str | None = Query(default=None),
     nonce: str | None = Query(default=None),
 ) -> Response:
     """OIDC authorization endpoint (authorization-code + PKCE)."""
@@ -453,15 +473,11 @@ async def token(
     if auth_client_id != code_data.client_id:
         return _error_response("invalid_grant", "client_id mismatch")
 
-    # Validate IP binding
-    ip_hash = _hash_ip(request)
-    if ip_hash != code_data.bound_ip:
-        logger.warning(
-            "MCP OIDC: token exchange IP mismatch",
-            expected_ip_hash=code_data.bound_ip[:8],
-            actual_ip_hash=ip_hash[:8],
-        )
-        return _error_response("invalid_grant", "Request origin mismatch")
+    # NOTE: IP binding is intentionally skipped on the token endpoint.
+    # The authorize request arrives via Caddy (browser proxy) while the
+    # token exchange comes directly from the MCP container — they will
+    # always have different source IPs in a containerized deployment.
+    # PKCE S256 already prevents authorization-code interception.
 
     # --- PKCE verification ---
     if code_data.code_challenge_method != "S256":

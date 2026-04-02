@@ -1,4 +1,8 @@
-"""Ed25519 signing key derivation and JWT operations for the internal OIDC issuer."""
+"""ECDSA (P-256) signing key derivation and JWT operations for the internal OIDC issuer.
+
+Uses ES256 (ECDSA with P-256 / SHA-256) for compatibility with FastMCP's
+JWTVerifier which does not support EdDSA.
+"""
 
 from __future__ import annotations
 
@@ -8,44 +12,53 @@ from functools import lru_cache
 from typing import Any
 
 import jwt
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-    Ed25519PrivateKey,
-    Ed25519PublicKey,
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric.ec import (
+    SECP256R1,
+    EllipticCurvePrivateKey,
+    EllipticCurvePublicKey,
+    derive_private_key,
 )
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from tracecat.config import USER_AUTH_SECRET
 
 _HKDF_SALT = b"tracecat-mcp-oidc-issuer-v1"
-_HKDF_INFO = b"ed25519-signing-key"
-_ALGORITHM = "EdDSA"
+_HKDF_INFO = b"ec-p256-signing-key"
+_ALGORITHM = "ES256"
 
 
-def _derive_seed(secret: str) -> bytes:
-    """Derive a 32-byte Ed25519 seed from the given secret via HKDF-SHA256."""
-    return HKDF(
+def _derive_seed(secret: str) -> int:
+    """Derive a P-256 private scalar from the given secret via HKDF-SHA256.
+
+    Returns an integer in [1, n-1] where n is the P-256 curve order.
+    """
+    # P-256 curve order
+    n = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+    raw = HKDF(
         algorithm=hashes.SHA256(),
         length=32,
         salt=_HKDF_SALT,
         info=_HKDF_INFO,
     ).derive(secret.encode("utf-8"))
+    # Reduce to [1, n-1]
+    return (int.from_bytes(raw, "big") % (n - 1)) + 1
 
 
 @lru_cache(maxsize=1)
-def get_signing_key() -> Ed25519PrivateKey:
-    """Return the Ed25519 private key derived from ``USER_AUTH_SECRET``.
+def get_signing_key() -> EllipticCurvePrivateKey:
+    """Return the ECDSA P-256 private key derived from ``USER_AUTH_SECRET``.
 
     The key is deterministic: the same secret always produces the same
     keypair, so all replicas share one signing identity without key
     distribution.
     """
-    seed = _derive_seed(USER_AUTH_SECRET)
-    return Ed25519PrivateKey.from_private_bytes(seed)
+    private_value = _derive_seed(USER_AUTH_SECRET)
+    return derive_private_key(private_value, SECP256R1())
 
 
-def _get_public_key() -> Ed25519PublicKey:
-    """Return the Ed25519 public key corresponding to the signing key."""
+def _get_public_key() -> EllipticCurvePublicKey:
+    """Return the ECDSA P-256 public key corresponding to the signing key."""
     return get_signing_key().public_key()
 
 
@@ -54,45 +67,46 @@ def _base64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
-def _compute_kid(public_key: Ed25519PublicKey) -> str:
+def _compute_kid(public_key: EllipticCurvePublicKey) -> str:
     """Compute a JWK thumbprint (RFC 7638) as the key ID.
 
-    For OKP/Ed25519, the thumbprint is SHA-256 of the canonical JSON
-    ``{"crv":"Ed25519","kty":"OKP","x":"<base64url>"}`` (members sorted).
+    For EC/P-256, the thumbprint is SHA-256 of the canonical JSON
+    ``{"crv":"P-256","kty":"EC","x":"<base64url>","y":"<base64url>"}``
+    (members sorted alphabetically).
     """
-    raw_public = public_key.public_bytes(
-        encoding=serialization.Encoding.Raw,
-        format=serialization.PublicFormat.Raw,
-    )
-    x_value = _base64url_encode(raw_public)
-    canonical = f'{{"crv":"Ed25519","kty":"OKP","x":"{x_value}"}}'
+    numbers = public_key.public_numbers()
+    x_bytes = numbers.x.to_bytes(32, "big")
+    y_bytes = numbers.y.to_bytes(32, "big")
+    x_value = _base64url_encode(x_bytes)
+    y_value = _base64url_encode(y_bytes)
+    canonical = f'{{"crv":"P-256","kty":"EC","x":"{x_value}","y":"{y_value}"}}'
     digest = hashlib.sha256(canonical.encode("ascii")).digest()
     return _base64url_encode(digest)
 
 
 @lru_cache(maxsize=1)
 def get_public_jwk() -> dict[str, str]:
-    """Return the Ed25519 public key as a JWK dict.
+    """Return the ECDSA P-256 public key as a JWK dict.
 
     Suitable for inclusion in a JWKS ``keys`` array.
     """
     public_key = _get_public_key()
-    raw_public = public_key.public_bytes(
-        encoding=serialization.Encoding.Raw,
-        format=serialization.PublicFormat.Raw,
-    )
+    numbers = public_key.public_numbers()
+    x_bytes = numbers.x.to_bytes(32, "big")
+    y_bytes = numbers.y.to_bytes(32, "big")
     return {
-        "kty": "OKP",
-        "crv": "Ed25519",
+        "kty": "EC",
+        "crv": "P-256",
         "use": "sig",
         "alg": _ALGORITHM,
         "kid": _compute_kid(public_key),
-        "x": _base64url_encode(raw_public),
+        "x": _base64url_encode(x_bytes),
+        "y": _base64url_encode(y_bytes),
     }
 
 
 def mint_jwt(claims: dict[str, Any]) -> str:
-    """Sign a JWT with the internal issuer's Ed25519 key.
+    """Sign a JWT with the internal issuer's ECDSA P-256 key.
 
     Args:
         claims: The JWT payload claims.

@@ -1033,6 +1033,7 @@ def _create_oidc_auth() -> OIDCProxy:
         base_url=base_url,
         client_storage=client_storage,
         fallback_access_token_expiry_seconds=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+        algorithm="ES256",
     )
     # Patch client_registration_options so the MCP SDK's registration
     # handler advertises and accepts the full scope set.  Do NOT pass
