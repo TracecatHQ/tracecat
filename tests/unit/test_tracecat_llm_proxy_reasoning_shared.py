@@ -5,7 +5,7 @@ import pytest
 
 from tracecat.agent.llm_proxy.provider_azure_ai import AzureAIAdapter
 from tracecat.agent.llm_proxy.provider_bedrock import BedrockAdapter
-from tracecat.agent.llm_proxy.requests import (
+from tracecat.agent.llm_proxy.response_rendering import (
     anthropic_stream_events_from_response,
     normalize_anthropic_response,
 )

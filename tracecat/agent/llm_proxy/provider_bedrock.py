@@ -26,12 +26,8 @@ from botocore.model import ServiceModel
 from botocore.parsers import EventStreamJSONParser
 from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt
 
-from tracecat.agent.llm_proxy.anthropic_compat import (
-    anthropic_tool_choice,
-    anthropic_tool_definition,
-    create_tool_name_mapping,
-    restore_tool_name,
-    truncate_tool_call_id,
+from tracecat.agent.llm_proxy.content_blocks import (
+    ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY,
 )
 from tracecat.agent.llm_proxy.provider_common import (
     anthropic_block_stop_event,
@@ -47,7 +43,13 @@ from tracecat.agent.llm_proxy.provider_common import (
     anthropic_tool_delta_event,
     raise_stream_http_error,
 )
-from tracecat.agent.llm_proxy.requests import ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY
+from tracecat.agent.llm_proxy.tool_compat import (
+    anthropic_tool_choice,
+    anthropic_tool_definition,
+    create_tool_name_mapping,
+    restore_tool_name,
+    truncate_tool_call_id,
+)
 from tracecat.agent.llm_proxy.types import (
     AnthropicStreamEvent,
     NormalizedMessage,

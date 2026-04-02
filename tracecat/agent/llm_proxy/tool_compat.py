@@ -1,7 +1,7 @@
-"""Anthropic compatibility helpers shared across provider adapters.
+"""Cross-provider tool compatibility helpers for the Tracecat LLM proxy.
 
-This module owns the small amount of cross-provider request shaping that is
-still shared after normalization:
+This module owns the small amount of cross-provider tool shaping that is
+shared after normalization:
 
 - tool schema conversion between Anthropic and OpenAI wire shapes
 - canonical Anthropic tool choice parsing

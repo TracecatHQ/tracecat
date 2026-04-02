@@ -9,15 +9,6 @@ import pytest
 from tracecat.agent.llm_proxy.provider_anthropic import (
     AnthropicAdapter,
     anthropic_request_to_openai_payload,
-    anthropic_tools_to_openai_tools,
-    create_tool_name_mapping,
-    restore_tool_name,
-    tool_choice_to_anthropic,
-    tool_choice_to_openai,
-    tool_definition_to_openai,
-    tool_result_content_to_openai,
-    tool_result_to_anthropic_block,
-    truncate_tool_name,
 )
 from tracecat.agent.llm_proxy.provider_azure_ai import (
     AzureAIAdapter,
@@ -26,6 +17,19 @@ from tracecat.agent.llm_proxy.provider_azure_ai import (
     extract_params_to_drop_from_error_text,
     should_retry_llm_api_inside_llm_translation_on_http_error,
     transform_request_on_unprocessable_entity_error,
+)
+from tracecat.agent.llm_proxy.tool_compat import (
+    anthropic_tool_to_openai_tool as tool_definition_to_openai,
+)
+from tracecat.agent.llm_proxy.tool_compat import (
+    anthropic_tools_to_openai_tools,
+    create_tool_name_mapping,
+    restore_tool_name,
+    tool_choice_to_anthropic,
+    tool_choice_to_openai,
+    tool_result_content_to_openai,
+    tool_result_to_anthropic_block,
+    truncate_tool_name,
 )
 from tracecat.agent.llm_proxy.types import (
     IngressFormat,

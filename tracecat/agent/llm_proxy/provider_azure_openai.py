@@ -9,12 +9,6 @@ from typing import Any, TypedDict
 import httpx
 import orjson
 
-from tracecat.agent.llm_proxy.anthropic_compat import (
-    apply_tool_name_mapping,
-    create_tool_name_mapping,
-    restore_tool_call_names,
-    restore_tool_name,
-)
 from tracecat.agent.llm_proxy.provider_common import (
     AnthropicStreamingAdapter,
     OpenAIToolStreamState,
@@ -41,7 +35,15 @@ from tracecat.agent.llm_proxy.provider_openai import (
 )
 from tracecat.agent.llm_proxy.requests import (
     messages_request_to_openai_payload,
+)
+from tracecat.agent.llm_proxy.response_rendering import (
     normalize_openai_response,
+)
+from tracecat.agent.llm_proxy.tool_compat import (
+    apply_tool_name_mapping,
+    create_tool_name_mapping,
+    restore_tool_call_names,
+    restore_tool_name,
 )
 from tracecat.agent.llm_proxy.types import (
     AnthropicStreamEvent,

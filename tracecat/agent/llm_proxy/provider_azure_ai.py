@@ -13,6 +13,8 @@ import orjson
 
 from tracecat.agent.llm_proxy.requests import (
     messages_request_to_anthropic_payload,
+)
+from tracecat.agent.llm_proxy.response_rendering import (
     normalize_anthropic_response,
 )
 from tracecat.agent.llm_proxy.types import (

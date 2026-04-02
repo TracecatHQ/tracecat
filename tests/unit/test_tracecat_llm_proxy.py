@@ -28,16 +28,18 @@ from tracecat.agent.llm_proxy.providers import (
     VertexAIAdapter,
 )
 from tracecat.agent.llm_proxy.requests import (
-    anthropic_stream_events_from_response,
     filter_allowed_model_settings,
     messages_request_to_anthropic_payload,
     messages_request_to_openai_payload,
     normalize_anthropic_request,
+)
+from tracecat.agent.llm_proxy.response_rendering import (
+    anthropic_stream_events_from_response,
     render_anthropic_response,
     render_anthropic_stream_event,
     stream_anthropic_response,
-    truncate_tool_call_id,
 )
+from tracecat.agent.llm_proxy.tool_compat import truncate_tool_call_id
 from tracecat.agent.llm_proxy.types import (
     AnthropicStreamEvent,
     IngressFormat,
@@ -956,7 +958,7 @@ async def test_openai_family_parse_response_preserves_reasoning_blocks() -> None
     assert isinstance(parsed.content, list)
     assert parsed.content[0]["type"] == "thinking"
     assert parsed.content[0]["thinking"] == "I should inspect the record first."
-    assert parsed.content[0]["signature"].startswith("tcsig:v1:")
+    assert "signature" not in parsed.content[0]
     assert parsed.tool_calls == (
         NormalizedToolCall(
             id="call_1",
@@ -1022,7 +1024,6 @@ async def test_openai_family_streaming_adapter_translates_responses_reasoning() 
         "message_start",
         "content_block_start",
         "content_block_delta",
-        "content_block_delta",
         "content_block_stop",
         "content_block_start",
         "content_block_delta",
@@ -1035,11 +1036,9 @@ async def test_openai_family_streaming_adapter_translates_responses_reasoning() 
         "type": "thinking_delta",
         "thinking": "Need to inspect the record.",
     }
-    assert events[3].payload["delta"]["type"] == "signature_delta"
-    assert events[3].payload["delta"]["signature"].startswith("tcsig:v1:")
-    assert events[5].payload["content_block"]["type"] == "text"
-    assert events[6].payload["delta"]["text"] == "hello"
-    assert events[8].payload["delta"]["stop_reason"] == "end_turn"
+    assert events[4].payload["content_block"]["type"] == "text"
+    assert events[5].payload["delta"]["text"] == "hello"
+    assert events[7].payload["delta"]["stop_reason"] == "end_turn"
 
 
 @pytest.mark.anyio
@@ -2237,7 +2236,7 @@ class TestToolReferenceDropped:
 
     def test_tool_reference_stripped_from_metadata_stash(self) -> None:
         """The _anthropic_content_blocks metadata should not contain tool_reference."""
-        from tracecat.agent.llm_proxy.requests import (
+        from tracecat.agent.llm_proxy.content_blocks import (
             ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY,
         )
 
@@ -2271,7 +2270,7 @@ class TestMetadataStashRewritesServerBlocks:
     """The _anthropic_content_blocks metadata stash should contain only standard types."""
 
     def test_server_tool_use_rewritten_in_stash(self) -> None:
-        from tracecat.agent.llm_proxy.requests import (
+        from tracecat.agent.llm_proxy.content_blocks import (
             ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY,
         )
 

@@ -1805,17 +1805,17 @@ async def test_bedrock_streaming_adapter_retries_reasoning_effort_validation_err
         __: dict[str, str],
         *,
         stream: bool,
-    ) -> tuple[str, bytes]:
+    ) -> dict[str, Any]:
         assert stream is True
-        return (
-            "https://bedrock.invalid/model/bedrock/converse-stream",
-            orjson.dumps(
+        return {
+            "url": "https://bedrock.invalid/model/bedrock/converse-stream",
+            "body": orjson.dumps(
                 {
                     "messages": [{"role": "user", "content": [{"text": "hello"}]}],
                     "additionalModelRequestFields": {"reasoning_effort": "medium"},
                 }
             ),
-        )
+        }
 
     def _fake_signed_request(
         *,
@@ -1909,11 +1909,11 @@ async def test_bedrock_streaming_adapter_retries_forced_tool_choice_thinking_err
         __: dict[str, str],
         *,
         stream: bool,
-    ) -> tuple[str, bytes]:
+    ) -> dict[str, Any]:
         assert stream is True
-        return (
-            "https://bedrock.invalid/model/bedrock/converse-stream",
-            orjson.dumps(
+        return {
+            "url": "https://bedrock.invalid/model/bedrock/converse-stream",
+            "body": orjson.dumps(
                 {
                     "messages": [{"role": "user", "content": [{"text": "hello"}]}],
                     "additionalModelRequestFields": {
@@ -1922,7 +1922,7 @@ async def test_bedrock_streaming_adapter_retries_forced_tool_choice_thinking_err
                     "toolConfig": {"toolChoice": {"tool": {"name": "lookup"}}},
                 }
             ),
-        )
+        }
 
     def _fake_signed_request(
         *,

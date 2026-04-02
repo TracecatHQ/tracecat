@@ -9,13 +9,8 @@ from typing import Any
 import httpx
 import orjson
 
-from tracecat.agent.llm_proxy.anthropic_compat import (
-    anthropic_tool_to_openai_tool,
-    apply_tool_name_mapping,
-    create_tool_name_mapping,
-    restore_tool_call_names,
-    restore_tool_name,
-    tool_choice_to_openai,
+from tracecat.agent.llm_proxy.content_blocks import (
+    ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY,
 )
 from tracecat.agent.llm_proxy.provider_common import (
     AnthropicStreamingAdapter,
@@ -23,7 +18,6 @@ from tracecat.agent.llm_proxy.provider_common import (
     anthropic_block_stop_event,
     anthropic_message_delta_event,
     anthropic_message_start_event,
-    anthropic_signature_delta_event,
     anthropic_text_block_start_event,
     anthropic_text_delta_event,
     anthropic_thinking_delta_event,
@@ -33,8 +27,13 @@ from tracecat.agent.llm_proxy.provider_common import (
     iter_sse_events,
     provider_http_error,
 )
-from tracecat.agent.llm_proxy.requests import (
-    ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY,
+from tracecat.agent.llm_proxy.tool_compat import (
+    anthropic_tool_to_openai_tool,
+    apply_tool_name_mapping,
+    create_tool_name_mapping,
+    restore_tool_call_names,
+    restore_tool_name,
+    tool_choice_to_openai,
 )
 from tracecat.agent.llm_proxy.types import (
     AnthropicStreamEvent,
@@ -45,7 +44,6 @@ from tracecat.agent.llm_proxy.types import (
 )
 
 _OPENAI_RESPONSES_SUFFIX = "/v1/responses"
-_OPENAI_REASONING_SIGNATURE_PREFIX = "tcsig:v1:"
 
 
 def _openai_responses_url(base_url: str) -> str:
@@ -375,10 +373,6 @@ def _responses_usage(payload: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def _responses_reasoning_signature(encrypted_content: str) -> str:
-    return f"{_OPENAI_REASONING_SIGNATURE_PREFIX}{encrypted_content}"
-
-
 def _normalized_responses_content(payload: dict[str, Any]) -> Any:
     """Extract content blocks from an OpenAI Responses API payload."""
     output = payload.get("output")
@@ -391,26 +385,20 @@ def _normalized_responses_content(payload: dict[str, Any]) -> Any:
             continue
         item_type = item.get("type")
         if item_type == "reasoning":
+            # Custom models return reasoning_text in content;
+            # OpenAI models return an encrypted blob + human-readable summary
             thinking = "".join(
                 str(part.get("text", ""))
                 for part in item.get("content", [])
                 if isinstance(part, dict) and part.get("type") == "reasoning_text"
             )
-            block: dict[str, Any] = {"type": "thinking", "thinking": thinking}
-            if isinstance(reasoning_id := item.get("id"), str) and reasoning_id:
-                block["id"] = reasoning_id
-            if isinstance(summary := item.get("summary"), list):
-                block["summary"] = [
-                    {
-                        "type": str(part.get("type", "summary_text")),
-                        "text": str(part.get("text", "")),
-                    }
+            if not thinking and isinstance(summary := item.get("summary"), list):
+                thinking = "".join(
+                    str(part.get("text", ""))
                     for part in summary
                     if isinstance(part, dict)
-                ]
-            if isinstance(encrypted_content := item.get("encrypted_content"), str):
-                block["signature"] = _responses_reasoning_signature(encrypted_content)
-            content_blocks.append(block)
+                )
+            content_blocks.append({"type": "thinking", "thinking": thinking})
         elif item_type == "message":
             for part in item.get("content", []):
                 if not isinstance(part, dict):
@@ -614,7 +602,9 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
                 if not isinstance(chunk, dict):
                     continue
 
-                event_name = sse_event.event or ""
+                # OpenAI sets SSE event: field; some providers (OpenRouter)
+                # only set the type in the JSON body
+                event_name = sse_event.event or str(chunk.get("type", ""))
                 response_payload = chunk.get("response")
                 if isinstance(response_payload, dict):
                     usage = _responses_usage(response_payload)
@@ -632,8 +622,19 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
                         message_started = True
                     continue
 
-                if event_name == "response.reasoning_text.delta":
+                if event_name in (
+                    "response.reasoning_text.delta",
+                    "response.reasoning_summary_text.delta",
+                ):
                     item_id = str(chunk.get("item_id", ""))
+                    delta = chunk.get("delta")
+                    if not (isinstance(delta, str) and delta):
+                        allocate_content_index(
+                            thinking_indices,
+                            item_id,
+                            chunk.get("output_index"),
+                        )
+                        continue
                     content_index = allocate_content_index(
                         thinking_indices,
                         item_id,
@@ -648,13 +649,11 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
                                 "content_block": {
                                     "type": "thinking",
                                     "thinking": "",
-                                    "id": item_id,
                                 },
                             },
                         )
                         started_thinking_ids.add(item_id)
-                    if isinstance(delta := chunk.get("delta"), str) and delta:
-                        yield anthropic_thinking_delta_event(content_index, delta)
+                    yield anthropic_thinking_delta_event(content_index, delta)
                     continue
 
                 if event_name == "response.output_text.delta":
@@ -682,31 +681,7 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
                 if item_type == "reasoning":
                     item_id = str(item.get("id", ""))
                     content_index = allocate_content_index(thinking_indices, item_id)
-                    had_started_thinking = item_id in started_thinking_ids
-                    reasoning_text = "".join(
-                        str(part.get("text", ""))
-                        for part in item.get("content", [])
-                        if isinstance(part, dict)
-                        and part.get("type") == "reasoning_text"
-                    )
-                    summary = item.get("summary")
-                    summary_items = (
-                        [
-                            {
-                                "type": str(part.get("type", "summary_text")),
-                                "text": str(part.get("text", "")),
-                            }
-                            for part in summary
-                            if isinstance(part, dict)
-                        ]
-                        if isinstance(summary, list)
-                        else []
-                    )
-                    if not summary_items:
-                        summary_items = [
-                            {"type": "summary_text", "text": reasoning_text}
-                        ]
-                    if not had_started_thinking:
+                    if item_id not in started_thinking_ids:
                         yield AnthropicStreamEvent(
                             "content_block_start",
                             {
@@ -715,24 +690,10 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
                                 "content_block": {
                                     "type": "thinking",
                                     "thinking": "",
-                                    "id": item_id,
-                                    "summary": summary_items,
                                 },
                             },
                         )
                         started_thinking_ids.add(item_id)
-                    if reasoning_text and not had_started_thinking:
-                        yield anthropic_thinking_delta_event(
-                            content_index,
-                            reasoning_text,
-                        )
-                    if isinstance(
-                        encrypted_content := item.get("encrypted_content"), str
-                    ):
-                        yield anthropic_signature_delta_event(
-                            content_index,
-                            _responses_reasoning_signature(encrypted_content),
-                        )
                     yield anthropic_block_stop_event(content_index)
                     continue
 

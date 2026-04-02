@@ -1,4 +1,4 @@
-"""Request and response normalization for the Tracecat LLM proxy."""
+"""Request normalization and payload rendering for the Tracecat LLM proxy."""
 
 from __future__ import annotations
 
@@ -7,10 +7,17 @@ from uuid import UUID
 
 import orjson
 
-from tracecat.agent.llm_proxy.anthropic_compat import (
+from tracecat.agent.llm_proxy.content_blocks import (
+    _SERVER_TOOL_RESULT_TYPES,
+    _SERVER_TOOL_USE_TYPES,
+    coerce_anthropic_content_blocks,
+    format_server_tool_result_content,
+    metadata_with_anthropic_content_blocks,
+)
+from tracecat.agent.llm_proxy.tool_compat import (
     OPENAI_MAX_TOOL_CALL_ID_LENGTH as _OPENAI_MAX_TOOL_CALL_ID_LENGTH,
 )
-from tracecat.agent.llm_proxy.anthropic_compat import (
+from tracecat.agent.llm_proxy.tool_compat import (
     anthropic_tool_to_openai_tool,
     tool_choice_to_anthropic,
     tool_choice_to_openai,
@@ -19,23 +26,14 @@ from tracecat.agent.llm_proxy.anthropic_compat import (
     tool_result_to_anthropic_block,
     truncate_tool_call_id,
 )
-from tracecat.agent.llm_proxy.provider_common import (
-    anthropic_signature_delta_event,
-    anthropic_thinking_block_start_event,
-    anthropic_thinking_delta_event,
-    is_anthropic_thinking_block,
-)
 from tracecat.agent.llm_proxy.types import (
-    AnthropicStreamEvent,
     IngressFormat,
     NormalizedMessage,
     NormalizedMessagesRequest,
-    NormalizedResponse,
     NormalizedToolCall,
 )
 
 OPENAI_MAX_TOOL_CALL_ID_LENGTH = _OPENAI_MAX_TOOL_CALL_ID_LENGTH
-ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY = "_anthropic_content_blocks"
 
 _DEFAULT_ALLOWED_MODEL_SETTING_KEYS = {
     "temperature",
@@ -135,163 +133,8 @@ def _parse_json_value(value: Any) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Claude-specific content block translation
+# Normalized message construction
 # ---------------------------------------------------------------------------
-#
-# Anthropic's API includes server-managed content block types that other
-# providers do not recognise (server_tool_use, web_search_tool_result, etc.).
-# The helpers below rewrite these into standard tool_use / tool_result blocks
-# so the normalised representation and the metadata-stashed blocks both carry
-# only universally understood types.
-
-# Block types that map to tool_use (assistant invoking a tool)
-_SERVER_TOOL_USE_TYPES = frozenset(
-    {
-        "server_tool_use",
-        "mcp_tool_use",
-        "container_tool_use",
-    }
-)
-
-# Block types that map to tool_result (result returned from a tool)
-_SERVER_TOOL_RESULT_TYPES = frozenset(
-    {
-        "web_search_tool_result",
-        "code_execution_tool_result",
-        "mcp_tool_result",
-        "container_tool_result",
-    }
-)
-
-
-def _format_web_search_result_content(content: Any) -> str:
-    """Extract readable text from a web_search_tool_result content field."""
-    if isinstance(content, dict):
-        # Error case: {"type": "web_search_tool_result_error", "error_code": ...}
-        error_code = content.get("error_code", "unknown_error")
-        return f"[Web search error: {error_code}]"
-    if isinstance(content, list):
-        parts: list[str] = []
-        for result in content:
-            if not isinstance(result, dict):
-                continue
-            title = result.get("title", "")
-            url = result.get("url", "")
-            # encrypted_content is opaque; include title + URL which are readable
-            parts.append(f"- {title}\n  {url}")
-        return "\n".join(parts) if parts else "[No search results]"
-    return str(content) if content else "[No search results]"
-
-
-def _format_code_execution_result_content(content: Any) -> str:
-    """Extract readable text from a code_execution_tool_result content field."""
-    if not isinstance(content, dict):
-        return str(content) if content else "[No execution output]"
-    content_type = content.get("type", "")
-    if content_type == "code_execution_tool_result_error":
-        error_code = content.get("error_code", "unknown_error")
-        return f"[Code execution error: {error_code}]"
-    # code_execution_result: has stdout, stderr, return_code
-    stdout = content.get("stdout", "")
-    stderr = content.get("stderr", "")
-    return_code = content.get("return_code")
-    parts: list[str] = []
-    if stdout:
-        parts.append(stdout)
-    if stderr:
-        parts.append(f"[stderr] {stderr}")
-    if return_code is not None and return_code != 0:
-        parts.append(f"[exit code: {return_code}]")
-    return "\n".join(parts) if parts else "[No execution output]"
-
-
-def _format_mcp_tool_result_content(content: Any) -> Any:
-    """Normalise mcp_tool_result content (str or list of text blocks)."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                parts.append(str(item.get("text", "")))
-            elif isinstance(item, str):
-                parts.append(item)
-        return "\n".join(parts) if parts else content
-    return content
-
-
-def _format_server_tool_result_content(block_type: str, content: Any) -> Any:
-    """Format the content of a server tool result block into plain text/data."""
-    match block_type:
-        case "web_search_tool_result":
-            return _format_web_search_result_content(content)
-        case "code_execution_tool_result":
-            return _format_code_execution_result_content(content)
-        case "mcp_tool_result":
-            return _format_mcp_tool_result_content(content)
-        case _:
-            # container_tool_result or unknown — pass through
-            return content
-
-
-def _translate_anthropic_content_block(item: dict[str, Any]) -> dict[str, Any] | None:
-    """Rewrite a Claude-specific block into a standard block, or return as-is.
-
-    Returns None for blocks that should be dropped entirely (tool_reference).
-    """
-    block_type = item.get("type")
-
-    if block_type == "tool_reference":
-        # Content-free pointer to a tool name — not needed by any provider.
-        return None
-
-    if block_type in _SERVER_TOOL_USE_TYPES:
-        # Rewrite as a standard tool_use block.
-        return {
-            "type": "tool_use",
-            "id": str(item.get("id", "")),
-            "name": str(item.get("name", "")),
-            "input": item.get("input", {}),
-        }
-
-    if block_type in _SERVER_TOOL_RESULT_TYPES:
-        # Rewrite as a standard tool_result block.
-        content = _format_server_tool_result_content(block_type, item.get("content"))
-        return {
-            "type": "tool_result",
-            "tool_use_id": str(item.get("tool_use_id", "")),
-            "content": content,
-            "is_error": bool(item.get("is_error", False)),
-        }
-
-    # Standard block type — keep as-is.
-    return {str(key): value for key, value in item.items()}
-
-
-def _metadata_with_anthropic_content_blocks(
-    metadata: dict[str, Any],
-    content: list[Any],
-) -> dict[str, Any]:
-    """Attach Anthropic content blocks for provider replay.
-
-    Claude-specific block types (server_tool_use, web_search_tool_result, etc.)
-    are rewritten into standard tool_use/tool_result blocks so that downstream
-    providers (OpenAI Responses API, Bedrock, Google) can consume them without
-    encountering unknown types.  tool_reference blocks are dropped entirely
-    (they are content-free pointers).
-    """
-    translated: list[Any] = []
-    for item in content:
-        if not isinstance(item, dict):
-            translated.append(item)
-            continue
-        block = _translate_anthropic_content_block(item)
-        if block is not None:
-            translated.append(block)
-    return {
-        **metadata,
-        ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY: translated,
-    }
 
 
 def _normalized_tool_call_from_dict(data: dict[str, Any]) -> NormalizedToolCall:
@@ -430,127 +273,6 @@ def extract_anthropic_request_parts(
     }
 
 
-def _message_to_openai(message: NormalizedMessage) -> dict[str, Any]:
-    result: dict[str, Any] = {"role": message.role}
-    if message.content is not None:
-        if message.role == "tool":
-            result["content"] = tool_result_content_to_openai(message.content)
-        else:
-            result["content"] = _content_to_openai(message.content)
-    if message.name is not None:
-        result["name"] = message.name
-    if message.tool_call_id is not None:
-        result["tool_call_id"] = message.tool_call_id
-    if message.tool_calls:
-        result["tool_calls"] = [
-            {
-                "id": truncate_tool_call_id(tool_call.id),
-                "type": tool_call.type,
-                "function": {
-                    "name": tool_call.name,
-                    "arguments": _tool_arguments_to_openai(tool_call.arguments),
-                },
-            }
-            for tool_call in message.tool_calls
-        ]
-    return result
-
-
-def _message_to_anthropic(message: NormalizedMessage) -> dict[str, Any]:
-    if message.role == "tool":
-        return {
-            "role": "user",
-            "content": [
-                tool_result_to_anthropic_block(
-                    tool_use_id=message.tool_call_id,
-                    content=message.content,
-                    is_error=bool(message.metadata.get("is_error", False)),
-                )
-            ],
-        }
-
-    result: dict[str, Any] = {"role": message.role}
-    content_blocks = _coerce_anthropic_content_blocks(message.content)
-    if content_blocks:
-        result["content"] = content_blocks
-    elif message.content is not None:
-        result["content"] = message.content
-    if message.name is not None:
-        result["name"] = message.name
-    if message.tool_call_id is not None:
-        result["tool_call_id"] = message.tool_call_id
-    if message.tool_calls:
-        result["content"] = content_blocks + [
-            {
-                "type": "tool_use",
-                "id": tool_call.id,
-                "name": tool_call.name,
-                "input": tool_call.arguments,
-            }
-            for tool_call in message.tool_calls
-        ]
-    return result
-
-
-def _tool_arguments_to_openai(arguments: Any) -> str:
-    if isinstance(arguments, str):
-        return arguments
-    if isinstance(arguments, bytes):
-        return arguments.decode("utf-8", errors="ignore")
-    try:
-        return orjson.dumps(arguments).decode("utf-8")
-    except TypeError:
-        return str(arguments)
-
-
-def _content_to_openai(content: Any) -> Any:
-    if isinstance(content, dict):
-        return [content]
-    if not isinstance(content, list):
-        return content
-
-    return [
-        item if isinstance(item, dict) else {"type": "text", "text": str(item)}
-        for item in content
-    ]
-
-
-def _coerce_anthropic_content_blocks(content: Any) -> list[dict[str, Any]]:
-    if content is None:
-        return []
-    if isinstance(content, list):
-        blocks: list[dict[str, Any]] = []
-        for item in content:
-            if isinstance(item, dict):
-                blocks.append({str(key): value for key, value in item.items()})
-            else:
-                blocks.append({"type": "text", "text": str(item)})
-        return blocks
-    if isinstance(content, dict):
-        return [{str(key): value for key, value in content.items()}]
-    return [{"type": "text", "text": str(content)}]
-
-
-def _anthropic_system_payload(
-    messages: tuple[NormalizedMessage, ...],
-) -> str | list[dict[str, Any]] | None:
-    """Render normalized system messages into Anthropic's accepted shape."""
-    system_messages = [
-        message.content
-        for message in messages
-        if message.role == "system" and message.content is not None
-    ]
-    if not system_messages:
-        return None
-    if all(isinstance(item, str) for item in system_messages):
-        return "\n\n".join(system_messages)
-
-    blocks: list[dict[str, Any]] = []
-    for item in system_messages:
-        blocks.extend(_coerce_anthropic_content_blocks(item))
-    return blocks
-
-
 def _normalized_messages_from_anthropic_message(
     data: dict[str, Any],
 ) -> tuple[NormalizedMessage, ...]:
@@ -559,7 +281,7 @@ def _normalized_messages_from_anthropic_message(
         return (_normalized_message_from_dict(data),)
 
     role = _normalized_message_role(data.get("role", "user"))
-    metadata = _metadata_with_anthropic_content_blocks(
+    metadata = metadata_with_anthropic_content_blocks(
         _safe_dict(data.get("metadata")),
         content,
     )
@@ -611,13 +333,13 @@ def _normalized_messages_from_anthropic_message(
                 # web_search_tool_result, code_execution_tool_result,
                 # mcp_tool_result, container_tool_result
                 # → normalise as a regular tool result.
-                content = _format_server_tool_result_content(
+                result_content = format_server_tool_result_content(
                     block_type, item.get("content")
                 )
                 tool_results.append(
                     NormalizedMessage(
                         role="tool",
-                        content=content,
+                        content=result_content,
                         tool_call_id=str(item.get("tool_use_id", "")),
                         metadata={
                             "is_error": bool(item.get("is_error", False)),
@@ -664,6 +386,116 @@ def _normalized_messages_from_anthropic_message(
             )
         )
     return tuple(messages)
+
+
+# ---------------------------------------------------------------------------
+# Request rendering (normalized → provider payload)
+# ---------------------------------------------------------------------------
+
+
+def _message_to_openai(message: NormalizedMessage) -> dict[str, Any]:
+    result: dict[str, Any] = {"role": message.role}
+    if message.content is not None:
+        if message.role == "tool":
+            result["content"] = tool_result_content_to_openai(message.content)
+        else:
+            result["content"] = _content_to_openai(message.content)
+    if message.name is not None:
+        result["name"] = message.name
+    if message.tool_call_id is not None:
+        result["tool_call_id"] = message.tool_call_id
+    if message.tool_calls:
+        result["tool_calls"] = [
+            {
+                "id": truncate_tool_call_id(tool_call.id),
+                "type": tool_call.type,
+                "function": {
+                    "name": tool_call.name,
+                    "arguments": _tool_arguments_to_openai(tool_call.arguments),
+                },
+            }
+            for tool_call in message.tool_calls
+        ]
+    return result
+
+
+def _message_to_anthropic(message: NormalizedMessage) -> dict[str, Any]:
+    if message.role == "tool":
+        return {
+            "role": "user",
+            "content": [
+                tool_result_to_anthropic_block(
+                    tool_use_id=message.tool_call_id,
+                    content=message.content,
+                    is_error=bool(message.metadata.get("is_error", False)),
+                )
+            ],
+        }
+
+    result: dict[str, Any] = {"role": message.role}
+    content_blocks = coerce_anthropic_content_blocks(message.content)
+    if content_blocks:
+        result["content"] = content_blocks
+    elif message.content is not None:
+        result["content"] = message.content
+    if message.name is not None:
+        result["name"] = message.name
+    if message.tool_call_id is not None:
+        result["tool_call_id"] = message.tool_call_id
+    if message.tool_calls:
+        result["content"] = content_blocks + [
+            {
+                "type": "tool_use",
+                "id": tool_call.id,
+                "name": tool_call.name,
+                "input": tool_call.arguments,
+            }
+            for tool_call in message.tool_calls
+        ]
+    return result
+
+
+def _tool_arguments_to_openai(arguments: Any) -> str:
+    if isinstance(arguments, str):
+        return arguments
+    if isinstance(arguments, bytes):
+        return arguments.decode("utf-8", errors="ignore")
+    try:
+        return orjson.dumps(arguments).decode("utf-8")
+    except TypeError:
+        return str(arguments)
+
+
+def _content_to_openai(content: Any) -> Any:
+    if isinstance(content, dict):
+        return [content]
+    if not isinstance(content, list):
+        return content
+
+    return [
+        item if isinstance(item, dict) else {"type": "text", "text": str(item)}
+        for item in content
+    ]
+
+
+def _anthropic_system_payload(
+    messages: tuple[NormalizedMessage, ...],
+) -> str | list[dict[str, Any]] | None:
+    """Render normalized system messages into Anthropic's accepted shape."""
+    system_messages = [
+        message.content
+        for message in messages
+        if message.role == "system" and message.content is not None
+    ]
+    if not system_messages:
+        return None
+    if all(isinstance(item, str) for item in system_messages):
+        return "\n\n".join(system_messages)
+
+    blocks: list[dict[str, Any]] = []
+    for item in system_messages:
+        blocks.extend(coerce_anthropic_content_blocks(item))
+    return blocks
 
 
 def messages_request_to_openai_payload(
@@ -713,240 +545,3 @@ def messages_request_to_anthropic_payload(
         payload["tool_choice"] = tool_choice_to_anthropic(request.tool_choice)
     payload.update(request.model_settings)
     return payload
-
-
-def render_anthropic_response(response: NormalizedResponse) -> dict[str, Any]:
-    """Render a normalized response into an Anthropic messages payload."""
-    content: list[dict[str, Any]] = []
-    if response.content is not None:
-        if isinstance(response.content, list):
-            content.extend(
-                item if isinstance(item, dict) else {"type": "text", "text": str(item)}
-                for item in response.content
-            )
-        else:
-            content.append({"type": "text", "text": str(response.content)})
-    for tool_call in response.tool_calls:
-        content.append(
-            {
-                "type": "tool_use",
-                "id": tool_call.id,
-                "name": tool_call.name,
-                "input": tool_call.arguments,
-            }
-        )
-    return {
-        "id": response.raw.get("id", f"tracecat-{response.provider}"),
-        "type": "message",
-        "role": "assistant",
-        "model": response.model,
-        "content": content,
-        "stop_reason": response.finish_reason,
-        "usage": {
-            "input_tokens": response.usage.get("input_tokens", 0),
-            "output_tokens": response.usage.get("output_tokens", 0),
-        },
-    }
-
-
-def render_anthropic_stream_event(event: AnthropicStreamEvent) -> bytes:
-    """Render a single Anthropic-compatible SSE event."""
-    return _sse_event(event.event, event.payload)
-
-
-def anthropic_stream_events_from_response(
-    response: NormalizedResponse,
-) -> list[AnthropicStreamEvent]:
-    """Build synthetic Anthropic SSE events from a completed response."""
-    rendered = render_anthropic_response(response)
-    input_tokens = rendered["usage"]["input_tokens"]
-    output_tokens = rendered["usage"]["output_tokens"]
-    message_start = {
-        "type": "message_start",
-        "message": {
-            "id": rendered["id"],
-            "type": "message",
-            "role": "assistant",
-            "model": rendered["model"],
-            "content": [],
-            "stop_reason": None,
-            "stop_sequence": None,
-            "usage": {
-                "input_tokens": input_tokens,
-                "output_tokens": 0,
-            },
-        },
-    }
-    events = [AnthropicStreamEvent("message_start", message_start)]
-
-    for index, block in enumerate(rendered["content"]):
-        if not isinstance(block, dict):
-            block = {"type": "text", "text": str(block)}
-        block_type = block.get("type")
-        if block_type == "thinking":
-            events.append(anthropic_thinking_block_start_event(index))
-            if isinstance(thinking := block.get("thinking"), str) and thinking:
-                events.append(anthropic_thinking_delta_event(index, thinking))
-            if isinstance(signature := block.get("signature"), str) and signature:
-                events.append(anthropic_signature_delta_event(index, signature))
-            events.append(
-                AnthropicStreamEvent(
-                    "content_block_stop",
-                    {"type": "content_block_stop", "index": index},
-                )
-            )
-            continue
-        if block_type == "tool_use":
-            partial_json = _tool_arguments_to_openai(block.get("input", {}))
-            events.extend(
-                [
-                    AnthropicStreamEvent(
-                        "content_block_start",
-                        {
-                            "type": "content_block_start",
-                            "index": index,
-                            "content_block": {
-                                "type": "tool_use",
-                                "id": block.get("id", ""),
-                                "name": block.get("name", ""),
-                                "input": {},
-                            },
-                        },
-                    ),
-                    AnthropicStreamEvent(
-                        "content_block_delta",
-                        {
-                            "type": "content_block_delta",
-                            "index": index,
-                            "delta": {
-                                "type": "input_json_delta",
-                                "partial_json": partial_json,
-                            },
-                        },
-                    ),
-                    AnthropicStreamEvent(
-                        "content_block_stop",
-                        {"type": "content_block_stop", "index": index},
-                    ),
-                ]
-            )
-            continue
-
-        text = block.get("text", "")
-        events.extend(
-            [
-                AnthropicStreamEvent(
-                    "content_block_start",
-                    {
-                        "type": "content_block_start",
-                        "index": index,
-                        "content_block": {"type": "text", "text": ""},
-                    },
-                ),
-                AnthropicStreamEvent(
-                    "content_block_delta",
-                    {
-                        "type": "content_block_delta",
-                        "index": index,
-                        "delta": {"type": "text_delta", "text": str(text)},
-                    },
-                ),
-                AnthropicStreamEvent(
-                    "content_block_stop",
-                    {"type": "content_block_stop", "index": index},
-                ),
-            ]
-        )
-
-    events.extend(
-        [
-            AnthropicStreamEvent(
-                "message_delta",
-                {
-                    "type": "message_delta",
-                    "delta": {
-                        "stop_reason": rendered["stop_reason"],
-                        "stop_sequence": None,
-                    },
-                    "usage": {"output_tokens": output_tokens},
-                },
-            ),
-            AnthropicStreamEvent("message_stop", {"type": "message_stop"}),
-        ]
-    )
-    return events
-
-
-def stream_anthropic_response(response: NormalizedResponse) -> list[bytes]:
-    """Render a normalized response into Anthropic-compatible SSE events."""
-    return [
-        render_anthropic_stream_event(event)
-        for event in anthropic_stream_events_from_response(response)
-    ]
-
-
-def _sse_event(event_name: str, payload: dict[str, Any]) -> bytes:
-    return (
-        f"event: {event_name}\n".encode() + b"data: " + orjson.dumps(payload) + b"\n\n"
-    )
-
-
-def normalize_openai_response(payload: dict[str, Any]) -> NormalizedResponse:
-    """Normalize an OpenAI chat-completions payload."""
-    choice = (payload.get("choices") or [{}])[0]
-    message = choice.get("message") or {}
-    tool_calls = tuple(
-        _normalized_tool_call_from_dict(item)
-        for item in message.get("tool_calls", [])
-        if isinstance(item, dict)
-    )
-    return NormalizedResponse(
-        provider="openai",
-        model=str(payload.get("model", "")),
-        content=message.get("content"),
-        tool_calls=tool_calls,
-        finish_reason=choice.get("finish_reason"),
-        usage=_safe_dict(payload.get("usage")),
-        raw=_safe_dict(payload),
-    )
-
-
-def normalize_anthropic_response(payload: dict[str, Any]) -> NormalizedResponse:
-    """Normalize an Anthropic messages payload."""
-    content = payload.get("content")
-    text_parts: list[Any] = []
-    tool_calls: list[NormalizedToolCall] = []
-    if isinstance(content, list):
-        for item in content:
-            if not isinstance(item, dict):
-                text_parts.append(item)
-                continue
-            item_type = item.get("type")
-            if item_type == "tool_use":
-                tool_calls.append(
-                    NormalizedToolCall(
-                        id=str(item.get("id", "")),
-                        name=str(item.get("name", "")),
-                        arguments=_safe_dict(item.get("input")),
-                    )
-                )
-            elif item_type == "text":
-                text_parts.append(item.get("text", ""))
-            elif is_anthropic_thinking_block(item):
-                text_parts.append({str(key): value for key, value in item.items()})
-            else:
-                text_parts.append(item)
-    elif content is not None:
-        text_parts.append(content)
-    return NormalizedResponse(
-        provider="anthropic",
-        model=str(payload.get("model", "")),
-        content=text_parts if len(text_parts) != 1 else text_parts[0],
-        tool_calls=tuple(tool_calls),
-        finish_reason=payload.get("stop_reason"),
-        usage={
-            "input_tokens": int(payload.get("usage", {}).get("input_tokens", 0)),
-            "output_tokens": int(payload.get("usage", {}).get("output_tokens", 0)),
-        },
-        raw=_safe_dict(payload),
-    )

@@ -22,11 +22,13 @@ import httpx
 import orjson
 
 from tracecat.agent.common.output_format import extract_json_schema
-from tracecat.agent.llm_proxy.anthropic_compat import (
+from tracecat.agent.llm_proxy.content_blocks import (
+    ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY,
+)
+from tracecat.agent.llm_proxy.tool_compat import (
     anthropic_tool_choice,
     anthropic_tool_definition,
 )
-from tracecat.agent.llm_proxy.requests import ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY
 from tracecat.agent.llm_proxy.types import (
     NormalizedMessage,
     NormalizedMessagesRequest,

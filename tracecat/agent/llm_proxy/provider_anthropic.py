@@ -9,25 +9,19 @@ from typing import Any, NoReturn
 import httpx
 import orjson
 
-from tracecat.agent.llm_proxy.anthropic_compat import (
-    anthropic_tool_to_openai_tool as tool_definition_to_openai,
-)
-from tracecat.agent.llm_proxy.anthropic_compat import (
-    anthropic_tools_to_openai_tools,
-    create_tool_name_mapping,
-    restore_tool_name,
-    tool_choice_to_anthropic,
-    tool_choice_to_openai,
-    tool_definition_to_anthropic,
-    tool_result_content_to_openai,
-    tool_result_to_anthropic_block,
-    truncate_tool_name,
+from tracecat.agent.llm_proxy.content_blocks import (
+    sanitize_thinking_blocks,
 )
 from tracecat.agent.llm_proxy.requests import (
     clamp_max_tokens,
     filter_allowed_model_settings,
     messages_request_to_anthropic_payload,
     messages_request_to_openai_payload,
+)
+from tracecat.agent.llm_proxy.tool_compat import (
+    anthropic_tools_to_openai_tools,
+    tool_choice_to_openai,
+    truncate_tool_name,
 )
 from tracecat.agent.llm_proxy.types import (
     AnthropicStreamEvent,
@@ -198,7 +192,9 @@ class AnthropicAdapter:
                 f"{response.status_code} {response.text[:512]}"
             )
         payload = response.json()
-        from tracecat.agent.llm_proxy.requests import normalize_anthropic_response
+        from tracecat.agent.llm_proxy.response_rendering import (
+            normalize_anthropic_response,
+        )
 
         normalized = normalize_anthropic_response(payload)
         return NormalizedResponse(
@@ -235,6 +231,7 @@ class AnthropicAdapter:
             outbound_payload.update(allowed)
 
         _convert_reasoning_effort_to_thinking(outbound_payload)
+        sanitize_thinking_blocks(outbound_payload)
         outbound_payload["stream"] = True
         outbound_payload["model"] = model
         clamp_max_tokens(outbound_payload)
@@ -288,14 +285,4 @@ class AnthropicAdapter:
 __all__ = [
     "AnthropicAdapter",
     "anthropic_request_to_openai_payload",
-    "anthropic_tools_to_openai_tools",
-    "create_tool_name_mapping",
-    "restore_tool_name",
-    "tool_choice_to_anthropic",
-    "tool_choice_to_openai",
-    "tool_definition_to_anthropic",
-    "tool_definition_to_openai",
-    "tool_result_content_to_openai",
-    "tool_result_to_anthropic_block",
-    "truncate_tool_name",
 ]
