@@ -515,6 +515,7 @@ async def receive_interaction(
         client = await get_temporal_client()
         handle = client.get_workflow_handle_for(DSLWorkflow.run, input.execution_id)
 
+        # Convert to internal interaction format
         # Execute workflow interaction handler
         result = await handle.execute_update(DSLWorkflow.interaction_handler, input)
         logger.info("Interaction processed", result=result)
