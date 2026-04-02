@@ -275,7 +275,7 @@ OIDC_SCOPES = tuple(
 # Backward-compatible aliases for legacy config names.
 OAUTH_CLIENT_ID = OIDC_CLIENT_ID
 OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
-USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET", "")
+USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET")
 TRACECAT__DB_ENCRYPTION_KEY = os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
 TRACECAT__SIGNING_SECRET = os.environ.get("TRACECAT__SIGNING_SECRET")
 TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID = os.environ.get(
@@ -1106,3 +1106,64 @@ TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH = os.environ.get(
 In Docker, packages are copied to /app/packages/tracecat-registry.
 In development with editable install, falls back to checking relative to the installed package.
 """
+
+
+# === Required secrets validation === #
+
+
+def validate_required_secrets() -> None:
+    """Validate secrets required by all services (worker, executor, MCP, API).
+
+    Call once at each service entrypoint. USER_AUTH_SECRET is excluded because
+    only the API service uses it — see validate_api_secrets().
+    """
+    missing = [
+        name
+        for name, val in (
+            ("TRACECAT__DB_ENCRYPTION_KEY", TRACECAT__DB_ENCRYPTION_KEY),
+            ("TRACECAT__SIGNING_SECRET", TRACECAT__SIGNING_SECRET),
+            ("TRACECAT__SERVICE_KEY", TRACECAT__SERVICE_KEY),
+        )
+        if not val
+    ]
+    if missing:
+        raise ValueError(f"Required secrets not set: {', '.join(missing)}")
+
+
+def validate_api_secrets() -> None:
+    """Validate secrets required by the API service.
+
+    Checks all base secrets plus USER_AUTH_SECRET, which is only needed
+    by the API for OAuth and password reset token signing.
+    """
+    validate_required_secrets()
+    if not USER_AUTH_SECRET:
+        raise ValueError("Required secrets not set: USER_AUTH_SECRET")
+
+
+def require_user_auth_secret() -> str:
+    """Typed accessor for USER_AUTH_SECRET. Narrows str | None to str."""
+    if not USER_AUTH_SECRET:
+        raise ValueError("USER_AUTH_SECRET is not set")
+    return USER_AUTH_SECRET
+
+
+def require_db_encryption_key() -> str:
+    """Typed accessor for TRACECAT__DB_ENCRYPTION_KEY. Narrows str | None to str."""
+    if not TRACECAT__DB_ENCRYPTION_KEY:
+        raise ValueError("TRACECAT__DB_ENCRYPTION_KEY is not set")
+    return TRACECAT__DB_ENCRYPTION_KEY
+
+
+def require_signing_secret() -> str:
+    """Typed accessor for TRACECAT__SIGNING_SECRET. Narrows str | None to str."""
+    if not TRACECAT__SIGNING_SECRET:
+        raise ValueError("TRACECAT__SIGNING_SECRET is not set")
+    return TRACECAT__SIGNING_SECRET
+
+
+def require_service_key() -> str:
+    """Typed accessor for TRACECAT__SERVICE_KEY. Narrows str | None to str."""
+    if not TRACECAT__SERVICE_KEY:
+        raise ValueError("TRACECAT__SERVICE_KEY is not set")
+    return TRACECAT__SERVICE_KEY

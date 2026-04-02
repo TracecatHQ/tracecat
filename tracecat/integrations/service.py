@@ -1,6 +1,5 @@
 """Service for managing user integrations with external services."""
 
-import os
 import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta
@@ -287,13 +286,7 @@ class IntegrationService(BaseWorkspaceService):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        encryption_key = (
-            os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
-            or config.TRACECAT__DB_ENCRYPTION_KEY
-        )
-        if not encryption_key:
-            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
-        self._encryption_key = encryption_key
+        self._encryption_key = config.require_db_encryption_key()
 
     async def get_integration(
         self,

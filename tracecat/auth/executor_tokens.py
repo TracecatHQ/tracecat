@@ -45,9 +45,6 @@ def mint_executor_token(
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed executor JWT scoped to a specific workflow execution."""
-    if not config.TRACECAT__SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
-
     now = datetime.now(UTC)
     ttl = ttl_seconds or config.TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS
     payload: dict[str, Any] = {
@@ -63,7 +60,7 @@ def mint_executor_token(
         "wf_exec_id": wf_exec_id,
     }
 
-    return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")
+    return jwt.encode(payload, config.require_service_key(), algorithm="HS256")
 
 
 def verify_executor_token(token: str) -> ExecutorTokenPayload:
@@ -72,13 +69,10 @@ def verify_executor_token(token: str) -> ExecutorTokenPayload:
     Returns the ExecutorTokenPayload containing workspace_id, user_id, service_id,
     wf_id, and wf_exec_id.
     """
-    if not config.TRACECAT__SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
-
     try:
         payload = jwt.decode(
             token,
-            config.TRACECAT__SERVICE_KEY,
+            config.require_service_key(),
             algorithms=["HS256"],
             audience=EXECUTOR_TOKEN_AUDIENCE,
             issuer=EXECUTOR_TOKEN_ISSUER,

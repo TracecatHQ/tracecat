@@ -139,9 +139,6 @@ def mint_mcp_token(
     Returns:
         Signed JWT string
     """
-    if not config.TRACECAT__SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
-
     now = datetime.now(UTC)
     ttl = ttl_seconds or config.TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS
 
@@ -175,7 +172,7 @@ def mint_mcp_token(
     if internal_tool_context:
         payload["internal_tool_context"] = internal_tool_context.model_dump(mode="json")
 
-    return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")
+    return jwt.encode(payload, config.require_service_key(), algorithm="HS256")
 
 
 def verify_mcp_token(token: str) -> MCPTokenClaims:
@@ -190,13 +187,10 @@ def verify_mcp_token(token: str) -> MCPTokenClaims:
     Raises:
         ValueError: If token is invalid or missing required claims
     """
-    if not config.TRACECAT__SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
-
     try:
         payload = jwt.decode(
             token,
-            config.TRACECAT__SERVICE_KEY,
+            config.require_service_key(),
             algorithms=["HS256"],
             audience=MCP_TOKEN_AUDIENCE,
             issuer=MCP_TOKEN_ISSUER,
@@ -303,9 +297,6 @@ def mint_llm_token(
     Returns:
         Signed JWT string
     """
-    if not config.TRACECAT__SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
-
     now = datetime.now(UTC)
     ttl = ttl_seconds or config.TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS
 
@@ -329,7 +320,7 @@ def mint_llm_token(
         "use_workspace_credentials": use_workspace_credentials,
     }
 
-    return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")
+    return jwt.encode(payload, config.require_service_key(), algorithm="HS256")
 
 
 def verify_llm_token(token: str) -> LLMTokenClaims:
@@ -344,16 +335,13 @@ def verify_llm_token(token: str) -> LLMTokenClaims:
     Raises:
         ValueError: If token is invalid, expired, or missing required claims
     """
-    if not config.TRACECAT__SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
-
     if not token:
         raise ValueError("Invalid LLM token")
 
     try:
         payload = jwt.decode(
             token,
-            config.TRACECAT__SERVICE_KEY,
+            config.require_service_key(),
             algorithms=["HS256"],
             audience=LLM_TOKEN_AUDIENCE,
             issuer=LLM_TOKEN_ISSUER,

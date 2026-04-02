@@ -55,10 +55,7 @@ class SettingsService(BaseOrgService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
-        encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
-        if not encryption_key:
-            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
-        self._encryption_key = SecretStr(encryption_key)
+        self._encryption_key = SecretStr(config.require_db_encryption_key())
 
     def _serialize_value_bytes(self, value: Any) -> bytes:
         return orjson.dumps(

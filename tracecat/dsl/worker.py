@@ -105,6 +105,8 @@ def get_activities() -> list[Callable]:
 
 
 async def main() -> None:
+    config.validate_required_secrets()
+
     # Enable workflow replay log filtering for this process
     from tracecat.logger import _logger
 

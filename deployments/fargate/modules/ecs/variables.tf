@@ -335,8 +335,7 @@ variable "oidc_client_secret_arn" {
 
 variable "user_auth_secret_arn" {
   type        = string
-  description = "The ARN of the secret containing USER_AUTH_SECRET (optional)"
-  default     = null
+  description = "The ARN of the secret containing USER_AUTH_SECRET"
 }
 
 variable "saml_idp_metadata_url_arn" {

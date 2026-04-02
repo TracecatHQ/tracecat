@@ -45,10 +45,7 @@ class SecretsService(BaseOrgService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
-        encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
-        if not encryption_key:
-            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
-        self._encryption_key = encryption_key
+        self._encryption_key = config.require_db_encryption_key()
 
     def _require_workspace_id(self) -> WorkspaceID:
         """Get workspace_id, raising if role or workspace_id is None."""

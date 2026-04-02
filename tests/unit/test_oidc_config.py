@@ -110,19 +110,6 @@ def test_config_rejects_empty_auth_types(monkeypatch) -> None:
     importlib.reload(config)
 
 
-def test_config_requires_issuer_when_oidc_enabled(monkeypatch) -> None:
-    with monkeypatch.context() as env:
-        env.setenv("TRACECAT__AUTH_TYPES", "oidc")
-        env.delenv("OIDC_ISSUER", raising=False)
-        with pytest.raises(
-            ValueError,
-            match="OIDC_ISSUER must be set when TRACECAT__AUTH_TYPES includes 'oidc'",
-        ):
-            importlib.reload(config)
-
-    importlib.reload(config)
-
-
 def test_config_keeps_oauth_aliases_for_oidc_credentials(monkeypatch) -> None:
     with monkeypatch.context() as env:
         env.setenv("TRACECAT__AUTH_TYPES", "basic")

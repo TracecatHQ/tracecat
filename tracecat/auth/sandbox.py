@@ -44,10 +44,7 @@ class AuthSandbox:
         self._context: dict[str, Any] = {}
         self._environment = environment
         self._optional_secrets = set(optional_secrets or [])
-        encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
-        if not encryption_key:
-            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
-        self._encryption_key: str = encryption_key
+        self._encryption_key = config.require_db_encryption_key()
 
     def __enter__(self) -> Self:
         if self._secret_paths:

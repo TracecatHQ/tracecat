@@ -244,10 +244,7 @@ async def _authenticate_service(
         msg = f"x-tracecat-role-service-id {service_role_id!r} invalid or not allowed"
         logger.error(msg)
         raise HTTP_EXC(msg)
-    expected_key = config.TRACECAT__SERVICE_KEY
-    if not expected_key:
-        raise KeyError("TRACECAT__SERVICE_KEY is not set")
-    if not secrets.compare_digest(api_key, expected_key):
+    if not secrets.compare_digest(api_key, config.require_service_key()):
         logger.error("Could not validate service key")
         raise CREDENTIALS_EXCEPTION
     user_id = (
