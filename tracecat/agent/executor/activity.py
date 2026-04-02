@@ -22,6 +22,7 @@ from tracecat.agent.common.config import (
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
 from tracecat.agent.executor.loopback import (
@@ -203,6 +204,11 @@ class SandboxedAgentExecutor:
         init_path = self._job_dir / self.INIT_PAYLOAD_FILENAME
         temp_path = init_path.with_suffix(".tmp")
         payload_bytes = orjson.dumps(payload.to_dict())
+        if len(payload_bytes) > MAX_PAYLOAD_SIZE:
+            raise AgentSandboxExecutionError(
+                "Runtime init payload exceeds max size "
+                f"({len(payload_bytes)} > {MAX_PAYLOAD_SIZE} bytes)"
+            )
 
         def _write() -> None:
             temp_path.write_bytes(payload_bytes)

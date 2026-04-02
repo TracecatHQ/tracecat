@@ -18,6 +18,7 @@ from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent import activities as agent_activities
 from tracecat_ee.agent.activities import AgentActivities, BuildToolDefsArgs
 
+from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.executor.activity import (
@@ -607,3 +608,21 @@ class TestSandboxedAgentExecutorHelpers:
         assert init_path == tmp_path / SandboxedAgentExecutor.INIT_PAYLOAD_FILENAME
         round_trip = RuntimeInitPayload.from_dict(orjson.loads(init_path.read_bytes()))
         assert round_trip.to_dict() == payload.to_dict()
+
+    @pytest.mark.anyio
+    async def test_write_runtime_init_payload_rejects_oversized_payload(
+        self,
+        executor_input: AgentExecutorInput,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._job_dir = tmp_path
+        payload = executor._build_runtime_init_payload()
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.MAX_PAYLOAD_SIZE",
+            1,
+        )
+
+        with pytest.raises(AgentSandboxExecutionError, match="exceeds max size"):
+            await executor._write_runtime_init_payload(payload)
