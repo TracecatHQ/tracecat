@@ -311,7 +311,6 @@ class SandboxedAgentExecutor:
                         self._write_runtime_init_payload(init_payload)
                     )
                     llm_proxy_task = tg.create_task(start_llm_proxy())
-                    loopback_prepare_task = tg.create_task(handler.prepare())
                     server_task = tg.create_task(start_control_socket_server())
             except* Exception:
                 if (
@@ -327,7 +326,6 @@ class SandboxedAgentExecutor:
 
             init_payload_path = init_payload_task.result()
             _ = llm_proxy_task.result()
-            _ = loopback_prepare_task.result()
             server = server_task.result()
 
             async with server:
