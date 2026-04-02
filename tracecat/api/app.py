@@ -151,12 +151,11 @@ from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
 
 
-def _require_user_auth_secret(*, when: str) -> str:
-    """Require USER_AUTH_SECRET for auth flows that sign user-facing tokens."""
+def _require_user_auth_secret() -> str:
+    """Require USER_AUTH_SECRET for all API startup paths."""
     return config._require_non_empty_config(
         "USER_AUTH_SECRET",
         config.USER_AUTH_SECRET,
-        when=when,
     )
 
 
@@ -513,11 +512,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(internal_variables_router)
     app.include_router(internal_workflows_router)
 
-    user_auth_secret: str | None = None
+    user_auth_secret = _require_user_auth_secret()
     if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
-        user_auth_secret = _require_user_auth_secret(
-            when="TRACECAT__AUTH_TYPES includes 'basic'"
-        )
         app.include_router(
             fastapi_users.get_auth_router(auth_backend),
             prefix="/auth",
@@ -540,9 +536,6 @@ def create_app(**kwargs) -> FastAPI:
         )
 
     if oidc_auth_type_enabled():
-        user_auth_secret = user_auth_secret or _require_user_auth_secret(
-            when="TRACECAT__AUTH_TYPES includes 'oidc'"
-        )
         oauth_client = create_platform_oauth_client()
         # This is the frontend URL that the user will be redirected to after authenticating
         redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
