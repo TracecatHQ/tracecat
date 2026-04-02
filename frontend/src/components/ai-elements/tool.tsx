@@ -12,6 +12,7 @@ import {
 import {
   type ComponentProps,
   isValidElement,
+  memo,
   type ReactNode,
   useEffect,
   useMemo,
@@ -283,134 +284,143 @@ function formatBytes(bytes: number): string {
   return `${mb.toFixed(1)} MB`
 }
 
-function ToolPayload({
-  payload,
-  downloadName,
-}: {
-  payload: unknown
-  downloadName: string
-}) {
-  const normalizedPayload = useMemo(
-    () => extractMcpTextContent(payload),
-    [payload]
-  )
-  const serialized = useMemo(
-    () => serializeToolPayload(normalizedPayload),
-    [normalizedPayload]
-  )
-  const isLargePayload = serialized.text.length > MAX_INLINE_PAYLOAD_CHARS
-  const codeLanguage = serialized.extension === "json" ? "json" : "console"
-  const byteCount = useMemo(
-    () =>
-      isLargePayload ? new TextEncoder().encode(serialized.text).length : 0,
-    [isLargePayload, serialized.text]
-  )
-  const [downloadHref, setDownloadHref] = useState<string | null>(null)
+const ToolPayload = memo(
+  function ToolPayload({
+    payload,
+    downloadName,
+  }: {
+    payload: unknown
+    downloadName: string
+  }) {
+    const normalizedPayload = useMemo(
+      () => extractMcpTextContent(payload),
+      [payload]
+    )
+    const serialized = useMemo(
+      () => serializeToolPayload(normalizedPayload),
+      [normalizedPayload]
+    )
+    const isLargePayload = serialized.text.length > MAX_INLINE_PAYLOAD_CHARS
+    const codeLanguage = serialized.extension === "json" ? "json" : "console"
+    const byteCount = useMemo(
+      () =>
+        isLargePayload ? new TextEncoder().encode(serialized.text).length : 0,
+      [isLargePayload, serialized.text]
+    )
+    const [downloadHref, setDownloadHref] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!isLargePayload || !serialized.text) {
-      setDownloadHref(null)
-      return
+    useEffect(() => {
+      if (!isLargePayload || !serialized.text) {
+        setDownloadHref(null)
+        return
+      }
+
+      const blob = new Blob([serialized.text], {
+        type:
+          serialized.extension === "json" ? "application/json" : "text/plain",
+      })
+      const href = URL.createObjectURL(blob)
+      setDownloadHref(href)
+      return () => URL.revokeObjectURL(href)
+    }, [isLargePayload, serialized.extension, serialized.text])
+
+    if (!serialized.text) {
+      return null
     }
 
-    const blob = new Blob([serialized.text], {
-      type: serialized.extension === "json" ? "application/json" : "text/plain",
-    })
-    const href = URL.createObjectURL(blob)
-    setDownloadHref(href)
-    return () => URL.revokeObjectURL(href)
-  }, [isLargePayload, serialized.extension, serialized.text])
+    if (isLargePayload) {
+      return (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2 rounded-md border border-dashed bg-background/70 px-2.5 py-2 text-xs text-muted-foreground">
+            <span>
+              Large payload ({formatBytes(byteCount)}). Preview hidden.
+            </span>
+            {downloadHref && (
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-xs"
+              >
+                <a
+                  href={downloadHref}
+                  download={`${downloadName}.${serialized.extension}`}
+                >
+                  <DownloadIcon className="mr-1.5 size-3" />
+                  Download file
+                </a>
+              </Button>
+            )}
+          </div>
+        </div>
+      )
+    }
 
-  if (!serialized.text) {
-    return null
-  }
-
-  if (isLargePayload) {
     return (
       <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2 rounded-md border border-dashed bg-background/70 px-2.5 py-2 text-xs text-muted-foreground">
-          <span>Large payload ({formatBytes(byteCount)}). Preview hidden.</span>
-          {downloadHref && (
-            <Button
-              asChild
-              variant="outline"
-              size="sm"
-              className="h-6 px-2 text-xs"
-            >
-              <a
-                href={downloadHref}
-                download={`${downloadName}.${serialized.extension}`}
-              >
-                <DownloadIcon className="mr-1.5 size-3" />
-                Download file
-              </a>
-            </Button>
-          )}
-        </div>
+        <CodeBlock
+          code={serialized.text}
+          language={codeLanguage}
+          className="[&_code]:text-[11px] [&_pre]:px-3 [&_pre]:py-2.5 [&_pre]:text-[11px]"
+        >
+          <CodeBlockCopyButton className="absolute right-1.5 top-1.5 z-10 size-5 [&_svg]:size-3" />
+        </CodeBlock>
       </div>
     )
-  }
-
-  return (
-    <div className="space-y-2">
-      <CodeBlock
-        code={serialized.text}
-        language={codeLanguage}
-        className="[&_code]:text-[11px] [&_pre]:px-3 [&_pre]:py-2.5 [&_pre]:text-[11px]"
-      >
-        <CodeBlockCopyButton className="absolute right-1.5 top-1.5 z-10 size-5 [&_svg]:size-3" />
-      </CodeBlock>
-    </div>
-  )
-}
+  },
+  (prev, next) =>
+    prev.payload === next.payload && prev.downloadName === next.downloadName
+)
+ToolPayload.displayName = "ToolPayload"
 
 export type ToolInputProps = ComponentProps<"div"> & {
   input: ToolPart["input"]
 }
 
-export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
-  <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
-    <h4 className="font-medium text-[11px] text-muted-foreground tracking-wide">
-      PARAMETERS
-    </h4>
-    <ToolPayload payload={input} downloadName="tool-parameters" />
-  </div>
+export const ToolInput = memo(
+  ({ className, input, ...props }: ToolInputProps) => (
+    <div className={cn("space-y-2 overflow-hidden", className)} {...props}>
+      <h4 className="font-medium text-[11px] text-muted-foreground tracking-wide">
+        PARAMETERS
+      </h4>
+      <ToolPayload payload={input} downloadName="tool-parameters" />
+    </div>
+  )
 )
+ToolInput.displayName = "ToolInput"
 
 export type ToolOutputProps = ComponentProps<"div"> & {
   output: ToolPart["output"]
   errorText: ToolPart["errorText"]
 }
 
-export const ToolOutput = ({
-  className,
-  output,
-  errorText,
-  ...props
-}: ToolOutputProps) => {
-  const hasOutput = output !== undefined && output !== null
-  if (!hasOutput && !errorText) {
-    return null
-  }
+export const ToolOutput = memo(
+  ({ className, output, errorText, ...props }: ToolOutputProps) => {
+    const hasOutput = output !== undefined && output !== null
+    if (!hasOutput && !errorText) {
+      return null
+    }
 
-  return (
-    <div className={cn("space-y-2", className)} {...props}>
-      <h4 className="font-medium text-[11px] text-muted-foreground tracking-wide">
-        {errorText ? "Error" : "RESULT"}
-      </h4>
-      {errorText && (
-        <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
-          {errorText}
-        </div>
-      )}
-      {hasOutput &&
-        (isValidElement(output) ? (
-          <div className="rounded-md bg-muted/50 p-1.5 text-[11px] text-foreground">
-            {output}
+    return (
+      <div className={cn("space-y-2", className)} {...props}>
+        <h4 className="font-medium text-[11px] text-muted-foreground tracking-wide">
+          {errorText ? "Error" : "RESULT"}
+        </h4>
+        {errorText && (
+          <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive">
+            {errorText}
           </div>
-        ) : (
-          <ToolPayload payload={output} downloadName="tool-result" />
-        ))}
-    </div>
-  )
-}
+        )}
+        {hasOutput &&
+          (isValidElement(output) ? (
+            <div className="rounded-md bg-muted/50 p-1.5 text-[11px] text-foreground">
+              {output}
+            </div>
+          ) : (
+            <ToolPayload payload={output} downloadName="tool-result" />
+          ))}
+      </div>
+    )
+  }
+)
+ToolOutput.displayName = "ToolOutput"
