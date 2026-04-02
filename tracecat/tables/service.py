@@ -502,12 +502,14 @@ class BaseTablesService(BaseWorkspaceService):
         """Get a column by ID."""
         statement = (
             select(TableColumn)
+            .join(Table, Table.id == TableColumn.table_id)
             .options(
                 selectinload(TableColumn.table).selectinload(Table.columns),
             )
             .where(
                 TableColumn.table_id == table_id,
                 TableColumn.id == column_id,
+                Table.workspace_id == self.workspace_id,
             )
         )
         result = await self.session.execute(statement)
