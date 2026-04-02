@@ -209,7 +209,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         # After-commit callback to update Temporal schedule
         async def _update_schedule():
             try:
-                await bridge.update_schedule(schedule_id, params, role=self.role)
+                await bridge.update_schedule(schedule_id, params)
                 logger.info(
                     "Updated schedule",
                     schedule_id=schedule_id,
