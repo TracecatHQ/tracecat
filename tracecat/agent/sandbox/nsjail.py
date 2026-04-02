@@ -113,8 +113,8 @@ def _get_tracecat_pkg_dir() -> Path:
 
 async def spawn_jailed_runtime(
     socket_dir: Path,
+    init_payload_path: Path,
     llm_socket_path: Path | None = None,
-    init_payload_path: Path | None = None,
     config: AgentSandboxConfig | None = None,
     nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
     rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
@@ -139,6 +139,7 @@ async def spawn_jailed_runtime(
         socket_dir: Directory containing the per-job control socket (control.sock).
         llm_socket_path: Path to the LLM socket for proxied LLM gateway access.
             Required in production mode (NSJail), optional in direct mode.
+        init_payload_path: Path to the per-job runtime init payload file.
         config: Optional sandbox configuration. Defaults to standard agent config.
         nsjail_path: Path to the nsjail binary.
         rootfs_path: Path to the sandbox rootfs (same rootfs as action sandbox).
@@ -210,7 +211,7 @@ async def _spawn_direct_runtime(
     *,
     socket_dir: Path,
     llm_socket_path: Path | None,
-    init_payload_path: Path | None,
+    init_payload_path: Path,
 ) -> SpawnedRuntime:
     """Spawn the agent runtime as a direct subprocess (for development/testing).
 
@@ -259,11 +260,6 @@ async def _spawn_direct_runtime(
         # to the orchestrator-side LLM socket.
         env["TRACECAT__AGENT_LLM_SOCKET_PATH"] = str(llm_socket_path)
 
-    if init_payload_path is None:
-        raise AgentSandboxExecutionError(
-            "init_payload_path is required in direct subprocess mode"
-        )
-
     process = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -277,7 +273,7 @@ async def _spawn_direct_runtime(
 async def _spawn_nsjail_runtime(
     socket_dir: Path,
     llm_socket_path: Path,
-    init_payload_path: Path | None,
+    init_payload_path: Path,
     config: AgentSandboxConfig,
     nsjail_path: str,
     rootfs_path: str,
@@ -312,10 +308,9 @@ async def _spawn_nsjail_runtime(
 
     try:
         # Build nsjail config (socket paths are derived from socket_dir internally)
-        if init_payload_path is not None:
-            await asyncio.to_thread(
-                shutil.copy2, init_payload_path, jailed_init_payload_path
-            )
+        await asyncio.to_thread(
+            shutil.copy2, init_payload_path, jailed_init_payload_path
+        )
 
         nsjail_config = build_agent_nsjail_config(
             rootfs=rootfs,
