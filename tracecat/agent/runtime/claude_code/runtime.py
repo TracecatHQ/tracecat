@@ -214,6 +214,48 @@ class ClaudeAgentRuntime:
         logger.debug("Wrote session file", path=str(session_file_path))
         return session_file_path
 
+    async def _prepare_resume_and_mcp(
+        self,
+        payload: RuntimeInitPayload,
+    ) -> tuple[str | None, bool, dict[str, Any]]:
+        """Prepare resume state and MCP server config in parallel."""
+        resume_session_id: str | None = None
+        fork_session = False
+        mcp_servers: dict[str, Any] = {}
+
+        session_file_task: asyncio.Task[Path] | None = None
+        proxy_config_task: asyncio.Task[Any] | None = None
+
+        if payload.sdk_session_id and payload.sdk_session_data:
+            resume_session_id = payload.sdk_session_id
+            fork_session = payload.is_fork
+            if not fork_session:
+                self._sdk_session_id = resume_session_id
+                self._last_seen_line_index = len(payload.sdk_session_data.splitlines())
+
+        async with asyncio.TaskGroup() as tg:
+            if payload.sdk_session_id and payload.sdk_session_data:
+                session_file_task = tg.create_task(
+                    self._write_session_file(
+                        payload.sdk_session_id, payload.sdk_session_data
+                    )
+                )
+            if self.registry_tools:
+                proxy_config_task = tg.create_task(
+                    create_proxy_mcp_server(
+                        allowed_actions=self.registry_tools,
+                        auth_token=payload.mcp_auth_token,
+                    )
+                )
+
+        if session_file_task is not None:
+            _ = session_file_task.result()
+
+        if proxy_config_task is not None:
+            mcp_servers[REGISTRY_MCP_SERVER_NAME] = proxy_config_task.result()
+
+        return resume_session_id, fork_session, mcp_servers
+
     def _canonicalize_sdk_session_data(self, sdk_session_data: str) -> str:
         """Canonicalize legacy registry MCP aliases in JSONL session history."""
         return sdk_session_data.replace(
@@ -497,34 +539,12 @@ class ClaudeAgentRuntime:
         self._cwd.mkdir(parents=True, exist_ok=True)
 
         # Write session file locally if resuming or forking
-        resume_session_id: str | None = None
-        fork_session: bool = False
-        if payload.sdk_session_id and payload.sdk_session_data:
-            await self._write_session_file(
-                payload.sdk_session_id, payload.sdk_session_data
-            )
-            resume_session_id = payload.sdk_session_id
-            # If forking, tell the SDK to create a new session from the parent's history
-            fork_session = payload.is_fork
-            # For a normal resume (non-fork), seed line tracking *before* we send the
-            # new query. The CLI can append new JSONL lines for this turn before the
-            # first StreamEvent arrives; if we only set `_last_seen_line_index` after
-            # the first StreamEvent, we can permanently skip those lines and corrupt
-            # persisted history (leading to flaky resume crashes).
-            if not fork_session:
-                self._sdk_session_id = resume_session_id
-                # Count lines from the session data we just wrote to disk (avoid I/O).
-                self._last_seen_line_index = len(payload.sdk_session_data.splitlines())
-
         try:
-            # Build MCP servers config for registry actions and stdio servers
-            mcp_servers: dict[str, Any] = {}
-            if self.registry_tools:
-                proxy_config = await create_proxy_mcp_server(
-                    allowed_actions=self.registry_tools,
-                    auth_token=payload.mcp_auth_token,
-                )
-                mcp_servers[REGISTRY_MCP_SERVER_NAME] = proxy_config
+            (
+                resume_session_id,
+                fork_session,
+                mcp_servers,
+            ) = await self._prepare_resume_and_mcp(payload)
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
             if payload.config.mcp_servers:

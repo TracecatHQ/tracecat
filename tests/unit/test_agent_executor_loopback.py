@@ -138,6 +138,23 @@ async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
     fake_stream.done.assert_awaited_once()
 
 
+@pytest.mark.anyio
+async def test_prepare_initializes_stream_sink_once(
+    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
+) -> None:
+    handler = LoopbackHandler(input=loopback_input)
+    fake_stream = _FakeStream()
+    initialize_stream_sink = AsyncMock(return_value=fake_stream)
+    monkeypatch.setattr(handler, "_initialize_stream_sink", initialize_stream_sink)
+
+    first = await handler.prepare()
+    second = await handler.prepare()
+
+    assert first is fake_stream
+    assert second is fake_stream
+    initialize_stream_sink.assert_awaited_once()
+
+
 def _make_handler() -> LoopbackHandler:
     return LoopbackHandler(
         input=LoopbackInput(

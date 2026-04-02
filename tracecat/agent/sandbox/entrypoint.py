@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import orjson
@@ -24,11 +25,7 @@ from tracecat.agent.common.config import (
     TRACECAT__AGENT_LLM_SOCKET_PATH,
 )
 from tracecat.agent.common.protocol import RuntimeInitPayload
-from tracecat.agent.common.socket_io import (
-    MessageType,
-    SocketStreamWriter,
-    read_message,
-)
+from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.sandbox.llm_bridge import LLMBridge
 from tracecat.logger import logger
 
@@ -39,6 +36,7 @@ if TYPE_CHECKING:
 RUNTIME_REGISTRY: dict[str, str] = {
     "claude_code": "tracecat.agent.runtime.claude_code.runtime.ClaudeAgentRuntime",
 }
+INIT_PAYLOAD_PATH = Path("/work/init.json")
 
 
 def _load_runtime(runtime_type: str) -> type[BaseRuntime]:
@@ -66,11 +64,24 @@ def _load_runtime(runtime_type: str) -> type[BaseRuntime]:
     return getattr(module, class_name)
 
 
+async def _read_init_payload(
+    init_path: Path = INIT_PAYLOAD_PATH,
+) -> RuntimeInitPayload:
+    """Read and deserialize the runtime init payload from the mounted job dir."""
+
+    def _read_bytes() -> bytes:
+        return init_path.read_bytes()
+
+    payload_bytes = await asyncio.to_thread(_read_bytes)
+    logger.info("Read init payload file", init_path=str(init_path))
+    return RuntimeInitPayload.from_dict(orjson.loads(payload_bytes))
+
+
 async def run_sandboxed_runtime() -> None:
     """Entry point for sandboxed runtime execution.
 
-    Connects to orchestrator socket at the well-known jailed path,
-    receives init payload, instantiates the runtime, and runs the agent.
+    Reads init payload from the mounted job directory, connects to the
+    orchestrator socket, instantiates the runtime, and runs the agent.
 
     The LLM bridge is always started to proxy SDK HTTP traffic through the
     Unix socket to the host-side LLMSocketProxy. Port allocation:
@@ -85,16 +96,7 @@ async def run_sandboxed_runtime() -> None:
     socket_writer: SocketStreamWriter | None = None
 
     try:
-        # Connect to orchestrator first to get config
-        reader, writer = await asyncio.open_unix_connection(socket_path)
-        socket_writer = SocketStreamWriter(writer)
-        # Read init payload using typed message protocol
-        _, init_data = await read_message(reader, expected_type=MessageType.INIT)
-        if not init_data:
-            raise RuntimeError("No init payload received from orchestrator")
-
-        # Parse with orjson + dataclass (lightweight, no Pydantic TypeAdapter)
-        payload = RuntimeInitPayload.from_dict(orjson.loads(init_data))
+        payload = await _read_init_payload()
 
         # Always start the LLM bridge — the SDK needs a localhost HTTP endpoint
         # to reach the host-side LLMSocketProxy via Unix socket.
@@ -102,11 +104,17 @@ async def run_sandboxed_runtime() -> None:
             socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH,
             port=0,
         )
-        bridge_port = await llm_bridge.start()
+        async with asyncio.TaskGroup() as tg:
+            bridge_task = tg.create_task(llm_bridge.start())
+            socket_task = tg.create_task(asyncio.open_unix_connection(socket_path))
+
+        bridge_port = bridge_task.result()
+        _, writer = socket_task.result()
+        socket_writer = SocketStreamWriter(writer)
         os.environ["TRACECAT__LLM_BRIDGE_PORT"] = str(bridge_port)
         logger.info("LLM bridge started", port=bridge_port)
         logger.info(
-            "Received init payload",
+            "Loaded init payload",
             session_id=str(payload.session_id),
             runtime_type=payload.runtime_type,
             has_session_data=bool(payload.sdk_session_data),

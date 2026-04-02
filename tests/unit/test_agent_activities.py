@@ -8,14 +8,18 @@ These tests cover:
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import orjson
 import pytest
 
+from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
+    SandboxedAgentExecutor,
     run_agent_activity,
 )
 from tracecat.agent.session.activities import (
@@ -440,3 +444,55 @@ class TestRunAgentActivity:
 
             # Should send heartbeat at start and end
             assert mock_activity.heartbeat.call_count >= 2
+
+
+class TestSandboxedAgentExecutorHelpers:
+    """Tests for SandboxedAgentExecutor helper methods."""
+
+    @pytest.fixture
+    def executor_input(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+    ) -> AgentExecutorInput:
+        return AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Investigate startup latency",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-mcp-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+
+    def test_build_runtime_init_payload(
+        self,
+        executor_input: AgentExecutorInput,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
+
+        payload = executor._build_runtime_init_payload()
+
+        assert isinstance(payload, RuntimeInitPayload)
+        assert payload.session_id == executor_input.session_id
+        assert payload.user_prompt == executor_input.user_prompt
+        assert payload.mcp_auth_token == executor_input.mcp_auth_token
+        assert payload.llm_gateway_auth_token == executor_input.llm_gateway_auth_token
+        assert payload.config.model_name == executor_input.config.model_name
+
+    @pytest.mark.anyio
+    async def test_write_runtime_init_payload_round_trip(
+        self,
+        executor_input: AgentExecutorInput,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._job_dir = tmp_path
+        payload = executor._build_runtime_init_payload()
+
+        init_path = await executor._write_runtime_init_payload(payload)
+
+        assert init_path == tmp_path / SandboxedAgentExecutor.INIT_PAYLOAD_FILENAME
+        round_trip = RuntimeInitPayload.from_dict(orjson.loads(init_path.read_bytes()))
+        assert round_trip.to_dict() == payload.to_dict()
