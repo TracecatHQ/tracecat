@@ -20,6 +20,7 @@ from uuid import UUID
 
 import pytest
 import yaml
+from cryptography.fernet import Fernet
 
 pytestmark = [
     pytest.mark.temporal,
@@ -2178,8 +2179,9 @@ async def test_scheduled_workflow_legacy_role_auto_heals_organization_id(
         pytest.fail("test_role.workspace_id is required")
 
     # Keep this test self-contained when local env vars are missing.
-    monkeypatch.setenv("TRACECAT__DB_ENCRYPTION_KEY", "test-encryption-key")
-    monkeypatch.setattr(config, "TRACECAT__DB_ENCRYPTION_KEY", "test-encryption-key")
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setenv("TRACECAT__DB_ENCRYPTION_KEY", encryption_key)
+    monkeypatch.setattr(config, "TRACECAT__DB_ENCRYPTION_KEY", encryption_key)
     monkeypatch.setenv("TRACECAT__LOCAL_REPOSITORY_ENABLED", "1")
     monkeypatch.setattr(config, "TRACECAT__LOCAL_REPOSITORY_ENABLED", True)
     minio_access_key = (

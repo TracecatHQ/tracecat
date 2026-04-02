@@ -5,16 +5,21 @@ import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
+from cryptography.fernet import Fernet
 
 from tracecat import config
 from tracecat.auth.enums import AuthType
-from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enabled
+from tracecat.auth.oidc import (
+    create_platform_oauth_client,
+    oidc_auth_type_enabled,
+    oidc_provider_configured,
+)
 from tracecat.auth.users import UserManager
 
 
 @pytest.fixture(autouse=True)
 def required_base_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TRACECAT__DB_ENCRYPTION_KEY", "test-db-encryption-key")
+    monkeypatch.setenv("TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("TRACECAT__SERVICE_KEY", "test-service-key")
     monkeypatch.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
     monkeypatch.setenv("USER_AUTH_SECRET", "test-user-auth-secret")
@@ -127,9 +132,22 @@ def test_config_requires_issuer_when_oidc_enabled(monkeypatch) -> None:
         env.setenv("OIDC_CLIENT_SECRET", "oidc-client-secret")
         with pytest.raises(
             ValueError,
-            match="OIDC_ISSUER must be set when TRACECAT__AUTH_TYPES includes 'oidc'",
+            match="OIDC_ISSUER must be set when TRACECAT__AUTH_TYPES is exactly 'oidc'",
         ):
             importlib.reload(config)
+
+    importlib.reload(config)
+
+
+def test_config_allows_missing_oidc_settings_for_mixed_auth(monkeypatch) -> None:
+    with monkeypatch.context() as env:
+        env.setenv("TRACECAT__AUTH_TYPES", "basic,oidc")
+        env.delenv("OIDC_ISSUER", raising=False)
+        env.delenv("OIDC_CLIENT_ID", raising=False)
+        env.delenv("OIDC_CLIENT_SECRET", raising=False)
+        importlib.reload(config)
+
+        assert config.TRACECAT__AUTH_TYPES == {AuthType.BASIC, AuthType.OIDC}
 
     importlib.reload(config)
 
@@ -171,7 +189,7 @@ def test_config_requires_oidc_client_secret_when_oidc_enabled(monkeypatch) -> No
         env.delenv("OAUTH_CLIENT_SECRET", raising=False)
         with pytest.raises(
             KeyError,
-            match="OIDC_CLIENT_SECRET must be set when TRACECAT__AUTH_TYPES includes 'oidc'",
+            match="OIDC_CLIENT_SECRET must be set when TRACECAT__AUTH_TYPES is exactly 'oidc'",
         ):
             importlib.reload(config)
 
@@ -211,6 +229,15 @@ def test_user_manager_requires_user_auth_secret_when_basic_enabled(
         UserManager(MagicMock())
 
 
+def test_api_startup_requires_user_auth_secret(monkeypatch) -> None:
+    from tracecat.api import app as api_app
+
+    monkeypatch.setattr(config, "USER_AUTH_SECRET", "")
+
+    with pytest.raises(KeyError, match="USER_AUTH_SECRET must be set"):
+        api_app._require_user_auth_secret()
+
+
 def test_user_manager_allows_missing_user_auth_secret_when_basic_disabled(
     monkeypatch,
 ) -> None:
@@ -221,6 +248,16 @@ def test_user_manager_allows_missing_user_auth_secret_when_basic_disabled(
 
     assert manager.reset_password_token_secret == ""
     assert manager.verification_token_secret == ""
+
+
+def test_oidc_provider_configured_requires_complete_settings(monkeypatch) -> None:
+    monkeypatch.setattr(config, "OIDC_ISSUER", "")
+    monkeypatch.setattr(config, "OIDC_CLIENT_ID", "oidc-client-id")
+    monkeypatch.setattr(config, "OIDC_CLIENT_SECRET", "oidc-client-secret")
+    assert oidc_provider_configured() is False
+
+    monkeypatch.setattr(config, "OIDC_ISSUER", "https://auth.example.com")
+    assert oidc_provider_configured() is True
 
 
 def test_config_ignores_google_oauth_env_aliases(monkeypatch) -> None:

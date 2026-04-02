@@ -53,6 +53,7 @@ from tracecat.redis.client import get_redis_client
 
 # Use worker-specific queue from conftest for pytest-xdist isolation
 TEST_AGENT_QUEUE = AGENT_TASK_QUEUE
+pytestmark = pytest.mark.usefixtures("registry_version_with_manifest")
 
 
 # =============================================================================

@@ -42,7 +42,11 @@ from tracecat.auth.dependencies import (
 )
 from tracecat.auth.discovery import router as auth_discovery_router
 from tracecat.auth.enums import AuthType
-from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enabled
+from tracecat.auth.oidc import (
+    create_platform_oauth_client,
+    oidc_auth_type_enabled,
+    oidc_provider_configured,
+)
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
@@ -535,7 +539,7 @@ def create_app(**kwargs) -> FastAPI:
             tags=["auth"],
         )
 
-    if oidc_auth_type_enabled():
+    if oidc_auth_type_enabled() and oidc_provider_configured():
         oauth_client = create_platform_oauth_client()
         # This is the frontend URL that the user will be redirected to after authenticating
         redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
@@ -554,6 +558,10 @@ def create_app(**kwargs) -> FastAPI:
             prefix="/auth/oauth",
             tags=["auth"],
             dependencies=[require_any_auth_type_enabled([AuthType.OIDC])],
+        )
+    elif oidc_auth_type_enabled():
+        logger.warning(
+            "OIDC auth type enabled without complete provider settings; skipping OIDC routes"
         )
     # Keep SAML auth-type checks on endpoint handlers, not the entire router.
     # The ACS callback resolves org context from RelayState, so requiring

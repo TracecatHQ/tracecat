@@ -35,6 +35,16 @@ def oidc_auth_type_enabled() -> bool:
     return AuthType.OIDC in config.TRACECAT__AUTH_TYPES
 
 
+def oidc_provider_configured() -> bool:
+    """Whether OIDC login has the required provider settings."""
+    oidc_config = get_platform_oidc_config()
+    return bool(
+        oidc_config.issuer
+        and oidc_config.client_id.strip()
+        and oidc_config.client_secret.strip()
+    )
+
+
 def get_platform_oidc_config() -> OIDCProviderConfig:
     """Return normalized OIDC config."""
     issuer = config.OIDC_ISSUER.strip().rstrip("/") or None

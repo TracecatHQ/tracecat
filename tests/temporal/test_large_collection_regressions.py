@@ -18,6 +18,7 @@ from typing import Any
 import orjson
 import pytest
 from botocore.exceptions import ClientError
+from cryptography.fernet import Fernet
 
 pytestmark = [
     pytest.mark.temporal,
@@ -129,8 +130,9 @@ def _configure_storage_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", access_key)
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", secret_key)
     monkeypatch.setenv("AWS_REGION", "us-east-1")
-    monkeypatch.setenv("TRACECAT__DB_ENCRYPTION_KEY", "test-encryption-key")
-    monkeypatch.setattr(config, "TRACECAT__DB_ENCRYPTION_KEY", "test-encryption-key")
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setenv("TRACECAT__DB_ENCRYPTION_KEY", encryption_key)
+    monkeypatch.setattr(config, "TRACECAT__DB_ENCRYPTION_KEY", encryption_key)
     monkeypatch.setenv("TRACECAT__LOCAL_REPOSITORY_ENABLED", "1")
     monkeypatch.setattr(config, "TRACECAT__LOCAL_REPOSITORY_ENABLED", True)
 

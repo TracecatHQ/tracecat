@@ -397,20 +397,20 @@ TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS = int(
 )
 """Executor JWT TTL in seconds (default: 900 seconds)."""
 
-if AuthType.OIDC in TRACECAT__AUTH_TYPES:
+if TRACECAT__AUTH_TYPES == {AuthType.OIDC}:
     if not OIDC_ISSUER:
         raise ValueError(
-            "OIDC_ISSUER must be set when TRACECAT__AUTH_TYPES includes 'oidc'"
+            "OIDC_ISSUER must be set when TRACECAT__AUTH_TYPES is exactly 'oidc'"
         )
     OIDC_CLIENT_ID = _require_non_empty_config(
         "OIDC_CLIENT_ID",
         OIDC_CLIENT_ID,
-        when="TRACECAT__AUTH_TYPES includes 'oidc'",
+        when="TRACECAT__AUTH_TYPES is exactly 'oidc'",
     )
     OIDC_CLIENT_SECRET = _require_non_empty_config(
         "OIDC_CLIENT_SECRET",
         OIDC_CLIENT_SECRET,
-        when="TRACECAT__AUTH_TYPES includes 'oidc'",
+        when="TRACECAT__AUTH_TYPES is exactly 'oidc'",
     )
     OAUTH_CLIENT_ID = OIDC_CLIENT_ID
     OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
