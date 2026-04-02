@@ -72,6 +72,64 @@ def _chat_reasoning_text(message: dict[str, Any]) -> str | None:
     return None
 
 
+def _coerce_openai_content_value(value: Any) -> str:
+    """Coerce a value into a string for OpenAI text-block rendering."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="ignore")
+    try:
+        return orjson.dumps(value).decode("utf-8")
+    except TypeError:
+        return str(value)
+
+
+def _coerce_openai_content_block(block: Any) -> dict[str, Any]:
+    """Convert non-text content blocks to text blocks for chat completions."""
+    if not isinstance(block, dict):
+        return {"type": "text", "text": str(block)}
+
+    block_type = block.get("type")
+    if block_type == "text":
+        return {"type": "text", "text": str(block.get("text", ""))}
+    if block_type == "thinking":
+        return {"type": "text", "text": str(block.get("thinking", ""))}
+    if block_type == "tool_use":
+        return {
+            "type": "text",
+            "text": _coerce_openai_content_value(
+                block.get("input", {"name": block.get("name", "")})
+            ),
+        }
+    return {"type": "text", "text": _coerce_openai_content_value(block)}
+
+
+def _coerce_openai_message_content(content: Any) -> Any:
+    """Return chat-compatible assistant content for Azure OpenAI requests."""
+    if isinstance(content, list):
+        return [_coerce_openai_content_block(item) for item in content]
+    if isinstance(content, dict):
+        return [_coerce_openai_content_block(content)]
+    if isinstance(content, (str, bytes)):
+        return content
+    if content is None:
+        return content
+    return str(content)
+
+
+def _sanitize_azure_openai_payload_for_history_replay(payload: dict[str, Any]) -> None:
+    """Replace Anthropic-only blocks in assistant history with chat-safe content."""
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return
+
+    for message in messages:
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        message["content"] = _coerce_openai_message_content(content)
+
+
 def _normalized_chat_response_content(message: dict[str, Any]) -> Any:
     content = message.get("content")
     if not (reasoning := _chat_reasoning_text(message)):
@@ -170,6 +228,7 @@ def _azure_openai_request_parts(
     """Build the mutable request fragments for Azure OpenAI chat completions."""
 
     payload = messages_request_to_openai_payload(request)
+    _sanitize_azure_openai_payload_for_history_replay(payload)
     tool_name_mapping = create_tool_name_mapping(request.tools)
     apply_tool_name_mapping(payload, tool_name_mapping)
     normalize_openai_payload(

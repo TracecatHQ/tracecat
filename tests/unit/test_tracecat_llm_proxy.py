@@ -912,6 +912,95 @@ def test_openai_family_adapter_uses_output_text_for_assistant_history() -> None:
     ]
 
 
+def test_azure_openai_prepare_request_strips_assistant_reasoning_blocks() -> None:
+    request = NormalizedMessagesRequest(
+        provider="azure_openai",
+        model="gpt-4o-mini",
+        messages=(
+            NormalizedMessage(role="user", content="hello"),
+            NormalizedMessage(
+                role="assistant",
+                content={"type": "thinking", "thinking": "Checking context."},
+            ),
+        ),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=False,
+    )
+
+    azure_request = AzureOpenAIAdapter().prepare_request(
+        request,
+        {
+            "AZURE_API_BASE": "https://azure.example",
+            "AZURE_API_VERSION": "2024-02-15-preview",
+            "AZURE_DEPLOYMENT_NAME": "deployment",
+            "AZURE_API_KEY": "azure-key",
+        },
+    )
+
+    json_body = azure_request.json_body
+    assert json_body is not None
+
+    assistant_payload = next(
+        message
+        for message in cast(list[dict[str, object]], json_body["messages"])
+        if message["role"] == "assistant"
+    )
+    assert assistant_payload["content"] == [
+        {"type": "text", "text": "Checking context."}
+    ]
+
+
+def test_azure_openai_prepare_request_converts_reasoning_with_tool_use_blocks() -> None:
+    request = NormalizedMessagesRequest(
+        provider="azure_openai",
+        model="gpt-4o-mini",
+        messages=(
+            NormalizedMessage(role="user", content="hello"),
+            NormalizedMessage(
+                role="assistant",
+                content=[
+                    {
+                        "type": "thinking",
+                        "thinking": "I should call a tool.",
+                        "signature": "sig",
+                    },
+                    {
+                        "type": "tool_use",
+                        "id": "tool_1",
+                        "name": "lookup",
+                        "input": {"query": "status"},
+                    },
+                ],
+            ),
+        ),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=False,
+    )
+
+    azure_request = AzureOpenAIAdapter().prepare_request(
+        request,
+        {
+            "AZURE_API_BASE": "https://azure.example",
+            "AZURE_API_VERSION": "2024-02-15-preview",
+            "AZURE_DEPLOYMENT_NAME": "deployment",
+            "AZURE_API_KEY": "azure-key",
+        },
+    )
+
+    json_body = azure_request.json_body
+    assert json_body is not None
+
+    assistant_payload = next(
+        message
+        for message in cast(list[dict[str, object]], json_body["messages"])
+        if message["role"] == "assistant"
+    )
+    assert assistant_payload["content"] == [
+        {"type": "text", "text": "I should call a tool."},
+        {"type": "text", "text": '{"query":"status"}'},
+    ]
+
+
 @pytest.mark.anyio
 async def test_openai_family_parse_response_preserves_reasoning_blocks() -> None:
     request = NormalizedMessagesRequest(
