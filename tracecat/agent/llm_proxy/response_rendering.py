@@ -25,12 +25,6 @@ from tracecat.agent.llm_proxy.types import (
 )
 
 
-def _safe_dict(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return {str(key): item for key, item in value.items()}
-    return {}
-
-
 def _tool_arguments_to_openai(arguments: Any) -> str:
     if isinstance(arguments, str):
         return arguments
@@ -43,7 +37,7 @@ def _tool_arguments_to_openai(arguments: Any) -> str:
 
 
 def _normalized_tool_call_from_dict(data: dict[str, Any]) -> NormalizedToolCall:
-    function = _safe_dict(data.get("function"))
+    function = data.get("function") or {}
     return NormalizedToolCall(
         id=str(data.get("id", "")),
         name=str(function.get("name", data.get("name", ""))),
@@ -52,19 +46,14 @@ def _normalized_tool_call_from_dict(data: dict[str, Any]) -> NormalizedToolCall:
 
 
 def _parse_json_value(value: Any) -> Any:
-    if isinstance(value, (dict, list, int, float, bool)) or value is None:
-        return value
-    if isinstance(value, bytes):
-        try:
-            return orjson.loads(value)
-        except orjson.JSONDecodeError:
-            return value.decode("utf-8", errors="ignore")
-    if isinstance(value, str):
-        try:
-            return orjson.loads(value)
-        except orjson.JSONDecodeError:
-            return value
-    return value
+    try:
+        return orjson.loads(value)
+    except (orjson.JSONDecodeError, TypeError):
+        return (
+            value.decode("utf-8", errors="ignore")
+            if isinstance(value, bytes)
+            else value
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -87,8 +76,8 @@ def normalize_openai_response(payload: dict[str, Any]) -> NormalizedResponse:
         content=message.get("content"),
         tool_calls=tool_calls,
         finish_reason=choice.get("finish_reason"),
-        usage=_safe_dict(payload.get("usage")),
-        raw=_safe_dict(payload),
+        usage=payload.get("usage") or {},
+        raw=payload,
     )
 
 
@@ -108,7 +97,7 @@ def normalize_anthropic_response(payload: dict[str, Any]) -> NormalizedResponse:
                     NormalizedToolCall(
                         id=str(item.get("id", "")),
                         name=str(item.get("name", "")),
-                        arguments=_safe_dict(item.get("input")),
+                        arguments=item.get("input") or {},
                     )
                 )
             elif item_type == "text":
@@ -129,7 +118,7 @@ def normalize_anthropic_response(payload: dict[str, Any]) -> NormalizedResponse:
             "input_tokens": int(payload.get("usage", {}).get("input_tokens", 0)),
             "output_tokens": int(payload.get("usage", {}).get("output_tokens", 0)),
         },
-        raw=_safe_dict(payload),
+        raw=payload,
     )
 
 
