@@ -8,7 +8,12 @@ import pytest
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.types import SandboxAgentConfig
-from tracecat.agent.sandbox.entrypoint import _read_init_payload
+from tracecat.agent.sandbox.entrypoint import (
+    DIRECT_INIT_PAYLOAD_ENV_VAR,
+    JAILED_INIT_PAYLOAD_PATH,
+    _read_init_payload,
+    _resolve_init_payload_path,
+)
 from tracecat.agent.types import AgentConfig
 
 
@@ -32,3 +37,28 @@ async def test_read_init_payload_round_trip(tmp_path: Path) -> None:
     parsed = await _read_init_payload(init_path)
 
     assert parsed.to_dict() == payload.to_dict()
+
+
+def test_resolve_init_payload_path_direct_mode_uses_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    init_path = "/tmp/tracecat-agent/init.json"
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.entrypoint.TRACECAT__DISABLE_NSJAIL",
+        True,
+    )
+    monkeypatch.setenv(DIRECT_INIT_PAYLOAD_ENV_VAR, init_path)
+
+    assert _resolve_init_payload_path() == Path(init_path)
+
+
+def test_resolve_init_payload_path_nsjail_mode_uses_jailed_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.entrypoint.TRACECAT__DISABLE_NSJAIL",
+        False,
+    )
+    monkeypatch.delenv(DIRECT_INIT_PAYLOAD_ENV_VAR, raising=False)
+
+    assert _resolve_init_payload_path() == JAILED_INIT_PAYLOAD_PATH

@@ -37,9 +37,8 @@ if TYPE_CHECKING:
 RUNTIME_REGISTRY: dict[str, str] = {
     "claude_code": "tracecat.agent.runtime.claude_code.runtime.ClaudeAgentRuntime",
 }
-INIT_PAYLOAD_PATH = (
-    Path("init.json") if TRACECAT__DISABLE_NSJAIL else Path("/work/init.json")
-)
+DIRECT_INIT_PAYLOAD_ENV_VAR = "TRACECAT__AGENT_INIT_PAYLOAD_PATH"
+JAILED_INIT_PAYLOAD_PATH = Path("/work/init.json")
 
 
 def _load_runtime(runtime_type: str) -> type[BaseRuntime]:
@@ -68,7 +67,7 @@ def _load_runtime(runtime_type: str) -> type[BaseRuntime]:
 
 
 async def _read_init_payload(
-    init_path: Path = INIT_PAYLOAD_PATH,
+    init_path: Path,
 ) -> RuntimeInitPayload:
     """Read and deserialize the runtime init payload from the mounted job dir."""
 
@@ -78,6 +77,15 @@ async def _read_init_payload(
     payload_bytes = await asyncio.to_thread(_read_bytes)
     logger.info("Read init payload file", init_path=str(init_path))
     return RuntimeInitPayload.from_dict(orjson.loads(payload_bytes))
+
+
+def _resolve_init_payload_path() -> Path:
+    """Resolve the runtime init payload path for the current sandbox mode."""
+    if not TRACECAT__DISABLE_NSJAIL:
+        return JAILED_INIT_PAYLOAD_PATH
+    if init_payload_path := os.environ.get(DIRECT_INIT_PAYLOAD_ENV_VAR):
+        return Path(init_payload_path)
+    return Path("init.json")
 
 
 async def run_sandboxed_runtime() -> None:
@@ -97,7 +105,7 @@ async def run_sandboxed_runtime() -> None:
     socket_writer: SocketStreamWriter | None = None
 
     try:
-        payload = await _read_init_payload()
+        payload = await _read_init_payload(_resolve_init_payload_path())
 
         llm_bridge = LLMBridge(
             socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH,
