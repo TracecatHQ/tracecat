@@ -1,0 +1,38 @@
+tests/unit/test_temporal_codec.py
+  5e22448f39c57e47 4,20,22-26,32,43-45,49-53,71,101,181-481
+tests/unit/test_temporal_codec_router.py
+  5e22448f39c57e47 87,102-115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "ae130894df845bc46883311677505ac289c7ef2d",
+  "prompts": {
+    "4a4d8758c8f79621": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aa833e68-a9a0-4824-a0e5-5c46d024be41",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "5e22448f39c57e47": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3af28b7-6cce-456d-98be-fc9139892505",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 352,
+      "total_deletions": 12,
+      "accepted_lines": 342,
+      "overriden_lines": 0
+    }
+  }
+}
