@@ -127,12 +127,7 @@ async def delete_schedule(schedule_id: AnyScheduleID) -> None:
     return None
 
 
-async def update_schedule(
-    schedule_id: AnyScheduleID,
-    params: ScheduleUpdate,
-    *,
-    role: Role | None = None,
-) -> None:
+async def update_schedule(schedule_id: AnyScheduleID, params: ScheduleUpdate) -> None:
     async def _update_schedule(
         input: temporalio.client.ScheduleUpdateInput,
     ) -> temporalio.client.ScheduleUpdate:
@@ -150,20 +145,18 @@ async def update_schedule(
             try:
                 raw_args = await extract_first(Payloads(payloads=[action.args[0]]))
                 run_args = DSLRunArgs.model_validate(raw_args)
-                effective_role = run_args.role
+                role = run_args.role
             except Exception as e:
                 logger.warning(
                     "Error extracting role from schedule action",
                     error=e,
                 )
-                effective_role = Role(
+                role = Role(
                     type="service",
                     service_id="tracecat-schedule-runner",
                     scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-schedule-runner"],
                 )
-            action.typed_search_attributes = build_schedule_search_attributes(
-                role or effective_role
-            )
+            action.typed_search_attributes = build_schedule_search_attributes(role)
             if "inputs" in set_fields:
                 action.args[0].dsl.trigger_inputs = set_fields["inputs"]  # type: ignore
         else:
