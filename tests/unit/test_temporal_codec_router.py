@@ -84,7 +84,7 @@ async def test_codec_router_decodes_encrypted_payloads(
     assert body["payloads"][0]["data"] == "eyJzZWNyZXQiOiJzZW5zaXRpdmUifQ=="
 
 
-def test_codec_router_rejects_unauthorized_requests(
+def test_codec_router_rejects_missing_authorization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_SHARED_SECRET", "codec-secret")
@@ -94,6 +94,25 @@ def test_codec_router_rejects_unauthorized_requests(
 
     with TestClient(app) as client:
         response = client.post("/codec/decode", json={"payloads": []})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Unauthorized codec request"
+
+
+def test_codec_router_rejects_wrong_bearer_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_SHARED_SECRET", "codec-secret")
+
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/codec/decode",
+            json={"payloads": []},
+            headers={"Authorization": "Bearer wrong-secret"},
+        )
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Unauthorized codec request"

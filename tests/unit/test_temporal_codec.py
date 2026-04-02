@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import time
 import uuid
 
 import pytest
@@ -16,12 +17,19 @@ from tracecat.contexts import ctx_role
 from tracecat.dsl._converter import get_data_converter
 from tracecat.temporal import codec as temporal_codec
 from tracecat.temporal.codec import (
+    TRACECAT_TEMPORAL_ENCODING,
     TRACECAT_TEMPORAL_GLOBAL_SCOPE,
+    CompositePayloadCodec,
+    CompressionPayloadCodec,
+    EncryptionPayloadCodec,
+    TemporalEncryptionKeyring,
+    TemporalPayloadCodecError,
     get_payload_codec,
     reset_temporal_payload_secret_cache,
 )
 
 WORKSPACE_ID = uuid.uuid4()
+WORKSPACE_ID_B = uuid.uuid4()
 
 
 @pytest.fixture(autouse=True)
@@ -32,7 +40,17 @@ def reset_temporal_crypto_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION", "1")
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS", 3600)
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS", 128)
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ALGORITHM", "zstd")
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 16)
     reset_temporal_payload_secret_cache()
+
+
+def _enable_encryption(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", True)
+    monkeypatch.setattr(
+        config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", "unit-test-root-key"
+    )
 
 
 def _set_workspace_role(workspace_id: uuid.UUID = WORKSPACE_ID):
@@ -50,10 +68,7 @@ def _set_workspace_role(workspace_id: uuid.UUID = WORKSPACE_ID):
 async def test_payload_codec_encrypts_and_decrypts_with_workspace_scope(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", True)
-    monkeypatch.setattr(
-        config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", "unit-test-root-key"
-    )
+    _enable_encryption(monkeypatch)
 
     codec = get_payload_codec(compression_enabled=False)
     assert codec is not None
@@ -83,10 +98,7 @@ async def test_payload_codec_falls_back_to_global_scope_without_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When no workspace is set on the role, the codec uses the global scope."""
-    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", True)
-    monkeypatch.setattr(
-        config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", "unit-test-root-key"
-    )
+    _enable_encryption(monkeypatch)
 
     codec = get_payload_codec(compression_enabled=False)
     assert codec is not None
@@ -166,3 +178,304 @@ def test_get_data_converter_switches_failure_converter_with_encryption(
         encrypted_converter.failure_converter,
         DefaultFailureConverterWithEncodedAttributes,
     )
+
+
+# --- EncryptionPayloadCodec edge cases ---
+
+
+@pytest.mark.anyio
+async def test_encryption_codec_passes_through_binary_null_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Payloads with encoding=binary/null are not encrypted."""
+    _enable_encryption(monkeypatch)
+    codec = EncryptionPayloadCodec(enabled=True)
+    payload = Payload(metadata={"encoding": b"binary/null"}, data=b"\x00\x01\x02")
+
+    token = _set_workspace_role()
+    try:
+        encoded = await codec.encode([payload])
+    finally:
+        ctx_role.reset(token)
+
+    assert len(encoded) == 1
+    assert encoded[0].metadata["encoding"] == b"binary/null"
+    assert encoded[0].data == payload.data
+
+
+@pytest.mark.anyio
+async def test_encryption_codec_passes_through_empty_data_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Payloads with empty data are not encrypted."""
+    _enable_encryption(monkeypatch)
+    codec = EncryptionPayloadCodec(enabled=True)
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=b"")
+
+    token = _set_workspace_role()
+    try:
+        encoded = await codec.encode([payload])
+    finally:
+        ctx_role.reset(token)
+
+    assert len(encoded) == 1
+    assert encoded[0].data == b""
+
+
+@pytest.mark.anyio
+async def test_encryption_codec_decode_raises_on_missing_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Decode raises TemporalPayloadCodecError when workspace ID is missing."""
+    _enable_encryption(monkeypatch)
+    codec = EncryptionPayloadCodec(enabled=True)
+
+    bad_payload = Payload(
+        metadata={
+            "encoding": TRACECAT_TEMPORAL_ENCODING,
+            # tracecat_workspace_id intentionally omitted
+            "tracecat_nonce": base64.urlsafe_b64encode(b"012345678901"),
+        },
+        data=b"ciphertext",
+    )
+
+    with pytest.raises(TemporalPayloadCodecError, match="missing its workspace scope"):
+        await codec.decode([bad_payload])
+
+
+@pytest.mark.anyio
+async def test_encryption_codec_decode_raises_on_missing_nonce(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Decode raises TemporalPayloadCodecError when nonce is missing."""
+    _enable_encryption(monkeypatch)
+    codec = EncryptionPayloadCodec(enabled=True)
+
+    bad_payload = Payload(
+        metadata={
+            "encoding": TRACECAT_TEMPORAL_ENCODING,
+            "tracecat_workspace_id": str(WORKSPACE_ID).encode(),
+            # tracecat_nonce intentionally omitted
+        },
+        data=b"ciphertext",
+    )
+
+    with pytest.raises(TemporalPayloadCodecError, match="missing its nonce"):
+        await codec.decode([bad_payload])
+
+
+@pytest.mark.anyio
+async def test_encryption_codec_decode_raises_on_tampered_ciphertext(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Decode raises TemporalPayloadCodecError when ciphertext is tampered with."""
+    _enable_encryption(monkeypatch)
+    codec = EncryptionPayloadCodec(enabled=True)
+
+    token = _set_workspace_role()
+    try:
+        encoded = await codec.encode(
+            [Payload(metadata={"encoding": b"json/plain"}, data=b'{"ok":true}')]
+        )
+    finally:
+        ctx_role.reset(token)
+
+    tampered = Payload(
+        metadata=dict(encoded[0].metadata),
+        data=b"\xff" * len(encoded[0].data),
+    )
+
+    with pytest.raises(TemporalPayloadCodecError, match="Failed to decrypt"):
+        await codec.decode([tampered])
+
+
+@pytest.mark.anyio
+async def test_encryption_codec_cross_workspace_isolation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Payload encrypted under workspace A cannot be decrypted by workspace B."""
+    _enable_encryption(monkeypatch)
+    codec = EncryptionPayloadCodec(enabled=True)
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=b'{"ws":"a"}')
+
+    # Encrypt under workspace A
+    token_a = _set_workspace_role(WORKSPACE_ID)
+    try:
+        encoded = await codec.encode([payload])
+    finally:
+        ctx_role.reset(token_a)
+
+    # Swap workspace ID in metadata to workspace B
+    tampered_metadata = dict(encoded[0].metadata)
+    tampered_metadata["tracecat_workspace_id"] = str(WORKSPACE_ID_B).encode()
+    wrong_ws_payload = Payload(metadata=tampered_metadata, data=encoded[0].data)
+
+    with pytest.raises(TemporalPayloadCodecError, match="Failed to decrypt"):
+        await codec.decode([wrong_ws_payload])
+
+
+# --- Keyring tests ---
+
+
+@pytest.mark.anyio
+async def test_keyring_raises_when_no_key_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keyring raises when neither env-key nor ARN is configured."""
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", None)
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN", None)
+
+    keyring = TemporalEncryptionKeyring()
+    with pytest.raises(TemporalPayloadCodecError, match="no root key is configured"):
+        await keyring.get_key("workspace-1", "1")
+
+
+@pytest.mark.anyio
+async def test_keyring_cache_evicts_oldest_when_max_items_exceeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cache evicts the oldest entry when max_items is exceeded."""
+    monkeypatch.setattr(
+        config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", "unit-test-root-key"
+    )
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS", 2)
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS", 3600)
+
+    keyring = TemporalEncryptionKeyring()
+    key1 = await keyring.get_key("ws-1", "1")
+    await keyring.get_key("ws-2", "1")
+    await keyring.get_key("ws-3", "1")  # Should evict ws-1
+
+    # ws-1 was evicted so it's re-derived — should still produce same key
+    key1_again = await keyring.get_key("ws-1", "1")
+    assert key1 == key1_again
+    # Cache now holds ws-3 and ws-1; ws-2 was evicted
+    assert len(keyring._cache) == 2
+
+
+@pytest.mark.anyio
+async def test_keyring_cache_expires_stale_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cache entries are re-derived after TTL expires."""
+    monkeypatch.setattr(
+        config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", "unit-test-root-key"
+    )
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS", 0)
+
+    keyring = TemporalEncryptionKeyring()
+    await keyring.get_key("ws-1", "1")
+
+    # With TTL=0, the entry is immediately stale
+    cache_key = ("ws-1", "1")
+    assert cache_key in keyring._cache
+    # Force the expiry time into the past
+    key_bytes, _ = keyring._cache[cache_key]
+    keyring._cache[cache_key] = (key_bytes, time.monotonic() - 1)
+
+    # Should re-derive (and produce the same key)
+    key_again = await keyring.get_key("ws-1", "1")
+    assert key_again == key_bytes
+
+
+# --- CompressionPayloadCodec tests ---
+
+
+@pytest.mark.anyio
+async def test_compression_codec_roundtrip() -> None:
+    """Compression codec compresses large payloads and decompresses them."""
+    codec = CompressionPayloadCodec(threshold_bytes=10, algorithm="zstd", enabled=True)
+    large_data = b"a]" * 100  # Well above the 10-byte threshold
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=large_data)
+
+    encoded = await codec.encode([payload])
+    assert encoded[0].metadata["encoding"] == b"binary/zstd"
+    assert encoded[0].data != large_data
+
+    decoded = await codec.decode(encoded)
+    assert decoded[0].data == large_data
+    assert decoded[0].metadata.get("encoding") == b"json/plain"
+
+
+@pytest.mark.anyio
+async def test_compression_codec_skips_small_payloads() -> None:
+    """Payloads below the threshold are not compressed."""
+    codec = CompressionPayloadCodec(
+        threshold_bytes=1024, algorithm="zstd", enabled=True
+    )
+    small_data = b"tiny"
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=small_data)
+
+    encoded = await codec.encode([payload])
+    assert encoded[0].metadata["encoding"] == b"json/plain"
+    assert encoded[0].data == small_data
+
+
+@pytest.mark.anyio
+async def test_compression_codec_disabled_is_passthrough() -> None:
+    """When disabled, compression codec passes payloads through unchanged."""
+    codec = CompressionPayloadCodec(threshold_bytes=1, algorithm="zstd", enabled=False)
+    data = b"a" * 100
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=data)
+
+    encoded = await codec.encode([payload])
+    assert encoded[0].data == data
+
+
+# --- CompositePayloadCodec / get_payload_codec factory tests ---
+
+
+def test_get_payload_codec_returns_none_when_nothing_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", False)
+    assert get_payload_codec(compression_enabled=False) is None
+
+
+def test_get_payload_codec_returns_composite_with_encryption_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_encryption(monkeypatch)
+    codec = get_payload_codec(compression_enabled=False)
+    assert isinstance(codec, CompositePayloadCodec)
+    assert len(codec.codecs) == 1
+    assert isinstance(codec.codecs[0], EncryptionPayloadCodec)
+
+
+def test_get_payload_codec_returns_composite_with_both(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_encryption(monkeypatch)
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", True)
+    codec = get_payload_codec(compression_enabled=True)
+    assert isinstance(codec, CompositePayloadCodec)
+    assert len(codec.codecs) == 2
+    assert isinstance(codec.codecs[0], CompressionPayloadCodec)
+    assert isinstance(codec.codecs[1], EncryptionPayloadCodec)
+
+
+@pytest.mark.anyio
+async def test_composite_codec_compress_then_encrypt_roundtrip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Full pipeline: compress → encrypt → decrypt → decompress."""
+    _enable_encryption(monkeypatch)
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", True)
+
+    codec = get_payload_codec(compression_enabled=True)
+    assert codec is not None
+    large_data = b'{"key":"' + b"x" * 200 + b'"}'
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=large_data)
+
+    token = _set_workspace_role()
+    try:
+        encoded = await codec.encode([payload])
+    finally:
+        ctx_role.reset(token)
+
+    # Outermost encoding should be encryption
+    assert encoded[0].metadata["encoding"] == TRACECAT_TEMPORAL_ENCODING
+
+    decoded = await codec.decode(encoded)
+    assert decoded[0].data == large_data
+    assert decoded[0].metadata.get("encoding") == b"json/plain"
