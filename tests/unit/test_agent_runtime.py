@@ -362,6 +362,7 @@ class TestClaudeAgentRuntimeRun:
         mock_socket_writer: MagicMock,
         mock_claude_sdk_client: MagicMock,
         sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
     ) -> None:
         """Test that resumed sessions only mount the canonical registry MCP name."""
         captured_options: list[Any] = []
@@ -370,10 +371,13 @@ class TestClaudeAgentRuntimeRun:
             captured_options.append(kwargs["options"])
             return mock_claude_sdk_client
 
+        resume_file = tmp_path / "resume.jsonl"
+        resume_file.write_text('{"type":"user","message":{"content":"test"}}\n')
+
         resumed_payload = replace(
             sample_init_payload,
             sdk_session_id="eed8297f-26fb-4e00-905f-a10f0cf20704",
-            sdk_session_data='{"type":"user","message":{"content":"test"}}\n',
+            resume_session_path=str(resume_file),
         )
 
         with (

@@ -109,7 +109,7 @@ async def run_sandboxed_runtime() -> None:
             "Received init payload",
             session_id=str(payload.session_id),
             runtime_type=payload.runtime_type,
-            has_session_data=bool(payload.sdk_session_data),
+            has_resume_session_path=bool(payload.resume_session_path),
         )
 
         # Load runtime dynamically based on payload

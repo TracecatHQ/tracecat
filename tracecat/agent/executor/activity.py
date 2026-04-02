@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import tempfile
 import uuid
 from dataclasses import dataclass, field
@@ -42,9 +43,9 @@ from .schemas import ApprovedToolCall, DeniedToolCall, ToolExecutionResult
 class AgentExecutorInput(BaseModel):
     """Input for the agent executor activity.
 
-    On resume after approval, the sdk_session_data contains the proper tool_result
-    entry (inserted by the approval reconciliation activity before reload), so the
-    runtime just resumes normally.
+    On resume after approval, the workflow passes lightweight resume metadata.
+    The executor materializes the JSONL session file locally before the runtime
+    starts, so the full history never crosses Temporal boundaries.
     """
 
     model_config = {"arbitrary_types_allowed": True}
@@ -62,9 +63,9 @@ class AgentExecutorInput(BaseModel):
     )
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
-    # Session resume data (from previous run, includes tool_result for approval flow)
+    # Session resume descriptor (JSONL materialized locally by this activity)
     sdk_session_id: str | None = None
-    sdk_session_data: str | None = None
+    resume_source_session_id: uuid.UUID | None = None
     # True when resuming after approval decision (continuation prompt should be internal)
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
@@ -166,6 +167,7 @@ class SandboxedAgentExecutor:
             # Create job directory with sockets
             self._job_dir = await self._create_job_directory()
             socket_dir = self._job_dir / "sockets"
+            resume_session_path = await self._stage_resume_session_file()
 
             # Create loopback handler
             loopback_input = LoopbackInput(
@@ -178,7 +180,7 @@ class SandboxedAgentExecutor:
                 socket_dir=socket_dir,
                 allowed_actions=self.input.allowed_actions,
                 sdk_session_id=self.input.sdk_session_id,
-                sdk_session_data=self.input.sdk_session_data,
+                resume_session_path=resume_session_path,
                 is_approval_continuation=self.input.is_approval_continuation,
                 is_fork=self.input.is_fork,
             )
@@ -486,6 +488,57 @@ class SandboxedAgentExecutor:
         )
         return job_dir
 
+    async def _stage_resume_session_file(self) -> str | None:
+        """Materialize persisted session history into the per-job directory.
+
+        Returns:
+            Runtime-visible path to the staged JSONL file, or None when the
+            execution does not need to resume an existing Claude SDK session.
+
+        Raises:
+            AgentSandboxExecutionError: If resume metadata is incomplete or the
+                persisted session history cannot be materialized.
+        """
+        if self._job_dir is None:
+            raise AgentSandboxExecutionError("Job directory is not initialized")
+        if self.input.sdk_session_id is None:
+            return None
+        if self.input.resume_source_session_id is None:
+            raise AgentSandboxExecutionError(
+                "Missing resume_source_session_id for resumable agent execution"
+            )
+
+        async with AgentSessionService.with_session(role=self.input.role) as service:
+            sdk_session_data = await service.materialize_session_history(
+                self.input.resume_source_session_id
+            )
+
+        if sdk_session_data is None:
+            raise AgentSandboxExecutionError(
+                "Failed to materialize persisted session history for resume"
+            )
+
+        resume_dir = self._job_dir / "resume"
+        resume_dir.mkdir(mode=0o700)
+        host_resume_path = resume_dir / f"{self.input.sdk_session_id}.jsonl"
+        await asyncio.to_thread(host_resume_path.write_text, sdk_session_data)
+
+        if TRACECAT__DISABLE_NSJAIL:
+            runtime_resume_path = host_resume_path
+        else:
+            runtime_resume_path = Path("/work") / host_resume_path.relative_to(
+                self._job_dir
+            )
+
+        logger.debug(
+            "Staged resume session file",
+            session_id=self.input.session_id,
+            source_session_id=self.input.resume_source_session_id,
+            host_path=str(host_resume_path),
+            runtime_path=str(runtime_resume_path),
+        )
+        return str(runtime_resume_path)
+
     async def _cleanup(self) -> None:
         """Clean up resources after execution."""
         # Terminate process if still running
@@ -509,19 +562,7 @@ class SandboxedAgentExecutor:
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():
             try:
-                socket_dir = self._job_dir / "sockets"
-                if socket_dir.exists():
-                    for f in socket_dir.iterdir():
-                        # Remove files, symlinks, and sockets (is_socket() for Unix sockets)
-                        if f.is_symlink() or f.is_file() or f.is_socket():
-                            f.unlink()
-                    socket_dir.rmdir()
-
-                for f in self._job_dir.iterdir():
-                    if f.is_file() or f.is_socket():
-                        f.unlink()
-                self._job_dir.rmdir()
-
+                shutil.rmtree(self._job_dir)
                 logger.debug("Cleaned up job directory", job_dir=str(self._job_dir))
             except Exception as e:
                 logger.warning(
