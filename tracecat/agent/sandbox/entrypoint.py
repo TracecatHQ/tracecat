@@ -23,7 +23,6 @@ import orjson
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_CONTROL_SOCKET_PATH,
     TRACECAT__AGENT_LLM_SOCKET_PATH,
-    TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
@@ -37,8 +36,7 @@ if TYPE_CHECKING:
 RUNTIME_REGISTRY: dict[str, str] = {
     "claude_code": "tracecat.agent.runtime.claude_code.runtime.ClaudeAgentRuntime",
 }
-DIRECT_INIT_PAYLOAD_ENV_VAR = "TRACECAT__AGENT_INIT_PAYLOAD_PATH"
-JAILED_INIT_PAYLOAD_PATH = Path("/work/init.json")
+INIT_PAYLOAD_ENV_VAR = "TRACECAT__AGENT_INIT_PAYLOAD_PATH"
 
 
 def _load_runtime(runtime_type: str) -> type[BaseRuntime]:
@@ -80,12 +78,10 @@ async def _read_init_payload(
 
 
 def _resolve_init_payload_path() -> Path:
-    """Resolve the runtime init payload path for the current sandbox mode."""
-    if not TRACECAT__DISABLE_NSJAIL:
-        return JAILED_INIT_PAYLOAD_PATH
-    if init_payload_path := os.environ.get(DIRECT_INIT_PAYLOAD_ENV_VAR):
+    """Resolve the runtime init payload path from the spawn-provided env var."""
+    if init_payload_path := os.environ.get(INIT_PAYLOAD_ENV_VAR):
         return Path(init_payload_path)
-    return Path("init.json")
+    raise RuntimeError(f"{INIT_PAYLOAD_ENV_VAR} is not set")
 
 
 async def run_sandboxed_runtime() -> None:

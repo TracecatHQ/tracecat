@@ -335,6 +335,7 @@ async def _spawn_nsjail_runtime(
 
         # Build environment
         env_map = build_agent_env_map(config)
+        env_map["TRACECAT__AGENT_INIT_PAYLOAD_PATH"] = "/work/init.json"
         env_args: list[str] = []
         for key, value in env_map.items():
             env_args.extend(["--env", f"{key}={value}"])
