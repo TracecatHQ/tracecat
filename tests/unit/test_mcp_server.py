@@ -13,7 +13,7 @@ import pytest
 import yaml
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware.middleware import MiddlewareContext
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools import ToolResult
 from mcp.types import CallToolRequestParams
 from tracecat_registry import RegistrySecret
 
