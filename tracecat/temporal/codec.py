@@ -66,9 +66,6 @@ class CompressionPayloadCodec(PayloadCodec):
         )
         self.algorithm = algorithm or config.TRACECAT__CONTEXT_COMPRESSION_ALGORITHM
 
-        if self.enabled and self.algorithm not in ("zstd", "gzip", "brotli"):
-            raise ValueError(f"Unsupported compression algorithm: {self.algorithm}")
-
         logger.info(
             "Compression codec initialized",
             enabled=self.enabled,
