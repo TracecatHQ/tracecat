@@ -12,7 +12,7 @@ import mcp.types as mt
 from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_access_token, get_http_request
 from fastmcp.server.middleware.middleware import CallNext, Middleware, MiddlewareContext
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools import ToolResult
 
 from tracecat.logger import logger
 from tracecat.mcp.auth import MCPTokenIdentity, get_email_claim, get_token_identity

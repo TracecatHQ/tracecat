@@ -22,7 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "aiocache==0.12.3",
-    "aiohttp==3.13.3",
+    "aiohttp==3.13.5",
     "alembic-postgresql-enum==1.7.0",
     "alembic==1.13.2",
     "async-lru==2.0.4",
@@ -32,15 +32,16 @@ dependencies = [
     "cloudpickle==3.1.1",
     "cramjam==2.11.0",
     "croniter==6.0.0",
-    "cryptography==46.0.5",
+    "cryptography==46.0.6",
     "dateparser==1.2.2",
     "defusedxml==0.7.1",
     "email-validator==2.2.0",
     "fastapi-users[sqlalchemy,oauth]==15.0.2",
     "fastapi[standard]==0.120.3",
-    "fastmcp==3.0.0",
+    "fastmcp==3.2.0",
     "google-auth==2.48.0",
     "greenlet==3.0.3",
+    "griffe==2.0.2",
     "httpx==0.28.1",
     "jsonpath_ng==1.7.0",
     "lark==1.1.9",
@@ -102,6 +103,7 @@ override-dependencies = [
     "PyJWT==2.12.1",
     "chardet<7",
     "fickling==0.1.10",
+    "anthropic==0.87.0",
 ]
 
 [dependency-groups]
