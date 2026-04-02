@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import tempfile
 import uuid
 from dataclasses import dataclass, field
@@ -303,14 +302,12 @@ class SandboxedAgentExecutor:
 
             async def start_control_socket_server() -> asyncio.Server:
                 """Start the control socket server with secure permissions."""
-                old_umask = os.umask(0o177)
-                try:
-                    return await asyncio.start_unix_server(
-                        connection_callback,
-                        path=str(control_socket_path),
-                    )
-                finally:
-                    os.umask(old_umask)
+                server = await asyncio.start_unix_server(
+                    connection_callback,
+                    path=str(control_socket_path),
+                )
+                control_socket_path.chmod(0o600)
+                return server
 
             async def start_llm_proxy() -> None:
                 """Start the host-side LLM socket proxy."""
