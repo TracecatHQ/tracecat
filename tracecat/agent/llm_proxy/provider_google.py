@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from mimetypes import guess_type
-from typing import Any
+from typing import Any, TypedDict
 
 import httpx
 import orjson
@@ -37,6 +37,44 @@ from tracecat.agent.llm_proxy.types import (
 
 _DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com"
 _DEFAULT_VERTEX_LOCATION = "us-central1"
+
+
+class _GoogleSystemInstruction(TypedDict):
+    """Top-level system instruction payload for Gemini-style APIs."""
+
+    parts: list[dict[str, Any]]
+
+
+class _GoogleContentMessage(TypedDict):
+    """One message entry in the Google `contents` array."""
+
+    role: str
+    parts: list[dict[str, Any]]
+
+
+class _GooglePayloadParts(TypedDict):
+    """Structured request fragments before Google payload assembly."""
+
+    contents: list[_GoogleContentMessage]
+    generation_config: dict[str, Any]
+    tools: list[dict[str, Any]]
+    tool_config: dict[str, Any] | None
+    system_instruction: _GoogleSystemInstruction | None
+
+
+class _GooglePayload(TypedDict, total=False):
+    """Top-level Gemini/Vertex request payload."""
+
+    contents: list[_GoogleContentMessage]
+    generationConfig: dict[str, Any]
+    tools: list[dict[str, Any]]
+    toolConfig: dict[str, Any]
+    # Gemini AI Studio uses `systemInstruction`; Vertex AI uses
+    # `system_instruction`. We keep both keys in the shared payload type
+    # because `_normalize_google_payload()` emits exactly one based on the
+    # target API.
+    systemInstruction: _GoogleSystemInstruction
+    system_instruction: _GoogleSystemInstruction
 
 
 def _vertex_base_url(location: str) -> str:
@@ -193,6 +231,14 @@ def _content_item_to_part(item: Any) -> dict[str, Any]:
 def _anthropic_blocks_to_google_parts(
     blocks: Sequence[Any],
 ) -> list[dict[str, Any]]:
+    """Translate Anthropic-style content blocks into Google `parts`.
+
+    Google can associate a thought signature with the following function call,
+    while Anthropic models emit the thought and tool-use as separate blocks.
+    We preserve that relationship by carrying the signature forward when a
+    thinking block is immediately followed by a tool-use block.
+    """
+
     parts: list[dict[str, Any]] = []
     pending_thought_signature = ""
     index = 0
@@ -212,6 +258,9 @@ def _anthropic_blocks_to_google_parts(
                     isinstance(next_item, dict) and next_item.get("type") == "tool_use"
                 )
                 if next_is_tool_use:
+                    # Gemini attaches the signature to the function call part
+                    # rather than to a standalone thought block, so we keep the
+                    # visible thought text but defer the signature one step.
                     if text:
                         parts.append(_google_thought_part(text))
                     pending_thought_signature = signature
@@ -254,6 +303,13 @@ def _message_blocks_for_google(message: NormalizedMessage) -> list[Any] | None:
 
 
 def _message_to_parts(message: NormalizedMessage) -> list[dict[str, Any]]:
+    """Convert one normalized message into Google `parts`.
+
+    Tool messages become `functionResponse` parts. Assistant thinking/tool-use
+    history is replayed from Anthropic-style blocks when available so Gemini
+    preserves the original ordering between thoughts and function calls.
+    """
+
     if message.role == "tool":
         response: dict[str, Any] = {}
         if isinstance(message.content, dict):
@@ -332,7 +388,7 @@ def _extract_text_from_content(content: Any) -> str:
 
 def _system_instruction_from_messages(
     messages: Sequence[NormalizedMessage],
-) -> dict[str, Any] | None:
+) -> _GoogleSystemInstruction | None:
     system_texts = [
         _extract_text_from_content(message.content)
         for message in messages
@@ -347,9 +403,16 @@ def _content_messages_from_request(
     messages: Sequence[NormalizedMessage],
     *,
     system_instruction_key: str,
-) -> list[dict[str, Any]]:
+) -> list[_GoogleContentMessage]:
+    """Build Google `contents`, moving system prompts to top-level config.
+
+    Gemini and Vertex reject requests without any content messages, so we emit
+    a single blank user turn when the normalized transcript would otherwise be
+    empty.
+    """
+
     del system_instruction_key
-    contents: list[dict[str, Any]] = []
+    contents: list[_GoogleContentMessage] = []
     for message in messages:
         if message.role == "system":
             continue
@@ -591,6 +654,12 @@ def _thinking_config_from_reasoning_effort(
 def _generation_config_from_request(
     request: NormalizedMessagesRequest,
 ) -> dict[str, Any]:
+    """Map normalized model settings onto Google `generationConfig`.
+
+    This keeps generic knobs in one place and lets explicit caller-provided
+    schema overrides win after the normalized defaults are derived.
+    """
+
     config: dict[str, Any] = {}
     settings = dict(request.model_settings)
 
@@ -644,27 +713,41 @@ def _normalize_google_payload(
     *,
     system_instruction_key: str,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {
+    """Assemble one Google-family payload for Gemini or Vertex.
+
+    The only structural difference we care about here is the top-level system
+    instruction key name; the rest of the payload shape is shared.
+    """
+
+    tools = _tools_from_request(request.tools) if request.tools else []
+    payload_parts: _GooglePayloadParts = {
         "contents": _content_messages_from_request(
-            request.messages, system_instruction_key=system_instruction_key
+            request.messages,
+            system_instruction_key=system_instruction_key,
         ),
+        "system_instruction": _system_instruction_from_messages(request.messages),
+        "generation_config": _generation_config_from_request(request),
+        "tools": tools,
+        "tool_config": _tool_choice_to_config(request.tool_choice),
     }
-    if system_instruction := _system_instruction_from_messages(request.messages):
-        payload[system_instruction_key] = system_instruction
-
-    generation_config = _generation_config_from_request(request)
-    if generation_config:
-        payload["generationConfig"] = generation_config
-
-    if request.tools:
-        tools = _tools_from_request(request.tools)
-        if tools:
-            payload["tools"] = tools
-
-    if tool_config := _tool_choice_to_config(request.tool_choice):
-        payload["toolConfig"] = tool_config
-
-    return payload
+    payload: _GooglePayload = {"contents": payload_parts["contents"]}
+    if payload_parts["system_instruction"] is not None:
+        match system_instruction_key:
+            case "systemInstruction":
+                payload["systemInstruction"] = payload_parts["system_instruction"]
+            case "system_instruction":
+                payload["system_instruction"] = payload_parts["system_instruction"]
+            case _:
+                raise ValueError(
+                    f"Unsupported Google system instruction key: {system_instruction_key}"
+                )
+    if payload_parts["generation_config"]:
+        payload["generationConfig"] = payload_parts["generation_config"]
+    if payload_parts["tools"]:
+        payload["tools"] = payload_parts["tools"]
+    if payload_parts["tool_config"] is not None:
+        payload["toolConfig"] = payload_parts["tool_config"]
+    return dict(payload)
 
 
 def _parse_google_response(
@@ -672,6 +755,14 @@ def _parse_google_response(
     *,
     provider: str,
 ) -> NormalizedResponse:
+    """Normalize Google responses into Tracecat content and tool calls.
+
+    Google may interleave visible text, hidden thoughts, and function calls in
+    the same `parts` array. We preserve early plain text as a simple string
+    until reasoning appears; once a thought is seen, the remainder is promoted
+    into Anthropic-style content blocks so ordering is not lost.
+    """
+
     if response.status_code >= 400:
         try:
             error_body = response.json()
@@ -737,6 +828,11 @@ def _parse_google_response(
             thought_signature = _google_thought_signature(part)
             if thought_signature:
                 _promote_text_parts()
+                # Some Google responses attach a thought signature to the
+                # function-call part instead of emitting a separate thought
+                # block. Reattach that signature to the most recent thinking
+                # block when possible; otherwise synthesize an empty one so the
+                # reasoning state is still represented in-order.
                 if (
                     content_blocks
                     and content_blocks[-1].get("type") == "thinking"

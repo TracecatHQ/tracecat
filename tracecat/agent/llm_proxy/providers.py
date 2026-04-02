@@ -21,7 +21,6 @@ from tracecat.agent.llm_proxy.provider_common import (
 )
 from tracecat.agent.llm_proxy.provider_google import GeminiAdapter, VertexAIAdapter
 from tracecat.agent.llm_proxy.provider_openai import (
-    OpenAICompatibleAdapter,
     OpenAIFamilyAdapter,
 )
 
@@ -61,7 +60,6 @@ __all__ = [
     "AzureOpenAIAdapter",
     "BedrockAdapter",
     "GeminiAdapter",
-    "OpenAICompatibleAdapter",
     "OpenAIFamilyAdapter",
     "ProviderAdapter",
     "ProviderRegistry",

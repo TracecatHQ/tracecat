@@ -24,7 +24,6 @@ from tracecat.agent.llm_proxy.providers import (
     AzureOpenAIAdapter,
     BedrockAdapter,
     GeminiAdapter,
-    OpenAICompatibleAdapter,
     OpenAIFamilyAdapter,
     VertexAIAdapter,
 )
@@ -564,7 +563,7 @@ def test_provider_adapters_build_expected_requests() -> None:
         model_settings={"temperature": 0.1},
     )
 
-    openai_request = OpenAICompatibleAdapter("openai").prepare_request(
+    openai_request = OpenAIFamilyAdapter("openai").prepare_request(
         request,
         {"OPENAI_API_KEY": "sk-test"},
     )
@@ -580,7 +579,7 @@ def test_provider_adapters_build_expected_requests() -> None:
         }
     ]
 
-    custom_request = OpenAICompatibleAdapter("custom-model-provider").prepare_request(
+    custom_request = OpenAIFamilyAdapter("custom-model-provider").prepare_request(
         request,
         {
             "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://custom.example",
@@ -669,7 +668,7 @@ def test_openai_compatible_adapter_uses_max_output_tokens_for_gpt5_models() -> N
         model_settings={"max_tokens": 128, "temperature": 0.1},
     )
 
-    openai_request = OpenAICompatibleAdapter("openai").prepare_request(
+    openai_request = OpenAIFamilyAdapter("openai").prepare_request(
         request,
         {"OPENAI_API_KEY": "sk-test"},
     )
@@ -690,7 +689,7 @@ def test_openai_compatible_adapter_prefers_explicit_max_output_tokens() -> None:
         model_settings={"max_tokens": 128, "max_completion_tokens": 64},
     )
 
-    openai_request = OpenAICompatibleAdapter("openai").prepare_request(
+    openai_request = OpenAIFamilyAdapter("openai").prepare_request(
         request,
         {"OPENAI_API_KEY": "sk-test"},
     )
@@ -711,14 +710,17 @@ def test_openai_compatible_adapter_keeps_supported_gpt_5_2_temperature() -> None
         model_settings={"temperature": 0.2, "reasoning_effort": "none"},
     )
 
-    openai_request = OpenAICompatibleAdapter("openai").prepare_request(
+    openai_request = OpenAIFamilyAdapter("openai").prepare_request(
         request,
         {"OPENAI_API_KEY": "sk-test"},
     )
 
     assert openai_request.json_body is not None
     assert openai_request.json_body["temperature"] == 0.2
-    assert openai_request.json_body["reasoning"] == {"effort": "none"}
+    assert openai_request.json_body["reasoning"] == {
+        "effort": "none",
+        "summary": "auto",
+    }
     assert "reasoning_effort" not in openai_request.json_body
 
 
@@ -739,7 +741,7 @@ def test_openai_compatible_adapter_drops_unsupported_gpt_5_params() -> None:
         },
     )
 
-    openai_request = OpenAICompatibleAdapter("openai").prepare_request(
+    openai_request = OpenAIFamilyAdapter("openai").prepare_request(
         request,
         {"OPENAI_API_KEY": "sk-test"},
     )
@@ -800,7 +802,10 @@ def test_openai_family_adapter_uses_responses_for_reasoning_effort() -> None:
     assert openai_request.json_body is not None
     assert "messages" not in openai_request.json_body
     assert openai_request.json_body["input"][0]["role"] == "user"
-    assert openai_request.json_body["reasoning"] == {"effort": "medium"}
+    assert openai_request.json_body["reasoning"] == {
+        "effort": "medium",
+        "summary": "auto",
+    }
 
 
 def test_openai_family_adapter_uses_responses_for_reasoning_history() -> None:
@@ -843,27 +848,24 @@ def test_openai_family_adapter_uses_responses_for_reasoning_history() -> None:
     assert openai_request.json_body is not None
     assert openai_request.json_body["input"] == [
         {
-            "type": "reasoning",
+            "type": "message",
+            "role": "assistant",
             "content": [
                 {
-                    "type": "reasoning_text",
-                    "text": "I should inspect the record first.",
+                    "type": "output_text",
+                    "text": '[Tool call] lookup: {"query":"status"}',
                 }
             ],
-            "status": "completed",
-            "encrypted_content": "opaque-reasoning-token",
         },
         {
-            "type": "function_call",
-            "id": "call_1",
-            "call_id": "call_1",
-            "name": "lookup",
-            "arguments": '{"query":"status"}',
-        },
-        {
-            "type": "function_call_output",
-            "call_id": "call_1",
-            "output": '{"status":"ok"}',
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "output_text",
+                    "text": '[Tool result] call_1: {"status":"ok"}',
+                }
+            ],
         },
     ]
 
@@ -1042,7 +1044,7 @@ async def test_openai_family_streaming_adapter_translates_responses_reasoning() 
 
 @pytest.mark.anyio
 async def test_openai_streaming_adapter_translates_text_deltas() -> None:
-    adapter = OpenAICompatibleAdapter("openai")
+    adapter = OpenAIFamilyAdapter("openai")
     request = NormalizedMessagesRequest(
         provider="openai",
         model="gpt-5-mini",
@@ -1104,7 +1106,7 @@ async def test_openai_streaming_adapter_translates_text_deltas() -> None:
 async def test_custom_model_streaming_adapter_translates_reasoning_before_text() -> (
     None
 ):
-    adapter = OpenAICompatibleAdapter("custom-model-provider")
+    adapter = OpenAIFamilyAdapter("custom-model-provider")
     request = NormalizedMessagesRequest(
         provider="custom-model-provider",
         model="gpt-oss-120b",
@@ -1176,7 +1178,7 @@ async def test_custom_model_streaming_adapter_translates_reasoning_before_text()
 
 @pytest.mark.anyio
 async def test_custom_model_streaming_adapter_closes_reasoning_only_turns() -> None:
-    adapter = OpenAICompatibleAdapter("custom-model-provider")
+    adapter = OpenAIFamilyAdapter("custom-model-provider")
     request = NormalizedMessagesRequest(
         provider="custom-model-provider",
         model="gpt-oss-120b",
@@ -1235,7 +1237,7 @@ async def test_custom_model_streaming_adapter_closes_reasoning_only_turns() -> N
 
 @pytest.mark.anyio
 async def test_openai_streaming_adapter_translates_tool_calls() -> None:
-    adapter = OpenAICompatibleAdapter("openai")
+    adapter = OpenAIFamilyAdapter("openai")
     request = NormalizedMessagesRequest(
         provider="openai",
         model="gpt-5-mini",
@@ -1819,8 +1821,12 @@ class TestWebSearchToolResultTranslation:
         tool_msg = normalized.messages[1]
         assert tool_msg.role == "tool"
         assert tool_msg.tool_call_id == "stu_ws_001"
-        assert "Tracecat Docs" in str(tool_msg.content)
-        assert "https://docs.tracecat.com" in str(tool_msg.content)
+        assert tool_msg.content == (
+            "- Tracecat Docs\n"
+            "  https://docs.tracecat.com\n"
+            "- GitHub\n"
+            "  https://github.com/tracecathq/tracecat"
+        )
 
     def test_web_search_error_normalises_as_tool_message(self) -> None:
         payload = {

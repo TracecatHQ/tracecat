@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 import httpx
 import orjson
 
 from tracecat.agent.llm_proxy.anthropic_compat import (
+    apply_tool_name_mapping,
     create_tool_name_mapping,
+    restore_tool_call_names,
     restore_tool_name,
 )
 from tracecat.agent.llm_proxy.provider_common import (
@@ -34,10 +36,8 @@ from tracecat.agent.llm_proxy.provider_common import (
     raise_stream_http_error,
 )
 from tracecat.agent.llm_proxy.provider_openai import (
-    _apply_tool_name_mapping,
-    _restore_tool_call_names,
     _sanitize_openai_usage,
-    normalize_openai_chat_payload,
+    normalize_openai_payload,
 )
 from tracecat.agent.llm_proxy.requests import (
     messages_request_to_openai_payload,
@@ -49,6 +49,15 @@ from tracecat.agent.llm_proxy.types import (
     NormalizedResponse,
     ProviderHTTPRequest,
 )
+
+
+class _AzureOpenAIRequestParts(TypedDict):
+    """Structured request fragments before Azure OpenAI request creation."""
+
+    url: str
+    deployment: str
+    headers: dict[str, str]
+    payload: dict[str, Any]
 
 
 def _chat_reasoning_text(message: dict[str, Any]) -> str | None:
@@ -150,6 +159,49 @@ def _mutate_openai_payload_for_retry(
     return None
 
 
+def _azure_openai_request_parts(
+    request: NormalizedMessagesRequest,
+    credentials: dict[str, str],
+    *,
+    base_url: str,
+) -> _AzureOpenAIRequestParts:
+    """Build the mutable request fragments for Azure OpenAI chat completions."""
+
+    payload = messages_request_to_openai_payload(request)
+    tool_name_mapping = create_tool_name_mapping(request.tools)
+    apply_tool_name_mapping(payload, tool_name_mapping)
+    normalize_openai_payload(
+        payload,
+        model=request.model,
+        provider="azure_openai",
+    )
+
+    api_base = credentials.get("AZURE_API_BASE", base_url).rstrip("/")
+    deployment = credentials.get("AZURE_DEPLOYMENT_NAME", request.model)
+    api_version = credentials.get("AZURE_API_VERSION", request.api_version)
+    if not api_version:
+        raise ValueError("Azure OpenAI requires AZURE_API_VERSION")
+
+    headers = {"Content-Type": "application/json"}
+    payload["model"] = deployment
+    if api_key := credentials.get("AZURE_API_KEY"):
+        headers["api-key"] = api_key
+    elif ad_token := credentials.get("AZURE_AD_TOKEN"):
+        headers["Authorization"] = f"Bearer {ad_token}"
+    else:
+        raise ValueError("Azure OpenAI requires AZURE_API_KEY or AZURE_AD_TOKEN")
+
+    return {
+        "url": (
+            f"{api_base}/openai/deployments/{deployment}/chat/completions"
+            f"?api-version={api_version}"
+        ),
+        "deployment": deployment,
+        "headers": headers,
+        "payload": payload,
+    }
+
+
 @dataclass(slots=True)
 class AzureOpenAIAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
     """Adapter for Azure OpenAI chat completions."""
@@ -162,35 +214,17 @@ class AzureOpenAIAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
         credentials: dict[str, str],
     ) -> ProviderHTTPRequest:
         base_url = base_url_from_request(request, "https://api.openai.com")
-        payload = messages_request_to_openai_payload(request)
-        tool_name_mapping = create_tool_name_mapping(request.tools)
-        _apply_tool_name_mapping(payload, tool_name_mapping)
-        normalize_openai_chat_payload(
-            payload,
-            model=request.model,
-            provider=self.provider,
+        request_parts = _azure_openai_request_parts(
+            request,
+            credentials,
+            base_url=base_url,
         )
-
-        api_base = credentials.get("AZURE_API_BASE", base_url).rstrip("/")
-        deployment = credentials.get("AZURE_DEPLOYMENT_NAME", request.model)
-        api_version = credentials.get("AZURE_API_VERSION", request.api_version)
-        if not api_version:
-            raise ValueError("Azure OpenAI requires AZURE_API_VERSION")
-
-        headers = {"Content-Type": "application/json"}
-        payload["model"] = deployment
-        if api_key := credentials.get("AZURE_API_KEY"):
-            headers["api-key"] = api_key
-        elif ad_token := credentials.get("AZURE_AD_TOKEN"):
-            headers["Authorization"] = f"Bearer {ad_token}"
-        else:
-            raise ValueError("Azure OpenAI requires AZURE_API_KEY or AZURE_AD_TOKEN")
 
         return ProviderHTTPRequest(
             method="POST",
-            url=f"{api_base}/openai/deployments/{deployment}/chat/completions?api-version={api_version}",
-            headers=headers,
-            json_body=payload,
+            url=request_parts["url"],
+            headers=request_parts["headers"],
+            json_body=request_parts["payload"],
             stream=request.stream,
         )
 
@@ -239,7 +273,7 @@ class AzureOpenAIAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
             provider=self.provider,
             model=normalized.model,
             content=normalized.content,
-            tool_calls=_restore_tool_call_names(
+            tool_calls=restore_tool_call_names(
                 normalized.tool_calls, tool_name_mapping
             ),
             finish_reason=normalized.finish_reason,

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 from urllib.parse import quote
 
 import httpx
@@ -88,6 +88,8 @@ class _RetryableBedrockStreamRequestError(RuntimeError):
 
 @dataclass(slots=True)
 class _BedrockToolStreamState:
+    """Track one tool-use block while Bedrock streams partial JSON arguments."""
+
     tool_call_id: str
     name: str
     started: bool = False
@@ -95,8 +97,49 @@ class _BedrockToolStreamState:
 
 @dataclass(slots=True)
 class _BedrockThinkingStreamState:
+    """Track whether a thinking block has started and its latest signature."""
+
     started: bool = False
     signature: str = ""
+
+
+class _BedrockModelConfigParts(TypedDict):
+    """Split Bedrock model settings into Converse config vs model extras."""
+
+    inference_config: dict[str, Any]
+    additional_fields: dict[str, Any]
+
+
+class _BedrockPayloadParts(TypedDict):
+    """Structured request fragments before final JSON payload assembly."""
+
+    messages: list[dict[str, Any]]
+    system: list[dict[str, Any]]
+    inference_config: dict[str, Any]
+    additional_fields: dict[str, Any]
+    tool_config: dict[str, Any] | None
+
+
+class _BedrockRequestComponents(TypedDict):
+    """Signed-request inputs for one Bedrock Converse operation."""
+
+    url: str
+    body: bytes
+
+
+def _bedrock_payload(parts: _BedrockPayloadParts) -> dict[str, Any]:
+    """Assemble the final Bedrock Converse payload from typed fragments."""
+
+    payload: dict[str, Any] = {"messages": parts["messages"]}
+    if parts["system"]:
+        payload["system"] = parts["system"]
+    if parts["inference_config"]:
+        payload["inferenceConfig"] = parts["inference_config"]
+    if parts["additional_fields"]:
+        payload["additionalModelRequestFields"] = parts["additional_fields"]
+    if parts["tool_config"]:
+        payload["toolConfig"] = parts["tool_config"]
+    return payload
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
@@ -104,6 +147,8 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
 
 
 def _bedrock_response_stream_shape() -> Any:
+    """Load and cache the botocore event-stream shape for ConverseStream."""
+
     global _BEDROCK_STREAM_SHAPE
     if _BEDROCK_STREAM_SHAPE is None:
         bedrock_service_dict = Loader().load_service_model(
@@ -269,6 +314,13 @@ def _anthropic_content_blocks_from_message(
 
 
 def _message_to_content_blocks(message: NormalizedMessage) -> list[dict[str, Any]]:
+    """Convert one normalized message into Bedrock Converse content blocks.
+
+    Bedrock has no separate tool-result message role. Tool results are encoded
+    as user-role `toolResult` blocks, while assistant tool calls become
+    `toolUse` blocks inside assistant content.
+    """
+
     if message.role == "tool":
         return [
             {
@@ -332,6 +384,13 @@ def _system_blocks(messages: Sequence[NormalizedMessage]) -> list[dict[str, Any]
 def _messages_from_request(
     messages: Sequence[NormalizedMessage],
 ) -> list[dict[str, Any]]:
+    """Build Converse messages, coalescing tool results into user turns.
+
+    Converse expects tool results to be sent back as user content. We therefore
+    buffer consecutive tool messages and flush them as a single synthetic user
+    message before the next non-tool turn.
+    """
+
     normalized_messages: list[dict[str, Any]] = []
     pending_tool_results: list[dict[str, Any]] = []
 
@@ -368,6 +427,8 @@ def _messages_from_request(
 
 
 def _tool_spec_from_request_tool(tool: dict[str, Any]) -> dict[str, Any] | None:
+    """Translate a normalized tool definition into Bedrock's `toolSpec`."""
+
     if (definition := anthropic_tool_definition(tool)) is None:
         return None
 
@@ -383,6 +444,8 @@ def _tool_spec_from_request_tool(tool: dict[str, Any]) -> dict[str, Any] | None:
 def _build_tool_call_id_mapping(
     messages: Sequence[NormalizedMessage],
 ) -> dict[str, str]:
+    """Precompute truncated tool-call IDs for Bedrock's identifier limits."""
+
     mapping: dict[str, str] = {}
     for message in messages:
         for tool_call in message.tool_calls:
@@ -403,6 +466,13 @@ def _apply_tool_mappings(
     tool_name_mapping: dict[str, str],
     tool_call_id_mapping: dict[str, str],
 ) -> None:
+    """Rewrite tool names and tool-call IDs everywhere they appear in payload.
+
+    Bedrock validates names and identifiers consistently across tool specs,
+    assistant `toolUse` blocks, and user `toolResult` echoes, so a truncation
+    pass has to update all three locations together.
+    """
+
     if not tool_name_mapping and not tool_call_id_mapping:
         return
     original_to_truncated = {
@@ -521,7 +591,14 @@ def _inference_config_from_request(
     request: NormalizedMessagesRequest,
     *,
     target_model: str,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+) -> _BedrockModelConfigParts:
+    """Split generic settings into Converse inference config vs model extras.
+
+    Bedrock exposes basic generation knobs under `inferenceConfig`, while
+    provider/model-family specific reasoning settings live under
+    `additionalModelRequestFields`.
+    """
+
     inference_config: dict[str, Any] = {}
     additional_fields: dict[str, Any] = {}
     settings = dict(request.model_settings)
@@ -557,12 +634,22 @@ def _inference_config_from_request(
     if thinking := settings.get("thinking"):
         additional_fields["thinking"] = thinking
 
-    return inference_config, additional_fields
+    return {
+        "inference_config": inference_config,
+        "additional_fields": additional_fields,
+    }
 
 
 def _tool_config_from_request(
     request: NormalizedMessagesRequest,
 ) -> dict[str, Any] | None:
+    """Build Bedrock `toolConfig`, inserting a dummy tool when replay needs it.
+
+    Converse rejects tool-result echoes unless the request advertises tool
+    support. When history contains prior tool use but the current request does
+    not declare tools, we add a harmless dummy spec to keep the replay valid.
+    """
+
     tools = [
         tool_spec
         for tool in request.tools
@@ -585,23 +672,30 @@ def _normalize_reasoning_tool_choice(
     tool_config: dict[str, Any] | None,
     *,
     additional_fields: dict[str, Any],
-) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+) -> dict[str, Any]:
+    """Drop Claude thinking when Bedrock also forces tool use.
+
+    Bedrock's Anthropic models reject requests that combine thinking with a
+    forced tool policy. In that conflict we keep the caller's explicit tool
+    choice and remove thinking from the extra model fields.
+    """
+
     if tool_config is None or "thinking" not in additional_fields:
-        return tool_config, additional_fields
+        return additional_fields
     if "tools" not in tool_config:
-        return tool_config, additional_fields
+        return additional_fields
     tool_choice = tool_config.get("toolChoice")
     if not isinstance(tool_choice, dict):
-        return tool_config, additional_fields
+        return additional_fields
     if "tool" not in tool_choice and "any" not in tool_choice:
-        return tool_config, additional_fields
+        return additional_fields
 
     # Bedrock rejects forced tool use when Anthropic thinking is enabled.
     # Preserve the explicit tool choice and drop thinking instead of weakening
     # the caller's tool policy.
     rewritten_fields = dict(additional_fields)
     rewritten_fields.pop("thinking", None)
-    return dict(tool_config), rewritten_fields
+    return rewritten_fields
 
 
 def _content_text_from_response(content: Any) -> list[str]:
@@ -617,6 +711,8 @@ def _content_text_from_response(content: Any) -> list[str]:
 
 
 def _content_blocks_from_response(content: Any) -> list[dict[str, Any]]:
+    """Extract Anthropic-compatible text/thinking blocks from Converse output."""
+
     if not isinstance(content, list):
         return []
     content_blocks: list[dict[str, Any]] = []
@@ -680,6 +776,8 @@ def _parse_bedrock_response(
     provider: str,
     tool_name_mapping: dict[str, str],
 ) -> NormalizedResponse:
+    """Normalize a non-streaming Converse response into proxy response types."""
+
     if response.status_code >= 400:
         detail = response.text[:1000]
         raise httpx.HTTPStatusError(
@@ -726,7 +824,9 @@ def _bedrock_request_components(
     credentials: dict[str, str],
     *,
     stream: bool,
-) -> tuple[str, bytes]:
+) -> _BedrockRequestComponents:
+    """Assemble the signed-request inputs for Converse or ConverseStream."""
+
     region = credentials.get("AWS_REGION")
     if not region:
         raise ValueError("Bedrock requires AWS_REGION")
@@ -744,27 +844,23 @@ def _bedrock_request_components(
     encoded_model = quote(model, safe="")
     url = f"{base_url}/model/{encoded_model}/{operation}"
 
-    payload: dict[str, Any] = {
-        "messages": _messages_from_request(request.messages),
-    }
-
-    if system := _system_blocks(request.messages):
-        payload["system"] = system
-
-    inference_config, additional_fields = _inference_config_from_request(
+    model_config = _inference_config_from_request(
         request,
         target_model=model,
     )
-    if inference_config:
-        payload["inferenceConfig"] = inference_config
-    tool_config, additional_fields = _normalize_reasoning_tool_choice(
-        _tool_config_from_request(request),
-        additional_fields=additional_fields,
+    tool_config = _tool_config_from_request(request)
+    payload = _bedrock_payload(
+        {
+            "messages": _messages_from_request(request.messages),
+            "system": _system_blocks(request.messages),
+            "inference_config": model_config["inference_config"],
+            "additional_fields": _normalize_reasoning_tool_choice(
+                tool_config,
+                additional_fields=model_config["additional_fields"],
+            ),
+            "tool_config": tool_config,
+        }
     )
-    if additional_fields:
-        payload["additionalModelRequestFields"] = additional_fields
-    if tool_config:
-        payload["toolConfig"] = tool_config
 
     _apply_tool_mappings(
         payload,
@@ -772,7 +868,7 @@ def _bedrock_request_components(
         tool_call_id_mapping=_build_tool_call_id_mapping(request.messages),
     )
 
-    return url, _json_bytes(payload)
+    return {"url": url, "body": _json_bytes(payload)}
 
 
 def _signed_bedrock_request(
@@ -839,6 +935,8 @@ def _load_request_body(request: ProviderHTTPRequest) -> dict[str, Any]:
 
 
 def _remove_thinking_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of payload without Bedrock Claude `thinking` extras."""
+
     rewritten = dict(payload)
     additional = rewritten.get("additionalModelRequestFields")
     if not isinstance(additional, dict) or "thinking" not in additional:
@@ -853,6 +951,8 @@ def _remove_thinking_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _remove_reasoning_effort_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of payload without Bedrock Nova `reasoning_effort` extras."""
+
     rewritten = dict(payload)
     additional = rewritten.get("additionalModelRequestFields")
     if not isinstance(additional, dict) or "reasoning_effort" not in additional:
@@ -871,6 +971,13 @@ def _parsed_bedrock_stream_event(
     *,
     parser: EventStreamJSONParser,
 ) -> dict[str, Any] | None:
+    """Decode one event-stream frame into a Converse event payload.
+
+    Bedrock can send either structured event-stream members or a JSON blob
+    inside `chunk.bytes`. This helper hides that split and raises a bounded
+    error message for stream-open failures.
+    """
+
     response_dict = raw_event.to_response_dict()
     parsed = parser.parse(response_dict, _bedrock_response_stream_shape())
     if isinstance(parsed, dict) and any(
@@ -905,6 +1012,8 @@ def _bedrock_case_get(payload: dict[str, Any], snake_key: str, pascal_key: str) 
 
 
 def _bedrock_json_payload_error(payload: Any) -> str | None:
+    """Extract a readable error string from Bedrock's JSON-style error payloads."""
+
     if not isinstance(payload, dict):
         return None
     if isinstance(error := payload.get("Error"), dict):
@@ -925,6 +1034,8 @@ def _bedrock_json_payload_error(payload: Any) -> str | None:
 
 
 def _bedrock_json_payload_to_events(payload: Any) -> list[dict[str, Any]]:
+    """Flatten JSON payloads into Converse-style event dictionaries."""
+
     if isinstance(payload, list):
         extracted_events: list[dict[str, Any]] = []
         for item in payload:
@@ -1104,12 +1215,16 @@ class BedrockAdapter:
     def prepare_request(
         self, request: NormalizedMessagesRequest, credentials: dict[str, str]
     ) -> ProviderHTTPRequest:
-        url, body = _bedrock_request_components(request, credentials, stream=False)
+        request_components = _bedrock_request_components(
+            request,
+            credentials,
+            stream=False,
+        )
         return _signed_bedrock_request(
             request=request,
             credentials=credentials,
-            url=url,
-            body=body,
+            url=request_components["url"],
+            body=request_components["body"],
         )
 
     async def parse_response(
@@ -1155,7 +1270,7 @@ class BedrockAdapter:
         request: NormalizedMessagesRequest,
         credentials: dict[str, str],
     ) -> AsyncIterator[AnthropicStreamEvent]:
-        stream_url, stream_body = _bedrock_request_components(
+        request_components = _bedrock_request_components(
             request,
             credentials,
             stream=True,
@@ -1163,8 +1278,8 @@ class BedrockAdapter:
         stream_request = _signed_bedrock_request(
             request=request,
             credentials=credentials,
-            url=stream_url,
-            body=stream_body,
+            url=request_components["url"],
+            body=request_components["body"],
         )
         stream_context: Any | None = None
         response: httpx.Response | None = None

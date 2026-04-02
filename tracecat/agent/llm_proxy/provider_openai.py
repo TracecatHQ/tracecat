@@ -11,12 +11,15 @@ import orjson
 
 from tracecat.agent.llm_proxy.anthropic_compat import (
     anthropic_tool_to_openai_tool,
+    apply_tool_name_mapping,
     create_tool_name_mapping,
+    restore_tool_call_names,
     restore_tool_name,
     tool_choice_to_openai,
 )
 from tracecat.agent.llm_proxy.provider_common import (
     AnthropicStreamingAdapter,
+    ProviderAdapter,
     anthropic_block_stop_event,
     anthropic_message_delta_event,
     anthropic_message_start_event,
@@ -43,7 +46,6 @@ from tracecat.agent.llm_proxy.types import (
 
 _OPENAI_RESPONSES_SUFFIX = "/v1/responses"
 _OPENAI_REASONING_SIGNATURE_PREFIX = "tcsig:v1:"
-_DEFAULT_OPENAI_MAX_OUTPUT_TOKENS = 32000
 
 
 def _openai_responses_url(base_url: str) -> str:
@@ -56,115 +58,73 @@ def _openai_responses_url(base_url: str) -> str:
     return f"{base}{_OPENAI_RESPONSES_SUFFIX}"
 
 
-def _model_name(model: str) -> str:
-    return model.split("/")[-1].lower()
+# ---------------------------------------------------------------------------
+# Payload normalization for OpenAI model quirks
+# ---------------------------------------------------------------------------
 
 
-def _is_openai_gpt_5_model(model: str) -> bool:
-    model_name = _model_name(model)
-    return model_name.startswith("gpt-5") and not model_name.startswith("gpt-5-chat")
+# GPT-5 family capability flags by model prefix (longest prefix wins).
+# xhigh: supports reasoning_effort="xhigh"
+# temp_with_reasoning_off: allows temperature when reasoning_effort is None/"none"
+_GPT5_CAPABILITIES: dict[str, dict[str, bool]] = {
+    "gpt-5.1-codex-max": {"xhigh": True, "temp_with_reasoning_off": True},
+    "gpt-5.2": {"xhigh": True, "temp_with_reasoning_off": True},
+    "gpt-5.3": {"xhigh": True, "temp_with_reasoning_off": True},
+    "gpt-5.4": {"xhigh": True, "temp_with_reasoning_off": True},
+    "gpt-5.1": {"xhigh": False, "temp_with_reasoning_off": True},
+    "gpt-5": {"xhigh": False, "temp_with_reasoning_off": False},
+}
 
 
-def _is_openai_gpt_5_1_or_5_2_model(model: str) -> bool:
-    model_name = _model_name(model)
-    return model_name.startswith("gpt-5.1") or model_name.startswith("gpt-5.2")
+def _gpt5_caps(model_name: str) -> dict[str, bool] | None:
+    """Return capability flags for a GPT-5 model, or None if not GPT-5."""
+    for prefix, caps in _GPT5_CAPABILITIES.items():
+        if model_name.startswith(prefix):
+            return caps
+    return None
 
 
-def _is_openai_gpt_5_1_codex_max_model(model: str) -> bool:
-    return _model_name(model) == "gpt-5.1-codex-max"
+def normalize_openai_payload(
+    payload: dict[str, Any],
+    *,
+    model: str,
+    provider: str | None = None,
+) -> None:
+    """Normalize payload params for OpenAI model compatibility."""
+    model_name = model.split("/")[-1].lower()
+    caps = _gpt5_caps(model_name)
 
-
-def _drop_payload_keys(payload: dict[str, Any], *keys: str) -> None:
-    for key in keys:
-        payload.pop(key, None)
-
-
-def _normalize_openai_token_params(payload: dict[str, Any], *, model: str) -> None:
+    # --- Token param naming ---
     if "max_completion_tokens" in payload:
         payload.pop("max_tokens", None)
-        return
-    if _is_openai_gpt_5_model(model) and "max_tokens" in payload:
+    elif caps and "max_tokens" in payload:
         payload["max_completion_tokens"] = payload.pop("max_tokens")
 
-
-def _normalize_openai_reasoning_effort(
-    payload: dict[str, Any],
-    *,
-    model: str,
-    provider: str,
-) -> None:
-    reasoning_effort = payload.get("reasoning_effort")
-    if reasoning_effort == "xhigh":
-        if _is_openai_gpt_5_1_codex_max_model(model) or _model_name(model).startswith(
-            "gpt-5.2"
-        ):
-            return
-        if _is_openai_gpt_5_model(model):
+    if caps:
+        # --- Reasoning effort: xhigh only on supported models ---
+        if payload.get("reasoning_effort") == "xhigh" and not caps["xhigh"]:
             payload.pop("reasoning_effort", None)
-        return
 
+        # --- Temperature: restricted when reasoning is active ---
+        temperature = payload.get("temperature")
+        if temperature is not None and temperature != 1:
+            reasoning_effort = payload.get("reasoning_effort")
+            can_use_temp = caps["temp_with_reasoning_off"] and reasoning_effort in {
+                None,
+                "none",
+            }
+            if not can_use_temp:
+                payload.pop("temperature", None)
 
-def _normalize_openai_temperature(payload: dict[str, Any], *, model: str) -> None:
-    temperature = payload.get("temperature")
-    if temperature is None:
-        return
-    if not _is_openai_gpt_5_model(model):
-        return
-    reasoning_effort = payload.get("reasoning_effort")
-    if _is_openai_gpt_5_1_or_5_2_model(model) and reasoning_effort in {None, "none"}:
-        return
-    if temperature != 1:
-        payload.pop("temperature", None)
+        # --- Drop unsupported sampling params ---
+        for key in ("top_p", "presence_penalty", "frequency_penalty", "stop"):
+            payload.pop(key, None)
 
-
-def _normalize_openai_unsupported_params(
-    payload: dict[str, Any], *, model: str
-) -> None:
-    if not _is_openai_gpt_5_model(model):
-        return
-    _drop_payload_keys(
-        payload,
-        "top_p",
-        "presence_penalty",
-        "frequency_penalty",
-        "stop",
-    )
-
-
-def _normalize_custom_model_provider_payload(payload: dict[str, Any]) -> None:
-    if "max_completion_tokens" in payload and "max_tokens" not in payload:
-        payload["max_tokens"] = payload.pop("max_completion_tokens")
-    # parallel_tool_calls is not part of the OpenAI spec and causes LiteLLM to
-    # generate a malformed tool_choice when routing to Bedrock (missing the
-    # required `type` field).  Drop it for custom providers since we cannot
-    # control how the downstream proxy translates it.
-    payload.pop("parallel_tool_calls", None)
-
-
-def normalize_openai_chat_payload(
-    payload: dict[str, Any],
-    *,
-    model: str,
-    provider: str,
-) -> None:
-    _normalize_openai_token_params(payload, model=model)
-    _normalize_openai_reasoning_effort(payload, model=model, provider=provider)
-    _normalize_openai_temperature(payload, model=model)
-    _normalize_openai_unsupported_params(payload, model=model)
+    # --- Custom model provider: downgrade to max_tokens ---
     if provider == "custom-model-provider":
-        _normalize_custom_model_provider_payload(payload)
-
-
-def _normalize_openai_responses_settings(
-    settings: dict[str, Any],
-    *,
-    model: str,
-    provider: str,
-) -> None:
-    _normalize_openai_token_params(settings, model=model)
-    _normalize_openai_reasoning_effort(settings, model=model, provider=provider)
-    _normalize_openai_temperature(settings, model=model)
-    _normalize_openai_unsupported_params(settings, model=model)
+        if "max_completion_tokens" in payload and "max_tokens" not in payload:
+            payload["max_tokens"] = payload.pop("max_completion_tokens")
+        payload.pop("parallel_tool_calls", None)
 
 
 def _sanitize_openai_usage(payload: dict[str, Any]) -> None:
@@ -176,19 +136,13 @@ def _sanitize_openai_usage(payload: dict[str, Any]) -> None:
             usage[key] = 0
 
 
-def _responses_reasoning_signature(encrypted_content: str) -> str:
-    return f"{_OPENAI_REASONING_SIGNATURE_PREFIX}{encrypted_content}"
+# ---------------------------------------------------------------------------
+# Responses API payload building
+# ---------------------------------------------------------------------------
 
 
-def _coerce_message_content_items(content: Any) -> list[Any]:
-    if content is None:
-        return []
-    if isinstance(content, list):
-        return list(content)
-    return [content]
-
-
-def _stringify_response_item_payload(value: Any) -> str:
+def _stringify(value: Any) -> str:
+    """Coerce a value to a string, preferring JSON for structured data."""
     if isinstance(value, str):
         return value
     if isinstance(value, bytes):
@@ -199,7 +153,14 @@ def _stringify_response_item_payload(value: Any) -> str:
         return str(value)
 
 
-def _responses_text_items(parts: list[str], *, role: str) -> dict[str, Any]:
+def _tool_call_summary(*, name: str, arguments: Any) -> str:
+    if rendered := _stringify(arguments):
+        return f"[Tool call] {name}: {rendered}"
+    return f"[Tool call] {name}"
+
+
+def _text_message(parts: list[str], *, role: str) -> dict[str, Any]:
+    """Build a Responses API message item with text content."""
     text_type = "output_text" if role == "assistant" else "input_text"
     return {
         "type": "message",
@@ -208,40 +169,60 @@ def _responses_text_items(parts: list[str], *, role: str) -> dict[str, Any]:
     }
 
 
-def _assistant_response_input_blocks(message: Any) -> list[Any]:
-    metadata_blocks = message.metadata.get(ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY)
-    if isinstance(metadata_blocks, list):
-        return metadata_blocks
-    return _coerce_message_content_items(message.content)
+def _responses_input_items_from_message(message: Any) -> list[dict[str, Any]]:
+    """Convert a NormalizedMessage into Responses API input items."""
+    if message.role == "tool":
+        content = _stringify(message.content).strip()
+        if not content:
+            return []
+        tool_name = message.name or message.tool_call_id or "tool"
+        return [
+            _text_message([f"[Tool result] {tool_name}: {content}"], role="assistant")
+        ]
+
+    if message.role == "assistant":
+        return _responses_input_items_from_assistant(message)
+
+    # user / system
+    text_parts: list[str] = []
+    content = message.content
+    items = (
+        [] if content is None else (content if isinstance(content, list) else [content])
+    )
+    for item in items:
+        if isinstance(item, dict) and item.get("type") == "text":
+            text_parts.append(str(item.get("text", "")))
+        else:
+            text_parts.append(str(item))
+    if not text_parts:
+        return []
+    return [_text_message(text_parts, role=message.role)]
 
 
-def _portable_tool_call_summary_text(*, name: str, arguments: Any) -> str:
-    if rendered_arguments := _stringify_response_item_payload(arguments):
-        return f"[Tool call] {name}: {rendered_arguments}"
-    return f"[Tool call] {name}"
-
-
-def _portable_tool_result_summary_text(message: Any) -> str | None:
-    content = _stringify_response_item_payload(message.content).strip()
-    if not content:
-        return None
-    tool_name = message.name or message.tool_call_id or "tool"
-    return f"[Tool result] {tool_name}: {content}"
-
-
-def _responses_input_items_from_assistant_message(
-    message: Any,
-) -> list[dict[str, Any]]:
+def _responses_input_items_from_assistant(message: Any) -> list[dict[str, Any]]:
+    """Convert an assistant NormalizedMessage into Responses API input items."""
     items: list[dict[str, Any]] = []
     pending_text: list[str] = []
     seen_tool_call_ids: set[str] = set()
 
-    def flush_pending_text() -> None:
+    # Prefer stashed Anthropic content blocks over raw content
+    metadata_blocks = message.metadata.get(ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY)
+    content_items = (
+        metadata_blocks
+        if isinstance(metadata_blocks, list)
+        else (
+            list(message.content)
+            if isinstance(message.content, list)
+            else ([] if message.content is None else [message.content])
+        )
+    )
+
+    def flush() -> None:
         if pending_text:
-            items.append(_responses_text_items(pending_text.copy(), role="assistant"))
+            items.append(_text_message(pending_text.copy(), role="assistant"))
             pending_text.clear()
 
-    for item in _assistant_response_input_blocks(message):
+    for item in content_items:
         if not isinstance(item, dict):
             pending_text.append(str(item))
             continue
@@ -252,10 +233,10 @@ def _responses_input_items_from_assistant_message(
             case "thinking":
                 continue
             case "tool_use":
-                if isinstance(tool_call_id := item.get("id"), str) and tool_call_id:
-                    seen_tool_call_ids.add(tool_call_id)
+                if isinstance(tc_id := item.get("id"), str) and tc_id:
+                    seen_tool_call_ids.add(tc_id)
                 pending_text.append(
-                    _portable_tool_call_summary_text(
+                    _tool_call_summary(
                         name=str(item.get("name", "")),
                         arguments=item.get("input"),
                     )
@@ -263,17 +244,17 @@ def _responses_input_items_from_assistant_message(
             case _:
                 pending_text.append(str(item.get("text", item)))
 
-    flush_pending_text()
+    flush()
 
+    # Emit any tool calls not already covered by content blocks
     for tool_call in message.tool_calls:
         if tool_call.id in seen_tool_call_ids:
             continue
         items.append(
-            _responses_text_items(
+            _text_message(
                 [
-                    _portable_tool_call_summary_text(
-                        name=tool_call.name,
-                        arguments=tool_call.arguments,
+                    _tool_call_summary(
+                        name=tool_call.name, arguments=tool_call.arguments
                     )
                 ],
                 role="assistant",
@@ -283,27 +264,7 @@ def _responses_input_items_from_assistant_message(
     return items
 
 
-def _responses_input_items_from_message(message: Any) -> list[dict[str, Any]]:
-    if message.role == "tool":
-        if tool_result_text := _portable_tool_result_summary_text(message):
-            return [_responses_text_items([tool_result_text], role="assistant")]
-        return []
-
-    if message.role == "assistant":
-        return _responses_input_items_from_assistant_message(message)
-
-    text_parts: list[str] = []
-    for item in _coerce_message_content_items(message.content):
-        if isinstance(item, dict) and item.get("type") == "text":
-            text_parts.append(str(item.get("text", "")))
-        else:
-            text_parts.append(str(item))
-    if not text_parts:
-        return []
-    return [_responses_text_items(text_parts, role=message.role)]
-
-
-def _openai_responses_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
+def _responses_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
     openai_tool = anthropic_tool_to_openai_tool(dict(tool))
     if openai_tool.get("type") == "function" and isinstance(
         function := openai_tool.get("function"), dict
@@ -312,7 +273,7 @@ def _openai_responses_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
     return openai_tool
 
 
-def _openai_responses_tool_choice(tool_choice: Any) -> Any:
+def _responses_tool_choice(tool_choice: Any) -> Any:
     openai_tool_choice = tool_choice_to_openai(tool_choice)
     if (
         isinstance(openai_tool_choice, dict)
@@ -323,22 +284,8 @@ def _openai_responses_tool_choice(tool_choice: Any) -> Any:
     return openai_tool_choice
 
 
-def _system_instructions(request: NormalizedMessagesRequest) -> str | None:
-    instructions: list[str] = []
-    for message in request.messages:
-        if message.role != "system":
-            continue
-        for item in _coerce_message_content_items(message.content):
-            if isinstance(item, dict) and item.get("type") == "text":
-                instructions.append(str(item.get("text", "")))
-            else:
-                instructions.append(str(item))
-    if not instructions:
-        return None
-    return "\n\n".join(instructions)
-
-
 def _openai_responses_payload(request: NormalizedMessagesRequest) -> dict[str, Any]:
+    """Build the full Responses API request payload."""
     payload: dict[str, Any] = {
         "model": request.model,
         "input": [
@@ -349,27 +296,40 @@ def _openai_responses_payload(request: NormalizedMessagesRequest) -> dict[str, A
         ],
         "stream": request.stream,
     }
-    if instructions := _system_instructions(request):
-        payload["instructions"] = instructions
+
+    # System instructions
+    instructions_parts: list[str] = []
+    for message in request.messages:
+        if message.role != "system":
+            continue
+        content = message.content
+        items = (
+            []
+            if content is None
+            else (content if isinstance(content, list) else [content])
+        )
+        for item in items:
+            if isinstance(item, dict) and item.get("type") == "text":
+                instructions_parts.append(str(item.get("text", "")))
+            else:
+                instructions_parts.append(str(item))
+    if instructions_parts:
+        payload["instructions"] = "\n\n".join(instructions_parts)
+
     if request.tools:
-        payload["tools"] = [
-            _openai_responses_tool_definition(tool) for tool in request.tools
-        ]
+        payload["tools"] = [_responses_tool_definition(tool) for tool in request.tools]
     if request.tool_choice is not None and request.tools:
-        payload["tool_choice"] = _openai_responses_tool_choice(request.tool_choice)
+        payload["tool_choice"] = _responses_tool_choice(request.tool_choice)
 
     model_settings = dict(request.model_settings)
-    _normalize_openai_responses_settings(
+    normalize_openai_payload(
         model_settings,
         model=request.model,
         provider=request.provider,
     )
 
     if (reasoning_effort := model_settings.pop("reasoning_effort", None)) is not None:
-        payload["reasoning"] = {
-            "effort": reasoning_effort,
-            "summary": "auto",
-        }
+        payload["reasoning"] = {"effort": reasoning_effort, "summary": "auto"}
     if (
         max_completion_tokens := model_settings.pop("max_completion_tokens", None)
     ) is not None:
@@ -381,7 +341,13 @@ def _openai_responses_payload(request: NormalizedMessagesRequest) -> dict[str, A
     return payload
 
 
-def _parse_openai_json_value(value: Any) -> Any:
+# ---------------------------------------------------------------------------
+# Response parsing
+# ---------------------------------------------------------------------------
+
+
+def _parse_json_value(value: Any) -> Any:
+    """Parse a JSON value, passing through already-decoded types."""
     if isinstance(value, (dict, list, int, float, bool)) or value is None:
         return value
     if isinstance(value, bytes):
@@ -397,7 +363,7 @@ def _parse_openai_json_value(value: Any) -> Any:
     return value
 
 
-def _openai_responses_usage(payload: dict[str, Any]) -> dict[str, int]:
+def _responses_usage(payload: dict[str, Any]) -> dict[str, int]:
     usage = payload.get("usage")
     if not isinstance(usage, dict):
         return {"input_tokens": 0, "output_tokens": 0}
@@ -409,7 +375,12 @@ def _openai_responses_usage(payload: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def _normalized_openai_responses_content(payload: dict[str, Any]) -> Any:
+def _responses_reasoning_signature(encrypted_content: str) -> str:
+    return f"{_OPENAI_REASONING_SIGNATURE_PREFIX}{encrypted_content}"
+
+
+def _normalized_responses_content(payload: dict[str, Any]) -> Any:
+    """Extract content blocks from an OpenAI Responses API payload."""
     output = payload.get("output")
     if not isinstance(output, list):
         return None
@@ -440,13 +411,11 @@ def _normalized_openai_responses_content(payload: dict[str, Any]) -> Any:
             if isinstance(encrypted_content := item.get("encrypted_content"), str):
                 block["signature"] = _responses_reasoning_signature(encrypted_content)
             content_blocks.append(block)
-            continue
-        if item_type == "message":
+        elif item_type == "message":
             for part in item.get("content", []):
                 if not isinstance(part, dict):
                     content_blocks.append({"type": "text", "text": str(part)})
-                    continue
-                if part.get("type") == "output_text":
+                elif part.get("type") == "output_text":
                     content_blocks.append(
                         {"type": "text", "text": str(part.get("text", ""))}
                     )
@@ -454,13 +423,13 @@ def _normalized_openai_responses_content(payload: dict[str, Any]) -> Any:
     if not content_blocks:
         return None
 
-    has_non_text_blocks = any(block.get("type") != "text" for block in content_blocks)
-    if not has_non_text_blocks:
+    if all(block.get("type") == "text" for block in content_blocks):
         return "".join(str(block.get("text", "")) for block in content_blocks)
     return content_blocks
 
 
-def _normalize_openai_responses_response(payload: dict[str, Any]) -> NormalizedResponse:
+def _normalize_responses_response(payload: dict[str, Any]) -> NormalizedResponse:
+    """Normalize an OpenAI Responses API payload into a NormalizedResponse."""
     output = payload.get("output")
     tool_calls: list[NormalizedToolCall] = []
     if isinstance(output, list):
@@ -471,99 +440,28 @@ def _normalize_openai_responses_response(payload: dict[str, Any]) -> NormalizedR
                 NormalizedToolCall(
                     id=str(item.get("call_id", item.get("id", ""))),
                     name=str(item.get("name", "")),
-                    arguments=_parse_openai_json_value(item.get("arguments")),
+                    arguments=_parse_json_value(item.get("arguments")),
                 )
             )
 
-    finish_reason = "tool_use" if tool_calls else "end_turn"
     return NormalizedResponse(
         provider="openai",
         model=str(payload.get("model", "")),
-        content=_normalized_openai_responses_content(payload),
+        content=_normalized_responses_content(payload),
         tool_calls=tuple(tool_calls),
-        finish_reason=finish_reason,
-        usage=_openai_responses_usage(payload),
+        finish_reason="tool_use" if tool_calls else "end_turn",
+        usage=_responses_usage(payload),
         raw=payload,
     )
 
 
-def _apply_tool_name_mapping(payload: dict[str, Any], mapping: dict[str, str]) -> None:
-    if not mapping:
-        return
-    original_to_truncated = {
-        original: truncated for truncated, original in mapping.items()
-    }
-
-    tools = payload.get("tools")
-    if isinstance(tools, list):
-        for tool in tools:
-            if not isinstance(tool, dict):
-                continue
-            function = tool.get("function") if tool.get("function") else tool
-            if not isinstance(function, dict):
-                continue
-            name = function.get("name")
-            if isinstance(name, str) and name in original_to_truncated:
-                function["name"] = original_to_truncated[name]
-
-    tool_choice = payload.get("tool_choice")
-    if isinstance(tool_choice, dict):
-        function = (
-            tool_choice.get("function") if tool_choice.get("function") else tool_choice
-        )
-        if isinstance(function, dict):
-            name = function.get("name")
-            if isinstance(name, str) and name in original_to_truncated:
-                function["name"] = original_to_truncated[name]
-
-    messages = payload.get("messages")
-    if isinstance(messages, list):
-        for message in messages:
-            if not isinstance(message, dict):
-                continue
-            tool_calls = message.get("tool_calls")
-            if not isinstance(tool_calls, list):
-                continue
-            for tool_call in tool_calls:
-                if not isinstance(tool_call, dict):
-                    continue
-                function = tool_call.get("function")
-                if not isinstance(function, dict):
-                    continue
-                name = function.get("name")
-                if isinstance(name, str) and name in original_to_truncated:
-                    function["name"] = original_to_truncated[name]
-
-    input_items = payload.get("input")
-    if not isinstance(input_items, list):
-        return
-    for item in input_items:
-        if not isinstance(item, dict) or item.get("type") != "function_call":
-            continue
-        name = item.get("name")
-        if isinstance(name, str) and name in original_to_truncated:
-            item["name"] = original_to_truncated[name]
-
-
-def _restore_tool_call_names(
-    tool_calls: tuple[NormalizedToolCall, ...],
-    mapping: dict[str, str],
-) -> tuple[NormalizedToolCall, ...]:
-    if not mapping or not tool_calls:
-        return tool_calls
-    return tuple(
-        NormalizedToolCall(
-            id=tool_call.id,
-            name=restore_tool_name(tool_call.name, mapping) or tool_call.name,
-            arguments=tool_call.arguments,
-            type=tool_call.type,
-        )
-        for tool_call in tool_calls
-    )
+# ---------------------------------------------------------------------------
+# Adapter
+# ---------------------------------------------------------------------------
 
 
 @dataclass(slots=True)
-class OpenAIFamilyAdapter(AnthropicStreamingAdapter):
+class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
     """Adapter for OpenAI-compatible upstreams."""
 
     provider: str
@@ -577,7 +475,7 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter):
     ) -> ProviderHTTPRequest:
         payload = _openai_responses_payload(request)
         tool_name_mapping = create_tool_name_mapping(request.tools)
-        _apply_tool_name_mapping(payload, tool_name_mapping)
+        apply_tool_name_mapping(payload, tool_name_mapping)
         headers = {"Content-Type": "application/json"}
 
         if self.provider == "custom-model-provider":
@@ -588,10 +486,9 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter):
                 payload["model"] = model_name
             if api_key := credentials.get("CUSTOM_MODEL_PROVIDER_API_KEY"):
                 headers["Authorization"] = f"Bearer {api_key}"
-            target_url = _openai_responses_url(custom_base_url)
             return ProviderHTTPRequest(
                 method="POST",
-                url=target_url,
+                url=_openai_responses_url(custom_base_url),
                 headers=headers,
                 json_body=payload,
                 stream=request.stream,
@@ -603,10 +500,9 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter):
         headers["Authorization"] = f"Bearer {api_key}"
         if explicit_base_url := credentials.get("OPENAI_BASE_URL"):
             base_url = explicit_base_url.rstrip("/")
-        target_url = _openai_responses_url(base_url)
         return ProviderHTTPRequest(
             method="POST",
-            url=target_url,
+            url=_openai_responses_url(base_url),
             headers=headers,
             json_body=payload,
             stream=request.stream,
@@ -638,13 +534,13 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter):
             raise RuntimeError(
                 f"{self.provider} provider returned a non-Responses payload"
             )
-        normalized = _normalize_openai_responses_response(payload)
+        normalized = _normalize_responses_response(payload)
         tool_name_mapping = create_tool_name_mapping(request.tools)
         return NormalizedResponse(
             provider=self.provider,
             model=normalized.model,
             content=normalized.content,
-            tool_calls=_restore_tool_call_names(
+            tool_calls=restore_tool_call_names(
                 normalized.tool_calls, tool_name_mapping
             ),
             finish_reason=normalized.finish_reason,
@@ -721,7 +617,7 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter):
                 event_name = sse_event.event or ""
                 response_payload = chunk.get("response")
                 if isinstance(response_payload, dict):
-                    usage = _openai_responses_usage(response_payload)
+                    usage = _responses_usage(response_payload)
                     output_tokens = usage["output_tokens"] or output_tokens
                     if not message_started:
                         yield anthropic_message_start_event(
@@ -893,9 +789,6 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter):
         yield AnthropicStreamEvent("message_stop", {"type": "message_stop"})
 
 
-OpenAICompatibleAdapter = OpenAIFamilyAdapter
-
 __all__ = [
     "OpenAIFamilyAdapter",
-    "OpenAICompatibleAdapter",
 ]
