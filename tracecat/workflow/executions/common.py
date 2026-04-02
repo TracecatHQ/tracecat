@@ -248,7 +248,7 @@ async def extract_payload(
     payload: temporalio.api.common.v1.Payloads, index: int = 0
 ) -> Any:
     """Extract the first payload from a workflow history event."""
-    decoded_payloads = await decode_payloads(payload.payloads, compression_enabled=True)
+    decoded_payloads = await decode_payloads(payload.payloads)
     payload_obj = decoded_payloads[index]
     encoding = payload_obj.metadata.get("encoding", b"").decode()
     # Temporal's NullPayloadConverter encodes `None` as binary/null with no data.

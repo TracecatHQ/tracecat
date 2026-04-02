@@ -127,3 +127,55 @@ def test_codec_router_requires_shared_secret_configuration() -> None:
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Temporal codec server is not configured"
+
+
+@pytest.mark.anyio
+async def test_codec_router_decodes_when_encryption_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Breakglass: codec endpoint decodes historical encrypted payloads even when
+    encryption config is disabled (e.g. after rollback)."""
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", True)
+    monkeypatch.setattr(
+        config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", "unit-test-root-key"
+    )
+    monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_SHARED_SECRET", "codec-secret")
+
+    codec = get_payload_codec(compression_enabled=False)
+    token = ctx_role.set(
+        Role(
+            type="service",
+            service_id="tracecat-service",
+            workspace_id=WORKSPACE_ID,
+        )
+    )
+    try:
+        encoded_payloads = await codec.encode(
+            [Payload(metadata={"encoding": b"json/plain"}, data=b'{"secret":"v2"}')]
+        )
+    finally:
+        ctx_role.reset(token)
+
+    # Disable encryption — simulates config rollback
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", False)
+
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/codec/decode",
+            json=MessageToDict(
+                Payloads(payloads=encoded_payloads),
+                preserving_proto_field_name=True,
+            ),
+            headers={
+                "Authorization": "Bearer codec-secret",
+                "X-Namespace": "tracecat-tests",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["payloads"][0]["metadata"]["encoding"] == "anNvbi9wbGFpbg=="
+    assert body["payloads"][0]["data"] == "eyJzZWNyZXQiOiJ2MiJ9"
