@@ -468,13 +468,9 @@ services:
       - core-db
     environment:
       LOG_LEVEL: ${LOG_LEVEL}
-      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI}
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
-      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
-      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET}
-      USER_AUTH_SECRET: ${USER_AUTH_SECRET}
     command: ["python3", "-m", "alembic", "upgrade", "head"]
     depends_on:
       postgres_db:

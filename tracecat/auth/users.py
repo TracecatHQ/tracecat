@@ -74,13 +74,21 @@ class PermissionsException(FastAPIUsersException):
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
-    reset_password_token_secret = config.USER_AUTH_SECRET
-    verification_token_secret = config.USER_AUTH_SECRET
+    reset_password_token_secret = ""
+    verification_token_secret = ""
 
     def __init__(self, user_db: SQLAlchemyUserDatabase[User, uuid.UUID]) -> None:
         super().__init__(user_db)
         self._user_db = user_db
         self.logger = logger.bind(unit="UserManager")
+        if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
+            user_auth_secret = config._require_non_empty_config(
+                "USER_AUTH_SECRET",
+                config.USER_AUTH_SECRET,
+                when="TRACECAT__AUTH_TYPES includes 'basic'",
+            )
+            self.reset_password_token_secret = user_auth_secret
+            self.verification_token_secret = user_auth_secret
         # Store invitation token between create() and on_after_register()
         self._pending_invitation_token: str | None = None
 

@@ -2,13 +2,14 @@
 
 import importlib
 import logging
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from tracecat import config
 from tracecat.auth.enums import AuthType
 from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enabled
+from tracecat.auth.users import UserManager
 
 
 @pytest.fixture(autouse=True)
@@ -150,15 +151,13 @@ def test_config_keeps_oauth_aliases_for_oidc_credentials(monkeypatch) -> None:
     importlib.reload(config)
 
 
-def test_config_requires_user_auth_secret_unconditionally(monkeypatch) -> None:
+def test_config_allows_missing_user_auth_secret_when_auth_type_does_not_use_it(
+    monkeypatch,
+) -> None:
     with monkeypatch.context() as env:
         env.setenv("TRACECAT__AUTH_TYPES", "saml")
         env.delenv("USER_AUTH_SECRET", raising=False)
-        with pytest.raises(
-            KeyError,
-            match="USER_AUTH_SECRET must be set",
-        ):
-            importlib.reload(config)
+        importlib.reload(config)
 
     importlib.reload(config)
 
@@ -180,23 +179,48 @@ def test_config_requires_oidc_client_secret_when_oidc_enabled(monkeypatch) -> No
 
 
 @pytest.mark.parametrize(
-    ("var_name", "expected_message"),
+    "var_name",
     [
-        ("USER_AUTH_SECRET", "USER_AUTH_SECRET must be set"),
-        ("TRACECAT__DB_ENCRYPTION_KEY", "TRACECAT__DB_ENCRYPTION_KEY must be set"),
-        ("TRACECAT__SIGNING_SECRET", "TRACECAT__SIGNING_SECRET must be set"),
-        ("TRACECAT__SERVICE_KEY", "TRACECAT__SERVICE_KEY must be set"),
+        "USER_AUTH_SECRET",
+        "TRACECAT__DB_ENCRYPTION_KEY",
+        "TRACECAT__SIGNING_SECRET",
+        "TRACECAT__SERVICE_KEY",
     ],
 )
-def test_config_requires_core_tracecat_secrets(
-    monkeypatch, var_name: str, expected_message: str
+def test_config_allows_missing_core_tracecat_secrets(
+    monkeypatch, var_name: str
 ) -> None:
     with monkeypatch.context() as env:
+        env.setenv("TRACECAT__AUTH_TYPES", "saml")
         env.delenv(var_name, raising=False)
-        with pytest.raises(KeyError, match=expected_message):
-            importlib.reload(config)
+        importlib.reload(config)
 
     importlib.reload(config)
+
+
+def test_user_manager_requires_user_auth_secret_when_basic_enabled(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.BASIC})
+    monkeypatch.setattr(config, "USER_AUTH_SECRET", "")
+
+    with pytest.raises(
+        KeyError,
+        match="USER_AUTH_SECRET must be set when TRACECAT__AUTH_TYPES includes 'basic'",
+    ):
+        UserManager(MagicMock())
+
+
+def test_user_manager_allows_missing_user_auth_secret_when_basic_disabled(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__AUTH_TYPES", {AuthType.SAML})
+    monkeypatch.setattr(config, "USER_AUTH_SECRET", "")
+
+    manager = UserManager(MagicMock())
+
+    assert manager.reset_password_token_secret == ""
+    assert manager.verification_token_secret == ""
 
 
 def test_config_ignores_google_oauth_env_aliases(monkeypatch) -> None:

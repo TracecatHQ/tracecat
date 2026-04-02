@@ -415,24 +415,6 @@ if AuthType.OIDC in TRACECAT__AUTH_TYPES:
     OAUTH_CLIENT_ID = OIDC_CLIENT_ID
     OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
 
-USER_AUTH_SECRET = _require_non_empty_config(
-    "USER_AUTH_SECRET",
-    USER_AUTH_SECRET,
-)
-
-TRACECAT__DB_ENCRYPTION_KEY = _require_non_empty_config(
-    "TRACECAT__DB_ENCRYPTION_KEY",
-    TRACECAT__DB_ENCRYPTION_KEY,
-)
-TRACECAT__SIGNING_SECRET = _require_non_empty_config(
-    "TRACECAT__SIGNING_SECRET",
-    TRACECAT__SIGNING_SECRET,
-)
-TRACECAT__SERVICE_KEY = _require_non_empty_config(
-    "TRACECAT__SERVICE_KEY",
-    TRACECAT__SERVICE_KEY,
-)
-
 # === Remote registry === #
 TRACECAT__ALLOWED_GIT_DOMAINS = set(
     os.environ.get(

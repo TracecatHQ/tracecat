@@ -151,6 +151,15 @@ from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
 
 
+def _require_user_auth_secret(*, when: str) -> str:
+    """Require USER_AUTH_SECRET for auth flows that sign user-facing tokens."""
+    return config._require_non_empty_config(
+        "USER_AUTH_SECRET",
+        config.USER_AUTH_SECRET,
+        when=when,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Temporal
@@ -504,7 +513,11 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(internal_variables_router)
     app.include_router(internal_workflows_router)
 
+    user_auth_secret: str | None = None
     if AuthType.BASIC in config.TRACECAT__AUTH_TYPES:
+        user_auth_secret = _require_user_auth_secret(
+            when="TRACECAT__AUTH_TYPES includes 'basic'"
+        )
         app.include_router(
             fastapi_users.get_auth_router(auth_backend),
             prefix="/auth",
@@ -527,6 +540,9 @@ def create_app(**kwargs) -> FastAPI:
         )
 
     if oidc_auth_type_enabled():
+        user_auth_secret = user_auth_secret or _require_user_auth_secret(
+            when="TRACECAT__AUTH_TYPES includes 'oidc'"
+        )
         oauth_client = create_platform_oauth_client()
         # This is the frontend URL that the user will be redirected to after authenticating
         redirect_url = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oauth/callback"
@@ -535,7 +551,7 @@ def create_app(**kwargs) -> FastAPI:
             fastapi_users.get_oauth_router(
                 oauth_client,
                 auth_backend,
-                config.USER_AUTH_SECRET,
+                user_auth_secret,
                 # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
                 associate_by_email=True,
                 is_verified_by_default=True,
