@@ -137,6 +137,8 @@ resource "aws_iam_policy" "secrets_access" {
           var.tracecat_db_encryption_key_arn,
           var.tracecat_service_key_arn,
           var.tracecat_signing_secret_arn,
+          var.temporal_payload_encryption_key_arn,
+          var.temporal_codec_server_shared_secret_arn,
           var.oauth_client_id_arn,
           var.oauth_client_secret_arn,
           var.oidc_client_id_arn,

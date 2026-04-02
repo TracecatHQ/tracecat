@@ -4201,13 +4201,13 @@ dev = [
     { name = "python-dotenv" },
     { name = "respx" },
     { name = "ruff" },
-    { name = "types-aioboto3", extra = ["s3", "sts"] },
-    { name = "types-boto3", extra = ["s3", "sts"] },
+    { name = "types-aioboto3", extra = ["s3", "secretsmanager", "sts"] },
+    { name = "types-boto3", extra = ["s3", "secretsmanager", "sts"] },
 ]
 lint = [
     { name = "basedpyright" },
-    { name = "types-aioboto3", extra = ["s3", "sts"] },
-    { name = "types-boto3", extra = ["s3", "sts"] },
+    { name = "types-aioboto3", extra = ["s3", "secretsmanager", "sts"] },
+    { name = "types-boto3", extra = ["s3", "secretsmanager", "sts"] },
 ]
 
 [package.metadata]
@@ -4276,13 +4276,13 @@ dev = [
     { name = "python-dotenv", specifier = "==1.1.1" },
     { name = "respx", specifier = "==0.22.0" },
     { name = "ruff", specifier = "==0.15.0" },
-    { name = "types-aioboto3", extras = ["sts", "s3"], specifier = "==15.5.0" },
-    { name = "types-boto3", extras = ["sts", "s3"], specifier = "==1.42.25" },
+    { name = "types-aioboto3", extras = ["sts", "s3", "secretsmanager"], specifier = "==15.5.0" },
+    { name = "types-boto3", extras = ["sts", "s3", "secretsmanager"], specifier = "==1.42.25" },
 ]
 lint = [
     { name = "basedpyright", specifier = "==1.37.1" },
-    { name = "types-aioboto3", extras = ["sts", "s3"], specifier = "==15.5.0" },
-    { name = "types-boto3", extras = ["sts", "s3"], specifier = "==1.42.25" },
+    { name = "types-aioboto3", extras = ["sts", "s3", "secretsmanager"], specifier = "==15.5.0" },
+    { name = "types-boto3", extras = ["sts", "s3", "secretsmanager"], specifier = "==1.42.25" },
 ]
 
 [[package]]
@@ -4437,6 +4437,9 @@ wheels = [
 s3 = [
     { name = "types-aiobotocore-s3" },
 ]
+secretsmanager = [
+    { name = "types-aiobotocore-secretsmanager" },
+]
 sts = [
     { name = "types-aiobotocore-sts" },
 ]
@@ -4460,6 +4463,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a7/c6/9bb91a44eed1114690edb15d8251f32392e355dfa0a5b8e1c190b4cf89a4/types_aiobotocore_s3-2.25.2.tar.gz", hash = "sha256:678aa425491af19bd6d011d59ecdbbb7ae7e95800efddcf4fd559ab72c94e194", size = 75955, upload-time = "2025-11-12T01:52:06.536Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b4/0a/d0d9faefd7caa8536eb97647c38c711e73ab83341a65119d08c2cb20957d/types_aiobotocore_s3-2.25.2-py3-none-any.whl", hash = "sha256:151301e84bb2f1cbf30f0d1ef791bb75c141cfbfe47b93fd317b7f1ba3eb35e4", size = 83626, upload-time = "2025-11-12T01:52:04.763Z" },
+]
+
+[[package]]
+name = "types-aiobotocore-secretsmanager"
+version = "2.25.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b0/b1/25182c01cd1df0d25ebb9b5bfd9724f42e48a59e0941af2078d2a68624aa/types_aiobotocore_secretsmanager-2.25.2.tar.gz", hash = "sha256:403b0ead49431177c86f16b5223e6ddd1fcf454573220647b24e059eeeadf6f2", size = 19634, upload-time = "2025-11-12T01:52:28.627Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a1/3b/4f9b13fbc6b1c3d67dd2e4d4af064414cff766cb78a2f46e293641310386/types_aiobotocore_secretsmanager-2.25.2-py3-none-any.whl", hash = "sha256:c1a0c7e864a145e2a3a240a6d9663859516a5747fd16e9214599441b21a1ef75", size = 27159, upload-time = "2025-11-12T01:52:26.594Z" },
 ]
 
 [[package]]
@@ -4497,6 +4509,9 @@ wheels = [
 s3 = [
     { name = "types-boto3-s3" },
 ]
+secretsmanager = [
+    { name = "types-boto3-secretsmanager" },
+]
 sts = [
     { name = "types-boto3-sts" },
 ]
@@ -4508,6 +4523,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/68/37/d4f244de0156daf25484dd3a06bb637edf9357b5169a4d7c672d3c7705be/types_boto3_s3-1.42.67.tar.gz", hash = "sha256:5fd229e1ee0925a853a1e0ba53908899e25243147c364a5e2615d0a13a898c41", size = 76230, upload-time = "2026-03-12T20:02:14.615Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/85/cc/c95884f5a5049b4b53de9de6bcc921871d1b11b8fa073f17f7f98aec398c/types_boto3_s3-1.42.67-py3-none-any.whl", hash = "sha256:beef586290dee0913961fe665997480e912b4acc62ac931afe4a44214c2d4400", size = 83383, upload-time = "2026-03-12T20:02:11.41Z" },
+]
+
+[[package]]
+name = "types-boto3-secretsmanager"
+version = "1.42.8"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/06/2b13da1dea04e74ff941150d2fc5fa59a9a180f8e580425d21157895ed32/types_boto3_secretsmanager-1.42.8.tar.gz", hash = "sha256:9134df496a352acff861c3d046ae83740881d7aead1bc656d1ca32abcb921ae3", size = 19889, upload-time = "2025-12-11T22:12:47.67Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6d/63/15a5649fbf769e92d0a55c1091696d50ebb922ba77735c263c27267011df/types_boto3_secretsmanager-1.42.8-py3-none-any.whl", hash = "sha256:af75257c3c26da97a8ee470bb1a2e199a25bf70859740cdcdfb74f53853f24da", size = 27194, upload-time = "2025-12-11T22:12:39.498Z" },
 ]
 
 [[package]]

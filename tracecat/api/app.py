@@ -130,6 +130,7 @@ from tracecat.storage.blob import configure_bucket_lifecycle, ensure_bucket_exis
 from tracecat.tables.internal_router import router as internal_tables_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
+from tracecat.temporal.router import router as temporal_codec_router
 from tracecat.variables.internal_router import router as internal_variables_router
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
@@ -435,6 +436,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_channels_management_router)
     app.include_router(agent_preset_router)
     app.include_router(agent_session_router)
+    app.include_router(temporal_codec_router)
     app.include_router(approvals_router)
     app.include_router(watchtower_router)
     app.include_router(admin_router)
