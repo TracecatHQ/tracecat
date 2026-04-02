@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import orjson
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 
@@ -20,8 +21,9 @@ from tracecat.agent.common.config import (
     TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
+from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
@@ -144,6 +146,8 @@ class SandboxedAgentExecutor:
         default_factory=asyncio.Event, init=False, repr=False
     )
 
+    INIT_PAYLOAD_FILENAME = "init.json"
+
     def _create_llm_socket_proxy(self, socket_path: Path) -> LLMSocketProxy:
         """Create the host-side LiteLLM transport proxy for this execution."""
 
@@ -176,6 +180,43 @@ class SandboxedAgentExecutor:
             model_provider=self.input.config.model_provider,
         )
 
+    def _build_runtime_init_payload(self) -> RuntimeInitPayload:
+        """Build the runtime init payload for this execution."""
+        return RuntimeInitPayload(
+            session_id=self.input.session_id,
+            mcp_auth_token=self.input.mcp_auth_token,
+            config=SandboxAgentConfig.from_agent_config(self.input.config),
+            user_prompt=self.input.user_prompt,
+            llm_gateway_auth_token=self.input.llm_gateway_auth_token,
+            allowed_actions=self.input.allowed_actions,
+            sdk_session_id=self.input.sdk_session_id,
+            sdk_session_data=self.input.sdk_session_data,
+            is_approval_continuation=self.input.is_approval_continuation,
+            is_fork=self.input.is_fork,
+        )
+
+    async def _write_runtime_init_payload(self, payload: RuntimeInitPayload) -> Path:
+        """Write the runtime init payload atomically into the job directory."""
+        if self._job_dir is None:
+            raise RuntimeError("Job directory must exist before writing init payload")
+
+        init_path = self._job_dir / self.INIT_PAYLOAD_FILENAME
+        temp_path = init_path.with_suffix(".tmp")
+        payload_bytes = orjson.dumps(payload.to_dict())
+
+        def _write() -> None:
+            temp_path.write_bytes(payload_bytes)
+            temp_path.replace(init_path)
+
+        await asyncio.to_thread(_write)
+        logger.debug(
+            "Wrote runtime init payload",
+            init_path=str(init_path),
+            payload_size=len(payload_bytes),
+            session_id=self.input.session_id,
+        )
+        return init_path
+
     async def run(self) -> AgentExecutorResult:
         """Execute the agent in an NSJail sandbox.
 
@@ -188,6 +229,7 @@ class SandboxedAgentExecutor:
             # Create job directory with sockets
             self._job_dir = await self._create_job_directory()
             socket_dir = self._job_dir / "sockets"
+            init_payload = self._build_runtime_init_payload()
 
             # Create loopback handler
             loopback_input = LoopbackInput(
@@ -258,21 +300,40 @@ class SandboxedAgentExecutor:
             llm_socket_path = socket_dir / LLM_SOCKET_NAME
 
             self._llm_proxy = self._create_llm_socket_proxy(llm_socket_path)
-            await self._llm_proxy.start()
-            logger.info(
-                "Started LLM socket proxy",
-                socket_path=str(llm_socket_path),
-            )
 
-            # Set umask before socket creation to ensure 0o600 permissions from the start
-            old_umask = os.umask(0o177)
-            try:
-                server = await asyncio.start_unix_server(
-                    connection_callback,
-                    path=str(control_socket_path),
+            async def start_control_socket_server() -> asyncio.Server:
+                """Start the control socket server with secure permissions."""
+                old_umask = os.umask(0o177)
+                try:
+                    return await asyncio.start_unix_server(
+                        connection_callback,
+                        path=str(control_socket_path),
+                    )
+                finally:
+                    os.umask(old_umask)
+
+            async def start_llm_proxy() -> None:
+                """Start the host-side LLM socket proxy."""
+                if self._llm_proxy is None:
+                    raise RuntimeError("LLM proxy must exist before startup")
+                await self._llm_proxy.start()
+                logger.info(
+                    "Started LLM socket proxy",
+                    socket_path=str(llm_socket_path),
                 )
-            finally:
-                os.umask(old_umask)
+
+            async with asyncio.TaskGroup() as tg:
+                init_payload_task = tg.create_task(
+                    self._write_runtime_init_payload(init_payload)
+                )
+                llm_proxy_task = tg.create_task(start_llm_proxy())
+                loopback_prepare_task = tg.create_task(handler.prepare())
+                server_task = tg.create_task(start_control_socket_server())
+
+            _ = init_payload_task.result()
+            _ = llm_proxy_task.result()
+            _ = loopback_prepare_task.result()
+            server = server_task.result()
 
             async with server:
                 runtime_result = await spawn_jailed_runtime(

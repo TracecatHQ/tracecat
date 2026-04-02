@@ -1,11 +1,10 @@
 """Loopback handler for NSJail runtime communication.
 
 This module provides the socket event loop that:
-1. Sends RuntimeInitPayload to the runtime
-2. Reads events from the runtime
-3. Forwards events to a pluggable stream sink (Redis or external channel)
-4. Handles session updates
-5. Persists messages to database (AgentSessionHistory + ChatMessage for chat namespace)
+1. Reads events from the runtime
+2. Forwards events to a pluggable stream sink (Redis or external channel)
+3. Handles session updates
+4. Persists messages to database (AgentSessionHistory + ChatMessage for chat namespace)
 
 The loopback is used by the agent executor activity which handles:
 - Job directory creation
@@ -29,17 +28,14 @@ from tracecat.agent.channels.schemas import ChannelType
 from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
 from tracecat.agent.channels.sinks import ExternalChannelSink
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
-from tracecat.agent.common.protocol import RuntimeEventEnvelope, RuntimeInitPayload
-from tracecat.agent.common.socket_io import MessageType, build_message, read_message
+from tracecat.agent.common.protocol import RuntimeEventEnvelope
+from tracecat.agent.common.socket_io import MessageType, read_message
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.common.types import (
-    MCPToolDefinition,
-    SandboxAgentConfig,
-)
+from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.types import AgentConfig
@@ -60,11 +56,8 @@ class LoopbackInput:
     - session_id, workspace_id: For stream sink routing and DB writes
     - socket_dir: For control socket path
 
-    Fields passed through to RuntimeInitPayload:
-    - user_prompt, config, mcp_auth_token, llm_gateway_*, allowed_actions, sdk_session_*
-
-    On resume after approval, the sdk_session_data contains the proper tool_result
-    entry (inserted by execute_approved_tools_activity before reload).
+    Some fields are retained for executor lifecycle/error reporting even though
+    runtime init is now delivered through a mounted init.json file.
     """
 
     session_id: uuid.UUID
@@ -202,10 +195,9 @@ class LoopbackHandler:
 
     This handler:
     1. Accepts connection from runtime on control socket
-    2. Sends RuntimeInitPayload with agent config
-    3. Reads events and forwards to stream sink
-    4. Tracks session updates and approval requests
-    5. Persists complete messages to database
+    2. Reads events and forwards to stream sink
+    3. Tracks session updates and approval requests
+    4. Persists complete messages to database
 
     The handler does NOT spawn the NSJail process - that is done by
     the caller (activity) which manages the process lifecycle.
@@ -265,6 +257,12 @@ class LoopbackHandler:
             return False
 
         return self._tool_output_contains_internal_interrupt(event.tool_output)
+
+    async def prepare(self) -> LoopbackEventSink:
+        """Initialize and cache the stream sink before runtime connection."""
+        if self._stream_sink is None:
+            self._stream_sink = await self._initialize_stream_sink()
+        return self._stream_sink
 
     async def _emit_stream_done(self) -> None:
         """Emit stream.done() exactly once.
@@ -330,7 +328,7 @@ class LoopbackHandler:
 
         Args:
             reader: Stream reader for reading runtime events.
-            writer: Stream writer for sending init payload.
+            writer: Stream writer for the runtime connection.
 
         Returns:
             LoopbackResult with success status and session updates.
@@ -342,10 +340,8 @@ class LoopbackHandler:
 
         try:
             # Initialize event sink (Redis for UI sessions, channel-specific for external)
-            self._stream_sink = await self._initialize_stream_sink()
-
-            # Send init payload to runtime
-            await self._send_init_payload(writer)
+            if self._stream_sink is None:
+                self._stream_sink = await self._initialize_stream_sink()
 
             # Read and forward events until done
             await self._process_runtime_events(reader)
@@ -355,8 +351,7 @@ class LoopbackHandler:
                 self._result.success = True
 
         except asyncio.IncompleteReadError:
-            # Connection closed during init payload send
-            logger.warning("Runtime disconnected unexpectedly during init")
+            logger.warning("Runtime disconnected unexpectedly during execution")
             self._result.error = "Runtime disconnected unexpectedly"
             if self._stream_sink:
                 await self._emit_failed_compaction_if_pending()
@@ -377,36 +372,6 @@ class LoopbackHandler:
             await writer.wait_closed()
 
         return self._result
-
-    async def _send_init_payload(self, writer: asyncio.StreamWriter) -> None:
-        """Send RuntimeInitPayload to the runtime."""
-        # Convert AgentConfig (Pydantic) to SandboxAgentConfig (dataclass)
-        sandbox_config = SandboxAgentConfig.from_agent_config(self.input.config)
-
-        payload = RuntimeInitPayload(
-            session_id=self.input.session_id,
-            mcp_auth_token=self.input.mcp_auth_token,
-            config=sandbox_config,
-            user_prompt=self.input.user_prompt,
-            llm_gateway_auth_token=self.input.llm_gateway_auth_token,
-            allowed_actions=self.input.allowed_actions,
-            sdk_session_id=self.input.sdk_session_id,
-            sdk_session_data=self.input.sdk_session_data,
-            is_approval_continuation=self.input.is_approval_continuation,
-            is_fork=self.input.is_fork,
-        )
-
-        payload_bytes = orjson.dumps(payload.to_dict())
-        message = build_message(MessageType.INIT, payload_bytes)
-
-        writer.write(message)
-        await writer.drain()
-
-        logger.debug(
-            "Sent init payload to runtime",
-            session_id=self.input.session_id,
-            payload_size=len(payload_bytes),
-        )
 
     async def _initialize_stream_sink(self) -> LoopbackEventSink:
         """Build stream sink for this session."""
