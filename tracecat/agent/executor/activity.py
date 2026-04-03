@@ -19,7 +19,10 @@ from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRACECAT__DISABLE_NSJAIL,
 )
-from tracecat.agent.common.exceptions import AgentSandboxExecutionError
+from tracecat.agent.common.exceptions import (
+    AgentSandboxExecutionError,
+    AgentSandboxValidationError,
+)
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.loopback import (
@@ -38,6 +41,31 @@ from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 
 from .schemas import ApprovedToolCall, DeniedToolCall, ToolExecutionResult
+
+
+def _validate_sdk_session_id(sdk_session_id: str) -> str:
+    """Validate a persisted Claude SDK session identifier.
+
+    Args:
+        sdk_session_id: Session identifier stored for Claude SDK resume.
+
+    Returns:
+        The original session identifier when it is safe to embed in a filename.
+
+    Raises:
+        AgentSandboxValidationError: If the identifier is empty or contains
+            characters outside the allowed alphanumeric, hyphen, and underscore
+            set.
+    """
+    if not sdk_session_id or not all(
+        character.isalnum() or character in "-_" for character in sdk_session_id
+    ):
+        raise AgentSandboxValidationError(
+            "Invalid sdk_session_id: must be alphanumeric with "
+            f"hyphens/underscores only, got {sdk_session_id!r}"
+        )
+
+    return sdk_session_id
 
 
 class AgentExecutorInput(BaseModel):
@@ -514,13 +542,22 @@ class SandboxedAgentExecutor:
             )
 
         if sdk_session_data is None:
-            raise AgentSandboxExecutionError(
-                "Failed to materialize persisted session history for resume"
+            logger.warning(
+                "Skipping resume because persisted session history is missing",
+                session_id=self.input.session_id,
+                source_session_id=self.input.resume_source_session_id,
+                sdk_session_id=self.input.sdk_session_id,
             )
+            return None
+
+        try:
+            validated_session_id = _validate_sdk_session_id(self.input.sdk_session_id)
+        except AgentSandboxValidationError as exc:
+            raise AgentSandboxExecutionError(str(exc)) from exc
 
         resume_dir = self._job_dir / "resume"
         resume_dir.mkdir(mode=0o700)
-        host_resume_path = resume_dir / f"{self.input.sdk_session_id}.jsonl"
+        host_resume_path = resume_dir / f"{validated_session_id}.jsonl"
         await asyncio.to_thread(host_resume_path.write_text, sdk_session_data)
 
         if TRACECAT__DISABLE_NSJAIL:
