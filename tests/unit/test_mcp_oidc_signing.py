@@ -15,7 +15,10 @@ from tracecat.mcp.oidc import signing
 @pytest.fixture(autouse=True)
 def _clear_signing_caches(monkeypatch: pytest.MonkeyPatch):  # pyright: ignore[reportUnusedFunction]
     """Clear lru_cache on signing functions and set a stable test secret."""
-    monkeypatch.setattr(signing, "USER_AUTH_SECRET", "test-signing-secret")
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.signing.get_user_auth_secret",
+        lambda: "test-signing-secret",
+    )
     signing.get_signing_key.cache_clear()
     signing.get_public_jwk.cache_clear()
     yield

@@ -32,6 +32,9 @@ class _InMemoryRedis:
         for name in names:
             self._data.pop(name, None)
 
+    async def getdel(self, name: str) -> bytes | None:
+        return self._data.pop(name, None)
+
     def pipeline(self) -> _InMemoryPipeline:
         return _InMemoryPipeline(self)
 
