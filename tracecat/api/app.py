@@ -154,6 +154,12 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # USER_AUTH_SECRET is required for all auth types — UserManager uses it
+    # for password reset and email verification token signing. Validated here
+    # (not in create_app) because the app module is imported at collection time
+    # by tests and OpenAPI generation, before secrets are available.
+    get_user_auth_secret()
+
     # Temporal
     # Run in background to avoid blocking startup
     asyncio.create_task(add_temporal_search_attributes())

@@ -4,7 +4,8 @@
 # 3. TRACECAT__SIGNING_SECRET
 #
 # Required secrets (API only):
-# 4. USER_AUTH_SECRET  — only the API service uses this (OAuth, password reset).
+# 4. USER_AUTH_SECRET  — only the API service uses this (password reset, email
+#    verification, and OAuth state signing). Required for ALL auth types.
 #    Do NOT add to required_tracecat_base_secrets; it must stay out of
 #    executor, worker, and MCP to limit blast radius.
 #
@@ -239,7 +240,8 @@ locals {
     }
   ] : []
 
-  # USER_AUTH_SECRET is only needed by the API service (OAuth, password reset).
+  # USER_AUTH_SECRET is only needed by the API service (password reset, email
+  # verification, OAuth state signing). Required for ALL auth types.
   # It must NOT be in required_tracecat_base_secrets to avoid leaking to
   # executor, worker, and MCP services.
   user_auth_secret_secret = [

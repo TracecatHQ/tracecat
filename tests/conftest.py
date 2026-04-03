@@ -1139,6 +1139,8 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
+    monkeysession.setenv("USER_AUTH_SECRET", "test-user-auth-secret")
+    monkeysession.setattr(config, "USER_AUTH_SECRET", "test-user-auth-secret")
     monkeysession.setenv("TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233")
     monkeysession.setenv("TEMPORAL__CLUSTER_NAMESPACE", "default")
     # Use worker-specific task queues for pytest-xdist isolation
