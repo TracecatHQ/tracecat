@@ -135,7 +135,9 @@ def _normalized_chat_response_content(message: dict[str, Any]) -> Any:
     if not (reasoning := _chat_reasoning_text(message)):
         return content
 
-    blocks: list[dict[str, Any]] = [{"type": "thinking", "thinking": reasoning}]
+    blocks: list[dict[str, Any]] = [
+        {"type": "thinking", "thinking": reasoning, "signature": ""}
+    ]
     if content:
         if isinstance(content, list):
             for item in content:

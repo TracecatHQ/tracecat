@@ -457,15 +457,20 @@ class ClaudeAgentRuntime:
             "hookSpecificOutput": hook_output,
         }
 
-    def _build_system_prompt(self, instructions: str | None) -> str:
+    def _build_system_prompt(
+        self, instructions: str | None, output_type: str | dict[str, Any] | None = None
+    ) -> str:
         """Build the system prompt for the agent."""
-        base = (
-            "If asked about your identity, you are a Tracecat automation assistant.\n\n"
-            "If a structured output schema is configured, you MUST produce structured"
-            " output as the very last thing in EVERY turn — including follow-up turns."
-            " Do not add any commentary, explanation, or text after the structured"
-            " output. This applies to every response, not just the first one."
-        )
+        base = "If asked about your identity, you are a Tracecat automation assistant."
+
+        # Only include structured output instruction if output_type is configured (not None)
+        if output_type is not None:
+            base += (
+                "\n\nYou MUST produce structured output as the very last thing in EVERY turn"
+                " — including follow-up turns. Do not add any commentary, explanation, or text"
+                " after the structured output. This applies to every response, not just the first one."
+            )
+
         return f"{base}\n\n{instructions}" if instructions else base
 
     async def run(self, payload: RuntimeInitPayload) -> None:
@@ -592,7 +597,9 @@ class ClaudeAgentRuntime:
                     "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
                 },
                 model=payload.config.model_name,
-                system_prompt=self._build_system_prompt(payload.config.instructions),
+                system_prompt=self._build_system_prompt(
+                    payload.config.instructions, payload.config.output_type
+                ),
                 mcp_servers=mcp_servers,
                 disallowed_tools=disallowed_tools,
                 stderr=handle_claude_stderr,

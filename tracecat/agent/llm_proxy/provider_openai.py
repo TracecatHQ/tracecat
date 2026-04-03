@@ -400,7 +400,11 @@ def _normalized_responses_content(payload: dict[str, Any]) -> Any:
                     for part in summary
                     if isinstance(part, dict)
                 )
-            content_blocks.append({"type": "thinking", "thinking": thinking})
+            # OpenAI reasoning responses may include a signature field for the encrypted blob
+            signature = item.get("signature", "")
+            content_blocks.append(
+                {"type": "thinking", "thinking": thinking, "signature": signature}
+            )
         elif item_type == "message":
             for part in item.get("content", []):
                 if not isinstance(part, dict):
@@ -662,6 +666,7 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
                                 "content_block": {
                                     "type": "thinking",
                                     "thinking": "",
+                                    "signature": "",
                                 },
                             },
                         )
@@ -705,6 +710,7 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
                                 "content_block": {
                                     "type": "thinking",
                                     "thinking": "",
+                                    "signature": "",
                                 },
                             },
                         )
