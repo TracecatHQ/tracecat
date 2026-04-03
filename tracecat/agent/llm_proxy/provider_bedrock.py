@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any, TypedDict
 from urllib.parse import quote
 
+import boto3
 import httpx
 import orjson
 from botocore.auth import SigV4Auth
@@ -71,6 +72,7 @@ _BEDROCK_FORCED_TOOL_CHOICE_THINKING_ERROR = (
 _BEDROCK_UNSUPPORTED_REASONING_EFFORT_ERROR = (
     "reasoning_effort: Extra inputs are not permitted"
 )
+_TRACECAT_AWS_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 _BEDROCK_STREAM_EVENT_KEYS = frozenset(
     {
         "messageStart",
@@ -884,6 +886,32 @@ def _signed_bedrock_request(
     if not region:
         raise ValueError("Bedrock requires AWS_REGION")
 
+    if role_arn := credentials.get("AWS_ROLE_ARN"):
+        sts_client = boto3.Session().client("sts")
+        role_session_name = _bedrock_role_session_name(request, credentials)
+        if external_id := credentials.get(_TRACECAT_AWS_EXTERNAL_ID_SECRET_KEY):
+            assumed_role = sts_client.assume_role(
+                RoleArn=role_arn,
+                RoleSessionName=role_session_name,
+                ExternalId=external_id,
+            )["Credentials"]
+        else:
+            assumed_role = sts_client.assume_role(
+                RoleArn=role_arn,
+                RoleSessionName=role_session_name,
+            )["Credentials"]
+        return _sigv4_bedrock_request(
+            request=request,
+            credentials=Credentials(
+                assumed_role["AccessKeyId"],
+                assumed_role["SecretAccessKey"],
+                assumed_role["SessionToken"],
+            ),
+            url=url,
+            body=body,
+            region=region,
+        )
+
     if api_key := credentials.get("AWS_BEARER_TOKEN_BEDROCK"):
         return ProviderHTTPRequest(
             method="POST",
@@ -900,21 +928,37 @@ def _signed_bedrock_request(
     secret_key = credentials.get("AWS_SECRET_ACCESS_KEY")
     if not access_key or not secret_key:
         raise ValueError(
-            "Bedrock requires AWS_BEARER_TOKEN_BEDROCK or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY"
+            "Bedrock requires AWS_ROLE_ARN, AWS_BEARER_TOKEN_BEDROCK, or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY"
         )
 
+    return _sigv4_bedrock_request(
+        request=request,
+        credentials=Credentials(
+            access_key,
+            secret_key,
+            credentials.get("AWS_SESSION_TOKEN"),
+        ),
+        url=url,
+        body=body,
+        region=region,
+    )
+
+
+def _sigv4_bedrock_request(
+    *,
+    request: NormalizedMessagesRequest,
+    credentials: Credentials,
+    url: str,
+    body: bytes,
+    region: str,
+) -> ProviderHTTPRequest:
     aws_request = AWSRequest(
         method="POST",
         url=url,
         data=body,
         headers={"Content-Type": "application/json"},
     )
-    credentials_obj = Credentials(
-        access_key,
-        secret_key,
-        credentials.get("AWS_SESSION_TOKEN"),
-    )
-    SigV4Auth(credentials_obj, "bedrock", region).add_auth(aws_request)
+    SigV4Auth(credentials, "bedrock", region).add_auth(aws_request)
     headers = dict(aws_request.headers.items())
     headers["Content-Type"] = "application/json"
     return ProviderHTTPRequest(
@@ -924,6 +968,23 @@ def _signed_bedrock_request(
         body=body,
         stream=request.stream,
     )
+
+
+def _bedrock_role_session_name(
+    request: NormalizedMessagesRequest,
+    credentials: dict[str, str],
+) -> str:
+    if session_name := credentials.get("AWS_ROLE_SESSION_NAME"):
+        stripped_session_name = session_name.strip()
+        if stripped_session_name:
+            return stripped_session_name[:64]
+
+    parts = ["tracecat"]
+    if request.workspace_id is not None:
+        parts.extend(["ws", str(request.workspace_id).replace("-", "")[:8]])
+    if request.session_id is not None:
+        parts.extend(["session", str(request.session_id).replace("-", "")[:8]])
+    return "-".join(parts)[:64]
 
 
 def _load_request_body(request: ProviderHTTPRequest) -> dict[str, Any]:
@@ -1246,7 +1307,6 @@ class BedrockAdapter:
         credentials: dict[str, str],
         outbound_request: ProviderHTTPRequest,
     ) -> ProviderHTTPRequest | None:
-        del credentials, request
         payload = _load_request_body(outbound_request)
         rewritten = payload
         if (
@@ -1258,12 +1318,11 @@ class BedrockAdapter:
             rewritten = _remove_reasoning_effort_from_payload(rewritten)
         if rewritten == payload:
             return None
-        return ProviderHTTPRequest(
-            method=outbound_request.method,
+        return _signed_bedrock_request(
+            request=request,
+            credentials=credentials,
             url=outbound_request.url,
-            headers=outbound_request.headers,
             body=_json_bytes(rewritten),
-            stream=outbound_request.stream,
         )
 
     async def stream_anthropic(

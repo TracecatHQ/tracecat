@@ -1055,6 +1055,49 @@ def test_bedrock_request_normalizes_system_tools_and_inference_config() -> None:
     }
 
 
+def test_bedrock_request_assumes_role_and_uses_inference_profile_id(mocker) -> None:
+    request = _base_request(
+        provider="bedrock",
+        model="bedrock",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+    )
+    sts_client = mocker.MagicMock()
+    sts_client.assume_role.return_value = {
+        "Credentials": {
+            "AccessKeyId": "assumed-access",
+            "SecretAccessKey": "assumed-secret",
+            "SessionToken": "assumed-token",
+        }
+    }
+    session = mocker.MagicMock()
+    session.client.return_value = sts_client
+    mocker.patch.object(provider_bedrock.boto3, "Session", return_value=session)
+
+    request_http = BedrockAdapter().prepare_request(
+        request,
+        {
+            "AWS_REGION": "us-east-1",
+            "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+            "AWS_ROLE_SESSION_NAME": "customer-session",
+            "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+            "TRACECAT_AWS_EXTERNAL_ID": "tracecat-ws-deadbeef",
+        },
+    )
+
+    sts_client.assume_role.assert_called_once_with(
+        RoleArn="arn:aws:iam::123456789012:role/customer-role",
+        RoleSessionName="customer-session",
+        ExternalId="tracecat-ws-deadbeef",
+    )
+    assert request_http.url.endswith(
+        "/model/us.anthropic.claude-sonnet-4-20250514-v1%3A0/converse"
+    )
+    assert request_http.headers["Authorization"].startswith(
+        "AWS4-HMAC-SHA256 Credential=assumed-access/"
+    )
+    assert request_http.headers["X-Amz-Security-Token"] == "assumed-token"
+
+
 def test_bedrock_request_uses_resolved_claude_target_for_reasoning_translation() -> (
     None
 ):
@@ -1683,6 +1726,70 @@ async def test_bedrock_prepare_retry_request_drops_thinking_on_tool_use_reasonin
 
     assert retried is not None
     assert retried.body is not None
+    retried_payload = orjson.loads(retried.body)
+    assert "additionalModelRequestFields" not in retried_payload
+
+
+def test_bedrock_prepare_retry_request_resigns_assumed_role_requests(mocker) -> None:
+    request = _base_request(
+        provider="bedrock",
+        model="bedrock",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+    )
+    sts_client = mocker.MagicMock()
+    sts_client.assume_role.return_value = {
+        "Credentials": {
+            "AccessKeyId": "assumed-access",
+            "SecretAccessKey": "assumed-secret",
+            "SessionToken": "assumed-token",
+        }
+    }
+    session = mocker.MagicMock()
+    session.client.return_value = sts_client
+    mocker.patch.object(provider_bedrock.boto3, "Session", return_value=session)
+
+    outbound = ProviderHTTPRequest(
+        method="POST",
+        url="https://bedrock.invalid/model/bedrock/converse",
+        headers={"Authorization": "stale", "Content-Type": "application/json"},
+        body=orjson.dumps(
+            {
+                "messages": [{"role": "user", "content": [{"text": "hello"}]}],
+                "additionalModelRequestFields": {
+                    "thinking": {"type": "enabled", "budget_tokens": 2048}
+                },
+            }
+        ),
+        stream=False,
+    )
+    response = httpx.Response(
+        400,
+        request=httpx.Request("POST", outbound.url),
+        content=(
+            b"ValidationException: Expected thinking or redacted_thinking, but found tool_use"
+        ),
+    )
+
+    retried = BedrockAdapter().prepare_retry_request(
+        response=response,
+        request=request,
+        credentials={
+            "AWS_REGION": "us-east-1",
+            "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+            "AWS_ROLE_SESSION_NAME": "customer-session",
+            "TRACECAT_AWS_EXTERNAL_ID": "tracecat-ws-deadbeef",
+            "AWS_MODEL_ID": "bedrock",
+        },
+        outbound_request=outbound,
+    )
+
+    assert retried is not None
+    assert retried.body is not None
+    assert retried.headers["Authorization"].startswith(
+        "AWS4-HMAC-SHA256 Credential=assumed-access/"
+    )
+    assert retried.headers["Authorization"] != "stale"
+    assert retried.headers["X-Amz-Security-Token"] == "assumed-token"
     retried_payload = orjson.loads(retried.body)
     assert "additionalModelRequestFields" not in retried_payload
 
