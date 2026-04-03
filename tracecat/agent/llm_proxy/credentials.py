@@ -8,6 +8,7 @@ from typing import Any, Protocol
 from aiocache import Cache, cached
 
 from tracecat import config
+from tracecat.agent.llm_proxy.provider_bedrock import assume_bedrock_aws_role
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -74,7 +75,11 @@ async def _resolve_credentials_cached(
     *,
     service_id: InternalServiceID = "tracecat-llm-gateway",
 ) -> dict[str, str] | None:
-    """Resolve credentials through AgentManagementService with aiocache TTL."""
+    """Resolve credentials through AgentManagementService with aiocache TTL.
+
+    For Bedrock with AWS_ROLE_ARN, assumes the role and returns credentials
+    with the assumed role's access key, secret key, and session token.
+    """
     role = Role(
         type="service",
         user_id=None,
@@ -84,10 +89,15 @@ async def _resolve_credentials_cached(
         scopes=SERVICE_PRINCIPAL_SCOPES[service_id],
     )
     async with AgentManagementService.with_session(role=role) as service:
-        return await service.get_runtime_provider_credentials(
+        creds = await service.get_runtime_provider_credentials(
             provider,
             use_workspace_credentials=use_workspace_credentials,
         )
+    # For Bedrock, resolve role assumption upfront so prepare_request stays sync
+    if provider == "bedrock":
+        creds = await assume_bedrock_aws_role(creds or {})
+
+    return creds
 
 
 @dataclass(slots=True)
