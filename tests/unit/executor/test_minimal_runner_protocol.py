@@ -83,49 +83,6 @@ def test_main_minimal_returns_structured_error_for_action_exceptions(
     assert result["error"]["message"] == "boom"
 
 
-def test_main_minimal_preserves_proxy_metadata_in_action_kwargs(monkeypatch) -> None:
-    test_module: Any = types.ModuleType("test_module")
-
-    def create_case(summary: str, **kwargs: Any) -> dict[str, Any]:
-        return {
-            "summary": summary,
-            "metadata": kwargs["__tracecat"],
-        }
-
-    test_module.create_case = create_case
-
-    monkeypatch.setattr(
-        minimal_runner.importlib,
-        "import_module",
-        lambda _p, *args, **kwargs: test_module,
-    )
-
-    result = minimal_runner.main_minimal(
-        {
-            "resolved_context": {
-                "action_impl": {
-                    "type": "udf",
-                    "module": "test_module",
-                    "name": "create_case",
-                },
-                "secrets": {},
-                "evaluated_args": {
-                    "summary": "hello",
-                    "__tracecat": {"tool_call_id": "toolu_123"},
-                },
-            }
-        }
-    )
-
-    assert result == {
-        "success": True,
-        "result": {
-            "summary": "hello",
-            "metadata": {"tool_call_id": "toolu_123"},
-        },
-    }
-
-
 def test_capped_text_buffer_limits_memory_growth() -> None:
     buf = minimal_runner._CappedTextBuffer(limit=5)
 

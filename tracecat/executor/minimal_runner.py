@@ -20,7 +20,7 @@ import sys
 import warnings
 from collections.abc import Mapping
 from types import ModuleType
-from typing import Any, TextIO, cast
+from typing import Any
 
 # Only import what we absolutely need - no tracecat imports!
 # Prefer orjson for performance (4-12x faster), fall back to stdlib json
@@ -410,8 +410,8 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         action_stdout = _CappedTextBuffer(_CAPTURED_OUTPUT_CHAR_LIMIT)
         action_stderr = _CappedTextBuffer(_CAPTURED_OUTPUT_CHAR_LIMIT)
         with (
-            contextlib.redirect_stdout(cast(TextIO, action_stdout)),
-            contextlib.redirect_stderr(cast(TextIO, action_stderr)),
+            contextlib.redirect_stdout(action_stdout),
+            contextlib.redirect_stderr(action_stderr),
         ):
             result = run_action_minimal(action_impl, evaluated_args, secrets)
 
