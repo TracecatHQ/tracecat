@@ -46,8 +46,8 @@ class ClaudeRuntimeBroker:
 
     async def stop(self) -> None:
         """Cancel any remaining active turns and reject future work."""
-        self._closed = True
         async with self._lock:
+            self._closed = True
             active_tasks = list(self._active_turns.values())
         for task in active_tasks:
             task.cancel()
@@ -63,15 +63,14 @@ class ClaudeRuntimeBroker:
         handler: LoopbackHandler,
     ) -> None:
         """Run one Claude turn through the warm broker."""
-        if self._closed:
-            raise RuntimeError("Claude runtime broker is not running")
-
         session_key = str(request.init_payload.session_id)
         current_task = asyncio.current_task()
         if current_task is None:
             raise RuntimeError("Broker turn must run inside an asyncio task")
 
         async with self._lock:
+            if self._closed:
+                raise RuntimeError("Claude runtime broker is not running")
             if session_key in self._active_turns:
                 raise ConcurrentSessionTurnError(
                     f"Session {session_key} already has an active turn"

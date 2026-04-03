@@ -271,7 +271,7 @@ class SandboxedCLITransport(Transport):
         if not command:
             raise CLIConnectionError("Claude command is empty")
 
-        executable = Path(command[0])
+        executable = Path(command[0]).resolve()
         host_site_packages_root = (
             Path(claude_agent_sdk.__file__).resolve().parent.parent
         )

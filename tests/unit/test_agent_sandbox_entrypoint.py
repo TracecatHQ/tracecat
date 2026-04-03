@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 from uuid import uuid4
 
 import orjson
@@ -14,10 +15,13 @@ from tracecat.agent.sandbox.entrypoint import (
     _resolve_init_payload_path,
 )
 from tracecat.agent.sandbox.shim_entrypoint import (
-    _read_init_payload as _read_shim_init_payload,
+    DEFAULT_LLM_SOCKET_PATH,
+    _pump_stdin_to_process,
+    _read_stdin_chunk,
+    _resolve_llm_socket_path,
 )
 from tracecat.agent.sandbox.shim_entrypoint import (
-    _read_stdin_chunk,
+    _read_init_payload as _read_shim_init_payload,
 )
 
 
@@ -81,6 +85,14 @@ def test_read_stdin_chunk_uses_os_read(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured == {"fd": 42, "chunk_size": 65536}
 
 
+def test_resolve_llm_socket_path_falls_back_on_empty_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRACECAT__AGENT_LLM_SOCKET_PATH", "")
+
+    assert _resolve_llm_socket_path() == Path(DEFAULT_LLM_SOCKET_PATH)
+
+
 @pytest.mark.anyio
 async def test_read_shim_init_payload_validates_shape(tmp_path: Path) -> None:
     init_path = tmp_path / "shim-init.json"
@@ -101,3 +113,55 @@ async def test_read_shim_init_payload_validates_shape(tmp_path: Path) -> None:
         "env": {"HOME": "/work/claude-home"},
         "cwd": "/work/claude-project",
     }
+
+
+class _FakeStreamWriter:
+    def __init__(self, *, fail_after_write: bool = False) -> None:
+        self.fail_after_write = fail_after_write
+        self.writes: list[bytes] = []
+        self.closed = False
+
+    def write(self, data: bytes) -> None:
+        self.writes.append(data)
+
+    async def drain(self) -> None:
+        if self.fail_after_write:
+            raise BrokenPipeError
+
+    def close(self) -> None:
+        self.closed = True
+
+    async def wait_closed(self) -> None:
+        return None
+
+
+class _FakeLoop:
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = iter(chunks)
+
+    async def run_in_executor(
+        self,
+        _executor: object,
+        fn: object,
+        chunk_size: int,
+    ) -> bytes:
+        assert fn is _read_stdin_chunk
+        assert chunk_size == 65536
+        return next(self._chunks)
+
+
+@pytest.mark.anyio
+async def test_pump_stdin_to_process_suppresses_broken_pipe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loop = _FakeLoop([b"hello", b""])
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.shim_entrypoint.asyncio.get_running_loop",
+        lambda: loop,
+    )
+    writer = _FakeStreamWriter(fail_after_write=True)
+
+    await _pump_stdin_to_process(cast(Any, writer))
+
+    assert writer.writes == [b"hello"]
+    assert writer.closed is True
