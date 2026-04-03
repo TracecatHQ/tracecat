@@ -210,7 +210,20 @@ async def _handle_authorize(
     ip_hash = _hash_ip(request)
 
     # --- Session resolution ---
-    session_result = await resolve_authorize_session(request, user)
+    try:
+        session_result = await resolve_authorize_session(request, user)
+    except ValueError as exc:
+        # Regular users with zero or multiple org memberships land here.
+        logger.warning(
+            "MCP OIDC: session resolution failed",
+            error=str(exc),
+            client_ip=_get_client_ip(request),
+        )
+        return _error_response(
+            "access_denied",
+            str(exc),
+            status_code=403,
+        )
 
     if isinstance(session_result, SessionNeedsAction):
         # Store authorize params for replay after login/org-selection.
