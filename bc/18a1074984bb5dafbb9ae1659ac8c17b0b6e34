@@ -1,0 +1,31 @@
+tests/unit/test_agent_executor_loopback.py
+  30acac10e131edca 53
+tracecat/agent/executor/activity.py
+  30acac10e131edca 281-286,374,390,393-394,406-619,621,623-678
+tracecat/agent/sandbox/shim_entrypoint.py
+  30acac10e131edca 10,54,57,145,149-153
+tracecat/agent/executor/loopback.py
+  30acac10e131edca 277,281-285,372-373,380,387-392,395-397,400,403-404,415-540
+tracecat/agent/runtime/claude_code/broker.py
+  30acac10e131edca 12,14,104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "bc18a1074984bb5dafbb9ae1659ac8c17b0b6e34",
+  "prompts": {
+    "30acac10e131edca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d50ec-a6ca-7a60-96f8-5f41d29df1ad",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 445,
+      "total_deletions": 511,
+      "accepted_lines": 443,
+      "overriden_lines": 1
+    }
+  }
+}
