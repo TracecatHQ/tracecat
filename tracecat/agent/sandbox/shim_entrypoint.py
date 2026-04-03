@@ -6,9 +6,8 @@ import asyncio
 import contextlib
 import os
 import sys
-from collections.abc import Buffer
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, BinaryIO
 
 import orjson
 
@@ -19,14 +18,6 @@ from tracecat.logger import logger
 
 if TYPE_CHECKING:
     from tracecat.agent.runtime.claude_code.transport import ClaudeShimInitPayload
-
-
-class BinaryDestination(Protocol):
-    """Protocol for a writable binary destination (e.g. sys.stdout.buffer)."""
-
-    def write(self, data: Buffer, /) -> int: ...
-    def flush(self) -> None: ...
-    def close(self) -> None: ...
 
 
 async def run_sandboxed_claude_shim() -> None:
@@ -60,10 +51,10 @@ async def run_sandboxed_claude_shim() -> None:
             raise RuntimeError("Claude subprocess stdio pipes were not created")
 
         stdout_task = asyncio.create_task(
-            _pump_stream(process.stdout, sys.stdout.buffer, close_destination=False)
+            _pump_stream(process.stdout, sys.stdout.buffer)
         )
         stderr_task = asyncio.create_task(
-            _pump_stream(process.stderr, sys.stderr.buffer, close_destination=False)
+            _pump_stream(process.stderr, sys.stderr.buffer)
         )
 
         await _pump_stdin_to_process(process.stdin)
@@ -151,20 +142,15 @@ def _read_stdin_chunk(chunk_size: int) -> bytes:
 
 async def _pump_stream(
     reader: asyncio.StreamReader,
-    destination: BinaryDestination,
-    *,
-    close_destination: bool = True,
+    destination: BinaryIO,
 ) -> None:
     """Pump bytes from a subprocess pipe to a binary destination."""
     loop = asyncio.get_running_loop()
-    try:
-        while chunk := await reader.read(65536):
-            await loop.run_in_executor(None, destination.write, chunk)
-            if flush := getattr(destination, "flush", None):
-                await loop.run_in_executor(None, flush)
-    finally:
-        if close_destination and (close := getattr(destination, "close", None)):
-            await loop.run_in_executor(None, close)
+    writer = destination.write
+    flush = destination.flush
+    while chunk := await reader.read(65536):
+        await loop.run_in_executor(None, writer, chunk)
+        await loop.run_in_executor(None, flush)
 
 
 def main() -> None:

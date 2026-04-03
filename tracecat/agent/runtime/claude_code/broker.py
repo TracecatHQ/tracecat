@@ -7,79 +7,16 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Any
 
 from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
-from tracecat.agent.common.protocol import RuntimeEventEnvelope, RuntimeInitPayload
-from tracecat.agent.common.stream_types import UnifiedStreamEvent
+from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.executor.loopback import LoopbackHandler
-from tracecat.agent.runtime.claude_code.runtime import (
-    ClaudeAgentRuntime,
-    RuntimeEventWriter,
-)
+from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
 from tracecat.agent.runtime.claude_code.transport import (
     ClaudeSandboxPathMapping,
     SandboxedCLITransport,
 )
 from tracecat.logger import logger
-
-
-class LoopbackEnvelopeWriter(RuntimeEventWriter):
-    """Adapter that wraps a LoopbackHandler as a RuntimeEventWriter.
-
-    Constructs RuntimeEventEnvelope objects and passes them to the
-    handler for dispatch.
-    """
-
-    def __init__(self, handler: LoopbackHandler) -> None:
-        self._handler = handler
-
-    async def send_stream_event(self, event: UnifiedStreamEvent) -> None:
-        """Send a unified stream event."""
-        await self._handler.process_envelope(
-            RuntimeEventEnvelope.from_stream_event(event)
-        )
-
-    async def send_session_line(
-        self, sdk_session_id: str, line: str, *, internal: bool = False
-    ) -> None:
-        """Send a raw Claude session line."""
-        await self._handler.process_envelope(
-            RuntimeEventEnvelope.from_session_line(
-                sdk_session_id, line, internal=internal
-            )
-        )
-
-    async def send_result(
-        self,
-        usage: dict[str, Any] | None = None,
-        num_turns: int | None = None,
-        duration_ms: int | None = None,
-        output: Any = None,
-    ) -> None:
-        """Send the final Claude result."""
-        await self._handler.process_envelope(
-            RuntimeEventEnvelope.from_result(
-                usage=usage,
-                num_turns=num_turns,
-                duration_ms=duration_ms,
-                output=output,
-            )
-        )
-
-    async def send_error(self, error: str) -> None:
-        """Send a terminal runtime error."""
-        await self._handler.process_envelope(RuntimeEventEnvelope.from_error(error))
-
-    async def send_done(self) -> None:
-        """Signal that the runtime turn is complete."""
-        await self._handler.process_envelope(RuntimeEventEnvelope.done())
-
-    async def send_log(self, level: str, message: str, **extra: object) -> None:
-        """Send a structured runtime log event."""
-        await self._handler.process_envelope(
-            RuntimeEventEnvelope.from_log(level, message, dict(extra) or None)
-        )
 
 
 class ConcurrentSessionTurnError(RuntimeError):
@@ -163,9 +100,8 @@ class ClaudeRuntimeBroker:
             path_mapping = self._build_path_mapping(
                 session_id=str(request.init_payload.session_id)
             )
-            writer = LoopbackEnvelopeWriter(handler)
             runtime = ClaudeAgentRuntime(
-                writer,
+                handler,
                 transport_factory=lambda options: SandboxedCLITransport(
                     options=options,
                     socket_dir=request.socket_dir,
