@@ -8,6 +8,7 @@ from jwt import PyJWTError
 from pydantic import BaseModel, ValidationError
 
 from tracecat import config
+from tracecat.auth.secrets import get_service_key
 from tracecat.identifiers import InternalServiceID, UserID, WorkspaceID
 
 EXECUTOR_TOKEN_ISSUER = "tracecat-executor"
@@ -60,7 +61,7 @@ def mint_executor_token(
         "wf_exec_id": wf_exec_id,
     }
 
-    return jwt.encode(payload, config.require_service_key(), algorithm="HS256")
+    return jwt.encode(payload, get_service_key(), algorithm="HS256")
 
 
 def verify_executor_token(token: str) -> ExecutorTokenPayload:
@@ -72,7 +73,7 @@ def verify_executor_token(token: str) -> ExecutorTokenPayload:
     try:
         payload = jwt.decode(
             token,
-            config.require_service_key(),
+            get_service_key(),
             algorithms=["HS256"],
             audience=EXECUTOR_TOKEN_AUDIENCE,
             issuer=EXECUTOR_TOKEN_ISSUER,

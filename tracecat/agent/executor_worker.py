@@ -66,8 +66,6 @@ async def _stop_runtime_services() -> None:
 
 async def main() -> None:
     """Run the AgentExecutorWorker."""
-    config.validate_required_secrets()
-
     global runtime_failure_reason
     interrupt_event.clear()
     runtime_failure_reason = None

@@ -102,8 +102,6 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 
 async def main() -> None:
     """Run the ExecutorWorker."""
-    config.validate_required_secrets()
-
     # Get configuration
     task_queue = config.TRACECAT__EXECUTOR_QUEUE
     max_concurrent = int(

@@ -10,7 +10,6 @@ import importlib
 import sys
 import time
 
-from tracecat import config
 from tracecat.logger import logger
 from tracecat.mcp.config import (
     TRACECAT_MCP__HOST,
@@ -34,8 +33,6 @@ def _run_mcp_server() -> None:
 
 def main() -> None:
     """Start the MCP server with bounded startup retries."""
-    config.validate_required_secrets()
-
     max_attempts = max(TRACECAT_MCP__STARTUP_MAX_ATTEMPTS, 1)
     for attempt in range(1, max_attempts + 1):
         try:

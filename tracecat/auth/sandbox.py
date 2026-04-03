@@ -7,7 +7,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from types import TracebackType
 from typing import Any, Self
 
-from tracecat import config
+from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import BaseSecret
@@ -44,7 +44,7 @@ class AuthSandbox:
         self._context: dict[str, Any] = {}
         self._environment = environment
         self._optional_secrets = set(optional_secrets or [])
-        self._encryption_key = config.require_db_encryption_key()
+        self._encryption_key = get_db_encryption_key()
 
     def __enter__(self) -> Self:
         if self._secret_paths:

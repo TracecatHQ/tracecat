@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.auth.executor_tokens import verify_executor_token
+from tracecat.auth.secrets import get_service_key
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import (
     current_active_user,
@@ -244,7 +245,7 @@ async def _authenticate_service(
         msg = f"x-tracecat-role-service-id {service_role_id!r} invalid or not allowed"
         logger.error(msg)
         raise HTTP_EXC(msg)
-    if not secrets.compare_digest(api_key, config.require_service_key()):
+    if not secrets.compare_digest(api_key, get_service_key()):
         logger.error("Could not validate service key")
         raise CREDENTIALS_EXCEPTION
     user_id = (

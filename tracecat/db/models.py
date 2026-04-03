@@ -48,6 +48,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.auth.schemas import UserRole
+from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScopeSource
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
@@ -1004,9 +1005,7 @@ class Webhook(WorkspaceModel):
     def secret(self) -> str:
         # Using legacy format to prevent webhook url changes
         id_part = f"wh-{self.id.hex}"
-        return hashlib.sha256(
-            f"{id_part}{config.require_signing_secret()}".encode()
-        ).hexdigest()
+        return hashlib.sha256(f"{id_part}{get_signing_secret()}".encode()).hexdigest()
 
     @property
     def url(self) -> str:

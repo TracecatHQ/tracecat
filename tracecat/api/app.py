@@ -153,8 +153,6 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    config.validate_api_secrets()
-
     # Temporal
     # Run in background to avoid blocking startup
     asyncio.create_task(add_temporal_search_attributes())
@@ -537,9 +535,9 @@ def create_app(**kwargs) -> FastAPI:
             fastapi_users.get_oauth_router(
                 oauth_client,
                 auth_backend,
-                # USER_AUTH_SECRET is validated at startup by
-                # validate_api_secrets(). The fallback allows create_app() to
-                # run without secrets for OpenAPI generation.
+                # The or "" fallback allows create_app() to run without
+                # secrets for OpenAPI generation. At runtime, UserManager.__init__
+                # calls get_user_auth_secret() which raises if not set.
                 config.USER_AUTH_SECRET or "",
                 # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
                 associate_by_email=True,

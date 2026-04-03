@@ -5,9 +5,9 @@ from typing import Any
 import httpx
 
 from tracecat import config
+from tracecat.auth.secrets import get_service_key
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import TracecatCredentialsError
 
 
 class AuthenticatedServiceClient(httpx.AsyncClient):
@@ -30,12 +30,7 @@ class AuthenticatedServiceClient(httpx.AsyncClient):
                 service_id="tracecat-service",
             )
         self.role: Role = resolved_role
-        service_key = config.TRACECAT__SERVICE_KEY
-        if not service_key:
-            raise TracecatCredentialsError(
-                "TRACECAT__SERVICE_KEY environment variable not set"
-            )
-        self.headers["x-tracecat-service-key"] = service_key
+        self.headers["x-tracecat-service-key"] = get_service_key()
         self.headers.update(self.role.to_headers())
 
 

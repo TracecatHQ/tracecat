@@ -12,7 +12,7 @@ from pydantic import SecretStr
 from slugify import slugify
 from sqlalchemy import and_, or_, select, update
 
-from tracecat import config
+from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
@@ -286,7 +286,7 @@ class IntegrationService(BaseWorkspaceService):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._encryption_key = config.require_db_encryption_key()
+        self._encryption_key = get_db_encryption_key()
 
     async def get_integration(
         self,

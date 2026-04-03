@@ -85,8 +85,6 @@ def get_activities() -> list[Callable[..., object]]:
 
 async def main() -> None:
     """Run the AgentWorker."""
-    config.validate_required_secrets()
-
     max_concurrent = int(
         os.environ.get("TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES", 100)
     )
