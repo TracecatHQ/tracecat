@@ -222,6 +222,11 @@ def build_agent_nsjail_config(
     tracecat_pkg_dir: Path,
     llm_socket_path: Path | None,
     *,
+    entrypoint_module: str = "tracecat.agent.sandbox.entrypoint",
+    mount_control_socket: bool = True,
+    control_socket_path: Path | None = None,
+    session_home_dir: Path | None = None,
+    session_project_dir: Path | None = None,
     enable_internet_access: bool = False,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
@@ -237,6 +242,12 @@ def build_agent_nsjail_config(
             Only specific subdirectories are mounted for minimal cold start.
         llm_socket_path: Optional path to the LLM socket for proxied LLM gateway
             access.
+        mount_control_socket: Whether to mount the per-job control socket into the
+            jail. Legacy runtime mode requires this; brokered shim mode does not.
+        control_socket_path: Optional explicit control socket path. When omitted
+            and mount_control_socket is True, defaults to socket_dir/control.sock.
+        session_home_dir: Optional host directory mounted as the jailed Claude home.
+        session_project_dir: Optional host directory mounted as the jailed project.
         enable_internet_access: If True, disables network isolation to allow
             direct internet access. Required for MCP stdio servers that need
             to call external APIs. Default is False (network isolated).
@@ -260,9 +271,20 @@ def build_agent_nsjail_config(
     if llm_socket_path is not None:
         _validate_path(llm_socket_path, "llm_socket_path")
 
-    # Derive control socket path from socket_dir using well-known name
-    control_socket_path = socket_dir / CONTROL_SOCKET_NAME
-    _validate_path(control_socket_path, "control_socket_path")
+    # Derive control socket path from socket_dir using well-known name when enabled.
+    resolved_control_socket_path: Path | None
+    if mount_control_socket:
+        resolved_control_socket_path = control_socket_path or (
+            socket_dir / CONTROL_SOCKET_NAME
+        )
+    else:
+        resolved_control_socket_path = None
+    if resolved_control_socket_path is not None:
+        _validate_path(resolved_control_socket_path, "control_socket_path")
+    if session_home_dir is not None:
+        _validate_path(session_home_dir, "session_home_dir")
+    if session_project_dir is not None:
+        _validate_path(session_project_dir, "session_project_dir")
     # TRUSTED_MCP_SOCKET_PATH and JAILED_LLM_SOCKET_PATH are constants, no validation needed
 
     # Network behavior:
@@ -369,12 +391,19 @@ def build_agent_nsjail_config(
             "# Trusted MCP socket (read-only, shared across jobs)",
             f'mount {{ src: "{TRUSTED_MCP_SOCKET_PATH.parent}" dst: "/var/run/tracecat" is_bind: true rw: false }}',
             "",
-            "# Per-job control socket",
-            f'mount {{ src: "{control_socket_path}" dst: "{JAILED_CONTROL_SOCKET_PATH}" is_bind: true rw: false }}',
             "# Agent home directory with Claude SDK session storage",
             'mount { dst: "/home/agent" fstype: "tmpfs" rw: true options: "size=128M" }',
         ]
     )
+
+    if resolved_control_socket_path is not None:
+        lines.extend(
+            [
+                "",
+                "# Per-job control socket",
+                f'mount {{ src: "{resolved_control_socket_path}" dst: "{JAILED_CONTROL_SOCKET_PATH}" is_bind: true rw: false }}',
+            ]
+        )
 
     if llm_socket_path is not None:
         lines.extend(
@@ -382,6 +411,16 @@ def build_agent_nsjail_config(
                 "",
                 "# Per-job LLM socket (proxied to LLM gateway on host)",
                 f'mount {{ src: "{llm_socket_path}" dst: "{JAILED_LLM_SOCKET_PATH}" is_bind: true rw: false }}',
+            ]
+        )
+
+    if session_home_dir is not None and session_project_dir is not None:
+        lines.extend(
+            [
+                "",
+                "# Stable Claude session directories shared across jailed turns",
+                f'mount {{ src: "{session_home_dir}" dst: "/work/claude-home" is_bind: true rw: true }}',
+                f'mount {{ src: "{session_project_dir}" dst: "/work/claude-project" is_bind: true rw: true }}',
             ]
         )
 
@@ -406,7 +445,7 @@ def build_agent_nsjail_config(
             "",
             "# Execution - agent runtime entrypoint module",
             'cwd: "/work"',
-            'exec_bin { path: "/usr/local/bin/python3" arg: "-m" arg: "tracecat.agent.sandbox.entrypoint" }',
+            f'exec_bin {{ path: "/usr/local/bin/python3" arg: "-m" arg: "{entrypoint_module}" }}',
         ]
     )
 

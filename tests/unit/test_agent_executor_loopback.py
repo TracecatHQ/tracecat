@@ -9,6 +9,7 @@ from uuid import UUID
 import orjson
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
+from temporalio.converter import value_to_type
 
 from tracecat.agent.common.protocol import RuntimeEventEnvelope
 from tracecat.agent.common.socket_io import MessageType, build_message
@@ -20,6 +21,17 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
 )
 from tracecat.agent.types import AgentConfig
+
+
+def _make_agent_config() -> AgentConfig:
+    return value_to_type(
+        AgentConfig,
+        {
+            "model_name": "claude-3-5-sonnet-20241022",
+            "model_provider": "anthropic",
+            "instructions": "test",
+        },
+    )
 
 
 class _FakeStream:
@@ -54,11 +66,8 @@ def loopback_input(tmp_path: Path) -> LoopbackInput:
     return LoopbackInput(
         session_id=uuid.uuid4(),
         workspace_id=uuid.uuid4(),
-        user_prompt="Investigate runtime crash",
-        config=AgentConfig(
-            model_name="claude-3-5-sonnet-20241022",
-            model_provider="anthropic",
-        ),
+        user_prompt="test prompt",
+        config=_make_agent_config(),
         mcp_auth_token="mcp-token",
         llm_gateway_auth_token="llm-token",
         socket_dir=tmp_path,
@@ -189,11 +198,8 @@ def _make_handler() -> LoopbackHandler:
         input=LoopbackInput(
             session_id=UUID("00000000-0000-0000-0000-000000000001"),
             workspace_id=UUID("00000000-0000-0000-0000-000000000002"),
-            user_prompt="hi",
-            config=AgentConfig(
-                model_name="claude-3-7-sonnet",
-                model_provider="anthropic",
-            ),
+            user_prompt="test",
+            config=_make_agent_config(),
             mcp_auth_token="mcp-token",
             llm_gateway_auth_token="llm-token",
             socket_dir=Path("/tmp"),
