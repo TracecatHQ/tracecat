@@ -403,19 +403,6 @@ async def token(
             status_code=415,
         )
 
-    # --- Rate limiting ---
-    client_ip = _get_client_ip(request)
-    if not await check_token_rate_limit(client_ip):
-        logger.warning(
-            "MCP OIDC: token rate limit exceeded",
-            client_ip=client_ip,
-        )
-        return _error_response(
-            "invalid_request",
-            "Rate limit exceeded",
-            status_code=429,
-        )
-
     # --- Grant type ---
     if grant_type != "authorization_code":
         return _error_response(
@@ -440,6 +427,7 @@ async def token(
         auth_client_secret.encode("utf-8"),
         expected_secret.encode("utf-8"),
     ):
+        client_ip = _get_client_ip(request)
         logger.warning(
             "MCP OIDC: invalid client secret",
             client_ip=client_ip,
@@ -450,9 +438,25 @@ async def token(
             status_code=401,
         )
 
+    # --- Rate limiting (per-client, after authentication) ---
+    # Keyed by client_id rather than IP because the token exchange is
+    # server-to-server from the MCP container — all end users share one
+    # source IP per MCP instance.
+    if not await check_token_rate_limit(auth_client_id):
+        logger.warning(
+            "MCP OIDC: token rate limit exceeded",
+            client_id=auth_client_id,
+        )
+        return _error_response(
+            "invalid_request",
+            "Rate limit exceeded",
+            status_code=429,
+        )
+
     # --- Load and validate auth code ---
     code_data = await load_and_delete_auth_code(code)
     if code_data is None:
+        client_ip = _get_client_ip(request)
         logger.warning(
             "MCP OIDC: unknown or reused auth code",
             client_ip=client_ip,
@@ -531,7 +535,7 @@ async def token(
         user_id=str(code_data.user_id),
         organization_id=str(code_data.organization_id),
         jti=jti,
-        client_ip=client_ip,
+        client_id=auth_client_id,
     )
 
     return JSONResponse(

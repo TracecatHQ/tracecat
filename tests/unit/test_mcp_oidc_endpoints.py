@@ -405,7 +405,16 @@ async def test_token_rate_limits(
         AsyncMock(return_value=False),
     )
 
-    response = client.post("/token", data=_token_form())
+    # Rate limit check runs after client authentication, so valid
+    # credentials are required to reach it.
+    secret = oidc_config.get_internal_client_secret()
+    response = client.post(
+        "/token",
+        data=_token_form(
+            client_id=oidc_config.INTERNAL_CLIENT_ID,
+            client_secret=secret,
+        ),
+    )
 
     assert response.status_code == 429
 
