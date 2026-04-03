@@ -192,131 +192,133 @@ docker stack services tracecat
 
 ## FAQ
 
-### What services are started by docker-compose.yml?
+<AccordionGroup>
+  <Accordion title="What services are started by docker-compose.yml?">
+    The stack runs 15 containers grouped into application and infrastructure services.
 
-The stack runs 15 containers grouped into application and infrastructure services.
+    **Application services:**
 
-**Application services:**
+    - `caddy` — Reverse proxy that routes traffic to the UI, API, and MCP
+    - `api` — FastAPI backend (port 8000)
+    - `ui` — Next.js frontend (port 3000)
+    - `worker` — Workflow orchestrator (Temporal worker)
+    - `executor` — Action executor with optional sandbox isolation
+    - `agent-worker` — AI agent orchestrator
+    - `agent-executor` — AI agent executor with LLM gateway support
+    - `mcp` — Model Context Protocol server (port 8099)
 
-- `caddy` — Reverse proxy that routes traffic to the UI, API, and MCP
-- `api` — FastAPI backend (port 8000)
-- `ui` — Next.js frontend (port 3000)
-- `worker` — Workflow orchestrator (Temporal worker)
-- `executor` — Action executor with optional sandbox isolation
-- `agent-worker` — AI agent orchestrator
-- `agent-executor` — AI agent executor with LLM gateway support
-- `mcp` — Model Context Protocol server (port 8099)
+    **Infrastructure services:**
 
-**Infrastructure services:**
+    - `postgres_db` — PostgreSQL 16 (application database)
+    - `temporal` — Temporal workflow engine (auto-setup)
+    - `temporal_postgres_db` — PostgreSQL 13 (Temporal database)
+    - `temporal_ui` — Temporal web UI (not exposed by default)
+    - `minio` — S3-compatible object storage
+    - `redis` — Cache and task queue
+    - `migrations` — One-shot database migration runner (exits after completion)
+  </Accordion>
 
-- `postgres_db` — PostgreSQL 16 (application database)
-- `temporal` — Temporal workflow engine (auto-setup)
-- `temporal_postgres_db` — PostgreSQL 13 (Temporal database)
-- `temporal_ui` — Temporal web UI (not exposed by default)
-- `minio` — S3-compatible object storage
-- `redis` — Cache and task queue
-- `migrations` — One-shot database migration runner (exits after completion)
+  <Accordion title="Does Docker Compose support Tracecat MCP?">
+    Yes. Tracecat uses [Dex](https://github.com/dexidp/dex) as a built-in OIDC provider for MCP.
+    Dex is shipped with the Tracecat Docker Compose stack.
 
-### Does Docker Compose support Tracecat MCP?
+    Seek assistance in our [#help-chat](https://discord.gg/3W3BMe85q6) channel if you encounter any issues.
+  </Accordion>
 
-Yes. Tracecat uses [Dex](https://github.com/dexidp/dex) as a built-in OIDC provider for MCP.
-Dex is shipped with the Tracecat Docker Compose stack.
+  <Accordion title="Does Tracecat support Windows?">
+    Yes but don't forget to set `PUBLIC_APP_URL` to `127.0.0.1` instead of `localhost` in your `.env` file.
+  </Accordion>
 
-Seek assistance in our [#help-chat](https://discord.gg/3W3BMe85q6) channel if you encounter any issues.
+  <Accordion title="Does Tracecat support WSL?">
+    Yes but you'll need to set `PUBLIC_APP_URL` to the WSL IP address instead of `localhost`.
+    Run `ip addr` to find your WSL IP address (usually 172.x.x.x).
+  </Accordion>
 
-### Does Tracecat support Windows?
+  <Accordion title="I can see the landing page but not the login page">
+    This suggests that the Tracecat UI is healthy but is unable to communicate with the Tracecat API.
 
-Yes but don't forget to set `PUBLIC_APP_URL` to `127.0.0.1` instead of `localhost` in your `.env` file.
+    - Check that the `api` service is healthy
+    - Check that this is not a CORS issue (see next FAQ)
+    - Check that you changed `PUBLIC_APP_URL` and `PUBLIC_APP_PORT` to the correct address
+    - Check the Chrome developer console for any errors
+  </Accordion>
 
-### Does Tracecat support WSL?
+  <Accordion title="What is the CORS issue?">
+    You must configure `PUBLIC_APP_URL` and `PUBLIC_API_URL` to the same domain that your browser is accessing the Tracecat UI from.
+    Tracecat strictly enforces CORS to prevent XSS attacks.
 
-Yes but you'll need to set `PUBLIC_APP_URL` to the WSL IP address instead of `localhost`.
-Run `ip addr` to find your WSL IP address (usually 172.x.x.x).
+    This error occurs when your browser cannot connect to Tracecat API via `PUBLIC_APP_URL`.
+    Please check the following:
 
-### I can see the landing page but not the login page
+    - Do not set `PUBLIC_APP_URL` to `0.0.0.0`. Browsers cannot connect to this address. Use `localhost`, `127.0.0.1`, or your machine's actual IP address instead.
+    - WSL users: Do not use `127.0.0.1`. Run `ip addr` to find your WSL IP address (usually `172.x.x.x`) and use that instead.
+    - If your frontend is running on a different machine than the API, set `NEXT_PUBLIC_API_URL` to an address your browser can reach.
+    - Run `docker compose ps` to verify all services are running.
+    - Check the temporal service is healthy. Worker connectivity issues can sometimes affect login.
+    - View container logs: `docker compose logs api` and `docker compose logs temporal`.
+    - Check firewall and port forwarding if using a reverse proxy.
 
-This suggests that the Tracecat UI is healthy but is unable to communicate with the Tracecat API.
+    For example, if you've deployed Tracecat into a VM and exposed it to your browser as `https://my-tracecat-instance.com`,
+    you must set:
+    - `PUBLIC_APP_URL` to `https://my-tracecat-instance.com`
+    - `PUBLIC_API_URL` to `https://my-tracecat-instance.com/api`
+  </Accordion>
 
-- Check that the `api` service is healthy
-- Check that this is not a CORS issue (see next FAQ)
-- Check that you changed `PUBLIC_APP_URL` and `PUBLIC_APP_PORT` to the correct address
-- Check the Chrome developer console for any errors
+  <Accordion title="What should PUBLIC_APP_URL and PUBLIC_API_URL be, and how do I fix login or CORS issues?">
+    Set both values to the exact browser-reachable URLs for your deployment, including the scheme:
 
-### What is the CORS issue?
+    - Local example:
+      - `PUBLIC_APP_URL=http://localhost:8000`
+      - `PUBLIC_API_URL=http://localhost:8000/api`
+    - Reverse proxy or public domain example:
+      - `PUBLIC_APP_URL=https://tracecat.example.com`
+      - `PUBLIC_API_URL=https://tracecat.example.com/api`
 
-You must configure `PUBLIC_APP_URL` and `PUBLIC_API_URL` to the same domain that your browser is accessing the Tracecat UI from.
-Tracecat strictly enforces CORS to prevent XSS attacks.
+    Use full URLs once.
+    Do not prepend `http://` or `https://` twice, and do not use addresses that only work inside Docker such as `0.0.0.0` or internal container hostnames.
 
-This error occurs when your browser cannot connect to Tracecat API via `PUBLIC_APP_URL`.
-Please check the following:
+    If sign-in still fails:
 
-- Do not set `PUBLIC_APP_URL` to `0.0.0.0`. Browsers cannot connect to this address. Use `localhost`, `127.0.0.1`, or your machine's actual IP address instead.
-- WSL users: Do not use `127.0.0.1`. Run `ip addr` to find your WSL IP address (usually `172.x.x.x`) and use that instead.
-- If your frontend is running on a different machine than the API, set `NEXT_PUBLIC_API_URL` to an address your browser can reach.
-- Run `docker compose ps` to verify all services are running.
-- Check the temporal service is healthy. Worker connectivity issues can sometimes affect login.
-- View container logs: `docker compose logs api` and `docker compose logs temporal`.
-- Check firewall and port forwarding if using a reverse proxy.
+    - Verify that the domain in your browser exactly matches `PUBLIC_APP_URL`.
+    - Verify that `PUBLIC_API_URL` is the same origin plus `/api`.
+    - Run `docker compose ps` and check that `api`, `worker`, and `temporal` are healthy.
+    - Review `docker compose logs api` for startup, auth, or CORS errors.
+  </Accordion>
 
-For example, if you've deployed Tracecat into a VM and exposed it to your browser as `https://my-tracecat-instance.com`,
-you must set:
-- `PUBLIC_APP_URL` to `https://my-tracecat-instance.com`
-- `PUBLIC_API_URL` to `https://my-tracecat-instance.com/api`
+  <Accordion title="How do I configure SSL for production?">
+    Tracecat ships with [Caddy](https://caddyserver.com/) as a reverse proxy.
+    Caddy automatically provisions and renews TLS certificates from Let's Encrypt when configured with a domain name.
 
-### What should `PUBLIC_APP_URL` and `PUBLIC_API_URL` be, and how do I fix login or CORS issues?
+    <Steps>
+      <Step title="Update environment variables">
+        In your `.env` file, set `BASE_DOMAIN` to your domain and update the public URLs to use HTTPS:
 
-Set both values to the exact browser-reachable URLs for your deployment, including the scheme:
+        ```bash
+        BASE_DOMAIN=tracecat.example.com
+        PUBLIC_APP_URL=https://tracecat.example.com
+        PUBLIC_API_URL=https://tracecat.example.com/api
+        ```
+      </Step>
+      <Step title="Expose ports 80 and 443">
+        Update the `caddy` service ports in your `docker-compose.yml`:
 
-- Local example:
-  - `PUBLIC_APP_URL=http://localhost:8000`
-  - `PUBLIC_API_URL=http://localhost:8000/api`
-- Reverse proxy or public domain example:
-  - `PUBLIC_APP_URL=https://tracecat.example.com`
-  - `PUBLIC_API_URL=https://tracecat.example.com/api`
+        ```yaml
+        services:
+          caddy:
+            ports:
+              - "80:80"
+              - "443:443"
+        ```
 
-Use full URLs once.
-Do not prepend `http://` or `https://` twice, and do not use addresses that only work inside Docker such as `0.0.0.0` or internal container hostnames.
+        Port 80 must remain open for the ACME HTTP-01 challenge. Port 443 serves HTTPS traffic.
+      </Step>
+      <Step title="Restart the stack">
+        ```bash
+        docker compose up -d
+        ```
 
-If sign-in still fails:
-
-- Verify that the domain in your browser exactly matches `PUBLIC_APP_URL`.
-- Verify that `PUBLIC_API_URL` is the same origin plus `/api`.
-- Run `docker compose ps` and check that `api`, `worker`, and `temporal` are healthy.
-- Review `docker compose logs api` for startup, auth, or CORS errors.
-
-### How do I configure SSL for production?
-
-Tracecat ships with [Caddy](https://caddyserver.com/) as a reverse proxy.
-Caddy automatically provisions and renews TLS certificates from Let's Encrypt when configured with a domain name.
-
-<Steps>
-  <Step title="Update environment variables">
-    In your `.env` file, set `BASE_DOMAIN` to your domain and update the public URLs to use HTTPS:
-
-    ```bash
-    BASE_DOMAIN=tracecat.example.com
-    PUBLIC_APP_URL=https://tracecat.example.com
-    PUBLIC_API_URL=https://tracecat.example.com/api
-    ```
-  </Step>
-  <Step title="Expose ports 80 and 443">
-    Update the `caddy` service ports in your `docker-compose.yml`:
-
-    ```yaml
-    services:
-      caddy:
-        ports:
-          - "80:80"
-          - "443:443"
-    ```
-
-    Port 80 must remain open for the ACME HTTP-01 challenge. Port 443 serves HTTPS traffic.
-  </Step>
-  <Step title="Restart the stack">
-    ```bash
-    docker compose up -d
-    ```
-
-    Caddy will automatically obtain and renew certificates on startup.
-  </Step>
-</Steps>
+        Caddy will automatically obtain and renew certificates on startup.
+      </Step>
+    </Steps>
+  </Accordion>
+</AccordionGroup>
