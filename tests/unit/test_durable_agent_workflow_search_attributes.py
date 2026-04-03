@@ -270,3 +270,34 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         == f"{WorkflowUUID.from_uuid(workflow_id).short()}/{ExecutionUUID.from_uuid(execution_id).short()}"
     )
     assert result.run_context.logical_time == logical_time
+
+
+def test_build_approved_tool_run_input_strips_proxy_metadata() -> None:
+    workflow_id = uuid.UUID("00000000-0000-4000-8000-000000000123")
+    run_id = uuid.UUID("00000000-0000-4000-8000-000000000456")
+    execution_id = uuid.UUID("00000000-0000-4000-8000-000000000789")
+    logical_time = datetime(2026, 3, 17, tzinfo=UTC)
+    registry_lock = RegistryLock(
+        origins={"tracecat_registry": "test-version"},
+        actions={"core.cases.create_case": "tracecat_registry"},
+    )
+    tool_call = ApprovedToolCall(
+        tool_call_id="toolu_123",
+        tool_name="mcp__tracecat_registry__core__cases__create_case",
+        args={
+            "summary": "hello",
+            "__tracecat": {"tool_call_id": "toolu_123"},
+        },
+    )
+
+    result = _build_approved_tool_run_input(
+        tool_call=tool_call,
+        registry_lock=registry_lock,
+        workflow_id=workflow_id,
+        run_id=run_id,
+        execution_id=execution_id,
+        logical_time=logical_time,
+    )
+
+    assert result.task.action == "core.cases.create_case"
+    assert result.task.args == {"summary": "hello"}
