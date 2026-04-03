@@ -173,12 +173,14 @@ async def _run_udf(
     # Import the module and get the function
     mod = importlib.import_module(module_path)
     fn = getattr(mod, function_name)
+    sanitized_args = dict(args)
+    sanitized_args.pop("__tracecat", None)
 
     # Check if async and run appropriately
     if asyncio.iscoroutinefunction(fn):
-        return await fn(**args)
+        return await fn(**sanitized_args)
     else:
-        return await asyncio.to_thread(fn, **args)
+        return await asyncio.to_thread(fn, **sanitized_args)
 
 
 def _setup_registry_sdk_context() -> None:

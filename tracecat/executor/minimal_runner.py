@@ -62,6 +62,7 @@ except ImportError:
 _API_URL = os.environ.get("TRACECAT__API_URL", "http://api:8000")
 _CAPTURED_OUTPUT_CHAR_LIMIT = 8192
 _SUPPRESSED_OUTPUT_PREVIEW_CHAR_LIMIT = 500
+_PROXY_TOOL_METADATA_KEY = "__tracecat"
 
 
 class _CappedTextBuffer:
@@ -115,6 +116,13 @@ def _emit_suppressed_output_notice(
         except Exception:
             # Never fail action execution due to telemetry emission issues.
             return None
+
+
+def _sanitize_udf_args(args: Mapping[str, Any]) -> dict[str, Any]:
+    """Remove Tracecat proxy-only metadata before invoking a registry action."""
+    sanitized = dict(args)
+    sanitized.pop(_PROXY_TOOL_METADATA_KEY, None)
+    return sanitized
 
 
 def run_action_minimal(
@@ -266,12 +274,13 @@ async def _run_udf_async(
         # Import the module from tracecat_registry
         mod = importlib.import_module(module_path)
         fn = getattr(mod, function_name)
+        sanitized_args = _sanitize_udf_args(args)
 
         # Use await for async, asyncio.to_thread for sync (doesn't block event loop)
         if asyncio.iscoroutinefunction(fn):
-            return await fn(**args)
+            return await fn(**sanitized_args)
         else:
-            return await asyncio.to_thread(fn, **args)
+            return await asyncio.to_thread(fn, **sanitized_args)
     finally:
         # Reset secrets context to prevent leakage between tasks
         if registry_secrets is not None and secrets_token is not None:
@@ -329,12 +338,13 @@ def _run_udf(
         # Import the module from tracecat_registry
         mod = importlib.import_module(module_path)
         fn = getattr(mod, function_name)
+        sanitized_args = _sanitize_udf_args(args)
 
         # Check if async and run appropriately
         if asyncio.iscoroutinefunction(fn):
-            return asyncio.run(fn(**args))
+            return asyncio.run(fn(**sanitized_args))
         else:
-            return fn(**args)
+            return fn(**sanitized_args)
     finally:
         # Reset secrets context
         if registry_secrets is not None and secrets_token is not None:
