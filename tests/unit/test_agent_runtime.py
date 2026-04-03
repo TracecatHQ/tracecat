@@ -20,6 +20,7 @@ from claude_agent_sdk.types import (
     SyncHookJSONOutput,
 )
 
+from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
@@ -426,6 +427,19 @@ class TestClaudeAgentRuntimeRun:
         assert "mcp__tracecat-registry__execute_tool" in session_text
         assert "mcp__tracecat-registry__core__http_request" in session_text
         assert "mcp__tracecat_registry__" not in session_text
+
+    def test_get_session_file_path_rejects_invalid_sdk_session_id(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Test that invalid persisted session IDs are rejected."""
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        with pytest.raises(
+            AgentSandboxValidationError,
+            match="Invalid sdk_session_id",
+        ):
+            runtime._get_session_file_path("../escape")
 
 
 class TestClaudeAgentRuntimePreToolUseHook:

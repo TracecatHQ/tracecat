@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
@@ -524,3 +525,80 @@ class TestSandboxedAgentExecutorResumeStaging:
         assert (tmp_path / "resume" / "sdk-session-123.jsonl").read_text() == (
             '{"type":"user"}\n'
         )
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
+    async def test_rejects_invalid_sdk_session_id_before_writing_resume_file(
+        self,
+        mock_with_session,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        tmp_path: Path,
+    ) -> None:
+        outside_path = tmp_path / "outside-session"
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+                sdk_session_id=str(outside_path),
+                resume_source_session_id=mock_session_id,
+            )
+        )
+        executor._job_dir = tmp_path
+
+        mock_service = AsyncMock()
+        mock_service.materialize_session_history.return_value = '{"type":"user"}\n'
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        with pytest.raises(
+            AgentSandboxExecutionError,
+            match="Invalid sdk_session_id",
+        ):
+            await executor._stage_resume_session_file()
+
+        assert not (outside_path.with_suffix(".jsonl")).exists()
+        assert not (tmp_path / "resume" / "outside-session.jsonl").exists()
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
+    async def test_skips_resume_when_persisted_history_is_missing(
+        self,
+        mock_with_session,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+                sdk_session_id="sdk-session-123",
+                resume_source_session_id=mock_session_id,
+            )
+        )
+        executor._job_dir = tmp_path
+
+        mock_service = AsyncMock()
+        mock_service.materialize_session_history.return_value = None
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        staged_path = await executor._stage_resume_session_file()
+
+        assert staged_path is None
+        assert not (tmp_path / "resume").exists()
