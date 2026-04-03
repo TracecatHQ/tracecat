@@ -3062,6 +3062,7 @@ export type FeatureFlag =
   | "ai-ranking"
   | "workflow-concurrency-limits"
   | "agent-channels"
+  | "agent-sandbox-broker"
 
 /**
  * Response model for feature flags.

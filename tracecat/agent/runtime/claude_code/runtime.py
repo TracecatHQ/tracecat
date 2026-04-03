@@ -15,8 +15,10 @@ import asyncio
 import os
 import tempfile
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from time import perf_counter
+from typing import Any, Protocol, cast
 
 import orjson
 from claude_agent_sdk import (
@@ -24,6 +26,7 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     HookMatcher,
     SandboxSettings,
+    Transport,
 )
 from claude_agent_sdk.types import (
     HookContext,
@@ -40,7 +43,6 @@ from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
-from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
@@ -55,6 +57,36 @@ from tracecat.agent.mcp.proxy_server import (
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
+
+
+class RuntimeEventWriter(Protocol):
+    """Protocol for runtime event delivery."""
+
+    async def send_stream_event(self, event: UnifiedStreamEvent) -> None:
+        """Send a unified stream event."""
+
+    async def send_session_line(
+        self, sdk_session_id: str, line: str, *, internal: bool = False
+    ) -> None:
+        """Send a raw Claude session line."""
+
+    async def send_result(
+        self,
+        usage: dict[str, Any] | None = None,
+        num_turns: int | None = None,
+        duration_ms: int | None = None,
+        output: Any = None,
+    ) -> None:
+        """Send the final Claude result."""
+
+    async def send_error(self, error: str) -> None:
+        """Send a terminal runtime error."""
+
+    async def send_done(self) -> None:
+        """Signal that the runtime turn is complete."""
+
+    async def send_log(self, level: str, message: str, **extra: object) -> None:
+        """Send a structured runtime log event."""
 
 
 def get_llm_proxy_url() -> str:
@@ -126,8 +158,16 @@ class ClaudeAgentRuntime:
     - Approval flow coordination
     """
 
-    def __init__(self, socket_writer: SocketStreamWriter):
-        self._socket_writer = socket_writer
+    def __init__(
+        self,
+        event_writer: RuntimeEventWriter,
+        *,
+        transport_factory: Callable[[ClaudeAgentOptions], Transport] | None = None,
+        session_home_dir: Path | None = None,
+        cwd: Path | None = None,
+        cwd_setup_path: Path | None = None,
+    ):
+        self._event_writer = event_writer
         self._session_id: uuid.UUID | None = None
         # Public for testing - these represent runtime configuration
         self.registry_tools: dict[str, MCPToolDefinition] | None = None
@@ -144,7 +184,10 @@ class ClaudeAgentRuntime:
         self._stream_adapter = ClaudeSDKAdapter()
         # Working directory for session file path resolution
         # Must match the cwd passed to ClaudeAgentOptions for session resume
-        self._cwd: Path = Path.cwd()
+        self._cwd: Path | None = cwd
+        self._cwd_setup_path = cwd_setup_path
+        self._session_home_dir = session_home_dir
+        self._transport_factory = transport_factory
 
     def _should_inject_tool_metadata(self, tool_name: str, action_name: str) -> bool:
         """Return True when a tool executes through the registry proxy path."""
@@ -188,8 +231,11 @@ class ClaudeAgentRuntime:
                 f"Invalid sdk_session_id: must be alphanumeric with hyphens/underscores only, got {sdk_session_id!r}"
             )
 
+        if self._cwd is None:
+            raise RuntimeError("Runtime working directory is not configured")
         encoded_cwd = str(self._cwd).replace("/", "-")
-        claude_dir = Path.home() / ".claude" / "projects" / encoded_cwd
+        claude_home_dir = self._session_home_dir or Path.home()
+        claude_dir = claude_home_dir / ".claude" / "projects" / encoded_cwd
         return claude_dir / f"{sdk_session_id}.jsonl"
 
     async def _write_session_file(
@@ -217,6 +263,8 @@ class ClaudeAgentRuntime:
     async def _prepare_resume_and_mcp(
         self,
         payload: RuntimeInitPayload,
+        *,
+        write_session_file: bool = True,
     ) -> tuple[str | None, bool, dict[str, Any]]:
         """Prepare resume state and MCP server config in parallel."""
         resume_session_id: str | None = None
@@ -234,7 +282,11 @@ class ClaudeAgentRuntime:
                 self._last_seen_line_index = len(payload.sdk_session_data.splitlines())
 
         async with asyncio.TaskGroup() as tg:
-            if payload.sdk_session_id and payload.sdk_session_data:
+            if (
+                write_session_file
+                and payload.sdk_session_id
+                and payload.sdk_session_data
+            ):
                 session_file_task = tg.create_task(
                     self._write_session_file(
                         payload.sdk_session_id, payload.sdk_session_data
@@ -396,7 +448,7 @@ class ClaudeAgentRuntime:
                     internal = True
                     self._is_continuation = False
 
-                await self._socket_writer.send_session_line(
+                await self._event_writer.send_session_line(
                     self._sdk_session_id, line, internal=internal
                 )
 
@@ -428,7 +480,7 @@ class ClaudeAgentRuntime:
                 )
             ]
         )
-        await self._socket_writer.send_stream_event(approval_event)
+        await self._event_writer.send_stream_event(approval_event)
 
         logger.info("Approval request streamed, interrupting", tool_name=tool_name)
 
@@ -520,8 +572,24 @@ class ClaudeAgentRuntime:
         tool_result entry (inserted by execute_approved_tools_activity), so we just
         resume the session normally and the agent will continue from there.
         """
+        run_started_at = perf_counter()
+
+        def log_benchmark_phase(phase: str, **extra: object) -> None:
+            logger.info(
+                "Agent benchmark phase",
+                phase=phase,
+                elapsed_ms=round((perf_counter() - run_started_at) * 1000, 2),
+                session_id=payload.session_id,
+                execution_path=(
+                    "broker" if self._transport_factory is not None else "legacy"
+                ),
+                component="runtime",
+                **extra,
+            )
+
         self._session_id = payload.session_id
-        await self._socket_writer.send_log(
+        log_benchmark_phase("runtime_start")
+        await self._event_writer.send_log(
             "info",
             "Runtime initialized",
         )
@@ -535,8 +603,12 @@ class ClaudeAgentRuntime:
         # sessions by project directory (cwd), so if cwd changes between
         # turns (e.g., random mkdtemp), --resume can't find the session.
         # Both nsjail and direct mode use the same scheme for parity.
-        self._cwd = Path(tempfile.gettempdir()) / f"tracecat-agent-{payload.session_id}"
-        self._cwd.mkdir(parents=True, exist_ok=True)
+        if self._cwd is None:
+            self._cwd = (
+                Path(tempfile.gettempdir()) / f"tracecat-agent-{payload.session_id}"
+            )
+        cwd_setup_path = self._cwd_setup_path or self._cwd
+        cwd_setup_path.mkdir(parents=True, exist_ok=True)
 
         # Write session file locally if resuming or forking
         try:
@@ -544,7 +616,15 @@ class ClaudeAgentRuntime:
                 resume_session_id,
                 fork_session,
                 mcp_servers,
-            ) = await self._prepare_resume_and_mcp(payload)
+            ) = await self._prepare_resume_and_mcp(
+                payload,
+                write_session_file=True,
+            )
+            log_benchmark_phase(
+                "runtime_resume_ready",
+                resumed=resume_session_id is not None,
+                fork_session=fork_session,
+            )
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
             if payload.config.mcp_servers:
@@ -576,7 +656,7 @@ class ClaudeAgentRuntime:
                 """Forward Claude CLI stderr to loopback via queue."""
                 stderr_queue.put_nowait(line)
 
-            await self._socket_writer.send_log(
+            await self._event_writer.send_log(
                 "debug",
                 "MCP servers configured",
                 extra={
@@ -609,7 +689,11 @@ class ClaudeAgentRuntime:
                 fork_session=fork_session,  # If True, creates new session from parent's history
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
-                    "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
+                    **(
+                        {"ANTHROPIC_BASE_URL": get_llm_proxy_url()}
+                        if self._transport_factory is None
+                        else {}
+                    ),
                 },
                 model=payload.config.model_name,
                 system_prompt=self._build_system_prompt(payload.config.instructions),
@@ -629,17 +713,23 @@ class ClaudeAgentRuntime:
                 """Background task to drain stderr queue to loopback."""
                 while True:
                     line = await stderr_queue.get()
-                    await self._socket_writer.send_log("warning", f"[stderr] {line}")
+                    await self._event_writer.send_log("warning", f"[stderr] {line}")
 
             logger.debug(
                 "Creating ClaudeSDKClient",
                 mcp_servers=list(mcp_servers.keys()),
             )
             _configure_claude_sdk_process_env()
-            client = ClaudeSDKClient(options=options)
+            transport = (
+                self._transport_factory(options)
+                if self._transport_factory is not None
+                else None
+            )
+            client = ClaudeSDKClient(options=options, transport=transport)
             logger.debug("Client created, entering context")
             async with client:
                 self.client = client
+                log_benchmark_phase("runtime_client_connected")
                 stderr_task = asyncio.create_task(drain_stderr())
                 try:
                     # On approval continuation, send hidden continuation prompt
@@ -652,23 +742,28 @@ class ClaudeAgentRuntime:
                         query_prompt = payload.user_prompt
                         logger.debug("Normal turn with user prompt")
 
-                    await self._socket_writer.send_log(
+                    await self._event_writer.send_log(
                         "info",
                         "Sending query to Claude SDK",
                         prompt_length=len(query_prompt),
                         is_continuation=payload.is_approval_continuation,
                     )
                     await client.query(query_prompt)
+                    log_benchmark_phase("runtime_query_sent")
 
-                    await self._socket_writer.send_log(
+                    await self._event_writer.send_log(
                         "debug", "Query sent, receiving response"
                     )
 
+                    first_stream_event_logged = False
                     async for message in client.receive_response():
                         logger.debug(
                             "Received message", message_type=type(message).__name__
                         )
                         if isinstance(message, StreamEvent):
+                            if not first_stream_event_logged:
+                                first_stream_event_logged = True
+                                log_benchmark_phase("runtime_first_stream_event")
                             # Capture SDK session ID from first StreamEvent
                             if (
                                 message.session_id
@@ -702,24 +797,29 @@ class ClaudeAgentRuntime:
 
                             # Partial streaming delta - forward to UI
                             unified = self._stream_adapter.to_unified_event(message)
-                            await self._socket_writer.send_stream_event(unified)
+                            await self._event_writer.send_stream_event(unified)
 
                         elif isinstance(message, ResultMessage):
                             # Final result - emit any remaining lines
                             await self._emit_new_session_lines()
-                            await self._socket_writer.send_log(
+                            await self._event_writer.send_log(
                                 "info",
                                 "Agent turn completed",
                                 num_turns=message.num_turns,
                                 duration_ms=message.duration_ms,
                                 usage=message.usage,
                             )
+                            log_benchmark_phase(
+                                "runtime_result_received",
+                                duration_ms=message.duration_ms,
+                                num_turns=message.num_turns,
+                            )
                             result_output = (
                                 message.structured_output
                                 if message.structured_output is not None
                                 else message.result
                             )
-                            await self._socket_writer.send_result(
+                            await self._event_writer.send_result(
                                 usage=message.usage,
                                 num_turns=message.num_turns,
                                 duration_ms=message.duration_ms,
@@ -741,7 +841,7 @@ class ClaudeAgentRuntime:
                                             in self._pending_approval_tool_ids
                                         ):
                                             continue
-                                        await self._socket_writer.send_stream_event(
+                                        await self._event_writer.send_stream_event(
                                             UnifiedStreamEvent(
                                                 type=StreamEventType.TOOL_RESULT,
                                                 tool_call_id=block.tool_use_id,
@@ -758,16 +858,17 @@ class ClaudeAgentRuntime:
 
             # CLI has exited — session file is fully flushed.
             await self._emit_new_session_lines()
+            log_benchmark_phase("runtime_complete")
 
         except Exception as e:
-            await self._socket_writer.send_log(
+            await self._event_writer.send_log(
                 "error",
                 "Runtime error",
                 error_type=type(e).__name__,
                 error_message=str(e),
             )
-            await self._socket_writer.send_error(str(e))
+            await self._event_writer.send_error(str(e))
             raise
         finally:
             self.client = None
-            await self._socket_writer.send_done()
+            await self._event_writer.send_done()
