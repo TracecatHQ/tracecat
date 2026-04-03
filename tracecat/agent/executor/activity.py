@@ -31,7 +31,11 @@ from tracecat.agent.executor.loopback import (
     LoopbackResult,
 )
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
-from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
+from tracecat.agent.sandbox.nsjail import (
+    SpawnedRuntime,
+    cleanup_spawned_runtime,
+    spawn_jailed_runtime,
+)
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -136,6 +140,9 @@ class SandboxedAgentExecutor:
     # Internal state
     _job_dir: Path | None = field(default=None, init=False, repr=False)
     _process: asyncio.subprocess.Process | None = field(
+        default=None, init=False, repr=False
+    )
+    _spawned_runtime: SpawnedRuntime | None = field(
         default=None, init=False, repr=False
     )
     _loopback_result: asyncio.Future[LoopbackResult] | None = field(
@@ -357,6 +364,7 @@ class SandboxedAgentExecutor:
                     init_payload_path=init_payload_path,
                     enable_internet_access=self.input.config.enable_internet_access,
                 )
+                self._spawned_runtime = runtime_result
                 self._process = runtime_result.process
                 logger.info(
                     "Agent runtime process spawned",
@@ -604,6 +612,13 @@ class SandboxedAgentExecutor:
             except Exception as e:
                 logger.warning("Failed to stop LLM proxy", error=str(e))
             self._llm_proxy = None
+
+        if self._spawned_runtime:
+            try:
+                cleanup_spawned_runtime(self._spawned_runtime)
+            except Exception as e:
+                logger.warning("Failed to clean up spawned runtime", error=str(e))
+            self._spawned_runtime = None
 
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():
