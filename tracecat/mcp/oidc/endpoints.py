@@ -221,7 +221,7 @@ async def _handle_authorize(
         )
         return _error_response(
             "access_denied",
-            str(exc),
+            "User cannot be resolved to a single organization",
             status_code=403,
         )
 
