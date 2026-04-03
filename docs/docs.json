@@ -143,7 +143,10 @@
             "pages": [
               "agents/ai-action",
               "agents/ai-agent",
-              "agents/secrets-variables"
+              {
+                "page": "agents/secrets-variables",
+                "icon": "lock"
+              }
             ]
           },
           {
