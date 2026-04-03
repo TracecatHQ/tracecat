@@ -621,7 +621,7 @@ async def _invoke_step(
             )
 
 
-_AWS_ROLE_ARN_PATTERN = re.compile(r"^arn:aws:iam::\d{12}:role/[\w+=,.@\-/]+$")
+_AWS_ROLE_ARN_PATTERN = re.compile(r"^arn:aws(-us-gov|-cn)?:iam::\d{12}:role/[\w+=,.@\-/]+$")
 _AWS_ACTION_PREFIXES = ("tools.aws_boto3.", "tools.amazon_s3.")
 _AWS_SECRET_NAMES = ("aws", "amazon_s3")
 
