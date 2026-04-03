@@ -158,7 +158,7 @@ async def lifespan(app: FastAPI):
     # for password reset and email verification token signing. Validated here
     # (not in create_app) because the app module is imported at collection time
     # by tests and OpenAPI generation, before secrets are available.
-    _user_auth_secret = get_user_auth_secret()  # noqa: F841
+    get_user_auth_secret()
 
     # Temporal
     # Run in background to avoid blocking startup
