@@ -111,21 +111,23 @@ If you are using Temporal Cloud or another external Temporal cluster, set `disab
 
 ## FAQ
 
-### Is untrusted code execution safe on Fargate?
+<AccordionGroup>
+  <Accordion title="Is untrusted code execution safe on Fargate?">
+    Fargate does not support the permissions model required by `nsjail`. Tracecat uses a fallback executor without `nsjail` isolation on Fargate.
+    If you need the highest isolation for untrusted code execution (like custom registry actions or `core.script.run_python`), deploy Tracecat on Kubernetes using the [Helm chart](https://github.com/TracecatHQ/tracecat/tree/main/deployments/k8s/helm), where `nsjail` is enabled by default.
+  </Accordion>
 
-Fargate does not support the permissions model required by `nsjail`. Tracecat uses a fallback executor without `nsjail` isolation on Fargate.
-If you need the highest isolation for untrusted code execution (like custom registry actions or `core.script.run_python`), deploy Tracecat on Kubernetes using the [Helm chart](https://github.com/TracecatHQ/tracecat/tree/main/deployments/k8s/helm), where `nsjail` is enabled by default.
+  <Accordion title="What infrastructure does this stack create?">
+    The Terraform stack deploys:
+    - Public ALB, Route53 records, and ACM certificates
+    - ECS cluster with Service Connect
+    - RDS instances (core database and optional Temporal database)
+    - ElastiCache Redis
+    - S3 buckets for attachments, registry, and workflow artifacts
+    - VPC endpoints for S3 and Secrets Manager
+  </Accordion>
 
-### What infrastructure does this stack create?
-
-The Terraform stack deploys:
-- Public ALB, Route53 records, and ACM certificates
-- ECS cluster with Service Connect
-- RDS instances (core database and optional Temporal database)
-- ElastiCache Redis
-- S3 buckets for attachments, registry, and workflow artifacts
-- VPC endpoints for S3 and Secrets Manager
-
-### What happens if database migrations fail?
-
-Migrations run in an init container during the API task startup. The API container only starts if migrations succeed. If migrations fail, the deployment pauses and dependent services (`worker`, `executor`) will not update.
+  <Accordion title="What happens if database migrations fail?">
+    Migrations run in an init container during the API task startup. The API container only starts if migrations succeed. If migrations fail, the deployment pauses and dependent services (`worker`, `executor`) will not update.
+  </Accordion>
+</AccordionGroup>
