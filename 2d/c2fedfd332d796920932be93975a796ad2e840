@@ -1,0 +1,25 @@
+tests/unit/test_vercel_stream_context.py
+  eb89b34fe843095c 27-31,352-385
+tracecat/agent/adapter/vercel.py
+  eb89b34fe843095c 1005,1008,1025
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "2dc2fedfd332d796920932be93975a796ad2e840",
+  "prompts": {
+    "eb89b34fe843095c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d516a-4f39-7881-83c2-30fe19ea0681",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 44,
+      "total_deletions": 3,
+      "accepted_lines": 44,
+      "overriden_lines": 0
+    }
+  }
+}
