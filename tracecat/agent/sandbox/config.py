@@ -35,6 +35,7 @@ from tracecat.agent.common.config import (
     TRUSTED_MCP_SOCKET_PATH,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -280,6 +281,9 @@ def build_agent_nsjail_config(
         "# UID/GID mapping - map container user to sandbox user",
         f'uidmap {{ inside_id: "1000" outside_id: "{os.getuid()}" count: 1 }}',
         f'gidmap {{ inside_id: "1000" outside_id: "{os.getgid()}" count: 1 }}',
+        "",
+        "# Syscall filtering",
+        f'seccomp_string: "{build_untrusted_seccomp_policy()}"',
         "",
         "# Rootfs mounts - read-only base system (same rootfs as action sandbox)",
         f'mount {{ src: "{rootfs}/usr" dst: "/usr" is_bind: true rw: false }}',
