@@ -70,11 +70,11 @@ AUTH_CODE_LIFETIME_SECONDS = 5 * 60
 RESUME_TRANSACTION_LIFETIME_SECONDS = 15 * 60
 """Resume/login transaction lifetime: 15 minutes."""
 
-TOKEN_RATE_LIMIT_PER_CLIENT_PER_MINUTE = 120
-"""Maximum token endpoint requests per client_id per minute.
+TOKEN_RATE_LIMIT_PER_SOURCE_PER_MINUTE = 120
+"""Maximum token endpoint requests per source IP per minute.
 
-Keyed by client_id rather than IP because the token exchange is
-server-to-server from the MCP container — all end users share one
-source IP per MCP instance, so per-IP throttling would cap legitimate
-traffic.  The higher limit (120/min) accommodates authentication bursts.
+Keyed by source IP because the token exchange is server-to-server
+(MCP instance → API).  Each MCP instance has a distinct source IP,
+so this gives per-instance rate limiting.  A single fixed client_id
+would collapse to a global bucket if used as the key.
 """

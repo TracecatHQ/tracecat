@@ -214,18 +214,18 @@ async def test_store_jti(fake_redis: _InMemoryRedis) -> None:
 
 @pytest.mark.anyio
 async def test_check_token_rate_limit_allows_under_limit() -> None:
-    result = await storage.check_token_rate_limit("tracecat-mcp-oidc-internal")
+    result = await storage.check_token_rate_limit("10.0.0.1")
     assert result is True
 
 
 @pytest.mark.anyio
 async def test_check_token_rate_limit_blocks_over_limit() -> None:
-    client_id = "tracecat-mcp-oidc-internal"
+    source_ip = "10.0.0.2"
     results = []
     for _ in range(121):
-        results.append(await storage.check_token_rate_limit(client_id))
+        results.append(await storage.check_token_rate_limit(source_ip))
 
-    # First 120 should be allowed (TOKEN_RATE_LIMIT_PER_CLIENT_PER_MINUTE = 120)
+    # First 120 should be allowed (TOKEN_RATE_LIMIT_PER_SOURCE_PER_MINUTE = 120)
     assert all(results[:120])
     assert results[120] is False
 

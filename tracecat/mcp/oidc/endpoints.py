@@ -438,14 +438,15 @@ async def token(
             status_code=401,
         )
 
-    # --- Rate limiting (per-client, after authentication) ---
-    # Keyed by client_id rather than IP because the token exchange is
-    # server-to-server from the MCP container — all end users share one
-    # source IP per MCP instance.
-    if not await check_token_rate_limit(auth_client_id):
+    # --- Rate limiting (per-source-IP, after authentication) ---
+    # Keyed by source IP because the token exchange is server-to-server
+    # (MCP instance → API).  Each MCP instance has a distinct source IP,
+    # giving per-instance isolation instead of a single global bucket.
+    client_ip = _get_client_ip(request)
+    if not await check_token_rate_limit(client_ip):
         logger.warning(
             "MCP OIDC: token rate limit exceeded",
-            client_id=auth_client_id,
+            client_ip=client_ip,
         )
         return _error_response(
             "invalid_request",

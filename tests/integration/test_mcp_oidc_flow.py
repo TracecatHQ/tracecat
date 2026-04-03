@@ -75,10 +75,10 @@ class _InMemoryOIDCStorage:
     async def store_jti(self, jti: str) -> None:
         self.jtis.add(jti)
 
-    async def check_token_rate_limit(self, client_id: str) -> bool:
-        count = self.rate_counters.get(client_id, 0) + 1
-        self.rate_counters[client_id] = count
-        return count <= oidc_config.TOKEN_RATE_LIMIT_PER_CLIENT_PER_MINUTE
+    async def check_token_rate_limit(self, source_ip: str) -> bool:
+        count = self.rate_counters.get(source_ip, 0) + 1
+        self.rate_counters[source_ip] = count
+        return count <= oidc_config.TOKEN_RATE_LIMIT_PER_SOURCE_PER_MINUTE
 
 
 # ---------------------------------------------------------------------------

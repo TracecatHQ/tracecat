@@ -175,21 +175,25 @@ async def store_jti(jti: str) -> None:
 # --- Rate limiting ---
 
 
-def _rate_limit_key(client_id: str) -> str:
-    return f"{_KEY_PREFIX}:rate:{client_id}"
+def _rate_limit_key(source_ip: str) -> str:
+    return f"{_KEY_PREFIX}:rate:{source_ip}"
 
 
-async def check_token_rate_limit(client_id: str) -> bool:
-    """Check and increment the per-client rate limit for the token endpoint.
+async def check_token_rate_limit(source_ip: str) -> bool:
+    """Check and increment the per-source rate limit for the token endpoint.
 
-    Keyed by ``client_id`` rather than IP because the token exchange is
-    server-to-server from the MCP container — all end users share one
-    source IP per MCP instance.
+    Keyed by source IP because the token exchange is server-to-server
+    (MCP instance → API).  Each MCP instance has a distinct source IP,
+    so this gives per-instance isolation rather than a single global
+    bucket (which would happen if keyed by the fixed ``client_id``).
+
+    Args:
+        source_ip: The IP address of the MCP instance making the request.
 
     Returns:
         ``True`` if the request is within the limit, ``False`` if exceeded.
     """
     store = _get_store()
-    key = _rate_limit_key(client_id)
+    key = _rate_limit_key(source_ip)
     count = await store.incr_with_ttl(key, ttl=60)
-    return count <= oidc_config.TOKEN_RATE_LIMIT_PER_CLIENT_PER_MINUTE
+    return count <= oidc_config.TOKEN_RATE_LIMIT_PER_SOURCE_PER_MINUTE
