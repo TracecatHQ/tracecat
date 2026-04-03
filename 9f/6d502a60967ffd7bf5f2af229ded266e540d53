@@ -1,0 +1,86 @@
+tests/unit/test_agent_runtime_broker.py
+  bf94ea5836524647 1-19,21-23,25-90,92,94-123
+  30acac10e131edca 20,24,124-144
+tracecat/agent/executor/activity.py
+  bf94ea5836524647 7,13,36-40,51-52,163-166,170-180,244-249,256-260,276,290-296,298-302,583-600,602-625,627-657,659-669,671,673,682-690,742
+  be75dc75b61d8fe1 10,297,304,382-384,388,397-400,408,503-508,538-543,601,658,674-681,691
+  30acac10e131edca 670,672
+tests/unit/test_agent_runtime_services.py
+  bf94ea5836524647 79-99
+tracecat/agent/executor_worker.py
+  bf94ea5836524647 18,21,44-45,57,62-66
+tracecat/agent/sandbox/config.py
+  30acac10e131edca 226,228-229,244-247,266-273,276-279,394-403
+  bf94ea5836524647 225,227,274-275,388-393,404-405,428
+tracecat/feature_flags/enums.py
+  bf94ea5836524647 21
+tracecat/agent/sandbox/nsjail.py
+  30acac10e131edca 125-126,218-219,301-302,350,354-355
+  bf94ea5836524647 121-124,195-197,214-217,229-231,253,271-272,280,297-300,327-328,330-332,349,351-353,390,399,404
+tracecat/agent/executor/loopback.py
+  bf94ea5836524647 21,68,212,214-224,351-369,378-379,433-434,436-437,439-442,444,450,456,458,471,473,482,484-489
+  be75dc75b61d8fe1 54,67,350,370-377,380-432,435,438,443,445-449,451-455,457,459-470,472,474-481,483
+tracecat/agent/runtime/claude_code/broker.py
+  be75dc75b61d8fe1 10,13-14,16-19,27-84,166,168
+  bf94ea5836524647 1-9,11-12,15,20-26,85-165,167,169-225
+tracecat/agent/sandbox/shim_entrypoint.py
+  bf94ea5836524647 1-8,10,12-19,30,32-47,49-51,53-55,57-62,64-65,67-99,120-153,157-159,161,168-176
+  be75dc75b61d8fe1 9,22,24-29,63,66,154-156,160,162-167
+  30acac10e131edca 11,20-21,23,31,48,52,56,100-119
+tracecat/agent/runtime/claude_code/runtime.py
+  bf94ea5836524647 18,20-21,29,62-91,161-170,187-190,234-235,237-238,266-267,285-289,451,483,575-589,591-592,606-611,619-627,659,692-696,716,723-728,732,745,752,754,758,764-766,800,805,812-815,822,844,861,864,870,874
+tests/unit/test_agent_executor_loopback.py
+  be75dc75b61d8fe1 69,172
+tracecat/agent/runtime/claude_code/transport.py
+  be75dc75b61d8fe1 9,49
+  bf94ea5836524647 1-8,10-11,13,15-42,44-48,50-54,56-80,82-109,115-131,134-210,212-214,216-265,287-311,315-318
+  30acac10e131edca 12,14,43,55,81,110-114,132-133,211,215,266-274,276,278-286,312-314,319-347
+tracecat/agent/runtime_services.py
+  bf94ea5836524647 8,14-15,17-18,96-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "9f6d502a60967ffd7bf5f2af229ded266e540d53",
+  "prompts": {
+    "30acac10e131edca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d50ec-a6ca-7a60-96f8-5f41d29df1ad",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 221,
+      "total_deletions": 119,
+      "accepted_lines": 158,
+      "overriden_lines": 1
+    },
+    "be75dc75b61d8fe1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4b61d40e-ccdd-4fdd-bcf6-7037f37d2ef9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 1058,
+      "total_deletions": 1094,
+      "accepted_lines": 520,
+      "overriden_lines": 3
+    },
+    "bf94ea5836524647": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5064-413f-73b0-97f4-9355ed022d06",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 1422,
+      "total_deletions": 229,
+      "accepted_lines": 1133,
+      "overriden_lines": 2
+    }
+  }
+}
