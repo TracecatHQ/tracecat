@@ -80,6 +80,31 @@ async def test_broker_rejects_second_turn_for_same_session(
     await first_task
 
 
+@pytest.mark.anyio
+async def test_broker_rechecks_closed_state_after_waiting_for_lock(
+    tmp_path: Path,
+) -> None:
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+    request = _make_request(tmp_path)
+    handler = cast(
+        Any,
+        SimpleNamespace(
+            prepare=AsyncMock(),
+            process_envelope=AsyncMock(),
+        ),
+    )
+
+    await broker._lock.acquire()
+    task = asyncio.create_task(broker.run_turn(request, handler))
+    await asyncio.sleep(0)
+    broker._closed = True
+    broker._lock.release()
+
+    with pytest.raises(RuntimeError, match="Claude runtime broker is not running"):
+        await task
+
+
 def test_build_path_mapping_uses_runtime_mount_paths_when_nsjail_enabled(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -133,6 +158,27 @@ def test_transport_rewrites_bundled_claude_path_for_jail(
 
     command = [
         "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
+        "--print",
+    ]
+
+    rewritten = SandboxedCLITransport._rewrite_command_for_jail(command)
+
+    assert rewritten == [
+        "/site-packages/claude_agent_sdk/_bundled/claude",
+        "--print",
+    ]
+
+
+def test_transport_rewrites_resolved_bundled_claude_path_for_jail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.runtime.claude_code.transport.claude_agent_sdk.__file__",
+        "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/__init__.py",
+    )
+
+    command = [
+        "/app/.venv/bin/../lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
         "--print",
     ]
 

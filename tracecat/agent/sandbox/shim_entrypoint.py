@@ -296,15 +296,18 @@ def _resolve_init_payload_path() -> Path:
 
 def _resolve_llm_socket_path() -> Path:
     """Resolve the mounted LLM socket path."""
-    return Path(os.environ.get(LLM_SOCKET_ENV_VAR, DEFAULT_LLM_SOCKET_PATH))
+    return Path(os.environ.get(LLM_SOCKET_ENV_VAR) or DEFAULT_LLM_SOCKET_PATH)
 
 
 async def _pump_stdin_to_process(process_stdin: asyncio.StreamWriter) -> None:
     """Proxy shim stdin into the Claude subprocess stdin."""
     loop = asyncio.get_running_loop()
     while chunk := await loop.run_in_executor(None, _read_stdin_chunk, 65536):
-        process_stdin.write(chunk)
-        await process_stdin.drain()
+        try:
+            process_stdin.write(chunk)
+            await process_stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            break
     process_stdin.close()
     with contextlib.suppress(Exception):
         await process_stdin.wait_closed()
