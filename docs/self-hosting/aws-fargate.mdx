@@ -27,7 +27,9 @@ cd tracecat/deployments/fargate
 
 ## Create core secrets
 
-Create the required secrets (`TRACECAT__DB_ENCRYPTION_KEY`, `TRACECAT__SERVICE_KEY`, `TRACECAT__SIGNING_SECRET`, `USER_AUTH_SECRET`) in AWS Secrets Manager.
+<Snippet file="generate-secrets.mdx" />
+
+You can create these in AWS Secrets Manager manually or use the helper script:
 
 ```bash
 export AWS_DEFAULT_REGION=<aws-region>
