@@ -8,7 +8,8 @@ import os
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from tracecat.config import TRACECAT__PUBLIC_API_URL, USER_AUTH_SECRET
+from tracecat.auth.secrets import get_user_auth_secret
+from tracecat.config import TRACECAT__PUBLIC_API_URL
 
 # --- Fixed internal client ---
 
@@ -27,7 +28,7 @@ def get_internal_client_secret() -> str:
         length=32,
         salt=b"tracecat-mcp-oidc-client-secret-v1",
         info=b"client-secret",
-    ).derive(USER_AUTH_SECRET.encode("utf-8"))
+    ).derive(get_user_auth_secret().encode("utf-8"))
     return base64.urlsafe_b64encode(secret_bytes).decode("ascii")
 
 

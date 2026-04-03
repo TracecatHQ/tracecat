@@ -57,7 +57,8 @@ def _make_auth_code_data(
     **kwargs,
 ) -> AuthCodeData:
     if verifier and not challenge:
-        _, challenge = verifier, None
+        digest = hashlib.sha256(verifier.encode("ascii")).digest()
+        challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
     if not challenge:
         _, challenge = _pkce_pair()
 
@@ -88,9 +89,15 @@ def _make_auth_code_data(
 @pytest.fixture(autouse=True)
 def _setup_config(monkeypatch: pytest.MonkeyPatch):  # pyright: ignore[reportUnusedFunction]
     """Set config values and clear signing caches for each test."""
-    monkeypatch.setattr(signing, "USER_AUTH_SECRET", _TEST_SECRET)
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.signing.get_user_auth_secret",
+        lambda: _TEST_SECRET,
+    )
     monkeypatch.setattr(oidc_config, "TRACECAT__PUBLIC_API_URL", _TEST_API_URL)
-    monkeypatch.setattr(oidc_config, "USER_AUTH_SECRET", _TEST_SECRET)
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.config.get_user_auth_secret",
+        lambda: _TEST_SECRET,
+    )
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.TRACECAT__PUBLIC_APP_URL", _TEST_APP_URL
     )

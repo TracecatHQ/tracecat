@@ -53,6 +53,13 @@ class _EncryptedRedis:
         """Delete a key."""
         await self._redis.delete(key)
 
+    async def getdel(self, key: str) -> bytes | None:
+        """Atomically retrieve and delete a value, returning ``None`` if absent."""
+        raw: bytes | None = await self._redis.getdel(key)
+        if raw is None:
+            return None
+        return self._decode(raw)
+
     async def incr_with_ttl(self, key: str, ttl: int) -> int:
         """Increment a counter, setting TTL on first creation.
 
@@ -114,11 +121,9 @@ async def load_and_delete_auth_code(code: str) -> AuthCodeData | None:
     """
     store = _get_store()
     key = _code_key(code)
-    raw = await store.get(key)
+    raw = await store.getdel(key)
     if raw is None:
         return None
-    # Delete immediately to enforce one-time use.
-    await store.delete(key)
     return AuthCodeData.model_validate_json(raw)
 
 
@@ -147,10 +152,9 @@ async def load_and_delete_resume_transaction(
     """
     store = _get_store()
     key = _resume_key(txn_id)
-    raw = await store.get(key)
+    raw = await store.getdel(key)
     if raw is None:
         return None
-    await store.delete(key)
     return ResumeTransaction.model_validate_json(raw)
 
 

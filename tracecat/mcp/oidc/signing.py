@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
 )
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from tracecat.config import USER_AUTH_SECRET
+from tracecat.auth.secrets import get_user_auth_secret
 
 _HKDF_SALT = b"tracecat-mcp-oidc-issuer-v1"
 _HKDF_INFO = b"ec-p256-signing-key"
@@ -53,7 +53,7 @@ def get_signing_key() -> EllipticCurvePrivateKey:
     keypair, so all replicas share one signing identity without key
     distribution.
     """
-    private_value = _derive_seed(USER_AUTH_SECRET)
+    private_value = _derive_seed(get_user_auth_secret())
     return derive_private_key(private_value, SECP256R1())
 
 

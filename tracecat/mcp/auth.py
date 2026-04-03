@@ -782,7 +782,10 @@ def _create_oidc_auth() -> OIDCProxy:
             """
             id_token = idp_tokens.get("id_token")
             if isinstance(id_token, str) and id_token:
-                claims = _decode_unverified_id_token_claims(id_token)
+                try:
+                    claims = _decode_unverified_id_token_claims(id_token)
+                except Exception:
+                    claims = {}
                 if email := _normalize_email_claim(claims.get("email")):
                     return {
                         "email": email,

@@ -13,6 +13,7 @@ import hmac
 import secrets
 import time
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
 import jwt
 from fastapi import APIRouter, Depends, Form, Header, Query, Request
@@ -153,7 +154,7 @@ async def openid_configuration(request: Request) -> dict[str, Any]:
 
 @router.get("/.well-known/jwks.json")
 async def jwks() -> dict[str, list[dict[str, str]]]:
-    """JSON Web Key Set containing the issuer's Ed25519 public key."""
+    """JSON Web Key Set containing the issuer's ECDSA P-256 (ES256) public key."""
     return {"keys": [get_public_jwk()]}
 
 
@@ -284,7 +285,8 @@ async def _handle_authorize(
         client_ip=_get_client_ip(request),
     )
 
-    redirect_url = f"{redirect_uri}?code={code}&state={state}"
+    query = urlencode({"code": code, "state": state})
+    redirect_url = f"{redirect_uri}?{query}"
     return RedirectResponse(redirect_url, status_code=302)
 
 
