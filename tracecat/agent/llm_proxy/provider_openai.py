@@ -239,6 +239,8 @@ def _responses_input_items_from_assistant(message: Any) -> list[dict[str, Any]]:
                         arguments=item.get("input"),
                     )
                 )
+            case "tool_result":
+                continue
             case _:
                 pending_text.append(str(item.get("text", item)))
 
@@ -567,6 +569,7 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
         text_indices: dict[str, int] = {}
         started_thinking_ids: set[str] = set()
         started_text_ids: set[str] = set()
+        text_had_deltas: set[str] = set()
         next_content_index = 0
         message_started = False
         output_tokens = 0
@@ -677,6 +680,7 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
                         yield anthropic_text_block_start_event(content_index)
                         started_text_ids.add(item_id)
                     if isinstance(delta := chunk.get("delta"), str) and delta:
+                        text_had_deltas.add(item_id)
                         yield anthropic_text_delta_event(content_index, delta)
                     continue
 
@@ -737,15 +741,15 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
                     if not had_started_text:
                         yield anthropic_text_block_start_event(content_index)
                         started_text_ids.add(item_id)
-                    for part in item.get("content", []):
-                        if (
-                            isinstance(part, dict)
-                            and part.get("type") == "output_text"
-                            and isinstance(text := part.get("text"), str)
-                            and text
-                            and not had_started_text
-                        ):
-                            yield anthropic_text_delta_event(content_index, text)
+                    if item_id not in text_had_deltas:
+                        for part in item.get("content", []):
+                            if (
+                                isinstance(part, dict)
+                                and part.get("type") == "output_text"
+                                and isinstance(text := part.get("text"), str)
+                                and text
+                            ):
+                                yield anthropic_text_delta_event(content_index, text)
                     yield anthropic_block_stop_event(content_index)
                     continue
 
