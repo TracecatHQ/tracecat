@@ -74,6 +74,10 @@ class AgentExecutorInput(BaseModel):
     On resume after approval, the workflow passes lightweight resume metadata.
     The executor materializes the JSONL session file locally before the runtime
     starts, so the full history never crosses Temporal boundaries.
+
+    Legacy compatibility: older serialized activity payloads may still carry
+    ``sdk_session_data`` inline and omit ``resume_source_session_id``. Keep the
+    deprecated field so in-flight runs can still resume after deploy.
     """
 
     model_config = {"arbitrary_types_allowed": True}
@@ -91,8 +95,8 @@ class AgentExecutorInput(BaseModel):
     )
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
-    # Session resume descriptor (JSONL materialized locally by this activity)
     sdk_session_id: str | None = None
+    sdk_session_data: str | None = None
     resume_source_session_id: uuid.UUID | None = None
     # True when resuming after approval decision (continuation prompt should be internal)
     is_approval_continuation: bool = False

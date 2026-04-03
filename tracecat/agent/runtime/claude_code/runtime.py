@@ -214,9 +214,44 @@ class ClaudeAgentRuntime:
         logger.debug("Wrote session file", path=str(session_file_path))
         return session_file_path
 
+    def _validate_resume_session_path(self, resume_session_path: str) -> Path:
+        """Validate resume session path matches expected pattern: resume/{session_id}.jsonl.
+
+        Raises:
+            AgentSandboxValidationError: If path doesn't match expected pattern.
+        """
+        path = Path(resume_session_path)
+
+        # Must be exactly "resume/{session_id}.jsonl" - no absolute paths, no traversal
+        if path.is_absolute() or str(path).startswith(".."):
+            raise AgentSandboxValidationError(
+                f"Resume session path must be relative, got {resume_session_path!r}"
+            )
+
+        # Check structure: exactly one parent directory "resume"
+        if path.parent.name != "resume" or path.parent.parent.name != "":
+            raise AgentSandboxValidationError(
+                f"Resume session path must be 'resume/{{session_id}}.jsonl', got {resume_session_path!r}"
+            )
+
+        # Extract and validate session ID from filename
+        filename = path.name
+        if not filename.endswith(".jsonl"):
+            raise AgentSandboxValidationError(
+                f"Resume session file must have .jsonl suffix, got {filename!r}"
+            )
+
+        session_id = filename[:-6]  # Strip .jsonl suffix
+        if not session_id or not all(c.isalnum() or c in "-_" for c in session_id):
+            raise AgentSandboxValidationError(
+                f"Invalid session ID in resume path: {session_id!r}"
+            )
+
+        return Path("/work") / path
+
     async def _read_resume_session_file(self, resume_session_path: str) -> str:
         """Read staged JSONL session data prepared by the trusted executor."""
-        path = Path(resume_session_path)
+        path = self._validate_resume_session_path(resume_session_path)
         return await asyncio.to_thread(path.read_text)
 
     def _canonicalize_sdk_session_data(self, sdk_session_data: str) -> str:
