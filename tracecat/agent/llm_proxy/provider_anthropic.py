@@ -9,25 +9,19 @@ from typing import Any, NoReturn
 import httpx
 import orjson
 
-from tracecat.agent.llm_proxy.anthropic_compat import (
-    anthropic_tool_to_openai_tool as tool_definition_to_openai,
-)
-from tracecat.agent.llm_proxy.anthropic_compat import (
-    anthropic_tools_to_openai_tools,
-    create_tool_name_mapping,
-    restore_tool_name,
-    tool_choice_to_anthropic,
-    tool_choice_to_openai,
-    tool_definition_to_anthropic,
-    tool_result_content_to_openai,
-    tool_result_to_anthropic_block,
-    truncate_tool_name,
+from tracecat.agent.llm_proxy.content_blocks import (
+    sanitize_thinking_blocks,
 )
 from tracecat.agent.llm_proxy.requests import (
     clamp_max_tokens,
     filter_allowed_model_settings,
     messages_request_to_anthropic_payload,
     messages_request_to_openai_payload,
+)
+from tracecat.agent.llm_proxy.tool_compat import (
+    anthropic_tools_to_openai_tools,
+    tool_choice_to_openai,
+    truncate_tool_name,
 )
 from tracecat.agent.llm_proxy.types import (
     AnthropicStreamEvent,
@@ -64,6 +58,34 @@ def anthropic_request_to_openai_payload(
 
 
 _DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
+
+_REASONING_EFFORT_BUDGET: dict[str, int] = {
+    "minimal": 1024,
+    "low": 1024,
+    "medium": 2048,
+    "high": 4096,
+    "xhigh": 8192,
+}
+_DEFAULT_THINKING_BUDGET = 2048
+
+
+def _reasoning_effort_to_budget(reasoning_effort: str) -> int:
+    """Map a reasoning_effort level to an Anthropic thinking budget_tokens value."""
+    return _REASONING_EFFORT_BUDGET.get(
+        reasoning_effort.lower(), _DEFAULT_THINKING_BUDGET
+    )
+
+
+def _convert_reasoning_effort_to_thinking(payload: dict[str, Any]) -> None:
+    """Replace reasoning_effort with Anthropic's thinking parameter in-place."""
+    reasoning_effort = payload.pop("reasoning_effort", None)
+    if reasoning_effort is None:
+        return
+    if "thinking" not in payload:
+        payload["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": _reasoning_effort_to_budget(str(reasoning_effort)),
+        }
 
 
 def _anthropic_messages_url(base_url: str) -> str:
@@ -149,6 +171,7 @@ class AnthropicAdapter:
         self, request: NormalizedMessagesRequest, credentials: dict[str, str]
     ) -> ProviderHTTPRequest:
         payload = messages_request_to_anthropic_payload(request)
+        _convert_reasoning_effort_to_thinking(payload)
         base_url = request.base_url or _DEFAULT_ANTHROPIC_BASE_URL
         return ProviderHTTPRequest(
             method="POST",
@@ -169,7 +192,9 @@ class AnthropicAdapter:
                 f"{response.status_code} {response.text[:512]}"
             )
         payload = response.json()
-        from tracecat.agent.llm_proxy.requests import normalize_anthropic_response
+        from tracecat.agent.llm_proxy.response_rendering import (
+            normalize_anthropic_response,
+        )
 
         normalized = normalize_anthropic_response(payload)
         return NormalizedResponse(
@@ -204,6 +229,9 @@ class AnthropicAdapter:
             provider=self.provider,
         ):
             outbound_payload.update(allowed)
+
+        _convert_reasoning_effort_to_thinking(outbound_payload)
+        sanitize_thinking_blocks(outbound_payload)
         outbound_payload["stream"] = True
         outbound_payload["model"] = model
         clamp_max_tokens(outbound_payload)
@@ -257,14 +285,4 @@ class AnthropicAdapter:
 __all__ = [
     "AnthropicAdapter",
     "anthropic_request_to_openai_payload",
-    "anthropic_tools_to_openai_tools",
-    "create_tool_name_mapping",
-    "restore_tool_name",
-    "tool_choice_to_anthropic",
-    "tool_choice_to_openai",
-    "tool_definition_to_anthropic",
-    "tool_definition_to_openai",
-    "tool_result_content_to_openai",
-    "tool_result_to_anthropic_block",
-    "truncate_tool_name",
 ]

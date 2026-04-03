@@ -1,4 +1,4 @@
-"""Request and response normalization for the Tracecat LLM proxy."""
+"""Request normalization and payload rendering for the Tracecat LLM proxy."""
 
 from __future__ import annotations
 
@@ -7,10 +7,17 @@ from uuid import UUID
 
 import orjson
 
-from tracecat.agent.llm_proxy.anthropic_compat import (
+from tracecat.agent.llm_proxy.content_blocks import (
+    _SERVER_TOOL_RESULT_TYPES,
+    _SERVER_TOOL_USE_TYPES,
+    coerce_anthropic_content_blocks,
+    format_server_tool_result_content,
+    metadata_with_anthropic_content_blocks,
+)
+from tracecat.agent.llm_proxy.tool_compat import (
     OPENAI_MAX_TOOL_CALL_ID_LENGTH as _OPENAI_MAX_TOOL_CALL_ID_LENGTH,
 )
-from tracecat.agent.llm_proxy.anthropic_compat import (
+from tracecat.agent.llm_proxy.tool_compat import (
     anthropic_tool_to_openai_tool,
     tool_choice_to_anthropic,
     tool_choice_to_openai,
@@ -20,16 +27,13 @@ from tracecat.agent.llm_proxy.anthropic_compat import (
     truncate_tool_call_id,
 )
 from tracecat.agent.llm_proxy.types import (
-    AnthropicStreamEvent,
     IngressFormat,
     NormalizedMessage,
     NormalizedMessagesRequest,
-    NormalizedResponse,
     NormalizedToolCall,
 )
 
 OPENAI_MAX_TOOL_CALL_ID_LENGTH = _OPENAI_MAX_TOOL_CALL_ID_LENGTH
-ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY = "_anthropic_content_blocks"
 
 _DEFAULT_ALLOWED_MODEL_SETTING_KEYS = {
     "temperature",
@@ -128,17 +132,9 @@ def _parse_json_value(value: Any) -> Any:
     return value
 
 
-def _metadata_with_anthropic_content_blocks(
-    metadata: dict[str, Any],
-    content: list[Any],
-) -> dict[str, Any]:
-    """Attach original Anthropic content blocks for exact provider replay."""
-    return {
-        **metadata,
-        ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY: [
-            dict(item) if isinstance(item, dict) else item for item in content
-        ],
-    }
+# ---------------------------------------------------------------------------
+# Normalized message construction
+# ---------------------------------------------------------------------------
 
 
 def _normalized_tool_call_from_dict(data: dict[str, Any]) -> NormalizedToolCall:
@@ -277,6 +273,130 @@ def extract_anthropic_request_parts(
     }
 
 
+def _normalized_messages_from_anthropic_message(
+    data: dict[str, Any],
+) -> tuple[NormalizedMessage, ...]:
+    content = data.get("content")
+    if not isinstance(content, list):
+        return (_normalized_message_from_dict(data),)
+
+    role = _normalized_message_role(data.get("role", "user"))
+    metadata = metadata_with_anthropic_content_blocks(
+        _safe_dict(data.get("metadata")),
+        content,
+    )
+    content_parts: list[Any] = []
+    tool_calls: list[NormalizedToolCall] = []
+    tool_results: list[NormalizedMessage] = []
+
+    for item in content:
+        if not isinstance(item, dict):
+            content_parts.append(item)
+            continue
+
+        match item.get("type"):
+            case "text":
+                content_parts.append(item.get("text", ""))
+            case "thinking":
+                content_parts.append({str(key): value for key, value in item.items()})
+            case "tool_use":
+                tool_calls.append(
+                    NormalizedToolCall(
+                        id=str(item.get("id", "")),
+                        name=str(item.get("name", "")),
+                        arguments=_parse_json_value(item.get("input")),
+                    )
+                )
+            case "tool_result":
+                tool_results.append(
+                    NormalizedMessage(
+                        role="tool",
+                        content=item.get("content"),
+                        tool_call_id=str(item.get("tool_use_id", "")),
+                        metadata={"is_error": bool(item.get("is_error", False))},
+                    )
+                )
+            case "tool_reference":
+                # Content-free pointer to a tool name — drop.
+                continue
+            case block_type if block_type in _SERVER_TOOL_USE_TYPES:
+                # server_tool_use, mcp_tool_use, container_tool_use
+                # → normalise as a regular tool call.
+                tool_calls.append(
+                    NormalizedToolCall(
+                        id=str(item.get("id", "")),
+                        name=str(item.get("name", "")),
+                        arguments=_parse_json_value(item.get("input")),
+                    )
+                )
+            case block_type if block_type in _SERVER_TOOL_RESULT_TYPES:
+                # web_search_tool_result, code_execution_tool_result,
+                # mcp_tool_result, container_tool_result
+                # → normalise as a regular tool result.
+                result_content = format_server_tool_result_content(
+                    block_type, item.get("content")
+                )
+                tool_results.append(
+                    NormalizedMessage(
+                        role="tool",
+                        content=result_content,
+                        tool_call_id=str(item.get("tool_use_id", "")),
+                        metadata={
+                            "is_error": bool(item.get("is_error", False)),
+                        },
+                    )
+                )
+            case _:
+                content_parts.append(item)
+
+    text_content: Any = None
+    if content_parts:
+        text_content = content_parts[0] if len(content_parts) == 1 else content_parts
+
+    messages: list[NormalizedMessage] = []
+    if role == "assistant":
+        if tool_calls or text_content is not None:
+            messages.append(
+                NormalizedMessage(
+                    role="assistant",
+                    content=text_content,
+                    tool_calls=tuple(tool_calls),
+                    name=data.get("name"),
+                    metadata=metadata,
+                )
+            )
+        # Emit server tool results that appeared inline in the assistant turn
+        # so they are not silently dropped during cross-provider normalization.
+        if tool_results:
+            messages.extend(tool_results)
+    elif tool_results:
+        messages.extend(tool_results)
+        if text_content is not None:
+            messages.append(
+                NormalizedMessage(
+                    role=role,
+                    content=text_content,
+                    name=data.get("name"),
+                    metadata=metadata,
+                )
+            )
+    else:
+        messages.append(
+            NormalizedMessage(
+                role=role,
+                content=text_content,
+                name=data.get("name"),
+                metadata=metadata,
+            )
+        )
+    return tuple(messages)
+
+
+# ---------------------------------------------------------------------------
+# Request rendering (normalized → provider payload)
+# ---------------------------------------------------------------------------
+
+
 def _message_to_openai(message: NormalizedMessage) -> dict[str, Any]:
     result: dict[str, Any] = {"role": message.role}
     if message.content is not None:
@@ -317,7 +437,7 @@ def _message_to_anthropic(message: NormalizedMessage) -> dict[str, Any]:
         }
 
     result: dict[str, Any] = {"role": message.role}
-    content_blocks = _coerce_anthropic_content_blocks(message.content)
+    content_blocks = coerce_anthropic_content_blocks(message.content)
     if content_blocks:
         result["content"] = content_blocks
     elif message.content is not None:
@@ -362,22 +482,6 @@ def _content_to_openai(content: Any) -> Any:
     ]
 
 
-def _coerce_anthropic_content_blocks(content: Any) -> list[dict[str, Any]]:
-    if content is None:
-        return []
-    if isinstance(content, list):
-        blocks: list[dict[str, Any]] = []
-        for item in content:
-            if isinstance(item, dict):
-                blocks.append({str(key): value for key, value in item.items()})
-            else:
-                blocks.append({"type": "text", "text": str(item)})
-        return blocks
-    if isinstance(content, dict):
-        return [{str(key): value for key, value in content.items()}]
-    return [{"type": "text", "text": str(content)}]
-
-
 def _anthropic_system_payload(
     messages: tuple[NormalizedMessage, ...],
 ) -> str | list[dict[str, Any]] | None:
@@ -394,91 +498,8 @@ def _anthropic_system_payload(
 
     blocks: list[dict[str, Any]] = []
     for item in system_messages:
-        blocks.extend(_coerce_anthropic_content_blocks(item))
+        blocks.extend(coerce_anthropic_content_blocks(item))
     return blocks
-
-
-def _normalized_messages_from_anthropic_message(
-    data: dict[str, Any],
-) -> tuple[NormalizedMessage, ...]:
-    content = data.get("content")
-    if not isinstance(content, list):
-        return (_normalized_message_from_dict(data),)
-
-    role = _normalized_message_role(data.get("role", "user"))
-    metadata = _metadata_with_anthropic_content_blocks(
-        _safe_dict(data.get("metadata")),
-        content,
-    )
-    text_parts: list[Any] = []
-    tool_calls: list[NormalizedToolCall] = []
-    tool_results: list[NormalizedMessage] = []
-
-    for item in content:
-        if not isinstance(item, dict):
-            text_parts.append(item)
-            continue
-
-        match item.get("type"):
-            case "text":
-                text_parts.append(item.get("text", ""))
-            case "tool_use":
-                tool_calls.append(
-                    NormalizedToolCall(
-                        id=str(item.get("id", "")),
-                        name=str(item.get("name", "")),
-                        arguments=_parse_json_value(item.get("input")),
-                    )
-                )
-            case "tool_result":
-                tool_results.append(
-                    NormalizedMessage(
-                        role="tool",
-                        content=item.get("content"),
-                        tool_call_id=str(item.get("tool_use_id", "")),
-                        metadata={"is_error": bool(item.get("is_error", False))},
-                    )
-                )
-            case _:
-                text_parts.append(item)
-
-    text_content: Any = None
-    if text_parts:
-        text_content = text_parts[0] if len(text_parts) == 1 else text_parts
-
-    messages: list[NormalizedMessage] = []
-    if role == "assistant":
-        if tool_calls or text_content is not None:
-            messages.append(
-                NormalizedMessage(
-                    role="assistant",
-                    content=text_content,
-                    tool_calls=tuple(tool_calls),
-                    name=data.get("name"),
-                    metadata=metadata,
-                )
-            )
-    elif tool_results:
-        messages.extend(tool_results)
-        if text_content is not None:
-            messages.append(
-                NormalizedMessage(
-                    role=role,
-                    content=text_content,
-                    name=data.get("name"),
-                    metadata=metadata,
-                )
-            )
-    else:
-        messages.append(
-            NormalizedMessage(
-                role=role,
-                content=text_content,
-                name=data.get("name"),
-                metadata=metadata,
-            )
-        )
-    return tuple(messages)
 
 
 def messages_request_to_openai_payload(
@@ -528,225 +549,3 @@ def messages_request_to_anthropic_payload(
         payload["tool_choice"] = tool_choice_to_anthropic(request.tool_choice)
     payload.update(request.model_settings)
     return payload
-
-
-def render_anthropic_response(response: NormalizedResponse) -> dict[str, Any]:
-    """Render a normalized response into an Anthropic messages payload."""
-    content: list[dict[str, Any]] = []
-    if response.content is not None:
-        if isinstance(response.content, list):
-            content.extend(
-                item if isinstance(item, dict) else {"type": "text", "text": str(item)}
-                for item in response.content
-            )
-        else:
-            content.append({"type": "text", "text": str(response.content)})
-    for tool_call in response.tool_calls:
-        content.append(
-            {
-                "type": "tool_use",
-                "id": tool_call.id,
-                "name": tool_call.name,
-                "input": tool_call.arguments,
-            }
-        )
-    return {
-        "id": response.raw.get("id", f"tracecat-{response.provider}"),
-        "type": "message",
-        "role": "assistant",
-        "model": response.model,
-        "content": content,
-        "stop_reason": response.finish_reason,
-        "usage": {
-            "input_tokens": response.usage.get("input_tokens", 0),
-            "output_tokens": response.usage.get("output_tokens", 0),
-        },
-    }
-
-
-def render_anthropic_stream_event(event: AnthropicStreamEvent) -> bytes:
-    """Render a single Anthropic-compatible SSE event."""
-    return _sse_event(event.event, event.payload)
-
-
-def anthropic_stream_events_from_response(
-    response: NormalizedResponse,
-) -> list[AnthropicStreamEvent]:
-    """Build synthetic Anthropic SSE events from a completed response."""
-    rendered = render_anthropic_response(response)
-    input_tokens = rendered["usage"]["input_tokens"]
-    output_tokens = rendered["usage"]["output_tokens"]
-    message_start = {
-        "type": "message_start",
-        "message": {
-            "id": rendered["id"],
-            "type": "message",
-            "role": "assistant",
-            "model": rendered["model"],
-            "content": [],
-            "stop_reason": None,
-            "stop_sequence": None,
-            "usage": {
-                "input_tokens": input_tokens,
-                "output_tokens": 0,
-            },
-        },
-    }
-    events = [AnthropicStreamEvent("message_start", message_start)]
-
-    for index, block in enumerate(rendered["content"]):
-        if not isinstance(block, dict):
-            block = {"type": "text", "text": str(block)}
-        block_type = block.get("type")
-        if block_type == "tool_use":
-            partial_json = _tool_arguments_to_openai(block.get("input", {}))
-            events.extend(
-                [
-                    AnthropicStreamEvent(
-                        "content_block_start",
-                        {
-                            "type": "content_block_start",
-                            "index": index,
-                            "content_block": {
-                                "type": "tool_use",
-                                "id": block.get("id", ""),
-                                "name": block.get("name", ""),
-                                "input": {},
-                            },
-                        },
-                    ),
-                    AnthropicStreamEvent(
-                        "content_block_delta",
-                        {
-                            "type": "content_block_delta",
-                            "index": index,
-                            "delta": {
-                                "type": "input_json_delta",
-                                "partial_json": partial_json,
-                            },
-                        },
-                    ),
-                    AnthropicStreamEvent(
-                        "content_block_stop",
-                        {"type": "content_block_stop", "index": index},
-                    ),
-                ]
-            )
-            continue
-
-        text = block.get("text", "")
-        events.extend(
-            [
-                AnthropicStreamEvent(
-                    "content_block_start",
-                    {
-                        "type": "content_block_start",
-                        "index": index,
-                        "content_block": {"type": "text", "text": ""},
-                    },
-                ),
-                AnthropicStreamEvent(
-                    "content_block_delta",
-                    {
-                        "type": "content_block_delta",
-                        "index": index,
-                        "delta": {"type": "text_delta", "text": str(text)},
-                    },
-                ),
-                AnthropicStreamEvent(
-                    "content_block_stop",
-                    {"type": "content_block_stop", "index": index},
-                ),
-            ]
-        )
-
-    events.extend(
-        [
-            AnthropicStreamEvent(
-                "message_delta",
-                {
-                    "type": "message_delta",
-                    "delta": {
-                        "stop_reason": rendered["stop_reason"],
-                        "stop_sequence": None,
-                    },
-                    "usage": {"output_tokens": output_tokens},
-                },
-            ),
-            AnthropicStreamEvent("message_stop", {"type": "message_stop"}),
-        ]
-    )
-    return events
-
-
-def stream_anthropic_response(response: NormalizedResponse) -> list[bytes]:
-    """Render a normalized response into Anthropic-compatible SSE events."""
-    return [
-        render_anthropic_stream_event(event)
-        for event in anthropic_stream_events_from_response(response)
-    ]
-
-
-def _sse_event(event_name: str, payload: dict[str, Any]) -> bytes:
-    return (
-        f"event: {event_name}\n".encode() + b"data: " + orjson.dumps(payload) + b"\n\n"
-    )
-
-
-def normalize_openai_response(payload: dict[str, Any]) -> NormalizedResponse:
-    """Normalize an OpenAI chat-completions payload."""
-    choice = (payload.get("choices") or [{}])[0]
-    message = choice.get("message") or {}
-    tool_calls = tuple(
-        _normalized_tool_call_from_dict(item)
-        for item in message.get("tool_calls", [])
-        if isinstance(item, dict)
-    )
-    return NormalizedResponse(
-        provider="openai",
-        model=str(payload.get("model", "")),
-        content=message.get("content"),
-        tool_calls=tool_calls,
-        finish_reason=choice.get("finish_reason"),
-        usage=_safe_dict(payload.get("usage")),
-        raw=_safe_dict(payload),
-    )
-
-
-def normalize_anthropic_response(payload: dict[str, Any]) -> NormalizedResponse:
-    """Normalize an Anthropic messages payload."""
-    content = payload.get("content")
-    text_parts: list[Any] = []
-    tool_calls: list[NormalizedToolCall] = []
-    if isinstance(content, list):
-        for item in content:
-            if not isinstance(item, dict):
-                text_parts.append(item)
-                continue
-            item_type = item.get("type")
-            if item_type == "tool_use":
-                tool_calls.append(
-                    NormalizedToolCall(
-                        id=str(item.get("id", "")),
-                        name=str(item.get("name", "")),
-                        arguments=_safe_dict(item.get("input")),
-                    )
-                )
-            elif item_type == "text":
-                text_parts.append(item.get("text", ""))
-            else:
-                text_parts.append(item)
-    elif content is not None:
-        text_parts.append(content)
-    return NormalizedResponse(
-        provider="anthropic",
-        model=str(payload.get("model", "")),
-        content=text_parts if len(text_parts) != 1 else text_parts[0],
-        tool_calls=tuple(tool_calls),
-        finish_reason=payload.get("stop_reason"),
-        usage={
-            "input_tokens": int(payload.get("usage", {}).get("input_tokens", 0)),
-            "output_tokens": int(payload.get("usage", {}).get("output_tokens", 0)),
-        },
-        raw=_safe_dict(payload),
-    )

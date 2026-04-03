@@ -1,7 +1,7 @@
-"""Anthropic compatibility helpers shared across provider adapters.
+"""Cross-provider tool compatibility helpers for the Tracecat LLM proxy.
 
-This module owns the small amount of cross-provider request shaping that is
-still shared after normalization:
+This module owns the small amount of cross-provider tool shaping that is
+shared after normalization:
 
 - tool schema conversion between Anthropic and OpenAI wire shapes
 - canonical Anthropic tool choice parsing
@@ -15,6 +15,8 @@ import hashlib
 from typing import Any
 
 import orjson
+
+from tracecat.agent.llm_proxy.types import NormalizedToolCall
 
 OPENAI_MAX_TOOL_CALL_ID_LENGTH = 40
 OPENAI_MAX_TOOL_NAME_LENGTH = 64
@@ -248,6 +250,66 @@ def tool_choice_to_anthropic(tool_choice: Any) -> Any:
     if anthropic_choice := anthropic_tool_choice(tool_choice):
         return anthropic_choice
     return tool_choice
+
+
+def apply_tool_name_mapping(payload: dict[str, Any], mapping: dict[str, str]) -> None:
+    """Rewrite tool names in an outbound payload from originals to truncated forms."""
+    if not mapping:
+        return
+    original_to_truncated = {
+        original: truncated for truncated, original in mapping.items()
+    }
+
+    def _rewrite_name(container: dict[str, Any]) -> None:
+        name = container.get("name")
+        if isinstance(name, str) and name in original_to_truncated:
+            container["name"] = original_to_truncated[name]
+
+    tools = payload.get("tools")
+    if isinstance(tools, list):
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            _rewrite_name(tool.get("function") or tool)
+
+    tool_choice = payload.get("tool_choice")
+    if isinstance(tool_choice, dict):
+        _rewrite_name(tool_choice.get("function") or tool_choice)
+
+    messages = payload.get("messages")
+    if isinstance(messages, list):
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            for tool_call in message.get("tool_calls", []):
+                if isinstance(tool_call, dict) and isinstance(
+                    function := tool_call.get("function"), dict
+                ):
+                    _rewrite_name(function)
+
+    input_items = payload.get("input")
+    if isinstance(input_items, list):
+        for item in input_items:
+            if isinstance(item, dict) and item.get("type") == "function_call":
+                _rewrite_name(item)
+
+
+def restore_tool_call_names(
+    tool_calls: tuple[NormalizedToolCall, ...],
+    mapping: dict[str, str],
+) -> tuple[NormalizedToolCall, ...]:
+    """Restore truncated tool call names back to their originals."""
+    if not mapping or not tool_calls:
+        return tool_calls
+    return tuple(
+        NormalizedToolCall(
+            id=tc.id,
+            name=restore_tool_name(tc.name, mapping) or tc.name,
+            arguments=tc.arguments,
+            type=tc.type,
+        )
+        for tc in tool_calls
+    )
 
 
 def _tool_input_schema(value: Any) -> dict[str, Any]:

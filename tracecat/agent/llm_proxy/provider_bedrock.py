@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 from urllib.parse import quote
 
 import httpx
@@ -24,25 +24,32 @@ from botocore.eventstream import EventStreamBuffer
 from botocore.loaders import Loader
 from botocore.model import ServiceModel
 from botocore.parsers import EventStreamJSONParser
+from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt
 
-from tracecat.agent.llm_proxy.anthropic_compat import (
+from tracecat.agent.llm_proxy.content_blocks import (
+    ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY,
+)
+from tracecat.agent.llm_proxy.provider_common import (
+    anthropic_block_stop_event,
+    anthropic_message_delta_event,
+    anthropic_message_start_event,
+    anthropic_signature_delta_event,
+    anthropic_text_block_start_event,
+    anthropic_text_delta_event,
+    anthropic_thinking_block,
+    anthropic_thinking_block_start_event,
+    anthropic_thinking_delta_event,
+    anthropic_tool_block_start_event,
+    anthropic_tool_delta_event,
+    raise_stream_http_error,
+)
+from tracecat.agent.llm_proxy.tool_compat import (
     anthropic_tool_choice,
     anthropic_tool_definition,
     create_tool_name_mapping,
     restore_tool_name,
     truncate_tool_call_id,
 )
-from tracecat.agent.llm_proxy.provider_common import (
-    anthropic_block_stop_event,
-    anthropic_message_delta_event,
-    anthropic_message_start_event,
-    anthropic_text_block_start_event,
-    anthropic_text_delta_event,
-    anthropic_tool_block_start_event,
-    anthropic_tool_delta_event,
-    raise_stream_http_error,
-)
-from tracecat.agent.llm_proxy.requests import ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY
 from tracecat.agent.llm_proxy.types import (
     AnthropicStreamEvent,
     NormalizedMessage,
@@ -58,6 +65,12 @@ _BEDROCK_STREAM_SHAPE: Any | None = None
 _BEDROCK_TOOL_USE_REASONING_ERROR = (
     "Expected thinking or redacted_thinking, but found tool_use"
 )
+_BEDROCK_FORCED_TOOL_CHOICE_THINKING_ERROR = (
+    "Thinking may not be enabled when tool_choice forces tool use."
+)
+_BEDROCK_UNSUPPORTED_REASONING_EFFORT_ERROR = (
+    "reasoning_effort: Extra inputs are not permitted"
+)
 _BEDROCK_STREAM_EVENT_KEYS = frozenset(
     {
         "messageStart",
@@ -71,7 +84,14 @@ _BEDROCK_STREAM_EVENT_KEYS = frozenset(
 
 
 @dataclass(slots=True)
+class _RetryableBedrockStreamRequestError(RuntimeError):
+    """Raised when a failed stream-open request can be rewritten and retried."""
+
+
+@dataclass(slots=True)
 class _BedrockToolStreamState:
+    """Track one tool-use block while Bedrock streams partial JSON arguments."""
+
     tool_call_id: str
     name: str
     started: bool = False
@@ -79,8 +99,49 @@ class _BedrockToolStreamState:
 
 @dataclass(slots=True)
 class _BedrockThinkingStreamState:
+    """Track whether a thinking block has started and its latest signature."""
+
     started: bool = False
     signature: str = ""
+
+
+class _BedrockModelConfigParts(TypedDict):
+    """Split Bedrock model settings into Converse config vs model extras."""
+
+    inference_config: dict[str, Any]
+    additional_fields: dict[str, Any]
+
+
+class _BedrockPayloadParts(TypedDict):
+    """Structured request fragments before final JSON payload assembly."""
+
+    messages: list[dict[str, Any]]
+    system: list[dict[str, Any]]
+    inference_config: dict[str, Any]
+    additional_fields: dict[str, Any]
+    tool_config: dict[str, Any] | None
+
+
+class _BedrockRequestComponents(TypedDict):
+    """Signed-request inputs for one Bedrock Converse operation."""
+
+    url: str
+    body: bytes
+
+
+def _bedrock_payload(parts: _BedrockPayloadParts) -> dict[str, Any]:
+    """Assemble the final Bedrock Converse payload from typed fragments."""
+
+    payload: dict[str, Any] = {"messages": parts["messages"]}
+    if parts["system"]:
+        payload["system"] = parts["system"]
+    if parts["inference_config"]:
+        payload["inferenceConfig"] = parts["inference_config"]
+    if parts["additional_fields"]:
+        payload["additionalModelRequestFields"] = parts["additional_fields"]
+    if parts["tool_config"]:
+        payload["toolConfig"] = parts["tool_config"]
+    return payload
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
@@ -88,6 +149,8 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
 
 
 def _bedrock_response_stream_shape() -> Any:
+    """Load and cache the botocore event-stream shape for ConverseStream."""
+
     global _BEDROCK_STREAM_SHAPE
     if _BEDROCK_STREAM_SHAPE is None:
         bedrock_service_dict = Loader().load_service_model(
@@ -118,16 +181,8 @@ def _is_nova_lite_2_model(model: str) -> bool:
     return "nova-2-lite" in _bedrock_base_model(model)
 
 
-def _is_anthropic_family(model: str) -> bool:
-    base_model = _bedrock_base_model(model)
-    return (
-        base_model.startswith("anthropic")
-        or base_model.startswith("mistral")
-        or base_model.startswith("cohere")
-        or base_model.startswith("meta.llama")
-        or base_model.startswith("amazon.nova")
-        or base_model.startswith("deepseek.r1")
-    )
+def _is_claude_model(model: str) -> bool:
+    return "claude" in _bedrock_base_model(model)
 
 
 def _text_block(text: Any) -> dict[str, Any]:
@@ -185,6 +240,13 @@ def _content_item_to_block(item: Any) -> dict[str, Any]:
     match item:
         case {"type": "text", "text": str(text)}:
             return {"text": text}
+        case {"type": "thinking", **thinking_block}:
+            reasoning_content: dict[str, Any] = {}
+            if isinstance(thinking := thinking_block.get("thinking"), str):
+                reasoning_content["text"] = thinking
+            if isinstance(signature := thinking_block.get("signature"), str):
+                reasoning_content["signature"] = signature
+            return {"reasoningContent": reasoning_content}
         case {
             "type": "tool_use",
             "id": str(tool_call_id),
@@ -254,6 +316,13 @@ def _anthropic_content_blocks_from_message(
 
 
 def _message_to_content_blocks(message: NormalizedMessage) -> list[dict[str, Any]]:
+    """Convert one normalized message into Bedrock Converse content blocks.
+
+    Bedrock has no separate tool-result message role. Tool results are encoded
+    as user-role `toolResult` blocks, while assistant tool calls become
+    `toolUse` blocks inside assistant content.
+    """
+
     if message.role == "tool":
         return [
             {
@@ -317,6 +386,13 @@ def _system_blocks(messages: Sequence[NormalizedMessage]) -> list[dict[str, Any]
 def _messages_from_request(
     messages: Sequence[NormalizedMessage],
 ) -> list[dict[str, Any]]:
+    """Build Converse messages, coalescing tool results into user turns.
+
+    Converse expects tool results to be sent back as user content. We therefore
+    buffer consecutive tool messages and flush them as a single synthetic user
+    message before the next non-tool turn.
+    """
+
     normalized_messages: list[dict[str, Any]] = []
     pending_tool_results: list[dict[str, Any]] = []
 
@@ -353,6 +429,8 @@ def _messages_from_request(
 
 
 def _tool_spec_from_request_tool(tool: dict[str, Any]) -> dict[str, Any] | None:
+    """Translate a normalized tool definition into Bedrock's `toolSpec`."""
+
     if (definition := anthropic_tool_definition(tool)) is None:
         return None
 
@@ -368,6 +446,8 @@ def _tool_spec_from_request_tool(tool: dict[str, Any]) -> dict[str, Any] | None:
 def _build_tool_call_id_mapping(
     messages: Sequence[NormalizedMessage],
 ) -> dict[str, str]:
+    """Precompute truncated tool-call IDs for Bedrock's identifier limits."""
+
     mapping: dict[str, str] = {}
     for message in messages:
         for tool_call in message.tool_calls:
@@ -388,6 +468,13 @@ def _apply_tool_mappings(
     tool_name_mapping: dict[str, str],
     tool_call_id_mapping: dict[str, str],
 ) -> None:
+    """Rewrite tool names and tool-call IDs everywhere they appear in payload.
+
+    Bedrock validates names and identifiers consistently across tool specs,
+    assistant `toolUse` blocks, and user `toolResult` echoes, so a truncation
+    pass has to update all three locations together.
+    """
+
     if not tool_name_mapping and not tool_call_id_mapping:
         return
     original_to_truncated = {
@@ -502,17 +589,18 @@ def _reasoning_budget(reasoning_effort: str) -> int:
             return _BEDROCK_MIN_THINKING_BUDGET_TOKENS
 
 
-def _has_reasoning_enabled(additional_fields: dict[str, Any]) -> bool:
-    return bool(
-        additional_fields.get("thinking")
-        or additional_fields.get("reasoningConfig")
-        or additional_fields.get("reasoning_effort")
-    )
-
-
 def _inference_config_from_request(
     request: NormalizedMessagesRequest,
-) -> tuple[dict[str, Any], dict[str, Any]]:
+    *,
+    target_model: str,
+) -> _BedrockModelConfigParts:
+    """Split generic settings into Converse inference config vs model extras.
+
+    Bedrock exposes basic generation knobs under `inferenceConfig`, while
+    provider/model-family specific reasoning settings live under
+    `additionalModelRequestFields`.
+    """
+
     inference_config: dict[str, Any] = {}
     additional_fields: dict[str, Any] = {}
     settings = dict(request.model_settings)
@@ -534,28 +622,36 @@ def _inference_config_from_request(
             inference_config["stopSequences"] = stop_sequences
 
     if reasoning_effort := settings.get("reasoning_effort"):
-        if _is_nova_lite_2_model(request.model):
+        if _is_nova_lite_2_model(target_model):
             additional_fields["reasoningConfig"] = {
                 "type": "enabled",
                 "maxReasoningEffort": str(reasoning_effort),
             }
-        elif _is_anthropic_family(request.model):
+        elif _is_claude_model(target_model):
             additional_fields["thinking"] = {
                 "type": "enabled",
                 "budget_tokens": _reasoning_budget(str(reasoning_effort)),
             }
-        else:
-            additional_fields["reasoning_effort"] = reasoning_effort
 
     if thinking := settings.get("thinking"):
         additional_fields["thinking"] = thinking
 
-    return inference_config, additional_fields
+    return {
+        "inference_config": inference_config,
+        "additional_fields": additional_fields,
+    }
 
 
 def _tool_config_from_request(
     request: NormalizedMessagesRequest,
 ) -> dict[str, Any] | None:
+    """Build Bedrock `toolConfig`, inserting a dummy tool when replay needs it.
+
+    Converse rejects tool-result echoes unless the request advertises tool
+    support. When history contains prior tool use but the current request does
+    not declare tools, we add a harmless dummy spec to keep the replay valid.
+    """
+
     tools = [
         tool_spec
         for tool in request.tools
@@ -578,17 +674,30 @@ def _normalize_reasoning_tool_choice(
     tool_config: dict[str, Any] | None,
     *,
     additional_fields: dict[str, Any],
-) -> dict[str, Any] | None:
-    if tool_config is None or not _has_reasoning_enabled(additional_fields):
-        return tool_config
+) -> dict[str, Any]:
+    """Drop Claude thinking when Bedrock also forces tool use.
+
+    Bedrock's Anthropic models reject requests that combine thinking with a
+    forced tool policy. In that conflict we keep the caller's explicit tool
+    choice and remove thinking from the extra model fields.
+    """
+
+    if tool_config is None or "thinking" not in additional_fields:
+        return additional_fields
+    if "tools" not in tool_config:
+        return additional_fields
     tool_choice = tool_config.get("toolChoice")
     if not isinstance(tool_choice, dict):
-        return tool_config
-    if "any" in tool_choice or "tool" in tool_choice:
-        rewritten = dict(tool_config)
-        rewritten["toolChoice"] = {"auto": {}}
-        return rewritten
-    return tool_config
+        return additional_fields
+    if "tool" not in tool_choice and "any" not in tool_choice:
+        return additional_fields
+
+    # Bedrock rejects forced tool use when Anthropic thinking is enabled.
+    # Preserve the explicit tool choice and drop thinking instead of weakening
+    # the caller's tool policy.
+    rewritten_fields = dict(additional_fields)
+    rewritten_fields.pop("thinking", None)
+    return rewritten_fields
 
 
 def _content_text_from_response(content: Any) -> list[str]:
@@ -601,6 +710,45 @@ def _content_text_from_response(content: Any) -> list[str]:
         if text := item.get("text"):
             text_parts.append(str(text))
     return text_parts
+
+
+def _content_blocks_from_response(content: Any) -> list[dict[str, Any]]:
+    """Extract Anthropic-compatible text/thinking blocks from Converse output."""
+
+    if not isinstance(content, list):
+        return []
+    content_blocks: list[dict[str, Any]] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        if isinstance(text := _bedrock_case_get(item, "text", "Text"), str):
+            content_blocks.append({"type": "text", "text": text})
+            continue
+        reasoning_content = _bedrock_case_get(
+            item, "reasoningContent", "ReasoningContent"
+        )
+        if not isinstance(reasoning_content, dict):
+            continue
+
+        thinking = ""
+        if isinstance(
+            reasoning_text := _bedrock_case_get(reasoning_content, "text", "Text"), str
+        ):
+            thinking = reasoning_text
+
+        signature = ""
+        if isinstance(
+            reasoning_signature := _bedrock_case_get(
+                reasoning_content, "signature", "Signature"
+            ),
+            str,
+        ):
+            signature = reasoning_signature
+
+        content_blocks.append(
+            anthropic_thinking_block(thinking=thinking, signature=signature)
+        )
+    return content_blocks
 
 
 def _tool_calls_from_response(content: Any) -> list[NormalizedToolCall]:
@@ -630,13 +778,21 @@ def _parse_bedrock_response(
     provider: str,
     tool_name_mapping: dict[str, str],
 ) -> NormalizedResponse:
+    """Normalize a non-streaming Converse response into proxy response types."""
+
     if response.status_code >= 400:
-        response.raise_for_status()
+        detail = response.text[:1000]
+        raise httpx.HTTPStatusError(
+            f"bedrock provider error: {response.status_code} {detail}",
+            request=response.request,
+            response=response,
+        )
 
     payload = response.json()
     output = payload.get("output") or {}
     message = output.get("message") or {}
     content = message.get("content") or []
+    content_blocks = _content_blocks_from_response(content)
     text_parts = _content_text_from_response(content)
     tool_calls = _restore_tool_call_names(
         _tool_calls_from_response(content),
@@ -646,7 +802,13 @@ def _parse_bedrock_response(
     return NormalizedResponse(
         provider=provider,
         model=str(payload.get("modelId", "")),
-        content="\n".join(text_parts) if text_parts else None,
+        content=(
+            content_blocks
+            if any(block.get("type") == "thinking" for block in content_blocks)
+            else "\n".join(text_parts)
+            if text_parts
+            else None
+        ),
         tool_calls=tuple(tool_calls),
         finish_reason=str(payload.get("stopReason"))
         if payload.get("stopReason")
@@ -664,7 +826,9 @@ def _bedrock_request_components(
     credentials: dict[str, str],
     *,
     stream: bool,
-) -> tuple[str, bytes]:
+) -> _BedrockRequestComponents:
+    """Assemble the signed-request inputs for Converse or ConverseStream."""
+
     region = credentials.get("AWS_REGION")
     if not region:
         raise ValueError("Bedrock requires AWS_REGION")
@@ -682,25 +846,23 @@ def _bedrock_request_components(
     encoded_model = quote(model, safe="")
     url = f"{base_url}/model/{encoded_model}/{operation}"
 
-    payload: dict[str, Any] = {
-        "messages": _messages_from_request(request.messages),
-    }
-
-    if system := _system_blocks(request.messages):
-        payload["system"] = system
-
-    inference_config, additional_fields = _inference_config_from_request(request)
-    if inference_config:
-        payload["inferenceConfig"] = inference_config
-    if additional_fields:
-        payload["additionalModelRequestFields"] = additional_fields
-
-    tool_config = _normalize_reasoning_tool_choice(
-        _tool_config_from_request(request),
-        additional_fields=additional_fields,
+    model_config = _inference_config_from_request(
+        request,
+        target_model=model,
     )
-    if tool_config:
-        payload["toolConfig"] = tool_config
+    tool_config = _tool_config_from_request(request)
+    payload = _bedrock_payload(
+        {
+            "messages": _messages_from_request(request.messages),
+            "system": _system_blocks(request.messages),
+            "inference_config": model_config["inference_config"],
+            "additional_fields": _normalize_reasoning_tool_choice(
+                tool_config,
+                additional_fields=model_config["additional_fields"],
+            ),
+            "tool_config": tool_config,
+        }
+    )
 
     _apply_tool_mappings(
         payload,
@@ -708,7 +870,7 @@ def _bedrock_request_components(
         tool_call_id_mapping=_build_tool_call_id_mapping(request.messages),
     )
 
-    return url, _json_bytes(payload)
+    return {"url": url, "body": _json_bytes(payload)}
 
 
 def _signed_bedrock_request(
@@ -775,6 +937,8 @@ def _load_request_body(request: ProviderHTTPRequest) -> dict[str, Any]:
 
 
 def _remove_thinking_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of payload without Bedrock Claude `thinking` extras."""
+
     rewritten = dict(payload)
     additional = rewritten.get("additionalModelRequestFields")
     if not isinstance(additional, dict) or "thinking" not in additional:
@@ -788,11 +952,34 @@ def _remove_thinking_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return rewritten
 
 
+def _remove_reasoning_effort_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of payload without Bedrock Nova `reasoning_effort` extras."""
+
+    rewritten = dict(payload)
+    additional = rewritten.get("additionalModelRequestFields")
+    if not isinstance(additional, dict) or "reasoning_effort" not in additional:
+        return rewritten
+    rewritten_additional = dict(additional)
+    rewritten_additional.pop("reasoning_effort", None)
+    if rewritten_additional:
+        rewritten["additionalModelRequestFields"] = rewritten_additional
+    else:
+        rewritten.pop("additionalModelRequestFields", None)
+    return rewritten
+
+
 def _parsed_bedrock_stream_event(
     raw_event: Any,
     *,
     parser: EventStreamJSONParser,
 ) -> dict[str, Any] | None:
+    """Decode one event-stream frame into a Converse event payload.
+
+    Bedrock can send either structured event-stream members or a JSON blob
+    inside `chunk.bytes`. This helper hides that split and raises a bounded
+    error message for stream-open failures.
+    """
+
     response_dict = raw_event.to_response_dict()
     parsed = parser.parse(response_dict, _bedrock_response_stream_shape())
     if isinstance(parsed, dict) and any(
@@ -827,6 +1014,8 @@ def _bedrock_case_get(payload: dict[str, Any], snake_key: str, pascal_key: str) 
 
 
 def _bedrock_json_payload_error(payload: Any) -> str | None:
+    """Extract a readable error string from Bedrock's JSON-style error payloads."""
+
     if not isinstance(payload, dict):
         return None
     if isinstance(error := payload.get("Error"), dict):
@@ -847,6 +1036,8 @@ def _bedrock_json_payload_error(payload: Any) -> str | None:
 
 
 def _bedrock_json_payload_to_events(payload: Any) -> list[dict[str, Any]]:
+    """Flatten JSON payloads into Converse-style event dictionaries."""
+
     if isinstance(payload, list):
         extracted_events: list[dict[str, Any]] = []
         for item in payload:
@@ -1017,49 +1208,6 @@ async def _iter_bedrock_stream_events(
             yield event
 
 
-def _thinking_block_start_event(index: int) -> AnthropicStreamEvent:
-    return AnthropicStreamEvent(
-        "content_block_start",
-        {
-            "type": "content_block_start",
-            "index": index,
-            "content_block": {
-                "type": "thinking",
-                "thinking": "",
-                "signature": "",
-            },
-        },
-    )
-
-
-def _thinking_delta_event(index: int, text: str) -> AnthropicStreamEvent:
-    return AnthropicStreamEvent(
-        "content_block_delta",
-        {
-            "type": "content_block_delta",
-            "index": index,
-            "delta": {
-                "type": "thinking_delta",
-                "thinking": text,
-            },
-        },
-    )
-
-
-def _signature_delta_event(index: int, signature: str) -> AnthropicStreamEvent:
-    return AnthropicStreamEvent(
-        "content_block_delta",
-        {
-            "type": "content_block_delta",
-            "index": index,
-            "delta": {
-                "type": "signature_delta",
-                "signature": signature,
-            },
-        },
-    )
-
-
 @dataclass(slots=True)
 class BedrockAdapter:
     """Adapter for AWS Bedrock Converse API."""
@@ -1069,12 +1217,16 @@ class BedrockAdapter:
     def prepare_request(
         self, request: NormalizedMessagesRequest, credentials: dict[str, str]
     ) -> ProviderHTTPRequest:
-        url, body = _bedrock_request_components(request, credentials, stream=False)
+        request_components = _bedrock_request_components(
+            request,
+            credentials,
+            stream=False,
+        )
         return _signed_bedrock_request(
             request=request,
             credentials=credentials,
-            url=url,
-            body=body,
+            url=request_components["url"],
+            body=request_components["body"],
         )
 
     async def parse_response(
@@ -1095,11 +1247,15 @@ class BedrockAdapter:
         outbound_request: ProviderHTTPRequest,
     ) -> ProviderHTTPRequest | None:
         del credentials, request
-        if _BEDROCK_TOOL_USE_REASONING_ERROR not in response.text:
-            return None
-
         payload = _load_request_body(outbound_request)
-        rewritten = _remove_thinking_from_payload(payload)
+        rewritten = payload
+        if (
+            _BEDROCK_TOOL_USE_REASONING_ERROR in response.text
+            or _BEDROCK_FORCED_TOOL_CHOICE_THINKING_ERROR in response.text
+        ):
+            rewritten = _remove_thinking_from_payload(rewritten)
+        if _BEDROCK_UNSUPPORTED_REASONING_EFFORT_ERROR in response.text:
+            rewritten = _remove_reasoning_effort_from_payload(rewritten)
         if rewritten == payload:
             return None
         return ProviderHTTPRequest(
@@ -1116,7 +1272,7 @@ class BedrockAdapter:
         request: NormalizedMessagesRequest,
         credentials: dict[str, str],
     ) -> AsyncIterator[AnthropicStreamEvent]:
-        stream_url, stream_body = _bedrock_request_components(
+        request_components = _bedrock_request_components(
             request,
             credentials,
             stream=True,
@@ -1124,27 +1280,62 @@ class BedrockAdapter:
         stream_request = _signed_bedrock_request(
             request=request,
             credentials=credentials,
-            url=stream_url,
-            body=stream_body,
+            url=request_components["url"],
+            body=request_components["body"],
         )
+        stream_context: Any | None = None
+        response: httpx.Response | None = None
 
-        async with client.stream(
-            stream_request.method,
-            stream_request.url,
-            headers=stream_request.headers,
-            content=stream_request.body,
-        ) as response:
-            logger.debug(
-                "Bedrock stream response opened",
-                status_code=response.status_code,
-                content_type=response.headers.get("content-type"),
-                transfer_encoding=response.headers.get("transfer-encoding"),
-                provider=self.provider,
-                model=request.model,
+        async def _open_stream_response() -> tuple[Any, httpx.Response]:
+            nonlocal stream_request
+            opened_context = client.stream(
+                stream_request.method,
+                stream_request.url,
+                headers=stream_request.headers,
+                content=stream_request.body,
             )
-            if response.status_code >= 400:
-                await raise_stream_http_error(response, provider=self.provider)
+            opened_response = await opened_context.__aenter__()
+            try:
+                logger.debug(
+                    "Bedrock stream response opened",
+                    status_code=opened_response.status_code,
+                    content_type=opened_response.headers.get("content-type"),
+                    transfer_encoding=opened_response.headers.get("transfer-encoding"),
+                    provider=self.provider,
+                    model=request.model,
+                )
+                if opened_response.status_code >= 400:
+                    await opened_response.aread()
+                    retry_request = self.prepare_retry_request(
+                        response=opened_response,
+                        request=request,
+                        credentials=credentials,
+                        outbound_request=stream_request,
+                    )
+                    if retry_request is not None:
+                        stream_request = retry_request
+                        raise _RetryableBedrockStreamRequestError
+                    await raise_stream_http_error(
+                        opened_response,
+                        provider=self.provider,
+                    )
+                return opened_context, opened_response
+            except Exception as exc:
+                await opened_context.__aexit__(type(exc), exc, exc.__traceback__)
+                raise
 
+        async for attempt in AsyncRetrying(
+            retry=retry_if_exception_type(_RetryableBedrockStreamRequestError),
+            stop=stop_after_attempt(2),
+            reraise=True,
+        ):
+            with attempt:
+                stream_context, response = await _open_stream_response()
+
+        if stream_context is None or response is None:
+            raise RuntimeError("Bedrock stream failed to open")
+
+        try:
             yielded_message_start = False
             tool_name_mapping = create_tool_name_mapping(request.tools)
             content_types: dict[int, str] = {}
@@ -1199,21 +1390,22 @@ class BedrockAdapter:
                         thinking_states[index] = _BedrockThinkingStreamState(
                             started=True
                         )
-                        yield _thinking_block_start_event(index)
+                        yield anthropic_thinking_block_start_event(index)
                         reasoning_content = start.get("reasoningContent")
                         if isinstance(reasoning_content, dict):
                             if (
                                 isinstance(text := reasoning_content.get("text"), str)
                                 and text
                             ):
-                                yield _thinking_delta_event(index, text)
+                                yield anthropic_thinking_delta_event(index, text)
                             if (
                                 isinstance(
-                                    signature := reasoning_content.get("signature"), str
+                                    signature := reasoning_content.get("signature"),
+                                    str,
                                 )
                                 and signature
                             ):
-                                yield _signature_delta_event(index, signature)
+                                yield anthropic_signature_delta_event(index, signature)
                         continue
                     content_types[index] = "text"
                     yield anthropic_text_block_start_event(index)
@@ -1262,12 +1454,12 @@ class BedrockAdapter:
                         if not state.started:
                             state.started = True
                             content_types[index] = "thinking"
-                            yield _thinking_block_start_event(index)
+                            yield anthropic_thinking_block_start_event(index)
                         if (
                             isinstance(text := reasoning_content.get("text"), str)
                             and text
                         ):
-                            yield _thinking_delta_event(index, text)
+                            yield anthropic_thinking_delta_event(index, text)
                         if (
                             isinstance(
                                 signature := reasoning_content.get("signature"), str
@@ -1275,7 +1467,7 @@ class BedrockAdapter:
                             and signature
                         ):
                             state.signature += signature
-                            yield _signature_delta_event(index, signature)
+                            yield anthropic_signature_delta_event(index, signature)
                         continue
 
                 if "contentBlockStop" in event:
@@ -1314,6 +1506,8 @@ class BedrockAdapter:
                 output_tokens=output_tokens,
             )
             yield AnthropicStreamEvent("message_stop", {"type": "message_stop"})
+        finally:
+            await stream_context.__aexit__(None, None, None)
 
 
 __all__ = ["BedrockAdapter"]

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from tracecat.agent.llm_proxy.provider_anthropic import AnthropicAdapter
 from tracecat.agent.llm_proxy.provider_azure_ai import AzureAIAdapter
+from tracecat.agent.llm_proxy.provider_azure_openai import AzureOpenAIAdapter
 from tracecat.agent.llm_proxy.provider_bedrock import BedrockAdapter
 from tracecat.agent.llm_proxy.provider_common import (
     AnthropicStreamingAdapter,
@@ -20,7 +21,6 @@ from tracecat.agent.llm_proxy.provider_common import (
 )
 from tracecat.agent.llm_proxy.provider_google import GeminiAdapter, VertexAIAdapter
 from tracecat.agent.llm_proxy.provider_openai import (
-    OpenAICompatibleAdapter,
     OpenAIFamilyAdapter,
 )
 
@@ -42,7 +42,7 @@ class ProviderRegistry:
             adapters={
                 "openai": OpenAIFamilyAdapter("openai"),
                 "custom-model-provider": OpenAIFamilyAdapter("custom-model-provider"),
-                "azure_openai": OpenAIFamilyAdapter("azure_openai"),
+                "azure_openai": AzureOpenAIAdapter(),
                 "anthropic": AnthropicAdapter(),
                 "gemini": GeminiAdapter(),
                 "vertex_ai": VertexAIAdapter(),
@@ -57,9 +57,9 @@ __all__ = [
     "AnthropicStreamingAdapter",
     "PassthroughStreamAdapter",
     "AzureAIAdapter",
+    "AzureOpenAIAdapter",
     "BedrockAdapter",
     "GeminiAdapter",
-    "OpenAICompatibleAdapter",
     "OpenAIFamilyAdapter",
     "ProviderAdapter",
     "ProviderRegistry",

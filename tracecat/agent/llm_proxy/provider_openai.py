@@ -9,31 +9,31 @@ from typing import Any
 import httpx
 import orjson
 
-from tracecat.agent.llm_proxy.anthropic_compat import (
-    create_tool_name_mapping,
-    restore_tool_name,
+from tracecat.agent.llm_proxy.content_blocks import (
+    ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY,
 )
 from tracecat.agent.llm_proxy.provider_common import (
     AnthropicStreamingAdapter,
-    OpenAIToolStreamState,
-    ProviderRetryAdapter,
+    ProviderAdapter,
     anthropic_block_stop_event,
     anthropic_message_delta_event,
     anthropic_message_start_event,
     anthropic_text_block_start_event,
     anthropic_text_delta_event,
+    anthropic_thinking_delta_event,
     anthropic_tool_block_start_event,
     anthropic_tool_delta_event,
     base_url_from_request,
     iter_sse_events,
-    openai_finish_reason_to_anthropic,
-    openai_stream_usage,
     provider_http_error,
-    raise_stream_http_error,
 )
-from tracecat.agent.llm_proxy.requests import (
-    messages_request_to_openai_payload,
-    normalize_openai_response,
+from tracecat.agent.llm_proxy.tool_compat import (
+    anthropic_tool_to_openai_tool,
+    apply_tool_name_mapping,
+    create_tool_name_mapping,
+    restore_tool_call_names,
+    restore_tool_name,
+    tool_choice_to_openai,
 )
 from tracecat.agent.llm_proxy.types import (
     AnthropicStreamEvent,
@@ -43,128 +43,86 @@ from tracecat.agent.llm_proxy.types import (
     ProviderHTTPRequest,
 )
 
-_OPENAI_CHAT_COMPLETIONS_SUFFIX = "/v1/chat/completions"
+_OPENAI_RESPONSES_SUFFIX = "/v1/responses"
 
 
-def _openai_chat_completions_url(base_url: str) -> str:
-    """Build the chat completions URL, avoiding /v1 duplication.
-
-    Handles base URLs that already include /v1 (e.g. https://api.openai.com/v1)
-    or even the full endpoint path.
-    """
+def _openai_responses_url(base_url: str) -> str:
+    """Build the responses URL, avoiding /v1 duplication."""
     base = base_url.rstrip("/")
-    if base.endswith(_OPENAI_CHAT_COMPLETIONS_SUFFIX):
+    if base.endswith(_OPENAI_RESPONSES_SUFFIX):
         return base
     if base.endswith("/v1"):
-        return f"{base}/chat/completions"
-    return f"{base}{_OPENAI_CHAT_COMPLETIONS_SUFFIX}"
+        return f"{base}/responses"
+    return f"{base}{_OPENAI_RESPONSES_SUFFIX}"
 
 
-def _model_name(model: str) -> str:
-    return model.split("/")[-1].lower()
+# ---------------------------------------------------------------------------
+# Payload normalization for OpenAI model quirks
+# ---------------------------------------------------------------------------
 
 
-def _is_openai_gpt_5_model(model: str) -> bool:
-    model_name = _model_name(model)
-    return model_name.startswith("gpt-5") and not model_name.startswith("gpt-5-chat")
+# GPT-5 family capability flags by model prefix (longest prefix wins).
+# xhigh: supports reasoning_effort="xhigh"
+# temp_with_reasoning_off: allows temperature when reasoning_effort is None/"none"
+_GPT5_CAPABILITIES: dict[str, dict[str, bool]] = {
+    "gpt-5.1-codex-max": {"xhigh": True, "temp_with_reasoning_off": True},
+    "gpt-5.2": {"xhigh": True, "temp_with_reasoning_off": True},
+    "gpt-5.3": {"xhigh": True, "temp_with_reasoning_off": True},
+    "gpt-5.4": {"xhigh": True, "temp_with_reasoning_off": True},
+    "gpt-5.1": {"xhigh": False, "temp_with_reasoning_off": True},
+    "gpt-5": {"xhigh": False, "temp_with_reasoning_off": False},
+}
 
 
-def _is_openai_gpt_5_1_or_5_2_model(model: str) -> bool:
-    model_name = _model_name(model)
-    return model_name.startswith("gpt-5.1") or model_name.startswith("gpt-5.2")
+def _gpt5_caps(model_name: str) -> dict[str, bool] | None:
+    """Return capability flags for a GPT-5 model, or None if not GPT-5."""
+    for prefix, caps in _GPT5_CAPABILITIES.items():
+        if model_name.startswith(prefix):
+            return caps
+    return None
 
 
-def _is_openai_gpt_5_1_codex_max_model(model: str) -> bool:
-    return _model_name(model) == "gpt-5.1-codex-max"
+def normalize_openai_payload(
+    payload: dict[str, Any],
+    *,
+    model: str,
+    provider: str | None = None,
+) -> None:
+    """Normalize payload params for OpenAI model compatibility."""
+    model_name = model.split("/")[-1].lower()
+    caps = _gpt5_caps(model_name)
 
-
-def _is_azure_gpt_5_1_model(model: str) -> bool:
-    return _model_name(model).startswith("gpt-5.1")
-
-
-def _drop_payload_keys(payload: dict[str, Any], *keys: str) -> None:
-    for key in keys:
-        payload.pop(key, None)
-
-
-def _normalize_openai_token_params(payload: dict[str, Any], *, model: str) -> None:
+    # --- Token param naming ---
     if "max_completion_tokens" in payload:
         payload.pop("max_tokens", None)
-        return
-    if _is_openai_gpt_5_model(model) and "max_tokens" in payload:
+    elif caps and "max_tokens" in payload:
         payload["max_completion_tokens"] = payload.pop("max_tokens")
 
-
-def _normalize_openai_reasoning_effort(
-    payload: dict[str, Any],
-    *,
-    model: str,
-    provider: str,
-) -> None:
-    reasoning_effort = payload.get("reasoning_effort")
-    if reasoning_effort == "xhigh":
-        if _is_openai_gpt_5_1_codex_max_model(model) or _model_name(model).startswith(
-            "gpt-5.2"
-        ):
-            return
-        if _is_openai_gpt_5_model(model):
-            payload.pop("reasoning_effort", None)
-        return
-
-    if provider == "azure_openai" and reasoning_effort == "none":
-        if not _is_azure_gpt_5_1_model(model):
+    if caps:
+        # --- Reasoning effort: xhigh only on supported models ---
+        if payload.get("reasoning_effort") == "xhigh" and not caps["xhigh"]:
             payload.pop("reasoning_effort", None)
 
+        # --- Temperature: restricted when reasoning is active ---
+        temperature = payload.get("temperature")
+        if temperature is not None and temperature != 1:
+            reasoning_effort = payload.get("reasoning_effort")
+            can_use_temp = caps["temp_with_reasoning_off"] and reasoning_effort in {
+                None,
+                "none",
+            }
+            if not can_use_temp:
+                payload.pop("temperature", None)
 
-def _normalize_openai_temperature(payload: dict[str, Any], *, model: str) -> None:
-    temperature = payload.get("temperature")
-    if temperature is None:
-        return
-    if not _is_openai_gpt_5_model(model):
-        return
-    reasoning_effort = payload.get("reasoning_effort")
-    if _is_openai_gpt_5_1_or_5_2_model(model) and reasoning_effort in {None, "none"}:
-        return
-    if temperature != 1:
-        payload.pop("temperature", None)
+        # --- Drop unsupported sampling params ---
+        for key in ("top_p", "presence_penalty", "frequency_penalty", "stop"):
+            payload.pop(key, None)
 
-
-def _normalize_openai_unsupported_params(
-    payload: dict[str, Any], *, model: str
-) -> None:
-    if not _is_openai_gpt_5_model(model):
-        return
-    _drop_payload_keys(
-        payload,
-        "top_p",
-        "presence_penalty",
-        "frequency_penalty",
-        "stop",
-    )
-
-
-def _normalize_custom_model_provider_payload(payload: dict[str, Any]) -> None:
-    if "max_completion_tokens" in payload and "max_tokens" not in payload:
-        payload["max_tokens"] = payload.pop("max_completion_tokens")
-    # parallel_tool_calls is not part of the OpenAI spec and causes LiteLLM to
-    # generate a malformed tool_choice when routing to Bedrock (missing the
-    # required `type` field).  Drop it for custom providers since we cannot
-    # control how the downstream proxy translates it.
-    payload.pop("parallel_tool_calls", None)
-
-
-def _normalize_openai_payload(
-    payload: dict[str, Any],
-    *,
-    model: str,
-    provider: str,
-) -> None:
-    _normalize_openai_token_params(payload, model=model)
-    _normalize_openai_reasoning_effort(payload, model=model, provider=provider)
-    _normalize_openai_temperature(payload, model=model)
-    _normalize_openai_unsupported_params(payload, model=model)
+    # --- Custom model provider: downgrade to max_tokens ---
     if provider == "custom-model-provider":
-        _normalize_custom_model_provider_payload(payload)
+        if "max_completion_tokens" in payload and "max_tokens" not in payload:
+            payload["max_tokens"] = payload.pop("max_completion_tokens")
+        payload.pop("parallel_tool_calls", None)
 
 
 def _sanitize_openai_usage(payload: dict[str, Any]) -> None:
@@ -176,194 +134,361 @@ def _sanitize_openai_usage(payload: dict[str, Any]) -> None:
             usage[key] = 0
 
 
-def _apply_tool_name_mapping(payload: dict[str, Any], mapping: dict[str, str]) -> None:
-    if not mapping:
-        return
-    original_to_truncated = {
-        original: truncated for truncated, original in mapping.items()
+# ---------------------------------------------------------------------------
+# Responses API payload building
+# ---------------------------------------------------------------------------
+
+
+def _stringify(value: Any) -> str:
+    """Coerce a value to a string, preferring JSON for structured data."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="ignore")
+    try:
+        return orjson.dumps(value).decode("utf-8")
+    except TypeError:
+        return str(value)
+
+
+def _tool_call_summary(*, name: str, arguments: Any) -> str:
+    if rendered := _stringify(arguments):
+        return f"[Tool call] {name}: {rendered}"
+    return f"[Tool call] {name}"
+
+
+def _text_message(parts: list[str], *, role: str) -> dict[str, Any]:
+    """Build a Responses API message item with text content."""
+    text_type = "output_text" if role == "assistant" else "input_text"
+    return {
+        "type": "message",
+        "role": role,
+        "content": [{"type": text_type, "text": text} for text in parts],
     }
 
-    tools = payload.get("tools")
-    if isinstance(tools, list):
-        for tool in tools:
-            if not isinstance(tool, dict):
-                continue
-            function = tool.get("function") if tool.get("type") == "function" else tool
-            if not isinstance(function, dict):
-                continue
-            name = function.get("name")
-            if isinstance(name, str) and name in original_to_truncated:
-                function["name"] = original_to_truncated[name]
 
-    tool_choice = payload.get("tool_choice")
-    if isinstance(tool_choice, dict):
-        function = tool_choice.get("function")
-        if isinstance(function, dict):
-            name = function.get("name")
-            if isinstance(name, str) and name in original_to_truncated:
-                function["name"] = original_to_truncated[name]
+def _responses_input_items_from_message(message: Any) -> list[dict[str, Any]]:
+    """Convert a NormalizedMessage into Responses API input items."""
+    if message.role == "tool":
+        content = _stringify(message.content).strip()
+        if not content:
+            return []
+        tool_name = message.name or message.tool_call_id or "tool"
+        return [
+            _text_message([f"[Tool result] {tool_name}: {content}"], role="assistant")
+        ]
 
-    messages = payload.get("messages")
-    if not isinstance(messages, list):
-        return
-    for message in messages:
-        if not isinstance(message, dict):
-            continue
-        tool_calls = message.get("tool_calls")
-        if not isinstance(tool_calls, list):
-            continue
-        for tool_call in tool_calls:
-            if not isinstance(tool_call, dict):
-                continue
-            function = tool_call.get("function")
-            if not isinstance(function, dict):
-                continue
-            name = function.get("name")
-            if isinstance(name, str) and name in original_to_truncated:
-                function["name"] = original_to_truncated[name]
+    if message.role == "assistant":
+        return _responses_input_items_from_assistant(message)
+
+    # user / system
+    text_parts: list[str] = []
+    content = message.content
+    items = (
+        [] if content is None else (content if isinstance(content, list) else [content])
+    )
+    for item in items:
+        if isinstance(item, dict) and item.get("type") == "text":
+            text_parts.append(str(item.get("text", "")))
+        else:
+            text_parts.append(str(item))
+    if not text_parts:
+        return []
+    return [_text_message(text_parts, role=message.role)]
 
 
-def _restore_tool_call_names(
-    tool_calls: tuple[NormalizedToolCall, ...],
-    mapping: dict[str, str],
-) -> tuple[NormalizedToolCall, ...]:
-    if not mapping or not tool_calls:
-        return tool_calls
-    return tuple(
-        NormalizedToolCall(
-            id=tool_call.id,
-            name=restore_tool_name(tool_call.name, mapping) or tool_call.name,
-            arguments=tool_call.arguments,
-            type=tool_call.type,
+def _responses_input_items_from_assistant(message: Any) -> list[dict[str, Any]]:
+    """Convert an assistant NormalizedMessage into Responses API input items."""
+    items: list[dict[str, Any]] = []
+    pending_text: list[str] = []
+    seen_tool_call_ids: set[str] = set()
+
+    # Prefer stashed Anthropic content blocks over raw content
+    metadata_blocks = message.metadata.get(ANTHROPIC_CONTENT_BLOCKS_METADATA_KEY)
+    content_items = (
+        metadata_blocks
+        if isinstance(metadata_blocks, list)
+        else (
+            list(message.content)
+            if isinstance(message.content, list)
+            else ([] if message.content is None else [message.content])
         )
-        for tool_call in tool_calls
     )
 
+    def flush() -> None:
+        if pending_text:
+            items.append(_text_message(pending_text.copy(), role="assistant"))
+            pending_text.clear()
 
-def _error_text(response: httpx.Response) -> str:
-    try:
-        return response.text
-    except Exception:
-        return ""
+    for item in content_items:
+        if not isinstance(item, dict):
+            pending_text.append(str(item))
+            continue
+
+        match item.get("type"):
+            case "text":
+                pending_text.append(str(item.get("text", "")))
+            case "thinking":
+                continue
+            case "tool_use":
+                if isinstance(tc_id := item.get("id"), str) and tc_id:
+                    seen_tool_call_ids.add(tc_id)
+                pending_text.append(
+                    _tool_call_summary(
+                        name=str(item.get("name", "")),
+                        arguments=item.get("input"),
+                    )
+                )
+            case "tool_result":
+                continue
+            case _:
+                pending_text.append(str(item.get("text", item)))
+
+    flush()
+
+    # Emit any tool calls not already covered by content blocks
+    for tool_call in message.tool_calls:
+        if tool_call.id in seen_tool_call_ids:
+            continue
+        items.append(
+            _text_message(
+                [
+                    _tool_call_summary(
+                        name=tool_call.name, arguments=tool_call.arguments
+                    )
+                ],
+                role="assistant",
+            )
+        )
+
+    return items
 
 
-def _retry_with_payload(
-    outbound_request: ProviderHTTPRequest,
-    payload: dict[str, Any],
-) -> ProviderHTTPRequest:
-    return ProviderHTTPRequest(
-        method=outbound_request.method,
-        url=outbound_request.url,
-        headers=outbound_request.headers,
-        body=outbound_request.body,
-        json_body=payload,
-        stream=outbound_request.stream,
+def _responses_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
+    openai_tool = anthropic_tool_to_openai_tool(dict(tool))
+    if openai_tool.get("type") == "function" and isinstance(
+        function := openai_tool.get("function"), dict
+    ):
+        return {"type": "function", **function}
+    return openai_tool
+
+
+def _responses_tool_choice(tool_choice: Any) -> Any:
+    openai_tool_choice = tool_choice_to_openai(tool_choice)
+    if (
+        isinstance(openai_tool_choice, dict)
+        and openai_tool_choice.get("type") == "function"
+        and isinstance(function := openai_tool_choice.get("function"), dict)
+    ):
+        return {"type": "function", "name": str(function.get("name", ""))}
+    return openai_tool_choice
+
+
+def _openai_responses_payload(request: NormalizedMessagesRequest) -> dict[str, Any]:
+    """Build the full Responses API request payload."""
+    payload: dict[str, Any] = {
+        "model": request.model,
+        "input": [
+            item
+            for message in request.messages
+            if message.role != "system"
+            for item in _responses_input_items_from_message(message)
+        ],
+        "stream": request.stream,
+    }
+
+    # System instructions
+    instructions_parts: list[str] = []
+    for message in request.messages:
+        if message.role != "system":
+            continue
+        content = message.content
+        items = (
+            []
+            if content is None
+            else (content if isinstance(content, list) else [content])
+        )
+        for item in items:
+            if isinstance(item, dict) and item.get("type") == "text":
+                instructions_parts.append(str(item.get("text", "")))
+            else:
+                instructions_parts.append(str(item))
+    if instructions_parts:
+        payload["instructions"] = "\n\n".join(instructions_parts)
+
+    if request.tools:
+        payload["tools"] = [_responses_tool_definition(tool) for tool in request.tools]
+    if request.tool_choice is not None and request.tools:
+        payload["tool_choice"] = _responses_tool_choice(request.tool_choice)
+
+    model_settings = dict(request.model_settings)
+    normalize_openai_payload(
+        model_settings,
+        model=request.model,
+        provider=request.provider,
     )
 
+    if (reasoning_effort := model_settings.pop("reasoning_effort", None)) is not None:
+        payload["reasoning"] = {"effort": reasoning_effort, "summary": "auto"}
+    if (
+        max_completion_tokens := model_settings.pop("max_completion_tokens", None)
+    ) is not None:
+        payload["max_output_tokens"] = max_completion_tokens
+    elif (max_tokens := model_settings.pop("max_tokens", None)) is not None:
+        payload["max_output_tokens"] = max_tokens
 
-def _mutate_openai_payload_for_retry(
-    *,
-    response: httpx.Response,
-    outbound_request: ProviderHTTPRequest,
-) -> ProviderHTTPRequest | None:
-    payload = outbound_request.json_body
-    if not isinstance(payload, dict):
+    payload.update(model_settings)
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# Response parsing
+# ---------------------------------------------------------------------------
+
+
+def _parse_json_value(value: Any) -> Any:
+    """Parse a JSON value, passing through already-decoded types."""
+    if isinstance(value, (dict, list, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, bytes):
+        try:
+            return orjson.loads(value)
+        except orjson.JSONDecodeError:
+            return value.decode("utf-8", errors="ignore")
+    if isinstance(value, str):
+        try:
+            return orjson.loads(value)
+        except orjson.JSONDecodeError:
+            return value
+    return value
+
+
+def _responses_usage(payload: dict[str, Any]) -> dict[str, int]:
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return {"input_tokens": 0, "output_tokens": 0}
+    return {
+        "input_tokens": int(usage.get("input_tokens", usage.get("prompt_tokens", 0))),
+        "output_tokens": int(
+            usage.get("output_tokens", usage.get("completion_tokens", 0))
+        ),
+    }
+
+
+def _normalized_responses_content(payload: dict[str, Any]) -> Any:
+    """Extract content blocks from an OpenAI Responses API payload."""
+    output = payload.get("output")
+    if not isinstance(output, list):
         return None
 
-    error_text = _error_text(response).lower()
-    retry_payload = dict(payload)
-    changed = False
+    content_blocks: list[dict[str, Any]] = []
+    for item in output:
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        if item_type == "reasoning":
+            # Custom models return reasoning_text in content;
+            # OpenAI models return an encrypted blob + human-readable summary
+            thinking = "".join(
+                str(part.get("text", ""))
+                for part in item.get("content", [])
+                if isinstance(part, dict) and part.get("type") == "reasoning_text"
+            )
+            if not thinking and isinstance(summary := item.get("summary"), list):
+                thinking = "".join(
+                    str(part.get("text", ""))
+                    for part in summary
+                    if isinstance(part, dict)
+                )
+            content_blocks.append({"type": "thinking", "thinking": thinking})
+        elif item_type == "message":
+            for part in item.get("content", []):
+                if not isinstance(part, dict):
+                    content_blocks.append({"type": "text", "text": str(part)})
+                elif part.get("type") == "output_text":
+                    content_blocks.append(
+                        {"type": "text", "text": str(part.get("text", ""))}
+                    )
 
-    if "max_tokens" in error_text and "unsupported parameter" in error_text:
-        if (
-            "max_tokens" in retry_payload
-            and "max_completion_tokens" not in retry_payload
-        ):
-            retry_payload["max_completion_tokens"] = retry_payload.pop("max_tokens")
-            changed = True
+    if not content_blocks:
+        return None
 
-    if "max_completion_tokens" in error_text and "unsupported parameter" in error_text:
-        if (
-            "max_completion_tokens" in retry_payload
-            and "max_tokens" not in retry_payload
-        ):
-            retry_payload["max_tokens"] = retry_payload.pop("max_completion_tokens")
-            changed = True
+    if all(block.get("type") == "text" for block in content_blocks):
+        return "".join(str(block.get("text", "")) for block in content_blocks)
+    return content_blocks
 
-    for key in (
-        "top_p",
-        "presence_penalty",
-        "frequency_penalty",
-        "stop",
-        "temperature",
-    ):
-        if key in retry_payload and key in error_text:
-            retry_payload.pop(key, None)
-            changed = True
 
-    for key in ("parallel_tool_calls", "response_format", "verbosity", "tool_choice"):
-        if key in retry_payload and key in error_text:
-            retry_payload.pop(key, None)
-            changed = True
+def _normalize_responses_response(payload: dict[str, Any]) -> NormalizedResponse:
+    """Normalize an OpenAI Responses API payload into a NormalizedResponse."""
+    output = payload.get("output")
+    tool_calls: list[NormalizedToolCall] = []
+    if isinstance(output, list):
+        for item in output:
+            if not isinstance(item, dict) or item.get("type") != "function_call":
+                continue
+            tool_calls.append(
+                NormalizedToolCall(
+                    id=str(item.get("call_id", item.get("id", ""))),
+                    name=str(item.get("name", "")),
+                    arguments=_parse_json_value(item.get("arguments")),
+                )
+            )
 
-    if changed:
-        return _retry_with_payload(outbound_request, retry_payload)
-    return None
+    # Map Responses API status to Anthropic-style finish reason.
+    if tool_calls:
+        finish_reason = "tool_use"
+    else:
+        match payload.get("status"):
+            case "incomplete":
+                finish_reason = "max_tokens"
+            case _:
+                finish_reason = "end_turn"
+
+    return NormalizedResponse(
+        provider="openai",
+        model=str(payload.get("model", "")),
+        content=_normalized_responses_content(payload),
+        tool_calls=tuple(tool_calls),
+        finish_reason=finish_reason,
+        usage=_responses_usage(payload),
+        raw=payload,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Adapter
+# ---------------------------------------------------------------------------
 
 
 @dataclass(slots=True)
-class OpenAIFamilyAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
+class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
     """Adapter for OpenAI-compatible upstreams."""
 
     provider: str
 
-    def prepare_request(
+    def _prepare_responses_request(
         self,
         request: NormalizedMessagesRequest,
         credentials: dict[str, str],
+        *,
+        base_url: str,
     ) -> ProviderHTTPRequest:
-        base_url = base_url_from_request(request, "https://api.openai.com")
-        payload = messages_request_to_openai_payload(request)
+        payload = _openai_responses_payload(request)
         tool_name_mapping = create_tool_name_mapping(request.tools)
-        _apply_tool_name_mapping(payload, tool_name_mapping)
-        _normalize_openai_payload(payload, model=request.model, provider=self.provider)
+        apply_tool_name_mapping(payload, tool_name_mapping)
         headers = {"Content-Type": "application/json"}
-
-        if self.provider == "azure_openai":
-            api_base = credentials.get("AZURE_API_BASE", base_url).rstrip("/")
-            deployment = credentials.get("AZURE_DEPLOYMENT_NAME", request.model)
-            api_version = credentials.get("AZURE_API_VERSION", request.api_version)
-            if not api_version:
-                raise ValueError("Azure OpenAI requires AZURE_API_VERSION")
-            payload["model"] = deployment
-            if api_key := credentials.get("AZURE_API_KEY"):
-                headers["api-key"] = api_key
-            elif ad_token := credentials.get("AZURE_AD_TOKEN"):
-                headers["Authorization"] = f"Bearer {ad_token}"
-            else:
-                raise ValueError(
-                    "Azure OpenAI requires AZURE_API_KEY or AZURE_AD_TOKEN"
-                )
-            return ProviderHTTPRequest(
-                method="POST",
-                url=f"{api_base}/openai/deployments/{deployment}/chat/completions?api-version={api_version}",
-                headers=headers,
-                json_body=payload,
-                stream=request.stream,
-            )
 
         if self.provider == "custom-model-provider":
             custom_base_url = credentials.get(
                 "CUSTOM_MODEL_PROVIDER_BASE_URL", base_url
             )
-            model_name = credentials.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")
-            if model_name:
+            if model_name := credentials.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"):
                 payload["model"] = model_name
             if api_key := credentials.get("CUSTOM_MODEL_PROVIDER_API_KEY"):
                 headers["Authorization"] = f"Bearer {api_key}"
             return ProviderHTTPRequest(
                 method="POST",
-                url=_openai_chat_completions_url(custom_base_url),
+                url=_openai_responses_url(custom_base_url),
                 headers=headers,
                 json_body=payload,
                 stream=request.stream,
@@ -377,26 +502,22 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
             base_url = explicit_base_url.rstrip("/")
         return ProviderHTTPRequest(
             method="POST",
-            url=_openai_chat_completions_url(base_url),
+            url=_openai_responses_url(base_url),
             headers=headers,
             json_body=payload,
             stream=request.stream,
         )
 
-    def prepare_retry_request(
+    def prepare_request(
         self,
-        *,
-        response: httpx.Response,
         request: NormalizedMessagesRequest,
         credentials: dict[str, str],
-        outbound_request: ProviderHTTPRequest,
-    ) -> ProviderHTTPRequest | None:
-        del request, credentials
-        if response.status_code not in {400, 422}:
-            return None
-        return _mutate_openai_payload_for_retry(
-            response=response,
-            outbound_request=outbound_request,
+    ) -> ProviderHTTPRequest:
+        base_url = base_url_from_request(request, "https://api.openai.com")
+        return self._prepare_responses_request(
+            request,
+            credentials,
+            base_url=base_url,
         )
 
     async def parse_response(
@@ -409,13 +530,17 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
         payload = response.json()
         if isinstance(payload, dict):
             _sanitize_openai_usage(payload)
-        normalized = normalize_openai_response(payload)
+        if not (isinstance(payload, dict) and isinstance(payload.get("output"), list)):
+            raise RuntimeError(
+                f"{self.provider} provider returned a non-Responses payload"
+            )
+        normalized = _normalize_responses_response(payload)
         tool_name_mapping = create_tool_name_mapping(request.tools)
         return NormalizedResponse(
             provider=self.provider,
             model=normalized.model,
             content=normalized.content,
-            tool_calls=_restore_tool_call_names(
+            tool_calls=restore_tool_call_names(
                 normalized.tool_calls, tool_name_mapping
             ),
             finish_reason=normalized.finish_reason,
@@ -430,13 +555,43 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
         credentials: dict[str, str],
     ) -> AsyncIterator[AnthropicStreamEvent]:
         outbound = self.prepare_request(request, credentials)
+        async for event in self._stream_openai_responses(client, request, outbound):
+            yield event
+
+    async def _stream_openai_responses(
+        self,
+        client: httpx.AsyncClient,
+        request: NormalizedMessagesRequest,
+        outbound: ProviderHTTPRequest,
+    ) -> AsyncIterator[AnthropicStreamEvent]:
         tool_name_mapping = create_tool_name_mapping(request.tools)
-        text_block_index: int | None = None
+        thinking_indices: dict[str, int] = {}
+        text_indices: dict[str, int] = {}
+        started_thinking_ids: set[str] = set()
+        started_text_ids: set[str] = set()
+        text_had_deltas: set[str] = set()
         next_content_index = 0
         message_started = False
         output_tokens = 0
-        stop_reason: str | None = None
-        tool_states: dict[int, OpenAIToolStreamState] = {}
+        stop_reason = "end_turn"
+
+        def allocate_content_index(
+            state: dict[str, int],
+            item_id: str,
+            output_index: Any = None,
+        ) -> int:
+            nonlocal next_content_index
+            if item_id in state:
+                return state[item_id]
+            if isinstance(output_index, int):
+                content_index = output_index
+                if content_index >= next_content_index:
+                    next_content_index = content_index + 1
+            else:
+                content_index = next_content_index
+                next_content_index += 1
+            state[item_id] = content_index
+            return content_index
 
         async with client.stream(
             outbound.method,
@@ -446,7 +601,11 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
             json=outbound.json_body,
         ) as response:
             if response.status_code >= 400:
-                await raise_stream_http_error(response, provider=self.provider)
+                body = await response.aread()
+                detail = body.decode("utf-8", errors="ignore")[:512]
+                raise RuntimeError(
+                    f"{self.provider} provider error: {response.status_code} {detail}"
+                )
 
             async for sse_event in iter_sse_events(response):
                 if sse_event.data == "[DONE]":
@@ -456,123 +615,170 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
                 if not isinstance(chunk, dict):
                     continue
 
-                usage = openai_stream_usage(chunk)
-                output_tokens = usage["output_tokens"] or output_tokens
-                if not message_started:
-                    yield anthropic_message_start_event(
-                        message_id=str(
-                            chunk.get("id", f"tracecat-{self.provider}-stream")
-                        ),
-                        model=str(chunk.get("model", request.model)),
-                        input_tokens=usage["input_tokens"],
-                    )
-                    message_started = True
-
-                choices = chunk.get("choices")
-                if not isinstance(choices, list):
+                # OpenAI sets SSE event: field; some providers (OpenRouter)
+                # only set the type in the JSON body
+                event_name = sse_event.event or str(chunk.get("type", ""))
+                response_payload = chunk.get("response")
+                if isinstance(response_payload, dict):
+                    usage = _responses_usage(response_payload)
+                    output_tokens = usage["output_tokens"] or output_tokens
+                    if not message_started:
+                        yield anthropic_message_start_event(
+                            message_id=str(
+                                response_payload.get(
+                                    "id", f"tracecat-{self.provider}-stream"
+                                )
+                            ),
+                            model=str(response_payload.get("model", request.model)),
+                            input_tokens=usage["input_tokens"],
+                        )
+                        message_started = True
                     continue
 
-                for choice in choices:
-                    if not isinstance(choice, dict):
-                        continue
-                    delta = choice.get("delta")
-                    if not isinstance(delta, dict):
-                        delta = {}
-
-                    content = delta.get("content")
-                    if content:
-                        if text_block_index is None:
-                            text_block_index = next_content_index
-                            next_content_index += 1
-                            yield anthropic_text_block_start_event(text_block_index)
-                        yield anthropic_text_delta_event(text_block_index, str(content))
-
-                    tool_calls = delta.get("tool_calls")
-                    if isinstance(tool_calls, list):
-                        if text_block_index is not None:
-                            yield anthropic_block_stop_event(text_block_index)
-                            text_block_index = None
-
-                        for tool_call in tool_calls:
-                            if not isinstance(tool_call, dict):
-                                continue
-                            tool_index = int(tool_call.get("index", len(tool_states)))
-                            tool_state = tool_states.get(tool_index)
-                            if tool_state is None:
-                                tool_state = OpenAIToolStreamState(
-                                    content_index=next_content_index
-                                )
-                                tool_states[tool_index] = tool_state
-                                next_content_index += 1
-
-                            if tool_call_id := tool_call.get("id"):
-                                tool_state.tool_call_id = str(tool_call_id)
-
-                            function = tool_call.get("function")
-                            if isinstance(function, dict):
-                                if function_name := function.get("name"):
-                                    tool_state.name = restore_tool_name(
-                                        str(function_name),
-                                        tool_name_mapping,
-                                    )
-                                if arguments := function.get("arguments"):
-                                    if tool_state.started:
-                                        yield anthropic_tool_delta_event(
-                                            tool_state.content_index,
-                                            str(arguments),
-                                        )
-                                    else:
-                                        tool_state.pending_json.append(str(arguments))
-
-                            if (
-                                not tool_state.started
-                                and tool_state.tool_call_id
-                                and tool_state.name
-                            ):
-                                yield anthropic_tool_block_start_event(
-                                    index=tool_state.content_index,
-                                    tool_call_id=tool_state.tool_call_id,
-                                    name=tool_state.name,
-                                )
-                                tool_state.started = True
-                                for pending_json in tool_state.pending_json:
-                                    yield anthropic_tool_delta_event(
-                                        tool_state.content_index,
-                                        pending_json,
-                                    )
-                                tool_state.pending_json.clear()
-
-                    raw_finish_reason = choice.get("finish_reason")
-                    if raw_finish_reason is None or isinstance(raw_finish_reason, str):
-                        stop_reason = openai_finish_reason_to_anthropic(
-                            raw_finish_reason
+                if event_name in (
+                    "response.reasoning_text.delta",
+                    "response.reasoning_summary_text.delta",
+                ):
+                    item_id = str(chunk.get("item_id", ""))
+                    delta = chunk.get("delta")
+                    if not (isinstance(delta, str) and delta):
+                        allocate_content_index(
+                            thinking_indices,
+                            item_id,
+                            chunk.get("output_index"),
                         )
+                        continue
+                    content_index = allocate_content_index(
+                        thinking_indices,
+                        item_id,
+                        chunk.get("output_index"),
+                    )
+                    if item_id not in started_thinking_ids:
+                        yield AnthropicStreamEvent(
+                            "content_block_start",
+                            {
+                                "type": "content_block_start",
+                                "index": content_index,
+                                "content_block": {
+                                    "type": "thinking",
+                                    "thinking": "",
+                                },
+                            },
+                        )
+                        started_thinking_ids.add(item_id)
+                    yield anthropic_thinking_delta_event(content_index, delta)
+                    continue
+
+                if event_name == "response.output_text.delta":
+                    item_id = str(chunk.get("item_id", ""))
+                    content_index = allocate_content_index(
+                        text_indices,
+                        item_id,
+                        chunk.get("output_index"),
+                    )
+                    if item_id not in started_text_ids:
+                        yield anthropic_text_block_start_event(content_index)
+                        started_text_ids.add(item_id)
+                    if isinstance(delta := chunk.get("delta"), str) and delta:
+                        text_had_deltas.add(item_id)
+                        yield anthropic_text_delta_event(content_index, delta)
+                    continue
+
+                if event_name != "response.output_item.done":
+                    continue
+
+                item = chunk.get("item")
+                if not isinstance(item, dict):
+                    continue
+
+                item_type = item.get("type")
+                if item_type == "reasoning":
+                    item_id = str(item.get("id", ""))
+                    content_index = allocate_content_index(thinking_indices, item_id)
+                    had_started_thinking = item_id in started_thinking_ids
+                    if not had_started_thinking:
+                        yield AnthropicStreamEvent(
+                            "content_block_start",
+                            {
+                                "type": "content_block_start",
+                                "index": content_index,
+                                "content_block": {
+                                    "type": "thinking",
+                                    "thinking": "",
+                                },
+                            },
+                        )
+                        started_thinking_ids.add(item_id)
+                    # Extract reasoning text from the completed item if
+                    # delta events were not sent (mirrors non-streaming
+                    # _normalized_responses_content logic).
+                    if not had_started_thinking:
+                        thinking = "".join(
+                            str(part.get("text", ""))
+                            for part in item.get("content", [])
+                            if isinstance(part, dict)
+                            and part.get("type") == "reasoning_text"
+                        )
+                        if not thinking and isinstance(
+                            summary := item.get("summary"), list
+                        ):
+                            thinking = "".join(
+                                str(part.get("text", ""))
+                                for part in summary
+                                if isinstance(part, dict)
+                            )
+                        if thinking:
+                            yield anthropic_thinking_delta_event(
+                                content_index, thinking
+                            )
+                    yield anthropic_block_stop_event(content_index)
+                    continue
+
+                if item_type == "message":
+                    item_id = str(item.get("id", ""))
+                    content_index = allocate_content_index(text_indices, item_id)
+                    had_started_text = item_id in started_text_ids
+                    if not had_started_text:
+                        yield anthropic_text_block_start_event(content_index)
+                        started_text_ids.add(item_id)
+                    if item_id not in text_had_deltas:
+                        for part in item.get("content", []):
+                            if (
+                                isinstance(part, dict)
+                                and part.get("type") == "output_text"
+                                and isinstance(text := part.get("text"), str)
+                                and text
+                            ):
+                                yield anthropic_text_delta_event(content_index, text)
+                    yield anthropic_block_stop_event(content_index)
+                    continue
+
+                if item_type == "function_call":
+                    stop_reason = "tool_use"
+                    tool_call_id = str(item.get("call_id", item.get("id", "")))
+                    tool_name = restore_tool_name(
+                        str(item.get("name", "")),
+                        tool_name_mapping,
+                    )
+                    content_index = next_content_index
+                    next_content_index += 1
+                    yield anthropic_tool_block_start_event(
+                        index=content_index,
+                        tool_call_id=tool_call_id,
+                        name=tool_name or "",
+                    )
+                    if arguments := item.get("arguments"):
+                        yield anthropic_tool_delta_event(
+                            content_index,
+                            str(arguments),
+                        )
+                    yield anthropic_block_stop_event(content_index)
 
         if not message_started:
             yield anthropic_message_start_event(
                 message_id=f"tracecat-{self.provider}-stream",
                 model=request.model,
             )
-
-        if text_block_index is not None:
-            yield anthropic_block_stop_event(text_block_index)
-
-        for tool_index in sorted(tool_states):
-            tool_state = tool_states[tool_index]
-            if not tool_state.started:
-                yield anthropic_tool_block_start_event(
-                    index=tool_state.content_index,
-                    tool_call_id=tool_state.tool_call_id or "",
-                    name=tool_state.name or "",
-                )
-                for pending_json in tool_state.pending_json:
-                    yield anthropic_tool_delta_event(
-                        tool_state.content_index,
-                        pending_json,
-                    )
-            if not tool_state.stopped:
-                yield anthropic_block_stop_event(tool_state.content_index)
-                tool_state.stopped = True
 
         yield anthropic_message_delta_event(
             stop_reason=stop_reason,
@@ -581,9 +787,6 @@ class OpenAIFamilyAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
         yield AnthropicStreamEvent("message_stop", {"type": "message_stop"})
 
 
-OpenAICompatibleAdapter = OpenAIFamilyAdapter
-
 __all__ = [
     "OpenAIFamilyAdapter",
-    "OpenAICompatibleAdapter",
 ]

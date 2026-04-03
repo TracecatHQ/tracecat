@@ -24,6 +24,8 @@ from tracecat.agent.llm_proxy.providers import (
 from tracecat.agent.llm_proxy.requests import (
     extract_anthropic_request_parts,
     filter_allowed_model_settings,
+)
+from tracecat.agent.llm_proxy.response_rendering import (
     render_anthropic_stream_event,
     stream_anthropic_response,
 )
