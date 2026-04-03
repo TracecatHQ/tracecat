@@ -18,10 +18,10 @@ description: Deploy Tracecat using Docker Compose.
 
 ```bash
 # 1. Download the env.sh installation script
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.36/env.sh
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.37/env.sh
 
 # 2. Download the .env.example template file (env.sh needs this to generate your .env file)
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.36/.env.example
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.37/.env.example
 
 # 3. Make the env.sh script executable and run it
 chmod +x env.sh && ./env.sh
@@ -39,13 +39,13 @@ Tracecat uses Caddy as a reverse proxy.
 You'll need to download the following `Caddyfile` to configure this service.
 
 ```bash
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.36/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.37/Caddyfile
 ```
 
 ## Download Docker Compose file
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.36/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.37/docker-compose.yml
 ```
 
 ## Start Tracecat
