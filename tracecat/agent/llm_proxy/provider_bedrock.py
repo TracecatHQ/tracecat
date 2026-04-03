@@ -18,6 +18,7 @@ from urllib.parse import quote
 import boto3
 import httpx
 import orjson
+from aioboto3 import Session as AIOSession
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
@@ -875,6 +876,38 @@ def _bedrock_request_components(
     return {"url": url, "body": _json_bytes(payload)}
 
 
+async def _assume_aws_role_async(
+    role_arn: str,
+    role_session_name: str,
+    external_id: str | None = None,
+) -> dict[str, Any]:
+    """Assume an AWS role using async STS client.
+
+    Uses aioboto3 for non-blocking I/O. AWS STS assume_role() calls can take
+    hundreds of milliseconds (network roundtrip), so async is required to avoid
+    blocking the event loop.
+
+    Args:
+        role_arn: The ARN of the role to assume.
+        role_session_name: A unique session name for the assumed role.
+        external_id: Optional external ID required by the role trust policy.
+
+    Returns:
+        The assumed role credentials dict with keys: AccessKeyId, SecretAccessKey, SessionToken.
+    """
+    session = AIOSession()
+    async with session.client("sts") as sts_client:
+        assume_role_kwargs: dict[str, str] = {
+            "RoleArn": role_arn,
+            "RoleSessionName": role_session_name,
+        }
+        if external_id:
+            assume_role_kwargs["ExternalId"] = external_id
+
+        response = await sts_client.assume_role(**assume_role_kwargs)  # type: ignore[arg-type]
+        return response["Credentials"]  # type: ignore[return-value]
+
+
 def _signed_bedrock_request(
     *,
     request: NormalizedMessagesRequest,
@@ -1336,12 +1369,33 @@ class BedrockAdapter:
             credentials,
             stream=True,
         )
-        stream_request = _signed_bedrock_request(
-            request=request,
-            credentials=credentials,
-            url=request_components["url"],
-            body=request_components["body"],
-        )
+        # Handle AWS role assumption asynchronously if needed
+        if role_arn := credentials.get("AWS_ROLE_ARN"):
+            role_session_name = _bedrock_role_session_name(request, credentials)
+            external_id = credentials.get(_TRACECAT_AWS_EXTERNAL_ID_SECRET_KEY)
+            assumed_role = await _assume_aws_role_async(
+                role_arn, role_session_name, external_id
+            )
+            # Create credentials for signing
+            stream_creds = Credentials(
+                assumed_role["AccessKeyId"],
+                assumed_role["SecretAccessKey"],
+                assumed_role["SessionToken"],
+            )
+            stream_request = _sigv4_bedrock_request(
+                request=request,
+                credentials=stream_creds,
+                url=request_components["url"],
+                body=request_components["body"],
+                region=credentials.get("AWS_REGION") or "",
+            )
+        else:
+            stream_request = _signed_bedrock_request(
+                request=request,
+                credentials=credentials,
+                url=request_components["url"],
+                body=request_components["body"],
+            )
         stream_context: Any | None = None
         response: httpx.Response | None = None
 

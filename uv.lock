@@ -4163,6 +4163,7 @@ wheels = [
 name = "tracecat"
 source = { editable = "." }
 dependencies = [
+    { name = "aioboto3" },
     { name = "aiocache" },
     { name = "aiohttp" },
     { name = "alembic" },
@@ -4241,6 +4242,7 @@ lint = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aioboto3", specifier = "==15.5.0" },
     { name = "aiocache", specifier = "==0.12.3" },
     { name = "aiohttp", specifier = "==3.13.5" },
     { name = "alembic", specifier = "==1.13.2" },
