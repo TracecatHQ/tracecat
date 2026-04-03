@@ -52,6 +52,7 @@ def main() -> None:
     os.environ["OIDC_ISSUER"] = "https://issuer.example.com"
     os.environ["OIDC_CLIENT_ID"] = "openapi-client"
     os.environ["OIDC_CLIENT_SECRET"] = "openapi-client-secret"
+    os.environ["USER_AUTH_SECRET"] = "openapi-stub-secret"
 
     with patch("tracecat.auth.oidc.OpenID", _OpenAPIOpenIDStub):
         from tracecat.api.app import app
