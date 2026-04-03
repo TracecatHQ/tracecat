@@ -1,0 +1,31 @@
+tracecat/executor/backends/pool/pool.py
+  9ec4c5774c8fc80a 57,449-450
+tests/unit/test_nsjail_seccomp.py
+  9ec4c5774c8fc80a 1-96
+tracecat/sandbox/executor.py
+  9ec4c5774c8fc80a 21,250-252,674-675
+tracecat/sandbox/seccomp.py
+  9ec4c5774c8fc80a 1-66
+tracecat/agent/sandbox/config.py
+  9ec4c5774c8fc80a 38,285-286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "6cbec40275f27a9694ab1eece7ff3434aefe0391",
+  "prompts": {
+    "9ec4c5774c8fc80a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d557c-9077-70d1-993e-9af7650268cc",
+        "model": "unknown"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 177,
+      "total_deletions": 0,
+      "accepted_lines": 177,
+      "overriden_lines": 0
+    }
+  }
+}
