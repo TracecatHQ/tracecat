@@ -1002,9 +1002,10 @@ class VercelStreamContext:
                 # Unified approval request from any harness (pydantic-ai or claude)
                 if event.approval_items:
                     for item in event.approval_items:
+                        sanitized_input = strip_proxy_tool_metadata(item.input)
                         # Cache tool data for UI reconstruction on continuation
                         self.approval_tool_name[item.id] = item.name
-                        self.approval_input[item.id] = item.input
+                        self.approval_input[item.id] = sanitized_input
 
                         # Finalize any open tool parts so UI shows input-available
                         if item.id in self.tool_index:
@@ -1021,7 +1022,7 @@ class VercelStreamContext:
                             {
                                 "tool_call_id": item.id,
                                 "tool_name": item.name,
-                                "args": item.input,
+                                "args": strip_proxy_tool_metadata(item.input),
                             }
                             for item in event.approval_items
                         ],
