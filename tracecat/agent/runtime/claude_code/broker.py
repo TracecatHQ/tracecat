@@ -6,7 +6,6 @@ import asyncio
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from time import perf_counter
 
 from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -16,7 +15,6 @@ from tracecat.agent.runtime.claude_code.transport import (
     ClaudeSandboxPathMapping,
     SandboxedCLITransport,
 )
-from tracecat.logger import logger
 
 
 class ConcurrentSessionTurnError(RuntimeError):
@@ -80,23 +78,8 @@ class ClaudeRuntimeBroker:
                 )
             self._active_turns[session_key] = current_task
 
-        turn_started_at = perf_counter()
-
-        def log_phase(phase: str, **extra: object) -> None:
-            logger.info(
-                "Agent benchmark phase",
-                phase=phase,
-                elapsed_ms=round((perf_counter() - turn_started_at) * 1000, 2),
-                session_id=request.init_payload.session_id,
-                execution_path="broker",
-                component="broker",
-                **extra,
-            )
-
         try:
-            log_phase("broker_turn_start")
             await handler.prepare()
-            log_phase("broker_loopback_prepared")
             path_mapping = self._build_path_mapping(
                 session_id=str(request.init_payload.session_id)
             )
@@ -115,12 +98,7 @@ class ClaudeRuntimeBroker:
                 cwd=path_mapping.runtime_cwd,
                 cwd_setup_path=path_mapping.host_project_dir,
             )
-            log_phase(
-                "broker_runtime_ready",
-                runtime_cwd=str(path_mapping.runtime_cwd),
-            )
             await runtime.run(request.init_payload)
-            log_phase("broker_turn_complete")
         finally:
             async with self._lock:
                 self._active_turns.pop(session_key, None)
