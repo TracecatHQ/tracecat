@@ -135,6 +135,42 @@ def _extract_structured_error(output: Any) -> str | None:
     return None
 
 
+def _contains_empty_tool_name_error(output: Any, error_text: str | None = None) -> bool:
+    """Detect the explicit empty-name tool error emitted by malformed calls.
+
+    Args:
+        output: Tool output payload from the model or SDK wrapper.
+        error_text: Optional extracted error text for the same payload.
+
+    Returns:
+        True when the payload represents the empty-name "No such tool available:"
+        error we want to hide from the UI.
+    """
+    candidates: list[str] = []
+    if error_text:
+        candidates.append(error_text)
+    if isinstance(output, str):
+        candidates.append(output)
+    elif isinstance(output, list):
+        for item in output:
+            if isinstance(item, dict) and isinstance(text := item.get("text"), str):
+                candidates.append(text)
+    elif isinstance(output, dict) and isinstance(error := output.get("error"), str):
+        candidates.append(error)
+    for text in candidates:
+        if (
+            text.startswith("No such tool available:")
+            and text.removeprefix("No such tool available:").strip() == ""
+        ):
+            return True
+    return False
+
+
+def _synthetic_tool_call_id(message_id: str, part_index: int, suffix: str) -> str:
+    """Build a deterministic fallback tool call id for persisted UI state."""
+    return f"tool_{uuid.uuid5(uuid.NAMESPACE_URL, f'{message_id}:{part_index}:{suffix}').hex}"
+
+
 AnyToolCallPart = ToolCallPart | BuiltinToolCallPart
 
 # ==============================================================================
@@ -907,6 +943,24 @@ class VercelStreamContext:
                         index=event.part_id
                     ):
                         yield message
+                missing_tool_name = not event.tool_name
+                missing_tool_call_id = not event.tool_call_id
+                if missing_tool_name:
+                    logger.warning(
+                        "Tool call start missing tool name",
+                        part_id=event.part_id,
+                        tool_call_id=event.tool_call_id,
+                        tool_input=event.tool_input,
+                    )
+                if missing_tool_call_id:
+                    logger.warning(
+                        "Tool call start missing tool_call_id",
+                        part_id=event.part_id,
+                        tool_name=event.tool_name,
+                        tool_input=event.tool_input,
+                    )
+                if missing_tool_name or missing_tool_call_id:
+                    return
                 # Create a synthetic ToolCallPart for state tracking
                 tool_call_id = event.tool_call_id or str(uuid.uuid4())
                 tool_name = event.tool_name or "unknown"
@@ -952,9 +1006,50 @@ class VercelStreamContext:
 
             case StreamEventType.TOOL_RESULT:
                 tool_call_id = event.tool_call_id or "unknown"
+                missing_tool_call_id = not event.tool_call_id
+                has_known_tool_state = tool_call_id in self.tool_index
+                has_approval_state = (
+                    tool_call_id in self.approval_tool_name
+                    or tool_call_id in self.approval_input
+                )
+                structured_error = _extract_structured_error(event.tool_output)
+                empty_tool_name_error = _contains_empty_tool_name_error(
+                    event.tool_output,
+                    (structured_error if isinstance(structured_error, str) else None)
+                    or event.error,
+                )
+                if missing_tool_call_id:
+                    logger.warning(
+                        "Tool result missing tool_call_id",
+                        tool_name=event.tool_name,
+                        tool_output=event.tool_output,
+                        is_error=event.is_error,
+                    )
+                    if empty_tool_name_error:
+                        return
+                    tool_call_id = f"tool_{uuid.uuid4().hex}"
+                    has_known_tool_state = False
+                    has_approval_state = False
+                    logger.warning(
+                        "Synthesizing tool_call_id for orphaned tool result",
+                        tool_call_id=tool_call_id,
+                        tool_name=event.tool_name,
+                        is_error=event.is_error,
+                    )
+                if not has_known_tool_state and not has_approval_state:
+                    logger.warning(
+                        "Tool result missing matching tool call state",
+                        tool_call_id=tool_call_id,
+                        tool_name=event.tool_name,
+                        has_approval_tool_name=tool_call_id in self.approval_tool_name,
+                        has_approval_input=tool_call_id in self.approval_input,
+                        is_error=event.is_error,
+                    )
+                    if empty_tool_name_error:
+                        return
 
                 # Close any open part for this tool
-                if tool_call_id in self.tool_index:
+                if has_known_tool_state:
                     index = self.tool_index[tool_call_id]
                     for message in self.collect_current_part_end_events(index=index):
                         yield message
@@ -973,10 +1068,6 @@ class VercelStreamContext:
 
                 self.tool_finished[tool_call_id] = True
                 self.tool_input_emitted.pop(tool_call_id, None)
-
-                # Check for structured error format from MCP proxy
-                # (workaround for Claude Agent SDK not propagating is_error)
-                structured_error = _extract_structured_error(event.tool_output)
 
                 if event.is_error or structured_error:
                     error_text = (
@@ -1543,7 +1634,9 @@ def convert_chat_messages_to_ui(
         mutable_message = MutableMessage(id=message_id, role=role, parts=[])
         approval_payload = _extract_approval_payload_from_message(message_data)
 
-        for part_type, part in _iter_message_parts(message_data):
+        for part_index, (part_type, part) in enumerate(
+            _iter_message_parts(message_data)
+        ):
             # Skip approval header for both harness types
             if approval_payload:
                 if part_type == "TextPart" and part.content == APPROVAL_REQUEST_HEADER:
@@ -1580,22 +1673,60 @@ def convert_chat_messages_to_ui(
                 case "ToolCallPart" | "BuiltinToolCallPart":
                     if approval_payload:
                         continue
-                    tool_name = normalize_mcp_tool_name(part.tool_name)
+                    missing_tool_name = not part.tool_name
+                    missing_tool_call_id = not part.tool_call_id
+                    if (
+                        missing_tool_name
+                        and missing_tool_call_id
+                        and not part.args_as_dict()
+                    ):
+                        logger.warning(
+                            "Skipping malformed tool call part",
+                            message_id=message_id,
+                            part_type=part_type,
+                            tool_name=part.tool_name,
+                            tool_call_id=part.tool_call_id,
+                        )
+                        continue
+                    tool_name = normalize_mcp_tool_name(part.tool_name or "tool")
+                    tool_call_id = part.tool_call_id or _synthetic_tool_call_id(
+                        message_id, part_index, tool_name
+                    )
+                    if missing_tool_name or missing_tool_call_id:
+                        logger.warning(
+                            "Using fallback tool metadata for tool call part",
+                            message_id=message_id,
+                            part_type=part_type,
+                            tool_name=part.tool_name,
+                            tool_call_id=part.tool_call_id,
+                            synthetic_tool_call_id=tool_call_id,
+                        )
                     tool_part = MutableToolPart(
                         type=f"tool-{tool_name}",
-                        tool_call_id=part.tool_call_id,
+                        tool_call_id=tool_call_id,
                         state="input-available",
                         input=part.args_as_dict(),
                     )
                     mutable_message.parts.append(tool_part)
-                    tool_entries[part.tool_call_id] = tool_part
+                    tool_entries[tool_call_id] = tool_part
 
                 # --- Tool call parts (Claude SDK) ---
                 case "ToolUseBlock":
                     if approval_payload:
                         continue
+                    missing_tool_name = not part.name
+                    missing_tool_call_id = not part.id
+                    if missing_tool_name and missing_tool_call_id and not part.input:
+                        logger.warning(
+                            "Skipping malformed tool use block",
+                            message_id=message_id,
+                            tool_name=part.name,
+                            tool_use_id=part.id,
+                            tool_input=part.input,
+                        )
+                        continue
                     # Extract underlying tool name for execute_tool wrapper
-                    tool_name = part.name
+                    tool_name = part.name or "tool"
                     tool_input = part.input or {}
                     if part.name in {
                         "mcp__tracecat-registry__execute_tool",
@@ -1605,14 +1736,25 @@ def convert_chat_messages_to_ui(
                         tool_input = tool_input.get("args", tool_input)
                     # Normalize MCP registry prefix
                     tool_name = normalize_mcp_tool_name(tool_name)
+                    tool_call_id = part.id or _synthetic_tool_call_id(
+                        message_id, part_index, tool_name
+                    )
+                    if missing_tool_name or missing_tool_call_id:
+                        logger.warning(
+                            "Using fallback tool metadata for tool use block",
+                            message_id=message_id,
+                            tool_name=part.name,
+                            tool_use_id=part.id,
+                            synthetic_tool_call_id=tool_call_id,
+                        )
                     tool_part = MutableToolPart(
                         type=f"tool-{tool_name}",
-                        tool_call_id=part.id,
+                        tool_call_id=tool_call_id,
                         state="input-available",
                         input=tool_input,
                     )
                     mutable_message.parts.append(tool_part)
-                    tool_entries[part.id] = tool_part
+                    tool_entries[tool_call_id] = tool_part
 
                 # --- Tool return parts (pydantic-ai) ---
                 case "ToolReturnPart" | "BuiltinToolReturnPart":
@@ -1638,6 +1780,9 @@ def convert_chat_messages_to_ui(
                 case "ToolResultBlock":
                     # Check for structured error format from MCP proxy
                     structured_error = _extract_structured_error(part.content)
+                    empty_tool_name_error = _contains_empty_tool_name_error(
+                        part.content, structured_error
+                    )
 
                     existing = tool_entries.get(part.tool_use_id)
                     if existing is not None:
@@ -1645,17 +1790,46 @@ def convert_chat_messages_to_ui(
                             part.content, structured_error, is_error=part.is_error
                         )
                     else:
+                        missing_tool_use_id = not part.tool_use_id
+                        if missing_tool_use_id and empty_tool_name_error:
+                            logger.warning(
+                                "Skipping malformed orphaned tool result block",
+                                message_id=message_id,
+                                tool_use_id=part.tool_use_id,
+                                is_error=part.is_error,
+                                structured_error=structured_error,
+                            )
+                            continue
+                        tool_call_id = part.tool_use_id or _synthetic_tool_call_id(
+                            message_id, part_index, "tool-result"
+                        )
+                        if missing_tool_use_id:
+                            logger.warning(
+                                "Using fallback tool_call_id for orphaned tool result block",
+                                message_id=message_id,
+                                tool_use_id=part.tool_use_id,
+                                synthetic_tool_call_id=tool_call_id,
+                                is_error=part.is_error,
+                                structured_error=structured_error,
+                            )
+                        logger.warning(
+                            "Tool result block missing prior tool entry",
+                            tool_use_id=part.tool_use_id,
+                            synthetic_tool_call_id=tool_call_id,
+                            is_error=part.is_error,
+                            structured_error=structured_error,
+                        )
                         # Create fallback part when no existing tool entry is found
                         tool_part = MutableToolPart.with_result(
                             type="tool-unknown",
-                            tool_call_id=part.tool_use_id,
+                            tool_call_id=tool_call_id,
                             input={},
                             content=part.content,
                             structured_error=structured_error,
                             is_error=part.is_error,
                         )
                         mutable_message.parts.append(tool_part)
-                        tool_entries[part.tool_use_id] = tool_part
+                        tool_entries[tool_call_id] = tool_part
 
                 # --- Retry/Error parts (pydantic-ai) ---
                 case "RetryPromptPart":

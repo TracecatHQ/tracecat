@@ -152,13 +152,30 @@ def openai_finish_reason_to_anthropic(value: str | None) -> str | None:
             return value
 
 
+def _pick_openai_stream_token_count(
+    usage: dict[str, object], preferred: str, fallback: str
+) -> int:
+    """Pick token count, preferring one key and falling back when it is missing or null."""
+    for key in (preferred, fallback):
+        raw_value = usage.get(key)
+        if isinstance(raw_value, int):
+            return raw_value
+        if isinstance(raw_value, str):
+            return int(raw_value)
+    return 0
+
+
 def openai_stream_usage(payload: dict[str, object]) -> dict[str, int]:
     usage = payload.get("usage")
     if not isinstance(usage, dict):
         return {"input_tokens": 0, "output_tokens": 0}
     return {
-        "input_tokens": int(usage.get("prompt_tokens", 0)),
-        "output_tokens": int(usage.get("completion_tokens", 0)),
+        "input_tokens": _pick_openai_stream_token_count(
+            usage, "input_tokens", "prompt_tokens"
+        ),
+        "output_tokens": _pick_openai_stream_token_count(
+            usage, "output_tokens", "completion_tokens"
+        ),
     }
 
 

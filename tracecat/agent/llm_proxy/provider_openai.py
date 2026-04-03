@@ -14,19 +14,26 @@ from tracecat.agent.llm_proxy.content_blocks import (
 )
 from tracecat.agent.llm_proxy.provider_common import (
     AnthropicStreamingAdapter,
+    OpenAIToolStreamState,
     ProviderAdapter,
     anthropic_block_stop_event,
     anthropic_message_delta_event,
     anthropic_message_start_event,
     anthropic_text_block_start_event,
     anthropic_text_delta_event,
+    anthropic_thinking_block_start_event,
     anthropic_thinking_delta_event,
     anthropic_tool_block_start_event,
     anthropic_tool_delta_event,
     base_url_from_request,
     iter_sse_events,
+    openai_finish_reason_to_anthropic,
+    openai_stream_usage,
     provider_http_error,
+    raise_stream_http_error,
 )
+from tracecat.agent.llm_proxy.requests import messages_request_to_openai_payload
+from tracecat.agent.llm_proxy.response_rendering import normalize_openai_response
 from tracecat.agent.llm_proxy.tool_compat import (
     anthropic_tool_to_openai_tool,
     apply_tool_name_mapping,
@@ -44,6 +51,7 @@ from tracecat.agent.llm_proxy.types import (
 )
 
 _OPENAI_RESPONSES_SUFFIX = "/v1/responses"
+_OPENAI_CHAT_COMPLETIONS_SUFFIX = "/v1/chat/completions"
 
 
 def _openai_responses_url(base_url: str) -> str:
@@ -54,6 +62,18 @@ def _openai_responses_url(base_url: str) -> str:
     if base.endswith("/v1"):
         return f"{base}/responses"
     return f"{base}{_OPENAI_RESPONSES_SUFFIX}"
+
+
+def _openai_chat_completions_url(base_url: str) -> str:
+    """Build the chat-completions URL, avoiding /v1 duplication."""
+    base = base_url.rstrip("/")
+    if base.endswith(_OPENAI_CHAT_COMPLETIONS_SUFFIX):
+        return base
+    if base.endswith("/chat/completions"):
+        return base
+    if base.endswith("/v1"):
+        return f"{base}/chat/completions"
+    return f"{base}{_OPENAI_CHAT_COMPLETIONS_SUFFIX}"
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +185,141 @@ def _text_message(parts: list[str], *, role: str) -> dict[str, Any]:
         "role": role,
         "content": [{"type": text_type, "text": text} for text in parts],
     }
+
+
+def _chat_reasoning_text(message: dict[str, Any]) -> str | None:
+    reasoning = message.get("reasoning")
+    if isinstance(reasoning, str) and reasoning:
+        return reasoning
+    reasoning_content = message.get("reasoning_content")
+    if isinstance(reasoning_content, str) and reasoning_content:
+        return reasoning_content
+    return None
+
+
+def _coerce_openai_content_value(value: Any) -> str:
+    """Coerce a value into a string for chat-completions history replay."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="ignore")
+    try:
+        return orjson.dumps(value).decode("utf-8")
+    except TypeError:
+        return str(value)
+
+
+def _coerce_openai_content_block(block: Any) -> dict[str, Any]:
+    """Convert non-text content blocks to text blocks for chat completions."""
+    if not isinstance(block, dict):
+        return {"type": "text", "text": str(block)}
+
+    block_type = block.get("type")
+    if block_type == "text":
+        return {"type": "text", "text": str(block.get("text", ""))}
+    if block_type == "thinking":
+        return {"type": "text", "text": str(block.get("thinking", ""))}
+    if block_type == "tool_use":
+        return {
+            "type": "text",
+            "text": _coerce_openai_content_value(
+                block.get("input", {"name": block.get("name", "")})
+            ),
+        }
+    return {"type": "text", "text": _coerce_openai_content_value(block)}
+
+
+def _coerce_openai_message_content(content: Any) -> Any:
+    """Return chat-compatible assistant content for history replay."""
+    if isinstance(content, list):
+        return [_coerce_openai_content_block(item) for item in content]
+    if isinstance(content, dict):
+        return [_coerce_openai_content_block(content)]
+    if isinstance(content, (str, bytes)):
+        return content
+    if content is None:
+        return content
+    return str(content)
+
+
+def _sanitize_chat_completions_payload_for_history_replay(
+    payload: dict[str, Any],
+) -> None:
+    """Replace Anthropic-only assistant blocks with chat-compatible content."""
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return
+
+    for message in messages:
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        message["content"] = _coerce_openai_message_content(message.get("content"))
+
+
+def _normalized_chat_response_content(message: dict[str, Any]) -> Any:
+    content = message.get("content")
+    if not (reasoning := _chat_reasoning_text(message)):
+        return content
+
+    blocks: list[dict[str, Any]] = [{"type": "thinking", "thinking": reasoning}]
+    if content:
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict):
+                    blocks.append(dict(item))
+                else:
+                    blocks.append({"type": "text", "text": str(item)})
+        else:
+            blocks.append({"type": "text", "text": str(content)})
+    return blocks
+
+
+# ---------------------------------------------------------------------------
+# Shared chat-completions response parsing
+# ---------------------------------------------------------------------------
+
+
+async def _parse_chat_completions_response(
+    response: httpx.Response,
+    request: NormalizedMessagesRequest,
+    *,
+    provider: str,
+) -> NormalizedResponse:
+    """Parse a chat-completions response (shared between OpenAI and Azure)."""
+    if response.status_code >= 400:
+        provider_http_error(response, provider)
+    payload = response.json()
+    if isinstance(payload, dict):
+        _sanitize_openai_usage(payload)
+    normalized = normalize_openai_response(payload)
+    if isinstance(payload, dict) and isinstance(
+        choice_message := ((payload.get("choices") or [{}])[0]).get("message"),
+        dict,
+    ):
+        normalized = NormalizedResponse(
+            provider=normalized.provider,
+            model=normalized.model,
+            content=_normalized_chat_response_content(choice_message),
+            tool_calls=normalized.tool_calls,
+            finish_reason=normalized.finish_reason,
+            usage=normalized.usage,
+            raw=normalized.raw,
+        )
+    tool_name_mapping = create_tool_name_mapping(request.tools)
+    return NormalizedResponse(
+        provider=provider,
+        model=normalized.model,
+        content=normalized.content,
+        tool_calls=restore_tool_call_names(normalized.tool_calls, tool_name_mapping),
+        finish_reason=normalized.finish_reason,
+        usage=normalized.usage,
+        raw=payload,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Responses API payload building
+# ---------------------------------------------------------------------------
 
 
 def _responses_input_items_from_message(message: Any) -> list[dict[str, Any]]:
@@ -459,6 +614,201 @@ def _normalize_responses_response(payload: dict[str, Any]) -> NormalizedResponse
     )
 
 
+def _openai_chat_payload(request: NormalizedMessagesRequest) -> dict[str, Any]:
+    """Build the full chat-completions request payload."""
+    payload = messages_request_to_openai_payload(request)
+    _sanitize_chat_completions_payload_for_history_replay(payload)
+    normalize_openai_payload(
+        payload,
+        model=request.model,
+        provider=request.provider,
+    )
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# Shared streaming for chat-completions
+# ---------------------------------------------------------------------------
+
+
+async def _stream_openai_chat_completions(
+    client: httpx.AsyncClient,
+    request: NormalizedMessagesRequest,
+    outbound: ProviderHTTPRequest,
+    *,
+    provider: str,
+) -> AsyncIterator[AnthropicStreamEvent]:
+    """Stream OpenAI chat-completions response (shared between adapters)."""
+    tool_name_mapping = create_tool_name_mapping(request.tools)
+    text_block_index: int | None = None
+    thinking_block_index: int | None = None
+    next_content_index = 0
+    message_started = False
+    output_tokens = 0
+    stop_reason: str | None = None
+    tool_states: dict[int, OpenAIToolStreamState] = {}
+
+    async with client.stream(
+        outbound.method,
+        outbound.url,
+        headers=outbound.headers,
+        content=outbound.body,
+        json=outbound.json_body,
+    ) as response:
+        if response.status_code >= 400:
+            await raise_stream_http_error(response, provider=provider)
+
+        async for sse_event in iter_sse_events(response):
+            if sse_event.data == "[DONE]":
+                break
+
+            chunk = orjson.loads(sse_event.data)
+            if not isinstance(chunk, dict):
+                continue
+
+            usage = openai_stream_usage(chunk)
+            output_tokens = usage["output_tokens"] or output_tokens
+            if not message_started:
+                yield anthropic_message_start_event(
+                    message_id=str(chunk.get("id", f"tracecat-{provider}-stream")),
+                    model=str(chunk.get("model", request.model)),
+                    input_tokens=usage["input_tokens"],
+                )
+                message_started = True
+
+            choices = chunk.get("choices")
+            if not isinstance(choices, list):
+                continue
+
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    continue
+                delta = choice.get("delta")
+                if not isinstance(delta, dict):
+                    delta = {}
+
+                reasoning = _chat_reasoning_text(delta)
+                if reasoning:
+                    if text_block_index is not None:
+                        yield anthropic_block_stop_event(text_block_index)
+                        text_block_index = None
+                    if thinking_block_index is None:
+                        thinking_block_index = next_content_index
+                        next_content_index += 1
+                        yield anthropic_thinking_block_start_event(thinking_block_index)
+                    yield anthropic_thinking_delta_event(
+                        thinking_block_index,
+                        str(reasoning),
+                    )
+
+                content = delta.get("content")
+                if content:
+                    if thinking_block_index is not None:
+                        yield anthropic_block_stop_event(thinking_block_index)
+                        thinking_block_index = None
+                    if text_block_index is None:
+                        text_block_index = next_content_index
+                        next_content_index += 1
+                        yield anthropic_text_block_start_event(text_block_index)
+                    yield anthropic_text_delta_event(text_block_index, str(content))
+
+                tool_calls = delta.get("tool_calls")
+                if isinstance(tool_calls, list):
+                    if thinking_block_index is not None:
+                        yield anthropic_block_stop_event(thinking_block_index)
+                        thinking_block_index = None
+                    if text_block_index is not None:
+                        yield anthropic_block_stop_event(text_block_index)
+                        text_block_index = None
+
+                    for tool_call in tool_calls:
+                        if not isinstance(tool_call, dict):
+                            continue
+                        tool_index = int(tool_call.get("index", len(tool_states)))
+                        tool_state = tool_states.get(tool_index)
+                        if tool_state is None:
+                            tool_state = OpenAIToolStreamState(
+                                content_index=next_content_index
+                            )
+                            tool_states[tool_index] = tool_state
+                            next_content_index += 1
+
+                        if tool_call_id := tool_call.get("id"):
+                            tool_state.tool_call_id = str(tool_call_id)
+
+                        function = tool_call.get("function")
+                        if isinstance(function, dict):
+                            if function_name := function.get("name"):
+                                tool_state.name = restore_tool_name(
+                                    str(function_name),
+                                    tool_name_mapping,
+                                )
+                            if arguments := function.get("arguments"):
+                                if tool_state.started:
+                                    yield anthropic_tool_delta_event(
+                                        tool_state.content_index,
+                                        str(arguments),
+                                    )
+                                else:
+                                    tool_state.pending_json.append(str(arguments))
+
+                        if (
+                            not tool_state.started
+                            and tool_state.tool_call_id
+                            and tool_state.name
+                        ):
+                            yield anthropic_tool_block_start_event(
+                                index=tool_state.content_index,
+                                tool_call_id=tool_state.tool_call_id,
+                                name=tool_state.name,
+                            )
+                            tool_state.started = True
+                            for pending_json in tool_state.pending_json:
+                                yield anthropic_tool_delta_event(
+                                    tool_state.content_index,
+                                    pending_json,
+                                )
+                            tool_state.pending_json.clear()
+
+                raw_finish_reason = choice.get("finish_reason")
+                if raw_finish_reason is None or isinstance(raw_finish_reason, str):
+                    stop_reason = openai_finish_reason_to_anthropic(raw_finish_reason)
+
+    if not message_started:
+        yield anthropic_message_start_event(
+            message_id=f"tracecat-{provider}-stream",
+            model=request.model,
+        )
+
+    if text_block_index is not None:
+        yield anthropic_block_stop_event(text_block_index)
+    if thinking_block_index is not None:
+        yield anthropic_block_stop_event(thinking_block_index)
+
+    for tool_index in sorted(tool_states):
+        tool_state = tool_states[tool_index]
+        if not tool_state.started:
+            yield anthropic_tool_block_start_event(
+                index=tool_state.content_index,
+                tool_call_id=tool_state.tool_call_id or "",
+                name=tool_state.name or "",
+            )
+            for pending_json in tool_state.pending_json:
+                yield anthropic_tool_delta_event(
+                    tool_state.content_index,
+                    pending_json,
+                )
+        if not tool_state.stopped:
+            yield anthropic_block_stop_event(tool_state.content_index)
+            tool_state.stopped = True
+
+    yield anthropic_message_delta_event(
+        stop_reason=stop_reason,
+        output_tokens=output_tokens,
+    )
+    yield AnthropicStreamEvent("message_stop", {"type": "message_stop"})
+
+
 # ---------------------------------------------------------------------------
 # Adapter
 # ---------------------------------------------------------------------------
@@ -470,6 +820,30 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
 
     provider: str
 
+    def _prepare_custom_provider_chat_request(
+        self,
+        request: NormalizedMessagesRequest,
+        credentials: dict[str, str],
+        *,
+        base_url: str,
+    ) -> ProviderHTTPRequest:
+        payload = _openai_chat_payload(request)
+        tool_name_mapping = create_tool_name_mapping(request.tools)
+        apply_tool_name_mapping(payload, tool_name_mapping)
+        custom_base_url = credentials.get("CUSTOM_MODEL_PROVIDER_BASE_URL", base_url)
+        headers = {"Content-Type": "application/json"}
+        if model_name := credentials.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"):
+            payload["model"] = model_name
+        if api_key := credentials.get("CUSTOM_MODEL_PROVIDER_API_KEY"):
+            headers["Authorization"] = f"Bearer {api_key}"
+        return ProviderHTTPRequest(
+            method="POST",
+            url=_openai_chat_completions_url(custom_base_url),
+            headers=headers,
+            json_body=payload,
+            stream=request.stream,
+        )
+
     def _prepare_responses_request(
         self,
         request: NormalizedMessagesRequest,
@@ -477,26 +851,17 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
         *,
         base_url: str,
     ) -> ProviderHTTPRequest:
+        if self.provider == "custom-model-provider":
+            return self._prepare_custom_provider_chat_request(
+                request,
+                credentials,
+                base_url=base_url,
+            )
+
         payload = _openai_responses_payload(request)
         tool_name_mapping = create_tool_name_mapping(request.tools)
         apply_tool_name_mapping(payload, tool_name_mapping)
         headers = {"Content-Type": "application/json"}
-
-        if self.provider == "custom-model-provider":
-            custom_base_url = credentials.get(
-                "CUSTOM_MODEL_PROVIDER_BASE_URL", base_url
-            )
-            if model_name := credentials.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"):
-                payload["model"] = model_name
-            if api_key := credentials.get("CUSTOM_MODEL_PROVIDER_API_KEY"):
-                headers["Authorization"] = f"Bearer {api_key}"
-            return ProviderHTTPRequest(
-                method="POST",
-                url=_openai_responses_url(custom_base_url),
-                headers=headers,
-                json_body=payload,
-                stream=request.stream,
-            )
 
         api_key = credentials.get("OPENAI_API_KEY")
         if not api_key:
@@ -529,6 +894,11 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
         response: httpx.Response,
         request: NormalizedMessagesRequest,
     ) -> NormalizedResponse:
+        if self.provider == "custom-model-provider":
+            return await _parse_chat_completions_response(
+                response, request, provider=self.provider
+            )
+
         if response.status_code >= 400:
             provider_http_error(response, self.provider)
         payload = response.json()
@@ -559,7 +929,25 @@ class OpenAIFamilyAdapter(ProviderAdapter, AnthropicStreamingAdapter):
         credentials: dict[str, str],
     ) -> AsyncIterator[AnthropicStreamEvent]:
         outbound = self.prepare_request(request, credentials)
+        if self.provider == "custom-model-provider":
+            async for event in self._stream_openai_chat_completions(
+                client, request, outbound
+            ):
+                yield event
+            return
         async for event in self._stream_openai_responses(client, request, outbound):
+            yield event
+
+    async def _stream_openai_chat_completions(
+        self,
+        client: httpx.AsyncClient,
+        request: NormalizedMessagesRequest,
+        outbound: ProviderHTTPRequest,
+    ) -> AsyncIterator[AnthropicStreamEvent]:
+        """Wrapper around module-level streaming function."""
+        async for event in _stream_openai_chat_completions(
+            client, request, outbound, provider=self.provider
+        ):
             yield event
 
     async def _stream_openai_responses(
