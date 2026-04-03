@@ -5,8 +5,16 @@ into Vercel AI SDK SSE frames.
 """
 
 import json
+from typing import Any, cast
 
 import pytest
+from claude_agent_sdk.types import AssistantMessage, ToolResultBlock, ToolUseBlock
+from pydantic_ai.messages import (
+    ModelRequest,
+    ModelResponse,
+    ToolCallPart,
+    ToolReturnPart,
+)
 
 from tracecat.agent.adapter.vercel import (
     DataEventPayload,
@@ -23,6 +31,7 @@ from tracecat.agent.adapter.vercel import (
     VercelSSEPayload,
     VercelStreamContext,
     _contains_empty_tool_name_error,
+    convert_chat_messages_to_ui,
     format_sse,
 )
 from tracecat.agent.common.stream_types import (
@@ -30,6 +39,8 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.chat.enums import MessageKind
+from tracecat.chat.schemas import ChatMessage
 
 
 async def collect_frames(
@@ -711,7 +722,20 @@ def test_contains_empty_tool_name_error_matches_only_empty_suffix():
     assert _contains_empty_tool_name_error(None, "No such tool available:") is True
     assert _contains_empty_tool_name_error(None, "No such tool available:   ") is True
     assert (
+        _contains_empty_tool_name_error(
+            None, "<tool_use_error>Error: No such tool available: </tool_use_error>"
+        )
+        is True
+    )
+    assert (
         _contains_empty_tool_name_error(None, "No such tool available: lookup_user")
+        is False
+    )
+    assert (
+        _contains_empty_tool_name_error(
+            None,
+            "<tool_use_error>Error: No such tool available: lookup_user</tool_use_error>",
+        )
         is False
     )
     assert (
@@ -720,6 +744,76 @@ def test_contains_empty_tool_name_error_matches_only_empty_suffix():
         )
         is False
     )
+
+
+def test_convert_chat_messages_to_ui_reuses_synthetic_tool_call_id_for_missing_ids() -> (
+    None
+):
+    """Test orphaned tool return IDs match prior synthetic tool-call IDs."""
+    tool_call = ToolCallPart(
+        tool_name="search", args={"query": "tracecat"}, tool_call_id=""
+    )
+    tool_return = ToolReturnPart(
+        tool_name="search", content={"answer": 42}, tool_call_id=""
+    )
+
+    messages = [
+        ChatMessage(
+            id="msg_1",
+            message=ModelResponse(parts=[tool_call]),
+            kind=MessageKind.CHAT_MESSAGE,
+        ),
+        ChatMessage(
+            id="msg_2",
+            message=ModelRequest(parts=[tool_return]),
+            kind=MessageKind.CHAT_MESSAGE,
+        ),
+    ]
+
+    ui_messages = convert_chat_messages_to_ui(messages)
+
+    assert len(ui_messages) == 1
+    call_part = cast(dict[str, Any], ui_messages[0].parts[0])
+
+    assert call_part["type"] == "tool-search"
+    assert call_part["state"] == "output-available"
+    assert call_part["toolCallId"].startswith("tool_")
+    assert call_part["input"] == {"query": "tracecat"}
+    assert call_part["output"] == {"answer": 42}
+
+
+def test_convert_chat_messages_to_ui_suppresses_wrapped_empty_tool_name_errors() -> (
+    None
+):
+    """Hide malformed fallback tool cards once the wrapped empty-name error arrives."""
+    messages = [
+        ChatMessage(
+            id="msg_1",
+            kind=MessageKind.CHAT_MESSAGE,
+            message=AssistantMessage(
+                content=[ToolUseBlock(id="call_1", name="", input={})],
+                model="claude-sonnet-4-5",
+            ),
+        ),
+        ChatMessage(
+            id="msg_2",
+            kind=MessageKind.CHAT_MESSAGE,
+            message=AssistantMessage(
+                content=[
+                    ToolResultBlock(
+                        tool_use_id="call_1",
+                        content="<tool_use_error>Error: No such tool available: </tool_use_error>",
+                        is_error=True,
+                    )
+                ],
+                model="claude-sonnet-4-5",
+            ),
+        ),
+    ]
+
+    ui_messages = convert_chat_messages_to_ui(messages)
+
+    assert ui_messages == []
 
 
 @pytest.mark.anyio
@@ -759,6 +853,27 @@ async def test_tool_result_without_tool_call_id_empty_error_is_suppressed():
                 tool_call_id=None,
                 tool_name=None,
                 tool_output="No such tool available: ",
+                is_error=True,
+            )
+        ],
+    )
+
+    assert len(frames) == 0
+
+
+@pytest.mark.anyio
+async def test_tool_result_without_tool_call_id_wrapped_empty_error_is_suppressed():
+    """Suppress wrapped empty-name tool-result events from Claude tool errors."""
+    ctx = VercelStreamContext(message_id="msg_test")
+
+    frames = await collect_frames(
+        ctx,
+        [
+            UnifiedStreamEvent(
+                type=StreamEventType.TOOL_RESULT,
+                tool_call_id=None,
+                tool_name=None,
+                tool_output="<tool_use_error>Error: No such tool available: </tool_use_error>",
                 is_error=True,
             )
         ],

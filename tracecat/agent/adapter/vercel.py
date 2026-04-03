@@ -146,6 +146,13 @@ def _contains_empty_tool_name_error(output: Any, error_text: str | None = None) 
         True when the payload represents the empty-name "No such tool available:"
         error we want to hide from the UI.
     """
+
+    def _normalize_candidate(text: str) -> str:
+        normalized = re.sub(r"</?[^>]+>", "", text).strip()
+        while normalized.startswith("Error:"):
+            normalized = normalized.removeprefix("Error:").strip()
+        return normalized
+
     candidates: list[str] = []
     if error_text:
         candidates.append(error_text)
@@ -158,9 +165,10 @@ def _contains_empty_tool_name_error(output: Any, error_text: str | None = None) 
     elif isinstance(output, dict) and isinstance(error := output.get("error"), str):
         candidates.append(error)
     for text in candidates:
+        normalized = _normalize_candidate(text)
         if (
-            text.startswith("No such tool available:")
-            and text.removeprefix("No such tool available:").strip() == ""
+            normalized.startswith("No such tool available:")
+            and normalized.removeprefix("No such tool available:").strip() == ""
         ):
             return True
     return False
@@ -950,14 +958,12 @@ class VercelStreamContext:
                         "Tool call start missing tool name",
                         part_id=event.part_id,
                         tool_call_id=event.tool_call_id,
-                        tool_input=event.tool_input,
                     )
                 if missing_tool_call_id:
                     logger.warning(
                         "Tool call start missing tool_call_id",
                         part_id=event.part_id,
                         tool_name=event.tool_name,
-                        tool_input=event.tool_input,
                     )
                 if missing_tool_name or missing_tool_call_id:
                     return
@@ -1022,7 +1028,6 @@ class VercelStreamContext:
                     logger.warning(
                         "Tool result missing tool_call_id",
                         tool_name=event.tool_name,
-                        tool_output=event.tool_output,
                         is_error=event.is_error,
                     )
                     if empty_tool_name_error:
@@ -1309,6 +1314,7 @@ class MutableToolPart:
     input: Any
     output: Any | None = None
     error_text: str | None = None
+    suppressed: bool = False
 
     def __post_init__(self) -> None:
         if isinstance(self.input, dict):
@@ -1581,6 +1587,26 @@ def convert_chat_messages_to_ui(
     """
     mutable_messages: list[MutableMessage] = []
     tool_entries: dict[str, MutableToolPart] = {}
+    missing_tool_call_id_mapping: dict[str, list[str]] = {}
+    missing_tool_use_id_mapping: dict[str, list[str]] = {}
+
+    def _get_missing_raw_id(part_id: str | None) -> str:
+        return part_id or ""
+
+    def _remember_synthetic_tool_call_id(
+        mapping: dict[str, list[str]], raw_id: str | None, synthetic_id: str
+    ) -> None:
+        key = _get_missing_raw_id(raw_id)
+        mapping.setdefault(key, []).append(synthetic_id)
+
+    def _consume_synthetic_tool_call_id(
+        mapping: dict[str, list[str]], raw_id: str | None
+    ) -> str | None:
+        key = _get_missing_raw_id(raw_id)
+        values = mapping.get(key)
+        if not values:
+            return None
+        return values.pop(0)
 
     for chat_message in messages:
         # Handle approval request bubbles from DB (kind=APPROVAL_REQUEST)
@@ -1692,6 +1718,12 @@ def convert_chat_messages_to_ui(
                     tool_call_id = part.tool_call_id or _synthetic_tool_call_id(
                         message_id, part_index, tool_name
                     )
+                    if missing_tool_call_id:
+                        _remember_synthetic_tool_call_id(
+                            missing_tool_call_id_mapping,
+                            part.tool_call_id,
+                            tool_call_id,
+                        )
                     if missing_tool_name or missing_tool_call_id:
                         logger.warning(
                             "Using fallback tool metadata for tool call part",
@@ -1722,7 +1754,6 @@ def convert_chat_messages_to_ui(
                             message_id=message_id,
                             tool_name=part.name,
                             tool_use_id=part.id,
-                            tool_input=part.input,
                         )
                         continue
                     # Extract underlying tool name for execute_tool wrapper
@@ -1739,6 +1770,12 @@ def convert_chat_messages_to_ui(
                     tool_call_id = part.id or _synthetic_tool_call_id(
                         message_id, part_index, tool_name
                     )
+                    if missing_tool_call_id:
+                        _remember_synthetic_tool_call_id(
+                            missing_tool_use_id_mapping,
+                            part.id,
+                            tool_call_id,
+                        )
                     if missing_tool_name or missing_tool_call_id:
                         logger.warning(
                             "Using fallback tool metadata for tool use block",
@@ -1760,21 +1797,42 @@ def convert_chat_messages_to_ui(
                 case "ToolReturnPart" | "BuiltinToolReturnPart":
                     # Check for structured error format from MCP proxy
                     structured_error = _extract_structured_error(part.content)
+                    empty_tool_name_error = _contains_empty_tool_name_error(
+                        part.content, structured_error
+                    )
 
                     existing = tool_entries.get(part.tool_call_id)
+                    fallback_tool_call_id = part.tool_call_id
+                    if existing is None and not part.tool_call_id:
+                        fallback_tool_call_id = _consume_synthetic_tool_call_id(
+                            missing_tool_call_id_mapping, part.tool_call_id
+                        )
+                        if fallback_tool_call_id is not None:
+                            existing = tool_entries.get(fallback_tool_call_id)
+                    if empty_tool_name_error:
+                        if existing is not None:
+                            existing.suppressed = True
+                        continue
                     if existing is not None:
                         existing.set_result(part.content, structured_error)
                     else:
                         tool_name = normalize_mcp_tool_name(part.tool_name)
                         tool_part = MutableToolPart.with_result(
                             type=f"tool-{tool_name}",
-                            tool_call_id=part.tool_call_id,
+                            tool_call_id=(
+                                part.tool_call_id
+                                if part.tool_call_id
+                                else fallback_tool_call_id
+                                or _synthetic_tool_call_id(
+                                    message_id, part_index, "tool-result"
+                                )
+                            ),
                             input={},
                             content=part.content,
                             structured_error=structured_error,
                         )
                         mutable_message.parts.append(tool_part)
-                        tool_entries[part.tool_call_id] = tool_part
+                        tool_entries[tool_part.tool_call_id] = tool_part
 
                 # --- Tool result parts (Claude SDK) ---
                 case "ToolResultBlock":
@@ -1785,6 +1843,17 @@ def convert_chat_messages_to_ui(
                     )
 
                     existing = tool_entries.get(part.tool_use_id)
+                    fallback_tool_use_id = part.tool_use_id
+                    if existing is None and not part.tool_use_id:
+                        fallback_tool_use_id = _consume_synthetic_tool_call_id(
+                            missing_tool_use_id_mapping, part.tool_use_id
+                        )
+                        if fallback_tool_use_id is not None:
+                            existing = tool_entries.get(fallback_tool_use_id)
+                    if empty_tool_name_error:
+                        if existing is not None:
+                            existing.suppressed = True
+                        continue
                     if existing is not None:
                         existing.set_result(
                             part.content, structured_error, is_error=part.is_error
@@ -1803,6 +1872,8 @@ def convert_chat_messages_to_ui(
                         tool_call_id = part.tool_use_id or _synthetic_tool_call_id(
                             message_id, part_index, "tool-result"
                         )
+                        if not part.tool_use_id and fallback_tool_use_id:
+                            tool_call_id = fallback_tool_use_id
                         if missing_tool_use_id:
                             logger.warning(
                                 "Using fallback tool_call_id for orphaned tool result block",
@@ -1869,9 +1940,13 @@ def convert_chat_messages_to_ui(
         parts: list[UIMessagePart] = []
         for part in message.parts:
             if isinstance(part, MutableToolPart):
+                if part.suppressed:
+                    continue
                 parts.append(part.to_ui_part())
             else:
                 parts.append(part)
+        if not parts:
+            continue
         raw_messages.append(
             {
                 "id": message.id,

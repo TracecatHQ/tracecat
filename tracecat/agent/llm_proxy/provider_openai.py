@@ -197,18 +197,6 @@ def _chat_reasoning_text(message: dict[str, Any]) -> str | None:
     return None
 
 
-def _coerce_openai_content_value(value: Any) -> str:
-    """Coerce a value into a string for chat-completions history replay."""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="ignore")
-    try:
-        return orjson.dumps(value).decode("utf-8")
-    except TypeError:
-        return str(value)
-
-
 def _coerce_openai_content_block(block: Any) -> dict[str, Any]:
     """Convert non-text content blocks to text blocks for chat completions."""
     if not isinstance(block, dict):
@@ -222,11 +210,9 @@ def _coerce_openai_content_block(block: Any) -> dict[str, Any]:
     if block_type == "tool_use":
         return {
             "type": "text",
-            "text": _coerce_openai_content_value(
-                block.get("input", {"name": block.get("name", "")})
-            ),
+            "text": _stringify(block.get("input", {"name": block.get("name", "")})),
         }
-    return {"type": "text", "text": _coerce_openai_content_value(block)}
+    return {"type": "text", "text": _stringify(block)}
 
 
 def _coerce_openai_message_content(content: Any) -> Any:
