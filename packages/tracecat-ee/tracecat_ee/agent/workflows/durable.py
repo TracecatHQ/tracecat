@@ -26,6 +26,7 @@ with workflow.unsafe.imports_passed_through():
         build_run_input,
         build_tracecat_mcp_role,
     )
+    from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
     from tracecat.agent.mcp.utils import normalize_mcp_tool_name
     from tracecat.agent.parsers import try_parse_json
     from tracecat.agent.preset.activities import (
@@ -92,7 +93,7 @@ def _build_approved_tool_run_input(
     action_name = normalize_mcp_tool_name(tool_call.tool_name)
     return build_run_input(
         action_name=action_name,
-        args=tool_call.args,
+        args=strip_proxy_tool_metadata(tool_call.args),
         registry_lock=registry_lock,
         workflow_id=workflow_id,
         run_id=run_id,
