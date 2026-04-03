@@ -105,10 +105,12 @@ For concrete examples, browse the [Slack templates](https://github.com/TracecatH
 
 ## FAQ
 
-### How do `definition.secrets` and `${{ SECRETS... }}` work together?
+<AccordionGroup>
+  <Accordion title="How do definition.secrets and SECRETS work together?">
+    `definition.secrets` declares which credentials the template needs at runtime. Use `SECRETS` in `args` to pass values into steps (see the **Secrets** and **Expressions** sections above). OAuth entries use `type: oauth` with `provider_id` and `grant_type` matching an integration in your workspace.
+  </Accordion>
 
-`definition.secrets` declares which credentials the template needs at runtime. Use `SECRETS` in `args` to pass values into steps (see the **Secrets** and **Expressions** sections above). OAuth entries use `type: oauth` with `provider_id` and `grant_type` matching an integration in your workspace.
-
-### Why does my custom OAuth `provider_id` in YAML not match what I typed?
-
-UI-created **Custom OAuth** providers often get a `custom_` prefix. Use the exact id from Integrations; see the [OAuth FAQ](/automations/integrations/oauth-integrations#faq).
+  <Accordion title="Why does my custom OAuth provider_id in YAML not match what I typed?">
+    UI-created **Custom OAuth** providers often get a `custom_` prefix. Use the exact id from Integrations; see the [OAuth FAQ](/automations/integrations/oauth-integrations#faq).
+  </Accordion>
+</AccordionGroup>
