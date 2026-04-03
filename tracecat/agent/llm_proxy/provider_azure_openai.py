@@ -7,43 +7,24 @@ from dataclasses import dataclass
 from typing import Any, TypedDict
 
 import httpx
-import orjson
 
 from tracecat.agent.llm_proxy.provider_common import (
     AnthropicStreamingAdapter,
-    OpenAIToolStreamState,
     ProviderRetryAdapter,
-    anthropic_block_stop_event,
-    anthropic_message_delta_event,
-    anthropic_message_start_event,
-    anthropic_text_block_start_event,
-    anthropic_text_delta_event,
-    anthropic_thinking_block_start_event,
-    anthropic_thinking_delta_event,
-    anthropic_tool_block_start_event,
-    anthropic_tool_delta_event,
     base_url_from_request,
-    iter_sse_events,
-    openai_finish_reason_to_anthropic,
-    openai_stream_usage,
-    provider_http_error,
-    raise_stream_http_error,
 )
 from tracecat.agent.llm_proxy.provider_openai import (
-    _sanitize_openai_usage,
+    _parse_chat_completions_response,
+    _sanitize_chat_completions_payload_for_history_replay,
+    _stream_openai_chat_completions,
     normalize_openai_payload,
 )
 from tracecat.agent.llm_proxy.requests import (
     messages_request_to_openai_payload,
 )
-from tracecat.agent.llm_proxy.response_rendering import (
-    normalize_openai_response,
-)
 from tracecat.agent.llm_proxy.tool_compat import (
     apply_tool_name_mapping,
     create_tool_name_mapping,
-    restore_tool_call_names,
-    restore_tool_name,
 )
 from tracecat.agent.llm_proxy.types import (
     AnthropicStreamEvent,
@@ -60,92 +41,6 @@ class _AzureOpenAIRequestParts(TypedDict):
     deployment: str
     headers: dict[str, str]
     payload: dict[str, Any]
-
-
-def _chat_reasoning_text(message: dict[str, Any]) -> str | None:
-    reasoning = message.get("reasoning")
-    if isinstance(reasoning, str) and reasoning:
-        return reasoning
-    reasoning_content = message.get("reasoning_content")
-    if isinstance(reasoning_content, str) and reasoning_content:
-        return reasoning_content
-    return None
-
-
-def _coerce_openai_content_value(value: Any) -> str:
-    """Coerce a value into a string for OpenAI text-block rendering."""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="ignore")
-    try:
-        return orjson.dumps(value).decode("utf-8")
-    except TypeError:
-        return str(value)
-
-
-def _coerce_openai_content_block(block: Any) -> dict[str, Any]:
-    """Convert non-text content blocks to text blocks for chat completions."""
-    if not isinstance(block, dict):
-        return {"type": "text", "text": str(block)}
-
-    block_type = block.get("type")
-    if block_type == "text":
-        return {"type": "text", "text": str(block.get("text", ""))}
-    if block_type == "thinking":
-        return {"type": "text", "text": str(block.get("thinking", ""))}
-    if block_type == "tool_use":
-        return {
-            "type": "text",
-            "text": _coerce_openai_content_value(
-                block.get("input", {"name": block.get("name", "")})
-            ),
-        }
-    return {"type": "text", "text": _coerce_openai_content_value(block)}
-
-
-def _coerce_openai_message_content(content: Any) -> Any:
-    """Return chat-compatible assistant content for Azure OpenAI requests."""
-    if isinstance(content, list):
-        return [_coerce_openai_content_block(item) for item in content]
-    if isinstance(content, dict):
-        return [_coerce_openai_content_block(content)]
-    if isinstance(content, (str, bytes)):
-        return content
-    if content is None:
-        return content
-    return str(content)
-
-
-def _sanitize_azure_openai_payload_for_history_replay(payload: dict[str, Any]) -> None:
-    """Replace Anthropic-only blocks in assistant history with chat-safe content."""
-    messages = payload.get("messages")
-    if not isinstance(messages, list):
-        return
-
-    for message in messages:
-        if not isinstance(message, dict) or message.get("role") != "assistant":
-            continue
-        content = message.get("content")
-        message["content"] = _coerce_openai_message_content(content)
-
-
-def _normalized_chat_response_content(message: dict[str, Any]) -> Any:
-    content = message.get("content")
-    if not (reasoning := _chat_reasoning_text(message)):
-        return content
-
-    blocks: list[dict[str, Any]] = [{"type": "thinking", "thinking": reasoning}]
-    if content:
-        if isinstance(content, list):
-            for item in content:
-                if isinstance(item, dict):
-                    blocks.append(dict(item))
-                else:
-                    blocks.append({"type": "text", "text": str(item)})
-        else:
-            blocks.append({"type": "text", "text": str(content)})
-    return blocks
 
 
 def _error_text(response: httpx.Response) -> str:
@@ -228,7 +123,7 @@ def _azure_openai_request_parts(
     """Build the mutable request fragments for Azure OpenAI chat completions."""
 
     payload = messages_request_to_openai_payload(request)
-    _sanitize_azure_openai_payload_for_history_replay(payload)
+    _sanitize_chat_completions_payload_for_history_replay(payload)
     tool_name_mapping = create_tool_name_mapping(request.tools)
     apply_tool_name_mapping(payload, tool_name_mapping)
     normalize_openai_payload(
@@ -310,36 +205,8 @@ class AzureOpenAIAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
         response: httpx.Response,
         request: NormalizedMessagesRequest,
     ) -> NormalizedResponse:
-        if response.status_code >= 400:
-            provider_http_error(response, self.provider)
-        payload = response.json()
-        if isinstance(payload, dict):
-            _sanitize_openai_usage(payload)
-        normalized = normalize_openai_response(payload)
-        if isinstance(payload, dict) and isinstance(
-            choice_message := ((payload.get("choices") or [{}])[0]).get("message"),
-            dict,
-        ):
-            normalized = NormalizedResponse(
-                provider=normalized.provider,
-                model=normalized.model,
-                content=_normalized_chat_response_content(choice_message),
-                tool_calls=normalized.tool_calls,
-                finish_reason=normalized.finish_reason,
-                usage=normalized.usage,
-                raw=normalized.raw,
-            )
-        tool_name_mapping = create_tool_name_mapping(request.tools)
-        return NormalizedResponse(
-            provider=self.provider,
-            model=normalized.model,
-            content=normalized.content,
-            tool_calls=restore_tool_call_names(
-                normalized.tool_calls, tool_name_mapping
-            ),
-            finish_reason=normalized.finish_reason,
-            usage=normalized.usage,
-            raw=payload,
+        return await _parse_chat_completions_response(
+            response, request, provider=self.provider
         )
 
     async def stream_anthropic(
@@ -348,181 +215,12 @@ class AzureOpenAIAdapter(AnthropicStreamingAdapter, ProviderRetryAdapter):
         request: NormalizedMessagesRequest,
         credentials: dict[str, str],
     ) -> AsyncIterator[AnthropicStreamEvent]:
+        """Stream response using shared chat-completions logic."""
         outbound = self.prepare_request(request, credentials)
-        tool_name_mapping = create_tool_name_mapping(request.tools)
-        text_block_index: int | None = None
-        thinking_block_index: int | None = None
-        next_content_index = 0
-        message_started = False
-        output_tokens = 0
-        stop_reason: str | None = None
-        tool_states: dict[int, OpenAIToolStreamState] = {}
-
-        async with client.stream(
-            outbound.method,
-            outbound.url,
-            headers=outbound.headers,
-            content=outbound.body,
-            json=outbound.json_body,
-        ) as response:
-            if response.status_code >= 400:
-                await raise_stream_http_error(response, provider=self.provider)
-
-            async for sse_event in iter_sse_events(response):
-                if sse_event.data == "[DONE]":
-                    break
-
-                chunk = orjson.loads(sse_event.data)
-                if not isinstance(chunk, dict):
-                    continue
-
-                usage = openai_stream_usage(chunk)
-                output_tokens = usage["output_tokens"] or output_tokens
-                if not message_started:
-                    yield anthropic_message_start_event(
-                        message_id=str(
-                            chunk.get("id", f"tracecat-{self.provider}-stream")
-                        ),
-                        model=str(chunk.get("model", request.model)),
-                        input_tokens=usage["input_tokens"],
-                    )
-                    message_started = True
-
-                choices = chunk.get("choices")
-                if not isinstance(choices, list):
-                    continue
-
-                for choice in choices:
-                    if not isinstance(choice, dict):
-                        continue
-                    delta = choice.get("delta")
-                    if not isinstance(delta, dict):
-                        delta = {}
-
-                    reasoning = delta.get("reasoning")
-                    if reasoning:
-                        if text_block_index is not None:
-                            yield anthropic_block_stop_event(text_block_index)
-                            text_block_index = None
-                        if thinking_block_index is None:
-                            thinking_block_index = next_content_index
-                            next_content_index += 1
-                            yield anthropic_thinking_block_start_event(
-                                thinking_block_index
-                            )
-                        yield anthropic_thinking_delta_event(
-                            thinking_block_index,
-                            str(reasoning),
-                        )
-
-                    content = delta.get("content")
-                    if content:
-                        if thinking_block_index is not None:
-                            yield anthropic_block_stop_event(thinking_block_index)
-                            thinking_block_index = None
-                        if text_block_index is None:
-                            text_block_index = next_content_index
-                            next_content_index += 1
-                            yield anthropic_text_block_start_event(text_block_index)
-                        yield anthropic_text_delta_event(text_block_index, str(content))
-
-                    tool_calls = delta.get("tool_calls")
-                    if isinstance(tool_calls, list):
-                        if thinking_block_index is not None:
-                            yield anthropic_block_stop_event(thinking_block_index)
-                            thinking_block_index = None
-                        if text_block_index is not None:
-                            yield anthropic_block_stop_event(text_block_index)
-                            text_block_index = None
-
-                        for tool_call in tool_calls:
-                            if not isinstance(tool_call, dict):
-                                continue
-                            tool_index = int(tool_call.get("index", len(tool_states)))
-                            tool_state = tool_states.get(tool_index)
-                            if tool_state is None:
-                                tool_state = OpenAIToolStreamState(
-                                    content_index=next_content_index
-                                )
-                                tool_states[tool_index] = tool_state
-                                next_content_index += 1
-
-                            if tool_call_id := tool_call.get("id"):
-                                tool_state.tool_call_id = str(tool_call_id)
-
-                            function = tool_call.get("function")
-                            if isinstance(function, dict):
-                                if function_name := function.get("name"):
-                                    tool_state.name = restore_tool_name(
-                                        str(function_name),
-                                        tool_name_mapping,
-                                    )
-                                if arguments := function.get("arguments"):
-                                    if tool_state.started:
-                                        yield anthropic_tool_delta_event(
-                                            tool_state.content_index,
-                                            str(arguments),
-                                        )
-                                    else:
-                                        tool_state.pending_json.append(str(arguments))
-
-                            if (
-                                not tool_state.started
-                                and tool_state.tool_call_id
-                                and tool_state.name
-                            ):
-                                yield anthropic_tool_block_start_event(
-                                    index=tool_state.content_index,
-                                    tool_call_id=tool_state.tool_call_id,
-                                    name=tool_state.name,
-                                )
-                                tool_state.started = True
-                                for pending_json in tool_state.pending_json:
-                                    yield anthropic_tool_delta_event(
-                                        tool_state.content_index,
-                                        pending_json,
-                                    )
-                                tool_state.pending_json.clear()
-
-                    raw_finish_reason = choice.get("finish_reason")
-                    if raw_finish_reason is None or isinstance(raw_finish_reason, str):
-                        stop_reason = openai_finish_reason_to_anthropic(
-                            raw_finish_reason
-                        )
-
-        if not message_started:
-            yield anthropic_message_start_event(
-                message_id=f"tracecat-{self.provider}-stream",
-                model=request.model,
-            )
-
-        if text_block_index is not None:
-            yield anthropic_block_stop_event(text_block_index)
-        if thinking_block_index is not None:
-            yield anthropic_block_stop_event(thinking_block_index)
-
-        for tool_index in sorted(tool_states):
-            tool_state = tool_states[tool_index]
-            if not tool_state.started:
-                yield anthropic_tool_block_start_event(
-                    index=tool_state.content_index,
-                    tool_call_id=tool_state.tool_call_id or "",
-                    name=tool_state.name or "",
-                )
-                for pending_json in tool_state.pending_json:
-                    yield anthropic_tool_delta_event(
-                        tool_state.content_index,
-                        pending_json,
-                    )
-            if not tool_state.stopped:
-                yield anthropic_block_stop_event(tool_state.content_index)
-                tool_state.stopped = True
-
-        yield anthropic_message_delta_event(
-            stop_reason=stop_reason,
-            output_tokens=output_tokens,
-        )
-        yield AnthropicStreamEvent("message_stop", {"type": "message_stop"})
+        async for event in _stream_openai_chat_completions(
+            client, request, outbound, provider=self.provider
+        ):
+            yield event
 
 
 __all__ = ["AzureOpenAIAdapter"]

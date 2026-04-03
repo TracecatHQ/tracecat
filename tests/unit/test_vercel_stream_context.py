@@ -22,6 +22,7 @@ from tracecat.agent.adapter.vercel import (
     ToolOutputAvailableEventPayload,
     VercelSSEPayload,
     VercelStreamContext,
+    _contains_empty_tool_name_error,
     format_sse,
 )
 from tracecat.agent.common.stream_types import (
@@ -702,6 +703,67 @@ async def test_delta_for_unknown_part_index():
     frames = await collect_frames(ctx, events)
 
     # Should handle gracefully with no frames
+    assert len(frames) == 0
+
+
+def test_contains_empty_tool_name_error_matches_only_empty_suffix():
+    """Only empty-name tool errors should be treated as empty-tool-name errors."""
+    assert _contains_empty_tool_name_error(None, "No such tool available:") is True
+    assert _contains_empty_tool_name_error(None, "No such tool available:   ") is True
+    assert (
+        _contains_empty_tool_name_error(None, "No such tool available: lookup_user")
+        is False
+    )
+    assert (
+        _contains_empty_tool_name_error(
+            [{"text": "No such tool available:lookup_user"}]
+        )
+        is False
+    )
+
+
+@pytest.mark.anyio
+async def test_tool_result_without_tool_call_id_lookup_error_is_not_suppressed():
+    """Preserve legitimate tool lookup errors when tool name is known."""
+    ctx = VercelStreamContext(message_id="msg_test")
+
+    frames = await collect_frames(
+        ctx,
+        [
+            UnifiedStreamEvent(
+                type=StreamEventType.TOOL_RESULT,
+                tool_call_id=None,
+                tool_name="lookup_user",
+                tool_output="No such tool available: lookup_user",
+                is_error=True,
+            )
+        ],
+    )
+
+    assert len(frames) == 2
+    assert isinstance(frames[0], ToolInputAvailableEventPayload)
+    assert isinstance(frames[1], ToolOutputAvailableEventPayload)
+    assert "No such tool available: lookup_user" in frames[1].output["errorText"]
+
+
+@pytest.mark.anyio
+async def test_tool_result_without_tool_call_id_empty_error_is_suppressed():
+    """Suppress malformed tool-result events with empty tool names."""
+    ctx = VercelStreamContext(message_id="msg_test")
+
+    frames = await collect_frames(
+        ctx,
+        [
+            UnifiedStreamEvent(
+                type=StreamEventType.TOOL_RESULT,
+                tool_call_id=None,
+                tool_name=None,
+                tool_output="No such tool available: ",
+                is_error=True,
+            )
+        ],
+    )
+
     assert len(frames) == 0
 
 

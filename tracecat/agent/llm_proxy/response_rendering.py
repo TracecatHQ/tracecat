@@ -17,6 +17,7 @@ from tracecat.agent.llm_proxy.provider_common import (
     anthropic_thinking_block_start_event,
     anthropic_thinking_delta_event,
     is_anthropic_thinking_block,
+    openai_finish_reason_to_anthropic,
 )
 from tracecat.agent.llm_proxy.types import (
     AnthropicStreamEvent,
@@ -72,12 +73,18 @@ def normalize_openai_response(payload: dict[str, Any]) -> NormalizedResponse:
         if isinstance(item, dict)
     )
     usage = payload.get("usage") or {}
+    raw_finish_reason = choice.get("finish_reason")
+    finish_reason = (
+        openai_finish_reason_to_anthropic(raw_finish_reason)
+        if isinstance(raw_finish_reason, str)
+        else raw_finish_reason
+    )
     return NormalizedResponse(
         provider="openai",
         model=str(payload.get("model", "")),
         content=message.get("content"),
         tool_calls=tool_calls,
-        finish_reason=choice.get("finish_reason"),
+        finish_reason=finish_reason,
         usage={
             "input_tokens": int(
                 usage.get("input_tokens", usage.get("prompt_tokens", 0))

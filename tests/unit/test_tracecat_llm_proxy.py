@@ -18,6 +18,7 @@ from tracecat.agent.llm_proxy.core import TracecatLLMProxy
 from tracecat.agent.llm_proxy.credentials import (
     AgentManagementCredentialResolver,
 )
+from tracecat.agent.llm_proxy.provider_common import openai_stream_usage
 from tracecat.agent.llm_proxy.providers import (
     AnthropicAdapter,
     AzureAIAdapter,
@@ -591,7 +592,7 @@ def test_provider_adapters_build_expected_requests() -> None:
     assert custom_request.json_body is not None
     assert custom_request.headers.get("Authorization") is None
     assert custom_request.json_body["model"] == "custom-chat"
-    assert custom_request.url == "https://custom.example/v1/responses"
+    assert custom_request.url == "https://custom.example/v1/chat/completions"
 
     azure_request = AzureOpenAIAdapter().prepare_request(
         request,
@@ -1060,6 +1061,56 @@ async def test_openai_family_parse_response_preserves_reasoning_blocks() -> None
 
 
 @pytest.mark.anyio
+async def test_custom_model_provider_parse_response_converts_finish_reason() -> None:
+    request = NormalizedMessagesRequest(
+        provider="custom-model-provider",
+        model="gpt-oss-120b",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=False,
+    )
+    response = httpx.Response(
+        200,
+        json={
+            "id": "chatcmpl-1",
+            "model": "gpt-oss-120b",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "hello"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 4, "completion_tokens": 2},
+        },
+    )
+
+    parsed = await OpenAIFamilyAdapter("custom-model-provider").parse_response(
+        response, request
+    )
+
+    assert parsed.content == "hello"
+    assert parsed.finish_reason == "end_turn"
+    assert parsed.usage == {"input_tokens": 4, "output_tokens": 2}
+
+
+def test_openai_stream_usage_falls_back_to_prompt_completion_on_null_aliases() -> None:
+    usage = openai_stream_usage(
+        {
+            "usage": {
+                "input_tokens": None,
+                "prompt_tokens": 4,
+                "output_tokens": None,
+                "completion_tokens": 2,
+            }
+        }
+    )
+
+    assert usage["input_tokens"] == 4
+    assert usage["output_tokens"] == 2
+
+
+@pytest.mark.anyio
 async def test_openai_family_streaming_adapter_translates_responses_reasoning() -> None:
     adapter = OpenAIFamilyAdapter("openai")
     request = NormalizedMessagesRequest(
@@ -1191,6 +1242,62 @@ async def test_openai_streaming_adapter_translates_text_deltas() -> None:
 
 
 @pytest.mark.anyio
+async def test_custom_model_streaming_adapter_translates_reasoning_content() -> None:
+    adapter = OpenAIFamilyAdapter("custom-model-provider")
+    request = NormalizedMessagesRequest(
+        provider="custom-model-provider",
+        model="gpt-oss-120b",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=True,
+    )
+    client = cast(
+        httpx.AsyncClient,
+        _FakeStreamingClient(
+            _FakeStreamingResponse(
+                lines=[
+                    'data: {"id":"chatcmpl-1","model":"gpt-oss-120b","choices":[{"delta":{"reasoning_content":"Need to inspect the context"}}]}',
+                    "",
+                    'data: {"id":"chatcmpl-1","model":"gpt-oss-120b","choices":[{"delta":{"content":"hello"},"finish_reason":null}]}',
+                    "",
+                    'data: {"id":"chatcmpl-1","model":"gpt-oss-120b","choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"input_tokens":3,"output_tokens":5}}',
+                    "",
+                    "data: [DONE]",
+                    "",
+                ]
+            )
+        ),
+    )
+
+    events = [
+        event
+        async for event in adapter.stream_anthropic(
+            client,
+            request,
+            {"CUSTOM_MODEL_PROVIDER_BASE_URL": "https://example.invalid"},
+        )
+    ]
+
+    assert [event.event for event in events] == [
+        "message_start",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_stop",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_stop",
+        "message_delta",
+        "message_stop",
+    ]
+    assert events[1].payload["content_block"]["type"] == "thinking"
+    assert events[2].payload["delta"]["thinking"] == "Need to inspect the context"
+    assert events[4].payload["content_block"]["type"] == "text"
+    assert events[5].payload["delta"]["text"] == "hello"
+    assert events[7].payload["delta"]["stop_reason"] == "end_turn"
+    assert events[7].payload["usage"]["output_tokens"] == 5
+
+
+@pytest.mark.anyio
 async def test_custom_model_streaming_adapter_translates_reasoning_before_text() -> (
     None
 ):
@@ -1207,26 +1314,13 @@ async def test_custom_model_streaming_adapter_translates_reasoning_before_text()
         _FakeStreamingClient(
             _FakeStreamingResponse(
                 lines=[
-                    "event: response.created",
-                    'data: {"response":{"id":"resp_1","model":"gpt-oss-120b","usage":{"input_tokens":3,"output_tokens":0}}}',
+                    'data: {"id":"chatcmpl-1","model":"gpt-oss-120b","choices":[{"delta":{"reasoning":"Need to inspect "}}]}',
                     "",
-                    "event: response.reasoning_text.delta",
-                    'data: {"item_id":"rs_1","output_index":0,"delta":"Need to inspect "}',
+                    'data: {"id":"chatcmpl-1","model":"gpt-oss-120b","choices":[{"delta":{"reasoning":"the record first."}}]}',
                     "",
-                    "event: response.reasoning_text.delta",
-                    'data: {"item_id":"rs_1","output_index":0,"delta":"the record first."}',
+                    'data: {"id":"chatcmpl-1","model":"gpt-oss-120b","choices":[{"delta":{"content":"hello"},"finish_reason":null}]}',
                     "",
-                    "event: response.output_item.done",
-                    'data: {"item":{"id":"rs_1","type":"reasoning","status":"completed","content":[{"type":"reasoning_text","text":"Need to inspect the record first."}]}}',
-                    "",
-                    "event: response.output_text.delta",
-                    'data: {"item_id":"msg_1","output_index":1,"delta":"hello"}',
-                    "",
-                    "event: response.output_item.done",
-                    'data: {"item":{"id":"msg_1","type":"message","content":[{"type":"output_text","text":"hello"}]}}',
-                    "",
-                    "event: response.completed",
-                    'data: {"response":{"id":"resp_1","model":"gpt-oss-120b","usage":{"input_tokens":3,"output_tokens":5}}}',
+                    'data: {"id":"chatcmpl-1","model":"gpt-oss-120b","choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"input_tokens":3,"output_tokens":5}}',
                     "",
                     "data: [DONE]",
                     "",
@@ -1279,17 +1373,9 @@ async def test_custom_model_streaming_adapter_closes_reasoning_only_turns() -> N
         _FakeStreamingClient(
             _FakeStreamingResponse(
                 lines=[
-                    "event: response.created",
-                    'data: {"response":{"id":"resp_1","model":"gpt-oss-120b","usage":{"input_tokens":3,"output_tokens":0}}}',
+                    'data: {"id":"chatcmpl-1","model":"gpt-oss-120b","choices":[{"delta":{"reasoning":"Need to inspect first."}}]}',
                     "",
-                    "event: response.reasoning_text.delta",
-                    'data: {"item_id":"rs_1","output_index":0,"delta":"Need to inspect first."}',
-                    "",
-                    "event: response.output_item.done",
-                    'data: {"item":{"id":"rs_1","type":"reasoning","status":"completed","content":[{"type":"reasoning_text","text":"Need to inspect first."}]}}',
-                    "",
-                    "event: response.completed",
-                    'data: {"response":{"id":"resp_1","model":"gpt-oss-120b","usage":{"input_tokens":3,"output_tokens":1}}}',
+                    'data: {"id":"chatcmpl-1","model":"gpt-oss-120b","choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"input_tokens":3,"output_tokens":1}}',
                     "",
                     "data: [DONE]",
                     "",
