@@ -37,7 +37,7 @@ After running `env.sh`, you'll be prompted to input the following:
 
 - Set `PUBLIC_APP_URL`. Defaults to `localhost`.
 - Require PostgreSQL SSL mode? Defaults to `n`.
-- **Required field**: Enter email address for the first user (superadmin).
+- Required field: Enter email address for the first user (superadmin).
 
 ## Download Caddyfile
 
@@ -114,16 +114,14 @@ These are recommended minimums for different workload sizes.
 | Concurrent seats | 1-10 | 10-50 | 50+ |
 | Concurrent agents/sec | 1-2 | 5-10 | 10+ |
 
-- **Small**: Development, testing, small teams (1-10 users)
-- **Standard**: Mid-size teams (10-50 users), moderate workflow execution
-- **Production**: Large teams (50+ users), high throughput
+- Small: Development, testing, small teams (1-10 users)
+- Standard: Mid-size teams (10-50 users), moderate workflow execution
+- Production: Large teams (50+ users), high throughput
 
 Memory is typically the constraining factor.
 Workflow throughput is lower than dedicated Kubernetes deployments where services have guaranteed resources and can scale independently.
 
-<Note>
-  For production workloads that exceed single-host capacity, consider [converting to Docker Swarm](#convert-to-docker-swarm) or deploying on Kubernetes.
-</Note>
+For production workloads that exceed single-host capacity, consider [converting to Docker Swarm](#convert-to-docker-swarm) or deploying on Kubernetes.
 
 ## Convert to Docker Swarm
 
@@ -146,12 +144,12 @@ Docker Swarm lets you scale individual services with resource limits and replica
 | temporal_postgres_db | 1 | 2 Gi | 1 |
 | redis | 0.5 | 1 Gi | 1 |
 | minio | 0.5 | 1 Gi | 1 |
-| **Total** | **~22** | **~46 Gi** | **23** |
+| Total | ~22 | ~46 Gi | 23 |
 
-<Warning>
+<Info>
   Stateful services (`postgres_db`, `temporal_postgres_db`, `minio`, `redis`) must remain at 1 replica.
   Scaling these requires external managed services (e.g., RDS, ElastiCache) or specialized clustering.
-</Warning>
+</Info>
 
 ### Deploy with Docker Swarm
 
@@ -196,7 +194,7 @@ docker stack services tracecat
   <Accordion title="What services are started by docker-compose.yml?">
     The stack runs 15 containers grouped into application and infrastructure services.
 
-    **Application services:**
+    Application services:
 
     - `caddy` — Reverse proxy that routes traffic to the UI, API, and MCP
     - `api` — FastAPI backend (port 8000)
@@ -207,7 +205,7 @@ docker stack services tracecat
     - `agent-executor` — AI agent executor with LLM gateway support
     - `mcp` — Model Context Protocol server (port 8099)
 
-    **Infrastructure services:**
+    Infrastructure services:
 
     - `postgres_db` — PostgreSQL 16 (application database)
     - `temporal` — Temporal workflow engine (auto-setup)

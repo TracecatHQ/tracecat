@@ -17,10 +17,10 @@ The request body becomes `TRIGGER`, for example `${{ TRIGGER.alert_id }}`.
 
 Parsing:
 
-- **Empty body**: no trigger payload is created.
-- **JSON by default**: the body is parsed as JSON and becomes `TRIGGER`.
-- **Form payloads** with `application/x-www-form-urlencoded`: the body is parsed as a dictionary. Form field names become keys on `TRIGGER`.
-- **NDJSON payloads** with `application/x-ndjson`, `application/jsonlines`, and `application/jsonl`: Tracecat starts one workflow run per JSON line. `TRIGGER` is that line, not the full request body.
+- Empty body: no trigger payload is created.
+- JSON by default: the body is parsed as JSON and becomes `TRIGGER`.
+- Form payloads with `application/x-www-form-urlencoded`: the body is parsed as a dictionary. Form field names become keys on `TRIGGER`.
+- NDJSON payloads with `application/x-ndjson`, `application/jsonlines`, and `application/jsonl`: Tracecat starts one workflow run per JSON line. `TRIGGER` is that line, not the full request body.
 
 ## Securing webhooks
 

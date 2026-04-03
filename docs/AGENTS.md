@@ -49,6 +49,7 @@ When renaming or moving a page, add a redirect in `docs/docs.json` `redirects` a
 - If a user explicitly asks for a different voice, follow that request instead of the default.
 - Clarity over cleverness and verbosity: always keep sentences concise, do not add unnecessary words.
 - Prefer the shortest explanation that preserves the behavioral contract.
+- Do not use bold unless it is genuinely needed (e.g. a critical warning the reader must not miss). Inline code is enough to call out identifiers, field names, and values. Over-bolding dilutes emphasis and makes pages harder to scan.
 - Write for builder action, not product explanation. If a sentence does not change how the reader configures, references, or runs the feature, cut it.
 - Do not write circular definitions such as "X is a template for X" or abstract definitions that do not say what the feature does.
 - Do not add justification, rationale, or benefits unless they change a build decision.
@@ -57,6 +58,7 @@ When renaming or moving a page, add a redirect in `docs/docs.json` `redirects` a
 - Avoid “for example” clauses unless the example removes ambiguity.
 - Prefer compact mappings when documenting input or payload formats, such as `JSON: becomes TRIGGER` and `Form: keys become TRIGGER fields`.
 - If a sentence only adds precision that most readers do not need, cut it or move it to a note.
+- Prefer inline prose over callout components (`<Note>`, `<Warning>`, `<Info>`). A paragraph is almost always enough. If you must use a callout, prefer `<Info>` unless the content describes a genuinely dangerous or destructive outcome — only then use `<Warning>`.
 - Be consistent: always use terminology and spelling consistent with the codebase and the rest of the docs.
 - Be skimmable: avoid more than 2 sentences per paragraph.
 - Do not split a short thought into two paragraphs or two one-line sentences when one sentence reads more naturally.
