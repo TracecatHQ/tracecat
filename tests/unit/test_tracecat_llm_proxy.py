@@ -1047,7 +1047,7 @@ async def test_openai_family_parse_response_preserves_reasoning_blocks() -> None
     assert isinstance(parsed.content, list)
     assert parsed.content[0]["type"] == "thinking"
     assert parsed.content[0]["thinking"] == "I should inspect the record first."
-    assert "signature" not in parsed.content[0]
+    assert parsed.content[0]["signature"] == ""
     assert parsed.tool_calls == (
         NormalizedToolCall(
             id="call_1",
