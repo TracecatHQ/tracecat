@@ -408,35 +408,37 @@ JSON object to flatten.
 
 ## FAQ
 
-### Why does inline lambda not work inside expressions?
+<AccordionGroup>
+  <Accordion title="Why does inline lambda not work inside expressions?">
+    Expressions support Tracecat literals, operators, and `FN.*` helper functions.
+    Python lambda functions are not part of the expression language, so they must be passed as strings to actions such as `core.transform.apply`, `core.transform.filter`, or `core.transform.map`.
 
-Expressions support Tracecat literals, operators, and `FN.*` helper functions.
-Python lambda functions are not part of the expression language, so they must be passed as strings to actions such as `core.transform.apply`, `core.transform.filter`, or `core.transform.map`.
+    Use `FN.*` for short inline transforms, and use `core.transform.*` when you need Python-style per-item logic.
 
-Use `FN.*` for short inline transforms, and use `core.transform.*` when you need Python-style per-item logic.
+    ```yaml
+    - ref: extract_ids
+      action: core.transform.map
+      args:
+        items: ${{ TRIGGER.findings }}
+        python_lambda: "lambda finding: finding.get('id')"
+    ```
+  </Accordion>
 
-```yaml
-- ref: extract_ids
-  action: core.transform.map
-  args:
-    items: ${{ TRIGGER.findings }}
-    python_lambda: "lambda finding: finding.get('id')"
-```
+  <Accordion title="How do I inspect the shape of API results before using map, filter, or for_each?">
+    Add a small debug reshape step first.
+    This lets you confirm whether you have a list or object, inspect a count, and verify the field path you plan to iterate over.
 
-### How do I inspect the shape of API results before using `map`, `filter`, or `for_each`?
-
-Add a small debug reshape step first.
-This lets you confirm whether you have a list or object, inspect a count, and verify the field path you plan to iterate over.
-
-```yaml
-- ref: inspect_findings
-  action: core.transform.reshape
-  args:
-    value:
-      result_type: ${{ FN.typeof(ACTIONS.fetch_findings.result) }}
-      findings_type: ${{ FN.typeof(ACTIONS.fetch_findings.result.findings) if ACTIONS.fetch_findings.result != None else None }}
-      findings_count: ${{ FN.length(ACTIONS.fetch_findings.result.findings) if ACTIONS.fetch_findings.result != None else 0 }}
-```
+    ```yaml
+    - ref: inspect_findings
+      action: core.transform.reshape
+      args:
+        value:
+          result_type: ${{ FN.typeof(ACTIONS.fetch_findings.result) }}
+          findings_type: ${{ FN.typeof(ACTIONS.fetch_findings.result.findings) if ACTIONS.fetch_findings.result != None else None }}
+          findings_count: ${{ FN.length(ACTIONS.fetch_findings.result.findings) if ACTIONS.fetch_findings.result != None else 0 }}
+    ```
+  </Accordion>
+</AccordionGroup>
 
 ## `core.transform.eval_jsonpaths`
 

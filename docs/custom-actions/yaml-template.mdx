@@ -100,17 +100,4 @@ Declare what each template needs under `definition.secrets` (API keys, structure
 ## Example templates
 
 All integrations in Tracecat are open source. Browse [template actions](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/templates/tools) for more examples.
-
 For concrete examples, browse the [Slack templates](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/templates/tools/slack) and [CrowdStrike templates](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/templates/tools/crowdstrike).
-
-## FAQ
-
-<AccordionGroup>
-  <Accordion title="How do definition.secrets and SECRETS work together?">
-    `definition.secrets` declares which credentials the template needs at runtime. Use `SECRETS` in `args` to pass values into steps (see the **Secrets** and **Expressions** sections above). OAuth entries use `type: oauth` with `provider_id` and `grant_type` matching an integration in your workspace.
-  </Accordion>
-
-  <Accordion title="Why does my custom OAuth provider_id in YAML not match what I typed?">
-    UI-created **Custom OAuth** providers often get a `custom_` prefix. Use the exact id from Integrations; see the [OAuth FAQ](/automations/integrations/oauth-integrations#faq).
-  </Accordion>
-</AccordionGroup>

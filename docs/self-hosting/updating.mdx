@@ -3,10 +3,7 @@ title: Updating tracecat
 description: Learn how to safely update versions and run data migrations.
 ---
 
-<Note>
-  Updates and data migrations can be tricky business. We'd love to help on
-  [Discord](https://discord.gg/n3GF4qxFU8).
-</Note>
+Updates and data migrations can be tricky business. We'd love to help on [Discord](https://discord.gg/n3GF4qxFU8).
 
 <Warning>
   If you want to migrate secrets, please make sure to save your database
@@ -73,7 +70,7 @@ To update Tracecat, update the Terraform variable `tracecat_image_tag` to the la
 Data migrations are non-trivial operations.
 We recommend backing up your database before running migrations, especially in a production environment.
 
-<Note>
+<Info>
 If the API service fails to spin up due to a data migration error, do not worry.
 Your data is still intact. Make sure you backup the core Tracecat database:
 
@@ -81,5 +78,4 @@ Your data is still intact. Make sure you backup the core Tracecat database:
 - For AWS ECS Fargate deployments, backups are created automatically as part of the RDS postgres service. Just run `terraform apply` with `var.restore_from_backup` set to `true` to restore the latest RDS snapshot.
 
 If you need live migration support, contact us on [Discord](https://discord.gg/n3GF4qxFU8) or email [founders@tracecat.com](mailto:founders@tracecat.com)!
-
-</Note>
+</Info>

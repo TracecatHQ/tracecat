@@ -61,39 +61,41 @@ When you sync a registry, Tracecat:
 - Uploads the tarball to S3-compatible object storage
 - Tarballs are stored in the bucket specified in the `TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY` environment variable
 
-<Note>
+<Info>
   Published workflows run actions synced at the time of publication.
   When triggered, the Tracecat executor pulls the pinned version of the platform registry and custom registry tarballs from S3.
 
   You must republish a workflow to use the latest platform and custom actions.
   Even if there were no changes to the workflow itself.
-</Note>
+</Info>
 
 ## FAQ
 
-### Does Tracecat support self-hosted Git repositories?
+<AccordionGroup>
+  <Accordion title="Does Tracecat support self-hosted Git repositories?">
+    Yes. Tracecat works with Gitlab and GitHub Enterprise.
+  </Accordion>
 
-Yes. Tracecat works with Gitlab and GitHub Enterprise.
+  <Accordion title="Can I rename my custom Python package name?">
+    Yes. The package name from the starter kit is `custom_actions`.
+    To rename it, you'll need to rename the:
 
-### Can I rename my custom Python package name?
+    - `custom_actions` folder to `my_new_package_name`
+    - Project name in `pyproject.toml` to `my_new_package_name`
 
-Yes. The package name from the starter kit is `custom_actions`.
-To rename it, you'll need to rename the:
+    Note: Python package names must be snake_case.
+  </Accordion>
 
-- `custom_actions` folder to `my_new_package_name`
-- Project name in `pyproject.toml` to `my_new_package_name`
+  <Accordion title="Can I rename the git repo?">
+    Yes. You can rename the git repo. It does not need to have the same name as the Python package.
+  </Accordion>
 
-Note: Python packages names must be snake_case.
+  <Accordion title="How can I add new Python dependencies?">
+    You must specify new dependencies in the `dependencies` section of the `pyproject.toml` file.
+  </Accordion>
 
-### Can I rename the git repo?
-
-Yes. You can rename the git repo. It does not need to have the same name as the Python package.
-
-### How can I add new Python dependencies?
-
-You must specify new dependencies in the `dependencies` section of the `pyproject.toml` file.
-
-### Can I test actions without syncing on every change?
-
-Yes. For local Docker deployments, you can hot reload custom actions into Tracecat with a local registry.
-See [local development](/custom-actions/local-development) for more details.
+  <Accordion title="Can I test actions without syncing on every change?">
+    Yes. For local Docker deployments, you can hot reload custom actions into Tracecat with a local registry.
+    See [local development](/custom-actions/local-development) for more details.
+  </Accordion>
+</AccordionGroup>
