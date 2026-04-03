@@ -1,0 +1,29 @@
+tracecat/agent/sandbox/config.py
+  18f839e9c776968e 13,16-18,227-228,247-250,287-295,377-418,453-468
+tests/unit/test_agent_sandbox_config.py
+  18f839e9c776968e 41-62,64-65,67-72
+tracecat/agent/sandbox/nsjail.py
+  18f839e9c776968e 14-16,54-55,312-314,330,346-347,349,351-353,364-365
+tracecat/agent/sandbox/shim_entrypoint.py
+  18f839e9c776968e 1,3-6,12-13,17-26,28-29,31-33,36-37,39-44,46-200,212,214,268,297-299,340-343
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "131ccfca1da3e54ba0b78c779928a5251b808d9c",
+  "prompts": {
+    "18f839e9c776968e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5143-b114-7593-9f26-ff77832f4599",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 326,
+      "total_deletions": 59,
+      "accepted_lines": 327,
+      "overriden_lines": 2
+    }
+  }
+}
