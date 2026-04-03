@@ -11,7 +11,9 @@ This module handles:
 - Spawning the sandboxed process
 
 Uses the same rootfs as the action sandbox (TRACECAT__SANDBOX_ROOTFS_PATH).
-Site-packages are mounted read-only for Claude SDK and tracecat dependencies.
+Legacy runtime mode mounts site-packages plus the minimal Tracecat package
+subset it imports. Broker shim mode mounts only the standalone shim script and
+the Claude SDK package subtree needed to launch the bundled Claude executable.
 
 When TRACECAT__DISABLE_NSJAIL=true, the runtime is spawned as a direct
 subprocess instead of through nsjail. This is useful for:
@@ -48,6 +50,9 @@ from tracecat.config import (
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
+
+BROKER_SHIM_ENTRYPOINT_MODULE = "tracecat.agent.sandbox.shim_entrypoint"
+BROKER_SHIM_SCRIPT_NAME = "shim_entrypoint.py"
 
 
 @dataclass(frozen=True)
@@ -307,9 +312,9 @@ async def _spawn_nsjail_runtime(
 ) -> SpawnedRuntime:
     """Spawn the agent runtime inside an NSJail sandbox (production mode).
 
-    The runtime uses tracecat.agent.sandbox.entrypoint which is available via
-    site-packages mounted read-only. This provides isolation while using the
-    unified ClaudeAgentRuntime (with lazy imports for minimal cold start).
+    Legacy mode runs the module entrypoint with Tracecat package mounts.
+    Broker mode copies a standalone shim script into the job directory and
+    mounts only the Claude SDK package tree needed by the bundled CLI.
     """
     rootfs = Path(rootfs_path)
     nsjail = Path(nsjail_path)
@@ -325,6 +330,7 @@ async def _spawn_nsjail_runtime(
     # Get site-packages and tracecat package directories
     site_packages_dir = _get_site_packages_dir()
     tracecat_pkg_dir = _get_tracecat_pkg_dir()
+    broker_shim_mode = entrypoint_module == BROKER_SHIM_ENTRYPOINT_MODULE
 
     # Create temp directory for nsjail job
     owns_job_dir = job_dir is None
@@ -340,6 +346,14 @@ async def _spawn_nsjail_runtime(
         await asyncio.to_thread(
             shutil.copy2, init_payload_path, jailed_init_payload_path
         )
+        entrypoint_script_path: str | None = None
+        if broker_shim_mode:
+            host_shim_path = (
+                tracecat_pkg_dir / "agent" / "sandbox" / BROKER_SHIM_SCRIPT_NAME
+            )
+            jailed_shim_path = job_dir / BROKER_SHIM_SCRIPT_NAME
+            await asyncio.to_thread(shutil.copy2, host_shim_path, jailed_shim_path)
+            entrypoint_script_path = f"/work/{BROKER_SHIM_SCRIPT_NAME}"
 
         nsjail_config = build_agent_nsjail_config(
             rootfs=rootfs,
@@ -350,6 +364,8 @@ async def _spawn_nsjail_runtime(
             tracecat_pkg_dir=tracecat_pkg_dir,
             llm_socket_path=llm_socket_path,
             entrypoint_module=entrypoint_module,
+            entrypoint_script_path=entrypoint_script_path,
+            broker_shim_mode=broker_shim_mode,
             mount_control_socket=control_socket_required,
             control_socket_path=socket_dir / CONTROL_SOCKET_NAME
             if control_socket_required

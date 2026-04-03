@@ -10,11 +10,12 @@ Security model:
 - /proc read-only, PID namespace isolated (process only sees itself)
 - All tool execution via MCP socket to trusted server outside sandbox
 - Uses same base rootfs as action sandbox (Python 3.12)
-- Site-packages mounted read-only for Claude SDK deps and tracecat package
+- Site-packages or a minimal Claude SDK subtree mounted read-only
 
 Key design:
-- Runtime executed via `python -m tracecat.agent.sandbox.entrypoint`
-- Mount site-packages read-only for deps (includes tracecat package)
+- Runtime executed via either a Tracecat module or a standalone shim script
+- Legacy runtime mode mounts the minimal Tracecat package subset it imports
+- Broker shim mode avoids Tracecat package mounts entirely
 - Control socket at /var/run/tracecat/control.sock
 - LLM socket at /var/run/tracecat/llm.sock (proxied to LLM gateway)
 """
@@ -223,6 +224,8 @@ def build_agent_nsjail_config(
     llm_socket_path: Path | None,
     *,
     entrypoint_module: str = "tracecat.agent.sandbox.entrypoint",
+    entrypoint_script_path: str | None = None,
+    broker_shim_mode: bool = False,
     mount_control_socket: bool = True,
     control_socket_path: Path | None = None,
     session_home_dir: Path | None = None,
@@ -242,6 +245,10 @@ def build_agent_nsjail_config(
             Only specific subdirectories are mounted for minimal cold start.
         llm_socket_path: Optional path to the LLM socket for proxied LLM gateway
             access.
+        entrypoint_script_path: Optional in-jail script path to execute instead of
+            `python -m ...`. Used by the brokered standalone shim.
+        broker_shim_mode: If True, emit the reduced broker-only mount set instead
+            of the legacy runtime package mounts.
         mount_control_socket: Whether to mount the per-job control socket into the
             jail. Legacy runtime mode requires this; brokered shim mode does not.
         control_socket_path: Optional explicit control socket path. When omitted
@@ -285,6 +292,15 @@ def build_agent_nsjail_config(
         _validate_path(session_home_dir, "session_home_dir")
     if session_project_dir is not None:
         _validate_path(session_project_dir, "session_project_dir")
+    if entrypoint_script_path is not None:
+        is_dangerous, reason = _contains_dangerous_chars(entrypoint_script_path)
+        if is_dangerous:
+            raise AgentSandboxValidationError(
+                f"Invalid entrypoint_script_path: {reason}"
+            )
+    claude_sdk_package_dir = site_packages_dir / "claude_agent_sdk"
+    if broker_shim_mode:
+        _validate_path(claude_sdk_package_dir, "claude_sdk_package_dir")
     # TRUSTED_MCP_SOCKET_PATH and JAILED_LLM_SOCKET_PATH are constants, no validation needed
 
     # Network behavior:
@@ -364,37 +380,54 @@ def build_agent_nsjail_config(
             "",
             "# Job directory - contains copied runtime code",
             f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}',
-            "",
-            "# Site-packages - Claude SDK and other deps (read-only)",
-            f'mount {{ src: "{site_packages_dir}" dst: "/site-packages" is_bind: true rw: false }}',
-            "",
-            "# Tracecat package - minimal subdirectories for fast cold start",
-            "# Create directory structure first, then mount specific subdirs",
-            'mount { dst: "/app" fstype: "tmpfs" rw: false options: "size=1M" }',
-            "",
-            "# Parent package __init__.py files for Python import system",
-            f'mount {{ src: "{tracecat_pkg_dir}/__init__.py" dst: "/app/tracecat/__init__.py" is_bind: true rw: false }}',
-            f'mount {{ src: "{tracecat_pkg_dir}/agent/__init__.py" dst: "/app/tracecat/agent/__init__.py" is_bind: true rw: false }}',
-            "",
-            "# Mount only what the sandbox entrypoint needs:",
-            "# - logger: lightweight loguru wrapper",
-            "# - agent/common: lightweight types and protocol",
-            "# - agent/runtime: runtime implementations",
-            "# - agent/sandbox: entrypoint and llm_bridge",
-            "# - agent/mcp: proxy_server and utils",
-            f'mount {{ src: "{tracecat_pkg_dir}/logger" dst: "/app/tracecat/logger" is_bind: true rw: false }}',
-            f'mount {{ src: "{tracecat_pkg_dir}/agent/common" dst: "/app/tracecat/agent/common" is_bind: true rw: false }}',
-            f'mount {{ src: "{tracecat_pkg_dir}/agent/runtime" dst: "/app/tracecat/agent/runtime" is_bind: true rw: false }}',
-            f'mount {{ src: "{tracecat_pkg_dir}/agent/sandbox" dst: "/app/tracecat/agent/sandbox" is_bind: true rw: false }}',
-            f'mount {{ src: "{tracecat_pkg_dir}/agent/mcp" dst: "/app/tracecat/agent/mcp" is_bind: true rw: false }}',
-            "",
-            "# Trusted MCP socket (read-only, shared across jobs)",
-            f'mount {{ src: "{TRUSTED_MCP_SOCKET_PATH.parent}" dst: "/var/run/tracecat" is_bind: true rw: false }}',
-            "",
-            "# Agent home directory with Claude SDK session storage",
-            'mount { dst: "/home/agent" fstype: "tmpfs" rw: true options: "size=128M" }',
         ]
     )
+
+    if broker_shim_mode:
+        lines.extend(
+            [
+                "",
+                "# Brokered standalone shim: mount only the Claude SDK package tree",
+                "# so the jailed Claude binary can execute without exposing the",
+                "# entire host site-packages directory.",
+                'mount { dst: "/site-packages" fstype: "tmpfs" rw: false options: "size=1M" }',
+                f'mount {{ src: "{claude_sdk_package_dir}" dst: "/site-packages/claude_agent_sdk" is_bind: true rw: false }}',
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "",
+                "# Site-packages - Claude SDK and other deps (read-only)",
+                f'mount {{ src: "{site_packages_dir}" dst: "/site-packages" is_bind: true rw: false }}',
+                "",
+                "# Tracecat package - minimal subdirectories for fast cold start",
+                "# Create directory structure first, then mount specific subdirs",
+                'mount { dst: "/app" fstype: "tmpfs" rw: false options: "size=1M" }',
+                "",
+                "# Parent package __init__.py files for Python import system",
+                f'mount {{ src: "{tracecat_pkg_dir}/__init__.py" dst: "/app/tracecat/__init__.py" is_bind: true rw: false }}',
+                f'mount {{ src: "{tracecat_pkg_dir}/agent/__init__.py" dst: "/app/tracecat/agent/__init__.py" is_bind: true rw: false }}',
+                "",
+                "# Mount only what the sandbox entrypoint needs:",
+                "# - logger: lightweight loguru wrapper",
+                "# - agent/common: lightweight types and protocol",
+                "# - agent/runtime: runtime implementations",
+                "# - agent/sandbox: entrypoint and llm_bridge",
+                "# - agent/mcp: proxy_server and utils",
+                f'mount {{ src: "{tracecat_pkg_dir}/logger" dst: "/app/tracecat/logger" is_bind: true rw: false }}',
+                f'mount {{ src: "{tracecat_pkg_dir}/agent/common" dst: "/app/tracecat/agent/common" is_bind: true rw: false }}',
+                f'mount {{ src: "{tracecat_pkg_dir}/agent/runtime" dst: "/app/tracecat/agent/runtime" is_bind: true rw: false }}',
+                f'mount {{ src: "{tracecat_pkg_dir}/agent/sandbox" dst: "/app/tracecat/agent/sandbox" is_bind: true rw: false }}',
+                f'mount {{ src: "{tracecat_pkg_dir}/agent/mcp" dst: "/app/tracecat/agent/mcp" is_bind: true rw: false }}',
+                "",
+                "# Trusted MCP socket (read-only, shared across jobs)",
+                f'mount {{ src: "{TRUSTED_MCP_SOCKET_PATH.parent}" dst: "/var/run/tracecat" is_bind: true rw: false }}',
+                "",
+                "# Agent home directory with Claude SDK session storage",
+                'mount { dst: "/home/agent" fstype: "tmpfs" rw: true options: "size=128M" }',
+            ]
+        )
 
     if resolved_control_socket_path is not None:
         lines.extend(
@@ -438,16 +471,22 @@ def build_agent_nsjail_config(
         ]
     )
 
-    # Execution settings - run tracecat.agent.sandbox.entrypoint module
-    # The entrypoint connects to the control socket at the well-known jailed path
-    lines.extend(
-        [
-            "",
-            "# Execution - agent runtime entrypoint module",
-            'cwd: "/work"',
-            f'exec_bin {{ path: "/usr/local/bin/python3" arg: "-m" arg: "{entrypoint_module}" }}',
-        ]
-    )
+    # Execution settings.
+    lines.extend(["", 'cwd: "/work"'])
+    if entrypoint_script_path is not None:
+        lines.extend(
+            [
+                "# Execution - standalone broker shim script",
+                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{entrypoint_script_path}" }}',
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "# Execution - agent runtime entrypoint module",
+                f'exec_bin {{ path: "/usr/local/bin/python3" arg: "-m" arg: "{entrypoint_module}" }}',
+            ]
+        )
 
     return "\n".join(lines)
 
