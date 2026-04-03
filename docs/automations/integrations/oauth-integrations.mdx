@@ -52,11 +52,7 @@ Remote MCP integrations can use an existing OAuth integration. For custom remote
 
 ### Why is my custom OAuth `provider_id` prefixed with `custom_`?
 
-This applies to **Custom OAuth** integrations you create from the Integrations page (**Add integration** → **OAuth provider**, or the **Add custom OAuth provider** dialog under **Custom OAuth**). It does **not** apply to built-in OAuth integrations (for example Slack or Google Drive), which use stable ids from the product.
-
-When you save a custom provider, Tracecat derives a **provider id** from the display name or the id you enter (slugified). If that value does not already start with `custom_`, the server **prepends** `custom_` so it does not collide with [built-in providers](https://github.com/TracecatHQ/tracecat/blob/main/tracecat/integrations/providers/__init__.py). If the id is already taken, a numeric suffix is added.
-
-Use the **exact** `provider_id` from Integrations everywhere: expressions (`${{ SECRETS.custom_my_api_oauth.CUSTOM_MY_API_USER_TOKEN }}`), `RegistryOAuthSecret(provider_id="custom_my_api", ...)`, and YAML `provider_id: custom_my_api`. Token environment keys use the full provider id in uppercase (including the `CUSTOM_` segment).
+When you save a custom provider, Tracecat derives a **provider ID** from the display name or the id you enter (slugified). If that value does not already start with `custom_`, the server prepends `custom_` so it does not collide with [built-in providers](https://github.com/TracecatHQ/tracecat/blob/main/tracecat/integrations/providers/__init__.py). If the ID is already taken, a numeric suffix is added.
 
 ### Can my custom action create an OAuth integration?
 
@@ -64,7 +60,7 @@ No. `RegistryOAuthSecret` and YAML `type: oauth` entries declare that the action
 
 ### How do I contribute a built-in OAuth provider?
 
-Shipped providers are implemented in the Tracecat app and get **stable** ids (for example `slack`, `google_drive`) without the UI `custom_` rule.
+Out-of-the-box providers are implemented in the Tracecat app and get stable IDs (for example `slack`, `google_drive`) without the UI `custom_` rule.
 
 1. Subclass `AuthorizationCodeOAuthProvider` or `ClientCredentialsOAuthProvider` under [`tracecat/integrations/providers/`](https://github.com/TracecatHQ/tracecat/tree/main/tracecat/integrations/providers). See [`slack/oauth.py`](https://github.com/TracecatHQ/tracecat/blob/main/tracecat/integrations/providers/slack/oauth.py) for a full example.
 2. Register the class in [`_PROVIDER_CLASSES`](https://github.com/TracecatHQ/tracecat/blob/main/tracecat/integrations/providers/__init__.py).
