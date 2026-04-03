@@ -6,7 +6,6 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import secrets
 import time
 import uuid
@@ -29,6 +28,7 @@ from tracecat.agent.channels.schemas import (
     ChannelType,
     SlackChannelTokenConfig,
 )
+from tracecat.auth.secrets import get_db_encryption_key, get_signing_secret
 from tracecat.db.models import AgentChannelToken, AgentPreset
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -70,34 +70,13 @@ class AgentChannelService(BaseWorkspaceService):
 
     service_name = "agent_channel"
 
-    @staticmethod
-    def _require_signing_secret() -> str:
-        signing_secret = config.TRACECAT__SIGNING_SECRET
-        if not signing_secret:
-            raise TracecatValidationError(
-                "TRACECAT__SIGNING_SECRET must be set to use agent channel tokens"
-            )
-        return signing_secret
-
-    @staticmethod
-    def _require_db_encryption_key() -> str:
-        encryption_key = (
-            os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
-            or config.TRACECAT__DB_ENCRYPTION_KEY
-        )
-        if not encryption_key:
-            raise TracecatValidationError(
-                "TRACECAT__DB_ENCRYPTION_KEY must be set to use agent channel tokens"
-            )
-        return encryption_key
-
     @classmethod
     def _encrypt_config_value(cls, value: str | None) -> str | None:
         if value is None:
             return None
         encrypted = encrypt_value(
             value.encode("utf-8"),
-            key=cls._require_db_encryption_key(),
+            key=get_db_encryption_key(),
         ).decode("utf-8")
         return f"{ENCRYPTED_CONFIG_VALUE_PREFIX}{encrypted}"
 
@@ -112,7 +91,7 @@ class AgentChannelService(BaseWorkspaceService):
         try:
             decrypted = decrypt_value(
                 encrypted.encode("utf-8"),
-                key=cls._require_db_encryption_key(),
+                key=get_db_encryption_key(),
             )
         except InvalidToken as exc:
             raise TracecatValidationError(
@@ -155,7 +134,7 @@ class AgentChannelService(BaseWorkspaceService):
     def compute_token_signature(cls, token_id: uuid.UUID) -> str:
         """Compute signature for token ID using locked format."""
 
-        signing_secret = cls._require_signing_secret()
+        signing_secret = get_signing_secret()
         return hashlib.sha256(
             f"act-{token_id.hex}{signing_secret}".encode()
         ).hexdigest()
@@ -269,7 +248,7 @@ class AgentChannelService(BaseWorkspaceService):
             raise TracecatValidationError("Invalid OAuth state")
         payload_b64, signature = state.split(".", maxsplit=1)
         expected_signature = hmac.new(
-            cls._require_signing_secret().encode(),
+            get_signing_secret().encode(),
             payload_b64.encode(),
             hashlib.sha256,
         ).hexdigest()
@@ -284,7 +263,7 @@ class AgentChannelService(BaseWorkspaceService):
 
     @classmethod
     def _derive_slack_oauth_state_key(cls) -> bytes:
-        signing_secret = cls._require_signing_secret()
+        signing_secret = get_signing_secret()
         return hmac.new(
             signing_secret.encode(),
             b"tracecat:agent:channels:slack-oauth-state:v2",
@@ -319,7 +298,7 @@ class AgentChannelService(BaseWorkspaceService):
         )
         payload_b64 = cls._b64url_encode(payload_json.encode())
         signature = hmac.new(
-            cls._require_signing_secret().encode(),
+            get_signing_secret().encode(),
             payload_b64.encode(),
             hashlib.sha256,
         ).hexdigest()
@@ -332,7 +311,7 @@ class AgentChannelService(BaseWorkspaceService):
 
         payload_b64, signature = token.split(".", maxsplit=1)
         expected_signature = hmac.new(
-            cls._require_signing_secret().encode(),
+            get_signing_secret().encode(),
             payload_b64.encode(),
             hashlib.sha256,
         ).hexdigest()

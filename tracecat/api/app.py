@@ -46,6 +46,7 @@ from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enab
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
+from tracecat.auth.secrets import get_user_auth_secret
 from tracecat.auth.types import Role
 from tracecat.auth.users import (
     FastAPIUsersException,
@@ -153,6 +154,12 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # USER_AUTH_SECRET is required for all auth types — UserManager uses it
+    # for password reset and email verification token signing. Validated here
+    # (not in create_app) because the app module is imported at collection time
+    # by tests and OpenAPI generation, before secrets are available.
+    get_user_auth_secret()
+
     # Temporal
     # Run in background to avoid blocking startup
     asyncio.create_task(add_temporal_search_attributes())
@@ -535,7 +542,7 @@ def create_app(**kwargs) -> FastAPI:
             fastapi_users.get_oauth_router(
                 oauth_client,
                 auth_backend,
-                config.USER_AUTH_SECRET,
+                get_user_auth_secret(),
                 # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
                 associate_by_email=True,
                 is_verified_by_default=True,

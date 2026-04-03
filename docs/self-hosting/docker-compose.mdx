@@ -14,6 +14,12 @@ description: Deploy Tracecat using Docker Compose.
 - [Docker Compose](https://docs.docker.com/compose/install/) version 2.29.0+
 - [openssl](https://www.openssl.org/source/)
 
+## Core secrets
+
+The `env.sh` script (next step) generates these automatically. If you need to generate them manually:
+
+<Snippet file="generate-secrets.mdx" />
+
 ## Download configuration files
 
 ```bash
@@ -68,7 +74,7 @@ Once deployed, access your instance at:
 
 <Warning>
   Be careful when updating Tracecat.
-  Do not accidentally overwrite or lose your existing `TRACECAT__SERVICE_KEY`, `TRACECAT__SIGNING_SECRET`, and `TRACECAT__DB_ENCRYPTION_KEY` secrets.
+  Do not accidentally overwrite or lose your existing `TRACECAT__SERVICE_KEY`, `TRACECAT__SIGNING_SECRET`, `TRACECAT__DB_ENCRYPTION_KEY`, and `USER_AUTH_SECRET` secrets.
   Losing these secrets will break your credentials and webhooks.
 </Warning>
 

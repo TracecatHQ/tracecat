@@ -141,7 +141,6 @@ resource "aws_iam_policy" "secrets_access" {
           var.oauth_client_secret_arn,
           var.oidc_client_id_arn,
           var.oidc_client_secret_arn,
-          var.user_auth_secret_arn,
           var.saml_idp_metadata_url_arn,
           var.saml_ca_certs_arn,
           var.saml_metadata_cert_arn,
@@ -153,6 +152,24 @@ resource "aws_iam_policy" "secrets_access" {
   })
 
   depends_on = [aws_db_instance.core_database]
+}
+
+# API-only secrets — USER_AUTH_SECRET must not be accessible from
+# worker, executor, or MCP services to limit blast radius.
+resource "aws_iam_policy" "api_only_secrets_access" {
+  name        = "TracecatAPIOnlySecretsAccessPolicy"
+  description = "Policy for accessing API-only secrets (USER_AUTH_SECRET)"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.user_auth_secret_arn]
+      }
+    ]
+  })
 }
 
 resource "aws_iam_policy" "ui_secrets_access" {
@@ -207,6 +224,11 @@ resource "aws_iam_role_policy_attachment" "api_execution_ecs_poll" {
 
 resource "aws_iam_role_policy_attachment" "api_execution_secrets" {
   policy_arn = aws_iam_policy.secrets_access.arn
+  role       = aws_iam_role.api_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "api_execution_api_only_secrets" {
+  policy_arn = aws_iam_policy.api_only_secrets_access.arn
   role       = aws_iam_role.api_execution.name
 }
 

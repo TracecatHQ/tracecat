@@ -11,7 +11,6 @@ import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import select
 
-from tracecat import config
 from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -27,6 +26,7 @@ from tracecat.agent.types import (
     OutputType,
 )
 from tracecat.audit.logger import audit_log
+from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
@@ -419,11 +419,7 @@ class AgentPresetService(BaseWorkspaceService):
         }
 
         # Get encryption key for decrypting custom credentials
-        encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
-        if not encryption_key:
-            raise TracecatValidationError(
-                "TRACECAT__DB_ENCRYPTION_KEY is not set, cannot resolve MCP integrations"
-            )
+        encryption_key = get_db_encryption_key()
 
         mcp_servers: list[MCPServerConfig] = []
 
