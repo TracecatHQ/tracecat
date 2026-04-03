@@ -142,7 +142,11 @@
             "icon": "sparkles",
             "pages": [
               "agents/ai-action",
-              "agents/ai-agent"
+              "agents/ai-agent",
+              {
+                "page": "agents/secrets-variables",
+                "icon": "lock"
+              }
             ]
           },
           {
