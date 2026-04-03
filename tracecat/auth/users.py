@@ -78,8 +78,9 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     def __init__(self, user_db: SQLAlchemyUserDatabase[User, uuid.UUID]) -> None:
         super().__init__(user_db)
         self._user_db = user_db
-        self.reset_password_token_secret = get_user_auth_secret()
-        self.verification_token_secret = get_user_auth_secret()
+        user_auth_secret = get_user_auth_secret()
+        self.reset_password_token_secret = user_auth_secret
+        self.verification_token_secret = user_auth_secret
         self.logger = logger.bind(unit="UserManager")
         # Store invitation token between create() and on_after_register()
         self._pending_invitation_token: str | None = None
