@@ -199,7 +199,7 @@ class TestBackend(ExecutorBackend):
         )
 
         flattened_secrets = secrets_manager.flatten_secrets(
-            resolved_context.execution_secrets or resolved_context.secrets
+            resolved_context.execution_secrets
         )
         secrets_token = registry_secrets.set_context(flattened_secrets)
 
