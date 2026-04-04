@@ -151,7 +151,8 @@
             "icon": "server",
             "pages": [
               "self-hosting/docker-compose",
-              "self-hosting/aws-fargate"
+              "self-hosting/aws-fargate",
+              "self-hosting/security"
             ]
           },
           {
