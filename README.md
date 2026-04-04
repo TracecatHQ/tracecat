@@ -21,7 +21,7 @@
 
 ## Introduction
 
-[Tracecat](https://tracecat.com) is the AI automation platform for built for security teams and agents.
+[Tracecat](https://tracecat.com) is the open source security automation platform for teams and agents.
 
 - **Prompt-to-automations**: build end-to-end automations with agents, workflows, cases, and tables from your own agent harness (e.g. Claude code, Codex, OpenCode).
 - **Code-native**: sync custom Python scripts from your Git repo into Tracecat.
