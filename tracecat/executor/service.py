@@ -409,6 +409,13 @@ async def _prepare_step_context(
         step_action, input.registry_lock, role.organization_id
     )
 
+    execution_secrets = await _build_execution_secrets_for_action(
+        action_name=step_action,
+        secrets=parent_resolved.secrets,
+        role=role,
+        run_context=input.run_context,
+    )
+
     # Mint new executor token for step (required for SDK authentication)
     if role.workspace_id is None:
         raise ValueError("workspace_id is required for template step execution")
@@ -423,7 +430,7 @@ async def _prepare_step_context(
     # Reuse parent secrets/variables, use pre-evaluated args
     return ResolvedContext(
         secrets=parent_resolved.secrets,  # Reuse - already fetched recursively
-        execution_secrets=parent_resolved.execution_secrets,  # Reuse
+        execution_secrets=execution_secrets,
         variables=parent_resolved.variables,  # Reuse
         action_impl=action_impl,
         evaluated_args=evaluated_args,  # Already evaluated against template context
