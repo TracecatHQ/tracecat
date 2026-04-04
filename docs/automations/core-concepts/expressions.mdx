@@ -46,7 +46,7 @@ Expressions support literals and operators.
 
 ### Operators
 
-- Logical operators such as `||` and `&&`
+- Logical operators: `||` (OR) and `&&` (AND). Python-style `or` / `and` and SQL-style `OR` / `AND` are not supported.
 - Comparison operators such as `==`, `!=`, `<`, `<=`, `>`, `>=`
 - Arithmetic operators such as `+`, `-`, `*`, `/`, `%`
 - Ternary expressions such as `${{ "p1" if TRIGGER.severity == "high" else "p3" }}`
@@ -241,26 +241,36 @@ value: ${{ {"alert": {"id": "al-123", "tags": ["auth", "critical"]}, "ok": True,
 
 <AccordionGroup>
   <Accordion title="How do I safely reference action results when an upstream action was skipped, failed, or returned null?">
-    Guard nested field access before you dereference it.
-    If a downstream action depends on a field that might not exist, put the guard in `run_if` or use a conditional expression that returns `None` when the upstream value is missing.
+    Some actions only return data in certain conditions. For example, a hash enrichment might find no matches in your threat intel source. When a field does not exist, the expression resolves to `None` — no error is raised.
+
+    Use `run_if` with a `!= None` check to skip downstream actions when the data is missing, or use a ternary to supply a fallback value.
 
     <CodeGroup>
-    ```yaml Guard a downstream action
-    - ref: notify_owner
-      action: tools.slack.post_message
-      run_if: ${{ ACTIONS.lookup_owner.result != None && ACTIONS.lookup_owner.result.slack_channel != None }}
+    ```yaml Skip an action when the result is missing
+    - ref: check_hash
+      action: tools.virustotal.get_file_report
       args:
-        channel: ${{ ACTIONS.lookup_owner.result.slack_channel }}
-        text: "Asset owner found for ${{ TRIGGER.asset_id }}"
+        hash: ${{ TRIGGER.file_hash }}
+
+    - ref: escalate_alert
+      action: tools.slack.post_message
+      depends_on:
+        - check_hash
+      run_if: ${{ ACTIONS.check_hash.result != None && ACTIONS.check_hash.result.malicious_count != None }}
+      args:
+        channel: ${{ SECRETS.slack.SECURITY_CHANNEL }}
+        text: "Hash ${{ TRIGGER.file_hash }} flagged by ${{ ACTIONS.check_hash.result.malicious_count }} vendors"
     ```
 
-    ```yaml Return a safe fallback
+    ```yaml Supply a fallback value
     - ref: build_summary
       action: core.transform.reshape
+      depends_on:
+        - check_hash
       args:
         value:
-          owner_email: ${{ ACTIONS.lookup_owner.result.email if ACTIONS.lookup_owner.result != None else None }}
-          owner_found: ${{ ACTIONS.lookup_owner.result != None }}
+          verdict: ${{ ACTIONS.check_hash.result.verdict if ACTIONS.check_hash.result != None else "unknown" }}
+          is_known_bad: ${{ ACTIONS.check_hash.result != None && ACTIONS.check_hash.result.malicious_count > 0 }}
     ```
     </CodeGroup>
   </Accordion>

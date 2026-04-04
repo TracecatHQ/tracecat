@@ -144,6 +144,7 @@ open_ids: ${{ ACTIONS.fetch_findings.result.items[?(@.status == "open")].id }}
 - Single matches return a scalar.
 - Wildcards return a list.
 - Filters return a list.
+- Non-existent fields return `None` (no error is raised).
 
 Examples:
 
