@@ -1,11 +1,10 @@
 """Loopback handler for NSJail runtime communication.
 
 This module provides the socket event loop that:
-1. Sends RuntimeInitPayload to the runtime
-2. Reads events from the runtime
-3. Forwards events to a pluggable stream sink (Redis or external channel)
-4. Handles session updates
-5. Persists messages to database (AgentSessionHistory + ChatMessage for chat namespace)
+1. Reads events from the runtime
+2. Forwards events to a pluggable stream sink (Redis or external channel)
+3. Handles session updates
+4. Persists messages to database (AgentSessionHistory + ChatMessage for chat namespace)
 
 The loopback is used by the agent executor activity which handles:
 - Job directory creation
@@ -18,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass, field
-from pathlib import Path
+from time import perf_counter
 from typing import Any, Protocol
 
 import orjson
@@ -29,20 +28,15 @@ from tracecat.agent.channels.schemas import ChannelType
 from tracecat.agent.channels.service import PENDING_SLACK_BOT_TOKEN, AgentChannelService
 from tracecat.agent.channels.sinks import ExternalChannelSink
 from tracecat.agent.channels.sinks.slack import SlackStreamSink
-from tracecat.agent.common.protocol import RuntimeEventEnvelope, RuntimeInitPayload
-from tracecat.agent.common.socket_io import MessageType, build_message, read_message
+from tracecat.agent.common.protocol import RuntimeEventEnvelope
+from tracecat.agent.common.socket_io import MessageType, read_message
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
     UnifiedStreamEvent,
 )
-from tracecat.agent.common.types import (
-    MCPToolDefinition,
-    SandboxAgentConfig,
-)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.connector import AgentStream
-from tracecat.agent.types import AgentConfig
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
@@ -54,31 +48,11 @@ from tracecat.logger import logger
 
 @dataclass(kw_only=True, slots=True)
 class LoopbackInput:
-    """Input for the loopback handler.
-
-    Fields used by loopback for its own logic:
-    - session_id, workspace_id: For stream sink routing and DB writes
-    - socket_dir: For control socket path
-
-    Fields passed through to RuntimeInitPayload:
-    - user_prompt, config, mcp_auth_token, llm_gateway_*, allowed_actions, sdk_session_*
-
-    On resume after approval, the sdk_session_data contains the proper tool_result
-    entry (inserted by execute_approved_tools_activity before reload).
-    """
+    """Input for the loopback handler."""
 
     session_id: uuid.UUID
     workspace_id: uuid.UUID
-    user_prompt: str
-    config: AgentConfig
-    mcp_auth_token: str
-    llm_gateway_auth_token: str
-    socket_dir: Path
-    allowed_actions: dict[str, MCPToolDefinition] | None = None
-    sdk_session_id: str | None = None
-    sdk_session_data: str | None = None
-    is_approval_continuation: bool = False
-    is_fork: bool = False  # True when forking from parent session
+    execution_path: str = "legacy"
 
 
 @dataclass(kw_only=True, slots=True)
@@ -202,10 +176,9 @@ class LoopbackHandler:
 
     This handler:
     1. Accepts connection from runtime on control socket
-    2. Sends RuntimeInitPayload with agent config
-    3. Reads events and forwards to stream sink
-    4. Tracks session updates and approval requests
-    5. Persists complete messages to database
+    2. Reads events and forwards to stream sink
+    3. Tracks session updates and approval requests
+    4. Persists complete messages to database
 
     The handler does NOT spawn the NSJail process - that is done by
     the caller (activity) which manages the process lifecycle.
@@ -223,6 +196,19 @@ class LoopbackHandler:
         self._pending_approval_tool_call_ids: set[str] = set()
         self._received_result: bool = False
         self._received_assistant_content: bool = False
+        self._started_at = perf_counter()
+
+    def _log_benchmark_phase(self, phase: str, **extra: object) -> None:
+        """Emit a temporary structured benchmark log for loopback phases."""
+        logger.info(
+            "Agent benchmark phase",
+            phase=phase,
+            elapsed_ms=round((perf_counter() - self._started_at) * 1000, 2),
+            session_id=self.input.session_id,
+            execution_path=self.input.execution_path,
+            component="loopback",
+            **extra,
+        )
 
     @staticmethod
     def _tool_output_contains_internal_interrupt(value: Any) -> bool:
@@ -263,6 +249,12 @@ class LoopbackHandler:
 
         return self._tool_output_contains_internal_interrupt(event.tool_output)
 
+    async def prepare(self) -> LoopbackEventSink:
+        """Initialize and cache the stream sink before runtime connection."""
+        if self._stream_sink is None:
+            self._stream_sink = await self._initialize_stream_sink()
+        return self._stream_sink
+
     async def _emit_stream_done(self) -> None:
         """Emit stream.done() exactly once.
 
@@ -282,10 +274,16 @@ class LoopbackHandler:
         This is used by executor-level crash/timeout paths that happen outside
         normal loopback event processing.
         """
-        if self._stream_sink is None:
-            self._stream_sink = await self._initialize_stream_sink()
-        await self._stream_sink.error(error)
-        await self._emit_stream_done()
+        try:
+            if self._stream_sink is None:
+                self._stream_sink = await self._initialize_stream_sink()
+            await self._stream_sink.error(error)
+            await self._emit_stream_done()
+        except Exception:
+            logger.warning(
+                "Failed to emit terminal stream error",
+                session_id=self.input.session_id,
+            )
 
     async def handle_connection(
         self,
@@ -299,7 +297,7 @@ class LoopbackHandler:
 
         Args:
             reader: Stream reader for reading runtime events.
-            writer: Stream writer for sending init payload.
+            writer: Stream writer for the runtime connection.
 
         Returns:
             LoopbackResult with success status and session updates.
@@ -311,10 +309,8 @@ class LoopbackHandler:
 
         try:
             # Initialize event sink (Redis for UI sessions, channel-specific for external)
-            self._stream_sink = await self._initialize_stream_sink()
-
-            # Send init payload to runtime
-            await self._send_init_payload(writer)
+            if self._stream_sink is None:
+                self._stream_sink = await self._initialize_stream_sink()
 
             # Read and forward events until done
             await self._process_runtime_events(reader)
@@ -324,8 +320,7 @@ class LoopbackHandler:
                 self._result.success = True
 
         except asyncio.IncompleteReadError:
-            # Connection closed during init payload send
-            logger.warning("Runtime disconnected unexpectedly during init")
+            logger.warning("Runtime disconnected unexpectedly during execution")
             self._result.error = "Runtime disconnected unexpectedly"
             if self._stream_sink:
                 await self._stream_sink.error(self._result.error)
@@ -345,34 +340,203 @@ class LoopbackHandler:
 
         return self._result
 
-    async def _send_init_payload(self, writer: asyncio.StreamWriter) -> None:
-        """Send RuntimeInitPayload to the runtime."""
-        # Convert AgentConfig (Pydantic) to SandboxAgentConfig (dataclass)
-        sandbox_config = SandboxAgentConfig.from_agent_config(self.input.config)
+    async def _process_runtime_events(self, reader: asyncio.StreamReader) -> None:
+        """Consume framed runtime envelopes from a socket reader."""
+        while True:
+            try:
+                _msg_type, payload_bytes = await read_message(
+                    reader, expected_type=MessageType.EVENT
+                )
+            except asyncio.IncompleteReadError:
+                logger.warning(
+                    "Runtime connection closed unexpectedly during execution"
+                )
+                self._result.error = "Runtime disconnected during execution"
+                if self._stream_sink is not None:
+                    await self._stream_sink.error(self._result.error)
+                break
 
-        payload = RuntimeInitPayload(
-            session_id=self.input.session_id,
-            mcp_auth_token=self.input.mcp_auth_token,
-            config=sandbox_config,
-            user_prompt=self.input.user_prompt,
-            llm_gateway_auth_token=self.input.llm_gateway_auth_token,
-            allowed_actions=self.input.allowed_actions,
-            sdk_session_id=self.input.sdk_session_id,
-            sdk_session_data=self.input.sdk_session_data,
-            is_approval_continuation=self.input.is_approval_continuation,
-            is_fork=self.input.is_fork,
-        )
+            envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload_bytes))
+            if await self.process_envelope(envelope):
+                break
 
-        payload_bytes = orjson.dumps(payload.to_dict())
-        message = build_message(MessageType.INIT, payload_bytes)
+    async def process_envelope(self, envelope: RuntimeEventEnvelope) -> bool:
+        """Process a single runtime event envelope.
 
-        writer.write(message)
-        await writer.drain()
+        Returns:
+            True when processing should stop (terminal envelope types).
+        """
+        match envelope.type:
+            case "stream_event":
+                event = envelope.event
+                if event is not None:
+                    return await self._handle_stream_event(event)
+
+            case "message":
+                pass
+
+            case "session_line":
+                if envelope.session_line and envelope.sdk_session_id:
+                    await self.send_session_line(
+                        envelope.sdk_session_id,
+                        envelope.session_line,
+                        internal=envelope.internal,
+                    )
+
+            case "result":
+                await self.send_result(
+                    usage=envelope.result_usage,
+                    num_turns=envelope.result_num_turns,
+                    duration_ms=envelope.result_duration_ms,
+                    output=envelope.result_output,
+                )
+
+            case "error":
+                return await self._handle_error(
+                    envelope.error or "Unknown runtime error"
+                )
+
+            case "done":
+                return await self._handle_done()
+
+            case "log":
+                await self.send_log(
+                    envelope.log_level or "info",
+                    envelope.log_message or "Runtime log",
+                    **(envelope.log_extra or {}),
+                )
+
+        return False
+
+    def build_result(self) -> LoopbackResult:
+        """Return the accumulated result state."""
+        return self._result
+
+    async def _handle_stream_event(self, event: UnifiedStreamEvent) -> bool:
+        """Handle a stream event emitted by the runtime."""
+        stream_sink = await self.prepare()
+
+        if event.type == StreamEventType.APPROVAL_REQUEST:
+            logger.info(
+                "Approval request received",
+                session_id=self.input.session_id,
+                items=event.approval_items,
+            )
+            self._result.approval_requested = True
+            self._result.approval_items = [
+                ToolCallContent(id=item.id, name=item.name, input=item.input)
+                for item in (event.approval_items or [])
+            ]
+            self._pending_approval_tool_call_ids.update(
+                item.id for item in (event.approval_items or [])
+            )
+
+        if self._should_suppress_stream_event(event):
+            logger.debug(
+                "Suppressing internal synthetic stream event",
+                event_type=event.type,
+                session_id=self.input.session_id,
+                tool_call_id=event.tool_call_id,
+            )
+            return False
 
         logger.debug(
-            "Sent init payload to runtime",
+            "Forwarding stream event",
+            event_type=event.type,
             session_id=self.input.session_id,
-            payload_size=len(payload_bytes),
+        )
+        if (
+            event.type == StreamEventType.TEXT_DELTA
+            and not self._received_assistant_content
+        ):
+            self._received_assistant_content = True
+            self._log_benchmark_phase("loopback_first_assistant_delta")
+        await stream_sink.append(event)
+
+        if event.type != StreamEventType.ERROR:
+            return False
+
+        error_msg = event.error or "Unknown error"
+        logger.error(
+            "Error event received from runtime",
+            session_id=self.input.session_id,
+            error=error_msg,
+        )
+        await stream_sink.error(error_msg)
+        await self._emit_stream_done()
+        self._result.error = error_msg
+        return True
+
+    async def send_stream_event(self, event: UnifiedStreamEvent) -> None:
+        """Handle a stream event emitted by the runtime."""
+        await self._handle_stream_event(event)
+
+    async def send_session_line(
+        self, sdk_session_id: str, line: str, *, internal: bool = False
+    ) -> None:
+        """Persist a Claude session line."""
+        await self._persist_session_line(
+            sdk_session_id,
+            line,
+            internal=internal,
+        )
+
+    async def send_result(
+        self,
+        usage: dict[str, Any] | None = None,
+        num_turns: int | None = None,
+        duration_ms: int | None = None,
+        output: Any = None,
+    ) -> None:
+        """Store the final Claude result payload."""
+        del duration_ms
+        self._received_result = True
+        self._result.output = output
+        self._result.result_usage = usage
+        self._result.result_num_turns = num_turns
+
+    async def _handle_error(self, error: str) -> bool:
+        """Handle a terminal runtime error."""
+        stream_sink = await self.prepare()
+        logger.error("Runtime error", error=error)
+        await stream_sink.error(error)
+        await self._emit_stream_done()
+        self._result.error = error
+        return True
+
+    async def send_error(self, error: str) -> None:
+        """Handle a terminal runtime error."""
+        await self._handle_error(error)
+
+    async def _handle_done(self) -> bool:
+        """Handle runtime completion."""
+        stream_sink = await self.prepare()
+        logger.info("Runtime completed", session_id=self.input.session_id)
+        self._log_benchmark_phase(
+            "loopback_runtime_done",
+            success=self._result.error is None,
+        )
+        if validation_error := self._validate_runtime_completion():
+            await stream_sink.error(validation_error)
+            await self._emit_stream_done()
+            self._result.error = validation_error
+            return True
+        self._result.success = True
+        await self._emit_stream_done()
+        return True
+
+    async def send_done(self) -> None:
+        """Handle runtime completion."""
+        await self._handle_done()
+
+    async def send_log(self, level: str, message: str, **extra: object) -> None:
+        """Emit a structured runtime log."""
+        log_fn = getattr(logger, level, logger.info)
+        log_fn(
+            "[runtime] {}",
+            message,
+            session_id=self.input.session_id,
+            **extra,
         )
 
     async def _initialize_stream_sink(self) -> LoopbackEventSink:
@@ -518,145 +682,6 @@ class LoopbackHandler:
                 session_id=str(self.input.session_id),
                 workspace_id=str(self.input.workspace_id),
             )
-
-    async def _process_runtime_events(self, reader: asyncio.StreamReader) -> None:
-        """Read and process events from the runtime.
-
-        Forwards streaming events to Redis, persists complete messages to DB,
-        and handles session updates.
-        """
-        if self._stream_sink is None:
-            raise RuntimeError("Stream sink not initialized")
-
-        while True:
-            try:
-                _msg_type, payload_bytes = await read_message(
-                    reader, expected_type=MessageType.EVENT
-                )
-            except asyncio.IncompleteReadError:
-                # Connection closed unexpectedly - treat as error, not silent break
-                logger.warning(
-                    "Runtime connection closed unexpectedly during execution"
-                )
-                self._result.error = "Runtime disconnected during execution"
-                await self._stream_sink.error(self._result.error)
-                break  # done() will be called in finally of handle_connection
-
-            # Parse the envelope
-            envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload_bytes))
-
-            match envelope.type:
-                case "stream_event":
-                    # Forward streaming event to sink (Redis/UI or external channel)
-                    if envelope.event:
-                        if envelope.event.type == StreamEventType.APPROVAL_REQUEST:
-                            logger.info(
-                                "Approval request received",
-                                session_id=self.input.session_id,
-                                items=envelope.event.approval_items,
-                            )
-                            self._result.approval_requested = True
-                            self._result.approval_items = [
-                                ToolCallContent(
-                                    id=item.id,
-                                    name=item.name,
-                                    input=item.input,
-                                )
-                                for item in (envelope.event.approval_items or [])
-                            ]
-                            self._pending_approval_tool_call_ids.update(
-                                item.id
-                                for item in (envelope.event.approval_items or [])
-                            )
-
-                        if self._should_suppress_stream_event(envelope.event):
-                            logger.debug(
-                                "Suppressing internal synthetic stream event",
-                                event_type=envelope.event.type,
-                                session_id=self.input.session_id,
-                                tool_call_id=envelope.event.tool_call_id,
-                            )
-                            continue
-
-                        logger.debug(
-                            "Forwarding stream event",
-                            event_type=envelope.event.type,
-                            session_id=self.input.session_id,
-                        )
-                        if envelope.event.type == StreamEventType.TEXT_DELTA:
-                            self._received_assistant_content = True
-                        await self._stream_sink.append(envelope.event)
-
-                        # Check for error events (e.g., from LLM gateway/SDK)
-                        if envelope.event.type == StreamEventType.ERROR:
-                            error_msg = envelope.event.error or "Unknown error"
-                            logger.error(
-                                "Error event received from runtime",
-                                session_id=self.input.session_id,
-                                error=error_msg,
-                            )
-                            await self._stream_sink.error(error_msg)
-                            await self._emit_stream_done()
-                            self._result.error = error_msg
-                            break
-
-                case "message":
-                    # Complete message (inner only) - legacy, skip if session_line is used
-                    # Kept for backward compatibility with UI events
-                    pass
-
-                case "session_line":
-                    # Raw JSONL line from SDK session file - persist for resume
-                    if envelope.session_line and envelope.sdk_session_id:
-                        await self._persist_session_line(
-                            envelope.sdk_session_id,
-                            envelope.session_line,
-                            internal=envelope.internal,
-                        )
-
-                case "result":
-                    # Final result with usage data and structured output
-                    self._received_result = True
-                    self._result.output = envelope.result_output
-                    self._result.result_usage = envelope.result_usage
-                    self._result.result_num_turns = envelope.result_num_turns
-
-                case "error":
-                    # Runtime error - stream error and close the stream
-                    error_msg = envelope.error or "Unknown runtime error"
-                    logger.error("Runtime error", error=error_msg)
-                    await self._stream_sink.error(error_msg)
-                    await self._emit_stream_done()  # Use helper (dedupes with finally)
-                    self._result.error = error_msg
-                    break
-
-                case "done":
-                    # Runtime completed successfully
-                    logger.info(
-                        "Runtime completed",
-                        session_id=self.input.session_id,
-                    )
-                    if validation_error := self._validate_runtime_completion():
-                        await self._stream_sink.error(validation_error)
-                        await self._emit_stream_done()
-                        self._result.error = validation_error
-                        break
-                    await self._emit_stream_done()  # Use helper (dedupes with finally)
-                    break
-
-                case "log":
-                    # Log message from runtime - forward to worker logger
-                    level = envelope.log_level or "info"
-                    message = envelope.log_message or "Runtime log"
-                    extra = envelope.log_extra or {}
-                    log_fn = getattr(logger, level, logger.info)
-                    # Use opt(raw=False) to prevent loguru from parsing {} in message
-                    log_fn(
-                        "[runtime] {}",
-                        message,
-                        session_id=self.input.session_id,
-                        **extra,
-                    )
 
     async def _persist_session_line(
         self, sdk_session_id: str, session_line: str, *, internal: bool = False
