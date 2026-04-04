@@ -5,7 +5,7 @@
     <img src="img/banner-light.svg" alt="The AI-native security automation platform.">
   </picture>
   <p align="center">
-    The AI-native security automation platform.
+    The agentic security automation platform.
   </p>
 
   <br>
