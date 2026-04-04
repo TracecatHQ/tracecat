@@ -427,6 +427,34 @@ class TestBuildExecutionSecretsForAction:
         }
 
     @pytest.mark.anyio
+    async def test_blank_role_arn_is_treated_as_unset(
+        self, role: Role, run_context: RunContext
+    ) -> None:
+        """Blank AWS_ROLE_ARN values are ignored for backward compatibility."""
+        secrets = {
+            "amazon_s3": {
+                "AWS_ROLE_ARN": " ",
+                "AWS_ACCESS_KEY_ID": "AKIA_STATIC",
+                "AWS_SECRET_ACCESS_KEY": "static_secret",
+                "AWS_REGION": "us-west-2",
+            },
+            "TRACECAT_AWS_EXTERNAL_ID": _EXTERNAL_ID,
+        }
+
+        result = await _build_execution_secrets_for_action(
+            action_name="tools.amazon_s3.list_objects",
+            secrets=secrets,
+            role=role,
+            run_context=run_context,
+        )
+
+        assert result["amazon_s3"] == {
+            "AWS_ACCESS_KEY_ID": "AKIA_STATIC",
+            "AWS_SECRET_ACCESS_KEY": "static_secret",
+            "AWS_REGION": "us-west-2",
+        }
+
+    @pytest.mark.anyio
     async def test_static_keys_pass_through_unchanged(
         self, role: Role, run_context: RunContext
     ) -> None:
