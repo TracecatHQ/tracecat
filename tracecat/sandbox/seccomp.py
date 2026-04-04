@@ -38,7 +38,7 @@ _UNTRUSTED_BLOCKED_SYSCALLS: tuple[str, ...] = (
     "swapoff",
     "swapon",
     "syslog",
-    "umount2",
+    "umount",
     "unshare",
     "userfaultfd",
 )

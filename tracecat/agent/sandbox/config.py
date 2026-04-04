@@ -35,7 +35,6 @@ from tracecat.agent.common.config import (
     TRUSTED_MCP_SOCKET_PATH,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
-from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 
 # Valid environment variable name pattern (POSIX compliant)
 _ENV_VAR_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -247,6 +246,10 @@ def build_agent_nsjail_config(
     Raises:
         AgentSandboxValidationError: If any input contains dangerous characters.
     """
+    # Import lazily so sandboxed runtime imports of this module do not require
+    # the full tracecat.sandbox package to be mounted inside the jail.
+    from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
+
     # Validate inputs to prevent injection into protobuf config
     _validate_path(rootfs, "rootfs")
     _validate_path(job_dir, "job_dir")
