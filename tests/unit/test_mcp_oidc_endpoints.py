@@ -147,12 +147,12 @@ def test_openid_configuration_returns_correct_fields(client: TestClient) -> None
 
     assert response.status_code == 200
     payload = response.json()
-    issuer = f"{_TEST_API_URL}/mcp-oidc"
+    issuer = f"{_TEST_API_URL}/oauth/mcp"
     assert payload["issuer"] == issuer
     assert payload["authorization_endpoint"] == f"{issuer}/authorize"
     # token_endpoint, userinfo_endpoint, and jwks_uri use the request origin
     # so they are reachable by the caller (server-to-server or browser).
-    request_issuer = "http://testserver/mcp-oidc"
+    request_issuer = "http://testserver/oauth/mcp"
     assert payload["token_endpoint"] == f"{request_issuer}/token"
     assert payload["userinfo_endpoint"] == f"{request_issuer}/userinfo"
     assert payload["jwks_uri"] == f"{request_issuer}/.well-known/jwks.json"
@@ -183,7 +183,7 @@ def test_openid_configuration_includes_root_path_when_proxied(
 
     assert response.status_code == 200
     payload = response.json()
-    request_issuer = "https://example.com/api/mcp-oidc"
+    request_issuer = "https://example.com/api/oauth/mcp"
     assert payload["token_endpoint"] == f"{request_issuer}/token"
     assert payload["userinfo_endpoint"] == f"{request_issuer}/userinfo"
     assert payload["jwks_uri"] == f"{request_issuer}/.well-known/jwks.json"
@@ -322,7 +322,7 @@ async def test_authorize_redirects_to_login_when_no_session(
 
     assert response.status_code == 302
     location = response.headers["location"]
-    assert location.startswith(f"{_TEST_APP_URL}/mcp-auth/continue?txn=")
+    assert location.startswith(f"{_TEST_APP_URL}/oauth/mcp/continue?txn=")
     assert len(stored) == 1
 
 
@@ -346,7 +346,7 @@ async def test_authorize_redirects_to_org_selection_for_superuser(
     )
 
     assert response.status_code == 302
-    assert "/mcp-auth/select-org?txn=" in response.headers["location"]
+    assert "/oauth/mcp/select-org?txn=" in response.headers["location"]
 
 
 @pytest.mark.anyio
@@ -856,7 +856,7 @@ def test_get_internal_discovery_url_uses_api_url(
     """When TRACECAT__API_URL is set, it is used as the base."""
     monkeypatch.setenv("TRACECAT__API_URL", "http://api:8000")
     url = oidc_config.get_internal_discovery_url()
-    assert url == "http://api:8000/mcp-oidc/.well-known/openid-configuration"
+    assert url == "http://api:8000/oauth/mcp/.well-known/openid-configuration"
 
 
 def test_get_internal_discovery_url_falls_back_when_unset(
@@ -866,7 +866,7 @@ def test_get_internal_discovery_url_falls_back_when_unset(
     monkeypatch.delenv("TRACECAT__API_URL", raising=False)
     monkeypatch.setattr(oidc_config, "TRACECAT__PUBLIC_API_URL", _TEST_API_URL)
     url = oidc_config.get_internal_discovery_url()
-    assert url == f"{_TEST_API_URL}/mcp-oidc/.well-known/openid-configuration"
+    assert url == f"{_TEST_API_URL}/oauth/mcp/.well-known/openid-configuration"
 
 
 def test_get_internal_discovery_url_falls_back_when_empty(
@@ -876,4 +876,4 @@ def test_get_internal_discovery_url_falls_back_when_empty(
     monkeypatch.setenv("TRACECAT__API_URL", "")
     monkeypatch.setattr(oidc_config, "TRACECAT__PUBLIC_API_URL", _TEST_API_URL)
     url = oidc_config.get_internal_discovery_url()
-    assert url == f"{_TEST_API_URL}/mcp-oidc/.well-known/openid-configuration"
+    assert url == f"{_TEST_API_URL}/oauth/mcp/.well-known/openid-configuration"

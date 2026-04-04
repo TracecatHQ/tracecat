@@ -29,12 +29,12 @@ function McpAuthContinueContent() {
 
     if (user) {
       // Already logged in — resume the authorization flow.
-      window.location.href = `/api/mcp-oidc/authorize/resume?txn=${encodeURIComponent(txnId)}`
+      window.location.href = `/api/oauth/mcp/authorize/resume?txn=${encodeURIComponent(txnId)}`
       return
     }
 
     // Not logged in — redirect to sign-in with a return URL back here.
-    const returnUrl = `/mcp-auth/continue?txn=${encodeURIComponent(txnId)}`
+    const returnUrl = `/oauth/mcp/continue?txn=${encodeURIComponent(txnId)}`
     router.replace(`/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`)
   }, [user, userIsLoading, txnId, router])
 

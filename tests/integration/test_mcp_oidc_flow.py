@@ -270,7 +270,7 @@ async def test_full_authorize_code_pkce_flow(
     assert access_claims["email"] == mock_user.email
     assert access_claims["organization_id"] == str(app.state.org_id)
     assert access_claims["aud"] == f"{_TEST_MCP_URL}/mcp"
-    assert access_claims["iss"] == f"{_TEST_API_URL}/mcp-oidc"
+    assert access_claims["iss"] == f"{_TEST_API_URL}/oauth/mcp"
     assert access_claims["is_platform_superuser"] is False
 
     # Step 4: Verify id_token claims
@@ -332,7 +332,7 @@ def test_discovery_and_jwks_verify_minted_token(client: TestClient) -> None:
     # Fetch discovery
     discovery = client.get("/.well-known/openid-configuration").json()
     issuer = discovery["issuer"]
-    assert issuer == f"{_TEST_API_URL}/mcp-oidc"
+    assert issuer == f"{_TEST_API_URL}/oauth/mcp"
 
     # Fetch JWKS
     jwks_response = client.get("/.well-known/jwks.json")

@@ -263,7 +263,7 @@ async def _handle_authorize(
                     txn_id=txn_id,
                 )
                 return RedirectResponse(
-                    f"{frontend_base}/mcp-auth/continue?txn={txn_id}",
+                    f"{frontend_base}/oauth/mcp/continue?txn={txn_id}",
                     status_code=302,
                 )
             case NeedsAction.ORG_SELECTION:
@@ -272,7 +272,7 @@ async def _handle_authorize(
                     txn_id=txn_id,
                 )
                 return RedirectResponse(
-                    f"{frontend_base}/mcp-auth/select-org?txn={txn_id}",
+                    f"{frontend_base}/oauth/mcp/select-org?txn={txn_id}",
                     status_code=302,
                 )
 

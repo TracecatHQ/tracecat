@@ -19,7 +19,6 @@
 	}
 
 	# MCP server (FastMCP serves at /mcp by default, so preserve the path).
-	# Use path_regexp to avoid matching /mcp-auth/* (frontend routes).
 	@mcp_server path /mcp /mcp/*
 	handle @mcp_server {
 		reverse_proxy http://mcp:8099 {

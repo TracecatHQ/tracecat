@@ -29,7 +29,7 @@ function McpAuthSelectOrgContent() {
     if (userIsLoading) return
     if (!user) {
       // Not authenticated — go to sign-in first.
-      const returnUrl = `/mcp-auth/select-org?txn=${encodeURIComponent(txnId ?? "")}`
+      const returnUrl = `/oauth/mcp/select-org?txn=${encodeURIComponent(txnId ?? "")}`
       router.replace(`/sign-in?returnUrl=${encodeURIComponent(returnUrl)}`)
       return
     }
@@ -59,7 +59,7 @@ function McpAuthSelectOrgContent() {
   function handleSelectOrg(orgId: string) {
     Cookies.set("tracecat-org-id", orgId, { path: "/", sameSite: "lax" })
     // Resume the authorization flow.
-    window.location.href = `/api/mcp-oidc/authorize/resume?txn=${encodeURIComponent(txnId ?? "")}`
+    window.location.href = `/api/oauth/mcp/authorize/resume?txn=${encodeURIComponent(txnId ?? "")}`
   }
 
   if (userIsLoading || loading) {

@@ -34,7 +34,7 @@ def get_internal_client_secret() -> str:
 
 # --- Issuer URL ---
 
-ISSUER_PATH_PREFIX = "/mcp-oidc"
+ISSUER_PATH_PREFIX = "/oauth/mcp"
 """Path prefix for the internal OIDC issuer within the API root."""
 
 
