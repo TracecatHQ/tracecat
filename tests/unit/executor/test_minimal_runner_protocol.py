@@ -93,6 +93,57 @@ def test_capped_text_buffer_limits_memory_growth() -> None:
     assert buf.truncated is True
 
 
+def test_main_minimal_masks_secrets_in_suppressed_output(monkeypatch) -> None:
+    """Regression: secrets printed by actions must be masked in suppressed output notices."""
+    test_module: Any = types.ModuleType("test_module")
+
+    def leaky_action() -> dict[str, str]:
+        print(
+            "key=AKIAIOSFODNN7EXAMPLE token=IQoJb3JpZ2luX2VjEBAReallyLongSessionToken"
+        )
+        return {"ok": "yes"}
+
+    test_module.leaky_action = leaky_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    warnings_emitted: list[str] = []
+    monkeypatch.setattr(
+        minimal_runner.warnings,
+        "warn",
+        lambda msg, *a, **kw: warnings_emitted.append(msg),
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "leaky_action",
+                },
+                "execution_secrets": {
+                    "aws": {
+                        "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+                        "AWS_SESSION_TOKEN": "IQoJb3JpZ2luX2VjEBAReallyLongSessionToken",
+                    }
+                },
+                "evaluated_args": {},
+            }
+        }
+    )
+
+    assert result == {"success": True, "result": {"ok": "yes"}}
+    assert len(warnings_emitted) == 1
+    assert "AKIAIOSFODNN7EXAMPLE" not in warnings_emitted[0]
+    assert "IQoJb3JpZ2luX2VjEBAReallyLongSessionToken" not in warnings_emitted[0]
+    assert "***" in warnings_emitted[0]
+
+
 def test_main_minimal_still_succeeds_when_warnings_raise(monkeypatch) -> None:
     test_module: Any = types.ModuleType("test_module")
 

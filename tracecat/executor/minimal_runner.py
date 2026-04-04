@@ -99,11 +99,10 @@ class _CappedTextBuffer:
 def _emit_suppressed_output_notice(
     *, stream_name: str, output: str, truncated: bool
 ) -> None:
-    preview = output[:_SUPPRESSED_OUTPUT_PREVIEW_CHAR_LIMIT]
     truncation_text = " (truncated)" if truncated else ""
     message = (
         f"Action emitted {stream_name} output that was suppressed"
-        f"{truncation_text}: {preview}"
+        f"{truncation_text}: {output[:_SUPPRESSED_OUTPUT_PREVIEW_CHAR_LIMIT]}"
     )
 
     try:
@@ -113,7 +112,6 @@ def _emit_suppressed_output_notice(
             sys.stderr.write(f"{message}\n")
             sys.stderr.flush()
         except Exception:
-            # Never fail action execution due to telemetry emission issues.
             return None
 
 
@@ -418,13 +416,19 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         ):
             result = run_action_minimal(action_impl, evaluated_args, secrets)
 
+        # Mask secret values in captured output to prevent leaking credentials
+        mask_values = {v for v in _flatten_secrets(secrets).values() if len(v) > 1}
         if captured_stdout := action_stdout.getvalue().strip():
+            for mask in mask_values:
+                captured_stdout = captured_stdout.replace(mask, "***")
             _emit_suppressed_output_notice(
                 stream_name="stdout",
                 output=captured_stdout,
                 truncated=action_stdout.truncated,
             )
         if captured_stderr := action_stderr.getvalue().strip():
+            for mask in mask_values:
+                captured_stderr = captured_stderr.replace(mask, "***")
             _emit_suppressed_output_notice(
                 stream_name="stderr",
                 output=captured_stderr,
