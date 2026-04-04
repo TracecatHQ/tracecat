@@ -128,6 +128,15 @@
             ]
           },
           {
+            "group": "Building agents",
+            "icon": "sparkles",
+            "pages": [
+              "agents/ai-action",
+              "agents/ai-agent",
+              "agents/secrets-variables"
+            ]
+          },
+          {
             "group": "Building custom actions",
             "icon": "blocks",
             "pages": [
@@ -135,15 +144,6 @@
               "custom-actions/python-udf",
               "custom-actions/yaml-template",
               "custom-actions/local-development"
-            ]
-          },
-          {
-            "group": "Building agents",
-            "icon": "sparkles",
-            "pages": [
-              "agents/ai-action",
-              "agents/ai-agent",
-              "agents/secrets-variables"
             ]
           },
           {
