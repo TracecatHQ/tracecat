@@ -11,7 +11,10 @@ from tracecat.auth.types import Role
 from tracecat.db.models import CaseTag, CaseTrigger, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
+from tracecat.workflow.case_triggers.schemas import (
+    CaseTriggerConfig,
+    CaseTriggerEventFilters,
+)
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import (
     ExternalWorkflowDefinition,
@@ -108,6 +111,7 @@ async def test_workflow_import_case_trigger_creates_tags(test_role: Role):
             status="offline",
             event_types=[],
             tag_filters=["phishing"],
+            event_filters=CaseTriggerEventFilters(),
         ),
     )
 
@@ -119,6 +123,11 @@ async def test_workflow_import_case_trigger_creates_tags(test_role: Role):
         result = await service.session.execute(stmt)
         case_trigger = result.scalar_one()
         assert case_trigger.tag_filters == ["phishing"]
+        assert case_trigger.event_filters == {
+            "status_changed": [],
+            "severity_changed": [],
+            "priority_changed": [],
+        }
 
         tag_stmt = select(CaseTag).where(
             CaseTag.workspace_id == workflow.workspace_id, CaseTag.ref == "phishing"
@@ -161,6 +170,7 @@ def test_external_workflow_definition_omits_empty_case_trigger():
                         status="offline",
                         event_types=[],
                         tag_filters=[],
+                        event_filters={},
                     ),
                 ),
             ),
@@ -210,6 +220,7 @@ def test_external_workflow_definition_includes_layout():
                         status="offline",
                         event_types=[],
                         tag_filters=[],
+                        event_filters={},
                     ),
                 ),
             ),
@@ -246,6 +257,7 @@ async def test_workflow_import_ignores_empty_case_trigger(test_role: Role):
             status="offline",
             event_types=[],
             tag_filters=[],
+            event_filters=CaseTriggerEventFilters(),
         ),
     )
 

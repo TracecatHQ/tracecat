@@ -20,7 +20,10 @@ from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
+from tracecat.workflow.case_triggers.schemas import (
+    CaseTriggerConfig,
+    CaseTriggerEventFilters,
+)
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.schemas import (
@@ -207,6 +210,7 @@ class TestWorkflowImportService:
                 status="online",
                 event_types=[CaseEventType.CASE_CREATED],
                 tag_filters=[],
+                event_filters=CaseTriggerEventFilters(),
             ),
         )
 
@@ -217,6 +221,7 @@ class TestWorkflowImportService:
         assert workflow.case_trigger.status == "offline"
         assert workflow.case_trigger.event_types == []
         assert workflow.case_trigger.tag_filters == []
+        assert workflow.case_trigger.event_filters == {}
 
     @pytest.mark.anyio
     async def test_update_case_trigger_clears_existing_trigger_from_inert_remote_block(
@@ -236,6 +241,7 @@ class TestWorkflowImportService:
                 status="online",
                 event_types=[CaseEventType.CASE_CREATED],
                 tag_filters=[],
+                event_filters=CaseTriggerEventFilters(),
             ),
         )
 
@@ -249,6 +255,7 @@ class TestWorkflowImportService:
                     status="offline",
                     event_types=[],
                     tag_filters=[],
+                    event_filters=CaseTriggerEventFilters(),
                 ),
             )
 
@@ -259,6 +266,7 @@ class TestWorkflowImportService:
         assert workflow.case_trigger.status == "offline"
         assert workflow.case_trigger.event_types == []
         assert workflow.case_trigger.tag_filters == []
+        assert workflow.case_trigger.event_filters == {}
 
     @pytest.mark.anyio
     async def test_import_workflow_overwrite_behavior(
