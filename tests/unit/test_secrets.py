@@ -361,8 +361,8 @@ class TestSecurityFeatures:
         masks = [f"secret_{i}" for i in range(100)]
 
         input_text = "This contains secret_50 and secret_99 but not secret_200"
-        # Multiple overlapping patterns will mask: secret_5 + "0", secret_9 + "9", secret_20 + "00"
-        expected = "This contains ***0 and ***9 but not ***00"
+        # Longest-first: secret_50 and secret_99 match fully; secret_20 matches in secret_200
+        expected = "This contains *** and *** but not ***0"
         assert apply_masks(input_text, masks) == expected
 
     def test_unicode_secrets_handling(self):
@@ -389,13 +389,12 @@ class TestSecurityFeatures:
         assert apply_masks(input_text, masks) == expected
 
     def test_overlapping_secrets(self):
-        """Test behavior with overlapping secret patterns."""
+        """Test that longer secrets are masked first to prevent partial leaks."""
         masks = ["secret", "secretkey", "key"]
 
         input_text = "The secretkey contains secret and key"
-        # With regex OR pattern, all matching parts get masked
-        # "secretkey" gets masked as "secret" + "key" = "***" + "***"
-        expected = "The ****** contains *** and ***"
+        # Longest-first: "secretkey" matches as one token, not "secret"+"key"
+        expected = "The *** contains *** and ***"
         assert apply_masks(input_text, masks) == expected
 
     def test_secrets_at_boundaries(self):
