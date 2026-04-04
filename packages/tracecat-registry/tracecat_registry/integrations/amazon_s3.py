@@ -59,7 +59,8 @@ s3_secret = RegistrySecret(
         - `AWS_REGION`
 
 Tracecat automatically supplies the workspace-scoped AWS External ID used for
-cross-account AssumeRole requests and defaults the STS session name.
+cross-account AssumeRole requests and uses a default STS session name when
+`AWS_ROLE_SESSION_NAME` is unset.
 """
 
 
