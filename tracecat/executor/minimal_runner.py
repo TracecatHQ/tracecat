@@ -417,7 +417,11 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
             result = run_action_minimal(action_impl, evaluated_args, secrets)
 
         # Mask secret values in captured output to prevent leaking credentials
-        mask_values = {v for v in _flatten_secrets(secrets).values() if len(v) > 1}
+        mask_values = sorted(
+            {v for v in _flatten_secrets(secrets).values() if len(v) > 1},
+            key=len,
+            reverse=True,
+        )
         if captured_stdout := action_stdout.getvalue().strip():
             for mask in mask_values:
                 captured_stdout = captured_stdout.replace(mask, "***")

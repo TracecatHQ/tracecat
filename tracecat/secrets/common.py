@@ -14,6 +14,9 @@ def apply_masks(value: str, masks: Iterable[str]) -> str:
     if not filtered_masks:
         return value
 
+    # Sort longest-first so a longer secret is not partially matched by a
+    # shorter substring that happens to appear earlier in the alternation.
+    filtered_masks.sort(key=len, reverse=True)
     pattern = "|".join(map(re.escape, filtered_masks))
     return re.sub(pattern, MASK_VALUE, value)
 
