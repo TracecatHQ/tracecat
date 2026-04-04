@@ -40,6 +40,7 @@ aws_secret = RegistrySecret(
         "AWS_SESSION_TOKEN",
         "AWS_REGION",
         "AWS_ROLE_ARN",
+        "AWS_ROLE_SESSION_NAME",
     ],
     optional=False,
 )
@@ -49,6 +50,7 @@ aws_secret = RegistrySecret(
 - optional_keys:
     Either:
         - `AWS_ROLE_ARN` (recommended; Tracecat assumes the role on the host)
+        - `AWS_ROLE_SESSION_NAME` (optional audit session label)
     Or:
         - `AWS_ACCESS_KEY_ID`
         - `AWS_SECRET_ACCESS_KEY`
@@ -68,6 +70,9 @@ def _get_assume_role_external_id() -> str:
 
 
 def _get_role_session_name() -> str:
+    if session_name := secrets.get_or_default("AWS_ROLE_SESSION_NAME"):
+        return session_name
+
     try:
         ctx = get_context()
     except RuntimeError:
