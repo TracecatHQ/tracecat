@@ -18,6 +18,9 @@ from starlette.status import (
 )
 
 from tracecat import config
+from tracecat.aggregate.cases_resolver import CasesFieldResolver
+from tracecat.aggregate.compiler import AggregateCompiler
+from tracecat.aggregate.schemas import AggregateRequest, AggregateResponse
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.types import Role
@@ -42,7 +45,6 @@ from tracecat.cases.schemas import (
     CaseFieldUpdate,
     CaseRead,
     CaseReadMinimal,
-    CaseSearchAggregateRead,
     CaseTaskCreate,
     CaseTaskRead,
     CaseTaskUpdate,
@@ -368,84 +370,36 @@ async def search_cases(
     return cases
 
 
-@cases_router.get("/search/aggregate")
+@cases_router.post("/aggregate")
 @require_scope("case:read")
-async def search_case_aggregates(
+async def aggregate_cases(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
-    search_term: str | None = Query(
-        None,
-        description="Text to search for in case summary, description, or short ID",
-    ),
-    status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
-    priority: list[CasePriority] | None = Query(
-        None, description="Filter by case priority"
-    ),
-    severity: list[CaseSeverity] | None = Query(
-        None, description="Filter by case severity"
-    ),
-    tags: list[str] | None = Query(
-        None, description="Filter by tag IDs or slugs (AND logic)"
-    ),
-    dropdown: list[str] | None = Query(
-        None,
-        description="Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)",
-    ),
-    start_time: datetime | None = Query(
-        None, description="Return cases created at or after this timestamp"
-    ),
-    end_time: datetime | None = Query(
-        None, description="Return cases created at or before this timestamp"
-    ),
-    updated_after: datetime | None = Query(
-        None, description="Return cases updated at or after this timestamp"
-    ),
-    updated_before: datetime | None = Query(
-        None, description="Return cases updated at or before this timestamp"
-    ),
-    assignee_id: list[str] | None = Query(
-        None, description="Filter by assignee ID or 'unassigned'"
-    ),
-) -> CaseSearchAggregateRead:
-    """Return global case totals and per-stage counts for the current filters."""
-    service = CasesService(session, role)
-    parsed_filters = await _parse_case_search_filters(
-        role=role,
-        session=session,
-        assignee_id=assignee_id,
-        tags=tags,
-        dropdown=dropdown,
-    )
-
-    try:
-        return await service.get_search_case_aggregates(
-            search_term=search_term,
-            status=status,
-            priority=priority,
-            severity=severity,
-            assignee_ids=parsed_filters["assignee_ids"],
-            include_unassigned=parsed_filters["include_unassigned"],
-            tag_ids=parsed_filters["tag_ids"],
-            dropdown_filters=parsed_filters["dropdown_filters"],
-            start_time=start_time,
-            end_time=end_time,
-            updated_after=updated_after,
-            updated_before=updated_before,
-        )
-    except ValueError as e:
-        logger.warning(f"Invalid request for case aggregate counts: {e}")
+    params: AggregateRequest,
+) -> AggregateResponse:
+    """Run an aggregate query over cases."""
+    if role.workspace_id is None:
         raise HTTPException(
-            status_code=HTTP_400_BAD_REQUEST,
+            status_code=HTTP_400_BAD_REQUEST, detail="Workspace ID required"
+        )
+    resolver = CasesFieldResolver(workspace_id=role.workspace_id)
+    compiler = AggregateCompiler(resolver)
+    try:
+        stmt = compiler.compile(params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
-    except HTTPException:
-        raise
+    try:
+        result = await session.execute(stmt)
+        return compiler.format_response(params, result.all())
     except Exception as e:
-        logger.error(f"Failed to fetch case aggregate counts: {e}")
+        logger.error(f"Failed to execute aggregate query: {e}")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve case aggregate counts",
+            detail="Failed to execute aggregate query",
         ) from e
 
 

@@ -5,12 +5,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type {
+  AggregateResponse,
   CaseReadMinimal,
   CaseStatus,
-  CasesSearchCaseAggregatesResponse,
   CasesSearchCasesResponse,
 } from "@/client"
-import { casesSearchCaseAggregates, casesSearchCases } from "@/client"
+import { casesAggregateCases, casesSearchCases } from "@/client"
 import { useCases } from "@/hooks/use-cases"
 
 jest.mock("@/providers/workspace-id", () => ({
@@ -19,16 +19,15 @@ jest.mock("@/providers/workspace-id", () => ({
 
 jest.mock("@/client", () => ({
   casesSearchCases: jest.fn(),
-  casesSearchCaseAggregates: jest.fn(),
+  casesAggregateCases: jest.fn(),
 }))
 
 const mockSearchCases = casesSearchCases as jest.MockedFunction<
   typeof casesSearchCases
 >
-const mockSearchCaseAggregates =
-  casesSearchCaseAggregates as jest.MockedFunction<
-    typeof casesSearchCaseAggregates
-  >
+const mockAggregateCases = casesAggregateCases as jest.MockedFunction<
+  typeof casesAggregateCases
+>
 
 function createPersistedFilters(overrides: Record<string, unknown> = {}) {
   return {
@@ -175,19 +174,18 @@ describe("useCases", () => {
       total_estimate: 1000,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1000,
-      status_groups: {
-        new: 700,
-        in_progress: 200,
-        on_hold: 50,
-        resolved: 40,
-        other: 10,
-      },
+    const aggregate: AggregateResponse = {
+      items: [
+        { status: "new", count: 700 },
+        { status: "in_progress", count: 200 },
+        { status: "on_hold", count: 50 },
+        { status: "resolved", count: 40 },
+        { status: "other", count: 10 },
+      ],
     }
 
     mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+    mockAggregateCases.mockResolvedValue(aggregate)
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -219,10 +217,14 @@ describe("useCases", () => {
       })
     )
 
-    expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
-    expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
+    expect(mockAggregateCases).toHaveBeenCalledTimes(1)
+    expect(mockAggregateCases).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
+        requestBody: expect.objectContaining({
+          group_by: ["status"],
+          agg: [{ func: "count" }],
+        }),
       })
     )
   })
@@ -237,15 +239,8 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1,
-      status_groups: {
-        new: 1,
-        in_progress: 0,
-        on_hold: 0,
-        resolved: 0,
-        other: 0,
-      },
+    const aggregate: AggregateResponse = {
+      items: [{ status: "new", count: 1 }],
     }
 
     window.localStorage.setItem(
@@ -259,7 +254,7 @@ describe("useCases", () => {
     )
 
     mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+    mockAggregateCases.mockResolvedValue(aggregate)
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -288,12 +283,13 @@ describe("useCases", () => {
       })
     )
 
-    expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
-    expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
+    expect(mockAggregateCases).toHaveBeenCalledTimes(1)
+    expect(mockAggregateCases).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        searchTerm: "persisted query",
-        updatedAfter: expect.stringContaining("T"),
+        requestBody: expect.objectContaining({
+          search: "persisted query",
+        }),
       })
     )
   })
@@ -337,15 +333,8 @@ describe("useCases", () => {
     queryClient.setQueryData(
       ["cases", "aggregate", "workspace-1", defaultFiltersKey],
       {
-        total: 2,
-        status_groups: {
-          new: 2,
-          in_progress: 0,
-          on_hold: 0,
-          resolved: 0,
-          other: 0,
-        },
-      } satisfies CasesSearchCaseAggregatesResponse
+        items: [{ status: "new", count: 2 }],
+      } satisfies AggregateResponse
     )
 
     window.localStorage.setItem(
@@ -361,11 +350,9 @@ describe("useCases", () => {
     mockSearchCases.mockImplementation(
       () => new Promise(() => undefined) as ReturnType<typeof casesSearchCases>
     )
-    mockSearchCaseAggregates.mockImplementation(
+    mockAggregateCases.mockImplementation(
       () =>
-        new Promise(() => undefined) as ReturnType<
-          typeof casesSearchCaseAggregates
-        >
+        new Promise(() => undefined) as ReturnType<typeof casesAggregateCases>
     )
 
     render(
@@ -389,15 +376,8 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1,
-      status_groups: {
-        new: 1,
-        in_progress: 0,
-        on_hold: 0,
-        resolved: 0,
-        other: 0,
-      },
+    const aggregate: AggregateResponse = {
+      items: [{ status: "new", count: 1 }],
     }
 
     const consoleErrorSpy = jest
@@ -420,7 +400,7 @@ describe("useCases", () => {
       })
 
     mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+    mockAggregateCases.mockResolvedValue(aggregate)
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -441,7 +421,7 @@ describe("useCases", () => {
     })
 
     expect(mockSearchCases).toHaveBeenCalledTimes(1)
-    expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
+    expect(mockAggregateCases).toHaveBeenCalledTimes(1)
     expect(consoleErrorSpy).toHaveBeenCalled()
 
     getItemSpy.mockRestore()
@@ -460,15 +440,8 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1,
-      status_groups: {
-        new: 1,
-        in_progress: 0,
-        on_hold: 0,
-        resolved: 0,
-        other: 0,
-      },
+    const aggregate: AggregateResponse = {
+      items: [{ status: "new", count: 1 }],
     }
 
     window.localStorage.setItem(
@@ -498,7 +471,7 @@ describe("useCases", () => {
     )
 
     mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+    mockAggregateCases.mockResolvedValue(aggregate)
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -524,10 +497,13 @@ describe("useCases", () => {
         dropdown: ["valid:keep-me"],
       })
     )
-    expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
+    expect(mockAggregateCases).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        dropdown: ["valid:keep-me"],
+        requestBody: expect.objectContaining({
+          group_by: ["status"],
+          agg: [{ func: "count" }],
+        }),
       })
     )
   })
@@ -542,15 +518,8 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1,
-      status_groups: {
-        new: 1,
-        in_progress: 0,
-        on_hold: 0,
-        resolved: 0,
-        other: 0,
-      },
+    const aggregate: AggregateResponse = {
+      items: [{ status: "new", count: 1 }],
     }
 
     window.localStorage.setItem(
@@ -568,7 +537,7 @@ describe("useCases", () => {
     )
 
     mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+    mockAggregateCases.mockResolvedValue(aggregate)
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -599,13 +568,13 @@ describe("useCases", () => {
         tags: ["tag-1"],
       })
     )
-    expect(mockSearchCaseAggregates).toHaveBeenCalledWith(
+    expect(mockAggregateCases).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "workspace-1",
-        searchTerm: undefined,
-        status: ["new"],
-        assigneeId: ["user-1"],
-        tags: ["tag-1"],
+        requestBody: expect.objectContaining({
+          group_by: ["status"],
+          agg: [{ func: "count" }],
+        }),
       })
     )
   })
@@ -620,19 +589,12 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1,
-      status_groups: {
-        new: 1,
-        in_progress: 0,
-        on_hold: 0,
-        resolved: 0,
-        other: 0,
-      },
+    const aggregate: AggregateResponse = {
+      items: [{ status: "new", count: 1 }],
     }
 
     mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+    mockAggregateCases.mockResolvedValue(aggregate)
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -661,7 +623,7 @@ describe("useCases", () => {
     expect(screen.getByTestId("total")).toHaveTextContent("0")
     expect(screen.getByTestId("new-count")).toHaveTextContent("0")
     expect(mockSearchCases).toHaveBeenCalledTimes(1)
-    expect(mockSearchCaseAggregates).toHaveBeenCalledTimes(1)
+    expect(mockAggregateCases).toHaveBeenCalledTimes(1)
   })
 
   it("resets sortBy when clearing priority or severity sorting", async () => {
@@ -674,19 +636,12 @@ describe("useCases", () => {
       total_estimate: 1,
     }
 
-    const aggregate: CasesSearchCaseAggregatesResponse = {
-      total: 1,
-      status_groups: {
-        new: 1,
-        in_progress: 0,
-        on_hold: 0,
-        resolved: 0,
-        other: 0,
-      },
+    const aggregate: AggregateResponse = {
+      items: [{ status: "new", count: 1 }],
     }
 
     mockSearchCases.mockResolvedValue(firstPage)
-    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+    mockAggregateCases.mockResolvedValue(aggregate)
 
     const queryClient = new QueryClient({
       defaultOptions: {

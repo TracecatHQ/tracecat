@@ -220,6 +220,8 @@ import type {
   CaseDurationsUpdateCaseDurationResponse,
   CasesAddTagData,
   CasesAddTagResponse,
+  CasesAggregateCasesData,
+  CasesAggregateCasesResponse,
   CasesCreateCaseData,
   CasesCreateCaseResponse,
   CasesCreateCommentData,
@@ -262,8 +264,6 @@ import type {
   CasesListTasksResponse,
   CasesRemoveTagData,
   CasesRemoveTagResponse,
-  CasesSearchCaseAggregatesData,
-  CasesSearchCaseAggregatesResponse,
   CasesSearchCasesData,
   CasesSearchCasesResponse,
   CasesSetCaseDropdownValueData,
@@ -521,6 +521,8 @@ import type {
   SettingsUpdateGitSettingsResponse,
   SettingsUpdateSamlSettingsData,
   SettingsUpdateSamlSettingsResponse,
+  TablesAggregateTableData,
+  TablesAggregateTableResponse,
   TablesBatchDeleteRowsData,
   TablesBatchDeleteRowsResponse,
   TablesBatchInsertRowsData,
@@ -6782,6 +6784,36 @@ export const tablesDeleteColumn = (
 }
 
 /**
+ * Aggregate Table
+ * Run an aggregate query over table rows.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AggregateResponse Successful Response
+ * @throws ApiError
+ */
+export const tablesAggregateTable = (
+  data: TablesAggregateTableData
+): CancelablePromise<TablesAggregateTableResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/tables/{table_id}/aggregate",
+    path: {
+      table_id: data.tableId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Rows
  * List table rows with cursor-based pagination and sorting.
  * @param data The data for the request.
@@ -7208,44 +7240,25 @@ export const casesSearchCases = (
 }
 
 /**
- * Search Case Aggregates
- * Return global case totals and per-stage counts for the current filters.
+ * Aggregate Cases
+ * Run an aggregate query over cases.
  * @param data The data for the request.
  * @param data.workspaceId
- * @param data.searchTerm Text to search for in case summary, description, or short ID
- * @param data.status Filter by case status
- * @param data.priority Filter by case priority
- * @param data.severity Filter by case severity
- * @param data.tags Filter by tag IDs or slugs (AND logic)
- * @param data.dropdown Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
- * @param data.startTime Return cases created at or after this timestamp
- * @param data.endTime Return cases created at or before this timestamp
- * @param data.updatedAfter Return cases updated at or after this timestamp
- * @param data.updatedBefore Return cases updated at or before this timestamp
- * @param data.assigneeId Filter by assignee ID or 'unassigned'
- * @returns CaseSearchAggregateRead Successful Response
+ * @param data.requestBody
+ * @returns AggregateResponse Successful Response
  * @throws ApiError
  */
-export const casesSearchCaseAggregates = (
-  data: CasesSearchCaseAggregatesData
-): CancelablePromise<CasesSearchCaseAggregatesResponse> => {
+export const casesAggregateCases = (
+  data: CasesAggregateCasesData
+): CancelablePromise<CasesAggregateCasesResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
-    url: "/cases/search/aggregate",
+    method: "POST",
+    url: "/cases/aggregate",
     query: {
-      search_term: data.searchTerm,
-      status: data.status,
-      priority: data.priority,
-      severity: data.severity,
-      tags: data.tags,
-      dropdown: data.dropdown,
-      start_time: data.startTime,
-      end_time: data.endTime,
-      updated_after: data.updatedAfter,
-      updated_before: data.updatedBefore,
-      assignee_id: data.assigneeId,
       workspace_id: data.workspaceId,
     },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

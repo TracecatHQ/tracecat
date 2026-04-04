@@ -17,6 +17,9 @@ from starlette.status import (
 )
 
 from tracecat import config
+from tracecat.aggregate.cases_resolver import CasesFieldResolver
+from tracecat.aggregate.compiler import AggregateCompiler
+from tracecat.aggregate.schemas import AggregateRequest, AggregateResponse
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
@@ -176,6 +179,39 @@ async def list_cases(
             for item in cases.items
         ]
     return cases
+
+
+@router.post("/aggregate")
+@require_scope("case:read")
+async def aggregate_cases(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    params: AggregateRequest,
+) -> AggregateResponse:
+    """Run an aggregate query over cases (internal/SDK)."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST, detail="Workspace ID required"
+        )
+    resolver = CasesFieldResolver(workspace_id=role.workspace_id)
+    compiler = AggregateCompiler(resolver)
+    try:
+        stmt = compiler.compile(params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    try:
+        result = await session.execute(stmt)
+        return compiler.format_response(params, result.all())
+    except Exception as e:
+        logger.error(f"Failed to execute aggregate query: {e}")
+        raise HTTPException(
+            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to execute aggregate query",
+        ) from e
 
 
 @router.get("/search")
