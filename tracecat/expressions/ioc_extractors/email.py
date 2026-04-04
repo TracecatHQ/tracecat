@@ -31,7 +31,8 @@ def normalize_email(email: str) -> str:
 
 
 def extract_emails(text: str, normalize: bool = False) -> list[str]:
-    """Extract unique emails from a string."""
+    """Extract unique emails from a string. When `normalize` is True, lowercases
+    the email and strips the subaddress (the `+...` part before `@`)."""
     potential_emails = re.findall(EMAIL_REGEX, text)
     unique_emails = {email for email in potential_emails if is_email(email)}
 

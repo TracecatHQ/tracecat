@@ -202,7 +202,7 @@
 
   `FN.extract_emails(text: str, normalize: bool = False) -> list[str]`
 
-  Extract unique emails from a string.
+  Extract unique emails from a string. When `normalize` is True, lowercases the email and strips the subaddress (the `+...` part before `@`).
 
 </ResponseField>
 
