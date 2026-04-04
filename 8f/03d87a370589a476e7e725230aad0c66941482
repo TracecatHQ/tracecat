@@ -1,0 +1,36 @@
+tracecat/sandbox/seccomp.py
+  320171105dc39e73 41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "8f03d87a370589a476e7e725230aad0c66941482",
+  "prompts": {
+    "320171105dc39e73": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5604-0885-7901-826d-fbad7c6b7a7a",
+        "model": "gpt-5.4"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 9,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    },
+    "9ec4c5774c8fc80a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d557c-9077-70d1-993e-9af7650268cc",
+        "model": "unknown"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 177,
+      "total_deletions": 0,
+      "accepted_lines": 67,
+      "overriden_lines": 0
+    }
+  }
+}
