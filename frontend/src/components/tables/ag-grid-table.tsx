@@ -115,6 +115,7 @@ export function AgGridTable({
   hidePagination?: boolean
 }) {
   const isReadOnly = readOnly || rowsOverride !== undefined
+  const useAutoHeight = rowsOverride !== undefined
   const workspaceId = useWorkspaceId()
   const [pageSize, setPageSize] = useState(20)
   const [gridApi, setGridApi] = useState<GridApi | null>(null)
@@ -307,14 +308,17 @@ export function AgGridTable({
   }
 
   return (
-    <div className="flex h-full flex-col gap-2 pb-2">
+    <div
+      className={`flex flex-col gap-2 pb-2 ${useAutoHeight ? "" : "h-full"}`}
+    >
       {isReadOnly ? (
         <div
-          className="flex-1 min-h-0"
+          className={useAutoHeight ? "" : "flex-1 min-h-0"}
           onKeyDown={(e) => handleGridKeyDown(e, gridApi)}
         >
           <AgGridReact
             theme={tracecatTheme}
+            domLayout={useAutoHeight ? "autoHeight" : undefined}
             rowData={rowData}
             columnDefs={columnDefs}
             getRowId={(params) => params.data.id}
@@ -330,11 +334,12 @@ export function AgGridTable({
       ) : (
         <AgGridContextMenu gridApi={gridApi} columns={columns}>
           <div
-            className="flex-1 min-h-0"
+            className={useAutoHeight ? "" : "flex-1 min-h-0"}
             onKeyDown={(e) => handleGridKeyDown(e, gridApi)}
           >
             <AgGridReact
               theme={tracecatTheme}
+              domLayout={useAutoHeight ? "autoHeight" : undefined}
               rowData={rowData}
               columnDefs={columnDefs}
               getRowId={(params) => params.data.id}
