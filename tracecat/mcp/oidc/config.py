@@ -53,9 +53,9 @@ def get_internal_discovery_url() -> str:
     Uses ``TRACECAT__API_URL`` for server-to-server communication
     (avoids hairpin NAT), falling back to the public API URL.
     """
-    internal_api = os.environ.get("TRACECAT__API_URL", TRACECAT__PUBLIC_API_URL).rstrip(
-        "/"
-    )
+    internal_api = (
+        os.environ.get("TRACECAT__API_URL") or TRACECAT__PUBLIC_API_URL
+    ).rstrip("/")
     return f"{internal_api}{ISSUER_PATH_PREFIX}/.well-known/openid-configuration"
 
 

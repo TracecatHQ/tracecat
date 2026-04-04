@@ -124,7 +124,16 @@ async def openid_configuration(request: Request) -> dict[str, Any]:
     issuer = oidc_config.get_issuer_url()
     # Build a base URL from the incoming request so the token endpoint is
     # reachable by whoever fetched this discovery document.
-    request_base = f"{request.base_url.scheme}://{request.base_url.netloc}"
+    # When the request arrived through a path-stripping reverse proxy (e.g.
+    # Caddy's ``handle_path /api*``), include the app's root_path so the
+    # returned endpoint URLs are reachable via that same proxy.
+    forwarded_host = request.headers.get("x-forwarded-host")
+    if forwarded_host:
+        scheme = request.headers.get("x-forwarded-proto", "https")
+        root_path = request.scope.get("root_path", "")
+        request_base = f"{scheme}://{forwarded_host}{root_path}"
+    else:
+        request_base = f"{request.base_url.scheme}://{request.base_url.netloc}"
     request_issuer = f"{request_base}{oidc_config.ISSUER_PATH_PREFIX}"
     return {
         "issuer": issuer,

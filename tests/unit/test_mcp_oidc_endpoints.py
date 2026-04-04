@@ -162,6 +162,33 @@ def test_openid_configuration_returns_correct_fields(client: TestClient) -> None
     assert payload["grant_types_supported"] == ["authorization_code"]
 
 
+def test_openid_configuration_includes_root_path_when_proxied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When X-Forwarded-Host is present, endpoint URLs include root_path."""
+    monkeypatch.setattr("tracecat.mcp.config.TRACECAT_MCP__BASE_URL", _TEST_MCP_URL)
+
+    test_app = FastAPI(root_path="/api")
+    test_app.include_router(router)
+    test_app.dependency_overrides[optional_current_active_user] = lambda: None
+
+    client = TestClient(test_app)
+    response = client.get(
+        "/.well-known/openid-configuration",
+        headers={
+            "x-forwarded-host": "example.com",
+            "x-forwarded-proto": "https",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    request_issuer = "https://example.com/api/mcp-oidc"
+    assert payload["token_endpoint"] == f"{request_issuer}/token"
+    assert payload["userinfo_endpoint"] == f"{request_issuer}/userinfo"
+    assert payload["jwks_uri"] == f"{request_issuer}/.well-known/jwks.json"
+
+
 def test_jwks_returns_valid_ed25519_key(client: TestClient) -> None:
     response = client.get("/.well-known/jwks.json")
 
@@ -816,3 +843,37 @@ async def test_authorize_resume_replays_authorize_on_success(
     location = response.headers["location"]
     assert "code=" in location
     assert "state=resumed-state" in location
+
+
+# ---------------------------------------------------------------------------
+# get_internal_discovery_url — empty env var fallback
+# ---------------------------------------------------------------------------
+
+
+def test_get_internal_discovery_url_uses_api_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When TRACECAT__API_URL is set, it is used as the base."""
+    monkeypatch.setenv("TRACECAT__API_URL", "http://api:8000")
+    url = oidc_config.get_internal_discovery_url()
+    assert url == "http://api:8000/mcp-oidc/.well-known/openid-configuration"
+
+
+def test_get_internal_discovery_url_falls_back_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When TRACECAT__API_URL is not set, falls back to PUBLIC_API_URL."""
+    monkeypatch.delenv("TRACECAT__API_URL", raising=False)
+    monkeypatch.setattr(oidc_config, "TRACECAT__PUBLIC_API_URL", _TEST_API_URL)
+    url = oidc_config.get_internal_discovery_url()
+    assert url == f"{_TEST_API_URL}/mcp-oidc/.well-known/openid-configuration"
+
+
+def test_get_internal_discovery_url_falls_back_when_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When TRACECAT__API_URL is empty string, falls back to PUBLIC_API_URL."""
+    monkeypatch.setenv("TRACECAT__API_URL", "")
+    monkeypatch.setattr(oidc_config, "TRACECAT__PUBLIC_API_URL", _TEST_API_URL)
+    url = oidc_config.get_internal_discovery_url()
+    assert url == f"{_TEST_API_URL}/mcp-oidc/.well-known/openid-configuration"
