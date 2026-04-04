@@ -103,6 +103,28 @@ matching_alerts: ${{ TRIGGER.alerts[?(@.severity == "high")] }}
 
 Filter expressions return a list.
 
+## Missing fields
+
+Accessing a field that does not exist returns `None`. No error is raised.
+
+<CodeGroup>
+```yaml Expression
+value: ${{ ACTIONS.check_hash.result.id }}
+```
+
+```json Result (field does not exist)
+{
+  "value": null
+}
+```
+</CodeGroup>
+
+Guard against `None` with a null check before dereferencing deeper fields.
+
+```yaml
+run_if: ${{ ACTIONS.check_hash.result != None && ACTIONS.check_hash.result.id != None }}
+```
+
 ## Related pages
 
 - See the [JSONPath cheatsheet](/cheatsheets/jsonpath) for detailed filter patterns, return behavior, and more examples.
