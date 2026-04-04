@@ -20,6 +20,7 @@ from claude_agent_sdk.types import (
     SyncHookJSONOutput,
 )
 
+from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
@@ -362,6 +363,7 @@ class TestClaudeAgentRuntimeRun:
         mock_socket_writer: MagicMock,
         mock_claude_sdk_client: MagicMock,
         sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
     ) -> None:
         """Test that resumed sessions only mount the canonical registry MCP name."""
         captured_options: list[Any] = []
@@ -370,10 +372,13 @@ class TestClaudeAgentRuntimeRun:
             captured_options.append(kwargs["options"])
             return mock_claude_sdk_client
 
+        resume_file = tmp_path / "resume.jsonl"
+        resume_file.write_text('{"type":"user","message":{"content":"test"}}\n')
+
         resumed_payload = replace(
             sample_init_payload,
             sdk_session_id="eed8297f-26fb-4e00-905f-a10f0cf20704",
-            sdk_session_data='{"type":"user","message":{"content":"test"}}\n',
+            resume_session_path=str(resume_file),
         )
 
         with (
@@ -422,6 +427,19 @@ class TestClaudeAgentRuntimeRun:
         assert "mcp__tracecat-registry__execute_tool" in session_text
         assert "mcp__tracecat-registry__core__http_request" in session_text
         assert "mcp__tracecat_registry__" not in session_text
+
+    def test_get_session_file_path_rejects_invalid_sdk_session_id(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Test that invalid persisted session IDs are rejected."""
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        with pytest.raises(
+            AgentSandboxValidationError,
+            match="Invalid sdk_session_id",
+        ):
+            runtime._get_session_file_path("../escape")
 
 
 class TestClaudeAgentRuntimePreToolUseHook:

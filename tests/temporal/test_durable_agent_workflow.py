@@ -111,7 +111,7 @@ def create_mock_load_session_activity() -> Callable[..., Any]:
         return LoadSessionResult(
             found=False,
             sdk_session_id=None,
-            sdk_session_data=None,
+            resume_source_session_id=None,
         )
 
     return mock_load_session_activity
@@ -663,12 +663,17 @@ async def test_agent_workflow_routes_approved_tools_to_executor_and_reconciles_h
 
         assert input.is_approval_continuation is True
         assert input.sdk_session_id == "sdk-session"
-        assert input.sdk_session_data is not None
+        assert input.resume_source_session_id == input.session_id
+        assert input.resume_source_session_id is not None
+
+        async with AgentSessionService.with_session(role=input.role) as service:
+            session_history = await service.materialize_session_history(
+                input.resume_source_session_id
+            )
+        assert session_history is not None
 
         session_lines = [
-            orjson.loads(line)
-            for line in input.sdk_session_data.splitlines()
-            if line.strip()
+            orjson.loads(line) for line in session_history.splitlines() if line.strip()
         ]
         tool_result_blocks = [
             block
@@ -976,12 +981,17 @@ async def test_agent_workflow_does_not_retry_approved_tool_failures(
 
         assert input.is_approval_continuation is True
         assert input.sdk_session_id == "sdk-session"
-        assert input.sdk_session_data is not None
+        assert input.resume_source_session_id == input.session_id
+        assert input.resume_source_session_id is not None
+
+        async with AgentSessionService.with_session(role=input.role) as service:
+            session_history = await service.materialize_session_history(
+                input.resume_source_session_id
+            )
+        assert session_history is not None
 
         session_lines = [
-            orjson.loads(line)
-            for line in input.sdk_session_data.splitlines()
-            if line.strip()
+            orjson.loads(line) for line in session_history.splitlines() if line.strip()
         ]
         tool_result_blocks = [
             block

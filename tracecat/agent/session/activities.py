@@ -66,7 +66,7 @@ class LoadSessionResult(BaseModel):
 
     found: bool
     sdk_session_id: str | None = None
-    sdk_session_data: str | None = None
+    resume_source_session_id: uuid.UUID | None = None
     is_fork: bool = False  # If True, runtime should use fork_session=True with SDK
     error: str | None = None
 
@@ -163,10 +163,11 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
 @activity.defn
 async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
-    """Load agent session history for resume.
+    """Load lightweight session resume metadata.
 
-    Retrieves the stored SDK session data (JSONL) so the runtime
-    can resume from where it left off.
+    The full Claude SDK JSONL is not returned here. Instead, the activity
+    resolves the source session that should be materialized later by the
+    executor before sandbox startup.
     """
     ctx_role.set(input.role)
 
@@ -177,21 +178,21 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
             if agent_session is None:
                 return LoadSessionResult(found=False)
 
-            # Load the session history
-            history = await service.load_session_history(input.session_id)
+            # Load the session resume context
+            resume_context = await service.get_session_resume_context(input.session_id)
 
-            if history is None:
+            if resume_context is None:
                 return LoadSessionResult(
                     found=True,
                     sdk_session_id=None,
-                    sdk_session_data=None,
+                    resume_source_session_id=None,
                 )
 
             return LoadSessionResult(
                 found=True,
-                sdk_session_id=history.sdk_session_id,
-                sdk_session_data=history.sdk_session_data,
-                is_fork=history.is_fork,
+                sdk_session_id=resume_context.sdk_session_id,
+                resume_source_session_id=resume_context.source_session_id,
+                is_fork=resume_context.is_fork,
             )
 
     except Exception as e:
