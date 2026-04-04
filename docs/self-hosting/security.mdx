@@ -1,0 +1,88 @@
+---
+title: Security
+description: Harden your self-hosted Tracecat deployment.
+---
+
+## Infrastructure credentials
+
+The default configuration ships with weak, well-known passwords for PostgreSQL, MinIO, and Redis. Replace them with strong, unique values before exposing Tracecat to production traffic.
+
+```bash
+# PostgreSQL
+TRACECAT__POSTGRES_USER=tracecat
+TRACECAT__POSTGRES_PASSWORD=<strong random password>
+
+# Temporal PostgreSQL
+TEMPORAL__POSTGRES_USER=temporal
+TEMPORAL__POSTGRES_PASSWORD=<strong random password>
+
+# MinIO / S3
+MINIO_ROOT_USER=<strong random user>
+MINIO_ROOT_PASSWORD=<strong random password>
+
+# Redis — add a password and update the URL
+REDIS_URL=redis://:<strong random password>@redis:6379
+```
+
+For Redis, you also need to pass the password to the container. Add a `command` override in your `docker-compose.yml`:
+
+```yaml
+services:
+  redis:
+    command: ["redis-server", "--requirepass", "<same password as above>"]
+```
+
+In production, consider replacing self-hosted PostgreSQL and Redis with managed services (e.g., Amazon RDS, ElastiCache) that handle encryption at rest, automated backups, and credential rotation.
+
+## Execution sandboxing
+
+Tracecat executes user-defined Python scripts and actions inside the executor service. The level of isolation depends on your configuration.
+
+<Warning>
+  By default, Tracecat runs with `TRACECAT__DISABLE_NSJAIL=true` and uses the `direct` executor backend. In this mode, scripts run as regular subprocesses and can access the executor's environment variables, filesystem, and network. This is acceptable for development but **not recommended for production**.
+</Warning>
+
+### PID namespace isolation
+
+The default `direct` backend provides best-effort PID namespace isolation using Linux `unshare`. This prevents scripts from inspecting other processes via `/proc`, but does not restrict filesystem or network access. It works without Docker privileged mode and is the baseline for non-sandboxed deployments.
+
+### nsjail sandbox (recommended for production)
+
+For production, enable [nsjail](https://github.com/google/nsjail) — a process isolation tool from Google that enforces:
+
+- **Filesystem isolation** — scripts can only access their job directory and explicitly mounted paths. The host filesystem is not visible.
+- **Resource limits** — CPU time, memory, file size, and process count are capped per execution. A runaway script cannot starve the host.
+- **User namespace separation** — scripts run as unprivileged users even when the container runs as root.
+- **Network access** — network is allowed (scripts need to reach databases, APIs, and S3) but constrained to the container's network namespace.
+
+To enable nsjail, set the following in your `.env`:
+
+```bash
+TRACECAT__DISABLE_NSJAIL=false
+TRACECAT__EXECUTOR_BACKEND=pool  # or 'ephemeral' for multi-tenant full isolation
+```
+
+nsjail requires:
+- Linux with kernel 4.6+
+- Docker privileged mode or `CAP_SYS_ADMIN` capability on the executor container
+- The nsjail binary and sandbox rootfs (included in Tracecat images)
+
+<Info>
+  nsjail is not supported on macOS or Windows. These platforms can only use the `direct` backend with PID namespace isolation.
+</Info>
+
+### Choosing a backend
+
+| Backend | Isolation | Latency | Use case |
+| :------ | :-------- | :------ | :------- |
+| `direct` | PID namespace only | ~50ms | Development, trusted environments |
+| `pool` | nsjail sandbox (warm workers) | ~100-200ms | Single-tenant production |
+| `ephemeral` | nsjail sandbox (cold per action) | ~4000ms | Multi-tenant, maximum isolation |
+
+## Authentication
+
+Docker Compose deployments default to basic email/password authentication. For production, configure [OIDC](/authentication/oidc) or [SAML](/authentication/saml) SSO.
+
+## TLS
+
+Never run production traffic over plain HTTP. See [How do I configure SSL for production?](/self-hosting/docker-compose#how-do-i-configure-ssl-for-production) for Caddy-based automatic TLS setup.
