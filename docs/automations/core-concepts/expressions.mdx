@@ -274,7 +274,7 @@ value: ${{ {"alert": {"id": "al-123", "tags": ["auth", "critical"]}, "ok": True,
       args:
         value:
           verdict: ${{ ACTIONS.check_hash.result.verdict if ACTIONS.check_hash.result != None else "unknown" }}
-          is_known_bad: ${{ ACTIONS.check_hash.result != None && ACTIONS.check_hash.result.malicious_count > 0 }}
+          is_known_bad: ${{ ACTIONS.check_hash.result.malicious_count > 0 if ACTIONS.check_hash.result.malicious_count != None else False }}
     ```
     </CodeGroup>
   </Accordion>
