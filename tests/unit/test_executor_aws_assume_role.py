@@ -16,14 +16,18 @@ import pytest
 from botocore.exceptions import ClientError
 
 from tracecat.auth.types import Role
-from tracecat.dsl.schemas import RunContext
+from tracecat.dsl.common import create_default_execution_context
+from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import TracecatCredentialsError
+from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 from tracecat.executor.service import (
     _AWS_ROLE_ARN_PATTERN,
     _assume_role_via_irsa,
     _build_execution_secrets_for_action,
+    _prepare_step_context,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.lock.types import RegistryLock
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -79,6 +83,42 @@ def _base_aws_secrets(
 def _mock_assume_role(**kwargs: object) -> AsyncMock:
     """Create a mock for _assume_role_via_irsa that returns temp creds."""
     return AsyncMock(return_value=_TEMP_CREDS)
+
+
+def _step_input(run_context: RunContext, step_action: str) -> RunActionInput:
+    return RunActionInput(
+        task=ActionStatement(ref="template", action="testing.parent_template", args={}),
+        exec_context=create_default_execution_context(),
+        run_context=run_context,
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "v1"},
+            actions={
+                "testing.parent_template": "tracecat_registry",
+                step_action: "tracecat_registry",
+            },
+        ),
+    )
+
+
+def _parent_resolved_context(
+    *, run_context: RunContext, secrets: dict[str, object]
+) -> ResolvedContext:
+    return ResolvedContext(
+        secrets=secrets,
+        execution_secrets=copy.deepcopy(secrets),
+        variables={"ENV_NAME": "default"},
+        action_impl=ActionImplementation(
+            type="template",
+            action_name="testing.parent_template",
+            template_definition={},
+        ),
+        evaluated_args={},
+        workspace_id=str(_WORKSPACE_ID),
+        workflow_id=str(run_context.wf_id),
+        run_id=str(run_context.wf_run_id),
+        executor_token="test-token",
+        logical_time=run_context.logical_time,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -521,3 +561,83 @@ class TestSecretExpressionNoRegression:
             run_context=run_context,
         )
         assert result["other_secret"] == {"API_KEY": "some-key"}
+
+
+class TestPrepareStepContext:
+    """Verify template steps derive execution secrets per child action."""
+
+    @pytest.mark.anyio
+    async def test_aws_step_recomputes_execution_secrets(
+        self, role: Role, run_context: RunContext
+    ) -> None:
+        """AWS child steps should assume role on the host even under templates."""
+        secrets = _base_aws_secrets()
+        parent_resolved = _parent_resolved_context(
+            run_context=run_context, secrets=secrets
+        )
+        step_input = _step_input(run_context, "tools.amazon_s3.list_objects")
+        mock_assume_role = _mock_assume_role()
+
+        with (
+            patch(
+                "tracecat.executor.service.registry_resolver.resolve_action",
+                AsyncMock(
+                    return_value=ActionImplementation(
+                        type="udf", action_name="tools.amazon_s3.list_objects"
+                    )
+                ),
+            ),
+            patch(_IRSA_PATCH, mock_assume_role),
+        ):
+            step_resolved = await _prepare_step_context(
+                step_action="tools.amazon_s3.list_objects",
+                evaluated_args={"bucket": "example"},
+                parent_resolved=parent_resolved,
+                input=step_input,
+                role=role,
+            )
+
+        mock_assume_role.assert_awaited_once()
+        assert step_resolved.secrets == secrets
+        assert (
+            step_resolved.execution_secrets["amazon_s3"]["AWS_ACCESS_KEY_ID"]
+            == "ASIA_TEMP_KEY"
+        )
+        assert "AWS_ROLE_ARN" not in step_resolved.execution_secrets["amazon_s3"]
+        assert parent_resolved.secrets == secrets
+        assert parent_resolved.execution_secrets == secrets
+
+    @pytest.mark.anyio
+    async def test_exempt_step_keeps_raw_execution_secrets(
+        self, role: Role, run_context: RunContext
+    ) -> None:
+        """Exempt helper steps should not trigger host-side AssumeRole."""
+        secrets = _base_aws_secrets()
+        parent_resolved = _parent_resolved_context(
+            run_context=run_context, secrets=secrets
+        )
+        step_input = _step_input(run_context, "tools.amazon_s3.parse_uri")
+        mock_assume_role = _mock_assume_role()
+
+        with (
+            patch(
+                "tracecat.executor.service.registry_resolver.resolve_action",
+                AsyncMock(
+                    return_value=ActionImplementation(
+                        type="udf", action_name="tools.amazon_s3.parse_uri"
+                    )
+                ),
+            ),
+            patch(_IRSA_PATCH, mock_assume_role),
+        ):
+            step_resolved = await _prepare_step_context(
+                step_action="tools.amazon_s3.parse_uri",
+                evaluated_args={"uri": "s3://bucket/key"},
+                parent_resolved=parent_resolved,
+                input=step_input,
+                role=role,
+            )
+
+        mock_assume_role.assert_not_awaited()
+        assert step_resolved.execution_secrets == secrets
+        assert step_resolved.execution_secrets is not parent_resolved.execution_secrets
