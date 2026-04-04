@@ -147,9 +147,10 @@ class ResolvedContext(BaseModel):
     execution_secrets: dict[str, Any] = {}
     """Runtime-only secrets injected into sandbox environments and registries.
 
-    For AWS actions this contains temporary STS credentials obtained by
-    assuming the customer role on the host before sandbox entry.  For all
-    other actions this is an identical deep-copy of ``secrets``.
+    For actions with protected AWS secret names (``aws``, ``amazon_s3``)
+    containing ``AWS_ROLE_ARN``, this is a deep copy with temporary STS
+    credentials replacing the role ARN.  For all other actions this is the
+    same object reference as ``secrets`` (no copy overhead).
 
     Invariant: always populated by ``prepare_resolved_context`` and
     ``_prepare_step_context`` in production.  The ``= {}`` default exists

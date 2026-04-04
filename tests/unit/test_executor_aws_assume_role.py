@@ -216,10 +216,10 @@ class TestBuildExecutionSecrets:
     """Unit tests for _build_execution_secrets."""
 
     @pytest.mark.anyio
-    async def test_non_aws_action_returns_deep_copy(
+    async def test_non_aws_secrets_returned_by_reference(
         self, role: Role, run_context: RunContext
     ) -> None:
-        """Non-AWS actions get an unchanged deep copy."""
+        """Non-AWS secrets skip the deep copy — same object returned."""
         secrets = {
             "crowdstrike": {
                 "CROWDSTRIKE_CLIENT_ID": "abc",
@@ -231,10 +231,7 @@ class TestBuildExecutionSecrets:
             role=role,
             run_context=run_context,
         )
-        assert result == secrets
-        # Must be a deep copy, not the same object
-        assert result is not secrets
-        assert result["crowdstrike"] is not secrets["crowdstrike"]
+        assert result is secrets
 
     @pytest.mark.anyio
     async def test_s3_action_with_role_arn_rewrites_execution_secrets(

@@ -707,12 +707,21 @@ async def _build_execution_secrets(
         run_context: Workflow run context (provides wf_run_id).
 
     Returns:
-        Deep copy of secrets, potentially with AWS_ROLE_ARN replaced by temp creds.
+        ``secrets`` unchanged when no protected names need rewriting, or a
+        deep copy with AWS_ROLE_ARN replaced by temporary session credentials.
 
     Raises:
         TracecatCredentialsError: If a non-empty AWS_PROFILE is used, ARN format
             is invalid, external ID is missing, or STS AssumeRole fails.
     """
+    # Fast path: skip copy when no protected AWS secret names are present.
+    # This keeps the non-AWS hot path identical to pre-PR behavior (no copy).
+    if not (_AWS_PROTECTED_SECRET_NAMES & secrets.keys()):
+        return secrets
+
+    # At least one protected name exists — validate and potentially rewrite.
+    # Deep copy so we never mutate the original secrets dict (used for
+    # expression evaluation via SECRETS.aws.AWS_ROLE_ARN etc.).
     execution_secrets = copy.deepcopy(secrets)
 
     for secret_name in _AWS_PROTECTED_SECRET_NAMES:
@@ -861,7 +870,9 @@ async def prepare_resolved_context(
         run_context=input.run_context,
     )
 
-    # Build mask values from both raw secrets and execution secrets
+    # Build mask values from both raw secrets and execution secrets.
+    # When execution_secrets is the same object (non-AWS fast path) we only
+    # need to iterate once.
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
         logger.warning(
             "Secrets masking is disabled. This is unsafe in production workflows."
@@ -869,7 +880,12 @@ async def prepare_resolved_context(
         mask_values = None
     else:
         mask_values = set()
-        for secret_source in (secrets, execution_secrets):
+        sources = (
+            (secrets, execution_secrets)
+            if execution_secrets is not secrets
+            else (secrets,)
+        )
+        for secret_source in sources:
             for _, secret_value in traverse_leaves(secret_source):
                 if secret_value is not None:
                     secret_str = str(secret_value)
