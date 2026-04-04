@@ -698,8 +698,8 @@ async def _build_execution_secrets_for_action(
         Deep copy of secrets, potentially with AWS_ROLE_ARN replaced by temp creds.
 
     Raises:
-        TracecatCredentialsError: If AWS_PROFILE is used, ARN format is invalid,
-            external ID is missing, or STS AssumeRole fails.
+        TracecatCredentialsError: If a non-empty AWS_PROFILE is used, ARN format
+            is invalid, external ID is missing, or STS AssumeRole fails.
     """
     execution_secrets = copy.deepcopy(secrets)
 
@@ -709,34 +709,39 @@ async def _build_execution_secrets_for_action(
         return execution_secrets
 
     for secret_name in _AWS_SECRET_NAMES:
-        match execution_secrets.get(secret_name):
-            case {"AWS_PROFILE": str()}:
+        if not isinstance(secret_values := execution_secrets.get(secret_name), dict):
+            continue
+
+        if isinstance(aws_profile := secret_values.get("AWS_PROFILE"), str):
+            if aws_profile.strip():
                 raise TracecatCredentialsError(
                     f"AWS_PROFILE is not supported for action '{action_name}'. "
                     "Use AWS_ROLE_ARN or static/session credentials instead."
                 )
-            case {"AWS_ROLE_ARN": str(role_arn)} as secret_values:
-                if not _AWS_ROLE_ARN_PATTERN.match(role_arn):
-                    raise TracecatCredentialsError(
-                        f"Invalid AWS role ARN format in secret '{secret_name}': {role_arn}"
-                    )
-                external_id = secrets.get(_AWS_EXTERNAL_ID_SECRET_KEY)
-                if not isinstance(external_id, str) or not external_id:
-                    raise TracecatCredentialsError(
-                        "Missing runtime AWS external ID for AssumeRole. "
-                        "Ensure the workspace has a valid workspace ID."
-                    )
-                creds = await _assume_role_via_irsa(
-                    role_arn=role_arn,
-                    external_id=external_id,
-                    workspace_id=str(role.workspace_id),
-                    run_id=str(run_context.wf_run_id),
+            secret_values.pop("AWS_PROFILE", None)
+
+        if isinstance(role_arn := secret_values.get("AWS_ROLE_ARN"), str):
+            if not _AWS_ROLE_ARN_PATTERN.match(role_arn):
+                raise TracecatCredentialsError(
+                    f"Invalid AWS role ARN format in secret '{secret_name}': {role_arn}"
                 )
-                secret_values.pop("AWS_ROLE_ARN", None)
-                secret_values.pop("AWS_PROFILE", None)
-                secret_values["AWS_ACCESS_KEY_ID"] = creds["AccessKeyId"]
-                secret_values["AWS_SECRET_ACCESS_KEY"] = creds["SecretAccessKey"]
-                secret_values["AWS_SESSION_TOKEN"] = creds["SessionToken"]
+            external_id = secrets.get(_AWS_EXTERNAL_ID_SECRET_KEY)
+            if not isinstance(external_id, str) or not external_id:
+                raise TracecatCredentialsError(
+                    "Missing runtime AWS external ID for AssumeRole. "
+                    "Ensure the workspace has a valid workspace ID."
+                )
+            creds = await _assume_role_via_irsa(
+                role_arn=role_arn,
+                external_id=external_id,
+                workspace_id=str(role.workspace_id),
+                run_id=str(run_context.wf_run_id),
+            )
+            secret_values.pop("AWS_ROLE_ARN", None)
+            secret_values.pop("AWS_PROFILE", None)
+            secret_values["AWS_ACCESS_KEY_ID"] = creds["AccessKeyId"]
+            secret_values["AWS_SECRET_ACCESS_KEY"] = creds["SecretAccessKey"]
+            secret_values["AWS_SESSION_TOKEN"] = creds["SessionToken"]
 
     return execution_secrets
 
