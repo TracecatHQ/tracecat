@@ -1,6 +1,6 @@
 """Tests for host-side AWS AssumeRole in executor service.
 
-Covers _build_execution_secrets_for_action and integration with
+Covers _build_execution_secrets and integration with
 prepare_resolved_context / ResolvedContext.
 """
 
@@ -23,7 +23,7 @@ from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 from tracecat.executor.service import (
     _AWS_ROLE_ARN_PATTERN,
     _assume_role_via_irsa,
-    _build_execution_secrets_for_action,
+    _build_execution_secrets,
     _prepare_step_context,
 )
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -206,14 +206,14 @@ class TestAssumeRoleViaIrsa:
 
 
 # ---------------------------------------------------------------------------
-# _build_execution_secrets_for_action
+# _build_execution_secrets
 # ---------------------------------------------------------------------------
 
 _IRSA_PATCH = "tracecat.executor.service._assume_role_via_irsa"
 
 
-class TestBuildExecutionSecretsForAction:
-    """Unit tests for _build_execution_secrets_for_action."""
+class TestBuildExecutionSecrets:
+    """Unit tests for _build_execution_secrets."""
 
     @pytest.mark.anyio
     async def test_non_aws_action_returns_deep_copy(
@@ -226,8 +226,7 @@ class TestBuildExecutionSecretsForAction:
                 "CROWDSTRIKE_CLIENT_SECRET": "xyz",
             }
         }
-        result = await _build_execution_secrets_for_action(
-            action_name="tools.crowdstrike.list_detections",
+        result = await _build_execution_secrets(
             secrets=secrets,
             role=role,
             run_context=run_context,
@@ -238,25 +237,6 @@ class TestBuildExecutionSecretsForAction:
         assert result["crowdstrike"] is not secrets["crowdstrike"]
 
     @pytest.mark.anyio
-    async def test_s3_parse_uri_skips_assume_role(
-        self, role: Role, run_context: RunContext
-    ) -> None:
-        """Parse-only S3 helpers should not depend on runtime AWS credentials."""
-        secrets = _base_aws_secrets()
-        mock_assume_role = _mock_assume_role()
-
-        with patch(_IRSA_PATCH, mock_assume_role):
-            result = await _build_execution_secrets_for_action(
-                action_name="tools.amazon_s3.parse_uri",
-                secrets=secrets,
-                role=role,
-                run_context=run_context,
-            )
-
-        assert result == secrets
-        mock_assume_role.assert_not_awaited()
-
-    @pytest.mark.anyio
     async def test_s3_action_with_role_arn_rewrites_execution_secrets(
         self, role: Role, run_context: RunContext
     ) -> None:
@@ -265,8 +245,7 @@ class TestBuildExecutionSecretsForAction:
         original_secrets = copy.deepcopy(secrets)
 
         with patch(_IRSA_PATCH, _mock_assume_role()):
-            result = await _build_execution_secrets_for_action(
-                action_name="tools.amazon_s3.list_objects",
+            result = await _build_execution_secrets(
                 secrets=secrets,
                 role=role,
                 run_context=run_context,
@@ -292,8 +271,7 @@ class TestBuildExecutionSecretsForAction:
         original_secrets = copy.deepcopy(secrets)
 
         with patch(_IRSA_PATCH, _mock_assume_role()):
-            result = await _build_execution_secrets_for_action(
-                action_name="tools.aws_boto3.call_api",
+            result = await _build_execution_secrets(
                 secrets=secrets,
                 role=role,
                 run_context=run_context,
@@ -316,8 +294,7 @@ class TestBuildExecutionSecretsForAction:
         mock_assume_role = _mock_assume_role()
 
         with patch(_IRSA_PATCH, mock_assume_role):
-            await _build_execution_secrets_for_action(
-                action_name="tools.amazon_s3.list_objects",
+            await _build_execution_secrets(
                 secrets=secrets,
                 role=role,
                 run_context=run_context,
@@ -341,8 +318,7 @@ class TestBuildExecutionSecretsForAction:
         mock_assume_role = _mock_assume_role()
 
         with patch(_IRSA_PATCH, mock_assume_role):
-            await _build_execution_secrets_for_action(
-                action_name="tools.amazon_s3.list_objects",
+            await _build_execution_secrets(
                 secrets=secrets,
                 role=role,
                 run_context=run_context,
@@ -364,8 +340,7 @@ class TestBuildExecutionSecretsForAction:
         secrets = _base_aws_secrets(role_arn="not-a-valid-arn")
 
         with pytest.raises(TracecatCredentialsError, match="Invalid AWS role ARN"):
-            await _build_execution_secrets_for_action(
-                action_name="tools.amazon_s3.list_objects",
+            await _build_execution_secrets(
                 secrets=secrets,
                 role=role,
                 run_context=run_context,
@@ -385,8 +360,7 @@ class TestBuildExecutionSecretsForAction:
         }
 
         with pytest.raises(TracecatCredentialsError, match="Missing runtime AWS"):
-            await _build_execution_secrets_for_action(
-                action_name="tools.amazon_s3.list_objects",
+            await _build_execution_secrets(
                 secrets=secrets,
                 role=role,
                 run_context=run_context,
@@ -408,8 +382,7 @@ class TestBuildExecutionSecretsForAction:
             ),
             pytest.raises(TracecatCredentialsError, match="Failed to assume AWS role"),
         ):
-            await _build_execution_secrets_for_action(
-                action_name="tools.amazon_s3.list_objects",
+            await _build_execution_secrets(
                 secrets=secrets,
                 role=role,
                 run_context=run_context,
@@ -431,8 +404,7 @@ class TestBuildExecutionSecretsForAction:
         with pytest.raises(
             TracecatCredentialsError, match="AWS_PROFILE is not supported"
         ):
-            await _build_execution_secrets_for_action(
-                action_name="tools.amazon_s3.list_objects",
+            await _build_execution_secrets(
                 secrets=secrets,
                 role=role,
                 run_context=run_context,
@@ -453,8 +425,7 @@ class TestBuildExecutionSecretsForAction:
             "TRACECAT_AWS_EXTERNAL_ID": _EXTERNAL_ID,
         }
 
-        result = await _build_execution_secrets_for_action(
-            action_name="tools.amazon_s3.list_objects",
+        result = await _build_execution_secrets(
             secrets=secrets,
             role=role,
             run_context=run_context,
@@ -481,8 +452,7 @@ class TestBuildExecutionSecretsForAction:
             "TRACECAT_AWS_EXTERNAL_ID": _EXTERNAL_ID,
         }
 
-        result = await _build_execution_secrets_for_action(
-            action_name="tools.amazon_s3.list_objects",
+        result = await _build_execution_secrets(
             secrets=secrets,
             role=role,
             run_context=run_context,
@@ -506,8 +476,7 @@ class TestBuildExecutionSecretsForAction:
                 "AWS_REGION": "us-west-2",
             },
         }
-        result = await _build_execution_secrets_for_action(
-            action_name="tools.amazon_s3.list_objects",
+        result = await _build_execution_secrets(
             secrets=secrets,
             role=role,
             run_context=run_context,
@@ -528,8 +497,7 @@ class TestSecretExpressionNoRegression:
         original_arn = secrets["amazon_s3"]["AWS_ROLE_ARN"]
 
         with patch(_IRSA_PATCH, _mock_assume_role()):
-            await _build_execution_secrets_for_action(
-                action_name="tools.amazon_s3.list_objects",
+            await _build_execution_secrets(
                 secrets=secrets,
                 role=role,
                 run_context=run_context,
@@ -554,8 +522,7 @@ class TestSecretExpressionNoRegression:
                 "API_KEY": "some-key",
             },
         }
-        result = await _build_execution_secrets_for_action(
-            action_name="tools.amazon_s3.list_objects",
+        result = await _build_execution_secrets(
             secrets=secrets,
             role=role,
             run_context=run_context,
@@ -606,38 +573,3 @@ class TestPrepareStepContext:
         assert "AWS_ROLE_ARN" not in step_resolved.execution_secrets["amazon_s3"]
         assert parent_resolved.secrets == secrets
         assert parent_resolved.execution_secrets == secrets
-
-    @pytest.mark.anyio
-    async def test_exempt_step_keeps_raw_execution_secrets(
-        self, role: Role, run_context: RunContext
-    ) -> None:
-        """Exempt helper steps should not trigger host-side AssumeRole."""
-        secrets = _base_aws_secrets()
-        parent_resolved = _parent_resolved_context(
-            run_context=run_context, secrets=secrets
-        )
-        step_input = _step_input(run_context, "tools.amazon_s3.parse_uri")
-        mock_assume_role = _mock_assume_role()
-
-        with (
-            patch(
-                "tracecat.executor.service.registry_resolver.resolve_action",
-                AsyncMock(
-                    return_value=ActionImplementation(
-                        type="udf", action_name="tools.amazon_s3.parse_uri"
-                    )
-                ),
-            ),
-            patch(_IRSA_PATCH, mock_assume_role),
-        ):
-            step_resolved = await _prepare_step_context(
-                step_action="tools.amazon_s3.parse_uri",
-                evaluated_args={"uri": "s3://bucket/key"},
-                parent_resolved=parent_resolved,
-                input=step_input,
-                role=role,
-            )
-
-        mock_assume_role.assert_not_awaited()
-        assert step_resolved.execution_secrets == secrets
-        assert step_resolved.execution_secrets is not parent_resolved.execution_secrets
