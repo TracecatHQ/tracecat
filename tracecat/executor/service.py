@@ -635,6 +635,7 @@ async def _assume_role_via_irsa(
     external_id: str,
     workspace_id: str,
     run_id: str,
+    role_session_name: str | None = None,
 ) -> dict[str, str]:
     """Assume an AWS IAM role using the host IRSA identity.
 
@@ -643,6 +644,7 @@ async def _assume_role_via_irsa(
         external_id: Workspace-scoped external ID for the AssumeRole call.
         workspace_id: Workspace UUID (used in session name).
         run_id: Workflow run UUID (used in session name).
+        role_session_name: Optional caller-provided STS session name override.
 
     Returns:
         Dict with AccessKeyId, SecretAccessKey, and SessionToken.
@@ -650,9 +652,12 @@ async def _assume_role_via_irsa(
     Raises:
         TracecatCredentialsError: If the STS call fails.
     """
-    ws_short = str(workspace_id).replace("-", "")[:8]
-    run_short = str(run_id).replace("-", "")[:8]
-    session_name = f"tracecat-ws-{ws_short}-run-{run_short}"[:64]
+    if role_session_name:
+        session_name = role_session_name
+    else:
+        ws_short = str(workspace_id).replace("-", "")[:8]
+        run_short = str(run_id).replace("-", "")[:8]
+        session_name = f"tracecat-ws-{ws_short}-run-{run_short}"[:64]
 
     try:
         session = aioboto3.Session()
@@ -736,6 +741,17 @@ async def _build_execution_secrets_for_action(
                 external_id=external_id,
                 workspace_id=str(role.workspace_id),
                 run_id=str(run_context.wf_run_id),
+                role_session_name=(
+                    aws_role_session_name
+                    if isinstance(
+                        aws_role_session_name := secret_values.get(
+                            "AWS_ROLE_SESSION_NAME"
+                        ),
+                        str,
+                    )
+                    and aws_role_session_name.strip()
+                    else None
+                ),
             )
             secret_values.pop("AWS_ROLE_ARN", None)
             secret_values.pop("AWS_PROFILE", None)
