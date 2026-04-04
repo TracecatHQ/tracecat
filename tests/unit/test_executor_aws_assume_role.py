@@ -90,6 +90,14 @@ class TestAWSRoleArnPattern:
     def test_valid_arn(self) -> None:
         assert _AWS_ROLE_ARN_PATTERN.match("arn:aws:iam::123456789012:role/my-role")
 
+    def test_valid_govcloud_arn(self) -> None:
+        assert _AWS_ROLE_ARN_PATTERN.match(
+            "arn:aws-us-gov:iam::123456789012:role/my-role"
+        )
+
+    def test_valid_china_arn(self) -> None:
+        assert _AWS_ROLE_ARN_PATTERN.match("arn:aws-cn:iam::123456789012:role/my-role")
+
     def test_valid_arn_with_path(self) -> None:
         assert _AWS_ROLE_ARN_PATTERN.match(
             "arn:aws:iam::123456789012:role/path/to/role"
@@ -188,6 +196,25 @@ class TestBuildExecutionSecretsForAction:
         # Must be a deep copy, not the same object
         assert result is not secrets
         assert result["crowdstrike"] is not secrets["crowdstrike"]
+
+    @pytest.mark.anyio
+    async def test_s3_parse_uri_skips_assume_role(
+        self, role: Role, run_context: RunContext
+    ) -> None:
+        """Parse-only S3 helpers should not depend on runtime AWS credentials."""
+        secrets = _base_aws_secrets()
+        mock_assume_role = _mock_assume_role()
+
+        with patch(_IRSA_PATCH, mock_assume_role):
+            result = await _build_execution_secrets_for_action(
+                action_name="tools.amazon_s3.parse_uri",
+                secrets=secrets,
+                role=role,
+                run_context=run_context,
+            )
+
+        assert result == secrets
+        mock_assume_role.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_s3_action_with_role_arn_rewrites_execution_secrets(

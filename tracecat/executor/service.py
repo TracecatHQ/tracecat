@@ -621,9 +621,12 @@ async def _invoke_step(
             )
 
 
-_AWS_ROLE_ARN_PATTERN = re.compile(r"^arn:aws(-us-gov|-cn)?:iam::\d{12}:role/[\w+=,.@\-/]+$")
+_AWS_ROLE_ARN_PATTERN = re.compile(
+    r"^arn:aws(?:-[a-z0-9-]+)?:iam::\d{12}:role/[\w+=,.@\-/]+$"
+)
 _AWS_ACTION_PREFIXES = ("tools.aws_boto3.", "tools.amazon_s3.")
 _AWS_SECRET_NAMES = ("aws", "amazon_s3")
+_AWS_ASSUME_ROLE_EXEMPT_ACTIONS = frozenset({"tools.amazon_s3.parse_uri"})
 
 
 async def _assume_role_via_irsa(
@@ -700,7 +703,9 @@ async def _build_execution_secrets_for_action(
     """
     execution_secrets = copy.deepcopy(secrets)
 
-    if not any(action_name.startswith(prefix) for prefix in _AWS_ACTION_PREFIXES):
+    if action_name in _AWS_ASSUME_ROLE_EXEMPT_ACTIONS or not any(
+        action_name.startswith(prefix) for prefix in _AWS_ACTION_PREFIXES
+    ):
         return execution_secrets
 
     for secret_name in _AWS_SECRET_NAMES:
