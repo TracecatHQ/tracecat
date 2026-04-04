@@ -292,6 +292,31 @@ class TestBuildExecutionSecretsForAction:
         )
 
     @pytest.mark.anyio
+    async def test_role_session_name_is_trimmed_before_forwarding(
+        self, role: Role, run_context: RunContext
+    ) -> None:
+        """Whitespace around AWS_ROLE_SESSION_NAME is removed before STS."""
+        secrets = _base_aws_secrets()
+        secrets["amazon_s3"]["AWS_ROLE_SESSION_NAME"] = "  custom-audit-session  "
+        mock_assume_role = _mock_assume_role()
+
+        with patch(_IRSA_PATCH, mock_assume_role):
+            await _build_execution_secrets_for_action(
+                action_name="tools.amazon_s3.list_objects",
+                secrets=secrets,
+                role=role,
+                run_context=run_context,
+            )
+
+        mock_assume_role.assert_awaited_once_with(
+            role_arn=_VALID_ROLE_ARN,
+            external_id=_EXTERNAL_ID,
+            workspace_id=str(_WORKSPACE_ID),
+            run_id=str(run_context.wf_run_id),
+            role_session_name="custom-audit-session",
+        )
+
+    @pytest.mark.anyio
     async def test_invalid_arn_raises_credentials_error(
         self, role: Role, run_context: RunContext
     ) -> None:
