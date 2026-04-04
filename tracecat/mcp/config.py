@@ -12,14 +12,11 @@ TRACECAT_MCP__HOST: str = os.environ.get("TRACECAT_MCP__HOST", "0.0.0.0")
 TRACECAT_MCP__PORT: int = int(os.environ.get("TRACECAT_MCP__PORT", "8099"))
 """Port for the MCP HTTP server."""
 
-TRACECAT_MCP__BASE_URL: str = os.environ.get(
-    "TRACECAT_MCP__BASE_URL", ""
-).strip().rstrip("/") or TRACECAT__PUBLIC_APP_URL.rstrip("/")
+TRACECAT_MCP__BASE_URL: str = TRACECAT__PUBLIC_APP_URL.rstrip("/")
 """Public URL where the MCP server is accessible.
 
-This should be the public root URL for the MCP OAuth/discovery endpoints.
-FastMCP derives the protected resource path (for example `/mcp`) separately.
-Defaults to `TRACECAT__PUBLIC_APP_URL` for local development and cluster setups.
+Always the same as TRACECAT__PUBLIC_APP_URL since MCP is behind the
+same reverse proxy.  Kept as a named alias for readability at call sites.
 """
 
 TRACECAT_MCP__RATE_LIMIT_RPS: float = float(

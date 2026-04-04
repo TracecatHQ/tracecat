@@ -648,12 +648,7 @@ def _build_oidc_consent_html(
 
 def _create_oidc_auth() -> OIDCProxy:
     """Build the OIDC auth provider for external MCP."""
-    base_url = mcp_config.TRACECAT_MCP__BASE_URL.strip().rstrip("/")
-    if not base_url:
-        raise ValueError(
-            "TRACECAT_MCP__BASE_URL must be configured for the MCP server. "
-            "Set it to the public URL where the MCP server is accessible."
-        )
+    base_url = mcp_config.TRACECAT_MCP__BASE_URL
 
     # The internal OIDC issuer lives on the API server.  The MCP server
     # uses it as the upstream identity provider instead of an external BYO

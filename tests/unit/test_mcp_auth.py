@@ -260,17 +260,6 @@ def test_create_mcp_auth_registration_merges_oidc_scopes_into_partial_scope(
     assert registration["scope"] == "openid"
 
 
-def test_create_mcp_auth_raises_when_base_url_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "")
-    with pytest.raises(
-        ValueError,
-        match="TRACECAT_MCP__BASE_URL must be configured for the MCP server",
-    ):
-        mcp_auth.create_mcp_auth()
-
-
 def test_append_scope_if_missing_adds_unique_scope() -> None:
     scopes = ["openid", "profile"]
     assert mcp_auth.append_scope_if_missing(scopes, "offline_access") == [
