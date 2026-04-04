@@ -742,7 +742,7 @@ async def _build_execution_secrets_for_action(
                 workspace_id=str(role.workspace_id),
                 run_id=str(run_context.wf_run_id),
                 role_session_name=(
-                    aws_role_session_name
+                    aws_role_session_name.strip()
                     if isinstance(
                         aws_role_session_name := secret_values.get(
                             "AWS_ROLE_SESSION_NAME"
