@@ -726,6 +726,9 @@ async def _build_execution_secrets_for_action(
             secret_values.pop("AWS_PROFILE", None)
 
         if isinstance(role_arn := secret_values.get("AWS_ROLE_ARN"), str):
+            if not (role_arn := role_arn.strip()):
+                secret_values.pop("AWS_ROLE_ARN", None)
+                continue
             if not _AWS_ROLE_ARN_PATTERN.match(role_arn):
                 raise TracecatCredentialsError(
                     f"Invalid AWS role ARN format in secret '{secret_name}': {role_arn}"
