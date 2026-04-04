@@ -145,11 +145,15 @@ class ResolvedContext(BaseModel):
     """
 
     execution_secrets: dict[str, Any] = {}
-    """Runtime-only secrets used for environment/registry injection.
+    """Runtime-only secrets injected into sandbox environments and registries.
 
     For AWS actions this contains temporary STS credentials obtained by
     assuming the customer role on the host before sandbox entry.  For all
     other actions this is an identical deep-copy of ``secrets``.
+
+    Invariant: always populated by ``prepare_resolved_context`` and
+    ``_prepare_step_context`` in production.  The ``= {}`` default exists
+    only for test convenience (non-AWS test fixtures that omit this field).
     """
 
     variables: dict[str, Any] = {}

@@ -393,10 +393,9 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         # Extract what we need from resolved_context
         resolved_context = input_data.get("resolved_context", {})
         action_impl = resolved_context.get("action_impl")
-        # Prefer execution_secrets (has pre-assumed AWS creds) over raw secrets
-        secrets = resolved_context.get("execution_secrets") or resolved_context.get(
-            "secrets", {}
-        )
+        # execution_secrets is always set by prepare_resolved_context /
+        # _prepare_step_context with pre-assumed AWS creds where applicable.
+        secrets = resolved_context.get("execution_secrets", {})
         evaluated_args = resolved_context.get("evaluated_args", {})
 
         if not action_impl:
