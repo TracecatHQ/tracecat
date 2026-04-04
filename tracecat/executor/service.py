@@ -409,8 +409,7 @@ async def _prepare_step_context(
         step_action, input.registry_lock, role.organization_id
     )
 
-    execution_secrets = await _build_execution_secrets_for_action(
-        action_name=step_action,
+    execution_secrets = await _build_execution_secrets(
         secrets=parent_resolved.secrets,
         role=role,
         run_context=input.run_context,
@@ -631,9 +630,11 @@ async def _invoke_step(
 _AWS_ROLE_ARN_PATTERN = re.compile(
     r"^arn:aws(?:-[a-z0-9-]+)?:iam::\d{12}:role/[\w+=,.@\-/]+$"
 )
-_AWS_ACTION_PREFIXES = ("tools.aws_boto3.", "tools.amazon_s3.")
-_AWS_SECRET_NAMES = ("aws", "amazon_s3")
-_AWS_ASSUME_ROLE_EXEMPT_ACTIONS = frozenset({"tools.amazon_s3.parse_uri"})
+_AWS_PROTECTED_SECRET_NAMES = frozenset({"aws", "amazon_s3"})
+"""Reserved secret names that receive host-side STS AssumeRole when they
+contain ``AWS_ROLE_ARN``.  Any registry action (built-in or custom) that
+declares a secret with one of these names gets automatic credential
+brokering before sandbox entry."""
 
 
 async def _assume_role_via_irsa(
@@ -686,22 +687,21 @@ async def _assume_role_via_irsa(
         ) from e
 
 
-async def _build_execution_secrets_for_action(
+async def _build_execution_secrets(
     *,
-    action_name: str,
     secrets: dict[str, Any],
     role: Role,
     run_context: RunContext,
 ) -> dict[str, Any]:
     """Build runtime execution secrets, assuming AWS roles on the host when needed.
 
-    For non-AWS actions, returns a deep copy of secrets unchanged.
-    For AWS actions with AWS_ROLE_ARN, performs host-side STS AssumeRole and
-    replaces the role ARN with temporary credentials in the returned copy.
-    The original ``secrets`` dict is never mutated.
+    Scans the secrets dict for protected AWS secret names (``aws``,
+    ``amazon_s3``).  When one contains ``AWS_ROLE_ARN``, performs host-side
+    STS AssumeRole and replaces the role ARN with temporary session
+    credentials.  Non-AWS secrets and secrets without ``AWS_ROLE_ARN`` are
+    returned unchanged.  The original ``secrets`` dict is never mutated.
 
     Args:
-        action_name: Fully qualified action name (e.g. ``tools.amazon_s3.list_objects``).
         secrets: Raw secrets dict from ``get_action_secrets()``.
         role: Current execution role (must have workspace_id).
         run_context: Workflow run context (provides wf_run_id).
@@ -715,59 +715,54 @@ async def _build_execution_secrets_for_action(
     """
     execution_secrets = copy.deepcopy(secrets)
 
-    if action_name in _AWS_ASSUME_ROLE_EXEMPT_ACTIONS or not any(
-        action_name.startswith(prefix) for prefix in _AWS_ACTION_PREFIXES
-    ):
-        return execution_secrets
-
-    for secret_name in _AWS_SECRET_NAMES:
+    for secret_name in _AWS_PROTECTED_SECRET_NAMES:
         if not isinstance(secret_values := execution_secrets.get(secret_name), dict):
             continue
 
         if isinstance(aws_profile := secret_values.get("AWS_PROFILE"), str):
             if aws_profile.strip():
                 raise TracecatCredentialsError(
-                    f"AWS_PROFILE is not supported for action '{action_name}'. "
+                    "AWS_PROFILE is not supported in protected secret "
+                    f"'{secret_name}'. "
                     "Use AWS_ROLE_ARN or static/session credentials instead."
                 )
             secret_values.pop("AWS_PROFILE", None)
 
-        if isinstance(role_arn := secret_values.get("AWS_ROLE_ARN"), str):
-            if not (role_arn := role_arn.strip()):
-                secret_values.pop("AWS_ROLE_ARN", None)
-                continue
-            if not _AWS_ROLE_ARN_PATTERN.match(role_arn):
-                raise TracecatCredentialsError(
-                    f"Invalid AWS role ARN format in secret '{secret_name}': {role_arn}"
-                )
-            external_id = secrets.get(_AWS_EXTERNAL_ID_SECRET_KEY)
-            if not isinstance(external_id, str) or not external_id:
-                raise TracecatCredentialsError(
-                    "Missing runtime AWS external ID for AssumeRole. "
-                    "Ensure the workspace has a valid workspace ID."
-                )
-            creds = await _assume_role_via_irsa(
-                role_arn=role_arn,
-                external_id=external_id,
-                workspace_id=str(role.workspace_id),
-                run_id=str(run_context.wf_run_id),
-                role_session_name=(
-                    aws_role_session_name.strip()
-                    if isinstance(
-                        aws_role_session_name := secret_values.get(
-                            "AWS_ROLE_SESSION_NAME"
-                        ),
-                        str,
-                    )
-                    and aws_role_session_name.strip()
-                    else None
-                ),
-            )
+        if not isinstance(role_arn := secret_values.get("AWS_ROLE_ARN"), str):
+            continue
+        if not (role_arn := role_arn.strip()):
             secret_values.pop("AWS_ROLE_ARN", None)
-            secret_values.pop("AWS_PROFILE", None)
-            secret_values["AWS_ACCESS_KEY_ID"] = creds["AccessKeyId"]
-            secret_values["AWS_SECRET_ACCESS_KEY"] = creds["SecretAccessKey"]
-            secret_values["AWS_SESSION_TOKEN"] = creds["SessionToken"]
+            continue
+        if not _AWS_ROLE_ARN_PATTERN.match(role_arn):
+            raise TracecatCredentialsError(
+                f"Invalid AWS role ARN format in secret '{secret_name}': {role_arn}"
+            )
+        external_id = secrets.get(_AWS_EXTERNAL_ID_SECRET_KEY)
+        if not isinstance(external_id, str) or not external_id:
+            raise TracecatCredentialsError(
+                "Missing runtime AWS external ID for AssumeRole. "
+                "Ensure the workspace has a valid workspace ID."
+            )
+        creds = await _assume_role_via_irsa(
+            role_arn=role_arn,
+            external_id=external_id,
+            workspace_id=str(role.workspace_id),
+            run_id=str(run_context.wf_run_id),
+            role_session_name=(
+                aws_role_session_name.strip()
+                if isinstance(
+                    aws_role_session_name := secret_values.get("AWS_ROLE_SESSION_NAME"),
+                    str,
+                )
+                and aws_role_session_name.strip()
+                else None
+            ),
+        )
+        secret_values.pop("AWS_ROLE_ARN", None)
+        secret_values.pop("AWS_PROFILE", None)
+        secret_values["AWS_ACCESS_KEY_ID"] = creds["AccessKeyId"]
+        secret_values["AWS_SECRET_ACCESS_KEY"] = creds["SecretAccessKey"]
+        secret_values["AWS_SESSION_TOKEN"] = creds["SessionToken"]
 
     return execution_secrets
 
@@ -860,8 +855,7 @@ async def prepare_resolved_context(
         raise ValueError("workspace_id is required for action execution")
 
     # Build execution secrets with host-side AWS role assumption (if applicable)
-    execution_secrets = await _build_execution_secrets_for_action(
-        action_name=action_name,
+    execution_secrets = await _build_execution_secrets(
         secrets=secrets,
         role=role,
         run_context=input.run_context,
