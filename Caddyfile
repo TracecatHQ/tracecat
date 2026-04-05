@@ -18,9 +18,8 @@
 		}
 	}
 
-	# MCP server (FastMCP serves at /mcp by default, so preserve the path).
-	@mcp_server path /mcp /mcp/*
-	handle @mcp_server {
+	# MCP server (FastMCP serves at /mcp by default, so preserve the path)
+	handle /mcp* {
 		reverse_proxy http://mcp:8099 {
 			flush_interval -1
 		}
