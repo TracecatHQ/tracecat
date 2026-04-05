@@ -81,17 +81,18 @@ async def _assume_role_via_irsa(
     }
 
 
+_AWS_ROLE_ARN_PATTERN = re.compile(
+    r"^arn:aws(?:-[a-z0-9-]+)?:iam::\d{12}:role/[\w+=,.@\-/]+$"
+)
+_AWS_PROTECTED_SECRET_NAMES = frozenset({"aws", "amazon_s3"})
+
+
 class AwsAssumeRoleSecretPreprocessor:
     """Rewrites protected AWS role secrets into temporary session credentials."""
 
-    ROLE_ARN_PATTERN = re.compile(
-        r"^arn:aws(?:-[a-z0-9-]+)?:iam::\d{12}:role/[\w+=,.@\-/]+$"
-    )
-    PROTECTED_SECRET_NAMES = frozenset({"aws", "amazon_s3"})
-
     def matches(self, secrets: Mapping[str, Any]) -> bool:
         """Return True when any protected AWS secret namespace is present."""
-        return bool(self.PROTECTED_SECRET_NAMES & secrets.keys())
+        return bool(_AWS_PROTECTED_SECRET_NAMES & secrets.keys())
 
     def _get_secret_values(
         self, projected_secrets: dict[str, Any], secret_name: str
@@ -124,7 +125,7 @@ class AwsAssumeRoleSecretPreprocessor:
         if not (role_arn := role_arn.strip()):
             secret_values.pop("AWS_ROLE_ARN", None)
             return None
-        if not self.ROLE_ARN_PATTERN.match(role_arn):
+        if not _AWS_ROLE_ARN_PATTERN.match(role_arn):
             raise TracecatCredentialsError(
                 f"Invalid AWS role ARN format in secret '{secret_name}': {role_arn}"
             )
@@ -171,7 +172,7 @@ class AwsAssumeRoleSecretPreprocessor:
         """Project protected AWS secrets into env-ready session credentials."""
         projected_secrets = copy.deepcopy(dict(secrets))
 
-        for secret_name in self.PROTECTED_SECRET_NAMES:
+        for secret_name in _AWS_PROTECTED_SECRET_NAMES:
             if not (
                 secret_values := self._get_secret_values(projected_secrets, secret_name)
             ):

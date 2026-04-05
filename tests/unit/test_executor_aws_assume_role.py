@@ -16,7 +16,7 @@ from tracecat.auth.types import Role
 from tracecat.dsl.schemas import RunContext
 from tracecat.exceptions import TracecatCredentialsError
 from tracecat.executor.secret_preprocessors import (
-    AwsAssumeRoleSecretPreprocessor,
+    _AWS_ROLE_ARN_PATTERN,
     _assume_role_via_irsa,
     project_secret_env,
 )
@@ -80,39 +80,31 @@ class TestAWSRoleArnPattern:
 
     def test_valid_arn(self) -> None:
         """Standard commercial AWS role ARNs should match."""
-        assert AwsAssumeRoleSecretPreprocessor.ROLE_ARN_PATTERN.match(
-            "arn:aws:iam::123456789012:role/my-role"
-        )
+        assert _AWS_ROLE_ARN_PATTERN.match("arn:aws:iam::123456789012:role/my-role")
 
     def test_valid_govcloud_arn(self) -> None:
         """GovCloud AWS role ARNs should match."""
-        assert AwsAssumeRoleSecretPreprocessor.ROLE_ARN_PATTERN.match(
+        assert _AWS_ROLE_ARN_PATTERN.match(
             "arn:aws-us-gov:iam::123456789012:role/my-role"
         )
 
     def test_valid_china_arn(self) -> None:
         """China partition AWS role ARNs should match."""
-        assert AwsAssumeRoleSecretPreprocessor.ROLE_ARN_PATTERN.match(
-            "arn:aws-cn:iam::123456789012:role/my-role"
-        )
+        assert _AWS_ROLE_ARN_PATTERN.match("arn:aws-cn:iam::123456789012:role/my-role")
 
     def test_valid_arn_with_path(self) -> None:
         """Role ARNs with nested paths should match."""
-        assert AwsAssumeRoleSecretPreprocessor.ROLE_ARN_PATTERN.match(
+        assert _AWS_ROLE_ARN_PATTERN.match(
             "arn:aws:iam::123456789012:role/path/to/role"
         )
 
     def test_invalid_arn_missing_prefix(self) -> None:
         """Strings without the ARN prefix should not match."""
-        assert not AwsAssumeRoleSecretPreprocessor.ROLE_ARN_PATTERN.match(
-            "123456789012:role/my-role"
-        )
+        assert not _AWS_ROLE_ARN_PATTERN.match("123456789012:role/my-role")
 
     def test_invalid_arn_wrong_service(self) -> None:
         """ARNs for non-IAM services should not match the role pattern."""
-        assert not AwsAssumeRoleSecretPreprocessor.ROLE_ARN_PATTERN.match(
-            "arn:aws:s3:::my-bucket"
-        )
+        assert not _AWS_ROLE_ARN_PATTERN.match("arn:aws:s3:::my-bucket")
 
 
 class TestAssumeRoleViaIrsa:
