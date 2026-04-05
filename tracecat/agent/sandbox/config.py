@@ -246,6 +246,10 @@ def build_agent_nsjail_config(
     Raises:
         AgentSandboxValidationError: If any input contains dangerous characters.
     """
+    # Import lazily so sandboxed runtime imports of this module do not require
+    # the full tracecat.sandbox package to be mounted inside the jail.
+    from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
+
     # Validate inputs to prevent injection into protobuf config
     _validate_path(rootfs, "rootfs")
     _validate_path(job_dir, "job_dir")
@@ -280,6 +284,9 @@ def build_agent_nsjail_config(
         "# UID/GID mapping - map container user to sandbox user",
         f'uidmap {{ inside_id: "1000" outside_id: "{os.getuid()}" count: 1 }}',
         f'gidmap {{ inside_id: "1000" outside_id: "{os.getgid()}" count: 1 }}',
+        "",
+        "# Syscall filtering",
+        f'seccomp_string: "{build_untrusted_seccomp_policy()}"',
         "",
         "# Rootfs mounts - read-only base system (same rootfs as action sandbox)",
         f'mount {{ src: "{rootfs}/usr" dst: "/usr" is_bind: true rw: false }}',

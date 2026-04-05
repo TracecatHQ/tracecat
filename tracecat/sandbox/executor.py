@@ -18,6 +18,7 @@ from tracecat.config import (
 )
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError, SandboxValidationError
+from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 from tracecat.sandbox.types import ResourceLimits, SandboxConfig, SandboxResult
 
 
@@ -245,6 +246,9 @@ class NsjailExecutor:
                 "# UID/GID mapping - map container user to current user",
                 f'uidmap {{ inside_id: "1000" outside_id: "{os.getuid()}" count: 1 }}',
                 f'gidmap {{ inside_id: "1000" outside_id: "{os.getgid()}" count: 1 }}',
+                "",
+                "# Syscall filtering",
+                f'seccomp_string: "{build_untrusted_seccomp_policy()}"',
                 "",
                 "# Rootfs mounts - read-only base system",
                 f'mount {{ src: "{self.rootfs}/usr" dst: "/usr" is_bind: true rw: false }}',
@@ -666,6 +670,9 @@ class NsjailExecutor:
             "# UID/GID mapping - map container user to current user",
             f'uidmap {{ inside_id: "1000" outside_id: "{os.getuid()}" count: 1 }}',
             f'gidmap {{ inside_id: "1000" outside_id: "{os.getgid()}" count: 1 }}',
+            "",
+            "# Syscall filtering",
+            f'seccomp_string: "{build_untrusted_seccomp_policy()}"',
             "",
             "# Rootfs mounts - read-only base system",
             f'mount {{ src: "{self.rootfs}/usr" dst: "/usr" is_bind: true rw: false }}',

@@ -54,6 +54,7 @@ from pydantic import TypeAdapter
 from tracecat import config
 from tracecat.executor.schemas import ExecutorResult, ResolvedContext
 from tracecat.logger import logger
+from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
@@ -444,6 +445,9 @@ class WorkerPool:
             "clone_newipc: true",
             "clone_newuts: true",
             "clone_newcgroup: true",
+            "",
+            "# Syscall filtering",
+            f'seccomp_string: "{build_untrusted_seccomp_policy()}"',
             "",
             "# Resource limits",
             "rlimit_as_type: SOFT",
