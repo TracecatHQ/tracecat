@@ -154,8 +154,10 @@ resource "aws_iam_policy" "secrets_access" {
   depends_on = [aws_db_instance.core_database]
 }
 
-# API-only secrets — USER_AUTH_SECRET must not be accessible from
-# worker, executor, or MCP services to limit blast radius.
+# API and MCP secrets — USER_AUTH_SECRET is needed by the API service
+# (password reset, email verification, OAuth state signing) and the MCP
+# service (internal OIDC client-secret derivation).  It must NOT be
+# accessible from worker or executor services to limit blast radius.
 resource "aws_iam_policy" "api_only_secrets_access" {
   name        = "TracecatAPIOnlySecretsAccessPolicy"
   description = "Policy for accessing API-only secrets (USER_AUTH_SECRET)"
@@ -425,6 +427,12 @@ resource "aws_iam_role_policy_attachment" "mcp_execution_ecs_poll" {
 resource "aws_iam_role_policy_attachment" "mcp_execution_secrets" {
   count      = var.enable_mcp ? 1 : 0
   policy_arn = aws_iam_policy.secrets_access.arn
+  role       = aws_iam_role.mcp_execution[0].name
+}
+
+resource "aws_iam_role_policy_attachment" "mcp_execution_api_only_secrets" {
+  count      = var.enable_mcp ? 1 : 0
+  policy_arn = aws_iam_policy.api_only_secrets_access.arn
   role       = aws_iam_role.mcp_execution[0].name
 }
 

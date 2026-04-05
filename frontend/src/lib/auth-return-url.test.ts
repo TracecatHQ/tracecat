@@ -31,6 +31,13 @@ describe("sanitizeReturnUrl", () => {
   it("does not over-match unrelated internal routes", () => {
     expect(sanitizeReturnUrl("/authentic/path")).toBe("/authentic/path")
   })
+
+  it.each([
+    "/oauth/mcp/continue?txn=abc123",
+    "/oauth/mcp/select-org?txn=abc123",
+  ])("allows MCP OAuth resume paths for %s", (value) => {
+    expect(sanitizeReturnUrl(value)).toBe(value)
+  })
 })
 
 describe("decodeAndSanitizeReturnUrl", () => {

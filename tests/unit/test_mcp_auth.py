@@ -11,6 +11,7 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken
 from fastmcp.server.auth.cimd import CIMDDocument
 from fastmcp.server.auth.oauth_proxy.models import ProxyDCRClient
+from key_value.aio.stores.memory import MemoryStore
 from mcp.server.auth.provider import AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyHttpUrl, AnyUrl
@@ -38,30 +39,46 @@ def _mock_oidc_discovery_config(
 
 
 def _build_test_auth(monkeypatch: pytest.MonkeyPatch) -> mcp_auth.OIDCProxy:
+    monkeypatch.setattr(mcp_auth, "TRACECAT__PUBLIC_APP_URL", "https://mcp.example.com")
+    # Mock the internal OIDC issuer config used by _create_oidc_auth
+    monkeypatch.setattr(mcp_auth, "INTERNAL_CLIENT_ID", "tracecat-mcp-oidc-internal")
     monkeypatch.setattr(
-        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
+        mcp_auth,
+        "get_internal_client_secret",
+        lambda: "test-client-secret",
     )
-    with (
-        patch(
-            "tracecat.mcp.auth.get_platform_oidc_config",
-            return_value=type(
-                "OIDCConfig",
-                (),
-                {
-                    "issuer": "https://issuer.example.com",
-                    "client_id": "client-id",
-                    "client_secret": "client-secret",
-                    "scopes": ("openid", "profile", "email"),
-                },
-            )(),
-        ),
-        patch.object(
-            mcp_auth.OIDCProxy,
-            "get_oidc_configuration",
-            return_value=_mock_oidc_discovery_config(),
-        ),
-    ):
-        auth = mcp_auth.create_mcp_auth()
+    monkeypatch.setattr(
+        mcp_auth,
+        "get_internal_discovery_url",
+        lambda: "https://issuer.example.com/.well-known/openid-configuration",
+    )
+    # Use in-memory store instead of Redis for tests
+    monkeypatch.setattr(mcp_auth, "REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setattr(mcp_auth, "TRACECAT__DB_ENCRYPTION_KEY", "")
+    monkeypatch.setattr(mcp_auth.AsyncRedis, "from_url", lambda *a, **kw: MagicMock())
+
+    def _patched_create_oidc_auth(
+        _orig=mcp_auth._create_oidc_auth,
+    ) -> mcp_auth.OIDCProxy:
+        """Wrap _create_oidc_auth to inject an in-memory client_storage."""
+        with (
+            patch.object(
+                mcp_auth.OIDCProxy,
+                "get_oidc_configuration",
+                return_value=_mock_oidc_discovery_config(),
+            ),
+            patch(
+                "tracecat.mcp.auth.RedisStore",
+                return_value=MemoryStore(),
+            ),
+            patch(
+                "tracecat.mcp.auth.PrefixCollectionsWrapper",
+                side_effect=lambda store, **kw: store,
+            ),
+        ):
+            return _orig()
+
+    auth = _patched_create_oidc_auth()
     assert isinstance(auth, mcp_auth.OIDCProxy)
     return auth
 
@@ -116,7 +133,6 @@ def test_create_mcp_auth_metadata_advertises_public_client_auth(
         "openid",
         "profile",
         "email",
-        "offline_access",
     ]
     assert "none" in payload["token_endpoint_auth_methods_supported"]
 
@@ -163,7 +179,6 @@ def test_create_mcp_auth_protected_resource_metadata_uses_mcp_path(
         "openid",
         "profile",
         "email",
-        "offline_access",
     ]
 
 
@@ -191,7 +206,7 @@ def test_create_mcp_auth_metadata_matches_public_client_registration(
     registration = registration_response.json()
     assert registration["token_endpoint_auth_method"] == "none"
     assert registration.get("client_secret") is None
-    assert registration["scope"] == "openid profile email offline_access"
+    assert registration["scope"] == "openid profile email"
     assert (
         registration["token_endpoint_auth_method"]
         in metadata["token_endpoint_auth_methods_supported"]
@@ -241,42 +256,6 @@ def test_create_mcp_auth_registration_merges_oidc_scopes_into_partial_scope(
     assert registration_response.status_code == 201
     registration = registration_response.json()
     assert registration["scope"] == "openid"
-
-
-def test_create_mcp_auth_raises_when_base_url_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "")
-    with pytest.raises(
-        ValueError,
-        match="TRACECAT_MCP__BASE_URL must be configured for the MCP server",
-    ):
-        mcp_auth.create_mcp_auth()
-
-
-def test_create_mcp_auth_raises_when_oidc_issuer_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
-    )
-    with patch(
-        "tracecat.mcp.auth.get_platform_oidc_config",
-        return_value=type(
-            "OIDCConfig",
-            (),
-            {
-                "issuer": "",
-                "client_id": "client-id",
-                "client_secret": "client-secret",
-            },
-        )(),
-    ):
-        with pytest.raises(
-            ValueError,
-            match="OIDC_ISSUER must be configured for the MCP server",
-        ):
-            mcp_auth.create_mcp_auth()
 
 
 def test_append_scope_if_missing_adds_unique_scope() -> None:
@@ -334,9 +313,6 @@ def test_supports_refresh_scope_when_scope_not_supported() -> None:
 async def test_create_mcp_auth_authorize_includes_platform_oidc_scopes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
-    )
     captured: dict[str, object] = {}
 
     async def _capture_authorize(self, client, params):
@@ -344,31 +320,8 @@ async def test_create_mcp_auth_authorize_includes_platform_oidc_scopes(
         captured["params"] = params
         return "https://issuer.example.com/oauth2/authorize?state=txn"
 
-    with (
-        patch(
-            "tracecat.mcp.auth.get_platform_oidc_config",
-            return_value=type(
-                "OIDCConfig",
-                (),
-                {
-                    "issuer": "https://issuer.example.com",
-                    "client_id": "client-id",
-                    "client_secret": "client-secret",
-                    "scopes": ("openid", "profile", "email"),
-                },
-            )(),
-        ),
-        patch.object(
-            mcp_auth.OIDCProxy,
-            "get_oidc_configuration",
-            return_value=_mock_oidc_discovery_config(
-                scopes_supported=["openid", "profile", "email", "offline_access"]
-            ),
-        ),
-        patch.object(mcp_auth.OIDCProxy, "authorize", _capture_authorize),
-    ):
-        auth = mcp_auth.create_mcp_auth()
-        assert isinstance(auth, mcp_auth.OIDCProxy)
+    with patch.object(mcp_auth.OIDCProxy, "authorize", _capture_authorize):
+        auth = _build_test_auth(monkeypatch)
         client = OAuthClientInformationFull(
             client_id="cursor-client",
             redirect_uris=[AnyUrl("cursor://anysphere.cursor-mcp/oauth/callback")],
@@ -394,48 +347,22 @@ async def test_create_mcp_auth_authorize_includes_platform_oidc_scopes(
         "openid",
         "profile",
         "email",
-        "offline_access",
     ]
 
 
 @pytest.mark.anyio
-async def test_create_mcp_auth_authorize_keeps_offline_access_when_metadata_omits_it(
+async def test_create_mcp_auth_authorize_merges_required_scopes_into_custom(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
-    )
+    """Authorize merges required OIDC scopes even when client only asks for custom."""
     captured: dict[str, object] = {}
 
     async def _capture_authorize(self, client, params):
         captured["params"] = params
         return "https://issuer.example.com/oauth2/authorize?state=txn"
 
-    with (
-        patch(
-            "tracecat.mcp.auth.get_platform_oidc_config",
-            return_value=type(
-                "OIDCConfig",
-                (),
-                {
-                    "issuer": "https://issuer.example.com",
-                    "client_id": "client-id",
-                    "client_secret": "client-secret",
-                    "scopes": ("openid", "profile", "offline_access"),
-                },
-            )(),
-        ),
-        patch.object(
-            mcp_auth.OIDCProxy,
-            "get_oidc_configuration",
-            return_value=_mock_oidc_discovery_config(
-                scopes_supported=["openid", "profile"]
-            ),
-        ),
-        patch.object(mcp_auth.OIDCProxy, "authorize", _capture_authorize),
-    ):
-        auth = mcp_auth.create_mcp_auth()
-        assert isinstance(auth, mcp_auth.OIDCProxy)
+    with patch.object(mcp_auth.OIDCProxy, "authorize", _capture_authorize):
+        auth = _build_test_auth(monkeypatch)
         client = OAuthClientInformationFull(
             client_id="codex-client",
             redirect_uris=[AnyUrl("http://localhost:3333/callback")],
@@ -457,7 +384,7 @@ async def test_create_mcp_auth_authorize_keeps_offline_access_when_metadata_omit
     forwarded = captured["params"]
     assert isinstance(forwarded, AuthorizationParams)
     assert forwarded.scopes is not None
-    assert forwarded.scopes == ["custom:scope", "openid", "profile", "offline_access"]
+    assert forwarded.scopes == ["custom:scope", "openid", "profile", "email"]
 
 
 @pytest.mark.anyio
@@ -516,7 +443,7 @@ async def test_create_mcp_auth_get_client_merges_required_scopes_for_partial_dcr
     client = await auth.get_client(client_id)
 
     assert client is not None
-    assert client.scope == "openid profile email offline_access"
+    assert client.scope == "openid profile email"
     assert client.validate_scope("openid") == ["openid"]
 
 
@@ -544,7 +471,7 @@ async def test_create_mcp_auth_register_client_stores_required_scopes(
 
     await auth.register_client(client_info)
 
-    assert captured["scope"] == "openid profile email offline_access"
+    assert captured["scope"] == "openid profile email"
 
 
 @pytest.mark.anyio
@@ -661,7 +588,9 @@ async def test_extract_upstream_claims_rejects_mismatched_userinfo_subject(
 
     assert exc_info.value.error == "invalid_client"
     assert exc_info.value.error_description is not None
-    assert "No email claim in id_token or userinfo" in exc_info.value.error_description
+    assert (
+        "No email claim in internal issuer tokens" in exc_info.value.error_description
+    )
 
 
 @pytest.mark.anyio
@@ -693,7 +622,10 @@ async def test_extract_upstream_claims_maps_userinfo_failure_to_invalid_grant(
         )
 
     assert exc_info.value.error == "invalid_grant"
-    assert exc_info.value.error_description == "Failed to fetch OIDC userinfo"
+    assert (
+        exc_info.value.error_description
+        == "Failed to resolve OIDC email claims from internal issuer"
+    )
 
 
 @pytest.mark.anyio
@@ -756,6 +688,7 @@ async def test_load_access_token_preserves_fastmcp_upstream_claims(
         return validated
 
     monkeypatch.setattr(mcp_auth.OIDCProxy, "load_access_token", _load_access_token)
+    # jwt_issuer is a property backed by _jwt_issuer; use monkeypatch to set it.
     monkeypatch.setattr(
         auth,
         "_jwt_issuer",
