@@ -21,6 +21,13 @@ Use these rules for work in `frontend/`.
 - When handling generated frontend types, do not import `$`-prefixed variables
   unless you intentionally need the schema object.
 
+## Frontend type generation
+
+- Prefer generated types over hand-maintained duplicates when backend schemas
+  already define the contract.
+- Regenerate the client with `just gen-client-ci` before introducing a new
+  handwritten type that mirrors backend API data.
+
 ## Global UI shells
 
 - Treat anything mounted from `frontend/src/app/layout.tsx` as globally live on

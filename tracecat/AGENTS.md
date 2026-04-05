@@ -9,10 +9,13 @@ set for related Python packages in this repo.
 - Follow Google-style docstrings for public functions, methods, and classes.
 - Keep imports at module scope. Do not move imports into function bodies.
 - Use `uv run` for Python commands and tests.
+- Use `uv pip install` for package installation.
 - Avoid `type: ignore`. If imports are cyclical, prefer `if TYPE_CHECKING:`.
 - Prefer `frozen=True` dataclasses for immutable value objects.
 - Prefer `TypedDict` for structured dictionaries and `Protocol` for structural
   typing.
+- Use `TypedDict` with `NotRequired` for optional configuration keys.
+- Use `@runtime_checkable` on protocols that need runtime structural checks.
 - Use PEP 695 generics for new generic definitions.
 - Prefer `StrEnum` or `Literal` over plain `str` for finite value sets.
 - Use `Field(default=...)` instead of positional defaults in Pydantic fields.
@@ -27,6 +30,8 @@ Keep type layers separate to avoid circular imports and make reviews easier.
   types.
 - Prefer direct imports from submodules instead of re-exporting from
   `__init__.py`.
+- Keep import direction shallow where possible:
+  `models` -> `types` -> `schemas` -> `service` -> `router`.
 
 ## Services and context
 
@@ -39,6 +44,27 @@ Keep type layers separate to avoid circular imports and make reviews easier.
   and `types.py` for domain typing.
 - Use predefined auth dependency types from `tracecat/auth/dependencies.py`
   instead of hand-rolling access checks in routes.
+
+Route auth pattern:
+
+```python
+from tracecat.auth.dependencies import OrgAdminUser, WorkspaceUserRole
+
+@router.get("/endpoint")
+async def handler(role: WorkspaceUserRole) -> ResponseSchema:
+    ...
+
+@router.get("/admin")
+async def admin_handler(role: OrgAdminUser) -> ResponseSchema:
+    ...
+```
+
+Common role types:
+
+- `WorkspaceUserRole`: user with workspace access.
+- `ExecutorWorkspaceRole`: executor service with workspace access.
+- `ServiceRole`: internal service role.
+- `OrgAdminUser`: organization admin user.
 
 ## Database and SQLAlchemy
 
@@ -54,6 +80,8 @@ Keep type layers separate to avoid circular imports and make reviews easier.
 ## Pagination and API shape
 
 - New list and search endpoints must use cursor-based pagination.
+- Use `CursorPaginationParams` or the module-specific equivalent schema as the
+  request contract.
 - Keep collection routes on the canonical resource path instead of adding
   `/paginated` variants.
 - Use one canonical paginated service method per resource rather than separate
@@ -66,6 +94,7 @@ Keep type layers separate to avoid circular imports and make reviews easier.
 
 - `tests/unit/` should stay fast and isolated; mocks are acceptable there.
 - `tests/integration/` should use live services and avoid mocks.
+- `tests/backends/` is available for backend-specific test coverage.
 - Prefer `@pytest.mark.anyio` for async tests.
 - When tests need live third-party secrets, mark them with
   `@pytest.mark.live_secret` and keep them out of default CI runs.
@@ -88,6 +117,10 @@ Keep type layers separate to avoid circular imports and make reviews easier.
 - Prefer guard clauses over deep nesting.
 - Break dense expressions into named intermediate variables when that improves
   scanability.
+- Use the walrus operator when it avoids redundant repeated calls in a
+  conditional.
+- Prefer `match`/`case` mapping patterns over long chains of `.get()` plus
+  `isinstance` checks when extracting nested dictionary data.
 
 ## Registry and templates
 
@@ -98,6 +131,55 @@ Keep type layers separate to avoid circular imports and make reviews easier.
   Python boolean syntax.
 - Use `core.http_request` with `payload` for JSON request bodies.
 - Check `tracecat/expressions/functions.py` before using an `FN.` helper in a
-  template.
+  template. The helper must exist in `_FUNCTION_MAPPING`.
 - Prefer `core.script.run_python` for complex template logic and optional
   parameter assembly.
+- Registry SDK subclients already inherit a `/internal` prefix from
+  `packages/tracecat-registry/tracecat_registry/sdk/client.py`; pass relative
+  internal paths and add exact-path regression tests when you add new helpers.
+
+Template rules and examples:
+
+- Use `str | None` instead of `str | null` for optional types.
+- Do not add `Content-Type` on GET requests.
+- Use `${{ FN.url_encode(inputs.param) }}` when interpolating user input into
+  URL paths.
+- Return `${{ steps.step_name.result.data }}` directly unless a custom response
+  shape is necessary.
+- Let the platform handle standard HTTP errors unless a template needs
+  additional edge-case handling.
+
+```yaml
+- ref: call_api
+  action: core.http_request
+  args:
+    url: https://api.example.com/endpoint
+    method: POST
+    headers:
+      Authorization: Bearer ${{ SECRETS.api.TOKEN }}
+    payload:
+      key: value
+```
+
+```yaml
+value: ${{ inputs.login || inputs.email }}
+```
+
+```yaml
+- ref: complex_logic
+  action: core.script.run_python
+  args:
+    inputs:
+      data: ${{ inputs.data }}
+    script: |
+      def main(data):
+          return data
+```
+
+Common patterns:
+
+```yaml
+Authorization: Basic ${{ FN.to_base64(SECRETS.creds.USERNAME + ":" + SECRETS.creds.PASSWORD) }}
+Authorization: Bearer ${{ SECRETS.api.TOKEN }}
+value: ${{ inputs.override || defaults.standard_value }}
+```
