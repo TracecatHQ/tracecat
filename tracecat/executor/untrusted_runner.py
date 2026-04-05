@@ -33,8 +33,8 @@ from tracecat.contexts import (
 )
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.executor.schemas import ResolvedContext
+from tracecat.executor.secret_preprocessors import project_secret_env
 from tracecat.logger import logger
-from tracecat.parse import traverse_leaves
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import apply_masks_object
 
@@ -99,9 +99,7 @@ async def run_action_untrusted(
     task = input.task
     action_name = task.action
 
-    # execution_secrets is always set by prepare_resolved_context /
-    # _prepare_step_context with pre-assumed AWS creds where applicable.
-    secrets = resolved_context.execution_secrets
+    secrets = resolved_context.secrets
 
     log.info(
         "Run action (untrusted mode)",
@@ -113,33 +111,25 @@ async def run_action_untrusted(
         has_secrets=bool(secrets),
     )
 
-    # Build masking set from secrets
-    mask_values: set[str] = set()
-    for _, secret_value in traverse_leaves(secrets):
-        if secret_value is not None:
-            secret_str = str(secret_value)
-            # Only mask non-empty string values that are longer than 1 character
-            if len(secret_str) > 1:
-                mask_values.add(secret_str)
-            if isinstance(secret_value, str) and len(secret_value) > 1:
-                mask_values.add(secret_value)
-
-    # Flatten secrets for env sandbox
-    flattened_secrets = secrets_manager.flatten_secrets(secrets)
+    secret_projection = await project_secret_env(
+        secrets=secrets,
+        role=role,
+        run_context=input.run_context,
+    )
 
     # Initialize registry secrets context for SDK mode
-    secrets_token = registry_secrets.set_context(flattened_secrets)
+    secrets_token = registry_secrets.set_context(secret_projection.env)
 
     try:
         # Execute the UDF directly (no DB lookup needed)
-        with secrets_manager.env_sandbox(flattened_secrets):
+        with secrets_manager.env_sandbox(secret_projection.env):
             result = await _run_udf(
                 action_impl.module, action_impl.name, evaluated_args
             )
 
         # Apply masking
-        if mask_values:
-            result = apply_masks_object(result, masks=mask_values)
+        if secret_projection.mask_values:
+            result = apply_masks_object(result, masks=secret_projection.mask_values)
 
         log.trace("Result", result=result)
         return result

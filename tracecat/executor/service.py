@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import itertools
-import re
 from collections.abc import Iterator, Mapping, MutableMapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
-import aioboto3
 from aiocache import Cache
-from botocore.exceptions import ClientError
 from sqlalchemy import and_, or_, select, union_all
 
 from tracecat import config
@@ -23,6 +19,7 @@ from tracecat.contexts import (
     ctx_interaction,
     ctx_logical_time,
     ctx_role,
+    ctx_run,
 )
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
@@ -37,7 +34,6 @@ from tracecat.dsl.schemas import (
     DSLEnvironment,
     ExecutionContext,
     RunActionInput,
-    RunContext,
     TaskResult,
     TemplateExecutionContext,
 )
@@ -46,7 +42,6 @@ from tracecat.exceptions import (
     LoopExecutionError,
     RegistryValidationError,
     TracecatAuthorizationError,
-    TracecatCredentialsError,
     TracecatException,
 )
 from tracecat.executor import registry_resolver
@@ -55,6 +50,10 @@ from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ExecutorResultSuccess,
     ResolvedContext,
+)
+from tracecat.executor.secret_preprocessors import (
+    SecretEnvProjection,
+    project_secret_env,
 )
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
@@ -72,7 +71,6 @@ from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import apply_masks_object
-from tracecat.secrets.secrets_manager import _AWS_EXTERNAL_ID_SECRET_KEY
 from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
@@ -294,18 +292,15 @@ async def run_template_action(
         validated_args = action.validate_args(args=args)
 
     secrets_context = {}
-    execution_secrets_context = {}
     env_context = DSLEnvironment()
     vars_context = {}
     if context is not None:
         secrets_context = context.get("SECRETS", {})
-        execution_secrets_context = context.get("EXECUTION_SECRETS", secrets_context)
         env_context = context.get("ENV", DSLEnvironment())
         vars_context = context.get("VARS", {})
 
     template_context = TemplateExecutionContext(
         SECRETS=secrets_context,
-        EXECUTION_SECRETS=execution_secrets_context,
         ENV=env_context,
         VARS=vars_context,
         inputs=validated_args,
@@ -368,7 +363,6 @@ async def _run_single_template_step(
 
         nested_context = TemplateExecutionContext(
             SECRETS=context.get("SECRETS", {}),
-            EXECUTION_SECRETS=context.get("EXECUTION_SECRETS", {}),
             ENV=context.get("ENV", DSLEnvironment()),
             VARS=context.get("VARS", {}),
             inputs=validated_args,
@@ -377,12 +371,11 @@ async def _run_single_template_step(
         result = await _run_template_steps(defn, nested_context)
     else:
         logger.trace("Running UDF async", action=action.name)
-        # Use execution_secrets for runtime injection (has pre-assumed AWS creds);
-        # fall back to raw SECRETS for backward compatibility
-        exec_secrets = context.get("EXECUTION_SECRETS", context.get("SECRETS", {}))
-        flat_secrets = secrets_manager.flatten_secrets(exec_secrets)
-        with secrets_manager.env_sandbox(flat_secrets):
+        secret_projection = await _get_template_secret_projection(context)
+        with secrets_manager.env_sandbox(secret_projection.env):
             result = await _run_action_direct(action=action, args=args)
+        if secret_projection.mask_values:
+            result = apply_masks_object(result, masks=secret_projection.mask_values)
 
     return result
 
@@ -409,12 +402,6 @@ async def _prepare_step_context(
         step_action, input.registry_lock, role.organization_id
     )
 
-    execution_secrets = await _build_execution_secrets(
-        secrets=parent_resolved.secrets,
-        role=role,
-        run_context=input.run_context,
-    )
-
     # Mint new executor token for step (required for SDK authentication)
     if role.workspace_id is None:
         raise ValueError("workspace_id is required for template step execution")
@@ -429,7 +416,6 @@ async def _prepare_step_context(
     # Reuse parent secrets/variables, use pre-evaluated args
     return ResolvedContext(
         secrets=parent_resolved.secrets,  # Reuse - already fetched recursively
-        execution_secrets=execution_secrets,
         variables=parent_resolved.variables,  # Reuse
         action_impl=action_impl,
         evaluated_args=evaluated_args,  # Already evaluated against template context
@@ -493,17 +479,13 @@ async def _execute_template_action(
     else:
         validated_input_args = dict(resolved_context.evaluated_args)
 
-    # Build template context for expression evaluation
-    # SECRETS uses raw secrets for expression evaluation (${{ SECRETS.xxx }})
-    # EXECUTION_SECRETS uses pre-assumed AWS creds for UDF env injection
+    # Build template context for expression evaluation.
     secrets_context = resolved_context.secrets
-    execution_secrets_context = resolved_context.execution_secrets
     env_context = input.exec_context.get("ENV", DSLEnvironment())
     vars_context = resolved_context.variables
 
     template_context = TemplateExecutionContext(
         SECRETS=secrets_context,
-        EXECUTION_SECRETS=execution_secrets_context,
         ENV=env_context,
         VARS=vars_context,
         inputs=validated_input_args,
@@ -627,161 +609,33 @@ async def _invoke_step(
             )
 
 
-_AWS_ROLE_ARN_PATTERN = re.compile(
-    r"^arn:aws(?:-[a-z0-9-]+)?:iam::\d{12}:role/[\w+=,.@\-/]+$"
-)
-_AWS_PROTECTED_SECRET_NAMES = frozenset({"aws", "amazon_s3"})
-"""Reserved secret names that receive host-side STS AssumeRole when they
-contain ``AWS_ROLE_ARN``.  Any registry action (built-in or custom) that
-declares a secret with one of these names gets automatic credential
-brokering before sandbox entry."""
-
-
-async def _assume_role_via_irsa(
-    *,
-    role_arn: str,
-    external_id: str,
-    workspace_id: str,
-    run_id: str,
-    role_session_name: str | None = None,
-) -> dict[str, str]:
-    """Assume an AWS IAM role using the host IRSA identity.
-
-    Args:
-        role_arn: The target IAM role ARN to assume.
-        external_id: Workspace-scoped external ID for the AssumeRole call.
-        workspace_id: Workspace UUID (used in session name).
-        run_id: Workflow run UUID (used in session name).
-        role_session_name: Optional caller-provided STS session name override.
-
-    Returns:
-        Dict with AccessKeyId, SecretAccessKey, and SessionToken.
-
-    Raises:
-        TracecatCredentialsError: If the STS call fails.
-    """
-    if role_session_name:
-        session_name = role_session_name
-    else:
-        ws_short = str(workspace_id).replace("-", "")[:8]
-        run_short = str(run_id).replace("-", "")[:8]
-        session_name = f"tracecat-ws-{ws_short}-run-{run_short}"[:64]
-
-    try:
-        session = aioboto3.Session()
-        async with session.client("sts") as sts_client:
-            response = await sts_client.assume_role(
-                RoleArn=role_arn,
-                RoleSessionName=session_name,
-                ExternalId=external_id,
-            )
-            creds = response["Credentials"]
-            return {
-                "AccessKeyId": creds["AccessKeyId"],
-                "SecretAccessKey": creds["SecretAccessKey"],
-                "SessionToken": creds["SessionToken"],
-            }
-    except ClientError as e:
-        raise TracecatCredentialsError(
-            f"Failed to assume AWS role '{role_arn}': {e}"
-        ) from e
-
-
-async def _build_execution_secrets(
-    *,
-    secrets: dict[str, Any],
-    role: Role,
-    run_context: RunContext,
-) -> dict[str, Any]:
-    """Build runtime execution secrets, assuming AWS roles on the host when needed.
-
-    Scans the secrets dict for protected AWS secret names (``aws``,
-    ``amazon_s3``).  When one contains ``AWS_ROLE_ARN``, performs host-side
-    STS AssumeRole and replaces the role ARN with temporary session
-    credentials.  Non-AWS secrets and secrets without ``AWS_ROLE_ARN`` are
-    returned unchanged.  The original ``secrets`` dict is never mutated.
-
-    Args:
-        secrets: Raw secrets dict from ``get_action_secrets()``.
-        role: Current execution role (must have workspace_id).
-        run_context: Workflow run context (provides wf_run_id).
-
-    Returns:
-        ``secrets`` unchanged when no protected names need rewriting, or a
-        deep copy with AWS_ROLE_ARN replaced by temporary session credentials.
-
-    Raises:
-        TracecatCredentialsError: If a non-empty AWS_PROFILE is used, ARN format
-            is invalid, external ID is missing, or STS AssumeRole fails.
-    """
-    # Fast path: skip copy when no protected AWS secret names are present.
-    # This keeps the non-AWS hot path identical to pre-PR behavior (no copy).
-    if not (_AWS_PROTECTED_SECRET_NAMES & secrets.keys()):
-        return secrets
-
-    # At least one protected name exists — validate and potentially rewrite.
-    # Deep copy so we never mutate the original secrets dict (used for
-    # expression evaluation via SECRETS.aws.AWS_ROLE_ARN etc.).
-    execution_secrets = copy.deepcopy(secrets)
-
-    for secret_name in _AWS_PROTECTED_SECRET_NAMES:
-        if not isinstance(secret_values := execution_secrets.get(secret_name), dict):
-            continue
-
-        if isinstance(aws_profile := secret_values.get("AWS_PROFILE"), str):
-            if aws_profile.strip():
-                raise TracecatCredentialsError(
-                    "AWS_PROFILE is not supported in protected secret "
-                    f"'{secret_name}'. "
-                    "Use AWS_ROLE_ARN or static/session credentials instead."
-                )
-            secret_values.pop("AWS_PROFILE", None)
-
-        if not isinstance(role_arn := secret_values.get("AWS_ROLE_ARN"), str):
-            continue
-        if not (role_arn := role_arn.strip()):
-            secret_values.pop("AWS_ROLE_ARN", None)
-            continue
-        if not _AWS_ROLE_ARN_PATTERN.match(role_arn):
-            raise TracecatCredentialsError(
-                f"Invalid AWS role ARN format in secret '{secret_name}': {role_arn}"
-            )
-        external_id = secrets.get(_AWS_EXTERNAL_ID_SECRET_KEY)
-        if not isinstance(external_id, str) or not external_id:
-            raise TracecatCredentialsError(
-                "Missing runtime AWS external ID for AssumeRole. "
-                "Ensure the workspace has a valid workspace ID."
-            )
-        creds = await _assume_role_via_irsa(
-            role_arn=role_arn,
-            external_id=external_id,
-            workspace_id=str(role.workspace_id),
-            run_id=str(run_context.wf_run_id),
-            role_session_name=(
-                aws_role_session_name.strip()
-                if isinstance(
-                    aws_role_session_name := secret_values.get("AWS_ROLE_SESSION_NAME"),
-                    str,
-                )
-                and aws_role_session_name.strip()
-                else None
-            ),
-        )
-        secret_values.pop("AWS_ROLE_ARN", None)
-        secret_values.pop("AWS_PROFILE", None)
-        secret_values["AWS_ACCESS_KEY_ID"] = creds["AccessKeyId"]
-        secret_values["AWS_SECRET_ACCESS_KEY"] = creds["SecretAccessKey"]
-        secret_values["AWS_SESSION_TOKEN"] = creds["SessionToken"]
-
-    return execution_secrets
-
-
 @dataclass
 class PreparedContext:
     """Context prepared for execution, including resolved secrets and masking info."""
 
     resolved_context: ResolvedContext
     mask_values: set[str] | None
+
+
+async def _get_template_secret_projection(
+    context: TemplateExecutionContext,
+) -> SecretEnvProjection:
+    secrets = context.get("SECRETS", {})
+    role = ctx_role.get()
+    run_context = ctx_run.get()
+    if role is None or run_context is None:
+        flat_secrets = secrets_manager.flatten_secrets(secrets)
+        mask_values = {
+            value
+            for value in flat_secrets.values()
+            if isinstance(value, str) and len(value) > 1
+        }
+        return SecretEnvProjection(env=flat_secrets, mask_values=mask_values)
+    return await project_secret_env(
+        secrets=secrets,
+        role=role,
+        run_context=run_context,
+    )
 
 
 async def prepare_resolved_context(
@@ -863,16 +717,8 @@ async def prepare_resolved_context(
     if role.workspace_id is None:
         raise ValueError("workspace_id is required for action execution")
 
-    # Build execution secrets with host-side AWS role assumption (if applicable)
-    execution_secrets = await _build_execution_secrets(
-        secrets=secrets,
-        role=role,
-        run_context=input.run_context,
-    )
-
-    # Build mask values from both raw secrets and execution secrets.
-    # When execution_secrets is the same object (non-AWS fast path) we only
-    # need to iterate once.
+    # Build root-level masks from the raw secrets only. Runtime-specific
+    # projections are masked at the actual host injection boundaries.
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
         logger.warning(
             "Secrets masking is disabled. This is unsafe in production workflows."
@@ -880,19 +726,13 @@ async def prepare_resolved_context(
         mask_values = None
     else:
         mask_values = set()
-        sources = (
-            (secrets, execution_secrets)
-            if execution_secrets is not secrets
-            else (secrets,)
-        )
-        for secret_source in sources:
-            for _, secret_value in traverse_leaves(secret_source):
-                if secret_value is not None:
-                    secret_str = str(secret_value)
-                    if len(secret_str) > 1:
-                        mask_values.add(secret_str)
-                    if isinstance(secret_value, str) and len(secret_value) > 1:
-                        mask_values.add(secret_value)
+        for _, secret_value in traverse_leaves(secrets):
+            if secret_value is not None:
+                secret_str = str(secret_value)
+                if len(secret_str) > 1:
+                    mask_values.add(secret_str)
+                if isinstance(secret_value, str) and len(secret_value) > 1:
+                    mask_values.add(secret_value)
 
     # Generate executor token for SDK authentication
     executor_token = mint_executor_token(
@@ -905,7 +745,6 @@ async def prepare_resolved_context(
 
     resolved_context = ResolvedContext(
         secrets=secrets,
-        execution_secrets=execution_secrets,
         variables=workspace_variables,
         action_impl=action_impl,
         evaluated_args=dict(evaluated_args),

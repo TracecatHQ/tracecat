@@ -29,6 +29,7 @@ from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ResolvedContext,
 )
+from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 
@@ -87,6 +88,11 @@ def _mock_tracecat_api_server(expected_token: str):
         server.shutdown()
         thread.join(timeout=5)
         server.server_close()
+
+
+def _empty_secret_projection() -> SecretEnvProjection:
+    """Return an empty secret projection for direct runner unit tests."""
+    return SecretEnvProjection(env={}, mask_values=set())
 
 
 @pytest.fixture
@@ -319,6 +325,7 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=0.1,
             )
 
@@ -345,6 +352,7 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=10.0,
             )
 
@@ -375,6 +383,7 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=10.0,
             )
 
@@ -415,6 +424,7 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=10.0,
             )
 
@@ -470,6 +480,7 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=10.0,
                 resolved_context=resolved_context,
             )
@@ -519,6 +530,7 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=10.0,
                 resolved_context=resolved_context,
             )
@@ -555,6 +567,7 @@ class TestActionRunner:
                 input=mock_run_action_input,
                 role=mock_role,
                 registry_paths=[base_dir],
+                secret_projection=_empty_secret_projection(),
                 timeout=10.0,
             )
 

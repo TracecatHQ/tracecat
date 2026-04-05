@@ -42,10 +42,12 @@ from tracecat.executor.schemas import (
     ExecutorResultSuccess,
     ResolvedContext,
 )
+from tracecat.executor.secret_preprocessors import project_secret_env
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionUDFImpl
 from tracecat.registry.loaders import load_udf_impl
 from tracecat.secrets import secrets_manager
+from tracecat.secrets.common import apply_masks_object
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -198,19 +200,23 @@ class TestBackend(ExecutorBackend):
             action_name=action_name,
         )
 
-        flattened_secrets = secrets_manager.flatten_secrets(
-            resolved_context.execution_secrets
+        secret_projection = await project_secret_env(
+            secrets=resolved_context.secrets,
+            role=role,
+            run_context=input.run_context,
         )
-        secrets_token = registry_secrets.set_context(flattened_secrets)
+        secrets_token = registry_secrets.set_context(secret_projection.env)
 
         try:
             args = resolved_context.evaluated_args or {}
-            with secrets_manager.env_sandbox(flattened_secrets):
+            with secrets_manager.env_sandbox(secret_projection.env):
                 if asyncio.iscoroutinefunction(fn):
                     result = await fn(**args)
                 else:
                     result = await asyncio.to_thread(fn, **args)
 
+            if secret_projection.mask_values:
+                result = apply_masks_object(result, masks=secret_projection.mask_values)
             log.trace("Result", result=result)
             return result
         finally:

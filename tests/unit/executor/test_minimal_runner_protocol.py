@@ -39,9 +39,9 @@ def test_main_minimal_suppresses_action_stdout_and_stderr(monkeypatch) -> None:
                     "module": "test_module",
                     "name": "noisy_action",
                 },
-                "secrets": {},
                 "evaluated_args": {},
-            }
+            },
+            "secret_env": {},
         }
     )
 
@@ -72,9 +72,9 @@ def test_main_minimal_returns_structured_error_for_action_exceptions(
                     "module": "test_module",
                     "name": "boom_action",
                 },
-                "secrets": {},
                 "evaluated_args": {},
-            }
+            },
+            "secret_env": {},
         }
     )
 
@@ -126,14 +126,12 @@ def test_main_minimal_masks_secrets_in_suppressed_output(monkeypatch) -> None:
                     "module": "test_module",
                     "name": "leaky_action",
                 },
-                "execution_secrets": {
-                    "aws": {
-                        "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
-                        "AWS_SESSION_TOKEN": "IQoJb3JpZ2luX2VjEBAReallyLongSessionToken",
-                    }
-                },
                 "evaluated_args": {},
-            }
+            },
+            "secret_env": {
+                "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+                "AWS_SESSION_TOKEN": "IQoJb3JpZ2luX2VjEBAReallyLongSessionToken",
+            },
         }
     )
 
@@ -174,9 +172,9 @@ def test_main_minimal_still_succeeds_when_warnings_raise(monkeypatch) -> None:
                     "module": "test_module",
                     "name": "noisy_action",
                 },
-                "secrets": {},
                 "evaluated_args": {},
-            }
+            },
+            "secret_env": {},
         }
     )
 

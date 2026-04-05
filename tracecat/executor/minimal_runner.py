@@ -118,7 +118,7 @@ def _emit_suppressed_output_notice(
 def run_action_minimal(
     action_impl: dict[str, Any],
     args: Mapping[str, Any],
-    secrets: dict[str, Any],
+    secret_env: dict[str, str],
 ) -> Any:
     """Run an action with minimal imports (sync, for subprocess execution).
 
@@ -134,7 +134,7 @@ def run_action_minimal(
             - name: Function name for UDF (e.g., 'reshape')
             - template_definition: Template definition for template actions
         args: Pre-evaluated arguments to pass to the action
-        secrets: Pre-resolved secrets dict
+        secret_env: Flat env-ready secret mapping
 
     Returns:
         The action result
@@ -146,7 +146,7 @@ def run_action_minimal(
     impl_type = action_impl.get("type")
 
     if impl_type == "udf":
-        return _run_udf(action_impl, args, secrets)
+        return _run_udf(action_impl, args, secret_env)
     elif impl_type == "template":
         raise NotImplementedError(
             "Template actions must be orchestrated at the service layer. "
@@ -159,7 +159,7 @@ def run_action_minimal(
 async def run_action_minimal_async(
     action_impl: dict[str, Any],
     args: Mapping[str, Any],
-    secrets: dict[str, Any],
+    secret_env: dict[str, str],
     *,
     workspace_id: str,
     workflow_id: str,
@@ -177,7 +177,7 @@ async def run_action_minimal_async(
     Args:
         action_impl: Action implementation metadata (type, module, name)
         args: Pre-evaluated arguments to pass to the action
-        secrets: Pre-resolved secrets dict
+        secret_env: Flat env-ready secret mapping
         workspace_id: Workspace UUID for SDK context
         workflow_id: Workflow UUID for SDK context
         run_id: Run UUID for SDK context
@@ -192,7 +192,7 @@ async def run_action_minimal_async(
         return await _run_udf_async(
             action_impl,
             args,
-            secrets,
+            secret_env,
             workspace_id=workspace_id,
             workflow_id=workflow_id,
             run_id=run_id,
@@ -210,7 +210,7 @@ async def run_action_minimal_async(
 async def _run_udf_async(
     action_impl: dict[str, Any],
     args: Mapping[str, Any],
-    secrets: dict[str, Any],
+    secret_env: dict[str, str],
     *,
     workspace_id: str,
     workflow_id: str,
@@ -250,7 +250,7 @@ async def _run_udf_async(
     try:
         from tracecat_registry._internal import secrets as registry_secrets
 
-        secrets_token = registry_secrets.set_context(_flatten_secrets(secrets))
+        secrets_token = registry_secrets.set_context(secret_env)
     except ImportError:
         pass  # registry_secrets stays None
         warnings.warn(
@@ -279,7 +279,7 @@ async def _run_udf_async(
 def _run_udf(
     action_impl: dict[str, Any],
     args: Mapping[str, Any],
-    secrets: dict[str, Any],
+    secret_env: dict[str, str],
 ) -> Any:
     """Run a UDF action by importing and calling the function."""
     module_path = action_impl.get("module")
@@ -311,7 +311,7 @@ def _run_udf(
     try:
         from tracecat_registry._internal import secrets as registry_secrets
 
-        secrets_token = registry_secrets.set_context(_flatten_secrets(secrets))
+        secrets_token = registry_secrets.set_context(secret_env)
     except ImportError:
         warnings.warn(
             "Could not import tracecat_registry._internal.secrets - "
@@ -321,7 +321,7 @@ def _run_udf(
         )
 
     # Also set env vars for backwards compatibility with actions that read env directly
-    _set_env_secrets(secrets)
+    _set_env_secrets(secret_env)
 
     try:
         # Import the module from tracecat_registry
@@ -338,43 +338,20 @@ def _run_udf(
         if registry_secrets is not None and secrets_token is not None:
             registry_secrets.reset_context(secrets_token)
         # Clean up environment variables
-        _clear_env_secrets(secrets)
+        _clear_env_secrets(secret_env)
 
 
-def _set_env_secrets(secrets: dict[str, Any]) -> None:
-    """Set flattened secrets as environment variables."""
-    for key, value in _flatten_secrets(secrets).items():
+def _set_env_secrets(secret_env: dict[str, str]) -> None:
+    """Set secret environment variables."""
+    for key, value in secret_env.items():
         if value is not None:
             os.environ[key] = str(value)
 
 
-def _clear_env_secrets(secrets: dict[str, Any]) -> None:
+def _clear_env_secrets(secret_env: dict[str, str]) -> None:
     """Remove secret environment variables."""
-    for key in _flatten_secrets(secrets):
+    for key in secret_env:
         os.environ.pop(key, None)
-
-
-def _flatten_secrets(secrets: dict[str, Any]) -> dict[str, str]:
-    """Flatten nested secrets dict to KEY__SUBKEY format."""
-    result: dict[str, str] = {}
-    for secret_name, secret_value in secrets.items():
-        if isinstance(secret_value, dict):
-            for k, v in secret_value.items():
-                if v is not None:
-                    if k in result:
-                        raise ValueError(
-                            f"Key {k!r} is duplicated in {secret_name!r}! "
-                            "Please ensure only one secret with a given name is set."
-                        )
-                    result[k] = str(v)
-        elif secret_value is not None:
-            if secret_name in result:
-                raise ValueError(
-                    f"Key {secret_name!r} is duplicated! "
-                    "Please ensure only one secret with a given name is set."
-                )
-            result[secret_name] = str(secret_value)
-    return result
 
 
 def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
@@ -382,7 +359,8 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
 
     Args:
         input_data: Dict containing:
-            - resolved_context: ResolvedContext with action_impl, secrets, evaluated_args
+            - resolved_context: ResolvedContext with action_impl and evaluated_args
+            - secret_env: Flat env-ready secret mapping
             - input: RunActionInput (for metadata only)
 
     Returns:
@@ -393,9 +371,7 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         # Extract what we need from resolved_context
         resolved_context = input_data.get("resolved_context", {})
         action_impl = resolved_context.get("action_impl")
-        # execution_secrets is always set by prepare_resolved_context /
-        # _prepare_step_context with pre-assumed AWS creds where applicable.
-        secrets = resolved_context.get("execution_secrets", {})
+        secret_env = input_data.get("secret_env", {})
         evaluated_args = resolved_context.get("evaluated_args", {})
 
         if not action_impl:
@@ -413,11 +389,11 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
             contextlib.redirect_stdout(action_stdout),
             contextlib.redirect_stderr(action_stderr),
         ):
-            result = run_action_minimal(action_impl, evaluated_args, secrets)
+            result = run_action_minimal(action_impl, evaluated_args, secret_env)
 
         # Mask secret values in captured output to prevent leaking credentials
         mask_values = sorted(
-            {v for v in _flatten_secrets(secrets).values() if len(v) > 1},
+            {v for v in secret_env.values() if len(v) > 1},
             key=len,
             reverse=True,
         )
