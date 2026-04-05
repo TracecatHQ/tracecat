@@ -84,8 +84,16 @@ def _error_response(
 
 
 def _validate_pkce_s256(code_verifier: str, code_challenge: str) -> bool:
-    """Validate PKCE S256: base64url(sha256(verifier)) == challenge."""
-    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    """Validate PKCE S256: base64url(sha256(verifier)) == challenge.
+
+    Returns False for non-ASCII verifiers (RFC 7636 §4.1 restricts
+    code_verifier to ``[A-Z] / [a-z] / [0-9] / "-" / "." / "_" / "~"``).
+    """
+    try:
+        verifier_bytes = code_verifier.encode("ascii")
+    except UnicodeEncodeError:
+        return False
+    digest = hashlib.sha256(verifier_bytes).digest()
     computed = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
     return hmac.compare_digest(computed, code_challenge)
 
