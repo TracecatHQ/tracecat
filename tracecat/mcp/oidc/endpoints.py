@@ -574,7 +574,8 @@ async def token(
             "expires_in": oidc_config.ACCESS_TOKEN_LIFETIME_SECONDS,
             "id_token": id_token,
             "scope": code_data.scope,
-        }
+        },
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
     )
 
 
