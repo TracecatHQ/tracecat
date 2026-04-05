@@ -211,7 +211,7 @@ Usage: ./cluster [cluster_num] [-p profile] <command> [args...]
        ./cluster list
 
 Cluster number is optional:
-  - For 'up': auto-selects next available number
+  - For 'up': reuses existing cluster, or auto-selects next available
   - For other commands: auto-selects if only one cluster running
 
 Profiles:
@@ -221,6 +221,8 @@ Profiles:
 
 Commands:
   up [args]     Start the cluster (e.g., up -d)
+                Reuses existing cluster for this worktree if one is running.
+                Use --new/-n to force a new cluster instead.
                 Use --seed to auto-register test@tracecat.com:password1234
   down          Stop the cluster (keeps volumes)
   rm            Remove the cluster (down + remove volumes)
@@ -242,7 +244,8 @@ Nuke options:
   nuke volumes          List and select volumes to remove
 
 Examples:
-  ./cluster up -d                Start next available cluster
+  ./cluster up -d                Start cluster (reuses existing, or starts new)
+  ./cluster up -d --new          Force a new cluster on next available number
   ./cluster up -d --seed         Start cluster and register test user
   ./cluster down                 Stop cluster (keeps volumes)
   ./cluster rm                   Remove cluster and volumes
@@ -426,11 +429,45 @@ fi
 COMMAND="$1"
 shift
 
+# Parse --new/-n flag from remaining args (only meaningful for 'up')
+FORCE_NEW_CLUSTER=false
+if [[ "$COMMAND" == "up" ]]; then
+    FILTERED_ARGS=()
+    for arg in "$@"; do
+        if [[ "$arg" == "--new" || "$arg" == "-n" ]]; then
+            FORCE_NEW_CLUSTER=true
+        else
+            FILTERED_ARGS+=("$arg")
+        fi
+    done
+    set -- ${FILTERED_ARGS[@]+"${FILTERED_ARGS[@]}"}
+fi
+
 # Auto-select cluster number if not specified
 if [[ "$AUTO_SELECT" == "true" ]]; then
     if [[ "$COMMAND" == "up" ]]; then
-        CLUSTER_NUM=$(get_next_cluster_num)
-        echo "Auto-selected cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
+        if [[ "$FORCE_NEW_CLUSTER" == "true" ]]; then
+            CLUSTER_NUM=$(get_next_cluster_num)
+            echo "Auto-selected new cluster ${CLUSTER_NUM} (global) for worktree '${WORKTREE_ID}'"
+        else
+            # Reuse existing cluster for this worktree if one is running
+            running=$(get_running_clusters)
+            count=0
+            if [[ -n "$running" ]]; then
+                count=$(echo "$running" | wc -l | tr -d ' ')
+            fi
+
+            if [[ "$count" -eq 0 ]]; then
+                CLUSTER_NUM=$(get_next_cluster_num)
+                echo "No existing cluster — auto-selected cluster ${CLUSTER_NUM} for worktree '${WORKTREE_ID}'"
+            elif [[ "$count" -eq 1 ]]; then
+                CLUSTER_NUM="$running"
+                echo "Reusing existing cluster ${CLUSTER_NUM} for worktree '${WORKTREE_ID}'"
+            else
+                echo "Multiple clusters running — select one:" >&2
+                CLUSTER_NUM=$(echo "$running" | select_cluster_interactive)
+            fi
+        fi
     elif [[ "$COMMAND" == "nuke" ]]; then
         # For nuke, try to find any cluster (running or with leftover volumes)
         nuke_running=$(get_running_clusters)
