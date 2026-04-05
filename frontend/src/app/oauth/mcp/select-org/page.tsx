@@ -49,9 +49,8 @@ function McpAuthSelectOrgContent() {
         setLoading(false)
       })
       .catch((err) => {
-        setError(
-          err instanceof Error ? err.message : "Failed to load organizations"
-        )
+        console.error("Failed to load organizations", err)
+        setError("Failed to load organizations")
         setLoading(false)
       })
   }, [user, userIsLoading, txnId, router])

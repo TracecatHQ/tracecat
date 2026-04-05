@@ -51,15 +51,18 @@ router = APIRouter()
 OptionalUserDep = Annotated[User | None, Depends(optional_current_active_user)]
 
 
+def _get_client_ip(request: Request) -> str:
+    """Return the client IP, preferring forwarded headers from the reverse proxy."""
+    if forwarded_for := request.headers.get("X-Forwarded-For"):
+        return forwarded_for.split(",")[0].strip()
+    if real_ip := request.headers.get("X-Real-IP"):
+        return real_ip
+    return request.client.host if request.client else "unknown"
+
+
 def _hash_ip(request: Request) -> str:
     """SHA-256 hex digest of the client IP for binding."""
-    ip = request.client.host if request.client else "unknown"
-    return hashlib.sha256(ip.encode()).hexdigest()
-
-
-def _get_client_ip(request: Request) -> str:
-    """Return the raw client IP string."""
-    return request.client.host if request.client else "unknown"
+    return hashlib.sha256(_get_client_ip(request).encode()).hexdigest()
 
 
 def _allowed_redirect_uri() -> str:
@@ -594,9 +597,13 @@ async def userinfo(
 
     token_str = authorization[7:]
     try:
+        # Accept any resource audience — do not hardcode to
+        # _default_resource() so that tokens issued with a custom
+        # ``resource`` parameter are not spuriously rejected.
+        # Reject id_tokens (aud == client_id) since they are not
+        # access tokens.
         claims = verify_jwt(
             token_str,
-            audience=_default_resource(),
             issuer=oidc_config.get_issuer_url(),
         )
     except jwt.InvalidTokenError as exc:
@@ -604,6 +611,14 @@ async def userinfo(
         return _error_response(
             "invalid_token",
             "Token verification failed",
+            status_code=401,
+        )
+
+    # Guard: id_tokens have aud=client_id; access tokens have aud=resource_url.
+    if claims.get("aud") == oidc_config.INTERNAL_CLIENT_ID:
+        return _error_response(
+            "invalid_token",
+            "id_token cannot be used at the userinfo endpoint",
             status_code=401,
         )
 
