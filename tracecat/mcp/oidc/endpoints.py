@@ -65,12 +65,9 @@ def _get_client_ip(request: Request) -> str:
 def _allowed_redirect_uri() -> str:
     """Return the single allowed redirect URI for the internal client.
 
-    The FastMCP proxy's callback is ``{MCP_BASE_URL}/auth/callback``.
-    Import lazily to avoid circular-import issues at module level.
+    The FastMCP proxy's callback is ``{PUBLIC_APP_URL}/auth/callback``.
     """
-    from tracecat.mcp.config import TRACECAT_MCP__BASE_URL
-
-    return f"{TRACECAT_MCP__BASE_URL.rstrip('/')}/auth/callback"
+    return f"{TRACECAT__PUBLIC_APP_URL.rstrip('/')}/auth/callback"
 
 
 def _error_response(
@@ -174,9 +171,7 @@ async def jwks() -> dict[str, list[dict[str, str]]]:
 
 def _default_resource() -> str:
     """Return the default OAuth resource identifier (the MCP endpoint URL)."""
-    from tracecat.mcp.config import TRACECAT_MCP__BASE_URL
-
-    return f"{TRACECAT_MCP__BASE_URL.rstrip('/')}/mcp"
+    return f"{TRACECAT__PUBLIC_APP_URL.rstrip('/')}/mcp"
 
 
 async def _handle_authorize(
@@ -591,7 +586,11 @@ async def userinfo(
 
     token_str = authorization[7:]
     try:
-        claims = verify_jwt(token_str, issuer=oidc_config.get_issuer_url())
+        claims = verify_jwt(
+            token_str,
+            audience=_default_resource(),
+            issuer=oidc_config.get_issuer_url(),
+        )
     except jwt.InvalidTokenError as exc:
         logger.warning("MCP OIDC: invalid token at userinfo", error=str(exc))
         return _error_response(

@@ -4,20 +4,11 @@ from __future__ import annotations
 
 import os
 
-from tracecat.config import TRACECAT__PUBLIC_APP_URL
-
 TRACECAT_MCP__HOST: str = os.environ.get("TRACECAT_MCP__HOST", "0.0.0.0")
 """Host to bind the MCP HTTP server to."""
 
 TRACECAT_MCP__PORT: int = int(os.environ.get("TRACECAT_MCP__PORT", "8099"))
 """Port for the MCP HTTP server."""
-
-TRACECAT_MCP__BASE_URL: str = TRACECAT__PUBLIC_APP_URL.rstrip("/")
-"""Public URL where the MCP server is accessible.
-
-Always the same as TRACECAT__PUBLIC_APP_URL since MCP is behind the
-same reverse proxy.  Kept as a named alias for readability at call sites.
-"""
 
 TRACECAT_MCP__RATE_LIMIT_RPS: float = float(
     os.environ.get("TRACECAT_MCP__RATE_LIMIT_RPS", "2.0")

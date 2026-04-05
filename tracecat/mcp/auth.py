@@ -44,7 +44,11 @@ from tracecat.auth.credentials import compute_effective_scopes
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.enums import OrgRole, WorkspaceRole
-from tracecat.config import REDIS_URL, TRACECAT__DB_ENCRYPTION_KEY
+from tracecat.config import (
+    REDIS_URL,
+    TRACECAT__DB_ENCRYPTION_KEY,
+    TRACECAT__PUBLIC_APP_URL,
+)
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
@@ -57,7 +61,6 @@ from tracecat.db.models import (
 )
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.logger import logger
-from tracecat.mcp import config as mcp_config
 from tracecat.mcp.oidc.config import (
     INTERNAL_CLIENT_ID,
     get_internal_client_secret,
@@ -648,7 +651,7 @@ def _build_oidc_consent_html(
 
 def _create_oidc_auth() -> OIDCProxy:
     """Build the OIDC auth provider for external MCP."""
-    base_url = mcp_config.TRACECAT_MCP__BASE_URL
+    base_url = TRACECAT__PUBLIC_APP_URL.rstrip("/")
 
     # The internal OIDC issuer lives on the API server.  The MCP server
     # uses it as the upstream identity provider instead of an external BYO

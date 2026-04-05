@@ -189,6 +189,7 @@ locals {
       {
         TRACECAT__DB_ENDPOINT                     = local.core_db_hostname
         TRACECAT__API_URL                         = local.internal_api_url
+        TRACECAT__PUBLIC_APP_URL                   = local.public_app_url
         TRACECAT__PUBLIC_API_URL                   = local.public_api_url
         TRACECAT_MCP__HOST                        = "0.0.0.0"
         TRACECAT_MCP__PORT                        = "8099"

@@ -40,7 +40,7 @@ def _mock_oidc_discovery_config(
 
 def _build_test_auth(monkeypatch: pytest.MonkeyPatch) -> mcp_auth.OIDCProxy:
     monkeypatch.setattr(
-        mcp_auth.mcp_config, "TRACECAT_MCP__BASE_URL", "https://mcp.example.com"
+        "tracecat.config.TRACECAT__PUBLIC_APP_URL", "https://mcp.example.com"
     )
     # Mock the internal OIDC issuer config used by _create_oidc_auth
     monkeypatch.setattr(mcp_auth, "INTERNAL_CLIENT_ID", "tracecat-mcp-oidc-internal")

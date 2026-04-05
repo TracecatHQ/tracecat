@@ -31,7 +31,7 @@ _TEST_SECRET = "test-endpoint-secret"
 _TEST_API_URL = "https://api.example.com"
 _TEST_APP_URL = "https://app.example.com"
 _TEST_MCP_URL = "https://mcp.example.com"
-_ALLOWED_REDIRECT = f"{_TEST_MCP_URL}/auth/callback"
+_ALLOWED_REDIRECT = f"{_TEST_APP_URL}/auth/callback"
 
 # IP hash for Starlette TestClient (client.host = "testclient")
 _TESTCLIENT_IP_HASH = hashlib.sha256(b"testclient").hexdigest()
@@ -73,7 +73,7 @@ def _make_auth_code_data(
         code_challenge=challenge,
         code_challenge_method="S256",
         scope="openid profile email",
-        resource=f"{_TEST_MCP_URL}/mcp",
+        resource=f"{_TEST_APP_URL}/mcp",
         nonce=None,
         created_at=created_at or time.time(),
         bound_ip=bound_ip or _TESTCLIENT_IP_HASH,
@@ -122,8 +122,6 @@ def mock_user():
 def app(monkeypatch: pytest.MonkeyPatch):
     """Create a FastAPI test app with the OIDC router."""
     # Patch the lazy import in _allowed_redirect_uri
-    monkeypatch.setattr("tracecat.mcp.config.TRACECAT_MCP__BASE_URL", _TEST_MCP_URL)
-
     test_app = FastAPI()
     test_app.include_router(router)
     # Override the user dependency to return None by default
@@ -166,7 +164,7 @@ def test_openid_configuration_includes_root_path_when_proxied(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When X-Forwarded-Host is present, endpoint URLs include root_path."""
-    monkeypatch.setattr("tracecat.mcp.config.TRACECAT_MCP__BASE_URL", _TEST_MCP_URL)
+    monkeypatch.setattr("tracecat.config.TRACECAT__PUBLIC_APP_URL", _TEST_MCP_URL)
 
     test_app = FastAPI(root_path="/api")
     test_app.include_router(router)
@@ -221,7 +219,7 @@ def _authorize_params(**overrides) -> dict[str, str]:
         "code_challenge_method": "S256",
         "scope": "openid",
         "state": "random-state",
-        "resource": f"{_TEST_MCP_URL}/mcp",
+        "resource": f"{_TEST_APP_URL}/mcp",
     }
     return defaults | overrides
 
@@ -288,7 +286,7 @@ async def test_authorize_defaults_resource_when_omitted(
 
     assert response.status_code == 302
     assert len(stored_codes) == 1
-    assert stored_codes[0].resource == f"{_TEST_MCP_URL}/mcp"
+    assert stored_codes[0].resource == f"{_TEST_APP_URL}/mcp"
 
 
 # ---------------------------------------------------------------------------
@@ -711,12 +709,13 @@ def test_userinfo_requires_bearer_token(client: TestClient) -> None:
     assert response.status_code == 401
 
 
-def test_userinfo_returns_claims_from_valid_token(client: TestClient) -> None:
+def test_userinfo_returns_claims_from_valid_access_token(client: TestClient) -> None:
     org_id = str(uuid.uuid4())
     token = signing.mint_jwt(
         {
             "sub": "user-123",
             "iss": oidc_config.get_issuer_url(),
+            "aud": f"{_TEST_APP_URL}/mcp",
             "email": "user@example.com",
             "organization_id": org_id,
             "exp": int(time.time()) + 3600,
@@ -732,6 +731,23 @@ def test_userinfo_returns_claims_from_valid_token(client: TestClient) -> None:
     assert body["email"] == "user@example.com"
     assert body["email_verified"] is True
     assert body["organization_id"] == org_id
+
+
+def test_userinfo_rejects_id_token(client: TestClient) -> None:
+    """id_tokens have aud=client_id, not the resource URL, so must be rejected."""
+    token = signing.mint_jwt(
+        {
+            "sub": "user-123",
+            "iss": oidc_config.get_issuer_url(),
+            "aud": oidc_config.INTERNAL_CLIENT_ID,
+            "email": "user@example.com",
+            "exp": int(time.time()) + 3600,
+            "iat": int(time.time()),
+        }
+    )
+
+    response = client.get("/userinfo", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
 
 
 def test_userinfo_rejects_invalid_token(client: TestClient) -> None:

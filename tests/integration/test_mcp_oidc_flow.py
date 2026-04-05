@@ -114,7 +114,7 @@ def _setup_config(monkeypatch: pytest.MonkeyPatch):  # pyright: ignore[reportUnu
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.TRACECAT__PUBLIC_APP_URL", _TEST_APP_URL
     )
-    monkeypatch.setattr("tracecat.mcp.config.TRACECAT_MCP__BASE_URL", _TEST_MCP_URL)
+    monkeypatch.setattr("tracecat.config.TRACECAT__PUBLIC_APP_URL", _TEST_MCP_URL)
     signing.get_signing_key.cache_clear()
     signing.get_public_jwk.cache_clear()
     yield
