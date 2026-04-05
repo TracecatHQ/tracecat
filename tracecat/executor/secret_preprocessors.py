@@ -17,7 +17,7 @@ from tracecat.secrets import secrets_manager
 from tracecat.secrets.secrets_manager import _AWS_EXTERNAL_ID_SECRET_KEY
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SecretEnvProjection:
     """Runtime-ready secret environment derived from raw secrets."""
 
