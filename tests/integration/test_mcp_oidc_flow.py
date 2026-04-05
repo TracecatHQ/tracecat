@@ -40,8 +40,7 @@ from tracecat.mcp.oidc.session import SessionResult
 _TEST_SECRET = "integration-test-secret-key"
 _TEST_API_URL = "https://api.test.com"
 _TEST_APP_URL = "https://app.test.com"
-_TEST_MCP_URL = "https://mcp.test.com"
-_REDIRECT_URI = f"{_TEST_MCP_URL}/auth/callback"
+_REDIRECT_URI = f"{_TEST_APP_URL}/auth/callback"
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +113,6 @@ def _setup_config(monkeypatch: pytest.MonkeyPatch):  # pyright: ignore[reportUnu
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.TRACECAT__PUBLIC_APP_URL", _TEST_APP_URL
     )
-    monkeypatch.setattr("tracecat.config.TRACECAT__PUBLIC_APP_URL", _TEST_MCP_URL)
     signing.get_signing_key.cache_clear()
     signing.get_public_jwk.cache_clear()
     yield
@@ -242,7 +240,7 @@ async def test_full_authorize_code_pkce_flow(
             "code_challenge_method": "S256",
             "scope": "openid profile email",
             "state": "test-state-123",
-            "resource": f"{_TEST_MCP_URL}/mcp",
+            "resource": f"{_TEST_APP_URL}/mcp",
         },
         follow_redirects=False,
     )
@@ -269,7 +267,7 @@ async def test_full_authorize_code_pkce_flow(
     assert access_claims["sub"] == str(mock_user.id)
     assert access_claims["email"] == mock_user.email
     assert access_claims["organization_id"] == str(app.state.org_id)
-    assert access_claims["aud"] == f"{_TEST_MCP_URL}/mcp"
+    assert access_claims["aud"] == f"{_TEST_APP_URL}/mcp"
     assert access_claims["iss"] == f"{_TEST_API_URL}/oauth/mcp"
     assert access_claims["is_platform_superuser"] is False
 
@@ -302,7 +300,7 @@ async def test_full_flow_code_reuse_rejected(
             "code_challenge_method": "S256",
             "scope": "openid",
             "state": "s",
-            "resource": f"{_TEST_MCP_URL}/mcp",
+            "resource": f"{_TEST_APP_URL}/mcp",
         },
         follow_redirects=False,
     )
