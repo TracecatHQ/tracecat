@@ -47,7 +47,6 @@ from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionUDFImpl
 from tracecat.registry.loaders import load_udf_impl
 from tracecat.secrets import secrets_manager
-from tracecat.secrets.common import apply_masks_object
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -215,8 +214,6 @@ class TestBackend(ExecutorBackend):
                 else:
                     result = await asyncio.to_thread(fn, **args)
 
-            if secret_projection.mask_values:
-                result = apply_masks_object(result, masks=secret_projection.mask_values)
             log.trace("Result", result=result)
             return result
         finally:

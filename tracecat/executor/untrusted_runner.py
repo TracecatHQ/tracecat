@@ -36,7 +36,6 @@ from tracecat.executor.schemas import ResolvedContext
 from tracecat.executor.secret_preprocessors import project_secret_env
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
-from tracecat.secrets.common import apply_masks_object
 
 
 async def run_action_untrusted(
@@ -126,10 +125,6 @@ async def run_action_untrusted(
             result = await _run_udf(
                 action_impl.module, action_impl.name, evaluated_args
             )
-
-        # Apply masking
-        if secret_projection.mask_values:
-            result = apply_masks_object(result, masks=secret_projection.mask_values)
 
         log.trace("Result", result=result)
         return result

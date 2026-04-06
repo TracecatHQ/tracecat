@@ -497,9 +497,7 @@ class ActionRunner:
 
             # Process result
             if result.success:
-                return apply_masks_object(
-                    result.output, masks=secret_projection.mask_values
-                )
+                return result.output
 
             # Handle error from sandbox
             if result.error:
@@ -657,9 +655,7 @@ class ActionRunner:
 
         # Handle success or error
         if result_data.get("success"):
-            return apply_masks_object(
-                result_data["result"], masks=secret_projection.mask_values
-            )
+            return result_data["result"]
 
         # Reconstruct error info
         error_data = result_data.get("error")

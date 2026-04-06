@@ -374,8 +374,6 @@ async def _run_single_template_step(
         secret_projection = await _get_template_secret_projection(context)
         with secrets_manager.env_sandbox(secret_projection.env):
             result = await _run_action_direct(action=action, args=args)
-        if secret_projection.mask_values:
-            result = apply_masks_object(result, masks=secret_projection.mask_values)
 
     return result
 
