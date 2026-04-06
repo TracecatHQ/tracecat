@@ -1,0 +1,277 @@
+"""Tests for SkillService."""
+
+import base64
+import os
+
+import pytest
+from dotenv import dotenv_values
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from tracecat import config
+from tracecat.agent.preset.schemas import (
+    AgentPresetCreate,
+    AgentPresetSkillBindingBase,
+)
+from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.skill.schemas import (
+    SkillCreate,
+    SkillDraftDeleteFileOp,
+    SkillDraftPatch,
+    SkillDraftUpsertTextFileOp,
+    SkillUpload,
+    SkillUploadFile,
+)
+from tracecat.agent.skill.service import SkillService
+from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatValidationError
+from tracecat.storage.blob import ensure_bucket_exists
+
+pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def sync_minio_credentials(monkeysession: pytest.MonkeyPatch) -> None:
+    """Ensure MinIO-backed skill tests use the active local credentials."""
+
+    try:
+        env = dotenv_values()
+    except Exception:
+        env = {}
+
+    access_key = (
+        env.get("AWS_ACCESS_KEY_ID")
+        or env.get("MINIO_ROOT_USER")
+        or os.environ.get("AWS_ACCESS_KEY_ID")
+        or os.environ.get("MINIO_ROOT_USER")
+        or "minio"
+    )
+    secret_key = (
+        env.get("AWS_SECRET_ACCESS_KEY")
+        or env.get("MINIO_ROOT_PASSWORD")
+        or os.environ.get("AWS_SECRET_ACCESS_KEY")
+        or os.environ.get("MINIO_ROOT_PASSWORD")
+        or "password"
+    )
+
+    monkeysession.setenv("AWS_ACCESS_KEY_ID", access_key)
+    monkeysession.setenv("AWS_SECRET_ACCESS_KEY", secret_key)
+
+
+@pytest.fixture
+async def skill_service(session: AsyncSession, svc_role: Role) -> SkillService:
+    """Create a skill service bound to the test workspace."""
+
+    return SkillService(session=session, role=svc_role)
+
+
+@pytest.fixture(autouse=True)
+async def configure_minio_for_skills(
+    minio_bucket: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Point skill storage at the test MinIO bucket."""
+
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__BLOB_STORAGE_ENDPOINT",
+        "http://localhost:9000",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__BLOB_STORAGE_BUCKET_SKILLS",
+        minio_bucket,
+        raising=False,
+    )
+    monkeypatch.setenv(
+        "TRACECAT__BLOB_STORAGE_BUCKET_SKILLS",
+        minio_bucket,
+    )
+    monkeypatch.setenv(
+        "AWS_ACCESS_KEY_ID",
+        os.environ.get("AWS_ACCESS_KEY_ID", "minio"),
+    )
+    monkeypatch.setenv(
+        "AWS_SECRET_ACCESS_KEY",
+        os.environ.get("AWS_SECRET_ACCESS_KEY", "password"),
+    )
+
+    await ensure_bucket_exists(minio_bucket)
+
+
+@pytest.mark.anyio
+class TestSkillService:
+    async def test_create_skill_seeds_default_draft(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Creating a skill seeds a publishable draft with root SKILL.md."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(
+                slug="triage-skill",
+                title="Triage skill",
+                description="Handle security triage",
+            )
+        )
+
+        assert created.slug == "triage-skill"
+        assert created.draft_revision == 1
+        assert created.is_draft_publishable is True
+        assert created.draft_file_count == 1
+
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+        assert draft.title == "Triage skill"
+        assert draft.description == "Handle security triage"
+        assert [file.path for file in draft.files] == ["SKILL.md"]
+
+    async def test_upload_skill_conflict_raises_validation_error(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Uploading a duplicate slug fails with a conflict-style validation error."""
+
+        await skill_service.create_skill(SkillCreate(slug="duplicate-skill"))
+
+        with pytest.raises(TracecatValidationError, match="already in use"):
+            await skill_service.upload_skill(
+                SkillUpload(
+                    slug="duplicate-skill",
+                    files=[
+                        SkillUploadFile(
+                            path="SKILL.md",
+                            content_base64=base64.b64encode(b"# Duplicate").decode(),
+                            content_type="text/markdown; charset=utf-8",
+                        )
+                    ],
+                )
+            )
+
+    async def test_patch_draft_enforces_revision(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Draft mutations require the current draft revision."""
+
+        created = await skill_service.create_skill(SkillCreate(slug="revision-skill"))
+
+        with pytest.raises(TracecatValidationError, match="Draft revision conflict"):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=0,
+                    operations=[
+                        SkillDraftUpsertTextFileOp(
+                            path="references/context.md",
+                            content="Reference content",
+                        )
+                    ],
+                ),
+            )
+
+    async def test_publish_requires_root_skill_md(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Publishing fails when the draft no longer contains root SKILL.md."""
+
+        created = await skill_service.create_skill(SkillCreate(slug="invalid-skill"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[SkillDraftDeleteFileOp(path="SKILL.md")],
+            ),
+        )
+
+        with pytest.raises(TracecatValidationError, match="failed validation"):
+            await skill_service.publish_skill(created.id)
+
+    async def test_publish_snapshots_and_restore_replaces_draft(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Published versions remain immutable and restore replaces the draft."""
+
+        created = await skill_service.create_skill(SkillCreate(slug="snapshot-skill"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="references/guide.md",
+                        content="Version one",
+                    )
+                ],
+            ),
+        )
+        version_one = await skill_service.publish_skill(created.id)
+
+        updated_draft = await skill_service.get_draft(created.id)
+        assert updated_draft is not None
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=updated_draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="references/guide.md",
+                        content="Version two",
+                    )
+                ],
+            ),
+        )
+        await skill_service.publish_skill(created.id)
+
+        restored = await skill_service.restore_version(
+            skill_id=created.id,
+            version_id=version_one.id,
+        )
+        restored_file = await skill_service.get_draft_file(
+            skill_id=created.id,
+            path="references/guide.md",
+        )
+
+        assert restored.draft_revision > updated_draft.draft_revision
+        assert restored_file is not None
+        assert restored_file.kind == "inline"
+        assert restored_file.text_content == "Version one"
+
+    async def test_archive_blocks_when_preset_head_references_skill(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        skill_service: SkillService,
+    ) -> None:
+        """Archiving is blocked while a preset head still binds the skill."""
+
+        created = await skill_service.create_skill(SkillCreate(slug="bound-skill"))
+        skill_version = await skill_service.publish_skill(created.id)
+
+        preset_service = AgentPresetService(session=session, role=svc_role)
+        preset = await preset_service.create_preset(
+            AgentPresetCreate(
+                name="Bound preset",
+                description="Preset with skill",
+                instructions="Use the skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+
+        assert preset.current_version_id is not None
+        with pytest.raises(TracecatValidationError, match="still attached to a preset"):
+            await skill_service.archive_skill(created.id)

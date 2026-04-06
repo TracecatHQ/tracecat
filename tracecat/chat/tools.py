@@ -11,6 +11,7 @@ TOOL_DEFAULTS = {
         "core.cases.list_comments",
     ],
     AgentSessionEntity.AGENT_PRESET: [],
+    AgentSessionEntity.SKILL: [],
     AgentSessionEntity.AGENT_PRESET_BUILDER: BUILDER_INTERNAL_TOOL_NAMES,
     AgentSessionEntity.COPILOT: [
         "core.table.list_tables",

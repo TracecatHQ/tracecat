@@ -7,6 +7,7 @@ import contextlib
 import shutil
 import tempfile
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
@@ -37,11 +38,17 @@ from tracecat.agent.runtime.claude_code.broker import (
 from tracecat.agent.runtime_services import get_claude_runtime_broker
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
+from tracecat.config import (
+    TRACECAT__AGENT_SKILL_CACHE_DIR,
+    TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
+)
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage import blob
 
 from .schemas import ApprovedToolCall, DeniedToolCall, ToolExecutionResult
 
@@ -298,6 +305,7 @@ class SandboxedAgentExecutor:
             socket_dir=socket_dir,
             llm_socket_path=llm_socket_path,
             enable_internet_access=init_payload.config.enable_internet_access,
+            skills_dir=self._skills_dir(),
         )
         broker_task = asyncio.create_task(broker.run_turn(request, handler))
         self._log_benchmark_phase("broker_turn_dispatched")
@@ -369,17 +377,120 @@ class SandboxedAgentExecutor:
         base_dir.mkdir(parents=True, exist_ok=True)
 
         job_dir = Path(tempfile.mkdtemp(prefix=f"agent-job-{job_id}-", dir=base_dir))
-        socket_dir = job_dir / "sockets"
-        socket_dir.mkdir(mode=0o700)
+        try:
+            socket_dir = job_dir / "sockets"
+            socket_dir.mkdir(mode=0o700)
+            skills_dir = job_dir / "home" / ".claude" / "skills"
+            skills_dir.mkdir(parents=True, exist_ok=True)
+            await self._stage_resolved_skills(skills_dir)
 
-        # Note: The MCP socket directory is mounted directly into NSJail at /mcp-sockets
-        # so we don't need to symlink it here
-        logger.debug(
-            "Created job directory",
-            job_dir=str(job_dir),
-            socket_dir=str(socket_dir),
+            # Note: The MCP socket directory is mounted directly into NSJail at /mcp-sockets
+            # so we don't need to symlink it here
+            logger.debug(
+                "Created job directory",
+                job_dir=str(job_dir),
+                socket_dir=str(socket_dir),
+            )
+            return job_dir
+        except BaseException:
+            await asyncio.to_thread(shutil.rmtree, job_dir, True)
+            raise
+
+    def _skills_dir(self) -> Path | None:
+        """Return the per-run staged skills directory."""
+        if self._job_dir is None:
+            return None
+        return self._job_dir / "home" / ".claude" / "skills"
+
+    async def _stage_resolved_skills(self, skills_dir: Path) -> None:
+        """Stage resolved published skills into the per-run home directory."""
+
+        resolved_skills = self.input.config.resolved_skills or []
+        if not resolved_skills:
+            return
+        duplicate_slugs = sorted(
+            slug
+            for slug, count in Counter(
+                resolved_skill.skill_slug for resolved_skill in resolved_skills
+            ).items()
+            if count > 1
         )
-        return job_dir
+        if duplicate_slugs:
+            raise ValueError(
+                f"Resolved preset contains duplicate skill slugs: {duplicate_slugs}"
+            )
+
+        async with SkillService.with_session(role=self.input.role) as service:
+            for resolved_skill in resolved_skills:
+                cached_dir = await self._ensure_cached_skill_dir(
+                    service=service,
+                    manifest_sha256=resolved_skill.manifest_sha256,
+                    skill_version_id=resolved_skill.skill_version_id,
+                )
+                await asyncio.to_thread(
+                    shutil.copytree,
+                    cached_dir,
+                    skills_dir / resolved_skill.skill_slug,
+                    dirs_exist_ok=True,
+                )
+
+    async def _ensure_cached_skill_dir(
+        self,
+        *,
+        service: SkillService,
+        manifest_sha256: str,
+        skill_version_id: uuid.UUID,
+    ) -> Path:
+        """Populate the worker-local extracted skill cache if needed."""
+
+        cache_root = Path(TRACECAT__AGENT_SKILL_CACHE_DIR)
+        cache_root.mkdir(parents=True, exist_ok=True)
+        cache_dir = cache_root / manifest_sha256
+        if cache_dir.exists():
+            return cache_dir
+
+        temp_dir = cache_root / f".tmp-{manifest_sha256}-{uuid.uuid4().hex}"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            version_files = await service.get_version_file_materialization(
+                skill_version_id
+            )
+            if not version_files:
+                try:
+                    temp_dir.rename(cache_dir)
+                except FileExistsError:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                return cache_dir
+            max_concurrent_downloads = max(
+                1,
+                min(
+                    len(version_files),
+                    TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
+                ),
+            )
+            semaphore = asyncio.Semaphore(max_concurrent_downloads)
+
+            async def download_version_file(path: str, blob_row: Any) -> None:
+                async with semaphore:
+                    await blob.download_file_to_path(
+                        key=blob_row.key,
+                        bucket=blob_row.bucket,
+                        output_path=temp_dir / path,
+                        expected_sha256=blob_row.sha256,
+                        max_bytes=blob_row.size_bytes,
+                    )
+
+            async with asyncio.TaskGroup() as task_group:
+                for path, blob_row in version_files:
+                    task_group.create_task(download_version_file(path, blob_row))
+            try:
+                temp_dir.rename(cache_dir)
+            except FileExistsError:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise
+        return cache_dir
 
     async def _cleanup(self) -> None:
         """Clean up resources after execution."""
@@ -394,7 +505,7 @@ class SandboxedAgentExecutor:
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():
             try:
-                shutil.rmtree(self._job_dir)
+                await asyncio.to_thread(shutil.rmtree, self._job_dir)
                 logger.debug("Cleaned up job directory", job_dir=str(self._job_dir))
             except Exception as e:
                 logger.warning(

@@ -1276,6 +1276,20 @@ export const $AgentPresetCreate = {
       ],
       title: "Description",
     },
+    skills: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/AgentPresetSkillBindingBase",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skills",
+    },
     name: {
       type: "string",
       maxLength: 120,
@@ -1461,6 +1475,13 @@ export const $AgentPresetRead = {
       ],
       title: "Current Version Id",
     },
+    skills: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetSkillBindingRead",
+      },
+      type: "array",
+      title: "Skills",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -1553,6 +1574,127 @@ export const $AgentPresetReadMinimal = {
   ],
   title: "AgentPresetReadMinimal",
   description: "Minimal API model for reading agent presets in list endpoints.",
+} as const
+
+export const $AgentPresetSkillBindingBase = {
+  properties: {
+    skill_id: {
+      type: "string",
+      format: "uuid",
+      title: "Skill Id",
+    },
+    skill_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Skill Version Id",
+    },
+  },
+  type: "object",
+  required: ["skill_id", "skill_version_id"],
+  title: "AgentPresetSkillBindingBase",
+  description: "Shared fields for preset skill bindings.",
+} as const
+
+export const $AgentPresetSkillBindingChange = {
+  properties: {
+    skill_id: {
+      type: "string",
+      format: "uuid",
+      title: "Skill Id",
+    },
+    skill_slug: {
+      type: "string",
+      title: "Skill Slug",
+    },
+    old_skill_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old Skill Version Id",
+    },
+    old_skill_version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old Skill Version",
+    },
+    new_skill_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Skill Version Id",
+    },
+    new_skill_version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Skill Version",
+    },
+  },
+  type: "object",
+  required: ["skill_id", "skill_slug"],
+  title: "AgentPresetSkillBindingChange",
+  description: "Diff entry for skill binding changes between preset versions.",
+} as const
+
+export const $AgentPresetSkillBindingRead = {
+  properties: {
+    skill_id: {
+      type: "string",
+      format: "uuid",
+      title: "Skill Id",
+    },
+    skill_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Skill Version Id",
+    },
+    skill_slug: {
+      type: "string",
+      title: "Skill Slug",
+    },
+    skill_title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Title",
+    },
+    skill_version: {
+      type: "integer",
+      title: "Skill Version",
+    },
+  },
+  type: "object",
+  required: ["skill_id", "skill_version_id", "skill_slug", "skill_version"],
+  title: "AgentPresetSkillBindingRead",
+  description: "Resolved preset skill binding with metadata.",
 } as const
 
 export const $AgentPresetUpdate = {
@@ -1744,6 +1886,20 @@ export const $AgentPresetUpdate = {
       ],
       title: "Enable Internet Access",
     },
+    skills: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/AgentPresetSkillBindingBase",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skills",
+    },
   },
   type: "object",
   title: "AgentPresetUpdate",
@@ -1817,6 +1973,13 @@ export const $AgentPresetVersionDiff = {
       },
       type: "array",
       title: "Tool Approval Changes",
+    },
+    skill_changes: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetSkillBindingChange",
+      },
+      type: "array",
+      title: "Skill Changes",
     },
     total_changes: {
       type: "integer",
@@ -1970,6 +2133,13 @@ export const $AgentPresetVersionRead = {
     version: {
       type: "integer",
       title: "Version",
+    },
+    skills: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetSkillBindingRead",
+      },
+      type: "array",
+      title: "Skills",
     },
     created_at: {
       type: "string",
@@ -2133,6 +2303,13 @@ export const $AgentPresetVersionReadMinimal = {
       type: "integer",
       title: "Version",
     },
+    skills: {
+      items: {
+        $ref: "#/components/schemas/AgentPresetSkillBindingRead",
+      },
+      type: "array",
+      title: "Skills",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -2264,6 +2441,7 @@ export const $AgentSessionEntity = {
   enum: [
     "case",
     "agent_preset",
+    "skill",
     "agent_preset_builder",
     "copilot",
     "workflow",
@@ -2276,6 +2454,7 @@ export const $AgentSessionEntity = {
 Determines the context and behavior of the session:
 - CASE: Chat attached to a Case entity for investigation
 - AGENT_PRESET: Live chat testing a preset configuration
+- SKILL: Live chat testing a skill configuration
 - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
 - COPILOT: Workspace-level copilot assistant
 - WORKFLOW: Workflow-initiated agent run (from action)
@@ -8500,6 +8679,132 @@ export const $CursorPaginatedResponse_InboxItemRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[InboxItemRead]",
+} as const
+
+export const $CursorPaginatedResponse_SkillRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SkillRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SkillRead]",
+} as const
+
+export const $CursorPaginatedResponse_SkillVersionRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SkillVersionRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SkillVersionRead]",
 } as const
 
 export const $CursorPaginatedResponse_TableRowRead_ = {
@@ -17847,6 +18152,827 @@ export const $SeverityChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "SeverityChangedEventRead",
   description: "Event for when a case severity is changed.",
+} as const
+
+export const $SkillCreate = {
+  properties: {
+    slug: {
+      type: "string",
+      maxLength: 160,
+      minLength: 1,
+      title: "Slug",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 4000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+  },
+  type: "object",
+  required: ["slug"],
+  title: "SkillCreate",
+  description: "Payload for creating a new logical skill.",
+} as const
+
+export const $SkillDraftAttachUploadedBlobOp = {
+  properties: {
+    op: {
+      type: "string",
+      const: "attach_uploaded_blob",
+      title: "Op",
+      default: "attach_uploaded_blob",
+    },
+    path: {
+      type: "string",
+      maxLength: 1024,
+      minLength: 1,
+      title: "Path",
+    },
+    upload_id: {
+      type: "string",
+      format: "uuid",
+      title: "Upload Id",
+    },
+  },
+  type: "object",
+  required: ["path", "upload_id"],
+  title: "SkillDraftAttachUploadedBlobOp",
+  description: "Attach a finalized staged upload to a draft path.",
+} as const
+
+export const $SkillDraftDeleteFileOp = {
+  properties: {
+    op: {
+      type: "string",
+      const: "delete_file",
+      title: "Op",
+      default: "delete_file",
+    },
+    path: {
+      type: "string",
+      maxLength: 1024,
+      minLength: 1,
+      title: "Path",
+    },
+  },
+  type: "object",
+  required: ["path"],
+  title: "SkillDraftDeleteFileOp",
+  description: "Delete a file from the mutable skill draft.",
+} as const
+
+export const $SkillDraftFileRead = {
+  properties: {
+    kind: {
+      type: "string",
+      enum: ["inline", "download"],
+      title: "Kind",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+    size_bytes: {
+      type: "integer",
+      title: "Size Bytes",
+    },
+    sha256: {
+      type: "string",
+      title: "Sha256",
+    },
+    text_content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Text Content",
+    },
+    download_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Download Url",
+    },
+  },
+  type: "object",
+  required: ["kind", "path", "content_type", "size_bytes", "sha256"],
+  title: "SkillDraftFileRead",
+  description: "Response model for reading a single skill draft file.",
+} as const
+
+export const $SkillDraftOperation = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/SkillDraftUpsertTextFileOp",
+    },
+    {
+      $ref: "#/components/schemas/SkillDraftAttachUploadedBlobOp",
+    },
+    {
+      $ref: "#/components/schemas/SkillDraftDeleteFileOp",
+    },
+  ],
+  discriminator: {
+    propertyName: "op",
+    mapping: {
+      attach_uploaded_blob:
+        "#/components/schemas/SkillDraftAttachUploadedBlobOp",
+      delete_file: "#/components/schemas/SkillDraftDeleteFileOp",
+      upsert_text_file: "#/components/schemas/SkillDraftUpsertTextFileOp",
+    },
+  },
+} as const
+
+export const $SkillDraftPatch = {
+  properties: {
+    base_revision: {
+      type: "integer",
+      minimum: 0,
+      title: "Base Revision",
+    },
+    operations: {
+      items: {
+        $ref: "#/components/schemas/SkillDraftOperation",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Operations",
+    },
+  },
+  type: "object",
+  required: ["base_revision", "operations"],
+  title: "SkillDraftPatch",
+  description: "Optimistic-concurrency draft mutation request.",
+} as const
+
+export const $SkillDraftRead = {
+  properties: {
+    skill_id: {
+      type: "string",
+      format: "uuid",
+      title: "Skill Id",
+    },
+    skill_slug: {
+      type: "string",
+      title: "Skill Slug",
+    },
+    draft_revision: {
+      type: "integer",
+      title: "Draft Revision",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    files: {
+      items: {
+        $ref: "#/components/schemas/SkillFileEntry",
+      },
+      type: "array",
+      title: "Files",
+    },
+    is_publishable: {
+      type: "boolean",
+      title: "Is Publishable",
+    },
+    validation_errors: {
+      items: {
+        $ref: "#/components/schemas/SkillValidationErrorDetail",
+      },
+      type: "array",
+      title: "Validation Errors",
+    },
+  },
+  type: "object",
+  required: ["skill_id", "skill_slug", "draft_revision", "is_publishable"],
+  title: "SkillDraftRead",
+  description: "Current mutable draft state for a skill.",
+} as const
+
+export const $SkillDraftUpsertTextFileOp = {
+  properties: {
+    op: {
+      type: "string",
+      const: "upsert_text_file",
+      title: "Op",
+      default: "upsert_text_file",
+    },
+    path: {
+      type: "string",
+      maxLength: 1024,
+      minLength: 1,
+      title: "Path",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+    },
+    content_type: {
+      type: "string",
+      maxLength: 255,
+      title: "Content Type",
+      default: "text/plain; charset=utf-8",
+    },
+  },
+  type: "object",
+  required: ["path", "content"],
+  title: "SkillDraftUpsertTextFileOp",
+  description: "Replace or create a text file in the skill draft.",
+} as const
+
+export const $SkillFileEntry = {
+  properties: {
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    blob_id: {
+      type: "string",
+      format: "uuid",
+      title: "Blob Id",
+    },
+    sha256: {
+      type: "string",
+      title: "Sha256",
+    },
+    size_bytes: {
+      type: "integer",
+      title: "Size Bytes",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+  },
+  type: "object",
+  required: ["path", "blob_id", "sha256", "size_bytes", "content_type"],
+  title: "SkillFileEntry",
+  description:
+    "Manifest entry for a skill file (used in both drafts and versions).",
+} as const
+
+export const $SkillPlaygroundSessionCreate = {
+  properties: {
+    title: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Title",
+      default: "Skill playground",
+    },
+    skill_version_id: {
+      type: "string",
+      format: "uuid",
+      title: "Skill Version Id",
+    },
+    system_prompt: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 20000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "System Prompt",
+    },
+    mcp_integration_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integration Ids",
+    },
+    model_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Name",
+    },
+    model_provider: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Provider",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+  },
+  type: "object",
+  required: ["skill_version_id"],
+  title: "SkillPlaygroundSessionCreate",
+  description: "Request body for creating a skill playground session.",
+} as const
+
+export const $SkillRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
+    },
+    draft_revision: {
+      type: "integer",
+      title: "Draft Revision",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    archived_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Archived At",
+    },
+    current_version: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SkillVersionSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    is_draft_publishable: {
+      type: "boolean",
+      title: "Is Draft Publishable",
+    },
+    draft_validation_errors: {
+      items: {
+        $ref: "#/components/schemas/SkillValidationErrorDetail",
+      },
+      type: "array",
+      title: "Draft Validation Errors",
+    },
+    draft_file_count: {
+      type: "integer",
+      title: "Draft File Count",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "slug",
+    "draft_revision",
+    "created_at",
+    "updated_at",
+    "is_draft_publishable",
+    "draft_file_count",
+  ],
+  title: "SkillRead",
+  description: "Full response model for a workspace skill.",
+} as const
+
+export const $SkillUpload = {
+  properties: {
+    slug: {
+      type: "string",
+      maxLength: 160,
+      minLength: 1,
+      title: "Slug",
+    },
+    files: {
+      items: {
+        $ref: "#/components/schemas/SkillUploadFile",
+      },
+      type: "array",
+      minItems: 1,
+      title: "Files",
+    },
+  },
+  type: "object",
+  required: ["slug", "files"],
+  title: "SkillUpload",
+  description: "Payload for importing a full skill draft in one request.",
+} as const
+
+export const $SkillUploadFile = {
+  properties: {
+    path: {
+      type: "string",
+      maxLength: 1024,
+      minLength: 1,
+      title: "Path",
+    },
+    content_base64: {
+      type: "string",
+      title: "Content Base64",
+    },
+    content_type: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content Type",
+    },
+  },
+  type: "object",
+  required: ["path", "content_base64"],
+  title: "SkillUploadFile",
+  description: "Single file in a one-shot skill upload payload.",
+} as const
+
+export const $SkillUploadSessionCreate = {
+  properties: {
+    sha256: {
+      type: "string",
+      maxLength: 64,
+      minLength: 64,
+      title: "Sha256",
+    },
+    size_bytes: {
+      type: "integer",
+      exclusiveMinimum: 0,
+      title: "Size Bytes",
+    },
+    content_type: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Content Type",
+    },
+  },
+  type: "object",
+  required: ["sha256", "size_bytes", "content_type"],
+  title: "SkillUploadSessionCreate",
+  description: "Request body for creating a staged draft upload.",
+} as const
+
+export const $SkillUploadSessionRead = {
+  properties: {
+    upload_id: {
+      type: "string",
+      format: "uuid",
+      title: "Upload Id",
+    },
+    upload_url: {
+      type: "string",
+      title: "Upload Url",
+    },
+    method: {
+      type: "string",
+      const: "PUT",
+      title: "Method",
+      default: "PUT",
+    },
+    headers: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Headers",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    bucket: {
+      type: "string",
+      title: "Bucket",
+    },
+    key: {
+      type: "string",
+      title: "Key",
+    },
+  },
+  type: "object",
+  required: ["upload_id", "upload_url", "expires_at", "bucket", "key"],
+  title: "SkillUploadSessionRead",
+  description: "Presigned upload session details for a draft file blob.",
+} as const
+
+export const $SkillValidationErrorDetail = {
+  properties: {
+    code: {
+      type: "string",
+      title: "Code",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Path",
+    },
+  },
+  type: "object",
+  required: ["code", "message"],
+  title: "SkillValidationErrorDetail",
+  description: "Structured draft validation error.",
+} as const
+
+export const $SkillVersionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    skill_id: {
+      type: "string",
+      format: "uuid",
+      title: "Skill Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    manifest_sha256: {
+      type: "string",
+      title: "Manifest Sha256",
+    },
+    file_count: {
+      type: "integer",
+      title: "File Count",
+    },
+    total_size_bytes: {
+      type: "integer",
+      title: "Total Size Bytes",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    files: {
+      items: {
+        $ref: "#/components/schemas/SkillFileEntry",
+      },
+      type: "array",
+      title: "Files",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "skill_id",
+    "workspace_id",
+    "version",
+    "manifest_sha256",
+    "file_count",
+    "total_size_bytes",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SkillVersionRead",
+  description: "Published skill version response including its manifest.",
+} as const
+
+export const $SkillVersionSummary = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    manifest_sha256: {
+      type: "string",
+      title: "Manifest Sha256",
+    },
+    file_count: {
+      type: "integer",
+      title: "File Count",
+    },
+    total_size_bytes: {
+      type: "integer",
+      title: "Total Size Bytes",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "version",
+    "manifest_sha256",
+    "file_count",
+    "total_size_bytes",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SkillVersionSummary",
+  description: "Compact metadata for the current published skill version.",
 } as const
 
 export const $SlackChannelTokenConfig = {

@@ -470,7 +470,7 @@ async def open_download_stream(
         bucket: Bucket name (required).
 
     Yields:
-        Tuple of (StreamingBody, content_length).
+        Tuple of (streaming body, content_length).
 
     Raises:
         ClientError: If the download fails.
@@ -481,8 +481,8 @@ async def open_download_stream(
             response = await s3_client.get_object(Bucket=bucket, Key=key)
             body: StreamingBody = response["Body"]
             content_length: int | None = response.get("ContentLength")
-            async with body as stream:
-                yield stream, content_length
+            async with body:
+                yield body, content_length
     except ClientError as e:
         if e.response.get("Error", {}).get("Code") == "NoSuchKey":
             logger.warning(

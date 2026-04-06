@@ -7,7 +7,9 @@ These tests cover:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -590,3 +592,117 @@ class TestSandboxedAgentExecutorHelpers:
         assert payload.mcp_auth_token == executor_input.mcp_auth_token
         assert payload.llm_gateway_auth_token == executor_input.llm_gateway_auth_token
         assert payload.config.model_name == executor_input.config.model_name
+
+
+class TestSandboxedAgentExecutorSkillCaching:
+    """Tests for cached skill staging in the sandbox executor."""
+
+    @pytest.mark.anyio
+    async def test_ensure_cached_skill_dir_downloads_files_concurrently(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Cache population uses bounded concurrent blob downloads."""
+
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        manifest_sha256 = "manifest-sha"
+        skill_version_id = uuid.uuid4()
+        version_files = [
+            (
+                "skill-a/SKILL.md",
+                MagicMock(
+                    key="k1",
+                    bucket="skills",
+                    sha256="s1",
+                    size_bytes=10,
+                ),
+            ),
+            (
+                "skill-a/helper.py",
+                MagicMock(
+                    key="k2",
+                    bucket="skills",
+                    sha256="s2",
+                    size_bytes=10,
+                ),
+            ),
+            (
+                "skill-a/README.md",
+                MagicMock(
+                    key="k3",
+                    bucket="skills",
+                    sha256="s3",
+                    size_bytes=10,
+                ),
+            ),
+        ]
+        mock_service = AsyncMock()
+        mock_service.get_version_file_materialization.return_value = version_files
+
+        started_two_downloads = asyncio.Event()
+        release_downloads = asyncio.Event()
+        max_in_flight = 0
+        in_flight = 0
+
+        async def fake_download_file_to_path(
+            *,
+            key: str,
+            bucket: str,
+            output_path: Path,
+            expected_sha256: str | None = None,
+            max_bytes: int | None = None,
+        ) -> int:
+            del key, bucket, expected_sha256, max_bytes
+            nonlocal in_flight, max_in_flight
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            if in_flight >= 2:
+                started_two_downloads.set()
+            await release_downloads.wait()
+            output_path.write_text("ok")
+            in_flight -= 1
+            return 2
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SKILL_CACHE_DIR",
+            str(tmp_path),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS",
+            2,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.blob.download_file_to_path",
+            fake_download_file_to_path,
+        )
+
+        task = asyncio.create_task(
+            mock_executor._ensure_cached_skill_dir(
+                service=mock_service,
+                manifest_sha256=manifest_sha256,
+                skill_version_id=skill_version_id,
+            )
+        )
+        await asyncio.wait_for(started_two_downloads.wait(), timeout=1)
+        assert max_in_flight == 2
+        release_downloads.set()
+        cache_dir = await task
+
+        assert cache_dir == tmp_path / manifest_sha256
+        assert (cache_dir / "skill-a" / "SKILL.md").read_text() == "ok"
+        assert (cache_dir / "skill-a" / "helper.py").read_text() == "ok"
+        assert (cache_dir / "skill-a" / "README.md").read_text() == "ok"

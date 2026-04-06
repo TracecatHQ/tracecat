@@ -156,7 +156,6 @@ DISALLOWED_TOOLS = [
     "TodoWrite",
     "Task",
     "TaskOutput",
-    "Skill",
     "SlashCommand",
 ]
 
@@ -822,6 +821,7 @@ class ClaudeAgentRuntime:
                     if payload.config.enable_thinking
                     else {"type": "disabled"}
                 ),
+                setting_sources=["user"],
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
                     **(

@@ -334,6 +334,7 @@ export type AgentPresetCreate = {
   enable_thinking?: boolean
   enable_internet_access?: boolean
   description?: string | null
+  skills?: Array<AgentPresetSkillBindingBase> | null
   name: string
   slug?: string | null
 }
@@ -362,6 +363,7 @@ export type AgentPresetRead = {
   slug: string
   description?: string | null
   current_version_id?: string | null
+  skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
 }
@@ -378,6 +380,37 @@ export type AgentPresetReadMinimal = {
   current_version_id?: string | null
   created_at: string
   updated_at: string
+}
+
+/**
+ * Shared fields for preset skill bindings.
+ */
+export type AgentPresetSkillBindingBase = {
+  skill_id: string
+  skill_version_id: string
+}
+
+/**
+ * Diff entry for skill binding changes between preset versions.
+ */
+export type AgentPresetSkillBindingChange = {
+  skill_id: string
+  skill_slug: string
+  old_skill_version_id?: string | null
+  old_skill_version?: number | null
+  new_skill_version_id?: string | null
+  new_skill_version?: number | null
+}
+
+/**
+ * Resolved preset skill binding with metadata.
+ */
+export type AgentPresetSkillBindingRead = {
+  skill_id: string
+  skill_version_id: string
+  skill_slug: string
+  skill_title?: string | null
+  skill_version: number
 }
 
 /**
@@ -401,6 +434,7 @@ export type AgentPresetUpdate = {
   retries?: number | null
   enable_thinking?: boolean | null
   enable_internet_access?: boolean | null
+  skills?: Array<AgentPresetSkillBindingBase> | null
 }
 
 /**
@@ -417,6 +451,7 @@ export type AgentPresetVersionDiff = {
   scalar_changes?: Array<ScalarFieldChange>
   list_changes?: Array<StringListFieldChange>
   tool_approval_changes?: Array<ToolApprovalFieldChange>
+  skill_changes?: Array<AgentPresetSkillBindingChange>
   total_changes?: number
 }
 
@@ -442,6 +477,7 @@ export type AgentPresetVersionRead = {
   preset_id: string
   workspace_id: string
   version: number
+  skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
 }
@@ -468,6 +504,7 @@ export type AgentPresetVersionReadMinimal = {
   preset_id: string
   workspace_id: string
   version: number
+  skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
 }
@@ -520,6 +557,7 @@ export type AgentSessionCreate = {
  * Determines the context and behavior of the session:
  * - CASE: Chat attached to a Case entity for investigation
  * - AGENT_PRESET: Live chat testing a preset configuration
+ * - SKILL: Live chat testing a skill configuration
  * - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
  * - COPILOT: Workspace-level copilot assistant
  * - WORKFLOW: Workflow-initiated agent run (from action)
@@ -529,6 +567,7 @@ export type AgentSessionCreate = {
 export type AgentSessionEntity =
   | "case"
   | "agent_preset"
+  | "skill"
   | "agent_preset_builder"
   | "copilot"
   | "workflow"
@@ -2440,6 +2479,54 @@ export type CursorPaginatedResponse_CaseTableRowRead_ = {
 
 export type CursorPaginatedResponse_InboxItemRead_ = {
   items: Array<InboxItemRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_SkillRead_ = {
+  items: Array<SkillRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_SkillVersionRead_ = {
+  items: Array<SkillVersionRead>
   /**
    * Cursor for next page
    */
@@ -5507,6 +5594,211 @@ export type SeverityChangedEventRead = {
 }
 
 /**
+ * Payload for creating a new logical skill.
+ */
+export type SkillCreate = {
+  slug: string
+  title?: string | null
+  description?: string | null
+}
+
+/**
+ * Attach a finalized staged upload to a draft path.
+ */
+export type SkillDraftAttachUploadedBlobOp = {
+  op?: "attach_uploaded_blob"
+  path: string
+  upload_id: string
+}
+
+/**
+ * Delete a file from the mutable skill draft.
+ */
+export type SkillDraftDeleteFileOp = {
+  op?: "delete_file"
+  path: string
+}
+
+/**
+ * Response model for reading a single skill draft file.
+ */
+export type SkillDraftFileRead = {
+  kind: "inline" | "download"
+  path: string
+  content_type: string
+  size_bytes: number
+  sha256: string
+  text_content?: string | null
+  download_url?: string | null
+}
+
+export type kind = "inline" | "download"
+
+export type SkillDraftOperation =
+  | SkillDraftUpsertTextFileOp
+  | SkillDraftAttachUploadedBlobOp
+  | SkillDraftDeleteFileOp
+
+/**
+ * Optimistic-concurrency draft mutation request.
+ */
+export type SkillDraftPatch = {
+  base_revision: number
+  operations: Array<SkillDraftOperation>
+}
+
+/**
+ * Current mutable draft state for a skill.
+ */
+export type SkillDraftRead = {
+  skill_id: string
+  skill_slug: string
+  draft_revision: number
+  title?: string | null
+  description?: string | null
+  files?: Array<SkillFileEntry>
+  is_publishable: boolean
+  validation_errors?: Array<SkillValidationErrorDetail>
+}
+
+/**
+ * Replace or create a text file in the skill draft.
+ */
+export type SkillDraftUpsertTextFileOp = {
+  op?: "upsert_text_file"
+  path: string
+  content: string
+  content_type?: string
+}
+
+/**
+ * Manifest entry for a skill file (used in both drafts and versions).
+ */
+export type SkillFileEntry = {
+  path: string
+  blob_id: string
+  sha256: string
+  size_bytes: number
+  content_type: string
+}
+
+/**
+ * Request body for creating a skill playground session.
+ */
+export type SkillPlaygroundSessionCreate = {
+  title?: string
+  skill_version_id: string
+  system_prompt?: string | null
+  mcp_integration_ids?: Array<string> | null
+  model_name?: string | null
+  model_provider?: string | null
+  base_url?: string | null
+}
+
+/**
+ * Full response model for a workspace skill.
+ */
+export type SkillRead = {
+  id: string
+  workspace_id: string
+  slug: string
+  title?: string | null
+  description?: string | null
+  current_version_id?: string | null
+  draft_revision: number
+  created_at: string
+  updated_at: string
+  archived_at?: string | null
+  current_version?: SkillVersionSummary | null
+  is_draft_publishable: boolean
+  draft_validation_errors?: Array<SkillValidationErrorDetail>
+  draft_file_count: number
+}
+
+/**
+ * Payload for importing a full skill draft in one request.
+ */
+export type SkillUpload = {
+  slug: string
+  files: Array<SkillUploadFile>
+}
+
+/**
+ * Single file in a one-shot skill upload payload.
+ */
+export type SkillUploadFile = {
+  path: string
+  content_base64: string
+  content_type?: string | null
+}
+
+/**
+ * Request body for creating a staged draft upload.
+ */
+export type SkillUploadSessionCreate = {
+  sha256: string
+  size_bytes: number
+  content_type: string
+}
+
+/**
+ * Presigned upload session details for a draft file blob.
+ */
+export type SkillUploadSessionRead = {
+  upload_id: string
+  upload_url: string
+  method?: "PUT"
+  headers?: {
+    [key: string]: string
+  }
+  expires_at: string
+  bucket: string
+  key: string
+}
+
+/**
+ * Structured draft validation error.
+ */
+export type SkillValidationErrorDetail = {
+  code: string
+  message: string
+  path?: string | null
+}
+
+/**
+ * Published skill version response including its manifest.
+ */
+export type SkillVersionRead = {
+  id: string
+  skill_id: string
+  workspace_id: string
+  version: number
+  manifest_sha256: string
+  file_count: number
+  total_size_bytes: number
+  title?: string | null
+  description?: string | null
+  created_at: string
+  updated_at: string
+  files?: Array<SkillFileEntry>
+}
+
+/**
+ * Compact metadata for the current published skill version.
+ */
+export type SkillVersionSummary = {
+  id: string
+  version: number
+  manifest_sha256: string
+  file_count: number
+  total_size_bytes: number
+  title?: string | null
+  description?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
  * Slack channel token configuration.
  */
 export type SlackChannelTokenConfig = {
@@ -6977,7 +7269,7 @@ export type WebhookStoredObjectDownloadResponse = {
   size_bytes: number
 }
 
-export type kind = "download_file" | "download_export"
+export type kind2 = "download_file" | "download_export"
 
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"
@@ -9067,6 +9359,116 @@ export type AgentPresetsRestoreAgentPresetVersionData = {
 }
 
 export type AgentPresetsRestoreAgentPresetVersionResponse = AgentPresetRead
+
+export type AgentSkillsListSkillsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type AgentSkillsListSkillsResponse = CursorPaginatedResponse_SkillRead_
+
+export type AgentSkillsCreateSkillData = {
+  requestBody: SkillCreate
+  workspaceId: string
+}
+
+export type AgentSkillsCreateSkillResponse = SkillRead
+
+export type AgentSkillsUploadSkillData = {
+  requestBody: SkillUpload
+  workspaceId: string
+}
+
+export type AgentSkillsUploadSkillResponse = SkillRead
+
+export type AgentSkillsGetSkillData = {
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsGetSkillResponse = SkillRead
+
+export type AgentSkillsArchiveSkillData = {
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsArchiveSkillResponse = void
+
+export type AgentSkillsCreateSkillPlaygroundSessionData = {
+  requestBody: SkillPlaygroundSessionCreate
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsCreateSkillPlaygroundSessionResponse = AgentSessionRead
+
+export type AgentSkillsGetSkillDraftData = {
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsGetSkillDraftResponse = SkillDraftRead
+
+export type AgentSkillsPatchSkillDraftData = {
+  requestBody: SkillDraftPatch
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsPatchSkillDraftResponse = SkillDraftRead
+
+export type AgentSkillsGetSkillDraftFileData = {
+  path: string
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsGetSkillDraftFileResponse = SkillDraftFileRead
+
+export type AgentSkillsCreateSkillDraftUploadData = {
+  requestBody: SkillUploadSessionCreate
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsCreateSkillDraftUploadResponse = SkillUploadSessionRead
+
+export type AgentSkillsPublishSkillData = {
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsPublishSkillResponse = SkillVersionRead
+
+export type AgentSkillsListSkillVersionsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsListSkillVersionsResponse =
+  CursorPaginatedResponse_SkillVersionRead_
+
+export type AgentSkillsGetSkillVersionData = {
+  skillId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type AgentSkillsGetSkillVersionResponse = SkillVersionRead
+
+export type AgentSkillsRestoreSkillVersionData = {
+  skillId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type AgentSkillsRestoreSkillVersionResponse = SkillDraftRead
 
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
@@ -12930,6 +13332,210 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/skills": {
+    get: {
+      req: AgentSkillsListSkillsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SkillRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentSkillsCreateSkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SkillRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/skills:upload": {
+    post: {
+      req: AgentSkillsUploadSkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SkillRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/skills/{skill_id}": {
+    get: {
+      req: AgentSkillsGetSkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentSkillsArchiveSkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/skills/{skill_id}/playground/sessions": {
+    post: {
+      req: AgentSkillsCreateSkillPlaygroundSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AgentSessionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/skills/{skill_id}/draft": {
+    get: {
+      req: AgentSkillsGetSkillDraftData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillDraftRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: AgentSkillsPatchSkillDraftData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillDraftRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/skills/{skill_id}/draft/file": {
+    get: {
+      req: AgentSkillsGetSkillDraftFileData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillDraftFileRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/skills/{skill_id}/draft/uploads": {
+    post: {
+      req: AgentSkillsCreateSkillDraftUploadData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SkillUploadSessionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/skills/{skill_id}/publish": {
+    post: {
+      req: AgentSkillsPublishSkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillVersionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/skills/{skill_id}/versions": {
+    get: {
+      req: AgentSkillsListSkillVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SkillVersionRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/skills/{skill_id}/versions/{version_id}": {
+    get: {
+      req: AgentSkillsGetSkillVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillVersionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/skills/{skill_id}/versions/{version_id}/restore": {
+    post: {
+      req: AgentSkillsRestoreSkillVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillDraftRead
         /**
          * Validation Error
          */

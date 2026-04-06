@@ -465,6 +465,16 @@ class Workspace(OrganizationModel):
         back_populates="workspace",
         cascade="all, delete",
     )
+    skills: Mapped[list[Skill]] = relationship(
+        "Skill",
+        back_populates="workspace",
+        cascade="all, delete",
+    )
+    skill_blobs: Mapped[list[SkillBlob]] = relationship(
+        "SkillBlob",
+        back_populates="workspace",
+        cascade="all, delete",
+    )
     case_dropdown_definitions: Mapped[list[CaseDropdownDefinition]] = relationship(
         "CaseDropdownDefinition",
         back_populates="workspace",
@@ -3085,6 +3095,11 @@ class AgentPreset(WorkspaceModel):
         cascade="all, delete",
         foreign_keys="[AgentPresetVersion.preset_id]",
     )
+    skill_bindings: Mapped[list[AgentPresetSkill]] = relationship(
+        "AgentPresetSkill",
+        back_populates="preset",
+        cascade="all, delete-orphan",
+    )
     current_version: Mapped[AgentPresetVersion | None] = relationship(
         "AgentPresetVersion",
         foreign_keys=[current_version_id],
@@ -3187,6 +3202,485 @@ class AgentPresetVersion(WorkspaceModel):
         "AgentPreset",
         back_populates="versions",
         foreign_keys=[preset_id],
+    )
+    skill_refs: Mapped[list[AgentPresetVersionSkill]] = relationship(
+        "AgentPresetVersionSkill",
+        back_populates="preset_version",
+        cascade="all, delete-orphan",
+    )
+
+
+class Skill(WorkspaceModel):
+    """Workspace-scoped logical skill with mutable draft and immutable versions."""
+
+    __tablename__ = "skill"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "slug", name="uq_skill_workspace_slug"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique skill identifier",
+    )
+    slug: Mapped[str] = mapped_column(
+        String(160),
+        nullable=False,
+        index=True,
+        doc="Stable slug identifier and on-disk directory name",
+    )
+    current_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("skill_version.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Current published skill version",
+    )
+    draft_revision: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+        doc="Optimistic concurrency revision for draft mutations",
+    )
+    title: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Cached title parsed from root SKILL.md frontmatter",
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Cached description parsed from root SKILL.md frontmatter",
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="Timestamp for archived skills",
+    )
+
+    workspace: Mapped[Workspace] = relationship(back_populates="skills")
+    current_version: Mapped[SkillVersion | None] = relationship(
+        "SkillVersion",
+        foreign_keys=[current_version_id],
+        uselist=False,
+        post_update=True,
+    )
+    versions: Mapped[list[SkillVersion]] = relationship(
+        "SkillVersion",
+        back_populates="skill",
+        cascade="all, delete",
+        foreign_keys="[SkillVersion.skill_id]",
+    )
+    draft_files: Mapped[list[SkillDraftFile]] = relationship(
+        "SkillDraftFile",
+        back_populates="skill",
+        cascade="all, delete-orphan",
+    )
+    uploads: Mapped[list[SkillUpload]] = relationship(
+        "SkillUpload",
+        back_populates="skill",
+        cascade="all, delete-orphan",
+    )
+    preset_bindings: Mapped[list[AgentPresetSkill]] = relationship(
+        "AgentPresetSkill",
+        back_populates="skill",
+        cascade="save-update",
+    )
+
+
+class SkillBlob(WorkspaceModel):
+    """Content-addressed blob metadata for skill files."""
+
+    __tablename__ = "skill_blob"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "sha256",
+            name="uq_skill_blob_workspace_sha256",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    sha256: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+        doc="SHA256 hash for blob deduplication",
+    )
+    bucket: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Object storage bucket containing the blob",
+    )
+    key: Mapped[str] = mapped_column(
+        String(1024),
+        nullable=False,
+        doc="Object storage key containing the blob",
+    )
+    size_bytes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        doc="Blob size in bytes",
+    )
+    content_type: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Blob MIME type",
+    )
+
+    workspace: Mapped[Workspace] = relationship(back_populates="skill_blobs")
+    draft_files: Mapped[list[SkillDraftFile]] = relationship(
+        "SkillDraftFile",
+        back_populates="blob",
+        cascade="save-update",
+    )
+    version_files: Mapped[list[SkillVersionFile]] = relationship(
+        "SkillVersionFile",
+        back_populates="blob",
+        cascade="save-update",
+    )
+    uploads: Mapped[list[SkillUpload]] = relationship(
+        "SkillUpload",
+        back_populates="blob",
+        cascade="save-update",
+    )
+
+
+class SkillUpload(WorkspaceModel):
+    """Ephemeral staged upload session for a skill draft blob."""
+
+    __tablename__ = "skill_upload"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    blob_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("skill_blob.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Resolved blob row once the upload is finalized",
+    )
+    sha256: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Expected SHA256 of the uploaded blob",
+    )
+    size_bytes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        doc="Expected upload size in bytes",
+    )
+    content_type: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Expected upload MIME type",
+    )
+    bucket: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Bucket to upload the blob into",
+    )
+    key: Mapped[str] = mapped_column(
+        String(1024),
+        nullable=False,
+        doc="Object storage key for the staged upload",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        doc="Expiration timestamp for the upload session",
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        nullable=True,
+        doc="User that created the upload session, if any",
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="Timestamp when the upload was finalized",
+    )
+
+    skill: Mapped[Skill] = relationship(back_populates="uploads")
+    blob: Mapped[SkillBlob | None] = relationship(back_populates="uploads")
+
+
+class SkillDraftFile(WorkspaceModel):
+    """Mutable draft manifest row for a skill file."""
+
+    __tablename__ = "skill_draft_file"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "skill_id",
+            "path",
+            name="uq_skill_draft_file_workspace_skill_path",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    path: Mapped[str] = mapped_column(
+        String(1024),
+        nullable=False,
+        doc="Normalized relative POSIX path within the draft",
+    )
+    blob_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill_blob.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    skill: Mapped[Skill] = relationship(back_populates="draft_files")
+    blob: Mapped[SkillBlob] = relationship(back_populates="draft_files")
+
+
+class SkillVersion(WorkspaceModel):
+    """Immutable published snapshot of a skill draft."""
+
+    __tablename__ = "skill_version"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "skill_id",
+            "version",
+            name="uq_skill_version_workspace_skill_version",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        doc="Monotonic version number scoped to one skill",
+    )
+    manifest_sha256: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="SHA256 of the normalized published manifest",
+    )
+    file_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        doc="Number of files in the published manifest",
+    )
+    total_size_bytes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        doc="Total published skill size in bytes",
+    )
+    title: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Cached title parsed from root SKILL.md frontmatter",
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Cached description parsed from root SKILL.md frontmatter",
+    )
+
+    skill: Mapped[Skill] = relationship(
+        "Skill",
+        back_populates="versions",
+        foreign_keys=[skill_id],
+    )
+    files: Mapped[list[SkillVersionFile]] = relationship(
+        "SkillVersionFile",
+        back_populates="skill_version",
+        cascade="all, delete-orphan",
+    )
+    preset_bindings: Mapped[list[AgentPresetSkill]] = relationship(
+        "AgentPresetSkill",
+        back_populates="skill_version",
+        cascade="save-update",
+    )
+    preset_version_refs: Mapped[list[AgentPresetVersionSkill]] = relationship(
+        "AgentPresetVersionSkill",
+        back_populates="skill_version",
+        cascade="save-update",
+    )
+
+
+class SkillVersionFile(WorkspaceModel):
+    """Immutable manifest row for a published skill file."""
+
+    __tablename__ = "skill_version_file"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "skill_version_id",
+            "path",
+            name="uq_skill_version_file_workspace_version_path",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    skill_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill_version.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    path: Mapped[str] = mapped_column(
+        String(1024),
+        nullable=False,
+        doc="Normalized relative POSIX path within the published manifest",
+    )
+    blob_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill_blob.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    skill_version: Mapped[SkillVersion] = relationship(back_populates="files")
+    blob: Mapped[SkillBlob] = relationship(back_populates="version_files")
+
+
+class AgentPresetSkill(WorkspaceModel):
+    """Mutable skill binding for the current preset head."""
+
+    __tablename__ = "agent_preset_skill"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "preset_id",
+            "skill_id",
+            name="uq_agent_preset_skill_workspace_preset_skill",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    preset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    skill_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill_version.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        doc="Exact published skill version selected on the mutable preset head",
+    )
+
+    preset: Mapped[AgentPreset] = relationship(back_populates="skill_bindings")
+    skill: Mapped[Skill] = relationship(back_populates="preset_bindings")
+    skill_version: Mapped[SkillVersion] = relationship(
+        back_populates="preset_bindings",
+        foreign_keys=[skill_version_id],
+    )
+
+
+class AgentPresetVersionSkill(WorkspaceModel):
+    """Exact skill version snapshot bound to an immutable preset version."""
+
+    __tablename__ = "agent_preset_version_skill"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "preset_version_id",
+            "skill_id",
+            name="uq_agent_preset_version_skill_workspace_version_skill",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    preset_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset_version.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    skill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    skill_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("skill_version.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    preset_version: Mapped[AgentPresetVersion] = relationship(
+        back_populates="skill_refs"
+    )
+    skill: Mapped[Skill] = relationship()
+    skill_version: Mapped[SkillVersion] = relationship(
+        back_populates="preset_version_refs",
+        foreign_keys=[skill_version_id],
     )
 
 
