@@ -13,6 +13,7 @@ import { useMemo, useState } from "react"
 import type { ApprovalRead } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
 import { CollapsibleSection } from "@/components/collapsible-section"
+import { CopyButton } from "@/components/copy-button"
 import { getIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Spinner } from "@/components/loading/spinner"
@@ -274,6 +275,13 @@ function normalizePayload(raw: unknown): {
   return { value: raw, hasValue: true }
 }
 
+function getAgentCorrelationId(sessionId: string): string {
+  if (sessionId.startsWith("agent/")) {
+    return sessionId
+  }
+  return `agent/${sessionId}`
+}
+
 function AgentSessionCard({
   session,
   onReviewApprovals,
@@ -283,6 +291,7 @@ function AgentSessionCard({
 }) {
   const workspaceId = useWorkspaceId()
   const createdAt = new Date(session.created_at)
+  const correlationId = getAgentCorrelationId(session.id)
   const [expandedApprovals, setExpandedApprovals] = useState<Set<string>>(
     new Set()
   )
@@ -418,6 +427,11 @@ function AgentSessionCard({
             <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">
               {session.id}
             </code>
+            <CopyButton
+              value={correlationId}
+              toastMessage="Copied tracecat correlation ID"
+              tooltipMessage="Copy tracecat correlation ID (agent/<session_id>)"
+            />
           </span>
           {session.pendingApprovalCount > 0 && (
             <span
