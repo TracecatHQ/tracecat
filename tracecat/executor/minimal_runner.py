@@ -341,17 +341,40 @@ def _run_udf(
         _clear_env_secrets(secret_env)
 
 
-def _set_env_secrets(secret_env: dict[str, str]) -> None:
+def _stringify_secret_env_value(key: str, value: Any) -> str | None:
+    """Return a string env value or fail closed with key/type context."""
+    if value is None:
+        return None
+    try:
+        return str(value)
+    except Exception as exc:
+        raise TypeError(
+            f"Failed to stringify secret env value for {key!r} ({type(value).__name__})"
+        ) from exc
+
+
+def _set_env_secrets(secret_env: Mapping[str, Any]) -> None:
     """Set secret environment variables."""
     for key, value in secret_env.items():
-        if value is not None:
-            os.environ[key] = str(value)
+        if (secret_str := _stringify_secret_env_value(key, value)) is not None:
+            os.environ[key] = secret_str
 
 
-def _clear_env_secrets(secret_env: dict[str, str]) -> None:
+def _clear_env_secrets(secret_env: Mapping[str, Any]) -> None:
     """Remove secret environment variables."""
     for key in secret_env:
         os.environ.pop(key, None)
+
+
+def _collect_secret_mask_values(secret_env: Mapping[str, Any]) -> list[str]:
+    """Normalize env values into mask candidates, failing closed on bad __str__."""
+    mask_values: set[str] = set()
+    for key, value in secret_env.items():
+        if (secret_str := _stringify_secret_env_value(key, value)) is None:
+            continue
+        if len(secret_str) > 1:
+            mask_values.add(secret_str)
+    return sorted(mask_values, key=len, reverse=True)
 
 
 def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
@@ -392,11 +415,7 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
             result = run_action_minimal(action_impl, evaluated_args, secret_env)
 
         # Mask secret values in captured output to prevent leaking credentials
-        mask_values = sorted(
-            {v for v in secret_env.values() if len(v) > 1},
-            key=len,
-            reverse=True,
-        )
+        mask_values = _collect_secret_mask_values(secret_env)
         if captured_stdout := action_stdout.getvalue().strip():
             for mask in mask_values:
                 captured_stdout = captured_stdout.replace(mask, "***")
