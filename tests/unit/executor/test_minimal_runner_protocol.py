@@ -188,6 +188,48 @@ def test_main_minimal_masks_non_string_secret_env_values(monkeypatch) -> None:
     assert warnings_emitted[0].count("***") == 2
 
 
+def test_main_minimal_stringifies_secret_env_for_registry_context(monkeypatch) -> None:
+    test_module: Any = types.ModuleType("test_module")
+
+    def secret_action() -> dict[str, str]:
+        from tracecat_registry._internal import secrets
+
+        return {
+            "port": secrets.get("PORT").strip(),
+            "enabled": secrets.get("ENABLED").strip(),
+        }
+
+    test_module.secret_action = secret_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "secret_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {
+                "PORT": 443,
+                "ENABLED": True,
+            },
+        }
+    )
+
+    assert result == {
+        "success": True,
+        "result": {"port": "443", "enabled": "True"},
+    }
+
+
 def test_main_minimal_errors_when_secret_value_stringify_fails(monkeypatch) -> None:
     test_module: Any = types.ModuleType("test_module")
 

@@ -250,7 +250,9 @@ async def _run_udf_async(
     try:
         from tracecat_registry._internal import secrets as registry_secrets
 
-        secrets_token = registry_secrets.set_context(secret_env)
+        secrets_token = registry_secrets.set_context(
+            _normalize_secret_context(secret_env)
+        )
     except ImportError:
         pass  # registry_secrets stays None
         warnings.warn(
@@ -311,7 +313,9 @@ def _run_udf(
     try:
         from tracecat_registry._internal import secrets as registry_secrets
 
-        secrets_token = registry_secrets.set_context(secret_env)
+        secrets_token = registry_secrets.set_context(
+            _normalize_secret_context(secret_env)
+        )
     except ImportError:
         warnings.warn(
             "Could not import tracecat_registry._internal.secrets - "
@@ -351,6 +355,15 @@ def _stringify_secret_env_value(key: str, value: Any) -> str | None:
         raise TypeError(
             f"Failed to stringify secret env value for {key!r} ({type(value).__name__})"
         ) from exc
+
+
+def _normalize_secret_context(secret_env: Mapping[str, Any]) -> dict[str, str]:
+    """Normalize secrets for registry ContextVar consumers that expect strings."""
+    normalized: dict[str, str] = {}
+    for key, value in secret_env.items():
+        if (secret_str := _stringify_secret_env_value(key, value)) is not None:
+            normalized[key] = secret_str
+    return normalized
 
 
 def _set_env_secrets(secret_env: Mapping[str, Any]) -> None:
