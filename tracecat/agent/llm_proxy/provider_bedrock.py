@@ -111,12 +111,19 @@ async def assume_bedrock_aws_role(
 
     session = AIOSession()
     async with session.client("sts") as sts_client:
-        kwargs = {"RoleArn": role_arn, "RoleSessionName": role_session_name}
+        # Build assume_role kwargs with proper typing
         if external_id:
-            kwargs["ExternalId"] = external_id
-
-        response = await sts_client.assume_role(**kwargs)  # type: ignore[arg-type]
-        assumed_creds = response["Credentials"]  # type: ignore[return-value]
+            response = await sts_client.assume_role(
+                RoleArn=role_arn,
+                RoleSessionName=role_session_name,
+                ExternalId=external_id,
+            )
+        else:
+            response = await sts_client.assume_role(
+                RoleArn=role_arn,
+                RoleSessionName=role_session_name,
+            )
+        assumed_creds = response["Credentials"]
 
     # Return new dict with assumed role credentials (immutable)
     result = dict(credentials)

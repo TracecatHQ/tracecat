@@ -93,10 +93,10 @@ async def _resolve_credentials_cached(
             provider,
             use_workspace_credentials=use_workspace_credentials,
         )
-    # For Bedrock, resolve role assumption upfront so prepare_request stays sync
+    if creds is None:
+        return None
     if provider == "bedrock":
-        creds = await assume_bedrock_aws_role(creds or {})
-
+        creds = await assume_bedrock_aws_role(creds)
     return creds
 
 
