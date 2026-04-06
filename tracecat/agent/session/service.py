@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import hashlib
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
@@ -79,6 +79,7 @@ if TYPE_CHECKING:
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
+RESUME_HISTORY_BATCH_SIZE = 250
 
 
 @dataclass(frozen=True)
@@ -593,38 +594,71 @@ class AgentSessionService(BaseWorkspaceService):
     async def materialize_session_history(
         self,
         session_id: uuid.UUID,
+        *,
+        progress_callback: Callable[[str], None] | None = None,
+        batch_size: int = RESUME_HISTORY_BATCH_SIZE,
     ) -> str | None:
         """Reconstruct JSONL session history from persisted session rows.
 
-        Offloads JSONL encoding to a thread to avoid blocking Temporal's event loop.
+        Fetches and encodes history in batches so long resume chains can report
+        incremental progress to the caller and avoid activity heartbeat stalls.
 
         Args:
             session_id: Session UUID whose persisted history should be
                 reconstructed into Claude SDK JSONL.
+            progress_callback: Optional progress hook invoked after each encoded
+                batch so callers can emit Temporal heartbeats.
+            batch_size: Maximum number of history rows to fetch and encode per
+                batch.
 
         Returns:
             Reconstructed JSONL content, or None if no history entries exist.
         """
-        stmt = (
-            select(AgentSessionHistory.content)
-            .where(AgentSessionHistory.session_id == session_id)
-            .order_by(AgentSessionHistory.surrogate_id)
-        )
-        result = await self.session.execute(stmt)
-        history_entries = list(result.scalars().all())
+        total_entries = 0
+        batch_number = 0
+        last_surrogate_id: int | None = None
+        encoded_batches: list[str] = []
 
-        if not history_entries:
+        def encode_batch(history_entries: Sequence[dict[str, Any]]) -> str:
+            return "\n".join(
+                orjson.dumps(entry).decode("utf-8") for entry in history_entries
+            )
+
+        while True:
+            stmt = (
+                select(AgentSessionHistory.surrogate_id, AgentSessionHistory.content)
+                .where(AgentSessionHistory.session_id == session_id)
+                .order_by(AgentSessionHistory.surrogate_id)
+                .limit(batch_size)
+            )
+            if last_surrogate_id is not None:
+                stmt = stmt.where(AgentSessionHistory.surrogate_id > last_surrogate_id)
+
+            result = await self.session.execute(stmt)
+            rows = list(result.tuples().all())
+            if not rows:
+                break
+
+            batch_number += 1
+            last_surrogate_id = rows[-1][0]
+            batch_entries = [content for _, content in rows]
+            encoded_batches.append(await asyncio.to_thread(encode_batch, batch_entries))
+            total_entries += len(batch_entries)
+
+            if progress_callback is not None:
+                progress_callback(
+                    f"Materialized {total_entries} resume history entries "
+                    f"for {session_id} (batch {batch_number})"
+                )
+
+        if total_entries == 0:
             logger.warning(
                 "No persisted session history found",
                 session_id=session_id,
             )
             return None
 
-        def encode() -> str:
-            lines = [orjson.dumps(entry).decode("utf-8") for entry in history_entries]
-            return "\n".join(lines)
-
-        return await asyncio.to_thread(encode)
+        return "\n".join(encoded_batches)
 
     async def get_session_history(
         self,

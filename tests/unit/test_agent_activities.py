@@ -58,6 +58,30 @@ def mock_session_id() -> uuid.UUID:
     return uuid.uuid4()
 
 
+def test_preview_message_history_returns_placeholder_for_oversize_message() -> None:
+    oversize_message = ChatMessage.model_validate(
+        {
+            "id": "msg-oversize",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "x" * (MAX_ACTIVITY_MESSAGE_HISTORY_BYTES + 1),
+                    }
+                ],
+            },
+        }
+    )
+
+    preview = _preview_message_history([oversize_message])
+
+    assert preview is not None
+    assert len(preview) == 1
+    assert preview[0].id == "msg-oversize-preview"
+    assert preview[0].message is not None
+
+
 @pytest.fixture
 def mock_agent_config() -> AgentConfig:
     """Create a mock agent config for testing."""
@@ -393,6 +417,9 @@ class TestRunAgentActivity:
             assert result.messages is not None
             assert [message.id for message in result.messages] == ["msg-1"]
             mock_executor_cls.assert_called_once_with(input=mock_executor_input)
+            mock_executor.run.assert_awaited_once_with(
+                progress_callback=mock_activity.heartbeat
+            )
 
     @pytest.mark.anyio
     async def test_returns_approval_requested_on_approval_interrupt(
@@ -561,6 +588,108 @@ class TestSandboxedAgentExecutorResumeStaging:
 
     @pytest.mark.anyio
     @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
+    async def test_passes_progress_callback_to_session_materialization(
+        self,
+        mock_with_session,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        tmp_path: Path,
+    ) -> None:
+        heartbeat = MagicMock()
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+                sdk_session_id="sdk-session-123",
+                resume_source_session_id=mock_session_id,
+            )
+        )
+        executor._job_dir = tmp_path
+
+        mock_service = AsyncMock()
+        mock_service.materialize_session_history.return_value = '{"type":"user"}\n'
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        await executor._stage_resume_session_file(progress_callback=heartbeat)
+
+        progress_callback = mock_service.materialize_session_history.await_args.kwargs[
+            "progress_callback"
+        ]
+        progress_callback("Materialized 1 resume history entries")
+
+        heartbeat.assert_any_call(f"Loading resume history: {mock_session_id}")
+        heartbeat.assert_any_call("Materialized 1 resume history entries")
+        heartbeat.assert_any_call("Staged resume history: sdk-session-123")
+
+    @pytest.mark.anyio
+    async def test_run_passes_executor_work_dir_to_nsjail_spawn(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(
+            input=AgentExecutorInput(
+                session_id=mock_session_id,
+                workspace_id=mock_role.workspace_id or uuid.uuid4(),
+                user_prompt="Test prompt",
+                config=mock_agent_config,
+                role=mock_role,
+                mcp_auth_token="mock-jwt-token",
+                llm_gateway_auth_token="mock-llm-token",
+            )
+        )
+
+        mock_proxy = MagicMock()
+        mock_proxy.start = AsyncMock()
+        mock_proxy.stop = AsyncMock()
+        mock_server = AsyncMock()
+        mock_server.__aenter__.return_value = mock_server
+        mock_server.__aexit__.return_value = None
+
+        with (
+            patch.object(
+                executor,
+                "_create_job_directory",
+                AsyncMock(return_value=tmp_path),
+            ),
+            patch.object(
+                executor,
+                "_stage_resume_session_file",
+                AsyncMock(return_value="/work/resume/sdk-session-123.jsonl"),
+            ),
+            patch.object(
+                executor,
+                "_create_llm_socket_proxy",
+                return_value=mock_proxy,
+            ),
+            patch(
+                "tracecat.agent.executor.activity.asyncio.start_unix_server",
+                AsyncMock(return_value=mock_server),
+            ),
+            patch(
+                "tracecat.agent.executor.activity.spawn_jailed_runtime",
+                AsyncMock(side_effect=AgentSandboxExecutionError("spawn failed")),
+            ) as mock_spawn,
+        ):
+            result = await executor.run()
+
+        assert result.success is False
+        assert result.error == "spawn failed"
+        assert mock_spawn.await_args is not None
+        assert mock_spawn.await_args.kwargs["work_dir"] == tmp_path
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.executor.activity.AgentSessionService.with_session")
     async def test_rejects_invalid_sdk_session_id_before_writing_resume_file(
         self,
         mock_with_session,
@@ -662,8 +791,8 @@ class TestActivityMessageHistoryTruncation:
         assert result is not None
         assert [message.id for message in result] == ["msg-1", "msg-2"]
 
-    def test_omits_history_when_last_message_exceeds_budget(self) -> None:
-        """Drop history entirely when even the newest message is too large."""
+    def test_returns_placeholder_when_last_message_exceeds_budget(self) -> None:
+        """Return a placeholder instead of an empty preview for oversized messages."""
         messages = [
             ChatMessage.model_validate(
                 {
@@ -678,4 +807,6 @@ class TestActivityMessageHistoryTruncation:
 
         result = _preview_message_history(messages)
 
-        assert result is None
+        assert result is not None
+        assert len(result) == 1
+        assert result[0].id == "msg-oversized-preview"

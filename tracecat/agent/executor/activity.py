@@ -7,6 +7,7 @@ import os
 import shutil
 import tempfile
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -92,7 +93,25 @@ def _preview_message_history(
         total_bytes += size
 
     if not tail:
-        return None
+        return [
+            ChatMessage.model_validate(
+                {
+                    "id": f"{messages[-1].id}-preview",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "Message history preview omitted because the "
+                                    "latest message exceeded the preview size limit."
+                                ),
+                            }
+                        ],
+                    },
+                }
+            )
+        ]
 
     tail.reverse()
     if len(tail) < len(messages):
@@ -147,7 +166,10 @@ class AgentExecutorResult(BaseModel):
     error: str | None = None
     approval_requested: bool = False
     approval_items: list[ToolCallContent] | None = None
-    messages: list[ChatMessage] | None = None
+    messages: list[ChatMessage] | None = Field(
+        default=None,
+        description="Bounded preview of persisted session history for workflow views.",
+    )
     output: Any = Field(
         default=None,
         validation_alias=AliasChoices("output", "structured_output", "result_output"),
@@ -205,6 +227,7 @@ class SandboxedAgentExecutor:
         default=None, init=False, repr=False
     )
     _llm_proxy: LLMSocketProxy | None = field(default=None, init=False, repr=False)
+    _runtime_job_dir: Path | None = field(default=None, init=False, repr=False)
     _fatal_error: str | None = field(default=None, init=False, repr=False)
     _fatal_error_event: asyncio.Event = field(
         default_factory=asyncio.Event, init=False, repr=False
@@ -223,7 +246,17 @@ class SandboxedAgentExecutor:
             on_error=on_error,
         )
 
-    async def run(self) -> AgentExecutorResult:
+    @staticmethod
+    def _emit_progress(
+        progress_callback: Callable[[str], None] | None, details: str
+    ) -> None:
+        """Emit generic progress updates when a callback is provided."""
+        if progress_callback is not None:
+            progress_callback(details)
+
+    async def run(
+        self, *, progress_callback: Callable[[str], None] | None = None
+    ) -> AgentExecutorResult:
         """Execute the agent in an NSJail sandbox.
 
         Returns:
@@ -235,7 +268,9 @@ class SandboxedAgentExecutor:
             # Create job directory with sockets
             self._job_dir = await self._create_job_directory()
             socket_dir = self._job_dir / "sockets"
-            resume_session_path = await self._stage_resume_session_file()
+            resume_session_path = await self._stage_resume_session_file(
+                progress_callback=progress_callback
+            )
 
             # Create loopback handler
             loopback_input = LoopbackInput(
@@ -326,9 +361,11 @@ class SandboxedAgentExecutor:
                 runtime_result = await spawn_jailed_runtime(
                     socket_dir=socket_dir,
                     llm_socket_path=llm_socket_path,
+                    work_dir=self._job_dir,
                     enable_internet_access=self.input.config.enable_internet_access,
                 )
                 self._process = runtime_result.process
+                self._runtime_job_dir = runtime_result.job_dir
                 logger.info(
                     "Agent runtime process spawned",
                     pid=self._process.pid,
@@ -393,8 +430,9 @@ class SandboxedAgentExecutor:
                         if not done:
                             # Timeout - send heartbeat and continue waiting
                             elapsed += heartbeat_interval
-                            activity.heartbeat(
-                                f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
+                            self._emit_progress(
+                                progress_callback,
+                                f"Agent running: {self.input.session_id} ({elapsed}s elapsed)",
                             )
                             logger.debug(
                                 "Heartbeat sent, continuing to wait",
@@ -556,7 +594,9 @@ class SandboxedAgentExecutor:
         )
         return job_dir
 
-    async def _stage_resume_session_file(self) -> str | None:
+    async def _stage_resume_session_file(
+        self, *, progress_callback: Callable[[str], None] | None = None
+    ) -> str | None:
         """Materialize persisted session history into the per-job directory.
 
         Returns:
@@ -576,11 +616,22 @@ class SandboxedAgentExecutor:
 
         if self.input.resume_source_session_id is not None:
             # New path: materialize from DB using the source session pointer
+            self._emit_progress(
+                progress_callback,
+                f"Loading resume history: {self.input.resume_source_session_id}",
+            )
             async with AgentSessionService.with_session(
                 role=self.input.role
             ) as service:
                 sdk_session_data = await service.materialize_session_history(
-                    self.input.resume_source_session_id
+                    self.input.resume_source_session_id,
+                    progress_callback=(
+                        None
+                        if progress_callback is None
+                        else lambda details: self._emit_progress(
+                            progress_callback, details
+                        )
+                    ),
                 )
         elif self.input.sdk_session_data is not None:
             # Legacy fallback: use inline JSONL from old activity payloads
@@ -613,6 +664,10 @@ class SandboxedAgentExecutor:
         resume_dir.mkdir(mode=0o700)
         host_resume_path = resume_dir / f"{validated_session_id}.jsonl"
         await asyncio.to_thread(host_resume_path.write_text, sdk_session_data)
+        self._emit_progress(
+            progress_callback,
+            f"Staged resume history: {self.input.sdk_session_id}",
+        )
 
         if TRACECAT__DISABLE_NSJAIL:
             runtime_resume_path = host_resume_path
@@ -650,6 +705,27 @@ class SandboxedAgentExecutor:
                 logger.warning("Failed to stop LLM proxy", error=str(e))
             self._llm_proxy = None
 
+        # Clean up NSJail config/runtime scratch directory when present.
+        if (
+            self._runtime_job_dir
+            and self._runtime_job_dir != self._job_dir
+            and self._runtime_job_dir.exists()
+        ):
+            try:
+                shutil.rmtree(self._runtime_job_dir)
+                logger.debug(
+                    "Cleaned up runtime job directory",
+                    job_dir=str(self._runtime_job_dir),
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to clean up runtime job directory",
+                    job_dir=str(self._runtime_job_dir),
+                    error=str(e),
+                )
+            finally:
+                self._runtime_job_dir = None
+
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():
             try:
@@ -661,6 +737,8 @@ class SandboxedAgentExecutor:
                     job_dir=str(self._job_dir),
                     error=str(e),
                 )
+            finally:
+                self._job_dir = None
 
 
 @activity.defn
@@ -694,7 +772,7 @@ async def run_agent_activity(
     )
 
     executor = SandboxedAgentExecutor(input=input)
-    result = await executor.run()
+    result = await executor.run(progress_callback=activity.heartbeat)
 
     if result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")

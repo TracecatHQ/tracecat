@@ -3,7 +3,7 @@
 import uuid
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -89,13 +89,18 @@ async def test_materialize_session_history_offloads_jsonl_serialization(
     role: Role,
 ) -> None:
     session = AsyncMock()
-    session.execute.return_value = SimpleNamespace(
-        scalars=lambda: SimpleNamespace(
-            all=lambda: [
-                {"type": "user", "message": {"content": "hello"}},
-                {"type": "assistant", "message": {"content": "world"}},
-            ]
-        )
+    session.execute = AsyncMock(
+        side_effect=[
+            SimpleNamespace(
+                tuples=lambda: SimpleNamespace(
+                    all=lambda: [
+                        (1, {"type": "user", "message": {"content": "hello"}}),
+                        (2, {"type": "assistant", "message": {"content": "world"}}),
+                    ]
+                )
+            ),
+            SimpleNamespace(tuples=lambda: SimpleNamespace(all=lambda: [])),
+        ]
     )
     service = AgentSessionService(session, role)
 
@@ -103,7 +108,7 @@ async def test_materialize_session_history_offloads_jsonl_serialization(
         "tracecat.agent.session.service.asyncio.to_thread",
         new_callable=AsyncMock,
     ) as mock_to_thread:
-        mock_to_thread.side_effect = lambda func: func()
+        mock_to_thread.side_effect = lambda func, *args: func(*args)
         jsonl = await service.materialize_session_history(uuid.uuid4())
 
     assert jsonl == (
@@ -111,6 +116,56 @@ async def test_materialize_session_history_offloads_jsonl_serialization(
         '{"type":"assistant","message":{"content":"world"}}'
     )
     mock_to_thread.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_materialize_session_history_reports_progress_per_batch(
+    role: Role,
+) -> None:
+    session_id = uuid.uuid4()
+    session = AsyncMock()
+    session.execute = AsyncMock(
+        side_effect=[
+            SimpleNamespace(
+                tuples=lambda: SimpleNamespace(
+                    all=lambda: [
+                        (1, {"type": "user", "message": {"content": "hello"}}),
+                    ]
+                )
+            ),
+            SimpleNamespace(
+                tuples=lambda: SimpleNamespace(
+                    all=lambda: [
+                        (2, {"type": "assistant", "message": {"content": "world"}}),
+                    ]
+                )
+            ),
+            SimpleNamespace(tuples=lambda: SimpleNamespace(all=lambda: [])),
+        ]
+    )
+    service = AgentSessionService(session, role)
+    progress_callback = MagicMock()
+
+    with patch(
+        "tracecat.agent.session.service.asyncio.to_thread",
+        new_callable=AsyncMock,
+    ) as mock_to_thread:
+        mock_to_thread.side_effect = lambda func, *args: func(*args)
+        jsonl = await service.materialize_session_history(
+            session_id,
+            progress_callback=progress_callback,
+            batch_size=1,
+        )
+
+    assert jsonl == (
+        '{"type":"user","message":{"content":"hello"}}\n'
+        '{"type":"assistant","message":{"content":"world"}}'
+    )
+    assert progress_callback.call_args_list == [
+        call(f"Materialized 1 resume history entries for {session_id} (batch 1)"),
+        call(f"Materialized 2 resume history entries for {session_id} (batch 2)"),
+    ]
+    assert mock_to_thread.await_count == 2
 
 
 @pytest.mark.anyio

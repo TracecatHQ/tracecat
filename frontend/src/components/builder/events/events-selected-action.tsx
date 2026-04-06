@@ -692,6 +692,10 @@ function ActionSessionStream({ session }: { session: Session_Any_ }) {
   if (messages && messages.length > 0) {
     return (
       <ActionSessionShell>
+        <div className="border-b bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+          This may be truncated. The execution view only shows a preview of the
+          agent session.
+        </div>
         <Conversation className="flex-1">
           <ConversationContent>
             {messages.map(({ id, role, parts }) => (

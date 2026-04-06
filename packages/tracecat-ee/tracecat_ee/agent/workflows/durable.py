@@ -583,7 +583,9 @@ class DurableAgentWorkflow:
             )
             return AgentOutput(
                 output=output,
-                message_history=result.messages,  # Messages fetched from DB by activity
+                # This is a bounded preview for workflow execution views, not the
+                # full durable session transcript.
+                message_history=result.messages,
                 duration=(datetime.now(UTC) - info.start_time).total_seconds(),
                 usage=RunUsage(
                     requests=result.result_num_turns or 0,
