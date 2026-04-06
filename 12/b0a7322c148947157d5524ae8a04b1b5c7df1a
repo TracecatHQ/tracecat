@@ -1,0 +1,23 @@
+frontend/package.json
+  8b4966c9d4f69195 197-198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "12b0a7322c148947157d5524ae8a04b1b5c7df1a",
+  "prompts": {
+    "8b4966c9d4f69195": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "60155ca5-aaec-45c2-bff8-b3dd55210928",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 1,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
