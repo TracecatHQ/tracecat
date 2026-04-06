@@ -367,17 +367,20 @@ class TestClaudeAgentRuntimeRun:
     ) -> None:
         """Test that resumed sessions only mount the canonical registry MCP name."""
         captured_options: list[Any] = []
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
 
         def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
             captured_options.append(kwargs["options"])
             return mock_claude_sdk_client
 
-        resume_file = tmp_path / "resume.jsonl"
+        resume_dir = tmp_path / "resume"
+        resume_dir.mkdir()
+        resume_file = resume_dir / f"{sdk_session_id}.jsonl"
         resume_file.write_text('{"type":"user","message":{"content":"test"}}\n')
 
         resumed_payload = replace(
             sample_init_payload,
-            sdk_session_id="eed8297f-26fb-4e00-905f-a10f0cf20704",
+            sdk_session_id=sdk_session_id,
             resume_session_path=str(resume_file),
         )
 
@@ -440,6 +443,30 @@ class TestClaudeAgentRuntimeRun:
             match="Invalid sdk_session_id",
         ):
             runtime._get_session_file_path("../escape")
+
+    def test_validate_resume_session_path_accepts_executor_formats(
+        self,
+        mock_socket_writer: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test that runtime accepts both legacy and executor-staged resume paths."""
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        host_resume_path = tmp_path / "resume" / f"{sdk_session_id}.jsonl"
+
+        assert (
+            runtime._validate_resume_session_path(f"resume/{sdk_session_id}.jsonl")
+            == Path("/work") / "resume" / f"{sdk_session_id}.jsonl"
+        )
+        assert (
+            runtime._validate_resume_session_path(
+                f"/work/resume/{sdk_session_id}.jsonl"
+            )
+            == Path("/work") / "resume" / f"{sdk_session_id}.jsonl"
+        )
+        assert runtime._validate_resume_session_path(str(host_resume_path)) == (
+            host_resume_path
+        )
 
 
 class TestClaudeAgentRuntimePreToolUseHook:

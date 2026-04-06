@@ -85,6 +85,35 @@ async def test_auto_title_updates_session_on_first_prompt(role: Role) -> None:
 
 
 @pytest.mark.anyio
+async def test_materialize_session_history_offloads_jsonl_serialization(
+    role: Role,
+) -> None:
+    session = AsyncMock()
+    session.execute.return_value = SimpleNamespace(
+        scalars=lambda: SimpleNamespace(
+            all=lambda: [
+                {"type": "user", "message": {"content": "hello"}},
+                {"type": "assistant", "message": {"content": "world"}},
+            ]
+        )
+    )
+    service = AgentSessionService(session, role)
+
+    with patch(
+        "tracecat.agent.session.service.asyncio.to_thread",
+        new_callable=AsyncMock,
+    ) as mock_to_thread:
+        mock_to_thread.side_effect = lambda func: func()
+        jsonl = await service.materialize_session_history(uuid.uuid4())
+
+    assert jsonl == (
+        '{"type":"user","message":{"content":"hello"}}\n'
+        '{"type":"assistant","message":{"content":"world"}}'
+    )
+    mock_to_thread.assert_awaited_once()
+
+
+@pytest.mark.anyio
 async def test_auto_title_uses_service_role_for_model_config(user_role: Role) -> None:
     session = AsyncMock()
     session.execute.return_value = SimpleNamespace(

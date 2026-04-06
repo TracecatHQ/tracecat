@@ -16,9 +16,11 @@ import pytest
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.executor.activity import (
+    MAX_ACTIVITY_MESSAGE_HISTORY_BYTES,
     AgentExecutorInput,
     AgentExecutorResult,
     SandboxedAgentExecutor,
+    _preview_message_history,
     run_agent_activity,
 )
 from tracecat.agent.session.activities import (
@@ -34,6 +36,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.chat.schemas import ChatMessage
 
 
 @pytest.fixture
@@ -360,15 +363,35 @@ class TestRunAgentActivity:
             patch(
                 "tracecat.agent.executor.activity.SandboxedAgentExecutor"
             ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity.AgentSessionService.with_session"
+            ) as mock_with_session,
         ):
             mock_activity.heartbeat = MagicMock()
             mock_executor = MagicMock()
             mock_executor.run = AsyncMock(return_value=expected_result)
             mock_executor_cls.return_value = mock_executor
+            mock_service = AsyncMock()
+            mock_service.list_messages.return_value = [
+                ChatMessage.model_validate(
+                    {
+                        "id": "msg-1",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": "done"}],
+                        },
+                    }
+                )
+            ]
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__.return_value = mock_service
+            mock_with_session.return_value = mock_ctx
 
             result = await run_agent_activity(mock_executor_input)
 
-            assert result == expected_result
+            assert result.success is True
+            assert result.messages is not None
+            assert [message.id for message in result.messages] == ["msg-1"]
             mock_executor_cls.assert_called_once_with(input=mock_executor_input)
 
     @pytest.mark.anyio
@@ -380,6 +403,8 @@ class TestRunAgentActivity:
             success=True,
             approval_requested=True,
             approval_items=[],
+            output={"leak": True},
+            result_usage={"input_tokens": 999},
         )
 
         with (
@@ -387,6 +412,9 @@ class TestRunAgentActivity:
             patch(
                 "tracecat.agent.executor.activity.SandboxedAgentExecutor"
             ) as mock_executor_cls,
+            patch(
+                "tracecat.agent.executor.activity.AgentSessionService.with_session"
+            ) as mock_with_session,
         ):
             mock_activity.heartbeat = MagicMock()
             mock_executor = MagicMock()
@@ -397,6 +425,11 @@ class TestRunAgentActivity:
 
             assert result.success is True
             assert result.approval_requested is True
+            assert result.approval_items == []
+            assert result.output is None
+            assert result.result_usage is None
+            assert result.messages is None
+            mock_with_session.assert_not_called()
 
     @pytest.mark.anyio
     async def test_handles_execution_error(
@@ -602,3 +635,47 @@ class TestSandboxedAgentExecutorResumeStaging:
 
         assert staged_path is None
         assert not (tmp_path / "resume").exists()
+
+
+class TestActivityMessageHistoryTruncation:
+    """Tests for bounded activity message history payloads."""
+
+    def test_returns_tail_that_fits_in_budget(self) -> None:
+        """Keep the newest messages when they fit comfortably in the budget."""
+        messages = [
+            ChatMessage.model_validate(
+                {
+                    "id": "msg-1",
+                    "message": {"role": "assistant", "content": "first"},
+                }
+            ),
+            ChatMessage.model_validate(
+                {
+                    "id": "msg-2",
+                    "message": {"role": "assistant", "content": "second"},
+                }
+            ),
+        ]
+
+        result = _preview_message_history(messages)
+
+        assert result is not None
+        assert [message.id for message in result] == ["msg-1", "msg-2"]
+
+    def test_omits_history_when_last_message_exceeds_budget(self) -> None:
+        """Drop history entirely when even the newest message is too large."""
+        messages = [
+            ChatMessage.model_validate(
+                {
+                    "id": "msg-oversized",
+                    "message": {
+                        "role": "assistant",
+                        "content": "x" * (MAX_ACTIVITY_MESSAGE_HISTORY_BYTES + 1024),
+                    },
+                }
+            )
+        ]
+
+        result = _preview_message_history(messages)
+
+        assert result is None

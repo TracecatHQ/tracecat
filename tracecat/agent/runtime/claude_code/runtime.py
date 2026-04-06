@@ -215,39 +215,52 @@ class ClaudeAgentRuntime:
         return session_file_path
 
     def _validate_resume_session_path(self, resume_session_path: str) -> Path:
-        """Validate resume session path matches expected pattern: resume/{session_id}.jsonl.
+        """Validate a staged resume path produced by the trusted executor.
+
+        Accepts paths ending with /resume/{session_id}.jsonl in any location:
+        - Relative: resume/{session_id}.jsonl → resolved to /work/resume/{session_id}.jsonl
+        - Absolute: /work/resume/{session_id}.jsonl or /tmp/.../resume/{session_id}.jsonl
+
+        Args:
+            resume_session_path: Path string to validate.
+
+        Returns:
+            Resolved absolute Path to the session file.
 
         Raises:
-            AgentSandboxValidationError: If path doesn't match expected pattern.
+            AgentSandboxValidationError: If path contains traversal, invalid structure, or bad session ID.
         """
         path = Path(resume_session_path)
 
-        # Must be exactly "resume/{session_id}.jsonl" - no absolute paths, no traversal
-        if path.is_absolute() or str(path).startswith(".."):
+        # Prevent directory traversal attacks
+        if ".." in path.parts:
             raise AgentSandboxValidationError(
-                f"Resume session path must be relative, got {resume_session_path!r}"
+                f"Resume session path must not contain traversal: {resume_session_path!r}"
             )
 
-        # Check structure: exactly one parent directory "resume"
-        if path.parent.name != "resume" or path.parent.parent.name != "":
+        # Normalize relative paths to absolute form
+        resolved = Path("/work") / path if not path.is_absolute() else path
+
+        # Enforce structure: .../resume/{session_id}.jsonl
+        if resolved.parent.name != "resume":
             raise AgentSandboxValidationError(
-                f"Resume session path must be 'resume/{{session_id}}.jsonl', got {resume_session_path!r}"
+                f"Path must end with '/resume/{{session_id}}.jsonl': {resume_session_path!r}"
             )
 
-        # Extract and validate session ID from filename
-        filename = path.name
+        # Validate filename and extract session ID
+        filename = resolved.name
         if not filename.endswith(".jsonl"):
             raise AgentSandboxValidationError(
-                f"Resume session file must have .jsonl suffix, got {filename!r}"
+                f"Filename must be '{{session_id}}.jsonl': {filename!r}"
             )
 
-        session_id = filename[:-6]  # Strip .jsonl suffix
+        session_id = filename[:-6]  # Strip .jsonl extension
         if not session_id or not all(c.isalnum() or c in "-_" for c in session_id):
             raise AgentSandboxValidationError(
-                f"Invalid session ID in resume path: {session_id!r}"
+                f"Invalid session ID (must be alphanumeric + hyphens/underscores): {session_id!r}"
             )
 
-        return Path("/work") / path
+        return resolved
 
     async def _read_resume_session_file(self, resume_session_path: str) -> str:
         """Read staged JSONL session data prepared by the trusted executor."""

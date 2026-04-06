@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import uuid
@@ -595,6 +596,8 @@ class AgentSessionService(BaseWorkspaceService):
     ) -> str | None:
         """Reconstruct JSONL session history from persisted session rows.
 
+        Offloads JSONL encoding to a thread to avoid blocking Temporal's event loop.
+
         Args:
             session_id: Session UUID whose persisted history should be
                 reconstructed into Claude SDK JSONL.
@@ -603,7 +606,7 @@ class AgentSessionService(BaseWorkspaceService):
             Reconstructed JSONL content, or None if no history entries exist.
         """
         stmt = (
-            select(AgentSessionHistory)
+            select(AgentSessionHistory.content)
             .where(AgentSessionHistory.session_id == session_id)
             .order_by(AgentSessionHistory.surrogate_id)
         )
@@ -617,13 +620,11 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return None
 
-        # Reconstruct JSONL from history entries (content stored pristine)
-        lines = []
-        for entry in history_entries:
-            line = orjson.dumps(entry.content).decode("utf-8")
-            lines.append(line)
+        def encode() -> str:
+            lines = [orjson.dumps(entry).decode("utf-8") for entry in history_entries]
+            return "\n".join(lines)
 
-        return "\n".join(lines)
+        return await asyncio.to_thread(encode)
 
     async def get_session_history(
         self,

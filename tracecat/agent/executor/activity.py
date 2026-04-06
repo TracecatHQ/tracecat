@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import orjson
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 
@@ -42,6 +43,9 @@ from tracecat.registry.lock.types import RegistryLock
 
 from .schemas import ApprovedToolCall, DeniedToolCall, ToolExecutionResult
 
+MAX_ACTIVITY_MESSAGE_HISTORY_BYTES = 128 * 1024
+MAX_ACTIVITY_MESSAGE_HISTORY_COUNT = 12
+
 
 def _validate_sdk_session_id(sdk_session_id: str) -> str:
     """Validate a persisted Claude SDK session identifier.
@@ -66,6 +70,38 @@ def _validate_sdk_session_id(sdk_session_id: str) -> str:
         )
 
     return sdk_session_id
+
+
+def _preview_message_history(
+    messages: list[ChatMessage],
+) -> list[ChatMessage] | None:
+    """Return the newest messages bounded by the activity payload budget."""
+    if not messages:
+        return None
+
+    tail: list[ChatMessage] = []
+    total_bytes = 0
+
+    for msg in reversed(messages):
+        size = len(orjson.dumps(msg.model_dump(mode="json")))
+        if len(tail) >= MAX_ACTIVITY_MESSAGE_HISTORY_COUNT:
+            break
+        if total_bytes + size > MAX_ACTIVITY_MESSAGE_HISTORY_BYTES:
+            break
+        tail.append(msg)
+        total_bytes += size
+
+    if not tail:
+        return None
+
+    tail.reverse()
+    if len(tail) < len(messages):
+        logger.info(
+            "Truncated activity message preview",
+            returned=len(tail),
+            total=len(messages),
+        )
+    return tail
 
 
 class AgentExecutorInput(BaseModel):
@@ -636,7 +672,7 @@ async def run_agent_activity(
         input: Agent executor configuration and tokens.
 
     Returns:
-        AgentExecutorResult with execution status and session data.
+        AgentExecutorResult with execution status and lightweight metadata.
     """
     sandbox_mode = "direct" if TRACECAT__DISABLE_NSJAIL else "nsjail"
     activity.heartbeat(
@@ -648,10 +684,17 @@ async def run_agent_activity(
 
     if result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")
-        # Fetch messages from database to include in result
+        if result.approval_requested:
+            return AgentExecutorResult(
+                success=True,
+                approval_requested=True,
+                approval_items=result.approval_items,
+            )
+
         try:
             async with AgentSessionService.with_session(role=input.role) as svc:
-                result.messages = await svc.list_messages(input.session_id)
+                messages = await svc.list_messages(input.session_id)
+            result.messages = _preview_message_history(messages)
         except Exception as e:
             logger.warning(
                 "Failed to fetch session messages",
