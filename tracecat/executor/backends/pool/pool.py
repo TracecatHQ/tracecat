@@ -1062,11 +1062,13 @@ class WorkerPool:
         action_name = input.task.action
         task_ref = input.task.ref
         stage = "init"
-        secret_projection = await project_secret_env(
-            secrets=resolved_context.secrets,
-            role=role,
-            run_context=input.run_context,
-        )
+        secret_projection = resolved_context.secret_projection
+        if secret_projection is None:
+            secret_projection = await project_secret_env(
+                secrets=resolved_context.secrets,
+                role=role,
+                run_context=input.run_context,
+            )
 
         request = {
             "input": input.model_dump(mode="json"),

@@ -353,11 +353,13 @@ class ActionRunner:
             force_sandbox=force_sandbox,
         )
 
-        secret_projection = await project_secret_env(
-            secrets=resolved_context.secrets,
-            role=role,
-            run_context=input.run_context,
-        )
+        secret_projection = resolved_context.secret_projection
+        if secret_projection is None:
+            secret_projection = await project_secret_env(
+                secrets=resolved_context.secrets,
+                role=role,
+                run_context=input.run_context,
+            )
 
         if use_sandbox:
             return await self._execute_sandboxed(

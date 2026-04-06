@@ -421,6 +421,7 @@ async def _prepare_step_context(
         run_id=parent_resolved.run_id,
         executor_token=executor_token,  # Mint new token for step
         logical_time=parent_resolved.logical_time,
+        secret_projection=parent_resolved.secret_projection,
     )
 
 
@@ -714,19 +715,20 @@ async def prepare_resolved_context(
     if role.workspace_id is None:
         raise ValueError("workspace_id is required for action execution")
 
-    # Build root-level masks from the raw secrets only. Runtime-specific
-    # projections are masked at the actual host injection boundaries.
+    secret_projection = await project_secret_env(
+        secrets=secrets,
+        role=role,
+        run_context=input.run_context,
+    )
+
+    # Build root-level masks from the runtime projection so host-side credential
+    # rewriting is also redacted from final outputs.
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
         logger.warning(
             "Secrets masking is disabled. This is unsafe in production workflows."
         )
         mask_values = None
     else:
-        secret_projection = await project_secret_env(
-            secrets=secrets,
-            role=role,
-            run_context=input.run_context,
-        )
         mask_values = set(secret_projection.mask_values)
 
     # Generate executor token for SDK authentication
@@ -748,6 +750,7 @@ async def prepare_resolved_context(
         run_id=str(input.run_context.wf_run_id),
         executor_token=executor_token,
         logical_time=logical_time,
+        secret_projection=secret_projection,
     )
 
     return PreparedContext(resolved_context=resolved_context, mask_values=mask_values)

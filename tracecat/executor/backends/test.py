@@ -199,11 +199,13 @@ class TestBackend(ExecutorBackend):
             action_name=action_name,
         )
 
-        secret_projection = await project_secret_env(
-            secrets=resolved_context.secrets,
-            role=role,
-            run_context=input.run_context,
-        )
+        secret_projection = resolved_context.secret_projection
+        if secret_projection is None:
+            secret_projection = await project_secret_env(
+                secrets=resolved_context.secrets,
+                role=role,
+                run_context=input.run_context,
+            )
         secrets_token = registry_secrets.set_context(secret_projection.env)
 
         try:

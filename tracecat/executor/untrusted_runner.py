@@ -110,11 +110,13 @@ async def run_action_untrusted(
         has_secrets=bool(secrets),
     )
 
-    secret_projection = await project_secret_env(
-        secrets=secrets,
-        role=role,
-        run_context=input.run_context,
-    )
+    secret_projection = resolved_context.secret_projection
+    if secret_projection is None:
+        secret_projection = await project_secret_env(
+            secrets=secrets,
+            role=role,
+            run_context=input.run_context,
+        )
 
     # Initialize registry secrets context for SDK mode
     secrets_token = registry_secrets.set_context(secret_projection.env)

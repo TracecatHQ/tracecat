@@ -225,6 +225,10 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
     parent_resolved = (
         await prepare_resolved_context(input=input, role=test_role)
     ).resolved_context
+    parent_resolved.secret_projection = SecretEnvProjection(
+        env={"AWS_ACCESS_KEY_ID": "ASIA_TEMP_KEY"},
+        mask_values={"ASIA_TEMP_KEY"},
+    )
     step_ctx = await _prepare_step_context(
         step_action=step_action,
         evaluated_args={},
@@ -235,6 +239,7 @@ async def test_prepare_step_context_uses_manifest_for_template_steps(
     assert step_ctx.action_impl.type == "udf"
     assert step_ctx.action_impl.module == "manifest.module"
     assert step_ctx.action_impl.name == "manifest_fn"
+    assert step_ctx.secret_projection is parent_resolved.secret_projection
 
 
 @pytest.mark.anyio

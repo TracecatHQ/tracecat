@@ -11,6 +11,7 @@ from pydantic import UUID4, BaseModel, Field
 
 from tracecat import config
 from tracecat.config import TRACECAT__APP_ENV
+from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.logger import logger
 
 
@@ -168,6 +169,9 @@ class ResolvedContext(BaseModel):
 
     logical_time: datetime | None = None
     """Logical time for deterministic FN.now() during workflow execution."""
+
+    secret_projection: SecretEnvProjection | None = Field(default=None, exclude=True)
+    """Runtime-ready secret env cached for host-side execution reuse."""
 
 
 class ExecutorActionErrorInfo(BaseModel):
