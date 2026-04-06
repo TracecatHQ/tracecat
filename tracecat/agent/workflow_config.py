@@ -7,12 +7,14 @@ from tracecat.agent.common.types import (
     MCPServerConfig,
     MCPStdioServerConfig,
 )
+from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_schemas import (
     AgentConfigPayload,
     MCPHttpServerConfigPayload,
     MCPServerConfigPayload,
     MCPStdioServerConfigPayload,
+    ResolvedSkillRefPayload,
 )
 
 
@@ -79,6 +81,28 @@ def _mcp_server_from_payload(server: MCPServerConfigPayload) -> MCPServerConfig:
             return http_server
 
 
+def _resolved_skill_to_payload(skill: ResolvedSkillRef) -> ResolvedSkillRefPayload:
+    """Convert a resolved skill ref into a workflow-safe payload."""
+
+    return ResolvedSkillRefPayload(
+        skill_id=skill.skill_id,
+        skill_slug=skill.skill_slug,
+        skill_version_id=skill.skill_version_id,
+        manifest_sha256=skill.manifest_sha256,
+    )
+
+
+def _resolved_skill_from_payload(skill: ResolvedSkillRefPayload) -> ResolvedSkillRef:
+    """Convert a workflow-safe skill ref back into a runtime dataclass."""
+
+    return ResolvedSkillRef(
+        skill_id=skill.skill_id,
+        skill_slug=skill.skill_slug,
+        skill_version_id=skill.skill_version_id,
+        manifest_sha256=skill.manifest_sha256,
+    )
+
+
 def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
     """Convert runtime AgentConfig to workflow-safe payload."""
     return AgentConfigPayload(
@@ -98,6 +122,11 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
         ),
         retries=config.retries,
         enable_internet_access=config.enable_internet_access,
+        resolved_skills=(
+            [_resolved_skill_to_payload(skill) for skill in config.resolved_skills]
+            if config.resolved_skills
+            else None
+        ),
     )
 
 
@@ -120,4 +149,9 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
         ),
         retries=payload.retries,
         enable_internet_access=payload.enable_internet_access,
+        resolved_skills=(
+            [_resolved_skill_from_payload(skill) for skill in payload.resolved_skills]
+            if payload.resolved_skills
+            else None
+        ),
     )

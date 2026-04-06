@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import tempfile
 import uuid
 from dataclasses import dataclass, field
@@ -30,11 +31,17 @@ from tracecat.agent.llm_proxy.core import TracecatLLMProxy
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
 from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
+from tracecat.config import (
+    TRACECAT__AGENT_SKILL_CACHE_DIR,
+    TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
+)
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.storage import blob
 
 from .schemas import ApprovedToolCall, DeniedToolCall, ToolExecutionResult
 
@@ -257,6 +264,8 @@ class SandboxedAgentExecutor:
                     socket_dir=socket_dir,
                     llm_socket_path=llm_socket_path,
                     enable_internet_access=self.input.config.enable_internet_access,
+                    home_dir=self._job_dir / "home",
+                    skills_dir=self._job_dir / "home" / ".claude" / "skills",
                 )
                 self._process = runtime_result.process
                 logger.info(
@@ -476,6 +485,9 @@ class SandboxedAgentExecutor:
         job_dir = Path(tempfile.mkdtemp(prefix=f"agent-job-{job_id}-", dir=base_dir))
         socket_dir = job_dir / "sockets"
         socket_dir.mkdir(mode=0o700)
+        home_dir = job_dir / "home"
+        (home_dir / ".claude" / "skills").mkdir(parents=True, exist_ok=True)
+        await self._stage_resolved_skills(home_dir / ".claude" / "skills")
 
         # Note: The MCP socket directory is mounted directly into NSJail at /mcp-sockets
         # so we don't need to symlink it here
@@ -485,6 +497,82 @@ class SandboxedAgentExecutor:
             socket_dir=str(socket_dir),
         )
         return job_dir
+
+    async def _stage_resolved_skills(self, skills_dir: Path) -> None:
+        """Stage resolved published skills into the per-run home directory."""
+
+        resolved_skills = self.input.config.resolved_skills or []
+        if not resolved_skills:
+            return
+
+        async with SkillService.with_session(role=self.input.role) as service:
+            for resolved_skill in resolved_skills:
+                cached_dir = await self._ensure_cached_skill_dir(
+                    service=service,
+                    manifest_sha256=resolved_skill.manifest_sha256,
+                    skill_version_id=resolved_skill.skill_version_id,
+                )
+                shutil.copytree(
+                    cached_dir,
+                    skills_dir / resolved_skill.skill_slug,
+                    dirs_exist_ok=True,
+                )
+
+    async def _ensure_cached_skill_dir(
+        self,
+        *,
+        service: SkillService,
+        manifest_sha256: str,
+        skill_version_id: uuid.UUID,
+    ) -> Path:
+        """Populate the worker-local extracted skill cache if needed."""
+
+        cache_root = Path(TRACECAT__AGENT_SKILL_CACHE_DIR)
+        cache_root.mkdir(parents=True, exist_ok=True)
+        cache_dir = cache_root / manifest_sha256
+        if cache_dir.exists():
+            return cache_dir
+
+        temp_dir = cache_root / f".tmp-{manifest_sha256}-{uuid.uuid4().hex}"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            version_files = await service.get_version_file_materialization(
+                skill_version_id
+            )
+            if not version_files:
+                try:
+                    temp_dir.rename(cache_dir)
+                except FileExistsError:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                return cache_dir
+            semaphore = asyncio.Semaphore(
+                min(
+                    len(version_files),
+                    TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
+                )
+            )
+
+            async def download_version_file(path: str, blob_row: Any) -> None:
+                async with semaphore:
+                    await blob.download_file_to_path(
+                        key=blob_row.key,
+                        bucket=blob_row.bucket,
+                        output_path=temp_dir / path,
+                        expected_sha256=blob_row.sha256,
+                        max_bytes=blob_row.size_bytes,
+                    )
+
+            async with asyncio.TaskGroup() as task_group:
+                for path, blob_row in version_files:
+                    task_group.create_task(download_version_file(path, blob_row))
+            try:
+                temp_dir.rename(cache_dir)
+            except FileExistsError:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise
+        return cache_dir
 
     async def _cleanup(self) -> None:
         """Clean up resources after execution."""
@@ -509,19 +597,7 @@ class SandboxedAgentExecutor:
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():
             try:
-                socket_dir = self._job_dir / "sockets"
-                if socket_dir.exists():
-                    for f in socket_dir.iterdir():
-                        # Remove files, symlinks, and sockets (is_socket() for Unix sockets)
-                        if f.is_symlink() or f.is_file() or f.is_socket():
-                            f.unlink()
-                    socket_dir.rmdir()
-
-                for f in self._job_dir.iterdir():
-                    if f.is_file() or f.is_socket():
-                        f.unlink()
-                self._job_dir.rmdir()
-
+                shutil.rmtree(self._job_dir)
                 logger.debug("Cleaned up job directory", job_dir=str(self._job_dir))
             except Exception as e:
                 logger.warning(

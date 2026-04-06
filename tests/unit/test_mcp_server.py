@@ -23,6 +23,7 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.skill.schemas import SkillRead, SkillUploadFile
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.expressions.common import ExprType
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
@@ -4428,6 +4429,66 @@ async def test_create_agent_preset_requires_workspace_credentials_for_default_mo
             workspace_id=str(workspace_id),
             name="Security triage",
         )
+
+
+@pytest.mark.anyio
+async def test_upload_skill_uses_workspace_skill_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    captured: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def upload_skill(self, params):
+            captured["params"] = params
+            now = datetime.now(UTC)
+            return SkillRead(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                slug=params.slug,
+                title=None,
+                description=None,
+                current_version_id=None,
+                draft_revision=1,
+                created_at=now,
+                updated_at=now,
+                archived_at=None,
+                current_version=None,
+                is_draft_publishable=True,
+                draft_validation_errors=[],
+                draft_file_count=len(params.files),
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.upload_skill)(
+        workspace_id=str(workspace_id),
+        slug="triage-skill",
+        files=[
+            SkillUploadFile(
+                path="SKILL.md",
+                content_base64="IyBUcmlhZ2U=",
+                content_type="text/markdown; charset=utf-8",
+            )
+        ],
+    )
+
+    payload = _payload(result)
+    params = captured["params"]
+    assert params.slug == "triage-skill"
+    assert len(params.files) == 1
+    assert params.files[0].path == "SKILL.md"
+    assert payload["slug"] == "triage-skill"
+    assert payload["draft_file_count"] == 1
 
 
 def test_mcp_instructions_include_agent_preset_authoring_tools() -> None:

@@ -57,6 +57,13 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.skill.schemas import (
+    SkillDraftPatch,
+    SkillRead,
+    SkillUpload,
+    SkillUploadFile,
+)
+from tracecat.agent.skill.service import SkillService
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
 from tracecat.agent.tools import create_tool_from_registry
@@ -2750,6 +2757,7 @@ _TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
     "get_agent_preset_authoring_context": "agents",
     "create_agent_preset": "agents",
     "update_agent_preset": "agents",
+    "upload_skill": "agents",
     "list_agent_presets": "agents",
     "get_agent_preset": "agents",
     "run_agent_preset": "agents",
@@ -6107,6 +6115,69 @@ async def update_agent_preset(
             "Failed to update agent preset", error=str(e), preset_slug=preset_slug
         )
         raise ToolError(f"Failed to update agent preset: {e}") from None
+
+
+@mcp.tool()
+async def upload_skill(
+    workspace_id: str,
+    slug: str,
+    files: list[SkillUploadFile],
+    title: str | None = None,
+    description: str | None = None,
+) -> str:
+    """Upload a local skill directory into Tracecat as a workspace skill.
+
+    Agents should read the local directory themselves, preserve relative paths,
+    include the root ``SKILL.md`` file, and pass every file in ``files`` using
+    ``content_base64``.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        params = SkillUpload.model_validate(
+            {
+                "slug": slug,
+                "files": [file.model_dump(mode="json") for file in files],
+            }
+        )
+        async with SkillService.with_session(role=role) as svc:
+            created = await svc.upload_skill(params)
+            if title is not None or description is not None:
+                draft = await svc.get_draft(created.id)
+                if draft is None:
+                    raise ToolError("Uploaded skill draft was not found")
+                skill_md = SkillService._build_default_skill_markdown(
+                    slug=slug, title=title, description=description
+                )
+                await svc.patch_draft(
+                    skill_id=created.id,
+                    params=SkillDraftPatch.model_validate(
+                        {
+                            "base_revision": draft.draft_revision,
+                            "operations": [
+                                {
+                                    "op": "upsert_text_file",
+                                    "path": "SKILL.md",
+                                    "content": skill_md,
+                                    "content_type": "text/markdown; charset=utf-8",
+                                }
+                            ],
+                        }
+                    ),
+                )
+                created = await svc.get_skill_read(created.id)
+                if created is None:
+                    raise ToolError("Uploaded skill was not found")
+        return _json(SkillRead.model_validate(created).model_dump(mode="json"))
+    except ToolError:
+        raise
+    except ValidationError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to upload skill", error=str(e), slug=slug)
+        raise ToolError(f"Failed to upload skill: {e}") from None
 
 
 def _parse_iso8601_duration(duration_str: str) -> timedelta:

@@ -9,6 +9,7 @@ class AgentSessionEntity(StrEnum):
     Determines the context and behavior of the session:
     - CASE: Chat attached to a Case entity for investigation
     - AGENT_PRESET: Live chat testing a preset configuration
+    - SKILL: Live chat testing a skill configuration
     - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
     - COPILOT: Workspace-level copilot assistant
     - WORKFLOW: Workflow-initiated agent run (from action)
@@ -18,6 +19,7 @@ class AgentSessionEntity(StrEnum):
 
     CASE = "case"
     AGENT_PRESET = "agent_preset"
+    SKILL = "skill"
     AGENT_PRESET_BUILDER = "agent_preset_builder"
     COPILOT = "copilot"
     WORKFLOW = "workflow"

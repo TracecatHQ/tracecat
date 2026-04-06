@@ -119,6 +119,8 @@ async def spawn_jailed_runtime(
     rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
     *,
     enable_internet_access: bool = False,
+    home_dir: Path | None = None,
+    skills_dir: Path | None = None,
 ) -> SpawnedRuntime:
     """Spawn the agent runtime inside an NSJail sandbox (or direct subprocess for testing).
 
@@ -184,6 +186,7 @@ async def spawn_jailed_runtime(
         return await _spawn_direct_runtime(
             socket_dir=socket_dir,
             llm_socket_path=llm_socket_path,
+            home_dir=home_dir,
         )
 
     # NSJail mode for production - llm_socket_path is required
@@ -200,6 +203,7 @@ async def spawn_jailed_runtime(
         nsjail_path=nsjail_path,
         rootfs_path=rootfs_path,
         enable_internet_access=enable_internet_access,
+        skills_dir=skills_dir,
     )
 
 
@@ -207,6 +211,7 @@ async def _spawn_direct_runtime(
     *,
     socket_dir: Path,
     llm_socket_path: Path | None,
+    home_dir: Path | None,
 ) -> SpawnedRuntime:
     """Spawn the agent runtime as a direct subprocess (for development/testing).
 
@@ -245,8 +250,8 @@ async def _spawn_direct_runtime(
         "TRACECAT__DISABLE_NSJAIL": "true",
         # Point the runtime at the orchestrator's per-job control socket
         "TRACECAT__AGENT_CONTROL_SOCKET_PATH": str(control_socket_path),
-        # Use host's HOME for Claude SDK session storage
-        "HOME": os.environ.get("HOME", "/tmp"),
+        # Use a per-run HOME directory for Claude SDK session storage and skills.
+        "HOME": str(home_dir or Path(os.environ.get("HOME", "/tmp"))),
     }
     if llm_socket_path is not None:
         # If the runtime uses LLMBridge (internet access disabled), it must connect
@@ -271,6 +276,7 @@ async def _spawn_nsjail_runtime(
     rootfs_path: str,
     *,
     enable_internet_access: bool = False,
+    skills_dir: Path | None = None,
 ) -> SpawnedRuntime:
     """Spawn the agent runtime inside an NSJail sandbox (production mode).
 
@@ -308,6 +314,7 @@ async def _spawn_nsjail_runtime(
             tracecat_pkg_dir=tracecat_pkg_dir,
             llm_socket_path=llm_socket_path,
             enable_internet_access=enable_internet_access,
+            skills_dir=skills_dir,
         )
 
         # Write config to job directory

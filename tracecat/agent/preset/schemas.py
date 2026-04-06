@@ -12,6 +12,33 @@ from tracecat.agent.types import AgentConfig, OutputType
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
 
+
+class AgentPresetSkillBindingBase(Schema):
+    """Shared fields for preset skill bindings."""
+
+    skill_id: uuid.UUID
+    skill_version_id: uuid.UUID
+
+
+class AgentPresetSkillBindingRead(AgentPresetSkillBindingBase):
+    """Resolved preset skill binding with metadata."""
+
+    skill_slug: str
+    skill_title: str | None = Field(default=None)
+    skill_version: int
+
+
+class AgentPresetSkillBindingChange(BaseModel):
+    """Diff entry for skill binding changes between preset versions."""
+
+    skill_id: uuid.UUID
+    skill_slug: str
+    old_skill_version_id: uuid.UUID | None = None
+    old_skill_version: int | None = None
+    new_skill_version_id: uuid.UUID | None = None
+    new_skill_version: int | None = None
+
+
 PresetName = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
@@ -66,6 +93,7 @@ class AgentPresetBase(AgentPresetExecutionConfigWrite):
     """Shared fields for agent preset mutations."""
 
     description: str | None = Field(default=None, max_length=1000)
+    skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 
 
 class AgentPresetCreate(AgentPresetBase):
@@ -92,6 +120,7 @@ class AgentPresetUpdate(BaseModel):
     mcp_integrations: list[str] | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
     enable_internet_access: bool | None = Field(default=None)
+    skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 
 
 class AgentPresetReadMinimal(Schema):
@@ -116,6 +145,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
     slug: str
     description: str | None = Field(default=None, max_length=1000)
     current_version_id: uuid.UUID | None = None
+    skills: list[AgentPresetSkillBindingRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -155,6 +185,7 @@ class AgentPresetVersionReadMinimal(AgentPresetExecutionConfig):
     preset_id: uuid.UUID
     workspace_id: WorkspaceID
     version: int
+    skills: list[AgentPresetSkillBindingRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -202,4 +233,5 @@ class AgentPresetVersionDiff(BaseModel):
     scalar_changes: list[ScalarFieldChange] = Field(default_factory=list)
     list_changes: list[StringListFieldChange] = Field(default_factory=list)
     tool_approval_changes: list[ToolApprovalFieldChange] = Field(default_factory=list)
+    skill_changes: list[AgentPresetSkillBindingChange] = Field(default_factory=list)
     total_changes: int = 0

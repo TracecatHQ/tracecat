@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field, StringConstraints
 
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
-    AgentPresetRead,
     AgentPresetReadMinimal,
+    AgentPresetSkillBindingBase,
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
@@ -52,6 +52,7 @@ class PresetCreateRequest(BaseModel):
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
+    skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 
 
 class PresetUpdateRequest(BaseModel):
@@ -66,6 +67,7 @@ class PresetUpdateRequest(BaseModel):
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
+    skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 
 
 @router.get("", response_model=list[AgentPresetReadMinimal])
@@ -95,7 +97,7 @@ async def create_preset(
         preset = await service.create_preset(
             AgentPresetCreate(**params.model_dump(exclude_unset=True))
         )
-        return AgentPresetRead.model_validate(preset).model_dump(mode="json")
+        return (await service.to_read_model(preset)).model_dump(mode="json")
     except TracecatValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -119,7 +121,7 @@ async def get_preset_by_slug(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset with slug '{slug}' not found",
         )
-    return AgentPresetRead.model_validate(preset).model_dump(mode="json")
+    return (await service.to_read_model(preset)).model_dump(mode="json")
 
 
 @router.patch("/by-slug/{slug}")
@@ -143,7 +145,7 @@ async def update_preset_by_slug(
         updated_preset = await service.update_preset(
             preset, AgentPresetUpdate(**params.model_dump(exclude_unset=True))
         )
-        return AgentPresetRead.model_validate(updated_preset).model_dump(mode="json")
+        return (await service.to_read_model(updated_preset)).model_dump(mode="json")
     except TracecatValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

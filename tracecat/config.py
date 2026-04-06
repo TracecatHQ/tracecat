@@ -155,6 +155,16 @@ TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = os.environ.get(
 )
 """Directory for caching extracted registry tarballs in subprocess mode. Uses /tmp for ephemeral storage."""
 
+TRACECAT__AGENT_SKILL_CACHE_DIR = os.environ.get(
+    "TRACECAT__AGENT_SKILL_CACHE_DIR", "/tmp/tracecat/agent-skill-cache"
+)
+"""Directory for caching extracted published skills on executor workers."""
+
+TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS = int(
+    os.environ.get("TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS") or 8
+)
+"""Maximum concurrent file downloads while populating a cached published skill."""
+
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = [
     "tracecat-api",
@@ -409,6 +419,11 @@ TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY = os.environ.get(
     "TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY", "tracecat-registry"
 )
 """Bucket for registry tarball files and versioned artifacts."""
+
+TRACECAT__BLOB_STORAGE_BUCKET_SKILLS = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_BUCKET_SKILLS", "tracecat-skills"
+)
+"""Bucket for workspace skill blobs."""
 
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT", "")
 """Endpoint URL for blob storage."""

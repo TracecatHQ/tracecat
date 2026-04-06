@@ -146,6 +146,34 @@ import type {
   AgentSessionsUpdateSessionResponse,
   AgentSetDefaultModelData,
   AgentSetDefaultModelResponse,
+  AgentSkillsArchiveSkillData,
+  AgentSkillsArchiveSkillResponse,
+  AgentSkillsCreateSkillData,
+  AgentSkillsCreateSkillDraftUploadData,
+  AgentSkillsCreateSkillDraftUploadResponse,
+  AgentSkillsCreateSkillPlaygroundSessionData,
+  AgentSkillsCreateSkillPlaygroundSessionResponse,
+  AgentSkillsCreateSkillResponse,
+  AgentSkillsGetSkillData,
+  AgentSkillsGetSkillDraftData,
+  AgentSkillsGetSkillDraftFileData,
+  AgentSkillsGetSkillDraftFileResponse,
+  AgentSkillsGetSkillDraftResponse,
+  AgentSkillsGetSkillResponse,
+  AgentSkillsGetSkillVersionData,
+  AgentSkillsGetSkillVersionResponse,
+  AgentSkillsListSkillsData,
+  AgentSkillsListSkillsResponse,
+  AgentSkillsListSkillVersionsData,
+  AgentSkillsListSkillVersionsResponse,
+  AgentSkillsPatchSkillDraftData,
+  AgentSkillsPatchSkillDraftResponse,
+  AgentSkillsPublishSkillData,
+  AgentSkillsPublishSkillResponse,
+  AgentSkillsRestoreSkillVersionData,
+  AgentSkillsRestoreSkillVersionResponse,
+  AgentSkillsUploadSkillData,
+  AgentSkillsUploadSkillResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
   ApprovalsSubmitApprovalsData,
@@ -4455,6 +4483,405 @@ export const agentPresetsRestoreAgentPresetVersion = (
     url: "/agent/presets/{preset_id}/versions/{version_id}/restore",
     path: {
       preset_id: data.presetId,
+      version_id: data.versionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Skills
+ * List workspace skills for the current workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_SkillRead_ Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsListSkills = (
+  data: AgentSkillsListSkillsData
+): CancelablePromise<AgentSkillsListSkillsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/skills",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Skill
+ * Create a new logical skill and seed its draft.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SkillRead Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsCreateSkill = (
+  data: AgentSkillsCreateSkillData
+): CancelablePromise<AgentSkillsCreateSkillResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/skills",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Upload Skill
+ * Create a new skill by importing a full draft file tree.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SkillRead Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsUploadSkill = (
+  data: AgentSkillsUploadSkillData
+): CancelablePromise<AgentSkillsUploadSkillResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/skills:upload",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Skill
+ * Return a skill summary including draft and current version status.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.workspaceId
+ * @returns SkillRead Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsGetSkill = (
+  data: AgentSkillsGetSkillData
+): CancelablePromise<AgentSkillsGetSkillResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/skills/{skill_id}",
+    path: {
+      skill_id: data.skillId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Archive Skill
+ * Archive a logical skill.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsArchiveSkill = (
+  data: AgentSkillsArchiveSkillData
+): CancelablePromise<AgentSkillsArchiveSkillResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/skills/{skill_id}",
+    path: {
+      skill_id: data.skillId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Skill Playground Session
+ * Create a transient skill playground agent session.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentSessionRead Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsCreateSkillPlaygroundSession = (
+  data: AgentSkillsCreateSkillPlaygroundSessionData
+): CancelablePromise<AgentSkillsCreateSkillPlaygroundSessionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/skills/{skill_id}/playground/sessions",
+    path: {
+      skill_id: data.skillId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Skill Draft
+ * Return the mutable draft manifest for a skill.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.workspaceId
+ * @returns SkillDraftRead Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsGetSkillDraft = (
+  data: AgentSkillsGetSkillDraftData
+): CancelablePromise<AgentSkillsGetSkillDraftResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/skills/{skill_id}/draft",
+    path: {
+      skill_id: data.skillId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Patch Skill Draft
+ * Apply optimistic-concurrency mutations to a draft.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SkillDraftRead Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsPatchSkillDraft = (
+  data: AgentSkillsPatchSkillDraftData
+): CancelablePromise<AgentSkillsPatchSkillDraftResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/agent/skills/{skill_id}/draft",
+    path: {
+      skill_id: data.skillId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Skill Draft File
+ * Return one draft file inline or as a presigned download.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.path
+ * @param data.workspaceId
+ * @returns SkillDraftFileRead Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsGetSkillDraftFile = (
+  data: AgentSkillsGetSkillDraftFileData
+): CancelablePromise<AgentSkillsGetSkillDraftFileResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/skills/{skill_id}/draft/file",
+    path: {
+      skill_id: data.skillId,
+    },
+    query: {
+      path: data.path,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Skill Draft Upload
+ * Create a staged upload session for a draft file blob.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SkillUploadSessionRead Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsCreateSkillDraftUpload = (
+  data: AgentSkillsCreateSkillDraftUploadData
+): CancelablePromise<AgentSkillsCreateSkillDraftUploadResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/skills/{skill_id}/draft/uploads",
+    path: {
+      skill_id: data.skillId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Publish Skill
+ * Publish the current draft into a new immutable version.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.workspaceId
+ * @returns SkillVersionRead Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsPublishSkill = (
+  data: AgentSkillsPublishSkillData
+): CancelablePromise<AgentSkillsPublishSkillResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/skills/{skill_id}/publish",
+    path: {
+      skill_id: data.skillId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Skill Versions
+ * List immutable versions for a skill.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_SkillVersionRead_ Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsListSkillVersions = (
+  data: AgentSkillsListSkillVersionsData
+): CancelablePromise<AgentSkillsListSkillVersionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/skills/{skill_id}/versions",
+    path: {
+      skill_id: data.skillId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Skill Version
+ * Return one immutable skill version manifest.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.versionId
+ * @param data.workspaceId
+ * @returns SkillVersionRead Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsGetSkillVersion = (
+  data: AgentSkillsGetSkillVersionData
+): CancelablePromise<AgentSkillsGetSkillVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/skills/{skill_id}/versions/{version_id}",
+    path: {
+      skill_id: data.skillId,
+      version_id: data.versionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Restore Skill Version
+ * Replace the mutable draft with a published snapshot.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.versionId
+ * @param data.workspaceId
+ * @returns SkillDraftRead Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsRestoreSkillVersion = (
+  data: AgentSkillsRestoreSkillVersionData
+): CancelablePromise<AgentSkillsRestoreSkillVersionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/skills/{skill_id}/versions/{version_id}/restore",
+    path: {
+      skill_id: data.skillId,
       version_id: data.versionId,
     },
     query: {
