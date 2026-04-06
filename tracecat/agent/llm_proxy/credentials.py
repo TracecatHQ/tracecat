@@ -95,7 +95,8 @@ async def _resolve_credentials_cached(
         )
     if creds is None:
         return None
-    if provider == "bedrock":
+    #  Assume role for Bedrock if bearer token is not available
+    if provider == "bedrock" and not creds.get("AWS_BEARER_TOKEN_BEDROCK"):
         creds = await assume_bedrock_aws_role(creds)
     return creds
 
