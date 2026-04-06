@@ -465,10 +465,7 @@ class TestClaudeAgentRuntimeRun:
             await runtime.run(custom_payload)
 
         assert captured_options
-        assert (
-            captured_options[0].env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]
-            == CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
-        )
+        assert captured_options[0].env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "128000"
 
     @pytest.mark.anyio
     async def test_write_session_file_canonicalizes_registry_mcp_aliases(
@@ -652,3 +649,49 @@ class TestClaudeAgentRuntimePreToolUseHook:
         # Should have sent approval request and interrupted
         mock_socket_writer.send_stream_event.assert_awaited()
         runtime.client.interrupt.assert_awaited()
+
+
+class TestClaudeAgentRuntimeInternalSessionLines:
+    """Tests for ClaudeAgentRuntime internal session line filtering."""
+
+    def test_does_not_hide_plain_text_that_mentions_summary_phrase(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Natural-language text should not be hidden as a compaction artifact."""
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        line_data = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Please provide your summary based on the conversation so far.",
+                    }
+                ]
+            },
+        }
+
+        assert runtime._is_internal_session_line(line_data) is False
+
+    def test_hides_structured_compaction_artifacts(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Structured Claude compaction markup should remain internal."""
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        line_data = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "<command-name>/compact</command-name>",
+                    }
+                ]
+            },
+        }
+
+        assert runtime._is_internal_session_line(line_data) is True

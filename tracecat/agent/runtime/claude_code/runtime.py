@@ -260,12 +260,8 @@ class ClaudeAgentRuntime:
 
     @staticmethod
     def _is_internal_compaction_prompt(text: str) -> bool:
-        """Return True when text matches Claude SDK compaction prompt artifacts."""
+        """Return True for structured Claude SDK compaction artifacts."""
         compact_markers = (
-            "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.",
-            "Your task is to create a detailed summary of the conversation so far",
-            "Please provide your summary based on the conversation so far",
-            "This session is being continued from a previous conversation that ran out of context.",
             "<local-command-caveat>",
             "<command-name>/compact</command-name>",
             "<local-command-stdout>Compacted ",

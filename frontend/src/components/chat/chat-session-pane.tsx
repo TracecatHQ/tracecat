@@ -320,11 +320,18 @@ export function ChatSessionPane({
         (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
         (isToolUIPart(lastPart) && lastPart.state === "input-streaming")
 
-      if (
-        lastPart.type === "data-approval-request" ||
-        lastPart.type === "data-compaction"
-      ) {
+      if (lastPart.type === "data-approval-request") {
         return false
+      }
+
+      if (lastPart.type === "data-compaction") {
+        const compaction =
+          "data" in lastPart &&
+          lastPart.data &&
+          typeof lastPart.data === "object"
+            ? (lastPart.data as CompactionStatusData)
+            : undefined
+        return compaction?.phase === "started"
       }
 
       return !isStreamingVisual
@@ -1178,7 +1185,9 @@ export function MessagePart({
         ? compaction.message
         : phase === "started"
           ? "Compacting conversation..."
-          : "Conversation compacted."
+          : compaction.trigger === "auto"
+            ? "Conversation compacted automatically."
+            : "Conversation compacted."
     const tokenSummary =
       typeof compaction.pre_tokens === "number"
         ? `${compaction.pre_tokens.toLocaleString()} tokens`
