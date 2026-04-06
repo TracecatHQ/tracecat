@@ -56,6 +56,7 @@ from tracecat.executor.schemas import ExecutorResult, ResolvedContext
 from tracecat.executor.secret_preprocessors import project_secret_env
 from tracecat.logger import logger
 from tracecat.sandbox.seccomp import build_untrusted_seccomp_policy
+from tracecat.secrets.common import apply_masks_object
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
@@ -1150,6 +1151,10 @@ class WorkerPool:
 
             elapsed_ms = (time.monotonic() - start_time) * 1000
             data = orjson.loads(response_bytes)
+            if data.get("type") == "failure":
+                data["error"] = apply_masks_object(
+                    data["error"], masks=secret_projection.mask_values
+                )
 
             # Validate using discriminated union
             result = _ExecutorResultAdapter.validate_python(data)
