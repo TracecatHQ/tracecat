@@ -74,7 +74,9 @@ def _get_assume_role_external_id() -> str:
 
 
 def _get_role_session_name() -> str:
-    if isinstance(session_name := secrets.get_or_default("AWS_ROLE_SESSION_NAME"), str):
+    if session_name := secrets.get_or_default("AWS_ROLE_SESSION_NAME"):
+        if not isinstance(session_name, str):
+            raise TypeError("AWS_ROLE_SESSION_NAME must be a string when configured.")
         if session_name := session_name.strip():
             return session_name
 

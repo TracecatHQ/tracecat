@@ -116,6 +116,21 @@ def test_get_sync_temporary_credentials_trims_custom_session_name() -> None:
     )
 
 
+def test_get_sync_temporary_credentials_rejects_non_string_session_name() -> None:
+    with patch.object(
+        aws_boto3.secrets,
+        "get_or_default",
+        side_effect=lambda key, default=None: {
+            "TRACECAT_AWS_EXTERNAL_ID": "tracecat-ws-deadbeef",
+            "AWS_ROLE_SESSION_NAME": 123,
+        }.get(key, default),
+    ):
+        with pytest.raises(TypeError, match="AWS_ROLE_SESSION_NAME must be a string"):
+            aws_boto3.get_sync_temporary_credentials(
+                "arn:aws:iam::123456789012:role/customer-role"
+            )
+
+
 def test_get_sync_session_with_static_keys() -> None:
     """Static AWS credentials produce a session without STS calls."""
     with (
