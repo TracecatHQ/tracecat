@@ -82,6 +82,40 @@ def test_get_sync_temporary_credentials_uses_custom_session_name() -> None:
     )
 
 
+def test_get_sync_temporary_credentials_trims_custom_session_name() -> None:
+    sts_client = MagicMock()
+    sts_client.assume_role.return_value = {
+        "Credentials": {
+            "AccessKeyId": "access",
+            "SecretAccessKey": "secret",
+            "SessionToken": "token",
+        }
+    }
+    session = MagicMock()
+    session.client.return_value = sts_client
+
+    with (
+        patch.object(
+            aws_boto3.secrets,
+            "get_or_default",
+            side_effect=lambda key, default=None: {
+                "TRACECAT_AWS_EXTERNAL_ID": "tracecat-ws-deadbeef",
+                "AWS_ROLE_SESSION_NAME": "  custom-audit-session  ",
+            }.get(key, default),
+        ),
+        patch.object(aws_boto3.boto3, "Session", return_value=session),
+    ):
+        aws_boto3.get_sync_temporary_credentials(
+            "arn:aws:iam::123456789012:role/customer-role"
+        )
+
+    sts_client.assume_role.assert_called_once_with(
+        RoleArn="arn:aws:iam::123456789012:role/customer-role",
+        RoleSessionName="custom-audit-session",
+        ExternalId="tracecat-ws-deadbeef",
+    )
+
+
 def test_get_sync_session_with_static_keys() -> None:
     """Static AWS credentials produce a session without STS calls."""
     with (
