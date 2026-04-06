@@ -64,7 +64,6 @@ from tracecat.expressions.eval import (
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import TemplateActionDefinition
 from tracecat.registry.actions.service import RegistryActionsService
@@ -723,14 +722,12 @@ async def prepare_resolved_context(
         )
         mask_values = None
     else:
-        mask_values = set()
-        for _, secret_value in traverse_leaves(secrets):
-            if secret_value is not None:
-                secret_str = str(secret_value)
-                if len(secret_str) > 1:
-                    mask_values.add(secret_str)
-                if isinstance(secret_value, str) and len(secret_value) > 1:
-                    mask_values.add(secret_value)
+        secret_projection = await project_secret_env(
+            secrets=secrets,
+            role=role,
+            run_context=input.run_context,
+        )
+        mask_values = set(secret_projection.mask_values)
 
     # Generate executor token for SDK authentication
     executor_token = mint_executor_token(
