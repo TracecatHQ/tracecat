@@ -575,6 +575,39 @@ class TestActionRunner:
             assert result.type == "ProtocolError"
 
     @pytest.mark.anyio
+    async def test_execute_action_masks_stderr_on_subprocess_crash(
+        self, temp_cache_dir, mock_run_action_input, mock_role
+    ) -> None:
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+
+        with patch("asyncio.create_subprocess_exec") as mock_subprocess:
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 17
+            mock_proc.communicate = AsyncMock(
+                return_value=(b"", b"token=temp_token secret=temp_secret")
+            )
+            mock_subprocess.return_value = mock_proc
+
+            result = await runner._execute_direct(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                secret_projection=SecretEnvProjection(
+                    env={},
+                    mask_values={"temp_token", "temp_secret"},
+                ),
+                timeout=10.0,
+            )
+
+        assert isinstance(result, ExecutorActionErrorInfo)
+        assert result.type == "SubprocessError"
+        assert "temp_token" not in result.message
+        assert "temp_secret" not in result.message
+        assert "***" in result.message
+
+    @pytest.mark.anyio
     async def test_get_extraction_lock_same_key(self, temp_cache_dir):
         """Test that same cache key returns same lock."""
         runner = ActionRunner(cache_dir=temp_cache_dir)

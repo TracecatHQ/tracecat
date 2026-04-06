@@ -45,7 +45,7 @@ from tracecat.executor.secret_preprocessors import (
 from tracecat.logger import logger
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits
-from tracecat.secrets.common import apply_masks_object
+from tracecat.secrets.common import apply_masks, apply_masks_object
 from tracecat.storage import blob
 
 if TYPE_CHECKING:
@@ -620,7 +620,10 @@ class ActionRunner:
 
         # Check for subprocess crash
         if proc.returncode != 0:
-            stderr_text = stderr.decode()
+            stderr_text = apply_masks(
+                stderr.decode(errors="replace"),
+                masks=secret_projection.mask_values,
+            )
             logger.error(
                 "Subprocess failed",
                 action=input.task.action,
