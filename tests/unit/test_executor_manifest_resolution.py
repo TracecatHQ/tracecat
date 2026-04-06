@@ -310,7 +310,7 @@ async def test_prepare_resolved_context_includes_projected_secret_masks(
 
     prepared = await prepare_resolved_context(input=input, role=test_role)
 
-    assert prepared.mask_values is not None
-    assert "ASIA_TEMP_KEY" in prepared.mask_values
-    assert "temp_secret" in prepared.mask_values
-    assert "temp_token" in prepared.mask_values
+    assert prepared.resolved_context.secret_projection is not None
+    assert "ASIA_TEMP_KEY" in prepared.resolved_context.secret_projection.mask_values
+    assert "temp_secret" in prepared.resolved_context.secret_projection.mask_values
+    assert "temp_token" in prepared.resolved_context.secret_projection.mask_values
