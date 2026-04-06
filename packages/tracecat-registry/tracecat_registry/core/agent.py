@@ -56,7 +56,6 @@ bedrock_secret = RegistrySecret(
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
         "AWS_REGION",
-        "AWS_PROFILE",
         "AWS_ROLE_ARN",
         "AWS_SESSION_TOKEN",
         "AWS_BEARER_TOKEN_BEDROCK",
@@ -72,7 +71,6 @@ bedrock_secret = RegistrySecret(
     Authentication (one of):
         - `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`
         - `AWS_BEARER_TOKEN_BEDROCK`
-        - `AWS_PROFILE`
         - `AWS_ROLE_ARN`
         - `AWS_SESSION_TOKEN`
     Model configuration (one of):

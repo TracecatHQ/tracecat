@@ -38,9 +38,14 @@ from tracecat.executor.schemas import (
     ExecutorActionErrorInfo,
     ResolvedContext,
 )
+from tracecat.executor.secret_preprocessors import (
+    SecretEnvProjection,
+    project_secret_env,
+)
 from tracecat.logger import logger
 from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
 from tracecat.sandbox.types import ResourceLimits
+from tracecat.secrets.common import apply_masks, apply_masks_object
 from tracecat.storage import blob
 
 if TYPE_CHECKING:
@@ -348,11 +353,20 @@ class ActionRunner:
             force_sandbox=force_sandbox,
         )
 
+        secret_projection = resolved_context.secret_projection
+        if secret_projection is None:
+            secret_projection = await project_secret_env(
+                secrets=resolved_context.secrets,
+                role=role,
+                run_context=input.run_context,
+            )
+
         if use_sandbox:
             return await self._execute_sandboxed(
                 input=input,
                 role=role,
                 registry_paths=registry_paths,
+                secret_projection=secret_projection,
                 env_vars=env_vars,
                 timeout=timeout,
                 resolved_context=resolved_context,
@@ -362,6 +376,7 @@ class ActionRunner:
                 input=input,
                 role=role,
                 registry_paths=registry_paths,
+                secret_projection=secret_projection,
                 env_vars=env_vars,
                 timeout=timeout,
                 resolved_context=resolved_context,
@@ -372,6 +387,7 @@ class ActionRunner:
         input: RunActionInput,
         role: Role,
         registry_paths: list[Path],
+        secret_projection: SecretEnvProjection,
         resolved_context: ResolvedContext,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
@@ -400,6 +416,7 @@ class ActionRunner:
                 "input": input,
                 "role": role,
                 "resolved_context": resolved_context,
+                "secret_env": secret_projection.env,
             }
 
             # Write input JSON to job directory
@@ -486,12 +503,15 @@ class ActionRunner:
 
             # Handle error from sandbox
             if result.error:
+                masked_error = apply_masks_object(
+                    result.error, masks=secret_projection.mask_values
+                )
                 # Try to parse as ExecutorActionErrorInfo
-                if isinstance(result.error, dict):
-                    return ExecutorActionErrorInfo.model_validate(result.error)
+                if isinstance(masked_error, dict):
+                    return ExecutorActionErrorInfo.model_validate(masked_error)
                 return ExecutorActionErrorInfo(
                     type="SandboxError",
-                    message=str(result.error),
+                    message=str(masked_error),
                     action_name=input.task.action,
                     filename="<sandbox>",
                     function="execute_action",
@@ -514,6 +534,7 @@ class ActionRunner:
         input: RunActionInput,
         role: Role,
         registry_paths: list[Path],
+        secret_projection: SecretEnvProjection,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
         resolved_context: ResolvedContext | None = None,
@@ -525,6 +546,7 @@ class ActionRunner:
         payload: dict[str, Any] = {"input": input, "role": role}
         if resolved_context is not None:
             payload["resolved_context"] = resolved_context
+            payload["secret_env"] = secret_projection.env
         input_json = to_json(payload)
 
         # Build environment with registry paths in PYTHONPATH
@@ -600,7 +622,10 @@ class ActionRunner:
 
         # Check for subprocess crash
         if proc.returncode != 0:
-            stderr_text = stderr.decode()
+            stderr_text = apply_masks(
+                stderr.decode(errors="replace"),
+                masks=secret_projection.mask_values,
+            )
             logger.error(
                 "Subprocess failed",
                 action=input.task.action,
@@ -640,7 +665,9 @@ class ActionRunner:
         # Reconstruct error info
         error_data = result_data.get("error")
         if error_data:
-            return ExecutorActionErrorInfo.model_validate(error_data)
+            return ExecutorActionErrorInfo.model_validate(
+                apply_masks_object(error_data, masks=secret_projection.mask_values)
+            )
 
         return ExecutorActionErrorInfo(
             type="UnknownError",

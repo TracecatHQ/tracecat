@@ -143,7 +143,7 @@ async def handle_task(request: dict[str, Any]) -> dict[str, Any]:
         result = await run_action_minimal_async(
             action_impl=resolved_context.action_impl.model_dump(),
             args=resolved_context.evaluated_args,
-            secrets=resolved_context.secrets,
+            secret_env=request.get("secret_env", {}),
             workspace_id=resolved_context.workspace_id,
             workflow_id=resolved_context.workflow_id,
             run_id=resolved_context.run_id,

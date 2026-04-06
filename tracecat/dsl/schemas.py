@@ -64,7 +64,7 @@ class TemplateExecutionContext(TypedDict):
     """Environment metadata about the workflow."""
 
     SECRETS: NotRequired[dict[str, Any]]
-    """Secrets context."""
+    """Raw secrets context for expression evaluation."""
 
     VARS: NotRequired[dict[str, Any]]
     """Workspace variables."""

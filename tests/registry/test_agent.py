@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from tracecat_registry import ActionIsInterfaceError
-from tracecat_registry.core.agent import action, agent
+from tracecat_registry.core.agent import action, agent, bedrock_secret
 
 from tracecat.auth.types import Role
 
@@ -148,3 +148,8 @@ async def test_action_json_schema(output_type: Any) -> None:
             output_type=output_type,
             max_requests=3,
         )
+
+
+def test_bedrock_secret_does_not_advertise_aws_profile() -> None:
+    assert bedrock_secret.optional_keys is not None
+    assert "AWS_PROFILE" not in bedrock_secret.optional_keys
