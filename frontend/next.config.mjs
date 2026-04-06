@@ -4,6 +4,7 @@ const nextConfig = {
   reactStrictMode: true, // Default to true; overridden in development
   output: "standalone", // Ensure standalone output for production
   experimental: {
+    optimizePackageImports: ["lucide-react"],
     serverActions: {
       allowedOrigins: ["login.microsoftonline.com"],
     },
