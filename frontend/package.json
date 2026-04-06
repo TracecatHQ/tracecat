@@ -194,7 +194,8 @@
       "micromatch>picomatch": "2.3.2",
       "jest-util@29.7.0>picomatch": "2.3.2",
       "jest-util@30.2.0>picomatch": "4.0.4",
-      "minimatch>brace-expansion": "5.0.5"
+      "minimatch>brace-expansion": "5.0.5",
+      "defu": "6.1.5"
     }
   }
 }
