@@ -36,6 +36,7 @@ from tracecat.agent.mcp.proxy_server import (
 )
 from tracecat.agent.runtime.claude_code.runtime import (
     CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES,
+    CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW,
     ClaudeAgentRuntime,
 )
 from tracecat.agent.types import AgentConfig
@@ -427,6 +428,47 @@ class TestClaudeAgentRuntimeRun:
 
         assert captured_options
         assert captured_options[0].max_buffer_size == CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES
+
+    @pytest.mark.anyio
+    async def test_sets_auto_compact_window_for_custom_model_provider(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Custom model providers should lower Claude Code's auto-compact window."""
+        captured_options: list[Any] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        custom_payload = replace(
+            sample_init_payload,
+            config=replace(
+                sample_init_payload.config,
+                model_provider="custom-model-provider",
+            ),
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            await runtime.run(custom_payload)
+
+        assert captured_options
+        assert (
+            captured_options[0].env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]
+            == CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
+        )
 
     @pytest.mark.anyio
     async def test_write_session_file_canonicalizes_registry_mcp_aliases(

@@ -1920,9 +1920,10 @@ export type ChannelType = "slack"
 /**
  * Model for a chat message with typed message payload.
  *
- * This model supports both regular messages and approval bubbles:
+ * This model supports multiple message kinds:
  * - kind=CHAT_MESSAGE: Contains message field with user/assistant content
  * - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
+ * - kind=COMPACTION: Contains compaction field with compaction status data
  */
 export type ChatMessage = {
   /**
@@ -1949,6 +1950,12 @@ export type ChatMessage = {
    * Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)
    */
   approval?: ApprovalRead | null
+  /**
+   * Compaction status data for badge rendering (for kind=COMPACTION)
+   */
+  compaction?: {
+    [key: string]: unknown
+  } | null
 }
 
 /**
@@ -3993,6 +4000,7 @@ export type MessageKind =
   | "approval-request"
   | "approval-decision"
   | "internal"
+  | "compaction"
 
 export type ModelConfig = {
   /**

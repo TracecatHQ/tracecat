@@ -1507,12 +1507,40 @@ class AgentSessionService(BaseWorkspaceService):
             if entry.kind == MessageKind.INTERNAL.value:
                 continue
 
+            # Handle compaction entries: these are badges showing when compaction happened
+            if entry.kind == MessageKind.COMPACTION.value:
+                kind = MessageKind.COMPACTION
+
+                # Filter by kinds if specified
+                if kinds and kind not in kinds:
+                    continue
+
+                # Compaction badge data: extract metadata from the system message
+                # The system compact_boundary message has compactMetadata at the top level
+                compaction_data: dict[str, Any] = {"phase": "completed"}
+
+                # Extract pre_tokens from compactMetadata if available
+                compact_metadata = content.get("compactMetadata")
+                if isinstance(compact_metadata, dict):
+                    pre_tokens = compact_metadata.get("preTokens")
+                    if isinstance(pre_tokens, int):
+                        compaction_data["pre_tokens"] = pre_tokens
+
+                messages.append(
+                    ChatMessage(
+                        id=str(entry.id),
+                        kind=kind,
+                        compaction=compaction_data,
+                    )
+                )
+                continue
+
             # Skip non-message entries (e.g., system metadata)
             msg_type = content.get("type")
             if msg_type not in ("user", "assistant"):
                 continue
 
-            # All AgentSessionHistory entries are CHAT_MESSAGE kind
+            # Standard chat messages
             kind = MessageKind.CHAT_MESSAGE
 
             # Filter by kinds if specified

@@ -223,6 +223,7 @@ class LoopbackHandler:
         self._pending_approval_tool_call_ids: set[str] = set()
         self._received_result: bool = False
         self._received_assistant_content: bool = False
+        self._received_compaction_event: bool = False
 
     @staticmethod
     def _tool_output_contains_internal_interrupt(value: Any) -> bool:
@@ -583,6 +584,8 @@ class LoopbackHandler:
                             event_type=envelope.event.type,
                             session_id=self.input.session_id,
                         )
+                        if envelope.event.type == StreamEventType.COMPACTION:
+                            self._received_compaction_event = True
                         if envelope.event.type == StreamEventType.TEXT_DELTA:
                             self._received_assistant_content = True
                         await self._stream_sink.append(envelope.event)
@@ -720,6 +723,14 @@ class LoopbackHandler:
             # Use explicit internal flag from runtime, not content-based heuristics
             kind = "internal" if internal else "chat-message"
 
+            # Compaction system message (compact_boundary) marked with its own kind for badge rendering
+            # The system compact_boundary message carries the metadata (pre_tokens, trigger)
+            if (
+                line_data.get("type") == "system"
+                and line_data.get("subtype") == "compact_boundary"
+            ):
+                kind = "compaction"
+
             history_entry = AgentSessionHistory(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
@@ -744,6 +755,8 @@ class LoopbackHandler:
             and self._is_zero_usage(self._result.result_usage)
             and not self._received_assistant_content
         ):
+            if self._received_compaction_event:
+                return None
             return "Runtime completed without assistant output or model usage"
         return None
 

@@ -131,6 +131,13 @@ type ToolSuggestion = {
   group?: string
 }
 
+type CompactionStatusData = {
+  phase?: "started" | "completed"
+  message?: string
+  trigger?: "manual" | "auto"
+  pre_tokens?: number
+}
+
 function areToolListsEqual(left: string[], right: string[]): boolean {
   return (
     left.length === right.length &&
@@ -313,7 +320,12 @@ export function ChatSessionPane({
         (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
         (isToolUIPart(lastPart) && lastPart.state === "input-streaming")
 
-      if (lastPart.type === "data-approval-request") return false
+      if (
+        lastPart.type === "data-approval-request" ||
+        lastPart.type === "data-compaction"
+      ) {
+        return false
+      }
 
       return !isStreamingVisual
     }
@@ -1151,6 +1163,45 @@ export function MessagePart({
         approvals={approvals}
         onSubmit={onSubmitApprovals}
       />
+    )
+  }
+
+  if (part.type === "data-compaction") {
+    const payload = (part as { data?: unknown }).data
+    const compaction =
+      payload && typeof payload === "object"
+        ? (payload as CompactionStatusData)
+        : {}
+    const phase = compaction.phase ?? "completed"
+    const label =
+      typeof compaction.message === "string" && compaction.message.trim()
+        ? compaction.message
+        : phase === "started"
+          ? "Compacting conversation..."
+          : "Conversation compacted."
+    const tokenSummary =
+      typeof compaction.pre_tokens === "number"
+        ? `${compaction.pre_tokens.toLocaleString()} tokens`
+        : null
+
+    return (
+      <Message key={`${id}-${partIdx}`} from={role}>
+        <MessageContent variant="flat">
+          <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-muted-foreground">
+            {phase === "started" ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              <CheckIcon className="size-3" />
+            )}
+            <span>{label}</span>
+            {tokenSummary ? (
+              <span className="text-[11px] text-muted-foreground/80">
+                {tokenSummary}
+              </span>
+            ) : null}
+          </div>
+        </MessageContent>
+      </Message>
     )
   }
 

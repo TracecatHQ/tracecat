@@ -42,6 +42,9 @@ class StreamEventType(StrEnum):
     MESSAGE_STOP = "message_stop"
     USER_MESSAGE = "user_message"
 
+    # System/status events
+    COMPACTION = "compaction"
+
     # Control events
     ERROR = "error"
     DONE = "done"
@@ -105,6 +108,7 @@ class UnifiedStreamEvent:
     tool_output: Any | None = None
     is_error: bool = False
     error: str | None = None
+    metadata: dict[str, Any] | None = None
 
     # For APPROVAL_REQUEST events
     approval_items: list[ToolCallContent] | None = None
@@ -137,6 +141,7 @@ class UnifiedStreamEvent:
             tool_output=data.get("tool_output"),
             is_error=data.get("is_error", False),
             error=data.get("error"),
+            metadata=data.get("metadata"),
             approval_items=approval_items,
             timestamp=timestamp,
         )
@@ -165,6 +170,8 @@ class UnifiedStreamEvent:
             result["is_error"] = self.is_error
         if self.error is not None:
             result["error"] = self.error
+        if self.metadata is not None:
+            result["metadata"] = self.metadata
         if self.approval_items is not None:
             result["approval_items"] = [item.to_dict() for item in self.approval_items]
         return result
@@ -178,6 +185,24 @@ class UnifiedStreamEvent:
     def user_message_event(cls, content: str) -> UnifiedStreamEvent:
         """Factory method for creating user message events."""
         return cls(type=StreamEventType.USER_MESSAGE, text=content)
+
+    @classmethod
+    def compaction_event(
+        cls,
+        message: str,
+        *,
+        phase: Literal["started", "completed"],
+        metadata: dict[str, Any] | None = None,
+    ) -> UnifiedStreamEvent:
+        """Factory method for creating compaction status events."""
+        event_metadata: dict[str, Any] = {"phase": phase}
+        if metadata:
+            event_metadata.update(metadata)
+        return cls(
+            type=StreamEventType.COMPACTION,
+            text=message,
+            metadata=event_metadata,
+        )
 
     @classmethod
     def tool_result_event(
