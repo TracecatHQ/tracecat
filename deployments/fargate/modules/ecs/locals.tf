@@ -188,11 +188,11 @@ locals {
       local.tracecat_db_configs,
       {
         TRACECAT__DB_ENDPOINT                     = local.core_db_hostname
-        OIDC_ISSUER                               = var.oidc_issuer
-        OIDC_SCOPES                               = var.oidc_scopes
+        TRACECAT__API_URL                         = local.internal_api_url
+        TRACECAT__PUBLIC_APP_URL                   = local.public_app_url
+        TRACECAT__PUBLIC_API_URL                   = local.public_api_url
         TRACECAT_MCP__HOST                        = "0.0.0.0"
         TRACECAT_MCP__PORT                        = "8099"
-        TRACECAT_MCP__BASE_URL                    = "https://${var.domain_name}"
         TRACECAT_MCP__RATE_LIMIT_RPS              = var.mcp_rate_limit_rps
         TRACECAT_MCP__RATE_LIMIT_BURST            = var.mcp_rate_limit_burst
         TRACECAT_MCP__TOOL_TIMEOUT_SECONDS        = var.mcp_tool_timeout_seconds

@@ -412,11 +412,11 @@ services:
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
       REDIS_URL: ${REDIS_URL}
-      OIDC_ISSUER: ${OIDC_ISSUER}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
-      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
-      OIDC_SCOPES: ${OIDC_SCOPES}
-      TRACECAT_MCP__BASE_URL: ${TRACECAT_MCP__BASE_URL:-${PUBLIC_URL:-http://localhost:${PUBLIC_APP_PORT:-80}}}
+      # Internal OIDC issuer (on the API server)
+      USER_AUTH_SECRET: ${USER_AUTH_SECRET}
+      TRACECAT__API_URL: ${TRACECAT__API_URL:-http://api:8000}
+      TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
+      TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL:-http://localhost:${PUBLIC_APP_PORT:-80}/api}
       TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS: ${TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS:-300}
       TRACECAT_MCP__STARTUP_MAX_ATTEMPTS: ${TRACECAT_MCP__STARTUP_MAX_ATTEMPTS:-3}
       TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS: ${TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS:-2}
@@ -426,6 +426,8 @@ services:
       TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
     command: ["python", "-m", "tracecat.mcp"]
     depends_on:
+      api:
+        condition: service_healthy
       migrations:
         condition: service_completed_successfully
       temporal:

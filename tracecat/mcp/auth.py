@@ -41,11 +41,14 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tracecat import config
 from tracecat.auth.credentials import compute_effective_scopes
-from tracecat.auth.oidc import get_platform_oidc_config
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.enums import OrgRole, WorkspaceRole
-from tracecat.config import REDIS_URL, TRACECAT__DB_ENCRYPTION_KEY
+from tracecat.config import (
+    REDIS_URL,
+    TRACECAT__DB_ENCRYPTION_KEY,
+    TRACECAT__PUBLIC_APP_URL,
+)
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
@@ -58,7 +61,11 @@ from tracecat.db.models import (
 )
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.logger import logger
-from tracecat.mcp import config as mcp_config
+from tracecat.mcp.oidc.config import (
+    INTERNAL_CLIENT_ID,
+    get_internal_client_secret,
+    get_internal_discovery_url,
+)
 
 
 class MCPTokenIdentity(BaseModel):
@@ -644,22 +651,12 @@ def _build_oidc_consent_html(
 
 def _create_oidc_auth() -> OIDCProxy:
     """Build the OIDC auth provider for external MCP."""
-    base_url = mcp_config.TRACECAT_MCP__BASE_URL.strip().rstrip("/")
-    if not base_url:
-        raise ValueError(
-            "TRACECAT_MCP__BASE_URL must be configured for the MCP server. "
-            "Set it to the public URL where the MCP server is accessible."
-        )
+    base_url = TRACECAT__PUBLIC_APP_URL.rstrip("/")
 
-    oidc_config = get_platform_oidc_config()
-    if not oidc_config.issuer:
-        raise ValueError("OIDC_ISSUER must be configured for the MCP server.")
-
-    # Full scope set for registration, authorization, and client loading.
-    # Includes offline_access so the IdP issues refresh tokens.
-    _required_scopes = append_scope_if_missing(
-        list(oidc_config.scopes), _MCP_REFRESH_SCOPE
-    )
+    # The internal OIDC issuer lives on the API server.  The MCP server
+    # uses it as the upstream identity provider instead of an external BYO
+    # OIDC IdP.  No refresh tokens in v1, so offline_access is omitted.
+    _required_scopes = ["openid", "profile", "email"]
 
     class TracecatProxyDCRClient(ProxyDCRClient):
         """Relax CIMD loopback callback validation to allow ephemeral local ports."""
@@ -775,40 +772,41 @@ def _create_oidc_auth() -> OIDCProxy:
         async def _extract_upstream_claims(
             self, idp_tokens: dict[str, Any]
         ) -> dict[str, Any] | None:
-            """Validate the authenticated user exists in Tracecat before issuing a session token."""
+            """Extract claims from the internal OIDC issuer's tokens.
+
+            The internal issuer already validated that the user exists in the
+            Tracecat DB and resolved their organization, so we only need to
+            decode the id_token to extract claims.
+            """
+            id_token = idp_tokens.get("id_token")
+            if isinstance(id_token, str) and id_token:
+                try:
+                    claims = _decode_unverified_id_token_claims(id_token)
+                except Exception:
+                    claims = {}
+                if email := _normalize_email_claim(claims.get("email")):
+                    return {
+                        "email": email,
+                        "organization_id": claims.get("organization_id"),
+                        "is_platform_superuser": claims.get(
+                            "is_platform_superuser", False
+                        ),
+                    }
+
+            # Fallback to the standard email resolution path.
             try:
                 email = await self._resolve_idp_email(idp_tokens)
-            except _UserinfoFetchError as exc:
-                raise TokenError(
-                    "invalid_grant",
-                    "Failed to fetch OIDC userinfo",
-                ) from exc
             except Exception as exc:
                 raise TokenError(
                     "invalid_grant",
-                    "Failed to resolve OIDC email claims",
+                    "Failed to resolve OIDC email claims from internal issuer",
                 ) from exc
 
             if email is None:
                 raise TokenError(
                     "invalid_client",
-                    "No email claim in id_token or userinfo — cannot resolve Tracecat user",
+                    "No email claim in internal issuer tokens",
                 )
-
-            # Check the user exists in the platform DB
-            try:
-                await resolve_user_by_email(email)
-            except ValueError:
-                logger.warning(
-                    "MCP auth rejected: no Tracecat user for email",
-                    email=email,
-                )
-                raise TokenError(
-                    "invalid_client",
-                    f"No Tracecat account found for {email}. "
-                    "Please sign up or ask an admin to invite you.",
-                ) from None
-
             return {"email": email}
 
         async def load_access_token(self, token: str) -> AccessToken | None:
@@ -1026,22 +1024,22 @@ def _create_oidc_auth() -> OIDCProxy:
         )
         client_storage = prefixed_store
 
-    config_url = f"{oidc_config.issuer}/.well-known/openid-configuration"
+    # Use the internal issuer's discovery URL for server-to-server
+    # communication (avoids hairpin NAT through the reverse proxy).
+    config_url = get_internal_discovery_url()
     auth = TracecatOIDCProxy(
         config_url=config_url,
-        client_id=oidc_config.client_id,
-        client_secret=oidc_config.client_secret,
+        client_id=INTERNAL_CLIENT_ID,
+        client_secret=get_internal_client_secret(),
         base_url=base_url,
         client_storage=client_storage,
         fallback_access_token_expiry_seconds=_MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS,
+        algorithm="ES256",
     )
     # Patch client_registration_options so the MCP SDK's registration
-    # handler advertises and accepts the full scope set (including
-    # offline_access).  Do NOT pass required_scopes to the constructor
-    # — it flows into the JWT verifier which then rejects any token
-    # missing those scopes, breaking tokens issued before a scope
-    # change.  Scope merging is handled by our get_client(),
-    # register_client(), and authorize() overrides instead.
+    # handler advertises and accepts the full scope set.  Do NOT pass
+    # required_scopes to the constructor — it flows into the JWT
+    # verifier which then rejects any token missing those scopes.
     if auth.client_registration_options is not None:
         auth.client_registration_options.valid_scopes = _required_scopes
         auth.client_registration_options.default_scopes = _required_scopes
