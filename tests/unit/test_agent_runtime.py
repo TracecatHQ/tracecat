@@ -396,6 +396,52 @@ class TestClaudeAgentRuntimeRun:
         assert "tracecat_registry" not in mcp_servers
 
     @pytest.mark.anyio
+    async def test_resume_writes_session_file_when_using_custom_transport(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        """Broker mode still needs a local session file for Claude resume."""
+        resumed_payload = replace(
+            sample_init_payload,
+            sdk_session_id="eed8297f-26fb-4e00-905f-a10f0cf20704",
+            sdk_session_data='{"type":"user","message":{"content":"resume"}}\n',
+        )
+        session_home_dir = tmp_path / "claude-home"
+        runtime_cwd = tmp_path / "claude-project"
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer,
+                transport_factory=lambda _options: MagicMock(),
+                session_home_dir=session_home_dir,
+                cwd=runtime_cwd,
+                cwd_setup_path=runtime_cwd,
+            )
+            await runtime.run(resumed_payload)
+
+        session_file = (
+            session_home_dir
+            / ".claude"
+            / "projects"
+            / str(runtime_cwd).replace("/", "-")
+            / "eed8297f-26fb-4e00-905f-a10f0cf20704.jsonl"
+        )
+        assert session_file.exists()
+        assert session_file.read_text() == resumed_payload.sdk_session_data
+
+    @pytest.mark.anyio
     async def test_write_session_file_canonicalizes_registry_mcp_aliases(
         self,
         mock_socket_writer: MagicMock,
