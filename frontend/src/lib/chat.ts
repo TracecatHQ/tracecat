@@ -17,7 +17,6 @@ export function isAgentSessionEntity(
   return (
     value === "case" ||
     value === "agent_preset" ||
-    value === "skill" ||
     value === "agent_preset_builder" ||
     value === "copilot" ||
     value === "workflow"
@@ -198,12 +197,6 @@ export const ENTITY_TO_INVALIDATION: Record<
     predicate: () => false,
     handler: (_queryClient, _workspaceId, _entityId) => {
       // No invalidation logic for agent presets yet; placeholder for future support.
-    },
-  },
-  skill: {
-    predicate: () => false,
-    handler: (_queryClient, _workspaceId, _entityId) => {
-      // No invalidation logic for skill playground sessions.
     },
   },
   agent_preset_builder: {

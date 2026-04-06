@@ -151,8 +151,6 @@ import type {
   AgentSkillsCreateSkillData,
   AgentSkillsCreateSkillDraftUploadData,
   AgentSkillsCreateSkillDraftUploadResponse,
-  AgentSkillsCreateSkillPlaygroundSessionData,
-  AgentSkillsCreateSkillPlaygroundSessionResponse,
   AgentSkillsCreateSkillResponse,
   AgentSkillsGetSkillData,
   AgentSkillsGetSkillDraftData,
@@ -4623,36 +4621,6 @@ export const agentSkillsArchiveSkill = (
     query: {
       workspace_id: data.workspaceId,
     },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Create Skill Playground Session
- * Create a transient skill playground agent session.
- * @param data The data for the request.
- * @param data.skillId
- * @param data.workspaceId
- * @param data.requestBody
- * @returns AgentSessionRead Successful Response
- * @throws ApiError
- */
-export const agentSkillsCreateSkillPlaygroundSession = (
-  data: AgentSkillsCreateSkillPlaygroundSessionData
-): CancelablePromise<AgentSkillsCreateSkillPlaygroundSessionResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/agent/skills/{skill_id}/playground/sessions",
-    path: {
-      skill_id: data.skillId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

@@ -200,28 +200,3 @@ class SkillVersionRead(Schema):
     files: list[SkillFileEntry] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class SkillPlaygroundSessionCreate(Schema):
-    """Request body for creating a skill playground session."""
-
-    title: str = Field(default="Skill playground", min_length=1, max_length=200)
-    skill_version_id: uuid.UUID
-    system_prompt: str | None = Field(default=None, max_length=20_000)
-    mcp_integration_ids: list[str] | None = Field(default=None, max_length=50)
-    model_name: str | None = Field(default=None, min_length=1, max_length=120)
-    model_provider: str | None = Field(default=None, min_length=1, max_length=120)
-    base_url: str | None = Field(default=None, max_length=500)
-
-
-class SkillPlaygroundSessionContext(Schema):
-    """Trusted runtime config stored on a skill playground session."""
-
-    skill_id: uuid.UUID
-    skill_slug: str
-    skill_version_id: uuid.UUID
-    model_name: str | None = Field(default=None, min_length=1, max_length=120)
-    model_provider: str | None = Field(default=None, min_length=1, max_length=120)
-    base_url: str | None = Field(default=None, max_length=500)
-    system_prompt: str | None = Field(default=None, max_length=20_000)
-    mcp_integration_ids: list[str] | None = Field(default=None, max_length=50)

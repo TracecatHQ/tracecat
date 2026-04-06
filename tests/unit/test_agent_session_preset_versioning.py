@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
@@ -11,7 +10,6 @@ import pytest
 from tracecat.agent.session.schemas import AgentSessionUpdate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession
 from tracecat.exceptions import TracecatValidationError
@@ -225,84 +223,3 @@ async def test_update_session_rejects_preset_updates_for_invalid_entity_type() -
 
     session.commit.assert_not_awaited()
     session.refresh.assert_not_awaited()
-
-
-@pytest.mark.anyio
-async def test_build_agent_config_supports_skill_playground_sessions() -> None:
-    service, _, role = _build_service()
-    skill_id = uuid.uuid4()
-    skill_version_id = uuid.uuid4()
-    resolved_skill = ResolvedSkillRef(
-        skill_id=skill_id,
-        skill_slug="triage-skill",
-        skill_version_id=skill_version_id,
-        manifest_sha256="abc123",
-    )
-    agent_session = AgentSession(
-        workspace_id=role.workspace_id,
-        title="Skill chat",
-        created_by=uuid.uuid4(),
-        entity_type="skill",
-        entity_id=skill_id,
-        channel_context={
-            "skill_playground": {
-                "skill_id": str(skill_id),
-                "skill_slug": "triage-skill",
-                "skill_version_id": str(skill_version_id),
-                "system_prompt": "Test this skill carefully.",
-                "mcp_integration_ids": [],
-            }
-        },
-    )
-
-    class _AgentManagementService:
-        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-            pass
-
-        @asynccontextmanager
-        async def with_model_config(self, *, use_workspace_credentials: bool = False):
-            assert use_workspace_credentials is True
-            yield SimpleNamespace(name="gpt-4o-mini", provider="openai")
-
-        @asynccontextmanager
-        async def with_runtime_agent_config(self, agent_config, **_kwargs: Any):
-            yield agent_config
-
-    class _SkillService:
-        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-            pass
-
-        async def get_resolved_skill_ref(
-            self, *, skill_id: uuid.UUID, skill_version_id: uuid.UUID
-        ) -> ResolvedSkillRef:
-            assert skill_id == resolved_skill.skill_id
-            assert skill_version_id == resolved_skill.skill_version_id
-            return resolved_skill
-
-    class _PresetService:
-        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-            pass
-
-        async def resolve_mcp_integrations(self, _mcp_ids: list[str] | None):
-            return None
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(
-            "tracecat.agent.session.service.AgentManagementService",
-            _AgentManagementService,
-        )
-        mp.setattr(
-            "tracecat.agent.session.service.SkillService",
-            _SkillService,
-        )
-        mp.setattr(
-            "tracecat.agent.session.service.AgentPresetService",
-            _PresetService,
-        )
-
-        async with service._build_agent_config(agent_session) as config:
-            assert config.model_name == "gpt-4o-mini"
-            assert config.model_provider == "openai"
-            assert config.instructions == "Test this skill carefully."
-            assert config.resolved_skills == [resolved_skill]
-            assert config.mcp_servers is None
