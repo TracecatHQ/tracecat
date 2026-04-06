@@ -67,6 +67,8 @@ class LoadSessionResult(BaseModel):
     found: bool
     sdk_session_id: str | None = None
     resume_source_session_id: uuid.UUID | None = None
+    # Legacy field kept for backward compatibility during Temporal replay.
+    sdk_session_data: str | None = None
     is_fork: bool = False  # If True, runtime should use fork_session=True with SDK
     error: str | None = None
 

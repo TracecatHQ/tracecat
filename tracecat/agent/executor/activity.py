@@ -571,14 +571,28 @@ class SandboxedAgentExecutor:
             raise AgentSandboxExecutionError("Job directory is not initialized")
         if self.input.sdk_session_id is None:
             return None
-        if self.input.resume_source_session_id is None:
+
+        sdk_session_data: str | None = None
+
+        if self.input.resume_source_session_id is not None:
+            # New path: materialize from DB using the source session pointer
+            async with AgentSessionService.with_session(
+                role=self.input.role
+            ) as service:
+                sdk_session_data = await service.materialize_session_history(
+                    self.input.resume_source_session_id
+                )
+        elif self.input.sdk_session_data is not None:
+            # Legacy fallback: use inline JSONL from old activity payloads
+            logger.info(
+                "Using legacy inline sdk_session_data for resume",
+                session_id=self.input.session_id,
+                sdk_session_id=self.input.sdk_session_id,
+            )
+            sdk_session_data = self.input.sdk_session_data
+        else:
             raise AgentSandboxExecutionError(
                 "Missing resume_source_session_id for resumable agent execution"
-            )
-
-        async with AgentSessionService.with_session(role=self.input.role) as service:
-            sdk_session_data = await service.materialize_session_history(
-                self.input.resume_source_session_id
             )
 
         if sdk_session_data is None:

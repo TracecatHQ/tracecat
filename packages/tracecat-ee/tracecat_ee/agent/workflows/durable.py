@@ -175,6 +175,8 @@ class DurableAgentWorkflow:
         # Session state for Claude SDK resume
         self._sdk_session_id: str | None = None
         self._resume_source_session_id: uuid.UUID | None = None
+        # Legacy: inline JSONL from old LoadSessionResult payloads during replay
+        self._sdk_session_data: str | None = None
         # Registry lock for action resolution (set after build_tool_definitions)
         self._registry_lock: RegistryLock | None = None
 
@@ -426,6 +428,8 @@ class DurableAgentWorkflow:
         if load_result.found and load_result.sdk_session_id:
             self._sdk_session_id = load_result.sdk_session_id
             self._resume_source_session_id = load_result.resume_source_session_id
+            # Legacy replay: old LoadSessionResult carries inline JSONL
+            self._sdk_session_data = load_result.sdk_session_data
             is_fork = load_result.is_fork
             logger.info(
                 "Resuming from existing session",
@@ -471,6 +475,7 @@ class DurableAgentWorkflow:
             llm_gateway_auth_token=llm_gateway_auth_token,
             allowed_actions=allowed_actions,
             sdk_session_id=self._sdk_session_id,
+            sdk_session_data=self._sdk_session_data,
             resume_source_session_id=self._resume_source_session_id,
             is_fork=is_fork,
         )
@@ -546,6 +551,8 @@ class DurableAgentWorkflow:
                     self._resume_source_session_id = (
                         reload_result.resume_source_session_id
                     )
+                    # Legacy replay: old LoadSessionResult carries inline JSONL
+                    self._sdk_session_data = reload_result.sdk_session_data
                     logger.info(
                         "Reloaded session data for continuation",
                         sdk_session_id=self._sdk_session_id,
@@ -563,6 +570,7 @@ class DurableAgentWorkflow:
                     llm_gateway_auth_token=llm_gateway_auth_token,
                     allowed_actions=allowed_actions,
                     sdk_session_id=self._sdk_session_id,
+                    sdk_session_data=self._sdk_session_data,
                     resume_source_session_id=self._resume_source_session_id,
                     is_approval_continuation=True,
                 )
