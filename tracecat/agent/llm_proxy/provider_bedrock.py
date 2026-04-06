@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 import httpx
 import orjson
+from aioboto3 import Session as AIOSession
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
@@ -71,6 +72,7 @@ _BEDROCK_FORCED_TOOL_CHOICE_THINKING_ERROR = (
 _BEDROCK_UNSUPPORTED_REASONING_EFFORT_ERROR = (
     "reasoning_effort: Extra inputs are not permitted"
 )
+_TRACECAT_AWS_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 _BEDROCK_STREAM_EVENT_KEYS = frozenset(
     {
         "messageStart",
@@ -81,6 +83,54 @@ _BEDROCK_STREAM_EVENT_KEYS = frozenset(
         "messageStop",
     }
 )
+
+
+async def assume_bedrock_aws_role(
+    credentials: dict[str, str],
+) -> dict[str, str]:
+    """Assume an AWS role for Bedrock if AWS_ROLE_ARN is configured.
+
+    Returns a new credentials dict with assumed role credentials,
+    or a copy of the original dict if no role assumption needed.
+    Credentials are immutable - never modifies the input dict.
+
+    Args:
+        credentials: AWS credentials dict that may contain AWS_ROLE_ARN.
+
+    Returns:
+        New dict with AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and
+        AWS_SESSION_TOKEN set to the assumed role credentials if role assumption
+        occurred, otherwise a copy of the input dict.
+    """
+    if not credentials.get("AWS_ROLE_ARN"):
+        return dict(credentials)
+
+    role_arn = credentials["AWS_ROLE_ARN"]
+    external_id = credentials.get(_TRACECAT_AWS_EXTERNAL_ID_SECRET_KEY)
+    role_session_name = credentials.get("AWS_ROLE_SESSION_NAME") or "tracecat-bedrock"
+
+    session = AIOSession()
+    async with session.client("sts") as sts_client:
+        # Build assume_role kwargs with proper typing
+        if external_id:
+            response = await sts_client.assume_role(
+                RoleArn=role_arn,
+                RoleSessionName=role_session_name,
+                ExternalId=external_id,
+            )
+        else:
+            response = await sts_client.assume_role(
+                RoleArn=role_arn,
+                RoleSessionName=role_session_name,
+            )
+        assumed_creds = response["Credentials"]
+
+    # Return new dict with assumed role credentials (immutable)
+    result = dict(credentials)
+    result["AWS_ACCESS_KEY_ID"] = assumed_creds["AccessKeyId"]
+    result["AWS_SECRET_ACCESS_KEY"] = assumed_creds["SecretAccessKey"]
+    result["AWS_SESSION_TOKEN"] = assumed_creds["SessionToken"]
+    return result
 
 
 @dataclass(slots=True)
@@ -880,10 +930,32 @@ def _signed_bedrock_request(
     url: str,
     body: bytes,
 ) -> ProviderHTTPRequest:
+    """Create a signed Bedrock request with AWS SigV4 authentication.
+
+    AWS role assumption (if AWS_ROLE_ARN is configured) is handled upfront
+    by the credential resolver, so credentials here are ready to use.
+
+    Checks credentials in priority order:
+    1. Bearer token (AWS_BEARER_TOKEN_BEDROCK) - explicit auth
+    2. Static/assumed credentials (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)
+
+    Args:
+        request: The normalized LLM request.
+        credentials: AWS credentials (with role already assumed if needed).
+        url: Bedrock endpoint URL.
+        body: Request body as bytes.
+
+    Returns:
+        ProviderHTTPRequest with SigV4-signed headers.
+
+    Raises:
+        ValueError: If AWS_REGION is missing or no valid credentials provided.
+    """
     region = credentials.get("AWS_REGION")
     if not region:
         raise ValueError("Bedrock requires AWS_REGION")
 
+    # Check bearer token first
     if api_key := credentials.get("AWS_BEARER_TOKEN_BEDROCK"):
         return ProviderHTTPRequest(
             method="POST",
@@ -896,6 +968,7 @@ def _signed_bedrock_request(
             stream=request.stream,
         )
 
+    # Use static or assumed credentials (credential resolver handles role assumption)
     access_key = credentials.get("AWS_ACCESS_KEY_ID")
     secret_key = credentials.get("AWS_SECRET_ACCESS_KEY")
     if not access_key or not secret_key:
@@ -903,18 +976,34 @@ def _signed_bedrock_request(
             "Bedrock requires AWS_BEARER_TOKEN_BEDROCK or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY"
         )
 
+    return _sigv4_bedrock_request(
+        request=request,
+        credentials=Credentials(
+            access_key,
+            secret_key,
+            credentials.get("AWS_SESSION_TOKEN"),
+        ),
+        url=url,
+        body=body,
+        region=region,
+    )
+
+
+def _sigv4_bedrock_request(
+    *,
+    request: NormalizedMessagesRequest,
+    credentials: Credentials,
+    url: str,
+    body: bytes,
+    region: str,
+) -> ProviderHTTPRequest:
     aws_request = AWSRequest(
         method="POST",
         url=url,
         data=body,
         headers={"Content-Type": "application/json"},
     )
-    credentials_obj = Credentials(
-        access_key,
-        secret_key,
-        credentials.get("AWS_SESSION_TOKEN"),
-    )
-    SigV4Auth(credentials_obj, "bedrock", region).add_auth(aws_request)
+    SigV4Auth(credentials, "bedrock", region).add_auth(aws_request)
     headers = dict(aws_request.headers.items())
     headers["Content-Type"] = "application/json"
     return ProviderHTTPRequest(
@@ -1246,7 +1335,6 @@ class BedrockAdapter:
         credentials: dict[str, str],
         outbound_request: ProviderHTTPRequest,
     ) -> ProviderHTTPRequest | None:
-        del credentials, request
         payload = _load_request_body(outbound_request)
         rewritten = payload
         if (
@@ -1258,12 +1346,11 @@ class BedrockAdapter:
             rewritten = _remove_reasoning_effort_from_payload(rewritten)
         if rewritten == payload:
             return None
-        return ProviderHTTPRequest(
-            method=outbound_request.method,
+        return _signed_bedrock_request(
+            request=request,
+            credentials=credentials,
             url=outbound_request.url,
-            headers=outbound_request.headers,
             body=_json_bytes(rewritten),
-            stream=outbound_request.stream,
         )
 
     async def stream_anthropic(
@@ -1277,6 +1364,8 @@ class BedrockAdapter:
             credentials,
             stream=True,
         )
+        # AWS role assumption is handled upfront by credential resolver,
+        # so credentials here are ready to use
         stream_request = _signed_bedrock_request(
             request=request,
             credentials=credentials,

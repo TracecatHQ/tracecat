@@ -21,6 +21,7 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
+    "aioboto3==15.5.0",
     "aiocache==0.12.3",
     "aiohttp==3.13.5",
     "alembic-postgresql-enum==1.7.0",
