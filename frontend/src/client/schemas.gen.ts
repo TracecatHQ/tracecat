@@ -2441,7 +2441,6 @@ export const $AgentSessionEntity = {
   enum: [
     "case",
     "agent_preset",
-    "skill",
     "agent_preset_builder",
     "copilot",
     "workflow",
@@ -2454,7 +2453,6 @@ export const $AgentSessionEntity = {
 Determines the context and behavior of the session:
 - CASE: Chat attached to a Case entity for investigation
 - AGENT_PRESET: Live chat testing a preset configuration
-- SKILL: Live chat testing a skill configuration
 - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
 - COPILOT: Workspace-level copilot assistant
 - WORKFLOW: Workflow-initiated agent run (from action)
@@ -18459,92 +18457,6 @@ export const $SkillFileEntry = {
   title: "SkillFileEntry",
   description:
     "Manifest entry for a skill file (used in both drafts and versions).",
-} as const
-
-export const $SkillPlaygroundSessionCreate = {
-  properties: {
-    title: {
-      type: "string",
-      maxLength: 200,
-      minLength: 1,
-      title: "Title",
-      default: "Skill playground",
-    },
-    skill_version_id: {
-      type: "string",
-      format: "uuid",
-      title: "Skill Version Id",
-    },
-    system_prompt: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 20000,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "System Prompt",
-    },
-    mcp_integration_ids: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-          maxItems: 50,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Mcp Integration Ids",
-    },
-    model_name: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 120,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Model Name",
-    },
-    model_provider: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 120,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Model Provider",
-    },
-    base_url: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 500,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Base Url",
-    },
-  },
-  type: "object",
-  required: ["skill_version_id"],
-  title: "SkillPlaygroundSessionCreate",
-  description: "Request body for creating a skill playground session.",
 } as const
 
 export const $SkillRead = {

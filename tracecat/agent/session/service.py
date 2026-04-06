@@ -11,7 +11,6 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
 import orjson
-from pydantic import ValidationError
 from pydantic_ai.exceptions import AgentRunError, UserError
 from pydantic_ai.messages import (
     ModelRequest,
@@ -38,8 +37,6 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.skill.schemas import SkillPlaygroundSessionContext
-from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig, ClaudeSDKMessageTA, StreamKey
 from tracecat.audit.logger import audit_log
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -96,24 +93,6 @@ class AgentSessionService(BaseWorkspaceService):
     """Service for managing agent sessions and history."""
 
     service_name = "agent-session"
-
-    def _get_skill_playground_context(
-        self, agent_session: AgentSession
-    ) -> SkillPlaygroundSessionContext:
-        """Return validated skill playground config for a session."""
-
-        raw_context = agent_session.channel_context or {}
-        if not isinstance(raw_context, dict):
-            raise ValueError("Skill playground session is missing channel context")
-        payload = raw_context.get("skill_playground")
-        if payload is None:
-            raise ValueError("Skill playground session is missing runtime config")
-        try:
-            return SkillPlaygroundSessionContext.model_validate(payload)
-        except ValidationError as exc:
-            raise ValueError(
-                "Skill playground session has invalid runtime config"
-            ) from exc
 
     def _build_direct_agent_search_attributes(
         self, session_id: uuid.UUID
@@ -1308,48 +1287,6 @@ class AgentSessionService(BaseWorkspaceService):
                 use_workspace_credentials=True,
             ) as preset_config:
                 yield preset_config
-        elif session_entity is AgentSessionEntity.SKILL:
-            skill_context = self._get_skill_playground_context(agent_session)
-            skill_service = SkillService(self.session, role=self.role)
-            preset_service = AgentPresetService(self.session, self.role)
-            resolved_skill = await skill_service.get_resolved_skill_ref(
-                skill_id=skill_context.skill_id,
-                skill_version_id=skill_context.skill_version_id,
-            )
-            mcp_servers = await preset_service.resolve_mcp_integrations(
-                skill_context.mcp_integration_ids
-            )
-            model_settings = {}
-            if mcp_servers:
-                model_settings["parallel_tool_calls"] = False
-
-            if skill_context.model_name and skill_context.model_provider:
-                agent_config = AgentConfig(
-                    model_name=skill_context.model_name,
-                    model_provider=skill_context.model_provider,
-                    base_url=skill_context.base_url,
-                    instructions=skill_context.system_prompt,
-                    model_settings=model_settings,
-                    mcp_servers=mcp_servers,
-                    resolved_skills=[resolved_skill],
-                )
-                async with agent_svc.with_runtime_agent_config(
-                    agent_config,
-                    use_workspace_credentials=True,
-                ) as runtime_config:
-                    yield runtime_config
-            else:
-                async with agent_svc.with_model_config(
-                    use_workspace_credentials=True
-                ) as model_config:
-                    yield AgentConfig(
-                        model_name=model_config.name,
-                        model_provider=model_config.provider,
-                        instructions=skill_context.system_prompt,
-                        model_settings=model_settings,
-                        mcp_servers=mcp_servers,
-                        resolved_skills=[resolved_skill],
-                    )
         elif session_entity is AgentSessionEntity.EXTERNAL_CHANNEL:
             # External channels always execute against the linked preset.
             preset_id = agent_session.agent_preset_id or agent_session.entity_id

@@ -8,17 +8,11 @@ from typing import Annotated, Never
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
-from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionRead
-from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDraftFileRead,
     SkillDraftPatch,
     SkillDraftRead,
-    SkillPlaygroundSessionContext,
-    SkillPlaygroundSessionCreate,
     SkillRead,
     SkillUpload,
     SkillUploadSessionCreate,
@@ -134,76 +128,6 @@ async def get_skill(
             detail=f"Skill '{skill_id}' not found",
         )
     return skill
-
-
-@router.post(
-    "/{skill_id}/playground/sessions",
-    response_model=AgentSessionRead,
-    status_code=status.HTTP_201_CREATED,
-)
-@require_scope("agent:execute")
-async def create_skill_playground_session(
-    *,
-    skill_id: uuid.UUID,
-    params: SkillPlaygroundSessionCreate,
-    role: WorkspaceEditorRole,
-    session: AsyncDBSession,
-) -> AgentSessionRead:
-    """Create a transient skill playground agent session."""
-
-    skill_service = SkillService(session, role=role)
-    skill = await skill_service.get_skill(skill_id)
-    if skill is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Skill '{skill_id}' not found",
-        )
-
-    version = await skill_service.get_version(params.skill_version_id)
-    if version is None or version.skill_id != skill.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Skill version '{params.skill_version_id}' not found",
-        )
-
-    if any(
-        value is not None
-        for value in (params.model_name, params.model_provider, params.base_url)
-    ) and not (params.model_name and params.model_provider):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Custom playground model requires both model_name and model_provider",
-        )
-
-    try:
-        if params.mcp_integration_ids:
-            await AgentPresetService(session, role=role).validate_mcp_integrations(
-                params.mcp_integration_ids
-            )
-    except TracecatValidationError as exc:
-        _raise_skill_validation_error(exc)
-
-    session_context = SkillPlaygroundSessionContext(
-        skill_id=skill.id,
-        skill_slug=skill.slug,
-        skill_version_id=version.id,
-        model_name=params.model_name,
-        model_provider=params.model_provider,
-        base_url=params.base_url,
-        system_prompt=params.system_prompt,
-        mcp_integration_ids=params.mcp_integration_ids,
-    )
-    agent_session = await AgentSessionService(session, role).create_session(
-        AgentSessionCreate(
-            title=params.title,
-            entity_type=AgentSessionEntity.SKILL,
-            entity_id=skill.id,
-        ),
-        channel_context={
-            "skill_playground": session_context.model_dump(mode="json"),
-        },
-    )
-    return AgentSessionRead.model_validate(agent_session, from_attributes=True)
 
 
 @router.get("/{skill_id}/draft", response_model=SkillDraftRead)

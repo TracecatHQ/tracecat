@@ -557,7 +557,6 @@ export type AgentSessionCreate = {
  * Determines the context and behavior of the session:
  * - CASE: Chat attached to a Case entity for investigation
  * - AGENT_PRESET: Live chat testing a preset configuration
- * - SKILL: Live chat testing a skill configuration
  * - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
  * - COPILOT: Workspace-level copilot assistant
  * - WORKFLOW: Workflow-initiated agent run (from action)
@@ -567,7 +566,6 @@ export type AgentSessionCreate = {
 export type AgentSessionEntity =
   | "case"
   | "agent_preset"
-  | "skill"
   | "agent_preset_builder"
   | "copilot"
   | "workflow"
@@ -5683,19 +5681,6 @@ export type SkillFileEntry = {
 }
 
 /**
- * Request body for creating a skill playground session.
- */
-export type SkillPlaygroundSessionCreate = {
-  title?: string
-  skill_version_id: string
-  system_prompt?: string | null
-  mcp_integration_ids?: Array<string> | null
-  model_name?: string | null
-  model_provider?: string | null
-  base_url?: string | null
-}
-
-/**
  * Full response model for a workspace skill.
  */
 export type SkillRead = {
@@ -9396,14 +9381,6 @@ export type AgentSkillsArchiveSkillData = {
 }
 
 export type AgentSkillsArchiveSkillResponse = void
-
-export type AgentSkillsCreateSkillPlaygroundSessionData = {
-  requestBody: SkillPlaygroundSessionCreate
-  skillId: string
-  workspaceId: string
-}
-
-export type AgentSkillsCreateSkillPlaygroundSessionResponse = AgentSessionRead
 
 export type AgentSkillsGetSkillDraftData = {
   skillId: string
@@ -13403,21 +13380,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/agent/skills/{skill_id}/playground/sessions": {
-    post: {
-      req: AgentSkillsCreateSkillPlaygroundSessionData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: AgentSessionRead
         /**
          * Validation Error
          */
