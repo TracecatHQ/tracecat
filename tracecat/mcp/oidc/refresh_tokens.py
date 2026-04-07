@@ -185,6 +185,8 @@ async def rotate_refresh_token(
             client_id=row.client_id,
             encrypted_metadata=row.encrypted_metadata,
             status="active",
+            # Rotation uses a rolling expiry window: each successful refresh
+            # renews the family for another REFRESH_TOKEN_LIFETIME_SECONDS.
             expires_at=datetime.now(UTC)
             + timedelta(seconds=oidc_config.REFRESH_TOKEN_LIFETIME_SECONDS),
         )

@@ -278,6 +278,46 @@ async def test_rotate_refresh_token_issues_replacement_and_marks_old_used(
 
 
 @pytest.mark.anyio
+async def test_rotate_refresh_token_renews_expiry_window(
+    session: AsyncSession,
+    svc_organization: Organization,
+    test_user: User,
+) -> None:
+    token_a = await issue_refresh_token(
+        session,
+        user_id=test_user.id,
+        organization_id=svc_organization.id,
+        client_id=_TEST_CLIENT_ID,
+        metadata=_make_metadata(),
+    )
+
+    row_a = (
+        await session.execute(
+            select(MCPRefreshToken).where(
+                MCPRefreshToken.token_hash == _hash_token(token_a)
+            )
+        )
+    ).scalar_one()
+    original_expiry = datetime.now(UTC) + timedelta(minutes=5)
+    row_a.expires_at = original_expiry
+    await session.commit()
+
+    ctx, token_b = await rotate_refresh_token(
+        session, token=token_a, client_id=_TEST_CLIENT_ID
+    )
+
+    row_b = (
+        await session.execute(
+            select(MCPRefreshToken).where(
+                MCPRefreshToken.family_id == ctx.family_id,
+                MCPRefreshToken.token_hash == _hash_token(token_b),
+            )
+        )
+    ).scalar_one()
+    assert row_b.expires_at > original_expiry + timedelta(days=29)
+
+
+@pytest.mark.anyio
 async def test_rotate_refresh_token_replay_revokes_replacement_token(
     session: AsyncSession,
     svc_organization: Organization,

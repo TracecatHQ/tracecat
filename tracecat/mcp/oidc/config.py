@@ -72,8 +72,10 @@ obtain new access tokens transparently.
 REFRESH_TOKEN_LIFETIME_SECONDS = 30 * 24 * 60 * 60
 """Refresh token lifetime: 30 days.
 
-Refresh tokens rotate on every use; the maximum session length without
-re-authentication is bounded by this value.
+Refresh tokens rotate on every use and renew this lifetime window on
+successful refresh. Active clients therefore keep a rolling session,
+while inactive clients must re-authenticate once a refresh token has
+been idle longer than this value.
 """
 
 AUTH_CODE_LIFETIME_SECONDS = 5 * 60
