@@ -653,10 +653,14 @@ def _create_oidc_auth() -> OIDCProxy:
     """Build the OIDC auth provider for external MCP."""
     base_url = TRACECAT__PUBLIC_APP_URL.rstrip("/")
 
-    # The internal OIDC issuer lives on the API server.  The MCP server
+    # The internal OIDC issuer lives on the API server. The MCP server
     # uses it as the upstream identity provider instead of an external BYO
-    # OIDC IdP.  No refresh tokens in v1, so offline_access is omitted.
+    # OIDC IdP. Keep ``offline_access`` out of ``_required_scopes`` so
+    # validated tool tokens do not require it, but advertise and default it
+    # for DCR so browser clients that omit ``scope`` still receive refresh
+    # tokens after re-authentication.
     _required_scopes = ["openid", "profile", "email"]
+    _supported_scopes = [*_required_scopes, _MCP_REFRESH_SCOPE]
 
     class TracecatProxyDCRClient(ProxyDCRClient):
         """Relax CIMD loopback callback validation to allow ephemeral local ports."""
@@ -1041,8 +1045,11 @@ def _create_oidc_auth() -> OIDCProxy:
     # required_scopes to the constructor — it flows into the JWT
     # verifier which then rejects any token missing those scopes.
     if auth.client_registration_options is not None:
-        auth.client_registration_options.valid_scopes = _required_scopes
-        auth.client_registration_options.default_scopes = _required_scopes
+        auth.client_registration_options.valid_scopes = _supported_scopes
+        auth.client_registration_options.default_scopes = _supported_scopes
+    auth._default_scope_str = " ".join(_supported_scopes)
+    if auth._cimd_manager is not None:
+        auth._cimd_manager.default_scope = auth._default_scope_str
     return auth
 
 

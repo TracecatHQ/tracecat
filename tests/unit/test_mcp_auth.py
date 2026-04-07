@@ -133,6 +133,7 @@ def test_create_mcp_auth_metadata_advertises_public_client_auth(
         "openid",
         "profile",
         "email",
+        "offline_access",
     ]
     assert "none" in payload["token_endpoint_auth_methods_supported"]
 
@@ -179,6 +180,7 @@ def test_create_mcp_auth_protected_resource_metadata_uses_mcp_path(
         "openid",
         "profile",
         "email",
+        "offline_access",
     ]
 
 
@@ -206,7 +208,7 @@ def test_create_mcp_auth_metadata_matches_public_client_registration(
     registration = registration_response.json()
     assert registration["token_endpoint_auth_method"] == "none"
     assert registration.get("client_secret") is None
-    assert registration["scope"] == "openid profile email"
+    assert registration["scope"] == "openid profile email offline_access"
     assert (
         registration["token_endpoint_auth_method"]
         in metadata["token_endpoint_auth_methods_supported"]
@@ -226,13 +228,13 @@ def test_create_mcp_auth_registration_accepts_platform_oidc_scopes(
             "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
             "token_endpoint_auth_method": "none",
-            "scope": "openid profile email",
+            "scope": "openid profile email offline_access",
         },
     )
 
     assert registration_response.status_code == 201
     registration = registration_response.json()
-    assert registration["scope"] == "openid profile email"
+    assert registration["scope"] == "openid profile email offline_access"
 
 
 def test_create_mcp_auth_registration_merges_oidc_scopes_into_partial_scope(
@@ -445,6 +447,32 @@ async def test_create_mcp_auth_get_client_merges_required_scopes_for_partial_dcr
     assert client is not None
     assert client.scope == "openid profile email"
     assert client.validate_scope("openid") == ["openid"]
+
+
+@pytest.mark.anyio
+async def test_create_mcp_auth_get_client_defaults_cimd_scope_with_offline_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    auth = _build_test_auth(monkeypatch)
+    client_id = "https://client.example.com/.well-known/oauth-client.json"
+
+    async def _fetch(_client_id_url: str) -> CIMDDocument:
+        return CIMDDocument(
+            client_id=AnyHttpUrl(client_id),
+            client_name="Claude Code",
+            redirect_uris=["http://localhost/callback"],
+            token_endpoint_auth_method="none",
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+        )
+
+    assert auth._cimd_manager is not None
+    monkeypatch.setattr(auth._cimd_manager._fetcher, "fetch", _fetch)
+
+    client = await auth.get_client(client_id)
+
+    assert client is not None
+    assert client.scope == "openid profile email offline_access"
 
 
 @pytest.mark.anyio

@@ -61,8 +61,20 @@ def get_internal_discovery_url() -> str:
 
 # --- Lifetimes ---
 
-ACCESS_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60
-"""Access token lifetime: 24 hours."""
+ACCESS_TOKEN_LIFETIME_SECONDS = 60 * 60
+"""Access token lifetime: 1 hour.
+
+Short-lived access tokens limit blast radius of token compromise.
+Clients use refresh tokens (when ``offline_access`` is requested) to
+obtain new access tokens transparently.
+"""
+
+REFRESH_TOKEN_LIFETIME_SECONDS = 30 * 24 * 60 * 60
+"""Refresh token lifetime: 30 days.
+
+Refresh tokens rotate on every use; the maximum session length without
+re-authentication is bounded by this value.
+"""
 
 AUTH_CODE_LIFETIME_SECONDS = 5 * 60
 """Authorization code lifetime: 5 minutes."""

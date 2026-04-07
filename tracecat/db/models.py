@@ -3577,6 +3577,66 @@ class MCPIntegration(TimestampMixin, Base):
     )
 
 
+class MCPRefreshToken(OrganizationModel):
+    """Refresh tokens issued by the internal MCP OIDC IdP."""
+
+    __tablename__ = "mcp_refresh_token"
+    __table_args__ = (
+        Index("ix_mcp_refresh_token_family_id", "family_id"),
+        Index("ix_mcp_refresh_token_expires_at", "expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique refresh token identifier",
+    )
+    token_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="SHA-256 hex digest of the opaque refresh token. Plaintext is never stored so a DB leak yields hashes only.",
+    )
+    family_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        doc="Groups all tokens descended from one auth code exchange. Used for replay-detection revocation.",
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="User the refresh token was issued to",
+    )
+    client_id: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        doc="OAuth client_id the token was issued to",
+    )
+    encrypted_metadata: Mapped[bytes] = mapped_column(
+        LargeBinary,
+        nullable=False,
+        doc="Encrypted JSON blob with session context (email, scope, resource, is_platform_superuser). Encrypted via secrets.encryption.encrypt_bytes with TRACECAT__DB_ENCRYPTION_KEY.",
+    )
+    status: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        default="active",
+        index=True,
+        doc="State machine: 'active' -> 'used' (rotated normally) or 'revoked' (family revoked).",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        doc="Absolute expiry timestamp for this refresh token",
+    )
+
+
 class OAuthStateDB(TimestampMixin, Base):
     """Store OAuth state parameters for CSRF protection during OAuth flows."""
 

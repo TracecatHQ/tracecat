@@ -26,11 +26,18 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from tracecat.auth.users import optional_current_active_user
+from tracecat.db.engine import get_async_session_bypass_rls
 from tracecat.db.models import User
 from tracecat.mcp.oidc import config as oidc_config
 from tracecat.mcp.oidc import signing
 from tracecat.mcp.oidc.endpoints import router
-from tracecat.mcp.oidc.schemas import AuthCodeData, ResumeTransaction
+from tracecat.mcp.oidc.refresh_tokens import RefreshTokenError
+from tracecat.mcp.oidc.schemas import (
+    AuthCodeData,
+    RefreshTokenContext,
+    RefreshTokenMetadata,
+    ResumeTransaction,
+)
 from tracecat.mcp.oidc.session import SessionResult
 
 # ---------------------------------------------------------------------------
@@ -48,6 +55,26 @@ _REDIRECT_URI = f"{_TEST_APP_URL}/auth/callback"
 # ---------------------------------------------------------------------------
 
 
+class _InMemoryRefreshTokenRow:
+    """Holds the persisted state for one refresh token in the in-memory store."""
+
+    def __init__(
+        self,
+        *,
+        family_id: uuid.UUID,
+        user_id: uuid.UUID,
+        organization_id: uuid.UUID,
+        client_id: str,
+        metadata: RefreshTokenMetadata,
+    ) -> None:
+        self.family_id = family_id
+        self.user_id = user_id
+        self.organization_id = organization_id
+        self.client_id = client_id
+        self.metadata = metadata
+        self.status = "active"
+
+
 class _InMemoryOIDCStorage:
     """In-memory replacements for the storage module functions."""
 
@@ -56,6 +83,8 @@ class _InMemoryOIDCStorage:
         self.resume_txns: dict[str, ResumeTransaction] = {}
         self.jtis: set[str] = set()
         self.rate_counters: dict[str, int] = {}
+        # Refresh tokens are keyed by plaintext (test-only — production hashes them).
+        self.refresh_tokens: dict[str, _InMemoryRefreshTokenRow] = {}
 
     async def store_auth_code(self, data: AuthCodeData) -> None:
         self.codes[data.code] = data
@@ -78,6 +107,66 @@ class _InMemoryOIDCStorage:
         count = self.rate_counters.get(source_ip, 0) + 1
         self.rate_counters[source_ip] = count
         return count <= oidc_config.TOKEN_RATE_LIMIT_PER_SOURCE_PER_MINUTE
+
+    # --- Refresh token operations ---
+
+    async def issue_refresh_token(
+        self,
+        _session: Any,
+        *,
+        user_id: uuid.UUID,
+        organization_id: uuid.UUID,
+        client_id: str,
+        metadata: RefreshTokenMetadata,
+        family_id: uuid.UUID | None = None,
+    ) -> str:
+        token = secrets.token_urlsafe(32)
+        self.refresh_tokens[token] = _InMemoryRefreshTokenRow(
+            family_id=family_id or uuid.uuid4(),
+            user_id=user_id,
+            organization_id=organization_id,
+            client_id=client_id,
+            metadata=metadata,
+        )
+        return token
+
+    async def consume_refresh_token(
+        self,
+        _session: Any,
+        *,
+        token: str,
+        client_id: str,
+    ) -> RefreshTokenContext:
+        row = self.refresh_tokens.get(token)
+        if row is None:
+            raise RefreshTokenError(
+                "invalid_grant", "Refresh token is invalid or expired"
+            )
+        if row.status == "used":
+            # Replay: revoke the entire family.
+            for r in self.refresh_tokens.values():
+                if r.family_id == row.family_id:
+                    r.status = "revoked"
+            raise RefreshTokenError(
+                "invalid_grant", "Refresh token replay detected; family revoked"
+            )
+        if row.status != "active":
+            raise RefreshTokenError(
+                "invalid_grant", "Refresh token is invalid or expired"
+            )
+        if row.client_id != client_id:
+            for r in self.refresh_tokens.values():
+                if r.family_id == row.family_id:
+                    r.status = "revoked"
+            raise RefreshTokenError("invalid_grant", "client_id mismatch")
+        row.status = "used"
+        return RefreshTokenContext(
+            family_id=row.family_id,
+            user_id=row.user_id,
+            organization_id=row.organization_id,
+            client_id=row.client_id,
+            metadata=row.metadata,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +223,11 @@ def mock_user() -> SimpleNamespace:
     )
 
 
+async def _stub_session_dependency():
+    """Stand-in for the DB session — refresh tokens are mocked in-memory."""
+    yield None
+
+
 @pytest.fixture()
 def app(
     monkeypatch: pytest.MonkeyPatch,
@@ -146,6 +240,9 @@ def app(
     test_app = FastAPI()
     test_app.include_router(router)
     test_app.dependency_overrides[optional_current_active_user] = lambda: mock_user
+    test_app.dependency_overrides[get_async_session_bypass_rls] = (
+        _stub_session_dependency
+    )
 
     # Wire in-memory storage
     monkeypatch.setattr(
@@ -171,6 +268,14 @@ def app(
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
         mem_storage.check_token_rate_limit,
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.issue_refresh_token",
+        mem_storage.issue_refresh_token,
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.consume_refresh_token",
+        mem_storage.consume_refresh_token,
     )
 
     # Mock session resolution to return the test user + org
@@ -323,6 +428,200 @@ async def test_full_flow_code_reuse_rejected(
     )
     assert second.status_code == 400
     assert second.json()["error"] == "invalid_grant"
+
+
+@pytest.mark.anyio
+async def test_full_flow_without_offline_access_omits_refresh_token(
+    client: TestClient,
+) -> None:
+    """An auth code without offline_access scope must not yield a refresh token."""
+    verifier, challenge = _pkce_pair()
+
+    auth_response = client.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "redirect_uri": _REDIRECT_URI,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "scope": "openid profile email",
+            "state": "no-offline",
+            "resource": f"{_TEST_APP_URL}/mcp",
+        },
+        follow_redirects=False,
+    )
+    code = parse_qs(urlparse(auth_response.headers["location"]).query)["code"][0]
+
+    tokens = _exchange_code(client, code, verifier)
+    assert "refresh_token" not in tokens
+    assert tokens["expires_in"] == 3600
+
+
+@pytest.mark.anyio
+async def test_full_flow_with_offline_access_yields_refresh_token(
+    client: TestClient,
+    mem_storage: _InMemoryOIDCStorage,
+) -> None:
+    """offline_access scope must yield a refresh token alongside the access token."""
+    verifier, challenge = _pkce_pair()
+
+    auth_response = client.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "redirect_uri": _REDIRECT_URI,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "scope": "openid profile email offline_access",
+            "state": "with-offline",
+            "resource": f"{_TEST_APP_URL}/mcp",
+        },
+        follow_redirects=False,
+    )
+    code = parse_qs(urlparse(auth_response.headers["location"]).query)["code"][0]
+
+    tokens = _exchange_code(client, code, verifier)
+
+    assert "refresh_token" in tokens
+    assert tokens["expires_in"] == 3600
+    assert tokens["scope"] == "openid profile email offline_access"
+
+    # The issued refresh token should be tracked in storage as 'active'.
+    refresh_token = tokens["refresh_token"]
+    row = mem_storage.refresh_tokens[refresh_token]
+    assert row.status == "active"
+
+
+def _refresh_with_token(client: TestClient, refresh_token: str) -> dict[str, Any]:
+    secret = oidc_config.get_internal_client_secret()
+    response = client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "client_secret": secret,
+        },
+    )
+    assert response.status_code == 200, response.json()
+    return response.json()
+
+
+@pytest.mark.anyio
+async def test_full_flow_refresh_token_rotation(
+    client: TestClient,
+    app: FastAPI,
+    mock_user: SimpleNamespace,
+    mem_storage: _InMemoryOIDCStorage,
+) -> None:
+    """End-to-end refresh: authorize → tokens → rotate → verify new pair."""
+    verifier, challenge = _pkce_pair()
+
+    auth_response = client.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "redirect_uri": _REDIRECT_URI,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "scope": "openid profile email offline_access",
+            "state": "rot",
+            "resource": f"{_TEST_APP_URL}/mcp",
+        },
+        follow_redirects=False,
+    )
+    code = parse_qs(urlparse(auth_response.headers["location"]).query)["code"][0]
+    initial = _exchange_code(client, code, verifier)
+    refresh_a = initial["refresh_token"]
+
+    # Rotate.
+    rotated = _refresh_with_token(client, refresh_a)
+
+    assert rotated["access_token"] != initial["access_token"]
+    assert rotated["refresh_token"] != refresh_a
+    assert rotated["token_type"] == "Bearer"
+    assert rotated["expires_in"] == 3600
+    # No id_token on refresh per OIDC spec.
+    assert "id_token" not in rotated
+
+    # Access token claims preserved.
+    claims = signing.verify_jwt(rotated["access_token"])
+    assert claims["sub"] == str(mock_user.id)
+    assert claims["organization_id"] == str(app.state.org_id)
+    assert claims["email"] == mock_user.email
+
+    # Old token is now consumed; new token is active.
+    assert mem_storage.refresh_tokens[refresh_a].status == "used"
+    new_row = mem_storage.refresh_tokens[rotated["refresh_token"]]
+    assert new_row.status == "active"
+    # Same family.
+    assert new_row.family_id == mem_storage.refresh_tokens[refresh_a].family_id
+
+
+@pytest.mark.anyio
+async def test_full_flow_refresh_token_replay_revokes_family(
+    client: TestClient,
+    mem_storage: _InMemoryOIDCStorage,
+) -> None:
+    """Reusing a consumed refresh token revokes both itself and its successor."""
+    verifier, challenge = _pkce_pair()
+
+    auth_response = client.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "redirect_uri": _REDIRECT_URI,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "scope": "openid profile email offline_access",
+            "state": "replay",
+            "resource": f"{_TEST_APP_URL}/mcp",
+        },
+        follow_redirects=False,
+    )
+    code = parse_qs(urlparse(auth_response.headers["location"]).query)["code"][0]
+    initial = _exchange_code(client, code, verifier)
+    refresh_a = initial["refresh_token"]
+
+    # Legitimate rotation A -> B.
+    rotated = _refresh_with_token(client, refresh_a)
+    refresh_b = rotated["refresh_token"]
+
+    # Attacker presents A again — replay.
+    secret = oidc_config.get_internal_client_secret()
+    replay_response = client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_a,
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "client_secret": secret,
+        },
+    )
+    assert replay_response.status_code == 400
+    assert replay_response.json()["error"] == "invalid_grant"
+    assert "replay" in replay_response.json()["error_description"].lower()
+
+    # Both A and B are now revoked.
+    assert mem_storage.refresh_tokens[refresh_a].status == "revoked"
+    assert mem_storage.refresh_tokens[refresh_b].status == "revoked"
+
+    # Legitimate user tries to use B — must also fail.
+    legit_response = client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_b,
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "client_secret": secret,
+        },
+    )
+    assert legit_response.status_code == 400
+    assert legit_response.json()["error"] == "invalid_grant"
 
 
 def test_discovery_and_jwks_verify_minted_token(client: TestClient) -> None:
