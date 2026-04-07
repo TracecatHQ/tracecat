@@ -499,6 +499,196 @@ def test_gemini_request_from_anthropic_payload_preserves_tool_response_name() ->
     ]
 
 
+def test_gemini_request_from_anthropic_payload_splits_tool_results_from_user_text() -> (
+    None
+):
+    request = normalize_anthropic_request(
+        {
+            "model": "claude-sonnet-4-5-20250929",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_123",
+                            "name": "lookup",
+                            "input": {"query": "status"},
+                        },
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_456",
+                            "name": "lookup",
+                            "input": {"query": "summary"},
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_123",
+                            "content": {"status": "ok"},
+                        },
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_456",
+                            "content": {"summary": "ready"},
+                        },
+                        {"type": "text", "text": "Continue."},
+                    ],
+                },
+            ],
+            "tools": (
+                {
+                    "name": "lookup",
+                    "description": "Lookup a record",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}},
+                    },
+                },
+            ),
+        },
+        provider="gemini",
+        model="gemini-2.5-pro",
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+    )
+
+    request_http = GeminiAdapter().prepare_request(
+        request,
+        {"GEMINI_API_KEY": "gem-key"},
+    )
+
+    assert request_http.json_body is not None
+    assert request_http.json_body["contents"] == [
+        {
+            "role": "model",
+            "parts": [
+                {
+                    "functionCall": {
+                        "name": "lookup",
+                        "args": {"query": "status"},
+                    }
+                },
+                {
+                    "functionCall": {
+                        "name": "lookup",
+                        "args": {"query": "summary"},
+                    }
+                },
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "functionResponse": {
+                        "name": "lookup",
+                        "response": {"status": "ok"},
+                    }
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "functionResponse": {
+                        "name": "lookup",
+                        "response": {"summary": "ready"},
+                    }
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [{"text": "Continue."}],
+        },
+    ]
+
+
+def test_gemini_request_preserves_inline_server_tool_result_ordering() -> None:
+    request = normalize_anthropic_request(
+        {
+            "model": "claude-sonnet-4-5-20250929",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Let me search first."},
+                        {
+                            "type": "server_tool_use",
+                            "id": "stu_ws_001",
+                            "name": "web_search",
+                            "input": {"query": "tracecat docs"},
+                        },
+                        {
+                            "type": "web_search_tool_result",
+                            "tool_use_id": "stu_ws_001",
+                            "content": [
+                                {
+                                    "type": "web_search_result",
+                                    "title": "Tracecat Docs",
+                                    "url": "https://docs.tracecat.com",
+                                    "encrypted_content": "enc_abc",
+                                }
+                            ],
+                        },
+                        {"type": "text", "text": "The docs confirm the setup."},
+                    ],
+                }
+            ],
+        },
+        provider="gemini",
+        model="gemini-2.5-pro",
+        workspace_id=uuid4(),
+        organization_id=uuid4(),
+        session_id=uuid4(),
+    )
+
+    request_http = GeminiAdapter().prepare_request(
+        request,
+        {"GEMINI_API_KEY": "gem-key"},
+    )
+
+    assert request_http.json_body is not None
+    assert request_http.json_body["contents"] == [
+        {
+            "role": "model",
+            "parts": [
+                {"text": "Let me search first."},
+                {
+                    "functionCall": {
+                        "name": "web_search",
+                        "args": {"query": "tracecat docs"},
+                    }
+                },
+            ],
+        },
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "functionResponse": {
+                        "name": "web_search",
+                        "response": {
+                            "content": "- Tracecat Docs\n  https://docs.tracecat.com"
+                        },
+                    }
+                }
+            ],
+        },
+        {
+            "role": "model",
+            "parts": [{"text": "The docs confirm the setup."}],
+        },
+    ]
+
+
 def test_gemini_request_from_anthropic_payload_preserves_mixed_block_order() -> None:
     request = normalize_anthropic_request(
         {

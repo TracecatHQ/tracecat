@@ -292,16 +292,135 @@ def _anthropic_content_blocks_from_message(
     return None
 
 
+def _google_tool_response_part(
+    *,
+    name: str = "",
+    content: Any,
+) -> dict[str, Any]:
+    """Build a Gemini-compatible functionResponse part."""
+    response: dict[str, Any] = {}
+    if isinstance(content, dict):
+        response = dict(content)
+    elif isinstance(content, list):
+        text_parts = [
+            str(item["text"])
+            for item in content
+            if isinstance(item, dict)
+            and item.get("type") == "text"
+            and item.get("text") is not None
+        ]
+        response = {
+            "content": "\n".join(text_parts)
+            if text_parts
+            else [
+                dict(item) if isinstance(item, dict) else str(item) for item in content
+            ]
+        }
+    elif content is not None:
+        response = {"content": str(content)}
+    return {
+        "functionResponse": {
+            "name": name,
+            "response": response,
+        }
+    }
+
+
 def _message_blocks_for_google(message: NormalizedMessage) -> list[Any] | None:
-    """Return Anthropic-style blocks when Google replay should preserve order."""
-    if blocks := _anthropic_content_blocks_from_message(message):
-        return blocks
-    if isinstance(message.content, list) and any(
+    """Return Anthropic-style blocks when Google replay should preserve order.
+
+    Any inline ``tool_result`` blocks are stripped here because they belong in
+    their own ``user[functionResponse]`` turn, which the splitter in
+    ``_content_messages_from_request`` is responsible for emitting.
+    """
+    blocks = _anthropic_content_blocks_from_message(message)
+    if blocks is None and isinstance(message.content, list):
+        blocks = message.content
+    if not isinstance(blocks, list):
+        return None
+
+    replayable_blocks = [
+        item
+        for item in blocks
+        if not (isinstance(item, dict) and item.get("type") == "tool_result")
+    ]
+    if any(
         isinstance(item, dict) and item.get("type") in {"thinking", "tool_use"}
-        for item in message.content
+        for item in replayable_blocks
     ):
-        return message.content
+        return replayable_blocks
     return None
+
+
+def _split_assistant_with_inline_tool_results(
+    message: NormalizedMessage,
+    blocks: list[Any],
+) -> tuple[list[_GoogleContentMessage], set[str]]:
+    """Expand one assistant turn into ordered Google ``contents`` segments.
+
+    Anthropic transcripts may inline a ``tool_result`` *inside* an assistant
+    turn (e.g. ``[text, tool_use, tool_result, text]``). Gemini cannot model
+    that — a function response must live in its own ``user`` turn — so we
+    split the assistant turn into alternating segments::
+
+        model[<blocks before the result>]
+        user[functionResponse(<result>)]
+        model[<blocks after the result>]
+
+    Returns the new ``contents`` segments, plus the set of ``tool_use_id``s
+    that were consumed inline. The caller uses that set to suppress the
+    later normalized ``role="tool"`` messages for the same ids, since the
+    normalizer in ``requests.py`` emits one of those for every inline result.
+    """
+    # Build a tool_use_id -> tool name lookup so the functionResponse part
+    # can carry the original tool name. We check both the raw blocks (which
+    # have the authoritative ordering) and the normalized tool_calls.
+    tool_name_by_id: dict[str, str] = {
+        str(item.get("id", "")): str(item.get("name", ""))
+        for item in blocks
+        if isinstance(item, dict) and item.get("type") == "tool_use"
+    }
+    for tool_call in message.tool_calls:
+        if tool_call.id and tool_call.name:
+            tool_name_by_id[tool_call.id] = tool_call.name
+
+    segments: list[_GoogleContentMessage] = []
+    consumed_tool_use_ids: set[str] = set()
+    pending_model_blocks: list[Any] = []
+
+    def flush_pending_model_blocks() -> None:
+        if not pending_model_blocks:
+            return
+        if parts := _anthropic_blocks_to_google_parts(pending_model_blocks):
+            segments.append({"role": "model", "parts": parts})
+        pending_model_blocks.clear()
+
+    for block in blocks:
+        is_tool_result = isinstance(block, dict) and block.get("type") == "tool_result"
+        if not is_tool_result:
+            pending_model_blocks.append(block)
+            continue
+
+        # A tool_result closes the current model segment and emits its own
+        # user[functionResponse] segment in-place.
+        flush_pending_model_blocks()
+        tool_use_id = str(block.get("tool_use_id", ""))
+        if tool_use_id:
+            consumed_tool_use_ids.add(tool_use_id)
+        segments.append(
+            {
+                "role": "user",
+                "parts": [
+                    _google_tool_response_part(
+                        name=tool_name_by_id.get(tool_use_id, ""),
+                        content=block.get("content"),
+                    )
+                ],
+            }
+        )
+
+    flush_pending_model_blocks()
+    return segments, consumed_tool_use_ids
 
 
 def _message_to_parts(message: NormalizedMessage) -> list[dict[str, Any]]:
@@ -313,35 +432,11 @@ def _message_to_parts(message: NormalizedMessage) -> list[dict[str, Any]]:
     """
 
     if message.role == "tool":
-        response: dict[str, Any] = {}
-        if isinstance(message.content, dict):
-            response = dict(message.content)
-        elif isinstance(message.content, list):
-            text_parts = [
-                str(item["text"])
-                for item in message.content
-                if isinstance(item, dict)
-                and item.get("type") == "text"
-                and item.get("text") is not None
-            ]
-            response = {
-                "content": "\n".join(text_parts)
-                if text_parts
-                else [
-                    dict(item) if isinstance(item, dict) else str(item)
-                    for item in message.content
-                ]
-            }
-        elif message.content is not None:
-            response = {"content": str(message.content)}
-
         return [
-            {
-                "functionResponse": {
-                    "name": message.name or "",
-                    "response": response,
-                }
-            }
+            _google_tool_response_part(
+                name=message.name or "",
+                content=message.content,
+            )
         ]
 
     if anthropic_blocks := _message_blocks_for_google(message):
@@ -401,32 +496,76 @@ def _system_instruction_from_messages(
     return {"parts": [{"text": "\n\n".join(system_texts)}]}
 
 
+def _assistant_inline_tool_result_blocks(
+    message: NormalizedMessage,
+) -> list[Any] | None:
+    """Return the stashed Anthropic blocks iff this assistant turn has an inline
+    ``tool_result``. Otherwise return ``None`` so the caller takes the fast path.
+    """
+    if message.role != "assistant":
+        return None
+    blocks = _anthropic_content_blocks_from_message(message)
+    if not isinstance(blocks, list):
+        return None
+    has_inline_tool_result = any(
+        isinstance(item, dict) and item.get("type") == "tool_result" for item in blocks
+    )
+    return blocks if has_inline_tool_result else None
+
+
 def _content_messages_from_request(
     messages: Sequence[NormalizedMessage],
     *,
     system_instruction_key: str,
 ) -> list[_GoogleContentMessage]:
-    """Build Google `contents`, moving system prompts to top-level config.
+    """Build Google ``contents``, moving system prompts to top-level config.
+
+    Most messages convert one-to-one via ``_message_to_parts``. Two cases need
+    special handling:
+
+    1. An assistant turn with an inline ``tool_result`` is split into multiple
+       ordered ``model`` / ``user[functionResponse]`` segments so Gemini sees
+       the tool output between the call and any post-result assistant text.
+    2. The normalized ``role="tool"`` messages that the request normalizer
+       emits for those inline results are dropped, since the splitter has
+       already accounted for them. We track which ``tool_use_id``s were
+       consumed inline in ``inline_tool_use_ids``.
 
     Gemini and Vertex reject requests without any content messages, so we emit
     a single blank user turn when the normalized transcript would otherwise be
     empty.
     """
-
     del system_instruction_key
     contents: list[_GoogleContentMessage] = []
+    inline_tool_use_ids: set[str] = set()
+
     for message in messages:
         if message.role == "system":
             continue
-        parts = _message_to_parts(message)
-        if not parts:
+
+        # Case 1: assistant turn with inline tool results — split into
+        # ordered model / user(functionResponse) / model segments.
+        if (blocks := _assistant_inline_tool_result_blocks(message)) is not None:
+            segments, consumed = _split_assistant_with_inline_tool_results(
+                message, blocks
+            )
+            contents.extend(segments)
+            inline_tool_use_ids.update(consumed)
             continue
-        contents.append(
-            {
-                "role": "model" if message.role == "assistant" else "user",
-                "parts": parts,
-            }
-        )
+
+        # Case 2: a later role="tool" message whose result was already emitted
+        # inline above. Drop it to avoid duplicating the functionResponse.
+        if message.role == "tool" and message.tool_call_id in inline_tool_use_ids:
+            continue
+
+        # Default path: convert the message normally.
+        if parts := _message_to_parts(message):
+            contents.append(
+                {
+                    "role": "model" if message.role == "assistant" else "user",
+                    "parts": parts,
+                }
+            )
 
     if contents:
         return contents
