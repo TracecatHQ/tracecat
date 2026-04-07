@@ -11,11 +11,6 @@ import {
   useState,
 } from "react"
 import type {
-  AgentSessionEntity,
-  AgentSessionsGetSessionVercelResponse,
-  AgentSessionsListSessionsResponse,
-  ApiError,
-  MCPIntegrationRead,
   SkillDraftAttachUploadedBlobOp,
   SkillDraftDeleteFileOp,
   SkillDraftFileRead,
@@ -26,11 +21,9 @@ import type {
   SkillVersionRead,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
-import { useGetChatVercel, useListChats } from "@/hooks/use-chat"
 import {
   useCreateSkill,
   useCreateSkillDraftUpload,
-  useCreateSkillPlaygroundSession,
   usePatchSkillDraft,
   usePublishSkill,
   useRestoreSkillVersion,
@@ -41,10 +34,8 @@ import {
   useSkillVersions,
   useUploadSkill,
 } from "@/hooks/use-skills"
-import type { ModelInfo } from "@/lib/chat"
 import type { TracecatApiError } from "@/lib/errors"
 import { getApiErrorDetail } from "@/lib/errors"
-import { useChatReadiness, useListMcpIntegrations } from "@/lib/hooks"
 import {
   buildVisibleFiles,
   comparePaths,
@@ -116,26 +107,6 @@ type UseSkillsStudioReturn = {
   onSelectVersionId: (versionId: string) => void
   restoreSkillVersionPending: boolean
   onRestore: (versionId: string) => Promise<void>
-  chatReady: boolean
-  chatReadinessLoading: boolean
-  chatReason?: string
-  modelInfo?: ModelInfo
-  playgroundPrompt: string
-  onPlaygroundPromptChange: (value: string) => void
-  playgroundMcpIds: string[]
-  onPlaygroundMcpIdsChange: (value: string[]) => void
-  mcpIntegrations?: MCPIntegrationRead[]
-  mcpIntegrationsIsLoading: boolean
-  createSkillPlaygroundSessionPending: boolean
-  onCreatePlaygroundSession: () => Promise<void>
-  chats?: AgentSessionsListSessionsResponse
-  chatsLoading: boolean
-  chatsError: ApiError | null
-  activeChatId: string | null
-  onSelectChat: (chatId: string) => void
-  chat?: AgentSessionsGetSessionVercelResponse
-  chatLoading: boolean
-  chatError: ApiError | null
 
   // Create skill dialog
   showNewSkillDialog: boolean
@@ -187,12 +158,9 @@ export function useSkillsStudio(params: {
   const [newSkillTitle, setNewSkillTitle] = useState("")
   const [newSkillDescription, setNewSkillDescription] = useState("")
   const [newFilePath, setNewFilePath] = useState("")
-  const [playgroundPrompt, setPlaygroundPrompt] = useState("")
-  const [playgroundMcpIds, setPlaygroundMcpIds] = useState<string[]>([])
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
     null
   )
-  const [activeChatId, setActiveChatId] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
 
   // ── Data fetching ──────────────────────────────────────────────────
@@ -236,32 +204,6 @@ export function useSkillsStudio(params: {
   const { publishSkill, publishSkillPending } = usePublishSkill(workspaceId)
   const { restoreSkillVersion, restoreSkillVersionPending } =
     useRestoreSkillVersion(workspaceId)
-  const { createSkillPlaygroundSession, createSkillPlaygroundSessionPending } =
-    useCreateSkillPlaygroundSession(workspaceId)
-
-  const { mcpIntegrations, mcpIntegrationsIsLoading } =
-    useListMcpIntegrations(workspaceId)
-  const {
-    ready: chatReady,
-    loading: chatReadinessLoading,
-    reason: chatReason,
-    modelInfo,
-  } = useChatReadiness()
-
-  const hasPublishedVersion = Boolean(skill?.current_version_id)
-  const { chats, chatsLoading, chatsError } = useListChats(
-    {
-      workspaceId,
-      entityType: "skill" as AgentSessionEntity,
-      entityId: selectedSkillId ?? undefined,
-      limit: 50,
-    },
-    { enabled: Boolean(selectedSkillId) && hasPublishedVersion }
-  )
-  const { chat, chatLoading, chatError } = useGetChatVercel({
-    chatId: activeChatId ?? undefined,
-    workspaceId,
-  })
 
   // ── Derived ────────────────────────────────────────────────────────
   const visibleSkills = useMemo(() => {
@@ -312,9 +254,6 @@ export function useSkillsStudio(params: {
   useEffect(() => {
     setDraftChanges({})
     setSelectedPath(null)
-    setActiveChatId(null)
-    setPlaygroundPrompt("")
-    setPlaygroundMcpIds([])
     markdownEditorActivatedRef.current = false
   }, [selectedSkillId])
 
@@ -346,18 +285,6 @@ export function useSkillsStudio(params: {
     }
     return skill?.current_version_id ?? versions[0]?.id ?? null
   }, [selectedVersionId, skill?.current_version_id, versions])
-
-  const selectedVersion =
-    versions?.find((version) => version.id === resolvedVersionId) ?? null
-
-  // Derived chat selection — keep current if still valid, else fall back
-  const resolvedChatId = useMemo(() => {
-    if (!chats || chats.length === 0) return null
-    if (activeChatId && chats.some((item) => item.id === activeChatId)) {
-      return activeChatId
-    }
-    return chats[0]?.id ?? null
-  }, [activeChatId, chats])
 
   // ── Stable callbacks ────────────────────────────────────────────────
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
@@ -667,23 +594,6 @@ export function useSkillsStudio(params: {
     setDraftChanges({})
   }
 
-  const handleCreatePlaygroundSession = async () => {
-    if (!selectedSkillId || !resolvedVersionId || !selectedVersion) {
-      return
-    }
-    const created = await createSkillPlaygroundSession({
-      skillId: selectedSkillId,
-      requestBody: {
-        title: `${skill?.title ?? skill?.slug ?? "Skill"} v${selectedVersion.version}`,
-        skill_version_id: resolvedVersionId,
-        system_prompt: playgroundPrompt.trim() || null,
-        mcp_integration_ids:
-          playgroundMcpIds.length > 0 ? playgroundMcpIds : null,
-      },
-    })
-    setActiveChatId(created.id)
-  }
-
   const handleCopyLocalAgentPrompt = async () => {
     const exampleSlug = skill?.slug ?? "my-skill"
     const prompt = `Upload the ./my-skill directory to Tracecat workspace ${workspaceId} as slug ${exampleSlug} using the upload_skill MCP tool.`
@@ -745,26 +655,6 @@ export function useSkillsStudio(params: {
     onSelectVersionId: setSelectedVersionId,
     restoreSkillVersionPending,
     onRestore: handleRestore,
-    chatReady,
-    chatReadinessLoading,
-    chatReason,
-    modelInfo,
-    playgroundPrompt,
-    onPlaygroundPromptChange: setPlaygroundPrompt,
-    playgroundMcpIds,
-    onPlaygroundMcpIdsChange: setPlaygroundMcpIds,
-    mcpIntegrations,
-    mcpIntegrationsIsLoading,
-    createSkillPlaygroundSessionPending,
-    onCreatePlaygroundSession: handleCreatePlaygroundSession,
-    chats,
-    chatsLoading,
-    chatsError: chatsError ?? null,
-    activeChatId: resolvedChatId,
-    onSelectChat: setActiveChatId,
-    chat,
-    chatLoading,
-    chatError: chatError ?? null,
 
     showNewSkillDialog,
     onNewSkillDialogChange: setShowNewSkillDialog,

@@ -1,6 +1,6 @@
 "use client"
 
-import { Bot, History, Loader2, Save, Send } from "lucide-react"
+import { History, Loader2, Save, Send } from "lucide-react"
 import { useState } from "react"
 import type { SkillDraftRead, SkillRead, SkillVersionRead } from "@/client"
 import { Badge } from "@/components/ui/badge"
@@ -30,7 +30,6 @@ type WorkingCopyBarProps = {
   publishSkillPending: boolean
   onSelectVersionId: (versionId: string) => void
   onRestore: (versionId: string) => Promise<void>
-  onOpenPlayground: () => void
   onSaveWorkingCopy: () => Promise<void>
   onPublish: () => Promise<void>
 }
@@ -68,7 +67,6 @@ export function WorkingCopyBar({
   publishSkillPending,
   onSelectVersionId,
   onRestore,
-  onOpenPlayground,
   onSaveWorkingCopy,
   onPublish,
 }: WorkingCopyBarProps) {
@@ -93,10 +91,6 @@ export function WorkingCopyBar({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <Button size="sm" variant="outline" onClick={onOpenPlayground}>
-          <Bot className="mr-2 size-4" />
-          Playground
-        </Button>
         <Sheet open={versionsOpen} onOpenChange={setVersionsOpen}>
           <SheetTrigger asChild>
             <Button size="sm" variant="outline">

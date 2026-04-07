@@ -1,11 +1,9 @@
 "use client"
 
-import { useState } from "react"
 import { AddFileDialog } from "@/components/skills/add-file-dialog"
 import { CreateSkillDialog } from "@/components/skills/create-skill-dialog"
 import { EditorPanel } from "@/components/skills/editor-panel"
 import { SkillListPanel } from "@/components/skills/skill-list-panel"
-import { SkillPlaygroundSheet } from "@/components/skills/skill-playground-sheet"
 import { useSkillsStudio } from "@/components/skills/use-skills-studio"
 import { WorkingCopyBar } from "@/components/skills/working-copy-bar"
 
@@ -26,7 +24,6 @@ export function SkillsStudio({
   initialSkillId?: string
 }) {
   const studio = useSkillsStudio({ workspaceId, initialSkillId })
-  const [playgroundOpen, setPlaygroundOpen] = useState(false)
 
   return (
     <>
@@ -70,7 +67,6 @@ export function SkillsStudio({
                 publishSkillPending={studio.publishSkillPending}
                 onSelectVersionId={studio.onSelectVersionId}
                 onRestore={studio.onRestore}
-                onOpenPlayground={() => setPlaygroundOpen(true)}
                 onSaveWorkingCopy={studio.onSaveWorkingCopy}
                 onPublish={studio.onPublish}
               />
@@ -101,41 +97,6 @@ export function SkillsStudio({
           </div>
         </div>
       </div>
-
-      <SkillPlaygroundSheet
-        open={playgroundOpen}
-        onOpenChange={setPlaygroundOpen}
-        workspaceId={studio.workspaceId}
-        activeSkillId={studio.selectedSkillId}
-        skill={studio.skill}
-        draft={studio.draft}
-        hasUnsavedChanges={studio.hasUnsavedChanges}
-        versions={studio.versions}
-        selectedVersionId={studio.selectedVersionId}
-        onSelectVersionId={studio.onSelectVersionId}
-        chatReady={studio.chatReady}
-        chatReadinessLoading={studio.chatReadinessLoading}
-        chatReason={studio.chatReason}
-        modelInfo={studio.modelInfo}
-        playgroundPrompt={studio.playgroundPrompt}
-        onPlaygroundPromptChange={studio.onPlaygroundPromptChange}
-        playgroundMcpIds={studio.playgroundMcpIds}
-        onPlaygroundMcpIdsChange={studio.onPlaygroundMcpIdsChange}
-        mcpIntegrations={studio.mcpIntegrations}
-        mcpIntegrationsIsLoading={studio.mcpIntegrationsIsLoading}
-        createSkillPlaygroundSessionPending={
-          studio.createSkillPlaygroundSessionPending
-        }
-        onCreatePlaygroundSession={studio.onCreatePlaygroundSession}
-        chats={studio.chats}
-        chatsLoading={studio.chatsLoading}
-        chatsError={studio.chatsError}
-        activeChatId={studio.activeChatId}
-        onSelectChat={studio.onSelectChat}
-        chat={studio.chat}
-        chatLoading={studio.chatLoading}
-        chatError={studio.chatError}
-      />
 
       <CreateSkillDialog
         open={studio.showNewSkillDialog}
