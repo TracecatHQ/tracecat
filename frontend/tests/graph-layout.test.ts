@@ -140,4 +140,27 @@ describe("mergeHydratedNodes", () => {
       }),
     ])
   })
+
+  it("preserves unhydrated selector nodes so an in-progress action picker is not dropped", () => {
+    const currentNodes = [
+      createNode("trigger-1", "trigger"),
+      createNode("selector-1", "selector", {
+        position: { x: 120, y: 240 },
+      }),
+    ]
+    const hydratedNodes = [
+      createNode("trigger-1", "trigger", {
+        position: { x: 10, y: 20 },
+      }),
+    ]
+
+    expect(mergeHydratedNodes(currentNodes, hydratedNodes)).toEqual([
+      createNode("trigger-1", "trigger", {
+        position: { x: 10, y: 20 },
+      }),
+      createNode("selector-1", "selector", {
+        position: { x: 120, y: 240 },
+      }),
+    ])
+  })
 })
