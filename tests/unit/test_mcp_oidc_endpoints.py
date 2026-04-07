@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import secrets
 import time
@@ -16,11 +17,18 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from tracecat.auth.users import optional_current_active_user
+from tracecat.db.engine import get_async_session_bypass_rls
 from tracecat.db.models import User
 from tracecat.mcp.oidc import config as oidc_config
 from tracecat.mcp.oidc import signing
 from tracecat.mcp.oidc.endpoints import router
-from tracecat.mcp.oidc.schemas import AuthCodeData, ResumeTransaction
+from tracecat.mcp.oidc.refresh_tokens import RefreshTokenError
+from tracecat.mcp.oidc.schemas import (
+    AuthCodeData,
+    RefreshTokenContext,
+    RefreshTokenMetadata,
+    ResumeTransaction,
+)
 from tracecat.mcp.oidc.session import NeedsAction, SessionNeedsAction, SessionResult
 
 # ---------------------------------------------------------------------------
@@ -101,6 +109,7 @@ def _setup_config(monkeypatch: pytest.MonkeyPatch):  # pyright: ignore[reportUnu
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.TRACECAT__PUBLIC_APP_URL", _TEST_APP_URL
     )
+    monkeypatch.setattr("tracecat.config.TRACECAT__DB_ENCRYPTION_KEY", "enabled")
     signing.get_signing_key.cache_clear()
     signing.get_public_jwk.cache_clear()
     yield
@@ -118,6 +127,51 @@ def mock_user():
     )
 
 
+class _StubSession:
+    """Stand-in for AsyncSession used by tests that mock all DB calls.
+
+    The token endpoint depends on a session for refresh-token persistence,
+    but tests that mock ``issue_refresh_token`` / ``rotate_refresh_token``
+    never touch the underlying session. This stub satisfies the dependency
+    without opening a real DB connection.
+    """
+
+    async def execute(self, *_args, **_kwargs):  # pragma: no cover - defensive
+        raise AssertionError("_StubSession.execute should not be called in unit tests")
+
+    def add(self, *_args, **_kwargs) -> None:  # pragma: no cover - defensive
+        raise AssertionError("_StubSession.add should not be called in unit tests")
+
+    async def commit(self) -> None:
+        return None
+
+    async def rollback(self) -> None:
+        return None
+
+
+class _TrackingSession(_StubSession):
+    """Session stub that records transaction calls for endpoint tests."""
+
+    def __init__(self) -> None:
+        self.commit_mock = AsyncMock()
+        self.rollback_mock = AsyncMock()
+
+    async def commit(self) -> None:
+        await self.commit_mock()
+
+    async def rollback(self) -> None:
+        await self.rollback_mock()
+
+
+async def _stub_session_dependency():
+    yield _StubSession()
+
+
+@contextlib.asynccontextmanager
+async def _stub_bypass_session_context_manager():
+    yield _StubSession()
+
+
 @pytest.fixture()
 def app(monkeypatch: pytest.MonkeyPatch):
     """Create a FastAPI test app with the OIDC router."""
@@ -127,6 +181,13 @@ def app(monkeypatch: pytest.MonkeyPatch):
     # Override the user dependency to return None by default
     # (individual tests can override to return a mock user).
     test_app.dependency_overrides[optional_current_active_user] = lambda: None
+    test_app.dependency_overrides[get_async_session_bypass_rls] = (
+        _stub_session_dependency
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
+        _stub_bypass_session_context_manager,
+    )
     return test_app
 
 
@@ -155,9 +216,17 @@ def test_openid_configuration_returns_correct_fields(client: TestClient) -> None
     assert payload["userinfo_endpoint"] == f"{request_issuer}/userinfo"
     assert payload["jwks_uri"] == f"{request_issuer}/.well-known/jwks.json"
     assert payload["response_types_supported"] == ["code"]
-    assert payload["scopes_supported"] == ["openid", "profile", "email"]
+    assert payload["scopes_supported"] == [
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+    ]
     assert payload["code_challenge_methods_supported"] == ["S256"]
-    assert payload["grant_types_supported"] == ["authorization_code"]
+    assert payload["grant_types_supported"] == [
+        "authorization_code",
+        "refresh_token",
+    ]
 
 
 def test_openid_configuration_includes_root_path_when_proxied(
@@ -185,6 +254,20 @@ def test_openid_configuration_includes_root_path_when_proxied(
     assert payload["token_endpoint"] == f"{request_issuer}/token"
     assert payload["userinfo_endpoint"] == f"{request_issuer}/userinfo"
     assert payload["jwks_uri"] == f"{request_issuer}/.well-known/jwks.json"
+
+
+def test_openid_configuration_omits_refresh_support_when_disabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("tracecat.config.TRACECAT__DB_ENCRYPTION_KEY", "")
+
+    response = client.get("/.well-known/openid-configuration")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["scopes_supported"] == ["openid", "profile", "email"]
+    assert payload["grant_types_supported"] == ["authorization_code"]
 
 
 def test_jwks_returns_valid_ed25519_key(client: TestClient) -> None:
@@ -453,10 +536,21 @@ def test_token_rejects_wrong_grant_type(
         AsyncMock(return_value=True),
     )
 
-    response = client.post("/token", data=_token_form(grant_type="client_credentials"))
+    secret = oidc_config.get_internal_client_secret()
+    response = client.post(
+        "/token",
+        data=_token_form(
+            grant_type="client_credentials",
+            client_id=oidc_config.INTERNAL_CLIENT_ID,
+            client_secret=secret,
+        ),
+    )
 
     assert response.status_code == 400
-    assert response.json()["error"] == "unsupported_grant_type"
+    body = response.json()
+    assert body["error"] == "unsupported_grant_type"
+    assert "authorization_code" in body["error_description"]
+    assert "refresh_token" in body["error_description"]
 
 
 def test_token_rejects_invalid_client_id(
@@ -697,6 +791,426 @@ async def test_token_accepts_basic_auth(
 
     assert response.status_code == 200
     assert "access_token" in response.json()
+
+
+# ---------------------------------------------------------------------------
+# Token endpoint — refresh token issuance on offline_access
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_token_auth_code_grant_omits_refresh_without_offline_access(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    verifier, challenge = _pkce_pair()
+    code_data = _make_auth_code_data(challenge=challenge)
+    assert "offline_access" not in code_data.scope.split()
+
+    issued = AsyncMock(return_value="should-not-be-called")
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
+        AsyncMock(return_value=code_data),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("refresh-token session should not be opened")
+        ),
+    )
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.issue_refresh_token", issued)
+    secret = oidc_config.get_internal_client_secret()
+
+    response = client.post(
+        "/token",
+        data=_token_form(
+            code=code_data.code,
+            verifier=verifier,
+            client_id=oidc_config.INTERNAL_CLIENT_ID,
+            client_secret=secret,
+        ),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "refresh_token" not in body
+    assert body["expires_in"] == 3600
+    issued.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_token_auth_code_grant_includes_refresh_with_offline_access(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    verifier, challenge = _pkce_pair()
+    code_data = _make_auth_code_data(challenge=challenge).model_copy(
+        update={"scope": "openid profile email offline_access"}
+    )
+
+    tracked_session = _StubSession()
+
+    @contextlib.asynccontextmanager
+    async def tracked_bypass_session_context_manager():
+        yield tracked_session
+
+    issued = AsyncMock(return_value="opaque-refresh-token-value")
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
+        AsyncMock(return_value=code_data),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
+        tracked_bypass_session_context_manager,
+    )
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.issue_refresh_token", issued)
+    secret = oidc_config.get_internal_client_secret()
+
+    response = client.post(
+        "/token",
+        data=_token_form(
+            code=code_data.code,
+            verifier=verifier,
+            client_id=oidc_config.INTERNAL_CLIENT_ID,
+            client_secret=secret,
+        ),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["refresh_token"] == "opaque-refresh-token-value"
+    assert body["expires_in"] == 3600
+    assert "id_token" in body
+    issued.assert_awaited_once()
+    assert issued.await_args is not None
+    assert issued.await_args.args[0] is tracked_session
+    call_kwargs = issued.await_args.kwargs
+    assert call_kwargs["user_id"] == code_data.user_id
+    assert call_kwargs["organization_id"] == code_data.organization_id
+    assert call_kwargs["client_id"] == oidc_config.INTERNAL_CLIENT_ID
+    assert call_kwargs["metadata"].scope == code_data.scope
+
+
+@pytest.mark.anyio
+async def test_token_auth_code_grant_strips_offline_access_when_disabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    verifier, challenge = _pkce_pair()
+    code_data = _make_auth_code_data(challenge=challenge).model_copy(
+        update={"scope": "openid profile email offline_access"}
+    )
+
+    issued = AsyncMock(return_value="should-not-be-called")
+    monkeypatch.setattr("tracecat.config.TRACECAT__DB_ENCRYPTION_KEY", "")
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
+        AsyncMock(return_value=code_data),
+    )
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.issue_refresh_token", issued)
+    secret = oidc_config.get_internal_client_secret()
+
+    response = client.post(
+        "/token",
+        data=_token_form(
+            code=code_data.code,
+            verifier=verifier,
+            client_id=oidc_config.INTERNAL_CLIENT_ID,
+            client_secret=secret,
+        ),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "refresh_token" not in body
+    assert body["scope"] == "openid profile email"
+    issued.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Token endpoint — refresh_token grant
+# ---------------------------------------------------------------------------
+
+
+def _make_refresh_context(**overrides) -> RefreshTokenContext:
+    metadata = RefreshTokenMetadata(
+        email="user@example.com",
+        is_platform_superuser=False,
+        scope="openid profile email offline_access",
+        resource=f"{_TEST_APP_URL}/mcp",
+    )
+    defaults = {
+        "family_id": uuid.uuid4(),
+        "user_id": uuid.uuid4(),
+        "organization_id": uuid.uuid4(),
+        "client_id": oidc_config.INTERNAL_CLIENT_ID,
+        "metadata": metadata,
+    }
+    return RefreshTokenContext(**(defaults | overrides))
+
+
+@pytest.mark.anyio
+async def test_token_refresh_grant_rejects_missing_refresh_token(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    secret = oidc_config.get_internal_client_secret()
+
+    response = client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "client_secret": secret,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_request"
+
+
+@pytest.mark.anyio
+async def test_token_refresh_grant_returns_new_tokens_without_id_token(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = _make_refresh_context()
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.rotate_refresh_token",
+        AsyncMock(return_value=(ctx, "new-rotated-refresh-token")),
+    )
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
+    secret = oidc_config.get_internal_client_secret()
+
+    response = client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "old-refresh-token",
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "client_secret": secret,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "access_token" in body
+    assert body["token_type"] == "Bearer"
+    assert body["expires_in"] == 3600
+    assert body["refresh_token"] == "new-rotated-refresh-token"
+    assert body["scope"] == ctx.metadata.scope
+    # Per OIDC spec, id_token is only issued at initial authorization.
+    assert "id_token" not in body
+
+    # Access token claims should match the original session context.
+    decoded = signing.verify_jwt(body["access_token"])
+    assert decoded["sub"] == str(ctx.user_id)
+    assert decoded["organization_id"] == str(ctx.organization_id)
+    assert decoded["email"] == ctx.metadata.email
+    assert decoded["scope"] == ctx.metadata.scope
+
+
+@pytest.mark.anyio
+async def test_token_refresh_grant_passes_token_and_client_to_rotation_helper(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = _make_refresh_context()
+    rotated = AsyncMock(return_value=(ctx, "rotated-token"))
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.rotate_refresh_token",
+        rotated,
+    )
+    monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
+    secret = oidc_config.get_internal_client_secret()
+
+    response = client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "any",
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "client_secret": secret,
+        },
+    )
+
+    assert response.status_code == 200
+    rotated.assert_awaited_once()
+    assert rotated.await_args is not None
+    call_kwargs = rotated.await_args.kwargs
+    assert call_kwargs["token"] == "any"
+    assert call_kwargs["client_id"] == oidc_config.INTERNAL_CLIENT_ID
+
+
+@pytest.mark.anyio
+async def test_token_refresh_grant_maps_invalid_grant_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.rotate_refresh_token",
+        AsyncMock(
+            side_effect=RefreshTokenError(
+                "invalid_grant", "Refresh token is invalid or expired"
+            )
+        ),
+    )
+    secret = oidc_config.get_internal_client_secret()
+
+    response = client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "stale-token",
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "client_secret": secret,
+        },
+    )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"] == "invalid_grant"
+    assert "invalid or expired" in body["error_description"]
+
+
+@pytest.mark.anyio
+async def test_token_refresh_grant_maps_replay_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.rotate_refresh_token",
+        AsyncMock(
+            side_effect=RefreshTokenError(
+                "invalid_grant",
+                "Refresh token replay detected; family revoked",
+            )
+        ),
+    )
+    secret = oidc_config.get_internal_client_secret()
+
+    response = client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "replayed-token",
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "client_secret": secret,
+        },
+    )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"] == "invalid_grant"
+    assert "replay" in body["error_description"]
+
+
+@pytest.mark.anyio
+async def test_token_refresh_grant_rolls_back_if_store_jti_fails_before_commit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracked_session = _TrackingSession()
+
+    @contextlib.asynccontextmanager
+    async def tracked_bypass_session_context_manager():
+        yield tracked_session
+
+    ctx = _make_refresh_context()
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
+        tracked_bypass_session_context_manager,
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.rotate_refresh_token",
+        AsyncMock(return_value=(ctx, "new-rotated-refresh-token")),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.store_jti",
+        AsyncMock(side_effect=RuntimeError("redis unavailable")),
+    )
+    secret = oidc_config.get_internal_client_secret()
+
+    with pytest.raises(RuntimeError, match="redis unavailable"):
+        client.post(
+            "/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": "old-refresh-token",
+                "client_id": oidc_config.INTERNAL_CLIENT_ID,
+                "client_secret": secret,
+            },
+        )
+
+    tracked_session.rollback_mock.assert_awaited_once()
+    tracked_session.commit_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_token_refresh_grant_rejects_when_refresh_tokens_disabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("tracecat.config.TRACECAT__DB_ENCRYPTION_KEY", "")
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    secret = oidc_config.get_internal_client_secret()
+
+    response = client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": "old-refresh-token",
+            "client_id": oidc_config.INTERNAL_CLIENT_ID,
+            "client_secret": secret,
+        },
+    )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"] == "invalid_grant"
+    assert "disabled" in body["error_description"]
 
 
 # ---------------------------------------------------------------------------

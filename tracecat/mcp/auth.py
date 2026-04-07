@@ -46,7 +46,6 @@ from tracecat.authz.controls import has_scope
 from tracecat.authz.enums import OrgRole, WorkspaceRole
 from tracecat.config import (
     REDIS_URL,
-    TRACECAT__DB_ENCRYPTION_KEY,
     TRACECAT__PUBLIC_APP_URL,
 )
 from tracecat.contexts import ctx_role
@@ -66,6 +65,10 @@ from tracecat.mcp.oidc.config import (
     get_internal_client_secret,
     get_internal_discovery_url,
 )
+from tracecat.mcp.oidc.features import (
+    OFFLINE_ACCESS_SCOPE,
+    get_supported_scopes,
+)
 
 
 class MCPTokenIdentity(BaseModel):
@@ -84,7 +87,6 @@ _UUID_SCOPE_PATTERNS: dict[str, re.Pattern[str]] = {
     "workspace": re.compile(r"^(?:workspace|workspace_id):(?P<uuid>[0-9a-fA-F-]{36})$"),
 }
 
-_MCP_REFRESH_SCOPE = "offline_access"
 _MCP_ACCESS_TOKEN_FALLBACK_EXPIRY_SECONDS = 24 * 60 * 60
 _MCP_OAUTH_TRANSACTION_TTL_SECONDS = 15 * 60
 _MCP_TOKEN_ENDPOINT_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
@@ -129,7 +131,7 @@ def supports_refresh_scope(scopes_supported: Sequence[str] | None) -> bool:
     if scopes_supported is None:
         # If provider metadata omits scopes_supported, optimistically request.
         return True
-    return _MCP_REFRESH_SCOPE in scopes_supported
+    return OFFLINE_ACCESS_SCOPE in scopes_supported
 
 
 def _patch_oauth_metadata_route(app: ASGIApp) -> ASGIApp:
@@ -653,10 +655,14 @@ def _create_oidc_auth() -> OIDCProxy:
     """Build the OIDC auth provider for external MCP."""
     base_url = TRACECAT__PUBLIC_APP_URL.rstrip("/")
 
-    # The internal OIDC issuer lives on the API server.  The MCP server
+    # The internal OIDC issuer lives on the API server. The MCP server
     # uses it as the upstream identity provider instead of an external BYO
-    # OIDC IdP.  No refresh tokens in v1, so offline_access is omitted.
+    # OIDC IdP. Keep ``offline_access`` out of ``_required_scopes`` so
+    # validated tool tokens do not require it. Advertise and default the
+    # refresh scope only when refresh-token support is enabled for this
+    # deployment.
     _required_scopes = ["openid", "profile", "email"]
+    _supported_scopes = get_supported_scopes()
 
     class TracecatProxyDCRClient(ProxyDCRClient):
         """Relax CIMD loopback callback validation to allow ephemeral local ports."""
@@ -740,11 +746,11 @@ def _create_oidc_auth() -> OIDCProxy:
                 return None
 
             scopes = list(txn_model.scopes or [])
-            if _MCP_REFRESH_SCOPE not in scopes:
+            if OFFLINE_ACCESS_SCOPE not in scopes:
                 # We already retried (or refresh scope was never requested).
                 return None
 
-            updated_scopes = remove_scope(scopes, _MCP_REFRESH_SCOPE)
+            updated_scopes = remove_scope(scopes, OFFLINE_ACCESS_SCOPE)
             updated_txn = txn_model.model_copy(update={"scopes": updated_scopes})
 
             age_seconds = max(0.0, time.time() - float(txn_model.created_at))
@@ -759,7 +765,7 @@ def _create_oidc_auth() -> OIDCProxy:
 
             logger.warning(
                 "OIDC provider rejected refresh scope; retrying authorization without refresh scope",
-                scope=_MCP_REFRESH_SCOPE,
+                scope=OFFLINE_ACCESS_SCOPE,
                 transaction_id=txn_id,
             )
 
@@ -1013,9 +1019,9 @@ def _create_oidc_auth() -> OIDCProxy:
     redis_client = AsyncRedis.from_url(REDIS_URL, decode_responses=True)
     redis_store = RedisStore(client=redis_client)
     prefixed_store = PrefixCollectionsWrapper(redis_store, prefix="mcp")
-    if TRACECAT__DB_ENCRYPTION_KEY:
+    if config.TRACECAT__DB_ENCRYPTION_KEY:
         client_storage = FernetEncryptionWrapper(
-            prefixed_store, fernet=Fernet(TRACECAT__DB_ENCRYPTION_KEY)
+            prefixed_store, fernet=Fernet(config.TRACECAT__DB_ENCRYPTION_KEY)
         )
     else:
         logger.warning(
@@ -1041,8 +1047,11 @@ def _create_oidc_auth() -> OIDCProxy:
     # required_scopes to the constructor — it flows into the JWT
     # verifier which then rejects any token missing those scopes.
     if auth.client_registration_options is not None:
-        auth.client_registration_options.valid_scopes = _required_scopes
-        auth.client_registration_options.default_scopes = _required_scopes
+        auth.client_registration_options.valid_scopes = _supported_scopes
+        auth.client_registration_options.default_scopes = _supported_scopes
+    auth._default_scope_str = " ".join(_supported_scopes)
+    if auth._cimd_manager is not None:
+        auth._cimd_manager.default_scope = auth._default_scope_str
     return auth
 
 

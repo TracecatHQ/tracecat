@@ -37,3 +37,28 @@ class ResumeTransaction(BaseModel):
     created_at: float
     bound_ip: str
     """SHA-256 hex digest of the requester's IP at transaction creation."""
+
+
+class RefreshTokenMetadata(BaseModel):
+    """Encrypted metadata blob persisted with each refresh token.
+
+    Holds the session context required to mint new access tokens on rotation
+    without re-resolving the user/org. Stored as a Fernet-encrypted JSON blob
+    in the ``mcp_refresh_token.encrypted_metadata`` column.
+    """
+
+    email: str
+    is_platform_superuser: bool
+    scope: str
+    resource: str
+    """OAuth ``resource`` parameter — becomes the access token ``aud``."""
+
+
+class RefreshTokenContext(BaseModel):
+    """Hydrated refresh token returned from the rotation flow."""
+
+    family_id: uuid.UUID
+    user_id: uuid.UUID
+    organization_id: uuid.UUID
+    client_id: str
+    metadata: RefreshTokenMetadata
