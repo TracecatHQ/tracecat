@@ -274,6 +274,7 @@ async def reconcile_tool_results_activity(
 def get_session_activities() -> list:
     """Get all session-related activities for worker registration."""
     return [
+        ensure_session_activity,
         create_session_activity,
         load_session_activity,
         reconcile_tool_results_activity,
