@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.common.stream_types import HarnessType, UnifiedStreamEvent
 from tracecat.agent.executor.schemas import ToolExecutionResult
@@ -94,6 +95,22 @@ class ReconcileToolResultsResult(BaseModel):
     """Result from reconciling approved tool results."""
 
     results: list[ToolExecutionResult]
+
+
+class EnsureSessionInput(BaseModel):
+    """Input for ensure_session_activity."""
+
+    role: Role
+    session_id: uuid.UUID
+
+
+@activity.defn
+async def ensure_session_activity(input: EnsureSessionInput) -> None:
+    """Check if a session exists."""
+    ctx_role.set(input.role)
+    async with AgentSessionService.with_session(role=input.role) as service:
+        if await service.get_session(input.session_id) is None:
+            raise ApplicationError("Session does not exist")
 
 
 @activity.defn
