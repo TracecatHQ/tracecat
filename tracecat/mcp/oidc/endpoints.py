@@ -24,13 +24,21 @@ from starlette.responses import RedirectResponse, Response
 from tracecat.auth.users import optional_current_active_user
 from tracecat.config import TRACECAT__PUBLIC_APP_URL
 from tracecat.db.dependencies import AsyncDBSessionBypass
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import User
 from tracecat.logger import logger
 from tracecat.mcp.oidc import config as oidc_config
+from tracecat.mcp.oidc.features import (
+    OFFLINE_ACCESS_SCOPE,
+    get_supported_grant_types,
+    get_supported_scopes,
+    refresh_tokens_enabled,
+    strip_refresh_scope,
+)
 from tracecat.mcp.oidc.refresh_tokens import (
     RefreshTokenError,
-    consume_refresh_token,
     issue_refresh_token,
+    rotate_refresh_token,
 )
 from tracecat.mcp.oidc.schemas import (
     AuthCodeData,
@@ -52,8 +60,6 @@ from tracecat.mcp.oidc.storage import (
     store_jti,
     store_resume_transaction,
 )
-
-_OFFLINE_ACCESS_SCOPE = "offline_access"
 
 router = APIRouter()
 
@@ -165,13 +171,13 @@ async def openid_configuration(request: Request) -> dict[str, Any]:
         "response_types_supported": ["code"],
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": ["ES256"],
-        "scopes_supported": ["openid", "profile", "email", "offline_access"],
+        "scopes_supported": get_supported_scopes(),
         "token_endpoint_auth_methods_supported": [
             "client_secret_basic",
             "client_secret_post",
         ],
         "code_challenge_methods_supported": ["S256"],
-        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "grant_types_supported": get_supported_grant_types(),
         "claims_supported": [
             "sub",
             "email",
@@ -229,6 +235,14 @@ async def _handle_authorize(
         )
     if not code_challenge:
         return _error_response("invalid_request", "code_challenge is required")
+
+    normalized_scope = strip_refresh_scope(scope)
+    if normalized_scope != scope:
+        logger.warning(
+            "MCP OIDC: stripping offline_access because refresh tokens are disabled",
+            client_id=client_id,
+        )
+        scope = normalized_scope
 
     # Default resource to the MCP endpoint URL when not provided
     # (FastMCP's OIDCProxy does not forward the RFC 8707 resource parameter).
@@ -533,7 +547,6 @@ async def token(
         )
     if grant_type == "refresh_token":
         return await _handle_refresh_token_grant(
-            session=session,
             refresh_token=refresh_token,
             auth_client_id=auth_client_id,
         )
@@ -596,12 +609,14 @@ async def _handle_authorization_code_grant(
         return _error_response("invalid_grant", "PKCE verification failed")
 
     # --- Mint access token ---
+    granted_scope = strip_refresh_scope(code_data.scope)
+
     access_token, jti, now = _mint_access_token(
         user_id=str(code_data.user_id),
         organization_id=str(code_data.organization_id),
         email=code_data.email,
         is_platform_superuser=code_data.is_platform_superuser,
-        scope=code_data.scope,
+        scope=granted_scope,
         resource=code_data.resource,
     )
 
@@ -628,15 +643,15 @@ async def _handle_authorization_code_grant(
         "token_type": "Bearer",
         "expires_in": oidc_config.ACCESS_TOKEN_LIFETIME_SECONDS,
         "id_token": id_token,
-        "scope": code_data.scope,
+        "scope": granted_scope,
     }
 
     # --- Issue refresh token if offline_access was requested ---
-    if _OFFLINE_ACCESS_SCOPE in code_data.scope.split():
+    if OFFLINE_ACCESS_SCOPE in granted_scope.split() and refresh_tokens_enabled():
         metadata = RefreshTokenMetadata(
             email=code_data.email,
             is_platform_superuser=code_data.is_platform_superuser,
-            scope=code_data.scope,
+            scope=granted_scope,
             resource=code_data.resource,
         )
         refresh_token_value = await issue_refresh_token(
@@ -662,7 +677,6 @@ async def _handle_authorization_code_grant(
 
 async def _handle_refresh_token_grant(
     *,
-    session: AsyncSession,
     refresh_token: str | None,
     auth_client_id: str,
 ) -> Response:
@@ -671,11 +685,25 @@ async def _handle_refresh_token_grant(
         return _error_response(
             "invalid_request", "refresh_token is required for refresh_token grant"
         )
+    if not refresh_tokens_enabled():
+        logger.warning(
+            "MCP OIDC: refresh_token grant rejected because refresh tokens are disabled",
+            client_id=auth_client_id,
+        )
+        return _error_response(
+            "invalid_grant", "Refresh tokens are disabled on this deployment"
+        )
 
     try:
-        ctx = await consume_refresh_token(
-            session, token=refresh_token, client_id=auth_client_id
-        )
+        async with get_async_session_bypass_rls_context_manager() as refresh_session:
+            try:
+                ctx, new_refresh_token = await rotate_refresh_token(
+                    refresh_session, token=refresh_token, client_id=auth_client_id
+                )
+            except RefreshTokenError:
+                await refresh_session.rollback()
+                raise
+            await refresh_session.commit()
     except RefreshTokenError as exc:
         return _error_response(exc.oauth_error, exc.description)
 
@@ -689,15 +717,6 @@ async def _handle_refresh_token_grant(
     )
 
     await store_jti(jti)
-
-    new_refresh_token = await issue_refresh_token(
-        session,
-        user_id=ctx.user_id,
-        organization_id=ctx.organization_id,
-        client_id=auth_client_id,
-        metadata=ctx.metadata,
-        family_id=ctx.family_id,
-    )
 
     logger.info(
         "MCP OIDC: rotated refresh token",

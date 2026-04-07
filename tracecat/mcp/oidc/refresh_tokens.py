@@ -59,6 +59,18 @@ def _decode_metadata(blob: bytes) -> RefreshTokenMetadata:
     return RefreshTokenMetadata.model_validate_json(payload)
 
 
+async def _revoke_family_rows(session: AsyncSession, family_id: uuid.UUID) -> None:
+    """Mark every non-revoked token in a family as revoked within a transaction."""
+    await session.execute(
+        update(MCPRefreshToken)
+        .where(
+            MCPRefreshToken.family_id == family_id,
+            MCPRefreshToken.status != "revoked",
+        )
+        .values(status="revoked")
+    )
+
+
 async def issue_refresh_token(
     session: AsyncSession,
     *,
@@ -88,6 +100,86 @@ async def issue_refresh_token(
     session.add(row)
     await session.commit()
     return token
+
+
+async def rotate_refresh_token(
+    session: AsyncSession,
+    *,
+    token: str,
+    client_id: str,
+) -> tuple[RefreshTokenContext, str]:
+    """Atomically consume and replace a refresh token.
+
+    This keeps the replay-detection transition and replacement-token insertion
+    in a single database transaction so concurrent replays cannot slip a fresh
+    descendant token into the family after revocation. The caller owns the
+    transaction boundary and is responsible for commit/rollback.
+    """
+    token_hash = _hash_token(token)
+    row = (
+        await session.execute(
+            select(MCPRefreshToken)
+            .where(MCPRefreshToken.token_hash == token_hash)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise RefreshTokenError("invalid_grant", "Refresh token is invalid or expired")
+
+    if row.status == "used":
+        await _revoke_family_rows(session, row.family_id)
+        logger.warning(
+            "MCP OIDC: refresh token replay detected, revoking family",
+            family_id=str(row.family_id),
+            user_id=str(row.user_id),
+        )
+        raise RefreshTokenError(
+            "invalid_grant", "Refresh token replay detected; family revoked"
+        )
+
+    if row.status != "active":
+        raise RefreshTokenError("invalid_grant", "Refresh token is invalid or expired")
+
+    if datetime.now(UTC) >= row.expires_at:
+        raise RefreshTokenError("invalid_grant", "Refresh token has expired")
+
+    if row.client_id != client_id:
+        await _revoke_family_rows(session, row.family_id)
+        logger.warning(
+            "MCP OIDC: refresh token client_id mismatch, revoking family",
+            family_id=str(row.family_id),
+            expected=row.client_id,
+            actual=client_id,
+        )
+        raise RefreshTokenError("invalid_grant", "client_id mismatch")
+
+    metadata = _decode_metadata(row.encrypted_metadata)
+    row.status = "used"
+    new_refresh_token = secrets.token_urlsafe(32)
+    session.add(
+        MCPRefreshToken(
+            token_hash=_hash_token(new_refresh_token),
+            family_id=row.family_id,
+            user_id=row.user_id,
+            organization_id=row.organization_id,
+            client_id=row.client_id,
+            encrypted_metadata=row.encrypted_metadata,
+            status="active",
+            expires_at=datetime.now(UTC)
+            + timedelta(seconds=oidc_config.REFRESH_TOKEN_LIFETIME_SECONDS),
+        )
+    )
+
+    ctx = RefreshTokenContext(
+        family_id=row.family_id,
+        user_id=row.user_id,
+        organization_id=row.organization_id,
+        client_id=row.client_id,
+        metadata=metadata,
+    )
+    if new_refresh_token is None:  # pragma: no cover - defensive
+        raise RuntimeError("Refresh token rotation completed without a result")
+    return ctx, new_refresh_token
 
 
 async def consume_refresh_token(
@@ -175,13 +267,5 @@ async def consume_refresh_token(
 
 async def revoke_family(session: AsyncSession, family_id: uuid.UUID) -> None:
     """Mark every non-revoked token in a family as revoked."""
-    stmt = (
-        update(MCPRefreshToken)
-        .where(
-            MCPRefreshToken.family_id == family_id,
-            MCPRefreshToken.status != "revoked",
-        )
-        .values(status="revoked")
-    )
-    await session.execute(stmt)
+    await _revoke_family_rows(session, family_id)
     await session.commit()

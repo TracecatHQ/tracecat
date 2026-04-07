@@ -18,6 +18,7 @@ from tracecat.mcp.oidc.refresh_tokens import (
     consume_refresh_token,
     issue_refresh_token,
     revoke_family,
+    rotate_refresh_token,
 )
 from tracecat.mcp.oidc.schemas import RefreshTokenMetadata
 
@@ -237,6 +238,83 @@ async def test_consume_refresh_token_rejects_client_id_mismatch_and_revokes_fami
 # ---------------------------------------------------------------------------
 # Replay detection
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_rotate_refresh_token_issues_replacement_and_marks_old_used(
+    session: AsyncSession,
+    svc_organization: Organization,
+    test_user: User,
+) -> None:
+    token_a = await issue_refresh_token(
+        session,
+        user_id=test_user.id,
+        organization_id=svc_organization.id,
+        client_id=_TEST_CLIENT_ID,
+        metadata=_make_metadata(),
+    )
+
+    ctx, token_b = await rotate_refresh_token(
+        session, token=token_a, client_id=_TEST_CLIENT_ID
+    )
+
+    assert token_b
+    assert token_b != token_a
+    rows = (
+        (
+            await session.execute(
+                select(MCPRefreshToken).where(
+                    MCPRefreshToken.family_id == ctx.family_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 2
+    status_by_hash = {row.token_hash: row.status for row in rows}
+    assert status_by_hash[_hash_token(token_a)] == "used"
+    assert status_by_hash[_hash_token(token_b)] == "active"
+
+
+@pytest.mark.anyio
+async def test_rotate_refresh_token_replay_revokes_replacement_token(
+    session: AsyncSession,
+    svc_organization: Organization,
+    test_user: User,
+) -> None:
+    token_a = await issue_refresh_token(
+        session,
+        user_id=test_user.id,
+        organization_id=svc_organization.id,
+        client_id=_TEST_CLIENT_ID,
+        metadata=_make_metadata(),
+    )
+
+    ctx, token_b = await rotate_refresh_token(
+        session, token=token_a, client_id=_TEST_CLIENT_ID
+    )
+
+    with pytest.raises(RefreshTokenError) as exc_info:
+        await rotate_refresh_token(session, token=token_a, client_id=_TEST_CLIENT_ID)
+    assert "replay" in exc_info.value.description.lower()
+
+    rows = (
+        (
+            await session.execute(
+                select(MCPRefreshToken).where(
+                    MCPRefreshToken.family_id == ctx.family_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 2
+    assert all(row.status == "revoked" for row in rows)
+
+    with pytest.raises(RefreshTokenError):
+        await consume_refresh_token(session, token=token_b, client_id=_TEST_CLIENT_ID)
 
 
 @pytest.mark.anyio

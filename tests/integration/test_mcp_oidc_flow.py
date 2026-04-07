@@ -11,6 +11,7 @@ parameter validation) use real implementations.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import secrets
 import time
@@ -168,6 +169,26 @@ class _InMemoryOIDCStorage:
             metadata=row.metadata,
         )
 
+    async def rotate_refresh_token(
+        self,
+        session: Any,
+        *,
+        token: str,
+        client_id: str,
+    ) -> tuple[RefreshTokenContext, str]:
+        ctx = await self.consume_refresh_token(
+            session, token=token, client_id=client_id
+        )
+        new_token = await self.issue_refresh_token(
+            session,
+            user_id=ctx.user_id,
+            organization_id=ctx.organization_id,
+            client_id=client_id,
+            metadata=ctx.metadata,
+            family_id=ctx.family_id,
+        )
+        return ctx, new_token
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -202,6 +223,7 @@ def _setup_config(monkeypatch: pytest.MonkeyPatch):  # pyright: ignore[reportUnu
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.TRACECAT__PUBLIC_APP_URL", _TEST_APP_URL
     )
+    monkeypatch.setattr("tracecat.config.TRACECAT__DB_ENCRYPTION_KEY", "enabled")
     signing.get_signing_key.cache_clear()
     signing.get_public_jwk.cache_clear()
     yield
@@ -223,9 +245,24 @@ def mock_user() -> SimpleNamespace:
     )
 
 
+class _StubSession:
+    """Stand-in for the DB session when refresh-token storage is mocked."""
+
+    async def commit(self) -> None:
+        return None
+
+    async def rollback(self) -> None:
+        return None
+
+
 async def _stub_session_dependency():
     """Stand-in for the DB session — refresh tokens are mocked in-memory."""
-    yield None
+    yield _StubSession()
+
+
+@contextlib.asynccontextmanager
+async def _stub_bypass_session_context_manager():
+    yield _StubSession()
 
 
 @pytest.fixture()
@@ -242,6 +279,10 @@ def app(
     test_app.dependency_overrides[optional_current_active_user] = lambda: mock_user
     test_app.dependency_overrides[get_async_session_bypass_rls] = (
         _stub_session_dependency
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
+        _stub_bypass_session_context_manager,
     )
 
     # Wire in-memory storage
@@ -274,8 +315,8 @@ def app(
         mem_storage.issue_refresh_token,
     )
     monkeypatch.setattr(
-        "tracecat.mcp.oidc.endpoints.consume_refresh_token",
-        mem_storage.consume_refresh_token,
+        "tracecat.mcp.oidc.endpoints.rotate_refresh_token",
+        mem_storage.rotate_refresh_token,
     )
 
     # Mock session resolution to return the test user + org
