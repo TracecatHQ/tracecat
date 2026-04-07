@@ -462,13 +462,16 @@ class ClaudeAgentRuntime:
         }
 
     def _build_system_prompt(
-        self, instructions: str | None, output_type: str | dict[str, Any] | None = None
+        self,
+        instructions: str | None,
+        *,
+        has_structured_output: bool = False,
     ) -> str:
         """Build the system prompt for the agent."""
         base = "If asked about your identity, you are a Tracecat automation assistant."
 
-        # Only include structured output instruction if output_type is configured (not None)
-        if output_type is not None:
+        # Only include structured output instruction if an output format was actually built
+        if has_structured_output:
             base += (
                 "\n\nYou MUST produce structured output as the very last thing in EVERY turn"
                 " — including follow-up turns. Do not add any commentary, explanation, or text"
@@ -602,7 +605,8 @@ class ClaudeAgentRuntime:
                 },
                 model=payload.config.model_name,
                 system_prompt=self._build_system_prompt(
-                    payload.config.instructions, payload.config.output_type
+                    payload.config.instructions,
+                    has_structured_output=sdk_output_format is not None,
                 ),
                 mcp_servers=mcp_servers,
                 disallowed_tools=disallowed_tools,
