@@ -861,10 +861,67 @@ def test_openai_family_adapter_uses_responses_for_reasoning_history() -> None:
         },
         {
             "type": "message",
+            "role": "user",
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": '[Tool result] call_1: {"status":"ok"}',
+                }
+            ],
+        },
+    ]
+
+
+def test_custom_model_provider_formats_tool_results_as_user_history() -> None:
+    request = NormalizedMessagesRequest(
+        provider="custom-model-provider",
+        model="claude-4-6-sonnet",
+        messages=(
+            NormalizedMessage(
+                role="assistant",
+                content=[
+                    {
+                        "type": "tool_use",
+                        "id": "call_1",
+                        "name": "lookup",
+                        "input": {"query": "status"},
+                    },
+                ],
+            ),
+            NormalizedMessage(
+                role="tool",
+                tool_call_id="call_1",
+                content={"status": "ok"},
+            ),
+        ),
+        output_format=IngressFormat.ANTHROPIC,
+        stream=True,
+    )
+
+    custom_request = OpenAIFamilyAdapter("custom-model-provider").prepare_request(
+        request,
+        {"CUSTOM_MODEL_PROVIDER_BASE_URL": "https://custom.example"},
+    )
+
+    assert custom_request.url == "https://custom.example/v1/responses"
+    assert custom_request.json_body is not None
+    assert custom_request.json_body["input"] == [
+        {
+            "type": "message",
             "role": "assistant",
             "content": [
                 {
                     "type": "output_text",
+                    "text": '[Tool call] lookup: {"query":"status"}',
+                }
+            ],
+        },
+        {
+            "type": "message",
+            "role": "user",
+            "content": [
+                {
+                    "type": "input_text",
                     "text": '[Tool result] call_1: {"status":"ok"}',
                 }
             ],

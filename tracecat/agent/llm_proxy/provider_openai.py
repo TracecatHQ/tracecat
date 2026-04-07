@@ -167,7 +167,11 @@ def _text_message(parts: list[str], *, role: str) -> dict[str, Any]:
     }
 
 
-def _responses_input_items_from_message(message: Any) -> list[dict[str, Any]]:
+def _responses_input_items_from_message(
+    message: Any,
+    *,
+    provider: str,
+) -> list[dict[str, Any]]:
     """Convert a NormalizedMessage into Responses API input items."""
     if message.role == "tool":
         content = _stringify(message.content).strip()
@@ -175,7 +179,10 @@ def _responses_input_items_from_message(message: Any) -> list[dict[str, Any]]:
             return []
         tool_name = message.name or message.tool_call_id or "tool"
         return [
-            _text_message([f"[Tool result] {tool_name}: {content}"], role="assistant")
+            _text_message(
+                [f"[Tool result] {tool_name}: {content}"],
+                role="user",
+            )
         ]
 
     if message.role == "assistant":
@@ -292,7 +299,10 @@ def _openai_responses_payload(request: NormalizedMessagesRequest) -> dict[str, A
             item
             for message in request.messages
             if message.role != "system"
-            for item in _responses_input_items_from_message(message)
+            for item in _responses_input_items_from_message(
+                message,
+                provider=request.provider,
+            )
         ],
         "stream": request.stream,
     }
