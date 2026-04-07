@@ -18,6 +18,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import orjson
+from cryptography.fernet import InvalidToken
+from pydantic import ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -160,7 +162,18 @@ async def rotate_refresh_token(
         )
         raise RefreshTokenError("invalid_grant", "client_id mismatch")
 
-    metadata = _decode_metadata(row.encrypted_metadata)
+    try:
+        metadata = _decode_metadata(row.encrypted_metadata)
+    except (InvalidToken, ValidationError, ValueError) as exc:
+        logger.warning(
+            "MCP OIDC: refresh token metadata decode failed",
+            error=str(exc),
+            family_id=str(row.family_id),
+            user_id=str(row.user_id),
+        )
+        raise RefreshTokenError(
+            "invalid_grant", "Refresh token is invalid or expired"
+        ) from exc
     row.status = "used"
     new_refresh_token = secrets.token_urlsafe(32)
     session.add(

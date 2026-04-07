@@ -18,12 +18,10 @@ from urllib.parse import urlencode
 import jwt
 from fastapi import APIRouter, Depends, Form, Header, Query, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import RedirectResponse, Response
 
 from tracecat.auth.users import optional_current_active_user
 from tracecat.config import TRACECAT__PUBLIC_APP_URL
-from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import User
 from tracecat.logger import logger
@@ -472,7 +470,6 @@ def _mint_access_token(
 @router.post("/token")
 async def token(
     request: Request,
-    session: AsyncDBSessionBypass,
     grant_type: str = Form(...),
     code: str | None = Form(default=None),
     redirect_uri: str | None = Form(default=None),
@@ -539,7 +536,6 @@ async def token(
     # --- Grant type dispatch ---
     if grant_type == "authorization_code":
         return await _handle_authorization_code_grant(
-            session=session,
             code=code,
             redirect_uri=redirect_uri,
             code_verifier=code_verifier,
@@ -558,7 +554,6 @@ async def token(
 
 async def _handle_authorization_code_grant(
     *,
-    session: AsyncSession,
     code: str | None,
     redirect_uri: str | None,
     code_verifier: str | None,
@@ -654,13 +649,14 @@ async def _handle_authorization_code_grant(
             scope=granted_scope,
             resource=code_data.resource,
         )
-        refresh_token_value = await issue_refresh_token(
-            session,
-            user_id=code_data.user_id,
-            organization_id=code_data.organization_id,
-            client_id=auth_client_id,
-            metadata=metadata,
-        )
+        async with get_async_session_bypass_rls_context_manager() as session:
+            refresh_token_value = await issue_refresh_token(
+                session,
+                user_id=code_data.user_id,
+                organization_id=code_data.organization_id,
+                client_id=auth_client_id,
+                metadata=metadata,
+            )
         response_body["refresh_token"] = refresh_token_value
 
     logger.info(

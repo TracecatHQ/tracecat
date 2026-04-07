@@ -391,6 +391,36 @@ async def test_rotate_refresh_token_client_mismatch_revocation_survives_caller_r
 
 
 @pytest.mark.anyio
+async def test_rotate_refresh_token_maps_metadata_decode_failure_to_invalid_grant(
+    session: AsyncSession,
+    svc_organization: Organization,
+    test_user: User,
+) -> None:
+    token = await issue_refresh_token(
+        session,
+        user_id=test_user.id,
+        organization_id=svc_organization.id,
+        client_id=_TEST_CLIENT_ID,
+        metadata=_make_metadata(),
+    )
+
+    row = (
+        await session.execute(
+            select(MCPRefreshToken).where(
+                MCPRefreshToken.token_hash == _hash_token(token)
+            )
+        )
+    ).scalar_one()
+    row.encrypted_metadata = b"corrupted"
+    await session.commit()
+
+    with pytest.raises(RefreshTokenError) as exc_info:
+        await rotate_refresh_token(session, token=token, client_id=_TEST_CLIENT_ID)
+    assert exc_info.value.oauth_error == "invalid_grant"
+    assert "invalid or expired" in exc_info.value.description
+
+
+@pytest.mark.anyio
 async def test_consume_refresh_token_replay_revokes_entire_family(
     session: AsyncSession,
     svc_organization: Organization,

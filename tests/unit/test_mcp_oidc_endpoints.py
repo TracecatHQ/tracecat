@@ -816,6 +816,12 @@ async def test_token_auth_code_grant_omits_refresh_without_offline_access(
         "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
         AsyncMock(return_value=code_data),
     )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("refresh-token session should not be opened")
+        ),
+    )
     monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
     monkeypatch.setattr("tracecat.mcp.oidc.endpoints.issue_refresh_token", issued)
     secret = oidc_config.get_internal_client_secret()
@@ -847,6 +853,12 @@ async def test_token_auth_code_grant_includes_refresh_with_offline_access(
         update={"scope": "openid profile email offline_access"}
     )
 
+    tracked_session = _StubSession()
+
+    @contextlib.asynccontextmanager
+    async def tracked_bypass_session_context_manager():
+        yield tracked_session
+
     issued = AsyncMock(return_value="opaque-refresh-token-value")
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
@@ -855,6 +867,10 @@ async def test_token_auth_code_grant_includes_refresh_with_offline_access(
     monkeypatch.setattr(
         "tracecat.mcp.oidc.endpoints.load_and_delete_auth_code",
         AsyncMock(return_value=code_data),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
+        tracked_bypass_session_context_manager,
     )
     monkeypatch.setattr("tracecat.mcp.oidc.endpoints.store_jti", AsyncMock())
     monkeypatch.setattr("tracecat.mcp.oidc.endpoints.issue_refresh_token", issued)
@@ -877,6 +893,7 @@ async def test_token_auth_code_grant_includes_refresh_with_offline_access(
     assert "id_token" in body
     issued.assert_awaited_once()
     assert issued.await_args is not None
+    assert issued.await_args.args[0] is tracked_session
     call_kwargs = issued.await_args.kwargs
     assert call_kwargs["user_id"] == code_data.user_id
     assert call_kwargs["organization_id"] == code_data.organization_id
