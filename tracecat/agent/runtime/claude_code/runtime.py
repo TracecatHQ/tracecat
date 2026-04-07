@@ -111,6 +111,10 @@ REGISTRY_MCP_DOT_PREFIX = f"mcp.{REGISTRY_MCP_SERVER_NAME}."
 LEGACY_REGISTRY_MCP_TOOL_PREFIX = "mcp__tracecat_registry__"
 LEGACY_REGISTRY_MCP_DOT_PREFIX = "mcp.tracecat_registry."
 
+# Increase the SDK's stdout/stderr capture buffer above its default 1 MiB so
+# larger tool responses do not truncate during agent execution.
+CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES = 5 * 1024 * 1024
+
 
 class ClaudeAgentRuntime:
     """Stateless, sandboxed Claude SDK runtime.
@@ -609,6 +613,7 @@ class ClaudeAgentRuntime:
                 },
                 # Stable per-session working directory (deterministic across turns)
                 cwd=self._cwd,
+                max_buffer_size=CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES,
                 output_format=sdk_output_format,
             )
 
