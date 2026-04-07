@@ -11,6 +11,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
+from tracecat.db.tenant_rls import disable_org_table_rls, enable_org_table_rls
 
 # revision identifiers, used by Alembic.
 revision: str = "b742858f7d69"
@@ -91,9 +92,11 @@ def upgrade() -> None:
         ["user_id"],
         unique=False,
     )
+    op.execute(enable_org_table_rls("mcp_refresh_token"))
 
 
 def downgrade() -> None:
+    op.execute(disable_org_table_rls("mcp_refresh_token"))
     op.drop_index(op.f("ix_mcp_refresh_token_user_id"), table_name="mcp_refresh_token")
     op.drop_index(
         op.f("ix_mcp_refresh_token_token_hash"), table_name="mcp_refresh_token"

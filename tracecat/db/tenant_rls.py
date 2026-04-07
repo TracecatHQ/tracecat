@@ -76,7 +76,10 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "agent_preset_version",
 )
 
-POST_RLS_ORG_SCOPED_TABLES = ("watchtower_agent",)
+POST_RLS_ORG_SCOPED_TABLES = (
+    "watchtower_agent",
+    "mcp_refresh_token",
+)
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "watchtower_agent_session",
