@@ -14,21 +14,18 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { describeVersion, renderValidationState } from "@/lib/skills-studio"
-import { cn } from "@/lib/utils"
 
 type WorkingCopyBarProps = {
   skill?: SkillRead
   draft?: SkillDraftRead
   versions?: SkillVersionRead[]
   versionsLoading: boolean
-  selectedVersionId: string | null
   restoreSkillVersionPending: boolean
   hasUnsavedChanges: boolean
   canPublish: boolean
   patchSkillDraftPending: boolean
   createSkillDraftUploadPending: boolean
   publishSkillPending: boolean
-  onSelectVersionId: (versionId: string) => void
   onRestore: (versionId: string) => Promise<void>
   onSaveWorkingCopy: () => Promise<void>
   onPublish: () => Promise<void>
@@ -58,14 +55,12 @@ export function WorkingCopyBar({
   draft,
   versions,
   versionsLoading,
-  selectedVersionId,
   restoreSkillVersionPending,
   hasUnsavedChanges,
   canPublish,
   patchSkillDraftPending,
   createSkillDraftUploadPending,
   publishSkillPending,
-  onSelectVersionId,
   onRestore,
   onSaveWorkingCopy,
   onPublish,
@@ -117,13 +112,7 @@ export function WorkingCopyBar({
                 </div>
               ) : (
                 versions.map((version) => (
-                  <div
-                    key={version.id}
-                    className={cn(
-                      "rounded-md border p-3",
-                      selectedVersionId === version.id && "border-foreground"
-                    )}
-                  >
+                  <div key={version.id} className="rounded-md border p-3">
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <div className="font-medium">
@@ -134,13 +123,6 @@ export function WorkingCopyBar({
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => onSelectVersionId(version.id)}
-                        >
-                          Use for test
-                        </Button>
                         <Button
                           size="sm"
                           variant="ghost"

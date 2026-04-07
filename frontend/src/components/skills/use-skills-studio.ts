@@ -58,7 +58,6 @@ type UseSkillsStudioReturn = {
   workspaceId: string
   selectedSkillId: string | null
   selectedPath: string | null
-  selectedVersionId: string | null
 
   // Skill list panel
   search: string
@@ -104,7 +103,6 @@ type UseSkillsStudioReturn = {
   onPublish: () => Promise<void>
   versions?: SkillVersionRead[]
   versionsLoading: boolean
-  onSelectVersionId: (versionId: string) => void
   restoreSkillVersionPending: boolean
   onRestore: (versionId: string) => Promise<void>
 
@@ -158,9 +156,6 @@ export function useSkillsStudio(params: {
   const [newSkillTitle, setNewSkillTitle] = useState("")
   const [newSkillDescription, setNewSkillDescription] = useState("")
   const [newFilePath, setNewFilePath] = useState("")
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
-    null
-  )
   const [isDragOver, setIsDragOver] = useState(false)
 
   // ── Data fetching ──────────────────────────────────────────────────
@@ -273,18 +268,6 @@ export function useSkillsStudio(params: {
   useEffect(() => {
     markdownEditorActivatedRef.current = false
   }, [draft?.draft_revision, selectedPath])
-
-  // Derived version selection — keep current if still valid, else fall back
-  const resolvedVersionId = useMemo(() => {
-    if (!versions || versions.length === 0) return null
-    if (
-      selectedVersionId &&
-      versions.some((version) => version.id === selectedVersionId)
-    ) {
-      return selectedVersionId
-    }
-    return skill?.current_version_id ?? versions[0]?.id ?? null
-  }, [selectedVersionId, skill?.current_version_id, versions])
 
   // ── Stable callbacks ────────────────────────────────────────────────
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
@@ -570,8 +553,7 @@ export function useSkillsStudio(params: {
       return
     }
     try {
-      const version = await publishSkill({ skillId: selectedSkillId })
-      setSelectedVersionId(version.id)
+      await publishSkill({ skillId: selectedSkillId })
     } catch (error) {
       toast({
         title: "Publish failed",
@@ -609,7 +591,6 @@ export function useSkillsStudio(params: {
     workspaceId,
     selectedSkillId,
     selectedPath,
-    selectedVersionId: resolvedVersionId,
 
     search,
     onSearchChange: setSearch,
@@ -652,7 +633,6 @@ export function useSkillsStudio(params: {
     onPublish: handlePublish,
     versions,
     versionsLoading,
-    onSelectVersionId: setSelectedVersionId,
     restoreSkillVersionPending,
     onRestore: handleRestore,
 

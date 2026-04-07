@@ -56,7 +56,6 @@ export function SkillsStudio({
                 draft={studio.draft}
                 versions={studio.versions}
                 versionsLoading={studio.versionsLoading}
-                selectedVersionId={studio.selectedVersionId}
                 restoreSkillVersionPending={studio.restoreSkillVersionPending}
                 hasUnsavedChanges={studio.hasUnsavedChanges}
                 canPublish={studio.canPublish}
@@ -65,7 +64,6 @@ export function SkillsStudio({
                   studio.createSkillDraftUploadPending
                 }
                 publishSkillPending={studio.publishSkillPending}
-                onSelectVersionId={studio.onSelectVersionId}
                 onRestore={studio.onRestore}
                 onSaveWorkingCopy={studio.onSaveWorkingCopy}
                 onPublish={studio.onPublish}
