@@ -174,8 +174,6 @@ class ClaudeAgentRuntime:
             message = "Conversation compacted."
 
         metadata: dict[str, Any] = {}
-        if trigger is not None:
-            metadata["trigger"] = trigger
         if pre_tokens is not None:
             metadata["pre_tokens"] = pre_tokens
         return UnifiedStreamEvent.compaction_event(
@@ -293,7 +291,7 @@ class ClaudeAgentRuntime:
         # SDK compaction artifacts marked with structural flags
         # isCompactSummary messages are persisted as kind='compaction' for badge rendering
         # isMeta messages (like caveats) are internal
-        if line_data.get("isMeta") is True:
+        if line_data.get("isMeta") is True or line_data.get("isCompactSummary"):
             return True
 
         msg_type = line_data.get("type", "")

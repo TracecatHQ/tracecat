@@ -1522,10 +1522,6 @@ class AgentSessionService(BaseWorkspaceService):
                 # Extract pre_tokens from compactMetadata if available
                 compact_metadata = content.get("compactMetadata")
                 if isinstance(compact_metadata, dict):
-                    trigger = compact_metadata.get("trigger")
-                    if trigger in {"auto", "manual"}:
-                        compaction_data["trigger"] = trigger
-
                     pre_tokens = compact_metadata.get("preTokens")
                     if isinstance(pre_tokens, int):
                         compaction_data["pre_tokens"] = pre_tokens

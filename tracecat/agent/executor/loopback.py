@@ -584,7 +584,16 @@ class LoopbackHandler:
                             event_type=envelope.event.type,
                             session_id=self.input.session_id,
                         )
-                        if envelope.event.type == StreamEventType.COMPACTION:
+                        if (
+                            envelope.event.type == StreamEventType.COMPACTION
+                            and (envelope.event.metadata or {}).get("phase")
+                            == "completed"
+                        ):
+                            # Only the completion event proves an actual
+                            # compact_boundary was reached. The optimistic
+                            # phase="started" event fires before the SDK
+                            # query, so it can't be used to suppress the
+                            # "no assistant output" validation error.
                             self._received_compaction_event = True
                         if envelope.event.type == StreamEventType.TEXT_DELTA:
                             self._received_assistant_content = True

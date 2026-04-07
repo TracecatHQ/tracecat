@@ -134,7 +134,6 @@ type ToolSuggestion = {
 type CompactionStatusData = {
   phase?: "started" | "completed"
   message?: string
-  trigger?: "manual" | "auto"
   pre_tokens?: number
 }
 
@@ -1180,14 +1179,10 @@ export function MessagePart({
         ? (payload as CompactionStatusData)
         : {}
     const phase = compaction.phase ?? "completed"
-    const label =
-      typeof compaction.message === "string" && compaction.message.trim()
-        ? compaction.message
-        : phase === "started"
-          ? "Compacting conversation..."
-          : compaction.trigger === "auto"
-            ? "Conversation compacted automatically."
-            : "Conversation compacted."
+    let label = "Conversation compacted."
+    if (phase === "started") {
+      label = "Compacting conversation..."
+    }
     const tokenSummary =
       typeof compaction.pre_tokens === "number"
         ? `${compaction.pre_tokens.toLocaleString()} tokens`

@@ -138,7 +138,7 @@ async def test_has_pending_approvals_reflects_status(
 
 
 @pytest.mark.anyio
-async def test_list_messages_preserves_compaction_trigger_metadata(
+async def test_list_messages_preserves_compaction_metadata(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -177,7 +177,6 @@ async def test_list_messages_preserves_compaction_trigger_metadata(
     assert messages[0].compaction == {
         "phase": "completed",
         "pre_tokens": 128000,
-        "trigger": "auto",
     }
 
 

@@ -688,6 +688,13 @@ class ToolOutputAvailableEventPayload:
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
+class CompactionDataPayload:
+    phase: Literal["started", "completed"]
+    pre_tokens: int | None = None
+    message: str | None = None
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
 class DataEventPayload:
     type: str
     data: Any
@@ -997,11 +1004,12 @@ class VercelStreamContext:
                     )
 
             case StreamEventType.COMPACTION:
-                payload: dict[str, Any] = {}
-                if event.metadata:
-                    payload.update(event.metadata)
-                if event.text:
-                    payload["message"] = event.text
+                metadata = event.metadata or {}
+                payload = CompactionDataPayload(
+                    phase=metadata["phase"],
+                    pre_tokens=metadata.get("pre_tokens"),
+                    message=event.text or None,
+                )
                 yield DataEventPayload(
                     type=COMPACTION_DATA_PART_TYPE,
                     data=payload,

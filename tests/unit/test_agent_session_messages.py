@@ -43,7 +43,7 @@ def _build_service() -> tuple[AgentSessionService, AgentSession]:
 
 
 @pytest.mark.anyio
-async def test_list_messages_preserves_compaction_trigger() -> None:
+async def test_list_messages_preserves_compaction_metadata() -> None:
     service, agent_session = _build_service()
     compaction_entry = SimpleNamespace(
         id=uuid.uuid4(),
@@ -73,5 +73,4 @@ async def test_list_messages_preserves_compaction_trigger() -> None:
     assert messages[0].compaction == {
         "phase": "completed",
         "pre_tokens": 128000,
-        "trigger": "auto",
     }
