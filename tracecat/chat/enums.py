@@ -21,3 +21,6 @@ class MessageKind(StrEnum):
         "approval-decision"  # User/operator decisions for pending approvals
     )
     INTERNAL = "internal"  # Internal messages not shown in chat history (e.g., continuation prompts, interrupt artifacts)
+    COMPACTION = (
+        "compaction"  # Compaction status badge shown when conversation is compacted
+    )

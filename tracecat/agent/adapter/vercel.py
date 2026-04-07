@@ -74,6 +74,7 @@ from tracecat.agent.types import UnifiedMessage
 from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
+    COMPACTION_DATA_PART_TYPE,
 )
 from tracecat.chat.enums import MessageKind
 from tracecat.logger import logger
@@ -687,6 +688,12 @@ class ToolOutputAvailableEventPayload:
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
+class CompactionDataPayload:
+    phase: Literal["started", "completed", "failed"]
+    pre_tokens: int | None = None
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
 class DataEventPayload:
     type: str
     data: Any
@@ -994,6 +1001,17 @@ class VercelStreamContext:
                         toolCallId=tool_call_id,
                         output=event.tool_output,
                     )
+
+            case StreamEventType.COMPACTION:
+                metadata = event.metadata or {}
+                payload = CompactionDataPayload(
+                    phase=metadata["phase"],
+                    pre_tokens=metadata.get("pre_tokens"),
+                )
+                yield DataEventPayload(
+                    type=COMPACTION_DATA_PART_TYPE,
+                    data=payload,
+                )
 
             case StreamEventType.ERROR:
                 yield ErrorEventPayload(errorText=event.error or "Unknown error")
@@ -1492,6 +1510,21 @@ def convert_chat_messages_to_ui(
     tool_entries: dict[str, MutableToolPart] = {}
 
     for chat_message in messages:
+        # Handle compaction status badges from DB (kind=COMPACTION)
+        # These show when a conversation was compacted
+        if chat_message.kind == MessageKind.COMPACTION and chat_message.compaction:
+            compaction_data = chat_message.compaction
+            # Create a system message with the compaction data part
+            mutable_message = MutableMessage(
+                id=chat_message.id,
+                role="system",
+                parts=[
+                    DataUIPart(type=COMPACTION_DATA_PART_TYPE, data=compaction_data)
+                ],
+            )
+            mutable_messages.append(mutable_message)
+            continue
+
         # Handle approval request bubbles from DB (kind=APPROVAL_REQUEST)
         # These are inserted by list_messages() when loading session history
         if chat_message.kind == MessageKind.APPROVAL_REQUEST and chat_message.approval:

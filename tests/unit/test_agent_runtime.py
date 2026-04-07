@@ -429,6 +429,44 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options[0].max_buffer_size == CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES
 
     @pytest.mark.anyio
+    async def test_sets_auto_compact_window_for_custom_model_provider(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Custom model providers should lower Claude Code's auto-compact window."""
+        captured_options: list[Any] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        custom_payload = replace(
+            sample_init_payload,
+            config=replace(
+                sample_init_payload.config,
+                model_provider="custom-model-provider",
+            ),
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            await runtime.run(custom_payload)
+
+        assert captured_options
+        assert captured_options[0].env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "128000"
+
+    @pytest.mark.anyio
     async def test_write_session_file_canonicalizes_registry_mcp_aliases(
         self,
         mock_socket_writer: MagicMock,
@@ -610,3 +648,49 @@ class TestClaudeAgentRuntimePreToolUseHook:
         # Should have sent approval request and interrupted
         mock_socket_writer.send_stream_event.assert_awaited()
         runtime.client.interrupt.assert_awaited()
+
+
+class TestClaudeAgentRuntimeInternalSessionLines:
+    """Tests for ClaudeAgentRuntime internal session line filtering."""
+
+    def test_does_not_hide_plain_text_that_mentions_summary_phrase(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Natural-language text should not be hidden as a compaction artifact."""
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        line_data = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Please provide your summary based on the conversation so far.",
+                    }
+                ]
+            },
+        }
+
+        assert runtime._is_internal_session_line(line_data) is False
+
+    def test_hides_structured_compaction_artifacts(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Structured Claude compaction markup should remain internal."""
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        line_data = {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "<command-name>/compact</command-name>",
+                    }
+                ]
+            },
+        }
+
+        assert runtime._is_internal_session_line(line_data) is True

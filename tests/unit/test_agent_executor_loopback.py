@@ -138,6 +138,35 @@ async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
     fake_stream.done.assert_awaited_once()
 
 
+@pytest.mark.anyio
+async def test_emit_terminal_error_emits_failed_compaction_when_pending(
+    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
+) -> None:
+    handler = LoopbackHandler(input=loopback_input)
+    monkeypatch.setattr(
+        handler,
+        "_build_external_channel_sink",
+        AsyncMock(side_effect=SQLAlchemyError("database unavailable")),
+    )
+
+    fake_stream = _FakeStream()
+    stream_new = AsyncMock(return_value=fake_stream)
+    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
+
+    handler._started_compaction_event = True
+
+    await handler.emit_terminal_error("runtime exited before connect")
+
+    fake_stream.append.assert_awaited_once()
+    await_args = fake_stream.append.await_args
+    assert await_args is not None
+    failed_event = await_args.args[0]
+    assert failed_event.type == StreamEventType.COMPACTION
+    assert failed_event.metadata == {"phase": "failed"}
+    fake_stream.error.assert_awaited_once_with("runtime exited before connect")
+    fake_stream.done.assert_awaited_once()
+
+
 def _make_handler() -> LoopbackHandler:
     return LoopbackHandler(
         input=LoopbackInput(
@@ -217,6 +246,74 @@ def test_should_not_suppress_normal_tool_result_error() -> None:
     )
 
     assert handler._should_suppress_stream_event(event) is False
+
+
+@pytest.mark.anyio
+async def test_process_runtime_events_emits_failed_compaction_on_runtime_error() -> (
+    None
+):
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(
+        RuntimeEventEnvelope.from_stream_event(
+            UnifiedStreamEvent.compaction_event(phase="started")
+        ),
+        RuntimeEventEnvelope.from_stream_event(
+            UnifiedStreamEvent(
+                type=StreamEventType.ERROR,
+                error="request_timeout: LLM gateway timed out",
+                is_error=True,
+            )
+        ),
+    )
+
+    await handler._process_runtime_events(reader)
+
+    append_calls = [call.args[0] for call in stream.append.await_args_list]
+    assert [
+        event.metadata
+        for event in append_calls
+        if event.type == StreamEventType.COMPACTION
+    ] == [
+        {"phase": "started"},
+        {"phase": "failed"},
+    ]
+    stream.error.assert_awaited_once_with("request_timeout: LLM gateway timed out")
+    stream.done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_process_runtime_events_emits_failed_compaction_on_done_without_boundary() -> (
+    None
+):
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(
+        RuntimeEventEnvelope.from_stream_event(
+            UnifiedStreamEvent.compaction_event(phase="started")
+        ),
+        RuntimeEventEnvelope.from_result(
+            usage={"requests": 0},
+            output="Command rejected",
+        ),
+        RuntimeEventEnvelope.done(),
+    )
+
+    await handler._process_runtime_events(reader)
+
+    append_calls = [call.args[0] for call in stream.append.await_args_list]
+    assert [
+        event.metadata
+        for event in append_calls
+        if event.type == StreamEventType.COMPACTION
+    ] == [
+        {"phase": "started"},
+        {"phase": "failed"},
+    ]
+    stream.error.assert_not_awaited()
+    stream.done.assert_awaited_once()
 
 
 @pytest.mark.anyio

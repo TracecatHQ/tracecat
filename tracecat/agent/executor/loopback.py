@@ -223,6 +223,9 @@ class LoopbackHandler:
         self._pending_approval_tool_call_ids: set[str] = set()
         self._received_result: bool = False
         self._received_assistant_content: bool = False
+        self._received_compaction_event: bool = False
+        self._started_compaction_event: bool = False
+        self._terminal_compaction_event: bool = False
 
     @staticmethod
     def _tool_output_contains_internal_interrupt(value: Any) -> bool:
@@ -284,8 +287,36 @@ class LoopbackHandler:
         """
         if self._stream_sink is None:
             self._stream_sink = await self._initialize_stream_sink()
+        await self._emit_failed_compaction_if_pending()
         await self._stream_sink.error(error)
         await self._emit_stream_done()
+
+    async def _emit_failed_compaction_if_pending(self) -> None:
+        """Emit a transient failed compaction event when started never completed.
+
+        Bounded with a timeout because callers run on crash paths where a
+        stalled sink must not block terminal error delivery.
+        """
+        if (
+            self._stream_sink is None
+            or not self._started_compaction_event
+            or self._terminal_compaction_event
+        ):
+            return
+
+        self._terminal_compaction_event = True
+        try:
+            await asyncio.wait_for(
+                self._stream_sink.append(
+                    UnifiedStreamEvent.compaction_event(phase="failed")
+                ),
+                timeout=5.0,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Timeout emitting failed compaction event",
+                session_id=self.input.session_id,
+            )
 
     async def handle_connection(
         self,
@@ -328,12 +359,14 @@ class LoopbackHandler:
             logger.warning("Runtime disconnected unexpectedly during init")
             self._result.error = "Runtime disconnected unexpectedly"
             if self._stream_sink:
+                await self._emit_failed_compaction_if_pending()
                 await self._stream_sink.error(self._result.error)
         except Exception as e:
             logger.exception("Error handling runtime connection", error=str(e))
             self._result.error = f"Connection error: {e}"
             if self._stream_sink:
                 try:
+                    await self._emit_failed_compaction_if_pending()
                     await asyncio.wait_for(self._stream_sink.error(str(e)), timeout=5.0)
                 except TimeoutError:
                     logger.warning("Timeout emitting stream error")
@@ -539,6 +572,7 @@ class LoopbackHandler:
                     "Runtime connection closed unexpectedly during execution"
                 )
                 self._result.error = "Runtime disconnected during execution"
+                await self._emit_failed_compaction_if_pending()
                 await self._stream_sink.error(self._result.error)
                 break  # done() will be called in finally of handle_connection
 
@@ -583,6 +617,20 @@ class LoopbackHandler:
                             event_type=envelope.event.type,
                             session_id=self.input.session_id,
                         )
+                        if envelope.event.type == StreamEventType.COMPACTION:
+                            phase = (envelope.event.metadata or {}).get("phase")
+                            if phase == "started":
+                                self._started_compaction_event = True
+                                self._terminal_compaction_event = False
+                            elif phase in {"completed", "failed"}:
+                                self._terminal_compaction_event = True
+                                if phase == "completed":
+                                    # Only the completion event proves an actual
+                                    # compact_boundary was reached. The optimistic
+                                    # phase="started" event fires before the SDK
+                                    # query, so it can't suppress validation on
+                                    # its own.
+                                    self._received_compaction_event = True
                         if envelope.event.type == StreamEventType.TEXT_DELTA:
                             self._received_assistant_content = True
                         await self._stream_sink.append(envelope.event)
@@ -595,6 +643,7 @@ class LoopbackHandler:
                                 session_id=self.input.session_id,
                                 error=error_msg,
                             )
+                            await self._emit_failed_compaction_if_pending()
                             await self._stream_sink.error(error_msg)
                             await self._emit_stream_done()
                             self._result.error = error_msg
@@ -625,6 +674,7 @@ class LoopbackHandler:
                     # Runtime error - stream error and close the stream
                     error_msg = envelope.error or "Unknown runtime error"
                     logger.error("Runtime error", error=error_msg)
+                    await self._emit_failed_compaction_if_pending()
                     await self._stream_sink.error(error_msg)
                     await self._emit_stream_done()  # Use helper (dedupes with finally)
                     self._result.error = error_msg
@@ -636,6 +686,7 @@ class LoopbackHandler:
                         "Runtime completed",
                         session_id=self.input.session_id,
                     )
+                    await self._emit_failed_compaction_if_pending()
                     if validation_error := self._validate_runtime_completion():
                         await self._stream_sink.error(validation_error)
                         await self._emit_stream_done()
@@ -720,6 +771,14 @@ class LoopbackHandler:
             # Use explicit internal flag from runtime, not content-based heuristics
             kind = "internal" if internal else "chat-message"
 
+            # Compaction system message (compact_boundary) marked with its own kind for badge rendering
+            # The system compact_boundary message carries the metadata (pre_tokens, trigger)
+            if (
+                line_data.get("type") == "system"
+                and line_data.get("subtype") == "compact_boundary"
+            ):
+                kind = "compaction"
+
             history_entry = AgentSessionHistory(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
@@ -744,6 +803,8 @@ class LoopbackHandler:
             and self._is_zero_usage(self._result.result_usage)
             and not self._received_assistant_content
         ):
+            if self._received_compaction_event:
+                return None
             return "Runtime completed without assistant output or model usage"
         return None
 

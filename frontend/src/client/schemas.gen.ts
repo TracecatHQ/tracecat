@@ -7185,15 +7185,30 @@ export const $ChatMessage = {
       description:
         "Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)",
     },
+    compaction: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Compaction",
+      description:
+        "Compaction status data for badge rendering (for kind=COMPACTION)",
+    },
   },
   type: "object",
   required: ["id"],
   title: "ChatMessage",
   description: `Model for a chat message with typed message payload.
 
-This model supports both regular messages and approval bubbles:
+This model supports multiple message kinds:
 - kind=CHAT_MESSAGE: Contains message field with user/assistant content
-- kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data`,
+- kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
+- kind=COMPACTION: Contains compaction field with compaction status data`,
 } as const
 
 export const $ChatRead = {
@@ -12709,7 +12724,13 @@ export const $MCPStdioServerConfig = {
 
 export const $MessageKind = {
   type: "string",
-  enum: ["chat-message", "approval-request", "approval-decision", "internal"],
+  enum: [
+    "chat-message",
+    "approval-request",
+    "approval-decision",
+    "internal",
+    "compaction",
+  ],
   title: "MessageKind",
   description: "The type/kind of message stored in the chat.",
 } as const

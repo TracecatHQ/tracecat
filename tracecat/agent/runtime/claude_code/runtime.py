@@ -16,7 +16,7 @@ import os
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import orjson
 from claude_agent_sdk import (
@@ -32,6 +32,7 @@ from claude_agent_sdk.types import (
     ResultMessage,
     StreamEvent,
     SyncHookJSONOutput,
+    SystemMessage,
     ToolResultBlock,
     UserMessage,
 )
@@ -114,6 +115,7 @@ LEGACY_REGISTRY_MCP_DOT_PREFIX = "mcp.tracecat_registry."
 # Increase the SDK's stdout/stderr capture buffer above its default 1 MiB so
 # larger tool responses do not truncate during agent execution.
 CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES = 5 * 1024 * 1024
+CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW = "128000"
 
 
 class ClaudeAgentRuntime:
@@ -149,6 +151,27 @@ class ClaudeAgentRuntime:
         # Working directory for session file path resolution
         # Must match the cwd passed to ClaudeAgentOptions for session resume
         self._cwd: Path = Path.cwd()
+
+    @staticmethod
+    def _is_manual_compaction_prompt(prompt: str) -> bool:
+        """Return True when the current prompt triggers manual compaction."""
+        stripped = prompt.strip()
+        return stripped == "/compact" or stripped.startswith("/compact ")
+
+    @staticmethod
+    def _build_compaction_status_event(
+        *,
+        phase: Literal["started", "completed"],
+        pre_tokens: int | None = None,
+    ) -> UnifiedStreamEvent:
+        """Create a transient stream event for compaction UI feedback."""
+        metadata: dict[str, Any] = {}
+        if pre_tokens is not None:
+            metadata["pre_tokens"] = pre_tokens
+        return UnifiedStreamEvent.compaction_event(
+            phase=phase,
+            metadata=metadata or None,
+        )
 
     def _should_inject_tool_metadata(self, tool_name: str, action_name: str) -> bool:
         """Return True when a tool executes through the registry proxy path."""
@@ -224,15 +247,27 @@ class ClaudeAgentRuntime:
             LEGACY_REGISTRY_MCP_TOOL_PREFIX, REGISTRY_MCP_TOOL_PREFIX
         ).replace(LEGACY_REGISTRY_MCP_DOT_PREFIX, REGISTRY_MCP_DOT_PREFIX)
 
+    @staticmethod
+    def _is_internal_compaction_prompt(text: str) -> bool:
+        """Return True for structured Claude SDK compaction artifacts."""
+        compact_markers = (
+            "<local-command-caveat>",
+            "<command-name>/compact</command-name>",
+            "<local-command-stdout>Compacted ",
+        )
+        return any(marker in text for marker in compact_markers)
+
     def _is_internal_session_line(self, line_data: dict[str, Any]) -> bool:
         """Determine if a session line is internal (not shown in UI timeline).
 
         Internal lines include:
         - queue-operation, compaction, summary, system messages
+        - compaction continuation prompts/summarizer sidechain messages
         - Interrupt signals (tool_result with "doesn't want to take this action")
         - Interrupt markers ("[Request interrupted by user")
         - Synthetic messages (model="<synthetic>")
         - Raw tool result/error text injections from approval flow
+        - SDK compaction summary and metadata messages (isCompactSummary, isMeta)
 
         Visible lines are:
         - User messages (actual user input)
@@ -244,10 +279,20 @@ class ClaudeAgentRuntime:
         Returns:
             True if this line should be marked as internal.
         """
+        # SDK compaction artifacts marked with structural flags
+        # isCompactSummary messages are persisted as kind='compaction' for badge rendering
+        # isMeta messages (like caveats) are internal
+        if line_data.get("isMeta") is True or line_data.get("isCompactSummary"):
+            return True
+
         msg_type = line_data.get("type", "")
 
         # Only user and assistant messages can be visible
         if msg_type not in ("user", "assistant"):
+            return True
+
+        agent_id = line_data.get("agentId")
+        if isinstance(agent_id, str) and agent_id.startswith("acompact-"):
             return True
 
         message = line_data.get("message", {})
@@ -278,6 +323,8 @@ class ClaudeAgentRuntime:
                 "Result:" in msg_content or "Error:" in msg_content
             ):
                 return True
+            if self._is_internal_compaction_prompt(msg_content):
+                return True
             # Stop hook feedback injected by Claude SDK for structured output
             if "Stop hook feedback:" in msg_content:
                 return True
@@ -299,6 +346,8 @@ class ClaudeAgentRuntime:
                     if part_type == "text":
                         text = part.get("text", "")
                         if "[Request interrupted by user" in text:
+                            return True
+                        if self._is_internal_compaction_prompt(text):
                             return True
                         if "Stop hook feedback:" in text:
                             return True
@@ -591,7 +640,6 @@ class ClaudeAgentRuntime:
                 sandbox_settings["allowUnsandboxedCommands"] = False
             # Build output_format from output_type if provided
             sdk_output_format = build_sdk_output_format(payload.config.output_type)
-
             options = ClaudeAgentOptions(
                 include_partial_messages=True,
                 resume=resume_session_id,
@@ -599,6 +647,13 @@ class ClaudeAgentRuntime:
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
                     "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
+                    **(
+                        {
+                            "CLAUDE_CODE_AUTO_COMPACT_WINDOW": CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
+                        }
+                        if payload.config.model_provider == "custom-model-provider"
+                        else {}
+                    ),
                 },
                 model=payload.config.model_name,
                 system_prompt=self._build_system_prompt(
@@ -650,6 +705,10 @@ class ClaudeAgentRuntime:
                         prompt_length=len(query_prompt),
                         is_continuation=payload.is_approval_continuation,
                     )
+                    if self._is_manual_compaction_prompt(query_prompt):
+                        await self._socket_writer.send_stream_event(
+                            self._build_compaction_status_event(phase="started")
+                        )
                     await client.query(query_prompt)
 
                     await self._socket_writer.send_log(
@@ -718,8 +777,27 @@ class ClaudeAgentRuntime:
                                 output=result_output,
                             )
 
+                        elif isinstance(message, SystemMessage):
+                            await self._emit_new_session_lines()
+                            if message.subtype != "compact_boundary":
+                                continue
+
+                            pre_tokens: int | None = None
+                            compact_metadata = message.data.get("compact_metadata")
+                            if isinstance(compact_metadata, dict):
+                                pre_tokens_value = compact_metadata.get("pre_tokens")
+                                if isinstance(pre_tokens_value, int):
+                                    pre_tokens = pre_tokens_value
+
+                            await self._socket_writer.send_stream_event(
+                                self._build_compaction_status_event(
+                                    phase="completed",
+                                    pre_tokens=pre_tokens,
+                                )
+                            )
+
                         else:
-                            # AssistantMessage, UserMessage, SystemMessage, etc.
+                            # AssistantMessage, UserMessage, etc.
                             await self._emit_new_session_lines()
 
                             # Stream tool results for UI
