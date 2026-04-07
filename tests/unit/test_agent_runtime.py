@@ -36,7 +36,6 @@ from tracecat.agent.mcp.proxy_server import (
 )
 from tracecat.agent.runtime.claude_code.runtime import (
     CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES,
-    CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW,
     ClaudeAgentRuntime,
 )
 from tracecat.agent.types import AgentConfig

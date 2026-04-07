@@ -132,8 +132,7 @@ type ToolSuggestion = {
 }
 
 type CompactionStatusData = {
-  phase?: "started" | "completed"
-  message?: string
+  phase?: "started" | "completed" | "failed"
   pre_tokens?: number
 }
 
@@ -1182,6 +1181,8 @@ export function MessagePart({
     let label = "Conversation compacted."
     if (phase === "started") {
       label = "Compacting conversation..."
+    } else if (phase === "failed") {
+      label = "Compaction failed."
     }
     const tokenSummary =
       typeof compaction.pre_tokens === "number"
@@ -1194,6 +1195,8 @@ export function MessagePart({
           <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-muted-foreground">
             {phase === "started" ? (
               <Loader2 className="size-3 animate-spin" />
+            ) : phase === "failed" ? (
+              <XIcon className="size-3" />
             ) : (
               <CheckIcon className="size-3" />
             )}

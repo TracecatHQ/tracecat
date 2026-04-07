@@ -189,9 +189,8 @@ class UnifiedStreamEvent:
     @classmethod
     def compaction_event(
         cls,
-        message: str,
         *,
-        phase: Literal["started", "completed"],
+        phase: Literal["started", "completed", "failed"],
         metadata: dict[str, Any] | None = None,
     ) -> UnifiedStreamEvent:
         """Factory method for creating compaction status events."""
@@ -200,7 +199,6 @@ class UnifiedStreamEvent:
             event_metadata.update(metadata)
         return cls(
             type=StreamEventType.COMPACTION,
-            text=message,
             metadata=event_metadata,
         )
 

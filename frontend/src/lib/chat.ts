@@ -248,7 +248,7 @@ export type ModelInfo = {
 }
 
 type CompactionData = {
-  phase?: "started" | "completed"
+  phase?: "started" | "completed" | "failed"
 }
 
 /**
@@ -366,7 +366,7 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
             ignorePos.add(pendingCompactionStartPos)
           }
           pendingCompactionStartPos = posKey
-        } else if (phase === "completed") {
+        } else if (phase === "completed" || phase === "failed") {
           if (pendingCompactionStartPos) {
             ignorePos.add(pendingCompactionStartPos)
             pendingCompactionStartPos = null

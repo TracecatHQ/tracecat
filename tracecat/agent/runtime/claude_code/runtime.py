@@ -162,22 +162,13 @@ class ClaudeAgentRuntime:
     def _build_compaction_status_event(
         *,
         phase: Literal["started", "completed"],
-        trigger: str | None = None,
         pre_tokens: int | None = None,
     ) -> UnifiedStreamEvent:
         """Create a transient stream event for compaction UI feedback."""
-        if phase == "started":
-            message = "Compacting conversation..."
-        elif trigger == "auto":
-            message = "Conversation compacted automatically."
-        else:
-            message = "Conversation compacted."
-
         metadata: dict[str, Any] = {}
         if pre_tokens is not None:
             metadata["pre_tokens"] = pre_tokens
         return UnifiedStreamEvent.compaction_event(
-            message,
             phase=phase,
             metadata=metadata or None,
         )
@@ -791,14 +782,9 @@ class ClaudeAgentRuntime:
                             if message.subtype != "compact_boundary":
                                 continue
 
-                            trigger: str | None = None
                             pre_tokens: int | None = None
                             compact_metadata = message.data.get("compact_metadata")
                             if isinstance(compact_metadata, dict):
-                                trigger_value = compact_metadata.get("trigger")
-                                if isinstance(trigger_value, str):
-                                    trigger = trigger_value
-
                                 pre_tokens_value = compact_metadata.get("pre_tokens")
                                 if isinstance(pre_tokens_value, int):
                                     pre_tokens = pre_tokens_value
@@ -806,7 +792,6 @@ class ClaudeAgentRuntime:
                             await self._socket_writer.send_stream_event(
                                 self._build_compaction_status_event(
                                     phase="completed",
-                                    trigger=trigger,
                                     pre_tokens=pre_tokens,
                                 )
                             )

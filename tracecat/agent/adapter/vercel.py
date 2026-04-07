@@ -689,9 +689,8 @@ class ToolOutputAvailableEventPayload:
 
 @dataclasses.dataclass(slots=True, kw_only=True)
 class CompactionDataPayload:
-    phase: Literal["started", "completed"]
+    phase: Literal["started", "completed", "failed"]
     pre_tokens: int | None = None
-    message: str | None = None
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
@@ -1008,7 +1007,6 @@ class VercelStreamContext:
                 payload = CompactionDataPayload(
                     phase=metadata["phase"],
                     pre_tokens=metadata.get("pre_tokens"),
-                    message=event.text or None,
                 )
                 yield DataEventPayload(
                     type=COMPACTION_DATA_PART_TYPE,
