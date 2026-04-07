@@ -103,6 +103,29 @@ def main():
         assert result.output == 42
 
     @pytest.mark.anyio
+    async def test_execute_normalizes_non_json_leaf_values(
+        self, executor: UnsafePidExecutor
+    ) -> None:
+        script = """
+from datetime import datetime
+
+def main():
+    return {
+        "all_ips": {"2.2.2.2", "1.1.1.1"},
+        "seen_at": datetime(2026, 3, 30, 13, 9, 52),
+        "nested": [{"ports": {443, 80}}],
+    }
+"""
+        result = await executor.execute(script=script)
+        assert result.success
+        assert result.error is None
+        assert result.output == {
+            "all_ips": ["1.1.1.1", "2.2.2.2"],
+            "seen_at": "2026-03-30T13:09:52",
+            "nested": [{"ports": [80, 443]}],
+        }
+
+    @pytest.mark.anyio
     @pytest.mark.integration
     async def test_execute_does_not_inherit_process_env(
         self, executor: UnsafePidExecutor, monkeypatch: pytest.MonkeyPatch

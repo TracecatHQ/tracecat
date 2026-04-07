@@ -36,12 +36,17 @@ module_logger = logging.getLogger(__name__)
 
 SAFE_WRAPPER_SCRIPT = '''
 import asyncio
+import dataclasses
+import datetime
+import decimal
+import enum
 import importlib
 import inspect
 import json
 import os
 import sys
 import traceback
+import uuid
 from pathlib import Path
 
 def _install_action_gateway_sdk_transport():
@@ -122,6 +127,30 @@ def _resolve_output(value):
 
     return asyncio.run(await_value())
 
+def to_json_safe(value):
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, set | frozenset):
+        try:
+            return sorted(value)
+        except TypeError:
+            return list(value)
+    if dataclasses.is_dataclass(value):
+        return dataclasses.asdict(value)
+    if isinstance(value, datetime.datetime | datetime.date | datetime.time):
+        return value.isoformat()
+    if isinstance(value, datetime.timedelta):
+        return value.total_seconds()
+    if isinstance(value, decimal.Decimal):
+        return str(value)
+    if isinstance(value, enum.Enum):
+        return to_json_safe(value.value)
+    if isinstance(value, uuid.UUID | Path):
+        return str(value)
+    if isinstance(value, bytes | bytearray):
+        return value.decode("utf-8", errors="replace")
+    return repr(value)
+
 def main():
     """Execute user script and capture results."""
     work_dir = "{work_dir}"
@@ -191,17 +220,12 @@ def main():
     # Write result to file
     result_path = Path(work_dir) / "result.json"
     try:
-        result_path.write_text(json.dumps(result))
-    except (TypeError, ValueError):
-        # Output not JSON-serializable, convert to repr
+        result_path.write_text(json.dumps(result, default=to_json_safe))
+    except (TypeError, ValueError) as e:
         result["output"] = repr(result["output"])
-        try:
-            result_path.write_text(json.dumps(result))
-        except Exception as e:
-            result["output"] = None
-            result["error"] = f"Output not JSON-serializable: {{type(e).__name__}}: {{e}}"
-            result["success"] = False
-            result_path.write_text(json.dumps(result))
+        result["error"] = f"Output not JSON-serializable: {{type(e).__name__}}: {{e}}"
+        result["success"] = False
+        result_path.write_text(json.dumps(result))
 
     sys.exit(0 if result["success"] else 1)
 
