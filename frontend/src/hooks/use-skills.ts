@@ -2,10 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  type AgentSessionRead,
   agentSkillsCreateSkill,
   agentSkillsCreateSkillDraftUpload,
-  agentSkillsCreateSkillPlaygroundSession,
   agentSkillsGetSkill,
   agentSkillsGetSkillDraft,
   agentSkillsGetSkillDraftFile,
@@ -19,7 +17,6 @@ import {
   type SkillDraftFileRead,
   type SkillDraftPatch,
   type SkillDraftRead,
-  type SkillPlaygroundSessionCreate,
   type SkillRead,
   type SkillUpload,
   type SkillUploadSessionCreate,
@@ -455,46 +452,5 @@ export function useRestoreSkillVersion(workspaceId: string) {
     restoreSkillVersion: mutation.mutateAsync,
     restoreSkillVersionPending: mutation.isPending,
     restoreSkillVersionError: mutation.error,
-  }
-}
-
-/**
- * Create a new skill playground chat session.
- *
- * @param workspaceId Workspace identifier.
- * @returns Playground creation mutation state.
- */
-export function useCreateSkillPlaygroundSession(workspaceId: string) {
-  const queryClient = useQueryClient()
-  const mutation = useMutation<
-    AgentSessionRead,
-    TracecatApiError,
-    { skillId: string; requestBody: SkillPlaygroundSessionCreate }
-  >({
-    mutationFn: async ({ skillId, requestBody }) =>
-      await agentSkillsCreateSkillPlaygroundSession({
-        workspaceId,
-        skillId,
-        requestBody,
-      }),
-    onSuccess: (session) => {
-      queryClient.invalidateQueries({
-        queryKey: ["chats", workspaceId, "skill", session.entity_id],
-      })
-    },
-    onError: (error) => {
-      toast({
-        title: "Playground unavailable",
-        description:
-          getApiErrorDetail(error) ?? "Failed to start skill playground.",
-        variant: "destructive",
-      })
-    },
-  })
-
-  return {
-    createSkillPlaygroundSession: mutation.mutateAsync,
-    createSkillPlaygroundSessionPending: mutation.isPending,
-    createSkillPlaygroundSessionError: mutation.error,
   }
 }
