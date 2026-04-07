@@ -11,8 +11,9 @@ import uuid
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
+import orjson
 import pytest
 from claude_agent_sdk.types import (
     HookContext,
@@ -577,3 +578,286 @@ class TestClaudeAgentRuntimePreToolUseHook:
         # Should have sent approval request and interrupted
         mock_socket_writer.send_stream_event.assert_awaited()
         runtime.client.interrupt.assert_awaited()
+
+
+def _jsonl_line(data: dict[str, Any]) -> str:
+    """Encode a dict as a single JSONL line (no trailing newline)."""
+    return orjson.dumps(data).decode("utf-8")
+
+
+def _make_session_file(
+    runtime: ClaudeAgentRuntime,
+    sdk_session_id: str,
+    lines: list[str],
+) -> Path:
+    """Write lines to the runtime's session file path and return the path."""
+    path = runtime._get_session_file_path(sdk_session_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n" if lines else "")
+    return path
+
+
+class TestEmitNewSessionLines:
+    """Tests for ClaudeAgentRuntime._emit_new_session_lines().
+
+    Validates the byte-offset incremental reader: correct lines are emitted,
+    the offset advances properly, and edge cases (empty file, incomplete
+    writes, continuation flag) are handled.
+    """
+
+    SDK_SESSION_ID = "test-emit-session-001"
+
+    @pytest.fixture
+    def runtime(self, mock_socket_writer: MagicMock) -> ClaudeAgentRuntime:
+        rt = ClaudeAgentRuntime(mock_socket_writer)
+        rt._sdk_session_id = self.SDK_SESSION_ID
+        rt._cwd = Path(tempfile.mkdtemp(prefix="tracecat-emit-test-"))
+        return rt
+
+    # -- basic emission --
+
+    @pytest.mark.anyio
+    async def test_emits_all_lines(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        """All complete JSONL lines are emitted on the first call."""
+        lines = [
+            _jsonl_line({"type": "user", "message": {"content": "hi"}}),
+            _jsonl_line(
+                {
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "hello"}]},
+                }
+            ),
+        ]
+        _make_session_file(runtime, self.SDK_SESSION_ID, lines)
+
+        await runtime._emit_new_session_lines()
+
+        assert mock_socket_writer.send_session_line.await_count == 2
+        # Verify lines sent in order
+        sent_lines = [
+            c.args[1] for c in mock_socket_writer.send_session_line.call_args_list
+        ]
+        assert sent_lines == lines
+
+    # -- incremental reads --
+
+    @pytest.mark.anyio
+    async def test_incremental_offset_only_emits_new_lines(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        """After first call, appending new lines only emits the new ones."""
+        line1 = _jsonl_line({"type": "user", "message": {"content": "first"}})
+        path = _make_session_file(runtime, self.SDK_SESSION_ID, [line1])
+
+        await runtime._emit_new_session_lines()
+        assert mock_socket_writer.send_session_line.await_count == 1
+        mock_socket_writer.send_session_line.reset_mock()
+
+        # Append a second line
+        line2 = _jsonl_line(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "second"}]},
+            }
+        )
+        with open(path, "a") as f:
+            f.write(line2 + "\n")
+
+        await runtime._emit_new_session_lines()
+        assert mock_socket_writer.send_session_line.await_count == 1
+        sent = mock_socket_writer.send_session_line.call_args_list[0].args[1]
+        assert sent == line2
+
+    # -- no-op cases --
+
+    @pytest.mark.anyio
+    async def test_noop_when_no_sdk_session_id(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        runtime._sdk_session_id = None
+        await runtime._emit_new_session_lines()
+        mock_socket_writer.send_session_line.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_noop_when_file_missing(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        # Don't create a file
+        await runtime._emit_new_session_lines()
+        mock_socket_writer.send_session_line.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_noop_when_no_new_data(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        line = _jsonl_line({"type": "user", "message": {"content": "hi"}})
+        _make_session_file(runtime, self.SDK_SESSION_ID, [line])
+
+        await runtime._emit_new_session_lines()
+        mock_socket_writer.send_session_line.reset_mock()
+
+        # Second call with no file change
+        await runtime._emit_new_session_lines()
+        mock_socket_writer.send_session_line.assert_not_awaited()
+
+    # -- empty / whitespace lines --
+
+    @pytest.mark.anyio
+    async def test_skips_empty_lines(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        line = _jsonl_line({"type": "user", "message": {"content": "hi"}})
+        path = runtime._get_session_file_path(self.SDK_SESSION_ID)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Write with blank lines interspersed
+        path.write_text(f"\n\n{line}\n\n")
+
+        await runtime._emit_new_session_lines()
+        assert mock_socket_writer.send_session_line.await_count == 1
+
+    # -- incomplete writes --
+
+    @pytest.mark.anyio
+    async def test_stops_at_incomplete_line_without_newline(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        """A line not terminated by newline is treated as incomplete and retried."""
+        complete = _jsonl_line({"type": "user", "message": {"content": "done"}})
+        incomplete = '{"type":"assistant","message":'  # no closing brace, no newline
+        path = runtime._get_session_file_path(self.SDK_SESSION_ID)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{complete}\n{incomplete}")
+
+        await runtime._emit_new_session_lines()
+        # Only the complete line should be emitted
+        assert mock_socket_writer.send_session_line.await_count == 1
+        mock_socket_writer.send_session_line.reset_mock()
+
+        # Now "complete" the write by finishing the line
+        finished = _jsonl_line(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "ok"}]},
+            }
+        )
+        path.write_text(f"{complete}\n{finished}\n")
+
+        await runtime._emit_new_session_lines()
+        assert mock_socket_writer.send_session_line.await_count == 1
+        sent = mock_socket_writer.send_session_line.call_args_list[0].args[1]
+        assert sent == finished
+
+    @pytest.mark.anyio
+    async def test_stops_at_invalid_json(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        """Malformed JSON on a newline-terminated line stops processing."""
+        good = _jsonl_line({"type": "user", "message": {"content": "hi"}})
+        bad = "{not valid json"
+        after = _jsonl_line({"type": "user", "message": {"content": "bye"}})
+        path = runtime._get_session_file_path(self.SDK_SESSION_ID)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{good}\n{bad}\n{after}\n")
+
+        await runtime._emit_new_session_lines()
+        # Only the line before the bad one is emitted
+        assert mock_socket_writer.send_session_line.await_count == 1
+
+    # -- internal classification --
+
+    @pytest.mark.anyio
+    async def test_marks_internal_lines(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        """System messages and queue-operation lines are marked internal."""
+        system_line = _jsonl_line({"type": "system", "message": {"content": "init"}})
+        user_line = _jsonl_line({"type": "user", "message": {"content": "hi"}})
+        _make_session_file(runtime, self.SDK_SESSION_ID, [system_line, user_line])
+
+        await runtime._emit_new_session_lines()
+
+        calls = mock_socket_writer.send_session_line.call_args_list
+        assert len(calls) == 2
+        # System line → internal=True
+        assert calls[0] == call(self.SDK_SESSION_ID, system_line, internal=True)
+        # User line → internal=False
+        assert calls[1] == call(self.SDK_SESSION_ID, user_line, internal=False)
+
+    # -- continuation flag --
+
+    @pytest.mark.anyio
+    async def test_continuation_marks_first_user_message_internal(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        """When _is_continuation is set, the first user message is internal."""
+        runtime._is_continuation = True
+        user1 = _jsonl_line({"type": "user", "message": {"content": "continuation"}})
+        user2 = _jsonl_line({"type": "user", "message": {"content": "real"}})
+        _make_session_file(runtime, self.SDK_SESSION_ID, [user1, user2])
+
+        await runtime._emit_new_session_lines()
+
+        calls = mock_socket_writer.send_session_line.call_args_list
+        assert len(calls) == 2
+        # First user message marked internal
+        assert calls[0] == call(self.SDK_SESSION_ID, user1, internal=True)
+        # Second user message is visible
+        assert calls[1] == call(self.SDK_SESSION_ID, user2, internal=False)
+        # Flag consumed
+        assert runtime._is_continuation is False
+
+    # -- byte offset correctness --
+
+    @pytest.mark.anyio
+    async def test_byte_offset_tracks_exact_bytes(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        """Byte offset matches the exact bytes consumed (including newlines)."""
+        line = _jsonl_line({"type": "user", "message": {"content": "test"}})
+        _make_session_file(runtime, self.SDK_SESSION_ID, [line])
+
+        await runtime._emit_new_session_lines()
+
+        expected_offset = len(line.encode("utf-8")) + 1  # +1 for \n
+        assert runtime._last_seen_byte_offset == expected_offset
+
+    @pytest.mark.anyio
+    async def test_byte_offset_with_multibyte_utf8(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        """Byte offset is correct for content with multibyte UTF-8 characters."""
+        line = _jsonl_line({"type": "user", "message": {"content": "hello 🔥 world"}})
+        _make_session_file(runtime, self.SDK_SESSION_ID, [line])
+
+        await runtime._emit_new_session_lines()
+
+        expected_offset = len(line.encode("utf-8")) + 1
+        assert runtime._last_seen_byte_offset == expected_offset
+        mock_socket_writer.send_session_line.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_preseeded_offset_skips_existing_lines(
+        self, runtime: ClaudeAgentRuntime, mock_socket_writer: MagicMock
+    ) -> None:
+        """Pre-seeding _last_seen_byte_offset skips already-persisted data."""
+        old_line = _jsonl_line({"type": "user", "message": {"content": "old"}})
+        new_line = _jsonl_line(
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "new"}]},
+            }
+        )
+        path = runtime._get_session_file_path(self.SDK_SESSION_ID)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{old_line}\n{new_line}\n")
+
+        # Pre-seed offset past the old line
+        runtime._last_seen_byte_offset = len(old_line.encode("utf-8")) + 1
+
+        await runtime._emit_new_session_lines()
+
+        assert mock_socket_writer.send_session_line.await_count == 1
+        sent = mock_socket_writer.send_session_line.call_args_list[0].args[1]
+        assert sent == new_line
