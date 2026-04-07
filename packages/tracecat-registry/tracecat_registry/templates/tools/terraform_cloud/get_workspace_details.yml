@@ -41,7 +41,7 @@ definition:
     - ref: get_workspace
       action: core.http_request
       args:
-        url: ${{ steps.build_url.result.data }}
+        url: ${{ steps.build_url.result }}
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}

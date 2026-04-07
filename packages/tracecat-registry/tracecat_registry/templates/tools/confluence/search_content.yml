@@ -68,7 +68,7 @@ definition:
         url: ${{ inputs.base_url || VARS.confluence.base_url }}/rest/api/search
         method: GET
         params:
-          cql: ${{ steps.build_cql.result.data }}
+          cql: ${{ steps.build_cql.result }}
           limit: ${{ inputs.limit }}
         auth:
           username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
