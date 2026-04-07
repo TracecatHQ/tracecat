@@ -934,7 +934,7 @@ class DSLWorkflow:
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
                     )
-                    session_id = workflow.uuid4()
+                    session_id = action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
@@ -958,6 +958,7 @@ class DSLWorkflow:
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
+                        continue_existing_session=action_args.session_id is not None,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -1081,7 +1082,7 @@ class DSLWorkflow:
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
                     )
-                    session_id = workflow.uuid4()
+                    session_id = preset_action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
@@ -1099,6 +1100,8 @@ class DSLWorkflow:
                         entity_id=self.run_context.wf_id,
                         agent_preset_id=preset_ref.preset_id,
                         agent_preset_version_id=preset_ref.preset_version_id,
+                        continue_existing_session=preset_action_args.session_id
+                        is not None,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,

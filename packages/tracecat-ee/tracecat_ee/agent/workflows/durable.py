@@ -126,6 +126,10 @@ class AgentWorkflowArgs(BaseModel):
         default=None,
         description="Agent harness type. Reserved for future multi-harness support.",
     )
+    continue_existing_session: bool = Field(
+        default=False,
+        description=("If true, session_id is caller-supplied and must already exist."),
+    )
 
 
 class WorkflowApprovalSubmission(BaseModel):
@@ -349,6 +353,19 @@ class DurableAgentWorkflow:
         curr_run_id = AgentWorkflowID.from_workflow_id(
             workflow.info().workflow_id
         ).session_id
+
+        if args.continue_existing_session:
+            load_result = await workflow.execute_activity(
+                load_session_activity,
+                LoadSessionInput(role=self.role, session_id=self.session_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            if not load_result.found:
+                raise ApplicationError(
+                    "Agent session does not exist. Omit session_id to create a new session.",
+                    non_retryable=True,
+                )
 
         # Create or get the AgentSession - idempotent, safe to call on resume
         # Persist the active workflow token as curr_run_id for approval lookups.
