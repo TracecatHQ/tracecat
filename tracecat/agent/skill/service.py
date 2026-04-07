@@ -7,12 +7,14 @@ import hashlib
 import mimetypes
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 
 import orjson
 import sqlalchemy as sa
 import yaml
+from slugify import slugify
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
@@ -61,6 +63,15 @@ from tracecat.tiers.enums import Entitlement
 
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
+
+
+@dataclass(slots=True)
+class ManifestValidationResult:
+    """Result of validating a skill draft or published manifest."""
+
+    title: str | None = None
+    description: str | None = None
+    errors: list[SkillValidationErrorDetail] = field(default_factory=list)
 
 
 class SkillService(BaseWorkspaceService):
@@ -328,10 +339,10 @@ class SkillService(BaseWorkspaceService):
 
     async def _validate_manifest_rows(
         self, rows: Sequence[tuple[str, SkillBlob]]
-    ) -> tuple[str | None, str | None, list[SkillValidationErrorDetail]]:
+    ) -> ManifestValidationResult:
         """Validate a draft or published manifest."""
 
-        errors: list[SkillValidationErrorDetail] = []
+        result = ManifestValidationResult()
         seen_paths: set[str] = set()
         skill_md_blob: SkillBlob | None = None
 
@@ -339,7 +350,7 @@ class SkillService(BaseWorkspaceService):
             try:
                 normalized = self._normalize_path(path)
             except TracecatValidationError as exc:
-                errors.append(
+                result.errors.append(
                     SkillValidationErrorDetail(
                         code="invalid_path",
                         message=str(exc),
@@ -348,7 +359,7 @@ class SkillService(BaseWorkspaceService):
                 )
                 continue
             if normalized in seen_paths:
-                errors.append(
+                result.errors.append(
                     SkillValidationErrorDetail(
                         code="duplicate_path",
                         message=f"Duplicate skill path {normalized!r}",
@@ -360,14 +371,14 @@ class SkillService(BaseWorkspaceService):
                 skill_md_blob = blob_row
 
         if skill_md_blob is None:
-            errors.append(
+            result.errors.append(
                 SkillValidationErrorDetail(
                     code="missing_root_skill_md",
                     message="Root SKILL.md is required",
                     path="SKILL.md",
                 )
             )
-            return None, None, errors
+            return result
 
         try:
             content = await blob.download_file(
@@ -376,17 +387,17 @@ class SkillService(BaseWorkspaceService):
             )
             markdown = content.decode("utf-8")
         except UnicodeDecodeError:
-            errors.append(
+            result.errors.append(
                 SkillValidationErrorDetail(
                     code="invalid_skill_md_encoding",
                     message="Root SKILL.md must be UTF-8 text",
                     path="SKILL.md",
                 )
             )
-            return None, None, errors
+            return result
 
-        title, description = self._extract_frontmatter(markdown)
-        return title, description, errors
+        result.title, result.description = self._extract_frontmatter(markdown)
+        return result
 
     async def _build_draft_read(self, skill: Skill) -> SkillDraftRead:
         """Build the current draft response for a skill."""
@@ -405,18 +416,16 @@ class SkillService(BaseWorkspaceService):
                 )
             )
             validation_pairs.append((draft_file.path, blob_row))
-        title, description, errors = await self._validate_manifest_rows(
-            validation_pairs
-        )
+        validation = await self._validate_manifest_rows(validation_pairs)
         return SkillDraftRead(
             skill_id=skill.id,
             skill_slug=skill.slug,
             draft_revision=skill.draft_revision,
-            title=title,
-            description=description,
+            title=validation.title,
+            description=validation.description,
             files=file_entries,
-            is_publishable=not errors,
-            validation_errors=errors,
+            is_publishable=not validation.errors,
+            validation_errors=validation.errors,
         )
 
     async def _build_skill_read(self, skill: Skill) -> SkillRead:
@@ -507,7 +516,7 @@ class SkillService(BaseWorkspaceService):
     ) -> str:
         """Validate skill slug uniqueness within the workspace."""
 
-        normalized = slug.strip().lower()
+        normalized = slugify(slug, separator="-")
         if not normalized:
             raise TracecatValidationError(
                 "Skill slug cannot be empty",
@@ -855,15 +864,17 @@ class SkillService(BaseWorkspaceService):
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
         rows = await self._list_draft_rows(skill.id)
-        title, description, errors = await self._validate_manifest_rows(
+        validation = await self._validate_manifest_rows(
             [(draft_file.path, blob_row) for draft_file, blob_row in rows]
         )
-        if errors:
+        if validation.errors:
             raise TracecatValidationError(
                 "Skill draft failed validation",
                 detail={
                     "code": "skill_publish_validation_failed",
-                    "errors": [error.model_dump(mode="json") for error in errors],
+                    "errors": [
+                        error.model_dump(mode="json") for error in validation.errors
+                    ],
                 },
             )
 
@@ -896,8 +907,8 @@ class SkillService(BaseWorkspaceService):
             manifest_sha256=manifest_sha256,
             file_count=len(rows),
             total_size_bytes=sum(blob_row.size_bytes for _, blob_row in rows),
-            title=title,
-            description=description,
+            title=validation.title,
+            description=validation.description,
         )
         self.session.add(version)
         await self.session.flush()
@@ -911,8 +922,8 @@ class SkillService(BaseWorkspaceService):
                 )
             )
         skill.current_version_id = version.id
-        skill.title = title
-        skill.description = description
+        skill.title = validation.title
+        skill.description = validation.description
         self.session.add(skill)
         await self.session.commit()
         return await self.get_version_read(skill_id=skill.id, version_id=version.id)

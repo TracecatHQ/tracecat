@@ -125,6 +125,18 @@ class TestSkillService:
         assert draft.description == "Handle security triage"
         assert [file.path for file in draft.files] == ["SKILL.md"]
 
+    async def test_create_skill_slugifies_to_kebab_case(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Creating a skill stores the slug in canonical kebab-case."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(slug="  Triage Skill 2026  ")
+        )
+
+        assert created.slug == "triage-skill-2026"
+
     async def test_upload_skill_conflict_raises_validation_error(
         self,
         skill_service: SkillService,
