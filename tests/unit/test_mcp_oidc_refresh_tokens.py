@@ -318,6 +318,79 @@ async def test_rotate_refresh_token_replay_revokes_replacement_token(
 
 
 @pytest.mark.anyio
+async def test_rotate_refresh_token_replay_revocation_survives_caller_rollback(
+    session: AsyncSession,
+    svc_organization: Organization,
+    test_user: User,
+) -> None:
+    token_a = await issue_refresh_token(
+        session,
+        user_id=test_user.id,
+        organization_id=svc_organization.id,
+        client_id=_TEST_CLIENT_ID,
+        metadata=_make_metadata(),
+    )
+
+    ctx, token_b = await rotate_refresh_token(
+        session, token=token_a, client_id=_TEST_CLIENT_ID
+    )
+    await session.commit()
+
+    with pytest.raises(RefreshTokenError) as exc_info:
+        await rotate_refresh_token(session, token=token_a, client_id=_TEST_CLIENT_ID)
+    assert "replay" in exc_info.value.description.lower()
+
+    await session.rollback()
+
+    rows = (
+        (
+            await session.execute(
+                select(MCPRefreshToken).where(
+                    MCPRefreshToken.family_id == ctx.family_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 2
+    assert all(row.status == "revoked" for row in rows)
+
+    with pytest.raises(RefreshTokenError):
+        await consume_refresh_token(session, token=token_b, client_id=_TEST_CLIENT_ID)
+
+
+@pytest.mark.anyio
+async def test_rotate_refresh_token_client_mismatch_revocation_survives_caller_rollback(
+    session: AsyncSession,
+    svc_organization: Organization,
+    test_user: User,
+) -> None:
+    token = await issue_refresh_token(
+        session,
+        user_id=test_user.id,
+        organization_id=svc_organization.id,
+        client_id=_TEST_CLIENT_ID,
+        metadata=_make_metadata(),
+    )
+
+    with pytest.raises(RefreshTokenError) as exc_info:
+        await rotate_refresh_token(session, token=token, client_id="some-other-client")
+    assert "client_id mismatch" in exc_info.value.description
+
+    await session.rollback()
+
+    row = (
+        await session.execute(
+            select(MCPRefreshToken).where(
+                MCPRefreshToken.token_hash == _hash_token(token)
+            )
+        )
+    ).scalar_one()
+    assert row.status == "revoked"
+
+
+@pytest.mark.anyio
 async def test_consume_refresh_token_replay_revokes_entire_family(
     session: AsyncSession,
     svc_organization: Organization,

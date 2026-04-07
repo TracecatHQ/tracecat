@@ -113,7 +113,10 @@ async def rotate_refresh_token(
     This keeps the replay-detection transition and replacement-token insertion
     in a single database transaction so concurrent replays cannot slip a fresh
     descendant token into the family after revocation. The caller owns the
-    transaction boundary and is responsible for commit/rollback.
+    transaction boundary for successful rotations and is responsible for the
+    final commit/rollback. Hostile replay and client-mismatch paths commit
+    family revocation before raising so the security side effect survives any
+    caller rollback.
     """
     token_hash = _hash_token(token)
     row = (
@@ -127,11 +130,13 @@ async def rotate_refresh_token(
         raise RefreshTokenError("invalid_grant", "Refresh token is invalid or expired")
 
     if row.status == "used":
-        await _revoke_family_rows(session, row.family_id)
+        family_id = row.family_id
+        user_id = row.user_id
+        await revoke_family(session, family_id)
         logger.warning(
             "MCP OIDC: refresh token replay detected, revoking family",
-            family_id=str(row.family_id),
-            user_id=str(row.user_id),
+            family_id=str(family_id),
+            user_id=str(user_id),
         )
         raise RefreshTokenError(
             "invalid_grant", "Refresh token replay detected; family revoked"
@@ -144,11 +149,13 @@ async def rotate_refresh_token(
         raise RefreshTokenError("invalid_grant", "Refresh token has expired")
 
     if row.client_id != client_id:
-        await _revoke_family_rows(session, row.family_id)
+        family_id = row.family_id
+        expected_client_id = row.client_id
+        await revoke_family(session, family_id)
         logger.warning(
             "MCP OIDC: refresh token client_id mismatch, revoking family",
-            family_id=str(row.family_id),
-            expected=row.client_id,
+            family_id=str(family_id),
+            expected=expected_client_id,
             actual=client_id,
         )
         raise RefreshTokenError("invalid_grant", "client_id mismatch")

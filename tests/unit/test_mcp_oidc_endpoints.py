@@ -149,6 +149,20 @@ class _StubSession:
         return None
 
 
+class _TrackingSession(_StubSession):
+    """Session stub that records transaction calls for endpoint tests."""
+
+    def __init__(self) -> None:
+        self.commit_mock = AsyncMock()
+        self.rollback_mock = AsyncMock()
+
+    async def commit(self) -> None:
+        await self.commit_mock()
+
+    async def rollback(self) -> None:
+        await self.rollback_mock()
+
+
 async def _stub_session_dependency():
     yield _StubSession()
 
@@ -1107,6 +1121,51 @@ async def test_token_refresh_grant_maps_replay_error(
     body = response.json()
     assert body["error"] == "invalid_grant"
     assert "replay" in body["error_description"]
+
+
+@pytest.mark.anyio
+async def test_token_refresh_grant_rolls_back_if_store_jti_fails_before_commit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracked_session = _TrackingSession()
+
+    @contextlib.asynccontextmanager
+    async def tracked_bypass_session_context_manager():
+        yield tracked_session
+
+    ctx = _make_refresh_context()
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.check_token_rate_limit",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.get_async_session_bypass_rls_context_manager",
+        tracked_bypass_session_context_manager,
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.rotate_refresh_token",
+        AsyncMock(return_value=(ctx, "new-rotated-refresh-token")),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.store_jti",
+        AsyncMock(side_effect=RuntimeError("redis unavailable")),
+    )
+    secret = oidc_config.get_internal_client_secret()
+
+    with pytest.raises(RuntimeError, match="redis unavailable"):
+        client.post(
+            "/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": "old-refresh-token",
+                "client_id": oidc_config.INTERNAL_CLIENT_ID,
+                "client_secret": secret,
+            },
+        )
+
+    tracked_session.rollback_mock.assert_awaited_once()
+    tracked_session.commit_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio

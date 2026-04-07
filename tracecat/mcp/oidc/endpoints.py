@@ -700,23 +700,22 @@ async def _handle_refresh_token_grant(
                 ctx, new_refresh_token = await rotate_refresh_token(
                     refresh_session, token=refresh_token, client_id=auth_client_id
                 )
-            except RefreshTokenError:
+                access_token, jti, _ = _mint_access_token(
+                    user_id=str(ctx.user_id),
+                    organization_id=str(ctx.organization_id),
+                    email=ctx.metadata.email,
+                    is_platform_superuser=ctx.metadata.is_platform_superuser,
+                    scope=ctx.metadata.scope,
+                    resource=ctx.metadata.resource,
+                )
+
+                await store_jti(jti)
+                await refresh_session.commit()
+            except Exception:
                 await refresh_session.rollback()
                 raise
-            await refresh_session.commit()
     except RefreshTokenError as exc:
         return _error_response(exc.oauth_error, exc.description)
-
-    access_token, jti, _ = _mint_access_token(
-        user_id=str(ctx.user_id),
-        organization_id=str(ctx.organization_id),
-        email=ctx.metadata.email,
-        is_platform_superuser=ctx.metadata.is_platform_superuser,
-        scope=ctx.metadata.scope,
-        resource=ctx.metadata.resource,
-    )
-
-    await store_jti(jti)
 
     logger.info(
         "MCP OIDC: rotated refresh token",
