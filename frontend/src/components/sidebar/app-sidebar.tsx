@@ -73,10 +73,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const caseId = params?.caseId
   const casesListPath = `${basePath}/cases`
   const isCasesList = pathname === casesListPath
-  const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const isAgentsRoute = pathname?.startsWith(`${basePath}/agents`) ?? false
   const [createCaseDialogOpen, setCreateCaseDialogOpen] = useState(false)
   const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
+  const [agentsSectionOpen, setAgentsSectionOpen] = useState(isAgentsRoute)
 
   useEffect(() => {
     setSidebarOpenRef.current = setSidebarOpen
@@ -117,9 +117,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewCases = useScopeCheck("case:read")
   const canCreateCase = useScopeCheck("case:create")
-  const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
-    enabled: agentAddonsEnabled && canViewAgents === true,
+  const shouldLoadAgentsSection =
+    canViewAgents === true && (agentsSectionOpen || isAgentsRoute)
+  const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
+    enabled: shouldLoadAgentsSection,
   })
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
+    enabled: shouldLoadAgentsSection && agentAddonsEnabled,
+  })
+
+  useEffect(() => {
+    if (isAgentsRoute) {
+      setAgentsSectionOpen(true)
+    }
+  }, [isAgentsRoute])
 
   const openNewAgentBuilder = () => {
     router.push(`${basePath}/agents/new`)
@@ -285,7 +297,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         )}
 
         {canViewAgents === true && (
-          <Collapsible defaultOpen className="group/collapsible">
+          <Collapsible
+            open={agentsSectionOpen}
+            onOpenChange={setAgentsSectionOpen}
+            className="group/collapsible"
+          >
             <SidebarGroup className="group/agents relative">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="w-full">

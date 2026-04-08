@@ -52,7 +52,9 @@ export function AddCaseTagDialog({
   onOpenChange,
 }: AddCaseTagDialogProps) {
   const workspaceId = useWorkspaceId()
-  const { caseTags, createCaseTag } = useCaseTagCatalog(workspaceId)
+  const { caseTags, createCaseTag } = useCaseTagCatalog(workspaceId, {
+    enabled: open,
+  })
 
   const methods = useForm<TagCreate>({
     resolver: zodResolver(createTagSchema),
