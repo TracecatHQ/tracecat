@@ -47,6 +47,7 @@ from sqlalchemy.orm import (
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.types import AgentCustomProviderDiscoveryStatus
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScopeSource
@@ -81,6 +82,13 @@ CASE_TASK_STATUS_ENUM = Enum(CaseTaskStatus, name="casetaskstatus")
 INTERACTION_STATUS_ENUM = Enum(InteractionStatus, name="interactionstatus")
 APPROVAL_STATUS_ENUM = Enum(ApprovalStatus, name="approvalstatus")
 INVITATION_STATUS_ENUM = Enum(InvitationStatus, name="invitationstatus")
+AGENT_CUSTOM_PROVIDER_DISCOVERY_STATUS_ENUM = Enum(
+    AgentCustomProviderDiscoveryStatus,
+    name="agentcustomproviderdiscoverystatus",
+    native_enum=False,
+    values_callable=lambda statuses: [status.value for status in statuses],
+    validate_strings=True,
+)
 
 
 # Naming convention for constraints so Alembic can generate deterministic names
@@ -2549,6 +2557,152 @@ class Approval(WorkspaceModel):
     )
 
 
+class AgentCustomProvider(OrganizationModel):
+    """Organization-scoped custom LLM provider configuration."""
+
+    __tablename__ = "agent_custom_provider"
+    __table_args__ = (UniqueConstraint("organization_id", "id"),)
+
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    passthrough: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    encrypted_config: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    api_key_header: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    discovery_status: Mapped[AgentCustomProviderDiscoveryStatus] = mapped_column(
+        AGENT_CUSTOM_PROVIDER_DISCOVERY_STATUS_ENUM,
+        nullable=False,
+        default=AgentCustomProviderDiscoveryStatus.NEVER,
+        server_default=text("'never'"),
+    )
+    last_refreshed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+    catalog_rows: Mapped[list[AgentCatalog]] = relationship(
+        "AgentCatalog",
+        back_populates="custom_provider",
+        cascade="all, delete-orphan",
+        foreign_keys="[AgentCatalog.organization_id, AgentCatalog.custom_provider_id]",
+    )
+
+
+class AgentCatalog(Base, TimestampMixin):
+    """Normalized agent catalog entries."""
+
+    __tablename__ = "agent_catalog"
+    __table_args__ = (
+        CheckConstraint(
+            "custom_provider_id IS NULL OR organization_id IS NOT NULL",
+            name="custom_provider_requires_org",
+        ),
+        ForeignKeyConstraint(
+            ["organization_id", "custom_provider_id"],
+            ["agent_custom_provider.organization_id", "agent_custom_provider.id"],
+            name="fk_agent_catalog_org_custom_provider",
+            ondelete="CASCADE",
+        ),
+        Index(
+            "ix_agent_catalog_organization_id_custom_provider_id",
+            "organization_id",
+            "custom_provider_id",
+        ),
+        Index(
+            "uq_agent_catalog_custom_provider_model_provider_model_name",
+            "organization_id",
+            "custom_provider_id",
+            "model_provider",
+            "model_name",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[OrganizationID | None] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    custom_provider_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+    model_provider: Mapped[str] = mapped_column(String(120), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    model_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    encrypted_config: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    last_refreshed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
+    custom_provider: Mapped[AgentCustomProvider | None] = relationship(
+        "AgentCustomProvider",
+        back_populates="catalog_rows",
+        foreign_keys=[organization_id, custom_provider_id],
+    )
+    model_access: Mapped[list[AgentModelAccess]] = relationship(
+        "AgentModelAccess",
+        back_populates="catalog",
+        cascade="all, delete-orphan",
+    )
+
+
+class AgentModelAccess(OrganizationModel):
+    """Organization- and workspace-scoped access to catalog models."""
+
+    __tablename__ = "agent_model_access"
+    __table_args__ = (
+        Index("ix_agent_model_access_workspace_id", "workspace_id"),
+        Index("ix_agent_model_access_catalog_id", "catalog_id"),
+        Index(
+            "uq_agent_model_access_organization_workspace_catalog",
+            "organization_id",
+            "workspace_id",
+            "catalog_id",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    workspace_id: Mapped[WorkspaceID | None] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    catalog_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_catalog.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    catalog: Mapped[AgentCatalog] = relationship(
+        "AgentCatalog",
+        back_populates="model_access",
+    )
+
+
 class AgentSession(WorkspaceModel):
     """Generic agent session/thread entity (harness-agnostic).
 
@@ -3162,6 +3316,13 @@ class AgentPreset(WorkspaceModel):
     model_provider: Mapped[str] = mapped_column(
         String(120), nullable=False, doc="LLM provider identifier"
     )
+    catalog_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_catalog.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Canonical catalog row backing this model selection",
+    )
     base_url: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
@@ -3271,6 +3432,13 @@ class AgentPresetVersion(WorkspaceModel):
     )
     model_provider: Mapped[str] = mapped_column(
         String(120), nullable=False, doc="LLM provider identifier"
+    )
+    catalog_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_catalog.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Canonical catalog row backing this model selection",
     )
     base_url: Mapped[str | None] = mapped_column(
         String(500),
