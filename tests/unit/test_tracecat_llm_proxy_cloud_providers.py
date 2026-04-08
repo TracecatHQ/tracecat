@@ -1450,6 +1450,60 @@ def test_bedrock_request_preserves_direct_thinking_and_top_k_settings() -> None:
     }
 
 
+def test_bedrock_request_drops_adaptive_thinking_for_pre_46_claude_models() -> None:
+    request = _base_request(
+        provider="bedrock",
+        model="anthropic.claude-haiku-4-5-20251001-v1:0",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        model_settings={
+            "thinking": {
+                "type": "adaptive",
+            }
+        },
+    )
+
+    request_http = BedrockAdapter().prepare_request(
+        request,
+        {
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+            "AWS_REGION": "us-east-1",
+            "AWS_MODEL_ID": "anthropic.claude-haiku-4-5-20251001-v1:0",
+        },
+    )
+
+    assert request_http.body is not None
+    payload = orjson.loads(request_http.body)
+
+    assert "additionalModelRequestFields" not in payload
+
+
+def test_bedrock_request_preserves_adaptive_thinking_for_claude_46_and_newer() -> None:
+    request = _base_request(
+        provider="bedrock",
+        model="anthropic.claude-sonnet-4-6-20260115-v1:0",
+        messages=(NormalizedMessage(role="user", content="hello"),),
+        model_settings={
+            "thinking": {
+                "type": "adaptive",
+            }
+        },
+    )
+
+    request_http = BedrockAdapter().prepare_request(
+        request,
+        {
+            "AWS_BEARER_TOKEN_BEDROCK": "bedrock-token",
+            "AWS_REGION": "us-east-1",
+            "AWS_MODEL_ID": "anthropic.claude-sonnet-4-6-20260115-v1:0",
+        },
+    )
+
+    assert request_http.body is not None
+    payload = orjson.loads(request_http.body)
+
+    assert payload["additionalModelRequestFields"]["thinking"] == {"type": "adaptive"}
+
+
 def test_bedrock_request_adds_dummy_tool_config_for_tool_history() -> None:
     request = _base_request(
         provider="bedrock",

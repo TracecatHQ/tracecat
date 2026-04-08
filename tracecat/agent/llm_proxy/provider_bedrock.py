@@ -235,6 +235,23 @@ def _is_claude_model(model: str) -> bool:
     return "claude" in _bedrock_base_model(model)
 
 
+# Only Claude 4.6+ accepts `{"type": "adaptive"}` thinking on Bedrock. We match
+# on substring so the check covers bare model IDs, region-prefixed inference
+# profiles, and foundation-model / inference-profile ARNs that embed the model
+# ID. Opaque ARNs (provisioned throughput, application inference profiles)
+# deliberately fall through to False — we can't identify the backing model
+# without an extra Bedrock API call, so we err on the side of stripping
+# adaptive thinking rather than letting Bedrock reject the request.
+_CLAUDE_ADAPTIVE_THINKING_MODELS = ("claude-opus-4-6", "claude-sonnet-4-6")
+
+
+def _bedrock_supports_adaptive_thinking(model: str) -> bool:
+    """Return True when the Claude Bedrock target is known to support adaptive thinking."""
+
+    base = _bedrock_base_model(model)
+    return any(name in base for name in _CLAUDE_ADAPTIVE_THINKING_MODELS)
+
+
 def _text_block(text: Any) -> dict[str, Any]:
     return {"text": str(text)}
 
@@ -684,7 +701,9 @@ def _inference_config_from_request(
             }
 
     if thinking := settings.get("thinking"):
-        additional_fields["thinking"] = thinking
+        is_adaptive = isinstance(thinking, dict) and thinking.get("type") == "adaptive"
+        if not is_adaptive or _bedrock_supports_adaptive_thinking(target_model):
+            additional_fields["thinking"] = thinking
 
     return {
         "inference_config": inference_config,
