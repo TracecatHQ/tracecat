@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from asyncpg import DuplicateColumnError
@@ -24,8 +24,6 @@ from tracecat.cases.schemas import (
     CaseCommentRead,
     CaseCommentThreadRead,
     CaseReadMinimal,
-    CaseSearchAggregateRead,
-    CaseStatusGroupCounts,
 )
 from tracecat.db.models import Case, CaseTag, Workspace
 from tracecat.exceptions import EntitlementRequired, TracecatValidationError
@@ -987,38 +985,38 @@ async def test_search_cases_accepts_frontend_unassigned_sentinel(
 
 
 @pytest.mark.anyio
-async def test_search_case_aggregates_accepts_frontend_unassigned_sentinel(
+async def test_aggregate_cases_basic(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test GET /cases/search/aggregate accepts frontend unassigned sentinel."""
-    with (
-        patch.object(cases_router, "CasesService") as MockService,
-    ):
-        mock_svc = AsyncMock()
-        mock_svc.get_search_case_aggregates.return_value = CaseSearchAggregateRead(
-            total=0,
-            status_groups=CaseStatusGroupCounts(),
-        )
-        MockService.return_value = mock_svc
+    """Test POST /cases/aggregate returns items."""
+    from tracecat.aggregate.schemas import AggregateResponse
 
-        response = client.get(
-            "/cases/search/aggregate",
-            params={
-                "workspace_id": str(test_admin_role.workspace_id),
-                "assignee_id": "__UNASSIGNED__",
+    with patch.object(cases_router, "AggregateCompiler") as MockCompiler:
+        mock_compiler = MagicMock()
+        mock_compiler.compile.return_value = MagicMock()
+        mock_compiler.format_response.return_value = AggregateResponse(
+            items=[
+                {"status": "new", "count": 5},
+                {"status": "closed", "count": 10},
+            ]
+        )
+        MockCompiler.return_value = mock_compiler
+
+        response = client.post(
+            "/cases/aggregate",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "group_by": ["status"],
+                "agg": [{"func": "count"}],
             },
         )
 
         assert response.status_code == status.HTTP_200_OK
-        mock_svc.get_search_case_aggregates.assert_called_once()
-        assert (
-            mock_svc.get_search_case_aggregates.call_args.kwargs["assignee_ids"] is None
-        )
-        assert (
-            mock_svc.get_search_case_aggregates.call_args.kwargs["include_unassigned"]
-            is True
-        )
+        data = response.json()
+        assert len(data["items"]) == 2
+        assert data["items"][0]["status"] == "new"
+        assert data["items"][0]["count"] == 5
 
 
 @pytest.mark.anyio
@@ -1073,50 +1071,20 @@ async def test_search_cases_forwards_date_filters(
 
 
 @pytest.mark.anyio
-async def test_search_case_aggregates_success(
+async def test_aggregate_cases_validation_error(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test GET /cases/search/aggregate returns grouped global counts."""
-    with (
-        patch.object(cases_router, "CasesService") as MockService,
-    ):
-        mock_svc = AsyncMock()
-        mock_svc.get_search_case_aggregates.return_value = CaseSearchAggregateRead(
-            total=42,
-            status_groups=CaseStatusGroupCounts(
-                new=10,
-                in_progress=8,
-                on_hold=4,
-                resolved=18,
-                closed=4,
-                unknown=6,
-                other=2,
-            ),
-        )
-        MockService.return_value = mock_svc
-
-        response = client.get(
-            "/cases/search/aggregate",
-            params={
-                "workspace_id": str(test_admin_role.workspace_id),
-                "status": "new",
-                "priority": "medium",
-                "severity": "high",
-                "search_term": "incident",
-                "start_time": "2024-01-01T00:00:00Z",
-                "updated_after": "2024-01-15T00:00:00Z",
-            },
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert data["total"] == 42
-        assert data["status_groups"]["new"] == 10
-        assert data["status_groups"]["resolved"] == 18
-        assert data["status_groups"]["closed"] == 4
-        assert data["status_groups"]["unknown"] == 6
-        mock_svc.get_search_case_aggregates.assert_called_once()
+    """Test POST /cases/aggregate rejects invalid requests."""
+    response = client.post(
+        "/cases/aggregate",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={
+            "group_by": ["status"],
+            "agg": [],  # empty agg is invalid
+        },
+    )
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 @pytest.mark.anyio

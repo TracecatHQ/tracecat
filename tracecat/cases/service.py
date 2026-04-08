@@ -49,8 +49,6 @@ from tracecat.cases.schemas import (
     CaseFieldCreate,
     CaseFieldUpdate,
     CaseReadMinimal,
-    CaseSearchAggregateRead,
-    CaseStatusGroupCounts,
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
@@ -653,93 +651,6 @@ class CasesService(BaseWorkspaceService):
             has_more=has_more,
             has_previous=has_previous,
             total_estimate=total_estimate,
-        )
-
-    async def get_search_case_aggregates(
-        self,
-        *,
-        search_term: str | None = None,
-        status: CaseStatus | Sequence[CaseStatus] | None = None,
-        priority: CasePriority | Sequence[CasePriority] | None = None,
-        severity: CaseSeverity | Sequence[CaseSeverity] | None = None,
-        assignee_ids: Sequence[uuid.UUID] | None = None,
-        include_unassigned: bool = False,
-        tag_ids: list[uuid.UUID] | None = None,
-        dropdown_filters: dict[str, list[str]] | None = None,
-        start_time: datetime | None = None,
-        end_time: datetime | None = None,
-        updated_before: datetime | None = None,
-        updated_after: datetime | None = None,
-    ) -> CaseSearchAggregateRead:
-        """Return global totals for the current case search filter set."""
-        filters = self._build_search_filters(
-            search_term=search_term,
-            status=status,
-            priority=priority,
-            severity=severity,
-            assignee_ids=assignee_ids,
-            include_unassigned=include_unassigned,
-            tag_ids=tag_ids,
-            dropdown_filters=dropdown_filters,
-            start_time=start_time,
-            end_time=end_time,
-            updated_before=updated_before,
-            updated_after=updated_after,
-        )
-
-        aggregate_stmt = select(
-            func.count(Case.id).label("total"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.NEW, 1), else_=0)),
-                0,
-            ).label("new"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.IN_PROGRESS, 1), else_=0)),
-                0,
-            ).label("in_progress"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.ON_HOLD, 1), else_=0)),
-                0,
-            ).label("on_hold"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.RESOLVED, 1), else_=0)),
-                0,
-            ).label("resolved"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.CLOSED, 1), else_=0)),
-                0,
-            ).label("closed"),
-            func.coalesce(
-                func.sum(sa.case((Case.status == CaseStatus.UNKNOWN, 1), else_=0)),
-                0,
-            ).label("unknown"),
-            func.coalesce(
-                func.sum(
-                    sa.case(
-                        (Case.status == CaseStatus.OTHER, 1),
-                        else_=0,
-                    )
-                ),
-                0,
-            ).label("other"),
-        )
-
-        for clause in filters:
-            aggregate_stmt = aggregate_stmt.where(clause)
-
-        row = (await self.session.execute(aggregate_stmt)).one()
-
-        return CaseSearchAggregateRead(
-            total=int(row.total or 0),
-            status_groups=CaseStatusGroupCounts(
-                new=int(row.new or 0),
-                in_progress=int(row.in_progress or 0),
-                on_hold=int(row.on_hold or 0),
-                resolved=int(row.resolved or 0),
-                closed=int(row.closed or 0),
-                unknown=int(row.unknown or 0),
-                other=int(row.other or 0),
-            ),
         )
 
     async def list_cases(

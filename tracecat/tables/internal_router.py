@@ -14,6 +14,9 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tracecat import config
+from tracecat.aggregate.compiler import AggregateCompiler
+from tracecat.aggregate.schemas import AggregateRequest, AggregateResponse
+from tracecat.aggregate.tables_resolver import TablesFieldResolver
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -239,6 +242,51 @@ async def exists_rows(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
+        ) from exc
+
+
+@router.post("/{table_name}/aggregate")
+@require_scope("table:read")
+async def aggregate_table(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    table_name: str,
+    params: AggregateRequest,
+) -> AggregateResponse:
+    """Run an aggregate query over table rows (internal/SDK)."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table_by_name(table_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    schema_name = service._get_schema_name()
+    resolver = TablesFieldResolver(table, schema_name)
+    compiler = AggregateCompiler(resolver)
+    try:
+        stmt = compiler.compile(params)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    try:
+        conn = await session.connection()
+        result = await conn.execute(stmt)
+        return compiler.format_response(params, result.all())
+    except Exception as exc:
+        logger.error(f"Failed to execute table aggregate query: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to execute aggregate query",
         ) from exc
 
 

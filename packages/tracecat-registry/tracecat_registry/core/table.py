@@ -358,3 +358,49 @@ async def download(
     if limit is not None:
         params["limit"] = limit
     return await get_context().tables.download(**params)
+
+
+@registry.register(
+    default_title="Aggregate table rows",
+    display_group="Tables",
+    description="Run an aggregate query over table rows. Group by columns and compute metrics like count, sum, mean, min, max.",
+    namespace="core.table",
+)
+async def aggregate(
+    table: Annotated[str, Doc("Table name.")],
+    agg: Annotated[
+        list[dict[str, Any]],
+        Doc(
+            'Aggregate expressions. E.g. [{"func": "count"}, {"func": "sum", "field": "amount"}]. '
+            "Functions: count, n_unique, sum, mean (or avg), min, max."
+        ),
+    ],
+    group_by: Annotated[
+        list[str] | None,
+        Doc("Column names to group by."),
+    ] = None,
+    filter: Annotated[
+        list[dict[str, Any]] | None,
+        Doc(
+            'Filter conditions (AND). E.g. [{"field": "status", "op": "eq", "value": "active"}]. '
+            "Operators: eq, ne, in, not_in, gt, gte, lt, lte, is_null, is_not_null, icontains, has_any, has_all."
+        ),
+    ] = None,
+    search: Annotated[
+        str | None,
+        Doc("Text to search for across table columns."),
+    ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum number of result rows (1-10000)."),
+    ] = 1000,
+) -> types.AggregateResponse:
+    """Run an aggregate query over table rows."""
+    params: dict[str, Any] = {"table": table, "agg": agg, "limit": limit}
+    if group_by is not None:
+        params["group_by"] = group_by
+    if filter is not None:
+        params["filter"] = filter
+    if search is not None:
+        params["search"] = search
+    return await get_context().tables.aggregate(**params)

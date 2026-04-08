@@ -980,3 +980,48 @@ async def insert_row(
         table_id=table_id,
         row=row,
     )
+
+
+@registry.register(
+    default_title="Aggregate cases",
+    display_group="Cases",
+    description="Run an aggregate query over cases. Group by fields and compute metrics like count, sum, mean, min, max.",
+    namespace="core.cases",
+)
+async def aggregate_cases(
+    agg: Annotated[
+        list[dict[str, Any]],
+        Doc(
+            'Aggregate expressions. E.g. [{"func": "count"}, {"func": "mean", "field": "case_number"}]. '
+            "Functions: count, n_unique, sum, mean (or avg), min, max."
+        ),
+    ],
+    group_by: Annotated[
+        list[str] | None,
+        Doc("Field names to group by. E.g. ['status', 'priority']."),
+    ] = None,
+    filter: Annotated[
+        list[dict[str, Any]] | None,
+        Doc(
+            'Filter conditions (AND). E.g. [{"field": "status", "op": "eq", "value": "new"}]. '
+            "Operators: eq, ne, in, not_in, gt, gte, lt, lte, is_null, is_not_null, icontains, has_any, has_all."
+        ),
+    ] = None,
+    search: Annotated[
+        str | None,
+        Doc("Text to search for in case summary and description."),
+    ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum number of result rows (1-10000)."),
+    ] = 1000,
+) -> types.AggregateResponse:
+    """Run an aggregate query over cases."""
+    params: dict[str, Any] = {"agg": agg, "limit": limit}
+    if group_by is not None:
+        params["group_by"] = group_by
+    if filter is not None:
+        params["filter"] = filter
+    if search is not None:
+        params["search"] = search
+    return await get_context().cases.aggregate(**params)

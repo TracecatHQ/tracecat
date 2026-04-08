@@ -6,7 +6,6 @@ import {
   type CaseDropdownDefinitionRead,
   type CasePriority,
   type CaseReadMinimal,
-  type CaseSearchAggregateRead,
   type CaseSeverity,
   type CaseStatus,
   type CaseTagRead,
@@ -62,7 +61,7 @@ interface CasesLayoutProps {
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
   totalFilteredCaseEstimate: number | null
-  stageCounts: CaseSearchAggregateRead["status_groups"] | null
+  stageCounts: Record<string, number> | null
   isCountsLoading: boolean
   isCountsFetching: boolean
   hasNextPage: boolean

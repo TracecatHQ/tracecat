@@ -2908,6 +2908,101 @@ export const $AgentSettingsUpdate = {
   title: "AgentSettingsUpdate",
 } as const
 
+export const $AggExpr = {
+  properties: {
+    func: {
+      $ref: "#/components/schemas/AggFn",
+    },
+    field: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Field",
+    },
+  },
+  type: "object",
+  required: ["func"],
+  title: "AggExpr",
+  description: "A single aggregate expression: {func, field?}.",
+} as const
+
+export const $AggFn = {
+  type: "string",
+  enum: ["count", "n_unique", "sum", "mean", "min", "max"],
+  title: "AggFn",
+  description: "Supported aggregate functions (Polars naming).",
+} as const
+
+export const $AggregateRequest = {
+  properties: {
+    group_by: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Group By",
+    },
+    agg: {
+      items: {
+        $ref: "#/components/schemas/AggExpr",
+      },
+      type: "array",
+      title: "Agg",
+    },
+    filter: {
+      items: {
+        $ref: "#/components/schemas/FilterClause",
+      },
+      type: "array",
+      title: "Filter",
+    },
+    search: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Search",
+    },
+    limit: {
+      type: "integer",
+      maximum: 10000,
+      minimum: 1,
+      title: "Limit",
+      default: 1000,
+    },
+  },
+  type: "object",
+  required: ["agg"],
+  title: "AggregateRequest",
+  description: "Aggregate query request body.",
+} as const
+
+export const $AggregateResponse = {
+  properties: {
+    items: {
+      items: {
+        additionalProperties: true,
+        type: "object",
+      },
+      type: "array",
+      title: "Items",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "AggregateResponse",
+  description: "Aggregate query response.",
+} as const
+
 export const $AppSettingsRead = {
   properties: {
     app_registry_validation_enabled: {
@@ -6341,21 +6436,6 @@ export const $CaseReadMinimal = {
   title: "CaseReadMinimal",
 } as const
 
-export const $CaseSearchAggregateRead = {
-  properties: {
-    total: {
-      type: "integer",
-      title: "Total",
-    },
-    status_groups: {
-      $ref: "#/components/schemas/CaseStatusGroupCounts",
-    },
-  },
-  type: "object",
-  required: ["total", "status_groups"],
-  title: "CaseSearchAggregateRead",
-} as const
-
 export const $CaseSeverity = {
   type: "string",
   enum: [
@@ -6395,48 +6475,6 @@ export const $CaseStatus = {
   ],
   title: "CaseStatus",
   description: "Case status values aligned with OCSF Incident Finding status.",
-} as const
-
-export const $CaseStatusGroupCounts = {
-  properties: {
-    new: {
-      type: "integer",
-      title: "New",
-      default: 0,
-    },
-    in_progress: {
-      type: "integer",
-      title: "In Progress",
-      default: 0,
-    },
-    on_hold: {
-      type: "integer",
-      title: "On Hold",
-      default: 0,
-    },
-    resolved: {
-      type: "integer",
-      title: "Resolved",
-      default: 0,
-    },
-    closed: {
-      type: "integer",
-      title: "Closed",
-      default: 0,
-    },
-    unknown: {
-      type: "integer",
-      title: "Unknown",
-      default: 0,
-    },
-    other: {
-      type: "integer",
-      title: "Other",
-      default: 0,
-    },
-  },
-  type: "object",
-  title: "CaseStatusGroupCounts",
 } as const
 
 export const $CaseTableRowInsertCreate = {
@@ -10340,6 +10378,52 @@ export const $FileUIPart = {
   required: ["type", "mediaType", "url"],
   title: "FileUIPart",
   description: "A file part of a message.",
+} as const
+
+export const $FilterClause = {
+  properties: {
+    field: {
+      type: "string",
+      title: "Field",
+    },
+    op: {
+      $ref: "#/components/schemas/FilterOp",
+    },
+    value: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Value",
+    },
+  },
+  type: "object",
+  required: ["field", "op"],
+  title: "FilterClause",
+  description: "A single filter condition: {field, op, value?}.",
+} as const
+
+export const $FilterOp = {
+  type: "string",
+  enum: [
+    "eq",
+    "ne",
+    "in",
+    "not_in",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "is_null",
+    "is_not_null",
+    "icontains",
+    "has_any",
+    "has_all",
+  ],
+  title: "FilterOp",
+  description: "Supported filter operators.",
 } as const
 
 export const $Float = {

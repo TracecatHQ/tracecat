@@ -18,6 +18,9 @@ from fastapi import (
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from tracecat import config
+from tracecat.aggregate.compiler import AggregateCompiler
+from tracecat.aggregate.schemas import AggregateRequest, AggregateResponse
+from tracecat.aggregate.tables_resolver import TablesFieldResolver
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
@@ -356,6 +359,45 @@ async def delete_column(
             detail=str(e),
         ) from e
     await service.delete_column(column)
+
+
+@router.post("/{table_id}/aggregate")
+@require_scope("table:read")
+async def aggregate_table(
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    table_id: TableID,
+    params: AggregateRequest,
+) -> AggregateResponse:
+    """Run an aggregate query over table rows."""
+    service = TablesService(session, role=role)
+    try:
+        table = await service.get_table(table_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    schema_name = service._get_schema_name()
+    resolver = TablesFieldResolver(table, schema_name)
+    compiler = AggregateCompiler(resolver)
+    try:
+        stmt = compiler.compile(params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+    try:
+        conn = await session.connection()
+        result = await conn.execute(stmt)
+        return compiler.format_response(params, result.all())
+    except Exception as e:
+        logger.error(f"Failed to execute table aggregate query: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to execute aggregate query",
+        ) from e
 
 
 @router.get("/{table_id}/rows")

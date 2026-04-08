@@ -17,7 +17,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
   CaseReadMinimal,
-  CaseSearchAggregateRead,
   CaseStatus,
   CaseTagRead,
   WorkspaceMember,
@@ -43,7 +42,7 @@ interface StatusGroupConfig {
   icon: ComponentType<{ className?: string }>
   statuses: CaseStatus[]
   iconColor: string
-  aggregateKey?: keyof CaseSearchAggregateRead["status_groups"]
+  aggregateKey?: string
 }
 
 const STATUS_GROUPS: Record<StatusGroup, StatusGroupConfig> = {
@@ -130,7 +129,7 @@ interface CasesAccordionProps {
   statusFilter?: CaseStatus[]
   statusMode?: FilterMode
   totalFilteredCaseEstimate?: number | null
-  stageCounts?: CaseSearchAggregateRead["status_groups"] | null
+  stageCounts?: Record<string, number> | null
   isCountsLoading?: boolean
   isCountsFetching?: boolean
   hasNextPage?: boolean

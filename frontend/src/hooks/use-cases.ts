@@ -4,15 +4,15 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import {
+  type AggregateResponse,
   type CasePriority,
   type CaseReadMinimal,
-  type CaseSearchAggregateRead,
   type CaseSeverity,
   type CaseStatus,
-  type CasesSearchCaseAggregatesResponse,
   type CasesSearchCasesResponse,
-  casesSearchCaseAggregates,
+  casesAggregateCases,
   casesSearchCases,
+  type FilterClause,
 } from "@/client"
 import {
   type CaseSortField,
@@ -56,7 +56,7 @@ const ALL_CASE_SEVERITIES: ReadonlyArray<CaseSeverity> = [
   "fatal",
   "other",
 ]
-const EMPTY_STAGE_COUNTS: CaseSearchAggregateRead["status_groups"] = {
+const EMPTY_STAGE_COUNTS: Record<string, number> = {
   new: 0,
   in_progress: 0,
   on_hold: 0,
@@ -135,7 +135,7 @@ export interface UseCasesResult {
   setUpdatedAfter: (value: CaseDateFilterValue) => void
   setCreatedAfter: (value: CaseDateFilterValue) => void
   totalFilteredCaseEstimate: number | null
-  stageCounts: CaseSearchAggregateRead["status_groups"] | null
+  stageCounts: Record<string, number> | null
   isCountsLoading: boolean
   isCountsFetching: boolean
   hasNextPage: boolean
@@ -977,17 +977,75 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     staleTime: 60000,
   })
 
+  // Build filter clauses for the aggregate query from the existing search params
+  const aggFilterClauses = useMemo(() => {
+    const clauses: FilterClause[] = []
+    const qp = apiQueryParams
+    if (qp.status && qp.status.length > 0) {
+      clauses.push({ field: "status", op: "in", value: qp.status })
+    }
+    if (qp.priority && qp.priority.length > 0) {
+      clauses.push({ field: "priority", op: "in", value: qp.priority })
+    }
+    if (qp.severity && qp.severity.length > 0) {
+      clauses.push({ field: "severity", op: "in", value: qp.severity })
+    }
+    if (qp.assigneeId && qp.assigneeId.length > 0) {
+      clauses.push({ field: "assignee_id", op: "in", value: qp.assigneeId })
+    }
+    if (qp.tags && qp.tags.length > 0) {
+      clauses.push({ field: "tags", op: "has_any", value: qp.tags })
+    }
+    if (qp.startTime) {
+      clauses.push({ field: "created_at", op: "gte", value: qp.startTime })
+    }
+    if (qp.endTime) {
+      clauses.push({ field: "created_at", op: "lte", value: qp.endTime })
+    }
+    if (qp.updatedAfter) {
+      clauses.push({ field: "updated_at", op: "gte", value: qp.updatedAfter })
+    }
+    if (qp.updatedBefore) {
+      clauses.push({ field: "updated_at", op: "lte", value: qp.updatedBefore })
+    }
+    if (qp.dropdown && qp.dropdown.length > 0) {
+      // Group dropdown values by definition ref
+      const byDef: Record<string, string[]> = {}
+      for (const item of qp.dropdown) {
+        const colonIdx = item.indexOf(":")
+        if (colonIdx > 0) {
+          const defRef = item.slice(0, colonIdx)
+          const optRef = item.slice(colonIdx + 1)
+          ;(byDef[defRef] ??= []).push(optRef)
+        }
+      }
+      for (const [defRef, optRefs] of Object.entries(byDef)) {
+        clauses.push({
+          field: `dropdown.${defRef}`,
+          op: "in",
+          value: optRefs,
+        })
+      }
+    }
+    return clauses
+  }, [apiQueryParams])
+
   const {
     data: aggregateData,
     isLoading: isCountsLoading,
     isFetching: isCountsFetching,
     refetch: refetchCounts,
-  } = useQuery<CasesSearchCaseAggregatesResponse, TracecatApiError>({
+  } = useQuery<AggregateResponse, TracecatApiError>({
     queryKey: ["cases", "aggregate", workspaceId, filtersKey],
     queryFn: () =>
-      casesSearchCaseAggregates({
+      casesAggregateCases({
         workspaceId,
-        ...apiQueryParams,
+        requestBody: {
+          group_by: ["status"],
+          agg: [{ func: "count" }],
+          filter: aggFilterClauses.length > 0 ? aggFilterClauses : [],
+          search: apiQueryParams.searchTerm ?? null,
+        },
       }),
     enabled:
       enabled &&
@@ -1049,9 +1107,12 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
 
   const totalFilteredCaseEstimate = hasImpossibleEnumFilter
     ? 0
-    : (visibleAggregateData?.total ??
-      visibleRowsData?.pages[0]?.total_estimate ??
-      null)
+    : visibleAggregateData
+      ? visibleAggregateData.items.reduce(
+          (sum, item) => sum + ((item.count as number) ?? 0),
+          0
+        )
+      : (visibleRowsData?.pages[0]?.total_estimate ?? null)
   const isHydrationPending =
     enabled && Boolean(workspaceId) && !hasHydratedFilters
 
@@ -1117,7 +1178,14 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     totalFilteredCaseEstimate,
     stageCounts: hasImpossibleEnumFilter
       ? EMPTY_STAGE_COUNTS
-      : (visibleAggregateData?.status_groups ?? null),
+      : visibleAggregateData
+        ? Object.fromEntries(
+            visibleAggregateData.items.map((item) => [
+              item.status as string,
+              item.count as number,
+            ])
+          )
+        : null,
     isCountsLoading: hasImpossibleEnumFilter
       ? false
       : isHydrationPending || isCountsLoading,
