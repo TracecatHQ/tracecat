@@ -31,6 +31,7 @@ class CreateSessionInput(BaseModel):
 
     role: Role
     session_id: uuid.UUID
+    require_existing: bool = False
     # Entity context
     entity_type: AgentSessionEntity
     entity_id: uuid.UUID
@@ -52,23 +53,6 @@ class CreateSessionResult(BaseModel):
 
     session_id: uuid.UUID
     success: bool
-    error: str | None = None
-
-
-class LoadSessionInput(BaseModel):
-    """Input for load_session_activity."""
-
-    role: Role
-    session_id: uuid.UUID
-
-
-class LoadSessionResult(BaseModel):
-    """Result from load_session_activity."""
-
-    found: bool
-    sdk_session_id: str | None = None
-    sdk_session_data: str | None = None
-    is_fork: bool = False  # If True, runtime should use fork_session=True with SDK
     error: str | None = None
 
 
@@ -97,20 +81,21 @@ class ReconcileToolResultsResult(BaseModel):
     results: list[ToolExecutionResult]
 
 
-class EnsureSessionInput(BaseModel):
-    """Input for ensure_session_activity."""
+class LoadSessionInput(BaseModel):
+    """Input for load_session_activity."""
 
     role: Role
     session_id: uuid.UUID
 
 
-@activity.defn
-async def ensure_session_activity(input: EnsureSessionInput) -> None:
-    """Check if a session exists."""
-    ctx_role.set(input.role)
-    async with AgentSessionService.with_session(role=input.role) as service:
-        if await service.get_session(input.session_id) is None:
-            raise ApplicationError("Session does not exist")
+class LoadSessionResult(BaseModel):
+    """Result from load_session_activity."""
+
+    found: bool
+    sdk_session_id: str | None = None
+    sdk_session_data: str | None = None
+    is_fork: bool = False  # If True, runtime should use fork_session=True with SDK
+    error: str | None = None
 
 
 @activity.defn
@@ -128,19 +113,28 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
     try:
         async with AgentSessionService.with_session(role=input.role) as service:
-            agent_session, created = await service.get_or_create_session(
-                AgentSessionCreate(
-                    id=input.session_id,
-                    title=input.title,
-                    created_by=input.created_by,
-                    entity_type=input.entity_type,
-                    entity_id=input.entity_id,
-                    tools=input.tools,
-                    agent_preset_id=input.agent_preset_id,
-                    agent_preset_version_id=input.agent_preset_version_id,
-                    harness_type=input.harness_type,
+            if input.require_existing:
+                agent_session = await service.get_session(input.session_id)
+                if agent_session is None:
+                    raise ApplicationError(
+                        f"Session {input.session_id} does not exist",
+                        non_retryable=True,
+                    )
+                created = False
+            else:
+                agent_session, created = await service.get_or_create_session(
+                    AgentSessionCreate(
+                        id=input.session_id,
+                        title=input.title,
+                        created_by=input.created_by,
+                        entity_type=input.entity_type,
+                        entity_id=input.entity_id,
+                        tools=input.tools,
+                        agent_preset_id=input.agent_preset_id,
+                        agent_preset_version_id=input.agent_preset_version_id,
+                        harness_type=input.harness_type,
+                    )
                 )
-            )
 
             # Set curr_run_id if provided (for workflow-initiated sessions)
             if input.curr_run_id is not None:
@@ -274,7 +268,6 @@ async def reconcile_tool_results_activity(
 def get_session_activities() -> list:
     """Get all session-related activities for worker registration."""
     return [
-        ensure_session_activity,
         create_session_activity,
         load_session_activity,
         reconcile_tool_results_activity,

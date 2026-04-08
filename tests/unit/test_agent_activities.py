@@ -24,7 +24,6 @@ from tracecat.agent.session.activities import (
     LoadSessionInput,
     LoadSessionResult,
     create_session_activity,
-    ensure_session_activity,
     get_session_activities,
     load_session_activity,
 )
@@ -69,8 +68,7 @@ class TestSessionActivities:
         """Test that get_session_activities returns a list of activity functions."""
         activities = get_session_activities()
         assert isinstance(activities, list)
-        assert len(activities) == 4
-        assert ensure_session_activity in activities
+        assert len(activities) == 3
 
         # All returned items should have the temporal activity definition
         for activity in activities:
@@ -82,7 +80,6 @@ class TestSessionActivities:
         activity_names = [
             getattr(a, "__temporal_activity_definition").name for a in activities
         ]
-        assert "ensure_session_activity" in activity_names
         assert "create_session_activity" in activity_names
         assert "load_session_activity" in activity_names
         assert "reconcile_tool_results_activity" in activity_names
@@ -147,6 +144,62 @@ class TestCreateSessionActivity:
 
         assert result.success is True
         assert result.session_id == mock_session_id
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_uses_existing_session_when_required(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        """Test that require_existing reuses a pre-existing session."""
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            require_existing=True,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+        )
+
+        mock_service = AsyncMock()
+        mock_service.get_session.return_value = MagicMock()
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_session_activity(input)
+
+        assert result.success is True
+        mock_service.get_session.assert_awaited_once_with(mock_session_id)
+        mock_service.get_or_create_session.assert_not_called()
+
+    @pytest.mark.anyio
+    @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
+    async def test_fails_when_required_session_is_missing(
+        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    ):
+        """Test that require_existing rejects unknown sessions."""
+        input = CreateSessionInput(
+            role=mock_role,
+            session_id=mock_session_id,
+            require_existing=True,
+            entity_type=AgentSessionEntity.WORKFLOW,
+            entity_id=uuid.uuid4(),
+        )
+
+        mock_service = AsyncMock()
+        mock_service.get_session.return_value = None
+
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        result = await create_session_activity(input)
+
+        assert result.success is False
+        assert result.error is not None
+        assert str(mock_session_id) in result.error
+        mock_service.get_session.assert_awaited_once_with(mock_session_id)
+        mock_service.get_or_create_session.assert_not_called()
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")

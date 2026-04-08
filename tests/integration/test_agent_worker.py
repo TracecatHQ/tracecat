@@ -218,7 +218,6 @@ class TestAgentWorkerLifecycle:
             getattr(a, "__temporal_activity_definition").name for a in activities
         ]
         assert set(activity_names) == {
-            "ensure_session_activity",
             "create_session_activity",
             "load_session_activity",
             "reconcile_tool_results_activity",
