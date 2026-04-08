@@ -30,14 +30,6 @@ _DEFAULT_TIER_TOKEN_TO_ENTITLEMENT = {
     "case-addons": Entitlement.CASE_ADDONS.value,
     "rbac-addons": Entitlement.RBAC_ADDONS.value,
     "watchtower": Entitlement.WATCHTOWER.value,
-    # Legacy flag aliases are accepted for convenience in dev environments.
-    "agent-approvals": Entitlement.AGENT_ADDONS.value,
-    "agent-presets": Entitlement.AGENT_ADDONS.value,
-    "case-dropdowns": Entitlement.CASE_ADDONS.value,
-    "case-durations": Entitlement.CASE_ADDONS.value,
-    "case-tasks": Entitlement.CASE_ADDONS.value,
-    "case-triggers": Entitlement.CASE_ADDONS.value,
-    "rbac": Entitlement.RBAC_ADDONS.value,
 }
 
 
@@ -64,8 +56,7 @@ def resolve_default_tier_entitlement_enables(
 ) -> dict[str, bool]:
     """Resolve default-tier entitlements that should be enabled from env.
 
-    Supports comma-separated entitlement keys, legacy flag aliases, and the
-    special value ``all``.
+    Supports comma-separated entitlement keys and the special value ``all``.
     """
     if not entitlements_env:
         return {}

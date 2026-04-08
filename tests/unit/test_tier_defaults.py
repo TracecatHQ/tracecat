@@ -71,9 +71,9 @@ def test_resolve_default_tier_entitlement_enables_supports_all() -> None:
     }
 
 
-def test_resolve_default_tier_entitlement_enables_supports_aliases() -> None:
+def test_resolve_default_tier_entitlement_enables_only_accepts_canonical_keys() -> None:
     entitlements = resolve_default_tier_entitlement_enables(
-        "agent_presets,case-durations,rbac,watchtower,unknown"
+        "agent-addons,case-addons,rbac-addons,watchtower,agent_presets,unknown"
     )
 
     assert entitlements == {
