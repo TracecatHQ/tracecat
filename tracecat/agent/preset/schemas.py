@@ -6,9 +6,10 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from tracecat.agent.types import AgentConfig, OutputType
+from tracecat.agent.validation import validate_actions_length
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
 
@@ -45,6 +46,8 @@ class AgentPresetExecutionConfig(Schema):
     retries: int = Field(default=3, ge=0)
     enable_internet_access: bool = Field(default=False)
 
+    _validate_actions = field_validator("actions")(validate_actions_length)
+
 
 class AgentPresetExecutionConfigWrite(Schema):
     """Write-time execution validation for mutable preset fields."""
@@ -60,6 +63,8 @@ class AgentPresetExecutionConfigWrite(Schema):
     mcp_integrations: list[str] | None = Field(default=None)
     retries: int = Field(default=3, ge=0)
     enable_internet_access: bool = Field(default=False)
+
+    _validate_actions = field_validator("actions")(validate_actions_length)
 
 
 class AgentPresetBase(AgentPresetExecutionConfigWrite):
@@ -92,6 +97,8 @@ class AgentPresetUpdate(BaseModel):
     mcp_integrations: list[str] | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
     enable_internet_access: bool | None = Field(default=None)
+
+    _validate_actions = field_validator("actions")(validate_actions_length)
 
 
 class AgentPresetReadMinimal(Schema):

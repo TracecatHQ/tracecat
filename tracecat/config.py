@@ -1024,7 +1024,7 @@ TRACECAT__UNIFIED_AGENT_STREAMING_ENABLED = os.environ.get(
 ).lower() in ("true", "1")
 """Whether to enable unified streaming for agent execution."""
 
-TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS") or 30)
+TRACECAT__AGENT_MAX_TOOLS = int(os.environ.get("TRACECAT__AGENT_MAX_TOOLS") or 100)
 """The maximum number of tools that can be used in an agent."""
 
 TRACECAT__AGENT_MAX_TOOL_CALLS = int(
