@@ -515,34 +515,6 @@ class AgentManagementService(BaseOrgService):
             yield model_config
 
     @contextlib.asynccontextmanager
-    async def with_runtime_agent_config(
-        self,
-        agent_config: AgentConfig,
-        *,
-        use_workspace_credentials: bool = True,
-    ) -> AsyncIterator[AgentConfig]:
-        """Yield a resolved agent config with provider credentials loaded.
-
-        Args:
-            agent_config: Pre-resolved config to execute.
-            use_workspace_credentials: If True, use workspace-scoped credentials.
-                If False, use organization-scoped credentials.
-        """
-        credentials = await self.get_runtime_provider_credentials(
-            agent_config.model_provider,
-            use_workspace_credentials=use_workspace_credentials,
-        )
-        if not credentials:
-            scope = "workspace" if use_workspace_credentials else "organization"
-            raise TracecatNotFoundError(
-                f"No credentials found for provider '{agent_config.model_provider}' at {scope} level. "
-                "Please configure credentials for this provider first."
-            )
-
-        with self._credentials_sandbox(credentials):
-            yield agent_config
-
-    @contextlib.asynccontextmanager
     async def with_preset_config(
         self,
         *,
