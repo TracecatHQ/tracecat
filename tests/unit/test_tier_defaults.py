@@ -1,7 +1,9 @@
 """Tests for OSS tier default entitlement resolution."""
 
 from tracecat.tiers.defaults import (
+    get_default_tier_entitlements_env,
     get_legacy_feature_flags_env,
+    resolve_default_tier_entitlement_enables,
     resolve_oss_default_entitlements,
 )
 
@@ -46,3 +48,37 @@ def test_get_legacy_feature_flags_env_reads_tracecat_feature_flags(
     monkeypatch.setenv("TRACECAT__FEATURE_FLAGS", "git-sync")
 
     assert get_legacy_feature_flags_env() == "git-sync"
+
+
+def test_get_default_tier_entitlements_env_reads_tracecat_dev_default_tier_entitlements(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("TRACECAT__DEV_DEFAULT_TIER_ENTITLEMENTS", "all")
+
+    assert get_default_tier_entitlements_env() == "all"
+
+
+def test_resolve_default_tier_entitlement_enables_supports_all() -> None:
+    entitlements = resolve_default_tier_entitlement_enables("all")
+
+    assert entitlements == {
+        "custom_registry": True,
+        "git_sync": True,
+        "agent_addons": True,
+        "case_addons": True,
+        "rbac_addons": True,
+        "watchtower": True,
+    }
+
+
+def test_resolve_default_tier_entitlement_enables_supports_aliases() -> None:
+    entitlements = resolve_default_tier_entitlement_enables(
+        "agent_presets,case-durations,rbac,watchtower,unknown"
+    )
+
+    assert entitlements == {
+        "agent_addons": True,
+        "case_addons": True,
+        "rbac_addons": True,
+        "watchtower": True,
+    }
