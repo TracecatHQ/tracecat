@@ -1198,6 +1198,98 @@ export const $AdminUserRead = {
   description: "Admin view of a user.",
 } as const
 
+export const $AgentCatalogListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentCatalogRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "AgentCatalogListResponse",
+  description: "List catalog entries with pagination.",
+} as const
+
+export const $AgentCatalogRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    custom_provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Id",
+    },
+    organization_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Organization Id",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+    },
+    model_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Metadata",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "custom_provider_id",
+    "organization_id",
+    "model_provider",
+    "model_name",
+    "model_metadata",
+  ],
+  title: "AgentCatalogRead",
+  description: "Single catalog model entry.",
+} as const
+
 export const $AgentChannelTokenCreate = {
   properties: {
     agent_preset_id: {
@@ -1319,6 +1411,320 @@ export const $AgentChannelTokenUpdate = {
   type: "object",
   title: "AgentChannelTokenUpdate",
   description: "Request schema for updating an external channel token.",
+} as const
+
+export const $AgentCustomProviderCreate = {
+  properties: {
+    display_name: {
+      type: "string",
+      maxLength: 200,
+      title: "Display Name",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    api_key_header: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 120,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key Header",
+    },
+    api_key: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key",
+    },
+    custom_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Headers",
+    },
+  },
+  type: "object",
+  required: ["display_name"],
+  title: "AgentCustomProviderCreate",
+  description: "Create custom LLM provider.",
+} as const
+
+export const $AgentCustomProviderListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentCustomProviderRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "AgentCustomProviderListResponse",
+  description: "List response with pagination.",
+} as const
+
+export const $AgentCustomProviderRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    api_key_header: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key Header",
+    },
+    discovery_status: {
+      type: "string",
+      title: "Discovery Status",
+    },
+    last_refreshed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Refreshed At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "display_name",
+    "base_url",
+    "api_key_header",
+    "discovery_status",
+    "last_refreshed_at",
+  ],
+  title: "AgentCustomProviderRead",
+  description: "Read custom provider.",
+} as const
+
+export const $AgentCustomProviderUpdate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    api_key_header: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key Header",
+    },
+    api_key: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Key",
+    },
+    custom_headers: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Headers",
+    },
+  },
+  type: "object",
+  title: "AgentCustomProviderUpdate",
+  description: "Update custom provider.",
+} as const
+
+export const $AgentModelAccessCreate = {
+  properties: {
+    catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Catalog Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+  },
+  type: "object",
+  required: ["catalog_id"],
+  title: "AgentModelAccessCreate",
+  description: "Enable a model for org or workspace.",
+} as const
+
+export const $AgentModelAccessListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AgentModelAccessRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "AgentModelAccessListResponse",
+  description: "List accessible models with pagination.",
+} as const
+
+export const $AgentModelAccessRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Catalog Id",
+    },
+  },
+  type: "object",
+  required: ["id", "organization_id", "workspace_id", "catalog_id"],
+  title: "AgentModelAccessRead",
+  description: "Model access entry.",
 } as const
 
 export const $AgentOutput = {
@@ -9800,6 +10206,59 @@ export const $DataUIPart = {
   required: ["type", "data"],
   title: "DataUIPart",
   description: "A custom data part, where type matches 'data-...'.",
+} as const
+
+export const $DefaultModelSelection = {
+  properties: {
+    catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Catalog Id",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Model Name",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 120,
+      minLength: 1,
+      title: "Model Provider",
+    },
+    custom_provider_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Custom Provider Id",
+    },
+  },
+  type: "object",
+  required: ["catalog_id", "model_name", "model_provider"],
+  title: "DefaultModelSelection",
+  description: "Canonical default-model selection for an organization.",
+} as const
+
+export const $DefaultModelSelectionUpdate = {
+  properties: {
+    catalog_id: {
+      type: "string",
+      format: "uuid",
+      title: "Catalog Id",
+    },
+  },
+  type: "object",
+  required: ["catalog_id"],
+  title: "DefaultModelSelectionUpdate",
+  description:
+    "Payload for updating the organization's default model selection.",
 } as const
 
 export const $DocumentUrl = {
