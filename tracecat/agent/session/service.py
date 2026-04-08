@@ -28,7 +28,11 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.schemas import RunAgentArgs
+from tracecat.agent.schemas import (
+    DEFAULT_PRESET_AGENT_MAX_REQUESTS,
+    DEFAULT_PRESET_AGENT_MAX_TOOL_CALLS,
+    RunAgentArgs,
+)
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import (
     AgentSessionCreate,
@@ -989,11 +993,19 @@ class AgentSessionService(BaseWorkspaceService):
             use_workspace_credentials = (
                 agent_session.entity_type != AgentSessionEntity.COPILOT
             )
+            if agent_session.entity_type == AgentSessionEntity.AGENT_PRESET:
+                max_requests = DEFAULT_PRESET_AGENT_MAX_REQUESTS
+                max_tool_calls = DEFAULT_PRESET_AGENT_MAX_TOOL_CALLS
+            else:
+                max_requests = config.TRACECAT__AGENT_MAX_REQUESTS
+                max_tool_calls = config.TRACECAT__AGENT_MAX_TOOL_CALLS
 
             args = RunAgentArgs(
                 user_prompt=user_prompt or "",
                 session_id=session_id,
                 config=agent_config,
+                max_requests=max_requests,
+                max_tool_calls=max_tool_calls,
                 use_workspace_credentials=use_workspace_credentials,
             )
 

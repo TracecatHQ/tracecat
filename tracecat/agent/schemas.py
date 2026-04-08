@@ -4,6 +4,7 @@ from __future__ import annotations as _annotations
 
 import uuid
 from typing import (
+    Annotated,
     Any,
     Literal,
     NotRequired,
@@ -19,6 +20,38 @@ from pydantic_ai.tools import DeferredToolResults
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
+from tracecat.config import (
+    TRACECAT__AGENT_MAX_REQUESTS,
+    TRACECAT__AGENT_MAX_TOOL_CALLS,
+)
+
+DEFAULT_PRESET_AGENT_MAX_REQUESTS = 45
+DEFAULT_PRESET_AGENT_MAX_TOOL_CALLS = 15
+
+AgentMaxRequests = Annotated[
+    int,
+    Field(
+        ge=1,
+        le=TRACECAT__AGENT_MAX_REQUESTS,
+        description="The maximum number of model requests to make per agent run",
+    ),
+]
+AgentMaxToolCalls = Annotated[
+    int | None,
+    Field(
+        ge=1,
+        le=TRACECAT__AGENT_MAX_TOOL_CALLS,
+        description="The maximum number of tool calls to make per agent run",
+    ),
+]
+RunAgentMaxToolCalls = Annotated[
+    int | None,
+    Field(
+        ge=0,
+        le=TRACECAT__AGENT_MAX_TOOL_CALLS,
+        description="The maximum number of tool calls to make per agent run",
+    ),
+]
 
 
 class ModelInfo(BaseModel):
@@ -38,9 +71,9 @@ class RunAgentArgs(BaseModel):
     """Slug for the preset configuration (if using a preset)."""
     preset_version: int | None = None
     """Optional preset version number to pin for this execution."""
-    max_requests: int | None = None
+    max_requests: AgentMaxRequests = TRACECAT__AGENT_MAX_REQUESTS
     """Maximum number of requests for the agent."""
-    max_tool_calls: int | None = None
+    max_tool_calls: RunAgentMaxToolCalls = TRACECAT__AGENT_MAX_TOOL_CALLS
     """Maximum number of tool calls for the agent."""
     deferred_tool_results: DeferredToolResults | None = None
     """Results for deferred tool calls from a previous run (CE handshake)."""
@@ -273,8 +306,8 @@ class InternalRunAgentRequest(BaseModel):
     config: AgentConfigSchema | None = None
     preset_slug: str | None = None
     preset_version: int | None = None
-    max_requests: int = Field(default=120, le=120)
-    max_tool_calls: int | None = Field(default=None, le=40)
+    max_requests: AgentMaxRequests = TRACECAT__AGENT_MAX_REQUESTS
+    max_tool_calls: AgentMaxToolCalls = None
 
     @model_validator(mode="after")
     def validate_config_or_preset(self) -> InternalRunAgentRequest:
