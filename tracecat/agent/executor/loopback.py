@@ -61,10 +61,8 @@ class LoopbackInput:
     - socket_dir: For control socket path
 
     Fields passed through to RuntimeInitPayload:
-    - user_prompt, config, mcp_auth_token, llm_gateway_*, allowed_actions, sdk_session_*
-
-    On resume after approval, the sdk_session_data contains the proper tool_result
-    entry (inserted by execute_approved_tools_activity before reload).
+    - user_prompt, config, mcp_auth_token, llm_gateway_*, allowed_actions,
+      sdk_session_id, resume_session_path
     """
 
     session_id: uuid.UUID
@@ -76,7 +74,7 @@ class LoopbackInput:
     socket_dir: Path
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     sdk_session_id: str | None = None
-    sdk_session_data: str | None = None
+    resume_session_path: str | None = None
     is_approval_continuation: bool = False
     is_fork: bool = False  # True when forking from parent session
 
@@ -391,7 +389,7 @@ class LoopbackHandler:
             llm_gateway_auth_token=self.input.llm_gateway_auth_token,
             allowed_actions=self.input.allowed_actions,
             sdk_session_id=self.input.sdk_session_id,
-            sdk_session_data=self.input.sdk_session_data,
+            resume_session_path=self.input.resume_session_path,
             is_approval_continuation=self.input.is_approval_continuation,
             is_fork=self.input.is_fork,
         )

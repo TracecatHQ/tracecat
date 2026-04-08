@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
@@ -78,14 +79,15 @@ if TYPE_CHECKING:
 
 AUTO_TITLE_SERVICE_ID = "tracecat-api"
 APPROVAL_CONTINUATION_DEDUP_TTL_SECONDS = 5 * 60
+RESUME_HISTORY_BATCH_SIZE = 250
 
 
-@dataclass
-class SessionHistoryData:
-    """Data structure for session history loaded from DB."""
+@dataclass(frozen=True)
+class SessionResumeDescriptor:
+    """Lightweight resume metadata for a Claude SDK session."""
 
     sdk_session_id: str
-    sdk_session_data: str
+    source_session_id: uuid.UUID
     is_fork: bool = False  # If True, SDK should use fork_session=True
 
 
@@ -528,27 +530,24 @@ class AgentSessionService(BaseWorkspaceService):
     # Session History Management (for Claude SDK session persistence)
     # =========================================================================
 
-    async def load_session_history(
+    async def get_session_resume_context(
         self,
         session_id: uuid.UUID,
-    ) -> SessionHistoryData | None:
-        """Load session history for resume.
+    ) -> SessionResumeDescriptor | None:
+        """Resolve the source session and SDK context for resuming Claude SDK state.
 
-        Reconstructs the SDK session JSONL from stored history entries.
-        Returns None if no history exists or no sdk_session_id is set.
+        Returns lightweight metadata only. The actual JSONL session history is
+        materialized separately when the executor stages a resume file.
 
-        For forked sessions (with parent_session_id), loads the parent's history
+        For forked sessions (with parent_session_id), loads the parent's context
         and sets is_fork=True so the runtime uses fork_session=True with the SDK.
-
-        The sdk_session_id is stored on the AgentSession model (not in the
-        JSONL content) to keep the history entries pristine for SDK resume.
 
         Args:
             session_id: The session UUID.
 
         Returns:
-            SessionHistoryData with sdk_session_id and reconstructed JSONL,
-            or None if no history found or sdk_session_id not set.
+            SessionResumeDescriptor with the SDK session ID and source session,
+            or None if no resumable session context exists.
         """
         # First get the AgentSession to check for fork and retrieve sdk_session_id
         agent_session = await self.get_session(session_id)
@@ -586,38 +585,80 @@ class AgentSessionService(BaseWorkspaceService):
             )
             return None
 
-        # Load history entries from source session
-        stmt = (
-            select(AgentSessionHistory)
-            .where(
-                AgentSessionHistory.session_id == source_session_id,
-            )
-            .order_by(AgentSessionHistory.surrogate_id)
+        return SessionResumeDescriptor(
+            sdk_session_id=sdk_session_id,
+            source_session_id=source_session_id,
+            is_fork=is_fork,
         )
-        result = await self.session.execute(stmt)
-        history_entries = list(result.scalars().all())
 
-        if not history_entries:
+    async def materialize_session_history(
+        self,
+        session_id: uuid.UUID,
+        *,
+        progress_callback: Callable[[str], None] | None = None,
+        batch_size: int = RESUME_HISTORY_BATCH_SIZE,
+    ) -> str | None:
+        """Reconstruct JSONL session history from persisted session rows.
+
+        Fetches and encodes history in batches so long resume chains can report
+        incremental progress to the caller and avoid activity heartbeat stalls.
+
+        Args:
+            session_id: Session UUID whose persisted history should be
+                reconstructed into Claude SDK JSONL.
+            progress_callback: Optional progress hook invoked after each encoded
+                batch so callers can emit Temporal heartbeats.
+            batch_size: Maximum number of history rows to fetch and encode per
+                batch.
+
+        Returns:
+            Reconstructed JSONL content, or None if no history entries exist.
+        """
+        total_entries = 0
+        batch_number = 0
+        last_surrogate_id: int | None = None
+        encoded_batches: list[str] = []
+
+        def encode_batch(history_entries: Sequence[dict[str, Any]]) -> str:
+            return "\n".join(
+                orjson.dumps(entry).decode("utf-8") for entry in history_entries
+            )
+
+        while True:
+            stmt = (
+                select(AgentSessionHistory.surrogate_id, AgentSessionHistory.content)
+                .where(AgentSessionHistory.session_id == session_id)
+                .order_by(AgentSessionHistory.surrogate_id)
+                .limit(batch_size)
+            )
+            if last_surrogate_id is not None:
+                stmt = stmt.where(AgentSessionHistory.surrogate_id > last_surrogate_id)
+
+            result = await self.session.execute(stmt)
+            rows = list(result.tuples().all())
+            if not rows:
+                break
+
+            batch_number += 1
+            last_surrogate_id = rows[-1][0]
+            batch_entries = [content for _, content in rows]
+            encoded_batches.append(await asyncio.to_thread(encode_batch, batch_entries))
+            total_entries += len(batch_entries)
+
+            if progress_callback is not None:
+                progress_callback(
+                    f"Materialized {total_entries} resume history entries "
+                    f"for {session_id} (batch {batch_number})"
+                )
+
+        if total_entries == 0:
             logger.warning(
-                "sdk_session_id set but no history entries",
-                session_id=source_session_id,
-                sdk_session_id=sdk_session_id,
+                "No persisted session history found",
+                session_id=session_id,
             )
             return None
 
-        # Reconstruct JSONL from history entries (content stored pristine)
-        lines = []
-        for entry in history_entries:
-            line = orjson.dumps(entry.content).decode("utf-8")
-            lines.append(line)
-
-        sdk_session_data = "\n".join(lines)
-
-        return SessionHistoryData(
-            sdk_session_id=sdk_session_id,
-            sdk_session_data=sdk_session_data,
-            is_fork=is_fork,
-        )
+        return "\n".join(encoded_batches)
 
     async def get_session_history(
         self,

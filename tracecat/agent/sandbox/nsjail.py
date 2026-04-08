@@ -118,6 +118,7 @@ async def spawn_jailed_runtime(
     nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
     rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
     *,
+    work_dir: Path | None = None,
     enable_internet_access: bool = False,
 ) -> SpawnedRuntime:
     """Spawn the agent runtime inside an NSJail sandbox (or direct subprocess for testing).
@@ -138,6 +139,8 @@ async def spawn_jailed_runtime(
         socket_dir: Directory containing the per-job control socket (control.sock).
         llm_socket_path: Path to the LLM socket for proxied LLM gateway access.
             Required in production mode (NSJail), optional in direct mode.
+        work_dir: Optional caller-owned directory to mount at `/work` inside
+            the jail. When omitted, NSJail creates and mounts its own temp dir.
         config: Optional sandbox configuration. Defaults to standard agent config.
         nsjail_path: Path to the nsjail binary.
         rootfs_path: Path to the sandbox rootfs (same rootfs as action sandbox).
@@ -199,6 +202,7 @@ async def spawn_jailed_runtime(
         config=config,
         nsjail_path=nsjail_path,
         rootfs_path=rootfs_path,
+        work_dir=work_dir,
         enable_internet_access=enable_internet_access,
     )
 
@@ -270,6 +274,7 @@ async def _spawn_nsjail_runtime(
     nsjail_path: str,
     rootfs_path: str,
     *,
+    work_dir: Path | None = None,
     enable_internet_access: bool = False,
 ) -> SpawnedRuntime:
     """Spawn the agent runtime inside an NSJail sandbox (production mode).
@@ -293,15 +298,19 @@ async def _spawn_nsjail_runtime(
     site_packages_dir = _get_site_packages_dir()
     tracecat_pkg_dir = _get_tracecat_pkg_dir()
 
-    # Create temp directory for nsjail job
+    if work_dir is not None and not work_dir.exists():
+        raise AgentSandboxExecutionError(f"Work directory not found: {work_dir}")
+
+    # Create temp directory for nsjail config/scratch files.
     job_id = uuid.uuid4().hex[:12]
     job_dir = Path(tempfile.mkdtemp(prefix=f"agent-nsjail-{job_id}-"))
+    mounted_work_dir = work_dir or job_dir
 
     try:
         # Build nsjail config (socket paths are derived from socket_dir internally)
         nsjail_config = build_agent_nsjail_config(
             rootfs=rootfs,
-            job_dir=job_dir,
+            job_dir=mounted_work_dir,
             socket_dir=socket_dir,
             config=config,
             site_packages_dir=site_packages_dir,
@@ -332,6 +341,7 @@ async def _spawn_nsjail_runtime(
         logger.info(
             "Spawning jailed agent runtime",
             job_dir=str(job_dir),
+            mounted_work_dir=str(mounted_work_dir),
             socket_dir=str(socket_dir),
             site_packages=str(site_packages_dir),
             tracecat_pkg=str(tracecat_pkg_dir),

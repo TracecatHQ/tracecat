@@ -22,10 +22,6 @@ class RuntimeInitPayload:
 
     The orchestrator sends this after the runtime connects to the control socket.
     Contains everything the runtime needs to execute an agent turn.
-
-    On resume after approval, the sdk_session_data contains the proper tool_result
-    entry (inserted by execute_approved_tools_activity before reload), so the
-    runtime just resumes normally.
     """
 
     # Runtime selection
@@ -42,7 +38,7 @@ class RuntimeInitPayload:
     # Resolved tool definitions (orchestrator resolves action names → full definitions)
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     sdk_session_id: str | None = None
-    sdk_session_data: str | None = None  # JSONL content for resume
+    resume_session_path: str | None = None  # Runtime-visible staged JSONL file path
     is_approval_continuation: bool = False  # True when resuming after approval decision
     is_fork: bool = False
 
@@ -74,7 +70,7 @@ class RuntimeInitPayload:
             llm_gateway_auth_token=data["llm_gateway_auth_token"],
             allowed_actions=allowed_actions,
             sdk_session_id=data.get("sdk_session_id"),
-            sdk_session_data=data.get("sdk_session_data"),
+            resume_session_path=data.get("resume_session_path"),
             is_approval_continuation=data.get("is_approval_continuation", False),
             is_fork=data.get("is_fork", False),
         )
@@ -97,8 +93,8 @@ class RuntimeInitPayload:
             }
         if self.sdk_session_id is not None:
             result["sdk_session_id"] = self.sdk_session_id
-        if self.sdk_session_data is not None:
-            result["sdk_session_data"] = self.sdk_session_data
+        if self.resume_session_path is not None:
+            result["resume_session_path"] = self.resume_session_path
         return result
 
 

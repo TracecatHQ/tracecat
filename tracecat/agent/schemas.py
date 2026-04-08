@@ -172,7 +172,13 @@ class RunUsage(BaseModel):
 
 class AgentOutput(BaseModel):
     output: Any
-    message_history: list[ChatMessage] | None = None
+    message_history: list[ChatMessage] | None = Field(
+        default=None,
+        description=(
+            "Bounded message history preview for workflow execution views. "
+            "Direct/internal agent runs may still return full history."
+        ),
+    )
     duration: float
     usage: RunUsage | None = None
     session_id: uuid.UUID

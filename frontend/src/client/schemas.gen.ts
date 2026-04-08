@@ -1106,6 +1106,8 @@ export const $AgentOutput = {
         },
       ],
       title: "Message History",
+      description:
+        "Bounded message history preview for workflow execution views. Direct/internal agent runs may still return full history.",
     },
     duration: {
       type: "number",

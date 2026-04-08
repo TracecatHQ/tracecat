@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import tempfile
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import orjson
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 
@@ -18,7 +21,10 @@ from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRACECAT__DISABLE_NSJAIL,
 )
-from tracecat.agent.common.exceptions import AgentSandboxExecutionError
+from tracecat.agent.common.exceptions import (
+    AgentSandboxExecutionError,
+    AgentSandboxValidationError,
+)
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition
 from tracecat.agent.executor.loopback import (
@@ -38,13 +44,95 @@ from tracecat.registry.lock.types import RegistryLock
 
 from .schemas import ApprovedToolCall, DeniedToolCall, ToolExecutionResult
 
+MAX_ACTIVITY_MESSAGE_HISTORY_BYTES = 128 * 1024
+MAX_ACTIVITY_MESSAGE_HISTORY_COUNT = 12
+
+
+def _validate_sdk_session_id(sdk_session_id: str) -> str:
+    """Validate a persisted Claude SDK session identifier.
+
+    Args:
+        sdk_session_id: Session identifier stored for Claude SDK resume.
+
+    Returns:
+        The original session identifier when it is safe to embed in a filename.
+
+    Raises:
+        AgentSandboxValidationError: If the identifier is empty or contains
+            characters outside the allowed alphanumeric, hyphen, and underscore
+            set.
+    """
+    if not sdk_session_id or not all(
+        character.isalnum() or character in "-_" for character in sdk_session_id
+    ):
+        raise AgentSandboxValidationError(
+            "Invalid sdk_session_id: must be alphanumeric with "
+            f"hyphens/underscores only, got {sdk_session_id!r}"
+        )
+
+    return sdk_session_id
+
+
+def _preview_message_history(
+    messages: list[ChatMessage],
+) -> list[ChatMessage] | None:
+    """Return the newest messages bounded by the activity payload budget."""
+    if not messages:
+        return None
+
+    tail: list[ChatMessage] = []
+    total_bytes = 0
+
+    for msg in reversed(messages):
+        size = len(orjson.dumps(msg.model_dump(mode="json")))
+        if len(tail) >= MAX_ACTIVITY_MESSAGE_HISTORY_COUNT:
+            break
+        if total_bytes + size > MAX_ACTIVITY_MESSAGE_HISTORY_BYTES:
+            break
+        tail.append(msg)
+        total_bytes += size
+
+    if not tail:
+        return [
+            ChatMessage.model_validate(
+                {
+                    "id": f"{messages[-1].id}-preview",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "Message history preview omitted because the "
+                                    "latest message exceeded the preview size limit."
+                                ),
+                            }
+                        ],
+                    },
+                }
+            )
+        ]
+
+    tail.reverse()
+    if len(tail) < len(messages):
+        logger.info(
+            "Truncated activity message preview",
+            returned=len(tail),
+            total=len(messages),
+        )
+    return tail
+
 
 class AgentExecutorInput(BaseModel):
     """Input for the agent executor activity.
 
-    On resume after approval, the sdk_session_data contains the proper tool_result
-    entry (inserted by the approval reconciliation activity before reload), so the
-    runtime just resumes normally.
+    On resume after approval, the workflow passes lightweight resume metadata.
+    The executor materializes the JSONL session file locally before the runtime
+    starts, so the full history never crosses Temporal boundaries.
+
+    Legacy compatibility: older serialized activity payloads may still carry
+    ``sdk_session_data`` inline and omit ``resume_source_session_id``. Keep the
+    deprecated field so in-flight runs can still resume after deploy.
     """
 
     model_config = {"arbitrary_types_allowed": True}
@@ -62,9 +150,9 @@ class AgentExecutorInput(BaseModel):
     )
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
-    # Session resume data (from previous run, includes tool_result for approval flow)
     sdk_session_id: str | None = None
     sdk_session_data: str | None = None
+    resume_source_session_id: uuid.UUID | None = None
     # True when resuming after approval decision (continuation prompt should be internal)
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
@@ -78,7 +166,10 @@ class AgentExecutorResult(BaseModel):
     error: str | None = None
     approval_requested: bool = False
     approval_items: list[ToolCallContent] | None = None
-    messages: list[ChatMessage] | None = None
+    messages: list[ChatMessage] | None = Field(
+        default=None,
+        description="Bounded preview of persisted session history for workflow views.",
+    )
     output: Any = Field(
         default=None,
         validation_alias=AliasChoices("output", "structured_output", "result_output"),
@@ -136,6 +227,7 @@ class SandboxedAgentExecutor:
         default=None, init=False, repr=False
     )
     _llm_proxy: LLMSocketProxy | None = field(default=None, init=False, repr=False)
+    _runtime_job_dir: Path | None = field(default=None, init=False, repr=False)
     _fatal_error: str | None = field(default=None, init=False, repr=False)
     _fatal_error_event: asyncio.Event = field(
         default_factory=asyncio.Event, init=False, repr=False
@@ -154,7 +246,17 @@ class SandboxedAgentExecutor:
             on_error=on_error,
         )
 
-    async def run(self) -> AgentExecutorResult:
+    @staticmethod
+    def _emit_progress(
+        progress_callback: Callable[[str], None] | None, details: str
+    ) -> None:
+        """Emit generic progress updates when a callback is provided."""
+        if progress_callback is not None:
+            progress_callback(details)
+
+    async def run(
+        self, *, progress_callback: Callable[[str], None] | None = None
+    ) -> AgentExecutorResult:
         """Execute the agent in an NSJail sandbox.
 
         Returns:
@@ -166,6 +268,9 @@ class SandboxedAgentExecutor:
             # Create job directory with sockets
             self._job_dir = await self._create_job_directory()
             socket_dir = self._job_dir / "sockets"
+            resume_session_path = await self._stage_resume_session_file(
+                progress_callback=progress_callback
+            )
 
             # Create loopback handler
             loopback_input = LoopbackInput(
@@ -178,7 +283,7 @@ class SandboxedAgentExecutor:
                 socket_dir=socket_dir,
                 allowed_actions=self.input.allowed_actions,
                 sdk_session_id=self.input.sdk_session_id,
-                sdk_session_data=self.input.sdk_session_data,
+                resume_session_path=resume_session_path,
                 is_approval_continuation=self.input.is_approval_continuation,
                 is_fork=self.input.is_fork,
             )
@@ -256,9 +361,11 @@ class SandboxedAgentExecutor:
                 runtime_result = await spawn_jailed_runtime(
                     socket_dir=socket_dir,
                     llm_socket_path=llm_socket_path,
+                    work_dir=self._job_dir,
                     enable_internet_access=self.input.config.enable_internet_access,
                 )
                 self._process = runtime_result.process
+                self._runtime_job_dir = runtime_result.job_dir
                 logger.info(
                     "Agent runtime process spawned",
                     pid=self._process.pid,
@@ -323,8 +430,9 @@ class SandboxedAgentExecutor:
                         if not done:
                             # Timeout - send heartbeat and continue waiting
                             elapsed += heartbeat_interval
-                            activity.heartbeat(
-                                f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
+                            self._emit_progress(
+                                progress_callback,
+                                f"Agent running: {self.input.session_id} ({elapsed}s elapsed)",
                             )
                             logger.debug(
                                 "Heartbeat sent, continuing to wait",
@@ -486,6 +594,97 @@ class SandboxedAgentExecutor:
         )
         return job_dir
 
+    async def _stage_resume_session_file(
+        self, *, progress_callback: Callable[[str], None] | None = None
+    ) -> str | None:
+        """Materialize persisted session history into the per-job directory.
+
+        Returns:
+            Runtime-visible path to the staged JSONL file, or None when the
+            execution does not need to resume an existing Claude SDK session.
+
+        Raises:
+            AgentSandboxExecutionError: If resume metadata is incomplete or the
+                persisted session history cannot be materialized.
+        """
+        if self._job_dir is None:
+            raise AgentSandboxExecutionError("Job directory is not initialized")
+        if self.input.sdk_session_id is None:
+            return None
+
+        sdk_session_data: str | None = None
+
+        if self.input.resume_source_session_id is not None:
+            # New path: materialize from DB using the source session pointer
+            self._emit_progress(
+                progress_callback,
+                f"Loading resume history: {self.input.resume_source_session_id}",
+            )
+            async with AgentSessionService.with_session(
+                role=self.input.role
+            ) as service:
+                sdk_session_data = await service.materialize_session_history(
+                    self.input.resume_source_session_id,
+                    progress_callback=(
+                        None
+                        if progress_callback is None
+                        else lambda details: self._emit_progress(
+                            progress_callback, details
+                        )
+                    ),
+                )
+        elif self.input.sdk_session_data is not None:
+            # Legacy fallback: use inline JSONL from old activity payloads
+            logger.info(
+                "Using legacy inline sdk_session_data for resume",
+                session_id=self.input.session_id,
+                sdk_session_id=self.input.sdk_session_id,
+            )
+            sdk_session_data = self.input.sdk_session_data
+        else:
+            raise AgentSandboxExecutionError(
+                "Missing resume_source_session_id for resumable agent execution"
+            )
+
+        if sdk_session_data is None:
+            logger.warning(
+                "Skipping resume because persisted session history is missing",
+                session_id=self.input.session_id,
+                source_session_id=self.input.resume_source_session_id,
+                sdk_session_id=self.input.sdk_session_id,
+            )
+            return None
+
+        try:
+            validated_session_id = _validate_sdk_session_id(self.input.sdk_session_id)
+        except AgentSandboxValidationError as exc:
+            raise AgentSandboxExecutionError(str(exc)) from exc
+
+        resume_dir = self._job_dir / "resume"
+        resume_dir.mkdir(mode=0o700)
+        host_resume_path = resume_dir / f"{validated_session_id}.jsonl"
+        await asyncio.to_thread(host_resume_path.write_text, sdk_session_data)
+        self._emit_progress(
+            progress_callback,
+            f"Staged resume history: {self.input.sdk_session_id}",
+        )
+
+        if TRACECAT__DISABLE_NSJAIL:
+            runtime_resume_path = host_resume_path
+        else:
+            runtime_resume_path = Path("/work") / host_resume_path.relative_to(
+                self._job_dir
+            )
+
+        logger.debug(
+            "Staged resume session file",
+            session_id=self.input.session_id,
+            source_session_id=self.input.resume_source_session_id,
+            host_path=str(host_resume_path),
+            runtime_path=str(runtime_resume_path),
+        )
+        return str(runtime_resume_path)
+
     async def _cleanup(self) -> None:
         """Clean up resources after execution."""
         # Terminate process if still running
@@ -506,22 +705,31 @@ class SandboxedAgentExecutor:
                 logger.warning("Failed to stop LLM proxy", error=str(e))
             self._llm_proxy = None
 
+        # Clean up NSJail config/runtime scratch directory when present.
+        if (
+            self._runtime_job_dir
+            and self._runtime_job_dir != self._job_dir
+            and self._runtime_job_dir.exists()
+        ):
+            try:
+                shutil.rmtree(self._runtime_job_dir)
+                logger.debug(
+                    "Cleaned up runtime job directory",
+                    job_dir=str(self._runtime_job_dir),
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to clean up runtime job directory",
+                    job_dir=str(self._runtime_job_dir),
+                    error=str(e),
+                )
+            finally:
+                self._runtime_job_dir = None
+
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():
             try:
-                socket_dir = self._job_dir / "sockets"
-                if socket_dir.exists():
-                    for f in socket_dir.iterdir():
-                        # Remove files, symlinks, and sockets (is_socket() for Unix sockets)
-                        if f.is_symlink() or f.is_file() or f.is_socket():
-                            f.unlink()
-                    socket_dir.rmdir()
-
-                for f in self._job_dir.iterdir():
-                    if f.is_file() or f.is_socket():
-                        f.unlink()
-                self._job_dir.rmdir()
-
+                shutil.rmtree(self._job_dir)
                 logger.debug("Cleaned up job directory", job_dir=str(self._job_dir))
             except Exception as e:
                 logger.warning(
@@ -529,6 +737,8 @@ class SandboxedAgentExecutor:
                     job_dir=str(self._job_dir),
                     error=str(e),
                 )
+            finally:
+                self._job_dir = None
 
 
 @activity.defn
@@ -554,7 +764,7 @@ async def run_agent_activity(
         input: Agent executor configuration and tokens.
 
     Returns:
-        AgentExecutorResult with execution status and session data.
+        AgentExecutorResult with execution status and lightweight metadata.
     """
     sandbox_mode = "direct" if TRACECAT__DISABLE_NSJAIL else "nsjail"
     activity.heartbeat(
@@ -562,14 +772,21 @@ async def run_agent_activity(
     )
 
     executor = SandboxedAgentExecutor(input=input)
-    result = await executor.run()
+    result = await executor.run(progress_callback=activity.heartbeat)
 
     if result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")
-        # Fetch messages from database to include in result
+        if result.approval_requested:
+            return AgentExecutorResult(
+                success=True,
+                approval_requested=True,
+                approval_items=result.approval_items,
+            )
+
         try:
             async with AgentSessionService.with_session(role=input.role) as svc:
-                result.messages = await svc.list_messages(input.session_id)
+                messages = await svc.list_messages(input.session_id)
+            result.messages = _preview_message_history(messages)
         except Exception as e:
             logger.warning(
                 "Failed to fetch session messages",

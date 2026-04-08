@@ -174,6 +174,8 @@ class DurableAgentWorkflow:
         self.max_tool_calls = args.agent_args.max_tool_calls
         # Session state for Claude SDK resume
         self._sdk_session_id: str | None = None
+        self._resume_source_session_id: uuid.UUID | None = None
+        # Legacy: inline JSONL from old LoadSessionResult payloads during replay
         self._sdk_session_data: str | None = None
         # Registry lock for action resolution (set after build_tool_definitions)
         self._registry_lock: RegistryLock | None = None
@@ -423,13 +425,16 @@ class DurableAgentWorkflow:
         )
 
         is_fork = False
-        if load_result.found and load_result.sdk_session_data:
+        if load_result.found and load_result.sdk_session_id:
             self._sdk_session_id = load_result.sdk_session_id
+            self._resume_source_session_id = load_result.resume_source_session_id
+            # Legacy replay: old LoadSessionResult carries inline JSONL
             self._sdk_session_data = load_result.sdk_session_data
             is_fork = load_result.is_fork
             logger.info(
                 "Resuming from existing session",
                 sdk_session_id=self._sdk_session_id,
+                resume_source_session_id=self._resume_source_session_id,
                 is_fork=is_fork,
             )
 
@@ -471,6 +476,7 @@ class DurableAgentWorkflow:
             allowed_actions=allowed_actions,
             sdk_session_id=self._sdk_session_id,
             sdk_session_data=self._sdk_session_data,
+            resume_source_session_id=self._resume_source_session_id,
             is_fork=is_fork,
         )
 
@@ -540,12 +546,17 @@ class DurableAgentWorkflow:
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
                 )
-                if reload_result.found and reload_result.sdk_session_data:
+                if reload_result.found and reload_result.sdk_session_id:
                     self._sdk_session_id = reload_result.sdk_session_id
+                    self._resume_source_session_id = (
+                        reload_result.resume_source_session_id
+                    )
+                    # Legacy replay: old LoadSessionResult carries inline JSONL
                     self._sdk_session_data = reload_result.sdk_session_data
                     logger.info(
                         "Reloaded session data for continuation",
                         sdk_session_id=self._sdk_session_id,
+                        resume_source_session_id=self._resume_source_session_id,
                     )
 
                 # Update executor input for resume (history now has proper tool_result)
@@ -560,6 +571,7 @@ class DurableAgentWorkflow:
                     allowed_actions=allowed_actions,
                     sdk_session_id=self._sdk_session_id,
                     sdk_session_data=self._sdk_session_data,
+                    resume_source_session_id=self._resume_source_session_id,
                     is_approval_continuation=True,
                 )
                 self._turn += 1
@@ -571,7 +583,9 @@ class DurableAgentWorkflow:
             )
             return AgentOutput(
                 output=output,
-                message_history=result.messages,  # Messages fetched from DB by activity
+                # This is a bounded preview for workflow execution views, not the
+                # full durable session transcript.
+                message_history=result.messages,
                 duration=(datetime.now(UTC) - info.start_time).total_seconds(),
                 usage=RunUsage(
                     requests=result.result_num_turns or 0,

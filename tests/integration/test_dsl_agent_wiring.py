@@ -101,7 +101,7 @@ def create_mock_load_session_activity() -> Callable[..., Any]:
         return LoadSessionResult(
             found=False,
             sdk_session_id=None,
-            sdk_session_data=None,
+            resume_source_session_id=None,
             is_fork=False,
         )
 

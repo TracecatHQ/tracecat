@@ -305,6 +305,9 @@ export type AgentChannelTokenUpdate = {
 
 export type AgentOutput = {
   output: unknown
+  /**
+   * Bounded message history preview for workflow execution views. Direct/internal agent runs may still return full history.
+   */
   message_history?: Array<ChatMessage> | null
   duration: number
   usage?: RunUsage | null

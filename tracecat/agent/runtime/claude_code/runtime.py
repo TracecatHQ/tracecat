@@ -241,6 +241,59 @@ class ClaudeAgentRuntime:
         logger.debug("Wrote session file", path=str(session_file_path))
         return session_file_path
 
+    def _validate_resume_session_path(self, resume_session_path: str) -> Path:
+        """Validate a staged resume path produced by the trusted executor.
+
+        Accepts paths ending with /resume/{session_id}.jsonl in any location:
+        - Relative: resume/{session_id}.jsonl → resolved to /work/resume/{session_id}.jsonl
+        - Absolute: /work/resume/{session_id}.jsonl or /tmp/.../resume/{session_id}.jsonl
+
+        Args:
+            resume_session_path: Path string to validate.
+
+        Returns:
+            Resolved absolute Path to the session file.
+
+        Raises:
+            AgentSandboxValidationError: If path contains traversal, invalid structure, or bad session ID.
+        """
+        path = Path(resume_session_path)
+
+        # Prevent directory traversal attacks
+        if ".." in path.parts:
+            raise AgentSandboxValidationError(
+                f"Resume session path must not contain traversal: {resume_session_path!r}"
+            )
+
+        # Normalize relative paths to absolute form
+        resolved = Path("/work") / path if not path.is_absolute() else path
+
+        # Enforce structure: .../resume/{session_id}.jsonl
+        if resolved.parent.name != "resume":
+            raise AgentSandboxValidationError(
+                f"Path must end with '/resume/{{session_id}}.jsonl': {resume_session_path!r}"
+            )
+
+        # Validate filename and extract session ID
+        filename = resolved.name
+        if not filename.endswith(".jsonl"):
+            raise AgentSandboxValidationError(
+                f"Filename must be '{{session_id}}.jsonl': {filename!r}"
+            )
+
+        session_id = filename[:-6]  # Strip .jsonl extension
+        if not session_id or not all(c.isalnum() or c in "-_" for c in session_id):
+            raise AgentSandboxValidationError(
+                f"Invalid session ID (must be alphanumeric + hyphens/underscores): {session_id!r}"
+            )
+
+        return resolved
+
+    async def _read_resume_session_file(self, resume_session_path: str) -> str:
+        """Read staged JSONL session data prepared by the trusted executor."""
+        path = self._validate_resume_session_path(resume_session_path)
+        return await asyncio.to_thread(path.read_text)
+
     def _canonicalize_sdk_session_data(self, sdk_session_data: str) -> str:
         """Canonicalize legacy registry MCP aliases in JSONL session history."""
         return sdk_session_data.replace(
@@ -557,10 +610,11 @@ class ClaudeAgentRuntime:
         # Write session file locally if resuming or forking
         resume_session_id: str | None = None
         fork_session: bool = False
-        if payload.sdk_session_id and payload.sdk_session_data:
-            await self._write_session_file(
-                payload.sdk_session_id, payload.sdk_session_data
+        if payload.sdk_session_id and payload.resume_session_path:
+            staged_session_data = await self._read_resume_session_file(
+                payload.resume_session_path
             )
+            await self._write_session_file(payload.sdk_session_id, staged_session_data)
             resume_session_id = payload.sdk_session_id
             # If forking, tell the SDK to create a new session from the parent's history
             fork_session = payload.is_fork
@@ -571,8 +625,8 @@ class ClaudeAgentRuntime:
             # persisted history (leading to flaky resume crashes).
             if not fork_session:
                 self._sdk_session_id = resume_session_id
-                # Count lines from the session data we just wrote to disk (avoid I/O).
-                self._last_seen_line_index = len(payload.sdk_session_data.splitlines())
+                # Count lines from the staged session data we just wrote to disk.
+                self._last_seen_line_index = len(staged_session_data.splitlines())
 
         try:
             # Build MCP servers config for registry actions and stdio servers
