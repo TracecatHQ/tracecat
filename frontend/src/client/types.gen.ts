@@ -312,6 +312,28 @@ export type AdminUserRead = {
 }
 
 /**
+ * List catalog entries with pagination.
+ */
+export type AgentCatalogListResponse = {
+  items: Array<AgentCatalogRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Single catalog model entry.
+ */
+export type AgentCatalogRead = {
+  id: string
+  custom_provider_id: string | null
+  organization_id: string | null
+  model_provider: string
+  model_name: string
+  model_metadata: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
  * Request schema for creating an external channel token.
  */
 export type AgentChannelTokenCreate = {
@@ -361,6 +383,79 @@ export type AgentChannelTokenUpdate = {
    * Activation state
    */
   is_active?: boolean | null
+}
+
+/**
+ * Create custom LLM provider.
+ */
+export type AgentCustomProviderCreate = {
+  display_name: string
+  base_url?: string | null
+  api_key_header?: string | null
+  api_key?: string | null
+  custom_headers?: {
+    [key: string]: string
+  } | null
+}
+
+/**
+ * List response with pagination.
+ */
+export type AgentCustomProviderListResponse = {
+  items: Array<AgentCustomProviderRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Read custom provider.
+ */
+export type AgentCustomProviderRead = {
+  id: string
+  organization_id: string
+  display_name: string
+  base_url: string | null
+  api_key_header: string | null
+  discovery_status: string
+  last_refreshed_at: string | null
+}
+
+/**
+ * Update custom provider.
+ */
+export type AgentCustomProviderUpdate = {
+  display_name?: string | null
+  base_url?: string | null
+  api_key_header?: string | null
+  api_key?: string | null
+  custom_headers?: {
+    [key: string]: string
+  } | null
+}
+
+/**
+ * Enable a model for org or workspace.
+ */
+export type AgentModelAccessCreate = {
+  catalog_id: string
+  workspace_id?: string | null
+}
+
+/**
+ * List accessible models with pagination.
+ */
+export type AgentModelAccessListResponse = {
+  items: Array<AgentModelAccessRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Model access entry.
+ */
+export type AgentModelAccessRead = {
+  id: string
+  organization_id: string
+  workspace_id: string | null
+  catalog_id: string
 }
 
 export type AgentOutput = {
