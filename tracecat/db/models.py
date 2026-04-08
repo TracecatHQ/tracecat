@@ -47,6 +47,7 @@ from sqlalchemy.orm import (
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.types import AgentCustomProviderDiscoveryStatus
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScopeSource
