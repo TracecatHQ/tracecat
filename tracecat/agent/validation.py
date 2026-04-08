@@ -17,8 +17,7 @@ def validate_actions_length(value: list[str] | None) -> list[str] | None:
     max_tools = config.TRACECAT__AGENT_MAX_TOOLS
     if max_tools > 0 and len(value) > max_tools:
         raise ValueError(
-            f"An agent can reference at most {max_tools} actions, got {len(value)}. "
-            "Reduce the number of tools attached to the agent or raise "
-            "TRACECAT__AGENT_MAX_TOOLS."
+            f"An agent can reference at most {max_tools} actions, "
+            f"got {len(value)}. Reduce the number of tools attached to the agent."
         )
     return value

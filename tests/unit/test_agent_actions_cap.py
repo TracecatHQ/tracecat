@@ -1,9 +1,11 @@
 """Tests for the agent ``actions`` list length cap.
 
 Covers the shared ``validate_actions_length`` validator plus its wiring into
-every Pydantic schema that accepts an ``actions`` field, so that exceeding
-``TRACECAT__AGENT_MAX_TOOLS`` surfaces as a schema ``ValidationError`` rather
-than as a late runtime failure inside the agent worker.
+every write/request schema that accepts an ``actions`` field, so that
+oversized lists surface as a schema ``ValidationError`` rather than as a late
+runtime failure inside the agent worker. Also pins the invariant that read
+models must remain permissive so historical presets stay viewable after the
+cap is lowered.
 """
 
 from __future__ import annotations
@@ -52,9 +54,11 @@ class TestValidateActionsLength:
         with pytest.raises(ValueError, match="at most 3 actions, got 4"):
             validate_actions_length(_actions(small_cap + 1))
 
-    def test_error_message_mentions_env_var(self, small_cap: int) -> None:
-        with pytest.raises(ValueError, match="TRACECAT__AGENT_MAX_TOOLS"):
+    def test_error_message_hides_internal_env_var(self, small_cap: int) -> None:
+        """Client-facing error must not leak the TRACECAT__AGENT_MAX_TOOLS name."""
+        with pytest.raises(ValueError) as exc_info:
             validate_actions_length(_actions(small_cap + 1))
+        assert "TRACECAT__AGENT_MAX_TOOLS" not in str(exc_info.value)
 
     def test_zero_cap_disables_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``max_tools == 0`` means "no limit" — keep parity with build_agent_tools."""
@@ -113,15 +117,23 @@ class TestAgentConfigSchemaCap:
 
 
 class TestPresetSchemasCap:
-    """Preset write/read schemas reject oversized action lists."""
+    """Preset write schemas reject oversized action lists; reads remain permissive."""
 
-    def test_execution_config_rejects_over_cap(self, small_cap: int) -> None:
-        with pytest.raises(ValidationError):
-            AgentPresetExecutionConfig(
-                model_name="gpt-4o-mini",
-                model_provider="openai",
-                actions=_actions(small_cap + 1),
-            )
+    def test_execution_config_allows_over_cap_for_reads(self, small_cap: int) -> None:
+        """Read-path base must not enforce the cap.
+
+        Historical presets stored under a larger cap need to remain loadable
+        so users can view and shrink them after the cap is lowered. Regression
+        guard: ``AgentPresetRead`` / ``AgentPresetVersionReadMinimal`` inherit
+        from this class.
+        """
+        payload = AgentPresetExecutionConfig(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            actions=_actions(small_cap + 1),
+        )
+        assert payload.actions is not None
+        assert len(payload.actions) == small_cap + 1
 
     def test_execution_config_write_rejects_over_cap(self, small_cap: int) -> None:
         with pytest.raises(ValidationError):

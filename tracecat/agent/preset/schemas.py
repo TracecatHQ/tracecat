@@ -32,7 +32,15 @@ PresetModelWriteField = Annotated[
 
 
 class AgentPresetExecutionConfig(Schema):
-    """Execution fields that define a preset version."""
+    """Execution fields that define a preset version.
+
+    Used as the base for read models (``AgentPresetRead``,
+    ``AgentPresetVersionReadMinimal``). Deliberately does **not** enforce
+    ``TRACECAT__AGENT_MAX_TOOLS`` on ``actions`` — historical presets created
+    under a higher cap must remain readable so users can view and fix them
+    after lowering the cap. Write-time enforcement lives on
+    ``AgentPresetExecutionConfigWrite`` and ``AgentPresetUpdate``.
+    """
 
     instructions: str | None = Field(default=None)
     model_name: PresetModelField
@@ -45,8 +53,6 @@ class AgentPresetExecutionConfig(Schema):
     mcp_integrations: list[str] | None = Field(default=None)
     retries: int = Field(default=3, ge=0)
     enable_internet_access: bool = Field(default=False)
-
-    _validate_actions = field_validator("actions")(validate_actions_length)
 
 
 class AgentPresetExecutionConfigWrite(Schema):
