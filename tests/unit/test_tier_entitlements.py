@@ -190,13 +190,14 @@ async def test_apply_configured_default_tier_entitlements_enables_requested_valu
 
 @pytest.mark.anyio
 async def test_apply_configured_default_tier_entitlements_is_noop_without_env(
-    session: AsyncSession,
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Default tier bootstrap should skip when no env override is configured."""
     default_tier = await _create_default_tier(
         session,
         entitlements={"custom_registry": True},
     )
+    monkeypatch.delenv("TRACECAT__DEV_DEFAULT_TIER_ENTITLEMENTS", raising=False)
 
     changed = await TierService(session).apply_configured_default_tier_entitlements()
 

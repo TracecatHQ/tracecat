@@ -30,6 +30,13 @@ _DEFAULT_TIER_TOKEN_TO_ENTITLEMENT = {
     "case-addons": Entitlement.CASE_ADDONS.value,
     "rbac-addons": Entitlement.RBAC_ADDONS.value,
     "watchtower": Entitlement.WATCHTOWER.value,
+    "agent-approvals": Entitlement.AGENT_ADDONS.value,
+    "agent-presets": Entitlement.AGENT_ADDONS.value,
+    "case-dropdowns": Entitlement.CASE_ADDONS.value,
+    "case-durations": Entitlement.CASE_ADDONS.value,
+    "case-tasks": Entitlement.CASE_ADDONS.value,
+    "case-triggers": Entitlement.CASE_ADDONS.value,
+    "rbac": Entitlement.RBAC_ADDONS.value,
 }
 
 

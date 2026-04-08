@@ -82,3 +82,15 @@ def test_resolve_default_tier_entitlement_enables_only_accepts_canonical_keys() 
         "rbac_addons": True,
         "watchtower": True,
     }
+
+
+def test_resolve_default_tier_entitlement_enables_supports_legacy_aliases() -> None:
+    entitlements = resolve_default_tier_entitlement_enables(
+        "agent-presets,case_durations,rbac"
+    )
+
+    assert entitlements == {
+        "agent_addons": True,
+        "case_addons": True,
+        "rbac_addons": True,
+    }
