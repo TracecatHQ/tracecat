@@ -307,6 +307,22 @@ def enable_service_account_child_table_rls(table: str) -> str:
                           OR NULLIF(current_setting('app.current_workspace_id', true), '')::uuid IS NULL
                       )
                 )
+    """
+
+def enable_agent_catalog_table_rls() -> str:
+    return f"""
+        ALTER TABLE "agent_catalog" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {policy_name("agent_catalog")} ON "agent_catalog"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR organization_id IS NULL
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
             );
     """
 
@@ -347,6 +363,12 @@ def disable_service_account_child_table_rls(table: str) -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name(table)} ON "{table}";
         ALTER TABLE "{table}" DISABLE ROW LEVEL SECURITY;
+    """
+
+def disable_agent_catalog_table_rls() -> str:
+    return f"""
+        DROP POLICY IF EXISTS {policy_name("agent_catalog")} ON "agent_catalog";
+        ALTER TABLE "agent_catalog" DISABLE ROW LEVEL SECURITY;
     """
 
 
