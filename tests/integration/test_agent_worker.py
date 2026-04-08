@@ -214,14 +214,14 @@ class TestAgentWorkerLifecycle:
     async def test_session_activities_registered(self) -> None:
         """Verify session activities are available."""
         activities = get_session_activities()
-        assert len(activities) == 3
-
         activity_names = [
             getattr(a, "__temporal_activity_definition").name for a in activities
         ]
-        assert "create_session_activity" in activity_names
-        assert "load_session_activity" in activity_names
-        assert "reconcile_tool_results_activity" in activity_names
+        assert set(activity_names) == {
+            "create_session_activity",
+            "load_session_activity",
+            "reconcile_tool_results_activity",
+        }
 
 
 class TestAgentWorkerSingleTenant:

@@ -1,3 +1,4 @@
+import uuid
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -13,6 +14,7 @@ class AgentActionArgs(BaseModel):
     actions: list[str] | None = None
     instructions: str | None = None
     output_type: OutputType | None = None
+    session_id: uuid.UUID | None = None
     model_settings: dict[str, Any] | None = None
     max_tool_calls: int = Field(
         default=15,
@@ -41,6 +43,7 @@ class PresetAgentActionArgs(BaseModel):
     user_prompt: str
     actions: list[str] | None = None
     instructions: str | None = None
+    session_id: uuid.UUID | None = None
     max_tool_calls: int = Field(
         default=15,
         ge=1,

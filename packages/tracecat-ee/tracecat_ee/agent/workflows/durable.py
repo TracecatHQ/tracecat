@@ -126,6 +126,10 @@ class AgentWorkflowArgs(BaseModel):
         default=None,
         description="Agent harness type. Reserved for future multi-harness support.",
     )
+    continue_existing_session: bool = Field(
+        default=False,
+        description=("If true, session_id is caller-supplied and must already exist."),
+    )
 
 
 class WorkflowApprovalSubmission(BaseModel):
@@ -357,6 +361,7 @@ class DurableAgentWorkflow:
             CreateSessionInput(
                 role=self.role,
                 session_id=self.session_id,
+                require_existing=args.continue_existing_session,
                 title=args.title,
                 created_by=self.role.user_id,
                 entity_type=args.entity_type,
