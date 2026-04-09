@@ -160,7 +160,25 @@ class AgentPresetService(BaseWorkspaceService):
         """Build the response model for a preset."""
 
         return AgentPresetRead(
-            **preset.to_dict(),
+            id=preset.id,
+            workspace_id=preset.workspace_id,
+            name=preset.name,
+            slug=preset.slug,
+            description=preset.description,
+            current_version_id=preset.current_version_id,
+            instructions=preset.instructions,
+            model_name=preset.model_name,
+            model_provider=preset.model_provider,
+            base_url=preset.base_url,
+            output_type=cast(OutputType | None, preset.output_type),
+            actions=preset.actions,
+            namespaces=preset.namespaces,
+            tool_approvals=preset.tool_approvals,
+            mcp_integrations=preset.mcp_integrations,
+            retries=preset.retries,
+            enable_internet_access=preset.enable_internet_access,
+            created_at=preset.created_at,
+            updated_at=preset.updated_at,
             skills=await self._list_head_skill_bindings(preset.id),
         )
 
@@ -170,7 +188,23 @@ class AgentPresetService(BaseWorkspaceService):
         """Build the response model for an immutable preset version."""
 
         return AgentPresetVersionRead(
-            **version.to_dict(),
+            id=version.id,
+            preset_id=version.preset_id,
+            workspace_id=version.workspace_id,
+            version=version.version,
+            instructions=version.instructions,
+            model_name=version.model_name,
+            model_provider=version.model_provider,
+            base_url=version.base_url,
+            output_type=cast(OutputType | None, version.output_type),
+            actions=version.actions,
+            namespaces=version.namespaces,
+            tool_approvals=version.tool_approvals,
+            mcp_integrations=version.mcp_integrations,
+            retries=version.retries,
+            enable_internet_access=version.enable_internet_access,
+            created_at=version.created_at,
+            updated_at=version.updated_at,
             skills=await self._list_version_skill_bindings(version.id),
         )
 
