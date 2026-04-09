@@ -1,0 +1,10 @@
+tracecat/agent/preset/service.py
+  05c0b59f5e164c30 18-20,232,315,430,147
+  40ea4f14a0ae4f84 510,1303
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.7",
+  "base_commit_sha": "6466336778fc912532b8d566815e03f83e6de49c",
+  "prompts": {}
+}

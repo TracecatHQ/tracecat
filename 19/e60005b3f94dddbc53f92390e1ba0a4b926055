@@ -1,0 +1,55 @@
+tracecat/agent/session/router.py
+  e2366595845a235a 317-323,325,327-338,340-344
+tracecat/agent/preset/internal_router.py
+  e2366595845a235a 13
+tests/unit/test_agent_preset_service.py
+  40ea4f14a0ae4f84 1107-1108,1110,1112,1114-1115,1117-1120,1156
+tracecat/agent/preset/schemas.py
+  e2366595845a235a 15
+  05c0b59f5e164c30 16-41,188
+tracecat/agent/workflow_config.py
+  05c0b59f5e164c30 88,90,99,101
+tracecat/agent/workflow_schemas.py
+  05c0b59f5e164c30 9,68,70
+tracecat/mcp/server.py
+  05c0b59f5e164c30 6149-6154,6156-6164,6166-6167
+tracecat/agent/skill/schemas.py
+  05c0b59f5e164c30 46-47,56,59-68,108,186-187,200
+tracecat/agent/skill/service.py
+  05c0b59f5e164c30 11,20,29,223,229,258-266,395-405,407,542-544,596-598,817,829,835,1019
+tracecat/agent/preset/service.py
+  05c0b59f5e164c30 18-20,203,288,429
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.7",
+  "base_commit_sha": "19e60005b3f94dddbc53f92390e1ba0a4b926055",
+  "prompts": {
+    "05c0b59f5e164c30": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "25a43b03-05ad-4105-8375-12fa36350f6d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 110,
+      "overriden_lines": 0
+    },
+    "e2366595845a235a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5548-3858-7db1-9443-c64ad289fda3",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 27,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,9 @@
+tracecat/agent/skill/schemas.py
+  05c0b59f5e164c30 46-47,56,59-68,108,186-187,200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.7",
+  "base_commit_sha": "868cc397ef6ba15a4b0824c3cc39b15c7a8392d9",
+  "prompts": {}
+}
