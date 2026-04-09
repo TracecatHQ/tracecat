@@ -1,0 +1,9 @@
+frontend/src/components/skills/skills-studio.tsx
+  7a57ed7b18619e83 110-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.7",
+  "base_commit_sha": "b54f38e228160dcc85711c20fa35114501366b67",
+  "prompts": {}
+}
