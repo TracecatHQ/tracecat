@@ -24,9 +24,14 @@ import type {
   GitBranchInfo,
   ValidationDetail,
   ValidationResult,
+  WorkflowDefinitionRead,
   WorkflowDslPublish,
 } from "@/client"
-import { ApiError, workflowsListWorkflowBranches } from "@/client"
+import {
+  ApiError,
+  workflowsListWorkflowBranches,
+  workflowsListWorkflowDefinitions,
+} from "@/client"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
 import {
@@ -53,7 +58,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -919,6 +928,22 @@ function BuilderNavOptions({
     listEnabled: false,
   })
   const enabledExport = appSettings?.app_workflow_export_enabled
+  const { data: workflowDefinitions, isLoading: definitionsLoading } = useQuery<
+    WorkflowDefinitionRead[]
+  >({
+    queryKey: ["workflow-definitions", workflowId],
+    queryFn: async () =>
+      workflowsListWorkflowDefinitions({
+        workspaceId,
+        workflowId,
+      }),
+    enabled: Boolean(enabledExport),
+  })
+  const olderWorkflowDefinitions =
+    workflowDefinitions
+      ?.filter((definition) => definition.version > 0)
+      .sort((left, right) => right.version - left.version)
+      .slice(1, 11) ?? []
 
   const handleDelete = async () => {
     await deleteWorkflow(workflowId)
@@ -953,6 +978,38 @@ function BuilderNavOptions({
             label="Export saved"
             icon={<DownloadIcon className="mr-2 size-3.5" />}
           />
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <DownloadIcon className="mr-2 size-3.5" />
+              Export older version
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuLabel>Select version</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {definitionsLoading ? (
+                <DropdownMenuItem disabled>
+                  Loading versions...
+                </DropdownMenuItem>
+              ) : olderWorkflowDefinitions.length > 0 ? (
+                olderWorkflowDefinitions.map((definition) => (
+                  <ExportMenuItem
+                    key={definition.id}
+                    enabledExport={enabledExport}
+                    format="yaml"
+                    workspaceId={workspaceId}
+                    workflowId={workflowId}
+                    version={definition.version}
+                    label={`Download v${definition.version}`}
+                    icon={<DownloadIcon className="mr-2 size-3.5" />}
+                  />
+                ))
+              ) : (
+                <DropdownMenuItem disabled>
+                  No older versions found
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuItem
             onClick={() =>
               copyToClipboard({
