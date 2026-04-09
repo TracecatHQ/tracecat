@@ -6136,7 +6136,7 @@ async def upload_skill(
         params = SkillUpload.model_validate(
             {
                 "slug": slug,
-                "files": [file.model_dump(mode="json") for file in files],
+                "files": SkillUploadFile.list_adapter().dump_python(files, mode="json"),
             }
         )
         async with SkillService.with_session(role=role) as svc:
