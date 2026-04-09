@@ -280,8 +280,8 @@ services:
         TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW: ${TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW:-tracecat-workflow}
         TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS: ${TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS:-tracecat-attachments}
         TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY: ${TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY:-tracecat-registry}
-        MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-        MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+        MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+        MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       command: ["python", "-m", "tracecat.agent.worker"]
       depends_on:
         migrations:
@@ -368,8 +368,8 @@ services:
         TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW: ${TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW:-tracecat-workflow}
         TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS: ${TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS:-tracecat-attachments}
         TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY: ${TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY:-tracecat-registry}
-        MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-        MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+        MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+        MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       volumes:
         - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
         - sandbox-cache:/var/lib/tracecat/sandbox-cache
