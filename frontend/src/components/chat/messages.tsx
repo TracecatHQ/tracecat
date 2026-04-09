@@ -6,7 +6,8 @@ import { motion } from "motion/react"
 import Image from "next/image"
 import TracecatIcon from "public/icon.png"
 import { type ComponentProps, useEffect, useRef } from "react"
-import { Streamdown } from "streamdown"
+import type { Streamdown } from "streamdown"
+import { MarkdownWithFrontmatter } from "@/components/ai-elements/markdown-with-frontmatter"
 import { Dots } from "@/components/loading/dots"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import {
@@ -208,7 +209,7 @@ export function Messages({
           transition={{ duration: 0.3, ease: "easeInOut" }}
         >
           <Image src={TracecatIcon} alt="Tracecat" className="size-4 mt-1" />
-          <Streamdown
+          <MarkdownWithFrontmatter
             allowedImagePrefixes={ALLOWED_MARKDOWN_IMAGE_PREFIXES}
             allowedLinkPrefixes={ALLOWED_MARKDOWN_LINK_PREFIXES}
             defaultOrigin={DEFAULT_MARKDOWN_ORIGIN}
@@ -217,7 +218,7 @@ export function Messages({
             parseIncompleteMarkdown
           >
             {streamingText}
-          </Streamdown>
+          </MarkdownWithFrontmatter>
         </motion.div>
       )}
       {isResponding && !streamingText && (
@@ -275,7 +276,7 @@ function AgentChatMessage({ message }: { message: ModelResponse }) {
       <Image src={TracecatIcon} alt="Tracecat" className="size-4 mt-1" />
       <div className="flex flex-1 flex-col gap-3 text-sm text-foreground">
         {textContent && (
-          <Streamdown
+          <MarkdownWithFrontmatter
             allowedImagePrefixes={ALLOWED_MARKDOWN_IMAGE_PREFIXES}
             allowedLinkPrefixes={ALLOWED_MARKDOWN_LINK_PREFIXES}
             defaultOrigin={DEFAULT_MARKDOWN_ORIGIN}
@@ -283,7 +284,7 @@ function AgentChatMessage({ message }: { message: ModelResponse }) {
             className={assistantMarkdownStyle}
           >
             {textContent}
-          </Streamdown>
+          </MarkdownWithFrontmatter>
         )}
 
         {toolCalls.map((part, index) => (

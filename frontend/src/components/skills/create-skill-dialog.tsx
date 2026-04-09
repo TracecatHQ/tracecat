@@ -11,7 +11,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { slugify } from "@/lib/utils"
+import { validateSkillSlug } from "@/lib/skills-studio"
+import { cn, slugify } from "@/lib/utils"
 
 type CreateSkillDialogProps = {
   open: boolean
@@ -43,6 +44,10 @@ export function CreateSkillDialog({
   pending,
   onCreate,
 }: CreateSkillDialogProps) {
+  const slugError = validateSkillSlug(slug)
+  const showSlugError = slug.trim().length > 0 && slugError !== null
+  const canCreate = !pending && slugError === null
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -74,7 +79,20 @@ export function CreateSkillDialog({
               value={slug}
               onChange={(event) => onSlugChange(event.target.value)}
               placeholder="threat-intel"
+              aria-invalid={showSlugError || undefined}
+              className={cn(
+                showSlugError &&
+                  "border-destructive focus-visible:ring-destructive"
+              )}
             />
+            {showSlugError ? (
+              <p className="text-xs text-destructive">{slugError}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Lowercase letters, numbers, and single hyphens. Max 64
+                characters.
+              </p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="new-skill-description">Description</Label>
@@ -88,10 +106,7 @@ export function CreateSkillDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button
-            onClick={() => void onCreate()}
-            disabled={pending || !(slug.trim() || title.trim())}
-          >
+          <Button onClick={() => void onCreate()} disabled={!canCreate}>
             {pending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
             Create skill
           </Button>

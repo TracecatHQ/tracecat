@@ -4,6 +4,7 @@ import { AddFileDialog } from "@/components/skills/add-file-dialog"
 import { CreateSkillDialog } from "@/components/skills/create-skill-dialog"
 import { EditorPanel } from "@/components/skills/editor-panel"
 import { SkillListPanel } from "@/components/skills/skill-list-panel"
+import { UploadSkillDialog } from "@/components/skills/upload-skill-dialog"
 import { useSkillsStudio } from "@/components/skills/use-skills-studio"
 import { WorkingCopyBar } from "@/components/skills/working-copy-bar"
 
@@ -38,15 +39,10 @@ export function SkillsStudio({
               visibleSkills={studio.visibleSkills}
               skillsLoading={studio.skillsLoading}
               skillsError={studio.skillsError}
-              isDragOver={studio.isDragOver}
-              onDragOver={studio.onDragOver}
-              onDragLeave={studio.onDragLeave}
-              onDrop={studio.onDrop}
-              onDirectoryInput={studio.onDirectoryInput}
-              uploadSkillPending={studio.uploadSkillPending}
               onSelectSkill={studio.onSelectSkill}
               onCopyLocalAgentPrompt={studio.onCopyLocalAgentPrompt}
               onOpenNewSkillDialog={studio.onOpenNewSkillDialog}
+              onOpenUploadSkillDialog={studio.onOpenUploadSkillDialog}
             />
           </div>
           <div className="flex min-h-0 flex-col">
@@ -90,6 +86,8 @@ export function SkillsStudio({
                 onReplaceFile={studio.onReplaceFile}
                 onSaveWorkingCopy={studio.onSaveWorkingCopy}
                 onOpenNewFileDialog={studio.onOpenNewFileDialog}
+                onOpenNewSkillDialog={studio.onOpenNewSkillDialog}
+                onOpenUploadSkillDialog={studio.onOpenUploadSkillDialog}
               />
             </div>
           </div>
@@ -107,6 +105,17 @@ export function SkillsStudio({
         onDescriptionChange={studio.onNewSkillDescriptionChange}
         pending={studio.createSkillPending}
         onCreate={studio.onCreateSkill}
+      />
+
+      <UploadSkillDialog
+        open={studio.showUploadSkillDialog}
+        onOpenChange={studio.onUploadSkillDialogChange}
+        isDragOver={studio.isDragOver}
+        onDragOver={studio.onDragOver}
+        onDragLeave={studio.onDragLeave}
+        onDrop={studio.onDrop}
+        onDirectoryInput={studio.onDirectoryInput}
+        uploadSkillPending={studio.uploadSkillPending}
       />
 
       <AddFileDialog

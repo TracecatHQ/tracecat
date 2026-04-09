@@ -3,7 +3,23 @@ import type { DragEvent, ReactNode } from "react"
 
 import { Badge } from "@/components/ui/badge"
 
-const EDITABLE_EXTENSIONS = [".md", ".py"] as const
+const EDITABLE_EXTENSIONS = [
+  ".md",
+  ".py",
+  ".txt",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".ts",
+  ".jsx",
+  ".tsx",
+  ".html",
+  ".htm",
+  ".css",
+  ".json",
+  ".yaml",
+  ".yml",
+] as const
 
 export type DraftChange =
   | { kind: "text"; content: string; contentType: string }
@@ -46,6 +62,29 @@ export function isMarkdownPath(path: string): boolean {
   return path.endsWith(".md")
 }
 
+const SKILL_SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
+const SKILL_SLUG_MAX_LENGTH = 64
+
+/**
+ * Validates a skill slug against the Agent Skills `name` rules: kebab-case
+ * (lowercase letters, digits, and single hyphens), 1-64 characters.
+ *
+ * Returns a human-readable error message, or null if the slug is valid.
+ */
+export function validateSkillSlug(slug: string): string | null {
+  const trimmed = slug.trim()
+  if (trimmed.length === 0) {
+    return "Slug is required."
+  }
+  if (trimmed.length > SKILL_SLUG_MAX_LENGTH) {
+    return `Slug must be ${SKILL_SLUG_MAX_LENGTH} characters or fewer.`
+  }
+  if (!SKILL_SLUG_PATTERN.test(trimmed)) {
+    return "Use lowercase letters, numbers, and single hyphens (e.g. threat-intel)."
+  }
+  return null
+}
+
 /**
  * Computes content-type header for editor-generated content.
  */
@@ -69,7 +108,10 @@ export function getLanguageForPath(path: string): string {
   if (path.endsWith(".json")) {
     return "json"
   }
-  return "python"
+  if (path.endsWith(".yaml") || path.endsWith(".yml")) {
+    return "yaml"
+  }
+  return "text"
 }
 
 /**

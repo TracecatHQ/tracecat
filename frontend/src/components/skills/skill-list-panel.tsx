@@ -1,11 +1,26 @@
 "use client"
 
-import { AlertCircle, Bot, Copy, Loader2, Plus, Upload } from "lucide-react"
-import { type ChangeEvent, type DragEvent, useRef } from "react"
+import {
+  AlertCircle,
+  Bot,
+  ChevronDown,
+  Copy,
+  FilePlus,
+  Loader2,
+  Plus,
+  SearchX,
+  Upload,
+} from "lucide-react"
 import type { SkillRead } from "@/client"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import type { TracecatApiError } from "@/lib/errors"
@@ -20,19 +35,14 @@ type SkillListPanelProps = {
   visibleSkills: SkillRead[]
   skillsLoading: boolean
   skillsError: TracecatApiError | null
-  isDragOver: boolean
-  onDragOver: (event: DragEvent<HTMLDivElement>) => void
-  onDragLeave: () => void
-  onDrop: (event: DragEvent<HTMLDivElement>) => void
-  onDirectoryInput: (event: ChangeEvent<HTMLInputElement>) => void
-  uploadSkillPending: boolean
   onSelectSkill: (skillId: string) => void
   onCopyLocalAgentPrompt: () => Promise<void>
   onOpenNewSkillDialog: () => void
+  onOpenUploadSkillDialog: () => void
 }
 
 /**
- * Left sidebar listing workspace skills with search, upload, and creation.
+ * Left sidebar listing workspace skills with search and a create/upload menu.
  *
  * @param props Panel state and callbacks from the parent hook.
  */
@@ -44,18 +54,11 @@ export function SkillListPanel({
   visibleSkills,
   skillsLoading,
   skillsError,
-  isDragOver,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  onDirectoryInput,
-  uploadSkillPending,
   onSelectSkill,
   onCopyLocalAgentPrompt,
   onOpenNewSkillDialog,
+  onOpenUploadSkillDialog,
 }: SkillListPanelProps) {
-  const createInputRef = useRef<HTMLInputElement>(null)
-
   return (
     <div className="flex h-full flex-col">
       <div className="space-y-3 border-b p-4">
@@ -63,13 +66,45 @@ export function SkillListPanel({
           <div>
             <h2 className="text-base font-semibold">Skills</h2>
             <p className="text-sm text-muted-foreground">
-              Upload, edit, publish, and test workspace skills.
+              Author and publish skills.
             </p>
           </div>
-          <Button size="sm" variant="outline" onClick={onOpenNewSkillDialog}>
-            <Plus className="mr-2 size-4" />
-            New
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline">
+                <Plus className="mr-1 size-3.5" />
+                New
+                <ChevronDown className="ml-1 size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="
+                [&_[data-radix-collection-item]]:flex
+                [&_[data-radix-collection-item]]:items-center
+                [&_[data-radix-collection-item]]:gap-2
+              "
+            >
+              <DropdownMenuItem onSelect={onOpenNewSkillDialog}>
+                <FilePlus className="size-4 text-foreground/80" />
+                <div className="flex flex-col text-xs">
+                  <span>Skill</span>
+                  <span className="text-xs text-muted-foreground">
+                    Start from scratch
+                  </span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onOpenUploadSkillDialog}>
+                <Upload className="size-4 text-foreground/80" />
+                <div className="flex flex-col text-xs">
+                  <span>Upload</span>
+                  <span className="text-xs text-muted-foreground">
+                    Upload an existing skill directory
+                  </span>
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <Input
@@ -77,40 +112,6 @@ export function SkillListPanel({
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="Search skills"
         />
-
-        <div
-          className={cn(
-            "rounded-md border border-dashed p-3 text-sm transition-colors",
-            isDragOver
-              ? "border-foreground bg-muted/60"
-              : "border-muted-foreground/25"
-          )}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={(event) => void onDrop(event)}
-        >
-          <div className="flex items-center gap-2">
-            <Upload className="size-4 text-muted-foreground" />
-            <span className="font-medium">Upload from computer</span>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Drag a skill directory here or choose a folder.
-          </p>
-          <Button
-            size="sm"
-            variant="secondary"
-            className="mt-3"
-            onClick={() => createInputRef.current?.click()}
-            disabled={uploadSkillPending}
-          >
-            {uploadSkillPending ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
-            ) : (
-              <Upload className="mr-2 size-4" />
-            )}
-            Choose folder
-          </Button>
-        </div>
 
         <div className="rounded-md border p-3 text-sm">
           <div className="flex items-center justify-between gap-2">
@@ -152,9 +153,21 @@ export function SkillListPanel({
               </AlertDescription>
             </Alert>
           ) : visibleSkills.length === 0 ? (
-            <div className="px-2 py-6 text-sm text-muted-foreground">
-              No skills yet.
-            </div>
+            search.trim() ? (
+              <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
+                <SearchX className="size-5 text-muted-foreground" />
+                <p className="text-xs text-muted-foreground">
+                  No skills match &ldquo;{search.trim()}&rdquo;
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1 px-6 py-12 text-center">
+                <p className="text-sm font-medium">No skills yet</p>
+                <p className="text-xs text-muted-foreground">
+                  Create one from scratch or upload an existing skill directory.
+                </p>
+              </div>
+            )
           ) : (
             <div className="space-y-1">
               {visibleSkills.map((listedSkill) => {
@@ -193,18 +206,6 @@ export function SkillListPanel({
           )}
         </div>
       </ScrollArea>
-
-      <input
-        ref={createInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={(event) => void onDirectoryInput(event)}
-        {...({
-          directory: "",
-          webkitdirectory: "",
-        } as Record<string, string>)}
-      />
     </div>
   )
 }
