@@ -96,96 +96,82 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def get_preset_skill_bindings(
+    async def _list_skill_bindings(
+        self,
+        *,
+        binding_model: type[AgentPresetSkill] | type[AgentPresetVersionSkill],
+        owner_column: Any,
+        owner_id: uuid.UUID,
+    ) -> list[AgentPresetSkillBindingRead]:
+        """Return resolved skill bindings for a preset head or immutable version."""
+
+        stmt = (
+            select(
+                binding_model.skill_id,
+                Skill.slug,
+                Skill.title,
+                binding_model.skill_version_id,
+                SkillVersion.version,
+            )
+            .join(Skill, binding_model.skill_id == Skill.id)
+            .join(SkillVersion, binding_model.skill_version_id == SkillVersion.id)
+            .where(
+                binding_model.workspace_id == self.workspace_id,
+                owner_column == owner_id,
+            )
+            .order_by(Skill.slug.asc())
+        )
+        rows = (await self.session.execute(stmt)).tuples().all()
+        return [
+            AgentPresetSkillBindingRead(
+                skill_id=skill_id,
+                skill_slug=skill_slug,
+                skill_title=skill_title,
+                skill_version_id=skill_version_id,
+                skill_version=skill_version,
+            )
+            for skill_id, skill_slug, skill_title, skill_version_id, skill_version in rows
+        ]
+
+    async def _list_head_skill_bindings(
         self, preset_id: uuid.UUID
     ) -> list[AgentPresetSkillBindingRead]:
         """Return mutable skill bindings for a preset head."""
 
-        stmt = (
-            select(
-                AgentPresetSkill.skill_id,
-                Skill.slug,
-                Skill.title,
-                AgentPresetSkill.skill_version_id,
-                SkillVersion.version,
-            )
-            .join(Skill, AgentPresetSkill.skill_id == Skill.id)
-            .join(SkillVersion, AgentPresetSkill.skill_version_id == SkillVersion.id)
-            .where(
-                AgentPresetSkill.workspace_id == self.workspace_id,
-                AgentPresetSkill.preset_id == preset_id,
-            )
-            .order_by(Skill.slug.asc())
+        return await self._list_skill_bindings(
+            binding_model=AgentPresetSkill,
+            owner_column=AgentPresetSkill.preset_id,
+            owner_id=preset_id,
         )
-        rows = (await self.session.execute(stmt)).tuples().all()
-        return [
-            AgentPresetSkillBindingRead(
-                skill_id=skill_id,
-                skill_slug=skill_slug,
-                skill_title=skill_title,
-                skill_version_id=skill_version_id,
-                skill_version=skill_version,
-            )
-            for skill_id, skill_slug, skill_title, skill_version_id, skill_version in rows
-        ]
 
-    async def get_version_skill_bindings(
+    async def _list_version_skill_bindings(
         self, version_id: uuid.UUID
     ) -> list[AgentPresetSkillBindingRead]:
         """Return exact skill version refs for an immutable preset version."""
 
-        stmt = (
-            select(
-                AgentPresetVersionSkill.skill_id,
-                Skill.slug,
-                Skill.title,
-                AgentPresetVersionSkill.skill_version_id,
-                SkillVersion.version,
-            )
-            .join(Skill, AgentPresetVersionSkill.skill_id == Skill.id)
-            .join(
-                SkillVersion,
-                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
-            )
-            .where(
-                AgentPresetVersionSkill.workspace_id == self.workspace_id,
-                AgentPresetVersionSkill.preset_version_id == version_id,
-            )
-            .order_by(Skill.slug.asc())
+        return await self._list_skill_bindings(
+            binding_model=AgentPresetVersionSkill,
+            owner_column=AgentPresetVersionSkill.preset_version_id,
+            owner_id=version_id,
         )
-        rows = (await self.session.execute(stmt)).tuples().all()
-        return [
-            AgentPresetSkillBindingRead(
-                skill_id=skill_id,
-                skill_slug=skill_slug,
-                skill_title=skill_title,
-                skill_version_id=skill_version_id,
-                skill_version=skill_version,
-            )
-            for skill_id, skill_slug, skill_title, skill_version_id, skill_version in rows
-        ]
 
-    async def to_read_model(self, preset: AgentPreset) -> AgentPresetRead:
-        """Build the API read model for a preset."""
+    async def build_preset_read(self, preset: AgentPreset) -> AgentPresetRead:
+        """Build the response model for a preset."""
 
-        data = preset.to_dict()
-        data["skills"] = [
-            binding.model_dump(mode="json")
-            for binding in await self.get_preset_skill_bindings(preset.id)
-        ]
-        return AgentPresetRead.model_validate(data)
+        return AgentPresetRead(
+            **preset.to_dict(),
+            skills=await self._list_head_skill_bindings(preset.id),
+        )
 
-    async def to_version_read_model(
+    async def build_version_read(
         self, version: AgentPresetVersion
     ) -> AgentPresetVersionRead:
-        """Build the API read model for an immutable preset version."""
+        """Build the response model for an immutable preset version."""
 
-        data = version.to_dict()
-        data["skills"] = [
-            binding.model_dump(mode="json")
-            for binding in await self.get_version_skill_bindings(version.id)
-        ]
-        return AgentPresetVersionRead.model_validate(data)
+        return AgentPresetVersionRead(
+            **version.to_dict(),
+            skills=await self._list_version_skill_bindings(version.id),
+        )
 
     @require_scope("agent:create")
     @audit_log(resource_type="agent_preset", action="create")
@@ -1074,11 +1060,11 @@ class AgentPresetService(BaseWorkspaceService):
 
         base_bindings = {
             binding.skill_id: binding
-            for binding in await self.get_version_skill_bindings(base_version_id)
+            for binding in await self._list_version_skill_bindings(base_version_id)
         }
         compare_bindings = {
             binding.skill_id: binding
-            for binding in await self.get_version_skill_bindings(compare_version_id)
+            for binding in await self._list_version_skill_bindings(compare_version_id)
         }
         skill_changes: list[AgentPresetSkillBindingChange] = []
         for skill_id in sorted(set(base_bindings) | set(compare_bindings)):

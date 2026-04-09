@@ -62,7 +62,7 @@ async def create_agent_preset(
     service = AgentPresetService(session, role=role)
     try:
         preset = await service.create_preset(params)
-        return await service.to_read_model(preset)
+        return await service.build_preset_read(preset)
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -85,7 +85,7 @@ async def get_agent_preset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset with ID '{preset_id}' not found",
         )
-    return await service.to_read_model(preset)
+    return await service.build_preset_read(preset)
 
 
 @router.get("/by-slug/{slug}", response_model=AgentPresetRead)
@@ -103,7 +103,7 @@ async def get_agent_preset_by_slug(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset with slug '{slug}' not found",
         )
-    return await service.to_read_model(preset)
+    return await service.build_preset_read(preset)
 
 
 @router.patch("/{preset_id}", response_model=AgentPresetRead)
@@ -123,7 +123,7 @@ async def update_agent_preset(
             detail=f"Agent preset {preset_id} not found",
         )
     preset = await service.update_preset(preset, params)
-    return await service.to_read_model(preset)
+    return await service.build_preset_read(preset)
 
 
 @router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -175,7 +175,7 @@ async def list_agent_preset_versions(
     )
     items: list[AgentPresetVersionReadMinimal] = [
         AgentPresetVersionReadMinimal.model_validate(
-            await service.to_version_read_model(version),
+            await service.build_version_read(version),
             from_attributes=True,
         )
         for version in versions.items
@@ -207,7 +207,7 @@ async def get_agent_preset_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{version_id}' not found",
         )
-    return await service.to_version_read_model(version)
+    return await service.build_version_read(version)
 
 
 @router.get(
@@ -267,4 +267,4 @@ async def restore_agent_preset_version(
             detail=f"Agent preset version '{version_id}' not found",
         )
     restored = await service.restore_version(preset, version)
-    return await service.to_read_model(restored)
+    return await service.build_preset_read(restored)

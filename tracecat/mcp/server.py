@@ -49,7 +49,6 @@ from tracecat import config
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
-    AgentPresetRead,
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
@@ -6027,7 +6026,8 @@ async def create_agent_preset(
         params = AgentPresetCreate.model_validate(create_data)
         async with AgentPresetService.with_session(role=role) as svc:
             preset = await svc.create_preset(params)
-        return _json(AgentPresetRead.model_validate(preset).model_dump(mode="json"))
+            preset_read = await svc.build_preset_read(preset)
+        return _json(preset_read.model_dump(mode="json"))
     except ToolError:
         raise
     except ValidationError as e:
@@ -6101,9 +6101,8 @@ async def update_agent_preset(
             if not preset:
                 raise ToolError(f"Agent preset '{preset_slug}' not found")
             updated_preset = await svc.update_preset(preset, params)
-        return _json(
-            AgentPresetRead.model_validate(updated_preset).model_dump(mode="json")
-        )
+            updated_preset_read = await svc.build_preset_read(updated_preset)
+        return _json(updated_preset_read.model_dump(mode="json"))
     except ToolError:
         raise
     except ValidationError as e:
@@ -6297,9 +6296,10 @@ async def get_agent_preset(workspace_id: str, preset_slug: str) -> str:
         _, role = await _resolve_workspace_role(workspace_id)
         async with AgentPresetService.with_session(role=role) as svc:
             preset = await svc.get_preset_by_slug(preset_slug)
-        if not preset:
-            raise ToolError(f"Agent preset '{preset_slug}' not found")
-        return _json(AgentPresetRead.model_validate(preset).model_dump(mode="json"))
+            if not preset:
+                raise ToolError(f"Agent preset '{preset_slug}' not found")
+            preset_read = await svc.build_preset_read(preset)
+        return _json(preset_read.model_dump(mode="json"))
     except ToolError:
         raise
     except Exception as e:
