@@ -18,7 +18,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "0c6bb8f8e1d1"
-down_revision: str | None = "7e1a4d9c2b6f"
+down_revision: str | None = "b742858f7d69"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
