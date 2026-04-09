@@ -131,8 +131,8 @@
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
-| `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Disabled by default in OSS |
-| `TRACECAT__COLLECTION_MANIFESTS_ENABLED` | `true` | Disabled by default |
+| `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Store large action results and triggers in blob storage instead of Temporal history. |
+| `TRACECAT__COLLECTION_MANIFESTS_ENABLED` | `true` | Store large collections as chunked manifests in blob storage. |
 | `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` | `128000` | Threshold in bytes above which payloads are externalized to blob storage. |
 
 ## Local registry
