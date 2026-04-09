@@ -23,6 +23,7 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.preset.schemas import AgentPresetRead
 from tracecat.agent.skill.schemas import SkillRead, SkillUploadFile
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.expressions.common import ExprType
@@ -73,6 +74,17 @@ class _AsyncContext:
 
     async def __aexit__(self, exc_type, exc, tb):
         return None
+
+
+def _build_preset_read(preset: Any) -> AgentPresetRead:
+    data = dict(preset) if isinstance(preset, dict) else dict(vars(preset))
+    data.setdefault("skills", [])
+    return AgentPresetRead.model_validate(data)
+
+
+class _PresetReadBuilder:
+    async def build_preset_read(self, preset: Any) -> AgentPresetRead:
+        return _build_preset_read(preset)
 
 
 class _FakeRedis:
@@ -3598,7 +3610,7 @@ async def test_get_agent_preset_returns_full_configuration(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _PresetService:
+    class _PresetService(_PresetReadBuilder):
         async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
             assert preset_slug == "security-triage"
             return preset
@@ -3989,7 +4001,7 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
             assert provider == "openai"
             return True
 
-    class _PresetService:
+    class _PresetService(_PresetReadBuilder):
         async def create_preset(self, params: Any) -> SimpleNamespace:
             created["params"] = params
             now = datetime.now(UTC)
@@ -4084,7 +4096,7 @@ async def test_update_agent_preset_updates_existing_preset(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    class _PresetService:
+    class _PresetService(_PresetReadBuilder):
         async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
             assert preset_slug == "security-triage"
             return preset
@@ -4181,7 +4193,7 @@ async def test_update_agent_preset_resolves_explicit_model(
         assert model_provider == "openai"
         return "gpt-5-mini", "openai"
 
-    class _PresetService:
+    class _PresetService(_PresetReadBuilder):
         async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
             assert preset_slug == "security-triage"
             return preset
@@ -4306,7 +4318,7 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
             assert provider == "openai"
             return True
 
-    class _PresetService:
+    class _PresetService(_PresetReadBuilder):
         async def create_preset(self, params: Any) -> SimpleNamespace:
             created["params"] = params
             now = datetime.now(UTC)
