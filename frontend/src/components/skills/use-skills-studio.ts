@@ -65,15 +65,20 @@ type UseSkillsStudioReturn = {
   visibleSkills: SkillRead[]
   skillsLoading: boolean
   skillsError: TracecatApiError | null
+  onSelectSkill: (skillId: string) => void
+  onCopyLocalAgentPrompt: () => Promise<void>
+  onOpenNewSkillDialog: () => void
+  onOpenUploadSkillDialog: () => void
+
+  // Upload skill dialog
+  showUploadSkillDialog: boolean
+  onUploadSkillDialogChange: (open: boolean) => void
   isDragOver: boolean
   onDragOver: (event: DragEvent<HTMLDivElement>) => void
   onDragLeave: () => void
   onDrop: (event: DragEvent<HTMLDivElement>) => void
   onDirectoryInput: (event: ChangeEvent<HTMLInputElement>) => void
   uploadSkillPending: boolean
-  onSelectSkill: (skillId: string) => void
-  onCopyLocalAgentPrompt: () => Promise<void>
-  onOpenNewSkillDialog: () => void
 
   // Editor panel
   skill?: SkillRead
@@ -151,6 +156,7 @@ export function useSkillsStudio(params: {
     {}
   )
   const [showNewSkillDialog, setShowNewSkillDialog] = useState(false)
+  const [showUploadSkillDialog, setShowUploadSkillDialog] = useState(false)
   const [showNewFileDialog, setShowNewFileDialog] = useState(false)
   const [newSkillSlug, setNewSkillSlug] = useState("")
   const [newSkillTitle, setNewSkillTitle] = useState("")
@@ -253,6 +259,10 @@ export function useSkillsStudio(params: {
   }, [selectedSkillId])
 
   useEffect(() => {
+    markdownEditorActivatedRef.current = false
+  }, [draft?.draft_revision, selectedPath])
+
+  useEffect(() => {
     if (!selectedPath && visibleFiles[0]) {
       setSelectedPath(visibleFiles[0].path)
       return
@@ -265,10 +275,6 @@ export function useSkillsStudio(params: {
     }
   }, [selectedPath, visibleFiles])
 
-  useEffect(() => {
-    markdownEditorActivatedRef.current = false
-  }, [draft?.draft_revision, selectedPath])
-
   // ── Stable callbacks ────────────────────────────────────────────────
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -277,6 +283,10 @@ export function useSkillsStudio(params: {
   const handleDragLeave = useCallback(() => setIsDragOver(false), [])
   const handleOpenNewSkillDialog = useCallback(
     () => setShowNewSkillDialog(true),
+    []
+  )
+  const handleOpenUploadSkillDialog = useCallback(
+    () => setShowUploadSkillDialog(true),
     []
   )
   const handleOpenNewFileDialog = useCallback(
@@ -350,6 +360,7 @@ export function useSkillsStudio(params: {
           path: file.webkitRelativePath || file.name,
         }))
       )
+      setShowUploadSkillDialog(false)
     } catch (error) {
       toast({
         title: "Upload failed",
@@ -367,6 +378,7 @@ export function useSkillsStudio(params: {
     try {
       const droppedFiles = await extractDroppedFiles(event)
       await handleUploadFiles(droppedFiles)
+      setShowUploadSkillDialog(false)
     } catch (error) {
       toast({
         title: "Drop upload failed",
@@ -597,15 +609,19 @@ export function useSkillsStudio(params: {
     visibleSkills,
     skillsLoading,
     skillsError: skillsError ?? null,
+    onSelectSkill: handleSelectSkill,
+    onCopyLocalAgentPrompt: handleCopyLocalAgentPrompt,
+    onOpenNewSkillDialog: handleOpenNewSkillDialog,
+    onOpenUploadSkillDialog: handleOpenUploadSkillDialog,
+
+    showUploadSkillDialog,
+    onUploadSkillDialogChange: setShowUploadSkillDialog,
     isDragOver,
     onDragOver: handleDragOver,
     onDragLeave: handleDragLeave,
     onDrop: handleDrop,
     onDirectoryInput: handleDirectoryInput,
     uploadSkillPending,
-    onSelectSkill: handleSelectSkill,
-    onCopyLocalAgentPrompt: handleCopyLocalAgentPrompt,
-    onOpenNewSkillDialog: handleOpenNewSkillDialog,
 
     skill,
     skillLoading,

@@ -1,7 +1,8 @@
 "use client"
 
 import { type ComponentProps, memo } from "react"
-import { Streamdown } from "streamdown"
+import type { Streamdown } from "streamdown"
+import { MarkdownWithFrontmatter } from "@/components/ai-elements/markdown-with-frontmatter"
 import {
   ALLOWED_MARKDOWN_IMAGE_PREFIXES,
   ALLOWED_MARKDOWN_LINK_PREFIXES,
@@ -18,7 +19,7 @@ const responseRehypePlugins = getStreamdownRehypePlugins() as NonNullable<
 
 export const Response = memo(
   ({ className, children, ...props }: ResponseProps) => (
-    <Streamdown
+    <MarkdownWithFrontmatter
       {...props}
       className={cn(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
@@ -30,7 +31,7 @@ export const Response = memo(
       rehypePlugins={responseRehypePlugins}
     >
       {children}
-    </Streamdown>
+    </MarkdownWithFrontmatter>
   ),
   (prevProps, nextProps) => prevProps.children === nextProps.children
 )
