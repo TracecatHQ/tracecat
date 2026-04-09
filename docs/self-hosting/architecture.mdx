@@ -53,7 +53,7 @@ Four networks isolate traffic between service groups:
 
 | Network | Scope | Services |
 | :------ | :---- | :------- |
-| `core` | default | caddy, api, ui, worker, executor, agent-worker, agent-executor, mcp, redis, minio |
+| `core` | default | caddy, api, ui, worker, executor, agent-worker, agent-executor, mcp, redis, minio, temporal, temporal_ui, migrations |
 | `core-db` | internal | api, worker, executor, agent-worker, agent-executor, mcp, migrations, postgres_db |
 | `temporal` | default | temporal, temporal_ui, worker, executor, agent-worker, agent-executor, mcp |
 | `temporal-db` | internal | temporal, temporal_postgres_db |
