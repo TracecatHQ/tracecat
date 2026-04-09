@@ -714,7 +714,7 @@ class TestAgentPresetService:
         current_version = await agent_preset_service.get_current_version_for_preset(
             created_preset
         )
-        version_read = await agent_preset_service.to_version_read_model(current_version)
+        version_read = await agent_preset_service.build_version_read(current_version)
 
         assert len(version_read.skills) == 1
         assert version_read.skills[0].skill_version_id == skill_version.id
@@ -795,7 +795,7 @@ class TestAgentPresetService:
             created_preset,
             preset_version_one,
         )
-        restored_bindings = await agent_preset_service.get_preset_skill_bindings(
+        restored_bindings = await agent_preset_service._list_head_skill_bindings(
             restored.id
         )
 
@@ -843,10 +843,10 @@ class TestAgentPresetService:
         current_version = await agent_preset_service.get_current_version_for_preset(
             created_preset
         )
-        current_bindings = await agent_preset_service.get_preset_skill_bindings(
+        current_bindings = await agent_preset_service._list_head_skill_bindings(
             created_preset.id
         )
-        version_read = await agent_preset_service.to_version_read_model(current_version)
+        version_read = await agent_preset_service.build_version_read(current_version)
 
         assert current_bindings == []
         assert version_read.skills == []
