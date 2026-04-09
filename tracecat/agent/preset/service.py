@@ -329,31 +329,6 @@ class AgentPresetService(BaseWorkspaceService):
         await self.session.commit()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_agent_config_by_slug(
-        self, slug: str, *, preset_version: int | None = None
-    ) -> AgentConfig:
-        """Get the agent configuration for a preset by slug."""
-        version = await self.resolve_agent_preset_version(
-            slug=slug,
-            preset_version=preset_version,
-        )
-        return await self._version_to_agent_config(version)
-
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_agent_config(
-        self,
-        preset_id: uuid.UUID,
-        *,
-        preset_version_id: uuid.UUID | None = None,
-    ) -> AgentConfig:
-        """Get the agent configuration for a preset by ID."""
-        version = await self.resolve_agent_preset_version(
-            preset_id=preset_id,
-            preset_version_id=preset_version_id,
-        )
-        return await self._version_to_agent_config(version)
-
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_config(
         self,
         *,
@@ -506,7 +481,7 @@ class AgentPresetService(BaseWorkspaceService):
 
         return custom_headers
 
-    async def _resolve_mcp_integrations(
+    async def resolve_mcp_integrations(
         self, mcp_integrations: list[str] | None
     ) -> list[MCPServerConfig] | None:
         """Resolve MCP integrations into MCP server configs."""
@@ -781,13 +756,6 @@ class AgentPresetService(BaseWorkspaceService):
             )
 
         return mcp_servers
-
-    async def resolve_mcp_integrations(
-        self, mcp_integrations: list[str] | None
-    ) -> list[MCPServerConfig] | None:
-        """Resolve MCP integrations for public callers."""
-
-        return await self._resolve_mcp_integrations(mcp_integrations)
 
     async def _resolve_stdio_env(
         self,
@@ -1306,7 +1274,7 @@ class AgentPresetService(BaseWorkspaceService):
     async def _version_to_agent_config(
         self, version: AgentPresetVersion
     ) -> AgentConfig:
-        mcp_servers = await self._resolve_mcp_integrations(version.mcp_integrations)
+        mcp_servers = await self.resolve_mcp_integrations(version.mcp_integrations)
         model_settings: dict[str, Any] = {"reasoning_effort": "medium"}
         resolved_skills = await SkillService(
             self.session, role=self.role
