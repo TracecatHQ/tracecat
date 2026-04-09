@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
 from slugify import slugify
@@ -65,6 +65,11 @@ from tracecat.secrets.encryption import decrypt_value
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
 
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from tracecat.auth.types import Role
+
 
 class AgentPresetService(BaseWorkspaceService):
     """CRUD operations and helpers for agent presets."""
@@ -84,6 +89,10 @@ class AgentPresetService(BaseWorkspaceService):
         "enable_thinking",
         "enable_internet_access",
     }
+
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role=role)
+        self.skills = SkillService(session, role=self.role)
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
@@ -223,9 +232,7 @@ class AgentPresetService(BaseWorkspaceService):
         if params.mcp_integrations:
             await self.validate_mcp_integrations(params.mcp_integrations)
         if params.skills:
-            await SkillService(self.session, role=self.role).validate_binding_inputs(
-                params.skills
-            )
+            await self.skills.validate_binding_inputs(params.skills)
         preset = AgentPreset(
             workspace_id=self.workspace_id,
             slug=slug,
@@ -313,8 +320,7 @@ class AgentPresetService(BaseWorkspaceService):
                 execution_changed = True
 
         if requested_skills is not None:
-            skill_service = SkillService(self.session, role=self.role)
-            await skill_service.validate_binding_inputs(requested_skills)
+            await self.skills.validate_binding_inputs(requested_skills)
             current_specs = await self._get_head_skill_binding_specs(preset.id)
             requested_specs = self._binding_specs_from_inputs(requested_skills)
             if current_specs != requested_specs:
@@ -1299,9 +1305,9 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentConfig:
         mcp_servers = await self.resolve_mcp_integrations(version.mcp_integrations)
         model_settings: dict[str, Any] = {}
-        resolved_skills = await SkillService(
-            self.session, role=self.role
-        ).get_resolved_skill_refs_for_preset_version(version.id)
+        resolved_skills = await self.skills.get_resolved_skill_refs_for_preset_version(
+            version.id
+        )
         # Only disable parallel tool calls if tools will be present
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
