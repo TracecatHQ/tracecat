@@ -224,6 +224,11 @@ def _content_item_to_part(item: Any) -> dict[str, Any]:
                     "args": _tool_arguments(function_call.get("arguments")),
                 }
             }
+        case {"type": "tool_result", "tool_use_id": str()}:
+            # tool_result blocks are handled as separate NormalizedMessage
+            # entries; drop them here so Anthropic-only fields are never
+            # sent to Google as raw parts.
+            return _text_part("")
         case _ if isinstance(item, dict):
             return dict(item)
         case _:
@@ -275,6 +280,13 @@ def _anthropic_blocks_to_google_parts(
                     tool_use_part["thoughtSignature"] = pending_thought_signature
                     pending_thought_signature = ""
                 parts.append(tool_use_part)
+            case "tool_result":
+                # Tool results are already emitted as separate
+                # NormalizedMessage(role="tool") entries which
+                # _message_to_parts converts to functionResponse.
+                # Skip them here to avoid sending raw Anthropic
+                # fields (tool_use_id, type, content) to Google.
+                pending_thought_signature = ""
             case _:
                 parts.append(_content_item_to_part(item))
                 pending_thought_signature = ""
@@ -408,6 +420,12 @@ def _content_messages_from_request(
 ) -> list[_GoogleContentMessage]:
     """Build Google `contents`, moving system prompts to top-level config.
 
+    Consecutive tool messages are coalesced into a single ``user`` turn so
+    that parallel function-call results appear together — matching the
+    preceding ``model`` turn that issued them.  Google requires all
+    ``functionResponse`` parts for a set of parallel calls to be returned
+    in one user turn.
+
     Gemini and Vertex reject requests without any content messages, so we emit
     a single blank user turn when the normalized transcript would otherwise be
     empty.
@@ -415,18 +433,30 @@ def _content_messages_from_request(
 
     del system_instruction_key
     contents: list[_GoogleContentMessage] = []
+    pending_tool_parts: list[dict[str, Any]] = []
+
+    def _flush_tool_parts() -> None:
+        if pending_tool_parts:
+            contents.append({"role": "user", "parts": list(pending_tool_parts)})
+            pending_tool_parts.clear()
+
     for message in messages:
         if message.role == "system":
             continue
         parts = _message_to_parts(message)
         if not parts:
             continue
+        if message.role == "tool":
+            pending_tool_parts.extend(parts)
+            continue
+        _flush_tool_parts()
         contents.append(
             {
                 "role": "model" if message.role == "assistant" else "user",
                 "parts": parts,
             }
         )
+    _flush_tool_parts()
 
     if contents:
         return contents

@@ -794,7 +794,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     status=WorkflowExecutionEventStatus.SCHEDULED,
                     action_name=PlatformAction.AI_AGENT.value,
                     action_ref=memo.action_ref,
-                    action_input=agent_run_args,
+                    action_input=agent_run_args.agent_args,
                     child_wf_exec_id=None,
                     loop_index=memo.loop_index,
                     stream_id=memo.stream_id,
