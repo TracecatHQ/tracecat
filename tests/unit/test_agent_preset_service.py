@@ -1099,68 +1099,6 @@ class TestAgentPresetService:
         ):
             await agent_preset_service.create_preset(agent_preset_create_params)
 
-    async def test_get_agent_config(
-        self,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-        registry_actions: list[RegistryAction],
-    ) -> None:
-        """Test getting agent config from a preset."""
-        # Create preset with full configuration
-        agent_preset_create_params.actions = ["tools.test.test_action"]
-        agent_preset_create_params.namespaces = ["tools.test"]
-        agent_preset_create_params.tool_approvals = {"tools.test.test_action": True}
-
-        created_preset = await agent_preset_service.create_preset(
-            agent_preset_create_params
-        )
-
-        # Get agent config by ID
-        agent_config = await agent_preset_service.get_agent_config(created_preset.id)
-
-        assert isinstance(agent_config, AgentConfig)
-        assert agent_config.model_name == agent_preset_create_params.model_name
-        assert agent_config.model_provider == agent_preset_create_params.model_provider
-        assert agent_config.instructions == agent_preset_create_params.instructions
-        assert agent_config.actions == agent_preset_create_params.actions
-        assert agent_config.namespaces == agent_preset_create_params.namespaces
-        assert agent_config.tool_approvals == agent_preset_create_params.tool_approvals
-        assert agent_config.retries == agent_preset_create_params.retries
-
-    async def test_get_agent_config_by_slug(
-        self,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-    ) -> None:
-        """Test getting agent config by slug."""
-        created_preset = await agent_preset_service.create_preset(
-            agent_preset_create_params
-        )
-
-        config = await agent_preset_service.get_agent_config_by_slug(
-            created_preset.slug
-        )
-
-        assert isinstance(config, AgentConfig)
-        assert config.model_name == agent_preset_create_params.model_name
-
-    async def test_get_agent_config_not_found(
-        self, agent_preset_service: AgentPresetService
-    ) -> None:
-        """Test that getting config for non-existent preset raises error."""
-        with pytest.raises(TracecatNotFoundError, match="Agent preset '.*' not found"):
-            await agent_preset_service.get_agent_config(uuid.uuid4())
-
-    async def test_get_agent_config_by_slug_not_found(
-        self, agent_preset_service: AgentPresetService
-    ) -> None:
-        """Test that getting config by non-existent slug raises error."""
-        with pytest.raises(
-            TracecatNotFoundError,
-            match="Agent preset 'nonexistent' not found",
-        ):
-            await agent_preset_service.get_agent_config_by_slug("nonexistent")
-
     async def test_resolve_agent_preset_config_by_id(
         self,
         agent_preset_service: AgentPresetService,
@@ -1194,6 +1132,25 @@ class TestAgentPresetService:
 
         assert isinstance(config, AgentConfig)
         assert config.model_name == agent_preset_create_params.model_name
+
+    async def test_resolve_agent_preset_config_by_id_not_found(
+        self, agent_preset_service: AgentPresetService
+    ) -> None:
+        """Test that resolving config for non-existent preset raises error."""
+        with pytest.raises(TracecatNotFoundError, match="Agent preset '.*' not found"):
+            await agent_preset_service.resolve_agent_preset_config(
+                preset_id=uuid.uuid4()
+            )
+
+    async def test_resolve_agent_preset_config_by_slug_not_found(
+        self, agent_preset_service: AgentPresetService
+    ) -> None:
+        """Test that resolving config by non-existent slug raises error."""
+        with pytest.raises(
+            TracecatNotFoundError,
+            match="Agent preset 'nonexistent' not found",
+        ):
+            await agent_preset_service.resolve_agent_preset_config(slug="nonexistent")
 
     async def test_resolve_agent_preset_config_no_params_raises_error(
         self, agent_preset_service: AgentPresetService

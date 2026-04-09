@@ -173,13 +173,15 @@ async def list_agent_preset_versions(
         preset_id,
         CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
     )
+    items: list[AgentPresetVersionReadMinimal] = [
+        AgentPresetVersionReadMinimal.model_validate(
+            await service.to_version_read_model(version),
+            from_attributes=True,
+        )
+        for version in versions.items
+    ]
     return CursorPaginatedResponse(
-        items=[
-            AgentPresetVersionReadMinimal.model_validate(
-                (await service.to_version_read_model(version)).model_dump(mode="json")
-            )
-            for version in versions.items
-        ],
+        items=items,
         next_cursor=versions.next_cursor,
         prev_cursor=versions.prev_cursor,
         has_more=versions.has_more,
