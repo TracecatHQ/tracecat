@@ -1,0 +1,35 @@
+Replace `<your-tracecat-url>` with your `PUBLIC_APP_URL` (e.g. `http://localhost` or `https://tracecat.example.com`).
+
+<Tabs sync={false}>
+  <Tab title="Claude Code" icon="https://cdn.simpleicons.org/anthropic">
+
+    ```bash
+    claude mcp add -t http tracecat <your-tracecat-url>/mcp
+    claude
+    /mcp
+    ```
+  </Tab>
+
+  <Tab title="OpenAI Codex" icon="https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/openai.svg">
+
+    ```bash
+    codex mcp add tracecat --url <your-tracecat-url>/mcp
+    codex mcp login tracecat
+    ```
+  </Tab>
+
+  <Tab title="Cursor" icon="https://cdn.simpleicons.org/cursor">
+
+    Configure in `.cursor/mcp.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "tracecat": {
+          "url": "<your-tracecat-url>/mcp"
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>

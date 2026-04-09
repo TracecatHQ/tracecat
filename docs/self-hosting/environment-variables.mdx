@@ -1,0 +1,41 @@
+---
+title: Environment variables
+description: Reference for all Tracecat environment variables.
+---
+
+import EnvironmentVariables from "/snippets/environment-variables.mdx";
+
+## Required secrets
+
+Tracecat requires four secrets that must be unique per deployment.
+
+| Secret | Purpose |
+| :----- | :------ |
+| `TRACECAT__DB_ENCRYPTION_KEY` | Fernet key for at-rest encryption in PostgreSQL. Losing it makes encrypted credentials unrecoverable. |
+| `TRACECAT__SERVICE_KEY` | HMAC key for service-to-service JWT signing. |
+| `TRACECAT__SIGNING_SECRET` | Signs webhook URLs and HMAC operations. Changing it invalidates existing webhook URLs. |
+| `USER_AUTH_SECRET` | Signs OAuth state parameters and password-reset tokens. |
+
+Generate all four with `openssl`:
+
+<Snippet file="generate-secrets.mdx" />
+
+## Create your `.env` file
+
+Download the `.env.example` template and the `env.sh` setup script, then run it to generate your `.env` file:
+
+```bash
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.39/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.39/.env.example
+chmod +x env.sh && ./env.sh
+```
+
+The script prompts you for `PUBLIC_APP_URL`, PostgreSQL SSL mode, and superadmin email, then writes a `.env` file with generated secrets.
+
+You can also view the raw template at [`/.env.example`](https://github.com/TracecatHQ/tracecat/blob/main/.env.example).
+
+See [Docker Compose](/self-hosting/docker-compose) for full deployment steps.
+
+## Variable reference
+
+<EnvironmentVariables />

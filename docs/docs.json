@@ -150,6 +150,8 @@
             "group": "Self-hosting",
             "icon": "server",
             "pages": [
+              "self-hosting/architecture",
+              "self-hosting/environment-variables",
               "self-hosting/docker-compose",
               "self-hosting/aws-fargate",
               "self-hosting/security"

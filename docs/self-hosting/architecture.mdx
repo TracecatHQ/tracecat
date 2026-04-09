@@ -1,0 +1,103 @@
+---
+title: Architecture
+description: Services, networking, and authentication for self-hosted Tracecat.
+---
+
+## Services
+
+The Docker Compose stack runs 15 containers. Only `caddy` is exposed externally; all other ports are internal to the Docker network.
+
+| Service | Port | Description |
+| :------ | :--- | :---------- |
+| `caddy` | 80 (configurable) | Reverse proxy and TLS termination |
+| `api` | 8000 | REST API and webhook receiver |
+| `ui` | 3000 | Next.js frontend |
+| `worker` | — | Workflow orchestrator |
+| `executor` | — | Action executor with optional sandbox |
+| `agent-worker` | — | AI agent orchestrator |
+| `agent-executor` | — | AI agent action executor |
+| `mcp` | 8099 | MCP server for IDE integrations |
+| `postgres_db` | 5432 | Application database (PostgreSQL 16) |
+| `temporal` | 7233 | Workflow engine |
+| `temporal_postgres_db` | 5432 | Temporal database (PostgreSQL 13) |
+| `temporal_ui` | 8081 (not exposed) | Temporal web UI |
+| `minio` | 9000, 9001 | S3-compatible object storage |
+| `redis` | 6379 | Cache and message broker |
+| `migrations` | — | One-shot database migration runner |
+
+## Networking
+
+### Caddy routing
+
+Caddy is the single entry point for all external traffic. It forwards requests based on path:
+
+| Path | Destination | Purpose |
+| :--- | :---------- | :------ |
+| `/api*` | `api:8000` | REST API |
+| `/mcp*` | `mcp:8099` | MCP server |
+| `/.well-known/oauth-*`, `/authorize*`, `/token`, `/register`, `/consent*`, `/auth/callback*` | `mcp:8099` | MCP OAuth flow |
+| `/s3/*` | `minio:9000` | Presigned URL proxy |
+| `/*` | `ui:3000` | Frontend (default) |
+
+### Data flow
+
+The browser connects to Caddy, which proxies to the API or UI. The UI server also calls the API directly via `INTERNAL_API_URL` for server-side rendering.
+
+External systems send webhooks to `/api/webhooks/...`, which Caddy forwards to the API service.
+
+The API submits workflow runs to the Temporal server on port 7233. Workers pull tasks from Temporal's task queue and dispatch actions to executors. Executors run individual action steps, optionally inside an nsjail sandbox. Agent workers and agent executors follow the same Temporal-based pattern for AI agent workflows.
+
+### Docker networks
+
+Four networks isolate traffic between service groups:
+
+| Network | Scope | Services |
+| :------ | :---- | :------- |
+| `core` | default | caddy, api, ui, worker, executor, agent-worker, agent-executor, mcp, redis, minio |
+| `core-db` | internal | api, worker, executor, agent-worker, agent-executor, mcp, migrations, postgres_db |
+| `temporal` | default | temporal, temporal_ui, worker, executor, agent-worker, agent-executor, mcp |
+| `temporal-db` | internal | temporal, temporal_postgres_db |
+
+Networks marked `internal` cannot reach the internet, preventing direct external access to databases.
+
+## OIDC
+
+Set `TRACECAT__AUTH_TYPES=oidc` in your `.env` file and configure these variables:
+
+- `OIDC_ISSUER` — your identity provider's issuer URL
+- `OIDC_CLIENT_ID` — client ID from your identity provider
+- `OIDC_CLIENT_SECRET` — client secret from your identity provider
+
+Set the callback URI in your identity provider to `<your-domain>/auth/oauth/callback`.
+
+See [OIDC configuration](/authentication/oidc) for provider-specific setup instructions.
+
+## SAML
+
+Set `TRACECAT__AUTH_TYPES=saml` in your `.env` file and configure `SAML_IDP_METADATA_URL` with your identity provider's metadata URL.
+
+Supported identity providers: Okta, Microsoft Entra ID, Authentik, and Keycloak.
+
+See [SAML configuration](/authentication/saml) for provider-specific setup instructions.
+
+## FAQ
+
+<AccordionGroup>
+  <Accordion title="Can I use an external PostgreSQL or Redis?">
+    Yes. Update `TRACECAT__DB_URI` to point to your managed PostgreSQL instance and `REDIS_URL` for Redis. For Temporal, update the Temporal PostgreSQL credentials in your `.env` file.
+
+    See [Security](/self-hosting/security) for production credential recommendations.
+  </Accordion>
+
+  <Accordion title="How do I enable production TLS?">
+    Caddy auto-provisions TLS certificates from Let's Encrypt when `BASE_DOMAIN` is set to a real domain. Set `PUBLIC_APP_URL` to use `https://` and expose ports 80 and 443 on the Caddy container.
+
+    See [Configure SSL for production](/self-hosting/docker-compose#how-do-i-configure-ssl-for-production) for step-by-step instructions.
+  </Accordion>
+
+  <Accordion title="How do I connect Tracecat MCP from my IDE?">
+    Point your IDE's MCP configuration to `<PUBLIC_APP_URL>/mcp`. Authentication uses a built-in OIDC provider — your agent will be redirected to sign in through the browser on first connection.
+
+    See [Tracecat MCP](/automations/tracecat-mcp#self-hosted) for IDE-specific setup instructions.
+  </Accordion>
+</AccordionGroup>
