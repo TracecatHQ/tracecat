@@ -2,7 +2,7 @@
 
 import * as CollapsiblePrimitive from "@radix-ui/react-collapsible"
 import { ChevronRight, Folder, FolderOpen } from "lucide-react"
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { SkillFileIcon } from "@/components/skills/skill-file-icon"
 import { Badge } from "@/components/ui/badge"
 import type { SkillFileTreeNode } from "@/lib/skills-studio"
@@ -33,23 +33,24 @@ export function SkillFileTree({
       )
   )
 
-  // Expand ancestor folders when selection changes, without an extra render cycle
-  const prevSelectedPathRef = useRef(selectedPath)
-  if (prevSelectedPathRef.current !== selectedPath) {
-    prevSelectedPathRef.current = selectedPath
-    if (selectedPath) {
-      const ancestors = getAncestorFolderPaths(selectedPath)
-      if (ancestors.length > 0) {
-        setExpandedFolders((current) => {
-          const next = new Set(current)
-          for (const folderPath of ancestors) {
-            next.add(folderPath)
-          }
-          return next
-        })
-      }
+  useEffect(() => {
+    if (!selectedPath) {
+      return
     }
-  }
+
+    const ancestors = getAncestorFolderPaths(selectedPath)
+    if (ancestors.length === 0) {
+      return
+    }
+
+    setExpandedFolders((current) => {
+      const next = new Set(current)
+      for (const folderPath of ancestors) {
+        next.add(folderPath)
+      }
+      return next
+    })
+  }, [selectedPath])
 
   const handleToggleFolder = useCallback((path: string) => {
     setExpandedFolders((current) => {
