@@ -431,10 +431,18 @@ export function useSkillsStudio(params: {
     if (!selectedFile) {
       return
     }
-    setDraftChanges((current) => ({
-      ...current,
-      [selectedFile.path]: { kind: "delete" },
-    }))
+    setDraftChanges((current) => {
+      if (selectedFile.isNew) {
+        const next = { ...current }
+        delete next[selectedFile.path]
+        return next
+      }
+
+      return {
+        ...current,
+        [selectedFile.path]: { kind: "delete" },
+      }
+    })
   }
 
   const handleUndoSelectedFileChange = () => {
