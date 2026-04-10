@@ -94,6 +94,7 @@ export function PlainTextEditor({
   className,
 }: PlainTextEditorProps) {
   const valueRef = React.useRef(value ?? "")
+  const [editorText, setEditorText] = React.useState(value ?? "")
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -112,15 +113,16 @@ export function PlainTextEditor({
       },
     },
     onUpdate: ({ editor }) => {
-      if (!onChange || !editor.isEditable) {
+      if (!editor.isEditable) {
         return
       }
       const next = editor.getText({ blockSeparator: "\n" })
+      setEditorText(next)
       if (next === valueRef.current) {
         return
       }
       valueRef.current = next
-      onChange(next)
+      onChange?.(next)
     },
     onFocus: () => {
       onFocus?.()
@@ -140,6 +142,7 @@ export function PlainTextEditor({
       return
     }
     valueRef.current = next
+    setEditorText(next)
     editor.commands.setContent(buildDoc(next), { emitUpdate: false })
   }, [editor, value])
 
@@ -165,8 +168,8 @@ export function PlainTextEditor({
     }
   }, [editor, onSave])
 
-  const wordCount = React.useMemo(() => countWords(value ?? ""), [value])
-  const charCount = (value ?? "").length
+  const wordCount = React.useMemo(() => countWords(editorText), [editorText])
+  const charCount = editorText.length
   const canUndo = editable && (editor?.can().undo() ?? false)
   const canRedo = editable && (editor?.can().redo() ?? false)
 
