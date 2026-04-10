@@ -623,7 +623,223 @@ async def test_get_workflow_returns_metadata_only(monkeypatch):
         )
     )
     assert payload["id"] == str(workflow_id)
+    assert payload["draft_revision"]
+    assert payload["draft_document"]["metadata"]["title"] == "Example workflow"
     assert "definition_yaml" not in payload
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_updates_metadata(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = SimpleNamespace(
+        id=workflow_id,
+        title="Example workflow",
+        description="Example description",
+        status="offline",
+        version=None,
+        alias=None,
+        entrypoint=None,
+        error_handler=None,
+        expects={},
+        returns=None,
+        config={},
+        actions=[],
+        schedules=[],
+        case_trigger=None,
+        trigger_position_x=0.0,
+        trigger_position_y=0.0,
+        viewport_x=0.0,
+        viewport_y=0.0,
+        viewport_zoom=1.0,
+    )
+
+    class _FakeSession:
+        def add(self, obj):
+            pass
+
+        async def commit(self):
+            pass
+
+        async def refresh(self, obj, attrs=None):
+            pass
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = _FakeSession()
+
+        async def get_workflow(self, _wf_id):
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {"op": "replace", "path": "/metadata/title", "value": "Updated flow"}
+            ],
+        )
+    )
+
+    assert payload["message"] == f"Workflow {workflow_id} updated successfully"
+    assert payload["draft_revision"]
+    assert workflow.title == "Updated flow"
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = SimpleNamespace(
+        id=workflow_id,
+        title="Example workflow",
+        description="Example description",
+        status="offline",
+        version=None,
+        alias=None,
+        entrypoint=None,
+        error_handler=None,
+        expects={},
+        returns=None,
+        config={},
+        actions=[],
+        schedules=[],
+        case_trigger=None,
+        trigger_position_x=0.0,
+        trigger_position_y=0.0,
+        viewport_x=0.0,
+        viewport_y=0.0,
+        viewport_zoom=1.0,
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id):
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/metadata/title",
+                    "value": "Validated flow",
+                }
+            ],
+            validate_only=True,
+        )
+    )
+
+    assert payload["valid"] is True
+    assert payload["validate_only"] is True
+    assert workflow.title == "Example workflow"
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_rejects_stale_revision(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = SimpleNamespace(
+        id=workflow_id,
+        title="Example workflow",
+        description="Example description",
+        status="offline",
+        version=None,
+        alias=None,
+        entrypoint=None,
+        error_handler=None,
+        expects={},
+        returns=None,
+        config={},
+        actions=[],
+        schedules=[],
+        case_trigger=None,
+        trigger_position_x=0.0,
+        trigger_position_y=0.0,
+        viewport_x=0.0,
+        viewport_y=0.0,
+        viewport_zoom=1.0,
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id):
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    with pytest.raises(ToolError) as exc_info:
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision="stale-revision",
+            patch_ops=[
+                {"op": "replace", "path": "/metadata/title", "value": "Updated flow"}
+            ],
+        )
+
+    payload = json.loads(str(exc_info.value))
+    assert payload["status"] == "conflict"
+    assert payload["current_revision"]
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_rejects_forbidden_paths(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+
+    with pytest.raises(ToolError, match="not editable via edit_workflow"):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(uuid.uuid4()),
+            base_revision="revision",
+            patch_ops=[{"op": "replace", "path": "/version", "value": 2}],
+        )
 
 
 @pytest.mark.anyio

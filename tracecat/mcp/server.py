@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from io import StringIO
 from pathlib import PurePosixPath
-from typing import Any, Literal, cast, get_args
+from typing import Any, Literal, Protocol, cast, get_args
 
 import orjson
 import sqlalchemy as sa
@@ -106,10 +106,13 @@ from tracecat.chat.schemas import BasicChatRequest, ChatRequest
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Action, Workflow, WorkflowDefinition
 from tracecat.dsl.common import (
+    DSLEntrypoint,
     DSLInput,
+    build_action_statements_from_actions,
     get_execution_type_from_search_attr,
     get_trigger_type_from_search_attr,
 )
+from tracecat.dsl.schemas import DSLConfig
 from tracecat.dsl.validation import (
     format_input_schema_validation_error,
     normalize_trigger_inputs,
@@ -138,6 +141,7 @@ from tracecat.mcp.config import (
     TRACECAT_MCP__RATE_LIMIT_BURST,
     TRACECAT_MCP__RATE_LIMIT_RPS,
 )
+from tracecat.mcp.json_patch import apply_json_patch_operations, validate_patch_paths
 from tracecat.mcp.middleware import (
     MCPInputSizeLimitMiddleware,
     MCPTimeoutMiddleware,
@@ -145,9 +149,15 @@ from tracecat.mcp.middleware import (
     get_mcp_client_id,
 )
 from tracecat.mcp.schemas import (
+    JsonPatchOperation,
     MCPPaginatedResponse,
     MCPTruncationInfo,
     MCPTruncationSummary,
+    WorkflowEditDefinition,
+    WorkflowEditDocument,
+    WorkflowEditMetadata,
+    WorkflowEditRequest,
+    WorkflowEditResponse,
 )
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.actions.schemas import TemplateAction
@@ -182,6 +192,7 @@ from tracecat.workflow.case_triggers.schemas import (
     CaseTriggerConfig,
     CaseTriggerRead,
     CaseTriggerUpdate,
+    is_case_trigger_configured,
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.service import WorkflowExecutionsService
@@ -782,6 +793,326 @@ def _template_file_bucket() -> str:
 def _compute_sha256(content: bytes) -> str:
     """Compute the SHA-256 digest for the given bytes."""
     return hashlib.sha256(content).hexdigest()
+
+
+_WORKFLOW_EDITABLE_TOP_LEVEL_PATHS = frozenset(
+    {"metadata", "definition", "layout", "schedules", "case_trigger"}
+)
+
+
+class _WorkflowEditDocumentSource(Protocol):
+    title: str
+    description: str | None
+    status: str
+    alias: str | None
+    error_handler: str | None
+    entrypoint: str | None
+    expects: dict[str, Any] | None
+    config: dict[str, Any] | None
+    returns: Any | None
+    trigger_position_x: float | None
+    trigger_position_y: float | None
+    viewport_x: float | None
+    viewport_y: float | None
+    viewport_zoom: float | None
+    actions: list[Action] | None
+    schedules: Sequence[Any] | None
+    case_trigger: Any | None
+
+
+def _workflow_schedule_sort_key(schedule: Any) -> str:
+    """Return a stable sort key for workflow schedules."""
+    schedule_id = getattr(schedule, "id", None)
+    if schedule_id is not None:
+        return str(schedule_id)
+    return json.dumps(
+        {
+            "cron": getattr(schedule, "cron", None),
+            "every": str(getattr(schedule, "every", None)),
+            "status": getattr(schedule, "status", None),
+        },
+        sort_keys=True,
+    )
+
+
+def _build_workflow_edit_document(
+    workflow: Workflow | _WorkflowEditDocumentSource,
+) -> WorkflowEditDocument:
+    """Build the canonical JSON document used by edit_workflow."""
+    actions = sorted(
+        workflow.actions or [],
+        key=lambda action: action.ref,
+    )
+    action_statements = build_action_statements_from_actions(actions) if actions else []
+
+    schedules = []
+    for schedule in sorted(
+        workflow.schedules or [],
+        key=_workflow_schedule_sort_key,
+    ):
+        schedules.append(
+            ScheduleRead.model_validate(schedule, from_attributes=True).model_dump(
+                mode="json",
+                exclude={
+                    "id",
+                    "workspace_id",
+                    "workflow_id",
+                    "created_at",
+                    "updated_at",
+                },
+            )
+        )
+
+    case_trigger_payload: dict[str, Any] | None = None
+    if case_trigger := workflow.case_trigger:
+        case_trigger_read = CaseTriggerRead.model_validate(
+            case_trigger, from_attributes=True
+        )
+        if is_case_trigger_configured(
+            status=case_trigger_read.status,
+            event_types=case_trigger_read.event_types,
+            tag_filters=case_trigger_read.tag_filters,
+        ):
+            case_trigger_payload = case_trigger_read.model_dump(
+                mode="json", exclude={"id", "workflow_id"}
+            )
+
+    return WorkflowEditDocument.model_validate(
+        {
+            "metadata": WorkflowEditMetadata(
+                title=workflow.title,
+                description=workflow.description or "",
+                status=cast(Literal["online", "offline"], workflow.status),
+                alias=workflow.alias,
+                error_handler=workflow.error_handler,
+            ).model_dump(mode="json"),
+            "definition": WorkflowEditDefinition(
+                entrypoint=DSLEntrypoint(
+                    ref=workflow.entrypoint,
+                    expects=workflow.expects,
+                ),
+                actions=action_statements,
+                config=DSLConfig.model_validate(workflow.config or {}),
+                returns=workflow.returns,
+            ).model_dump(mode="json", exclude_none=False),
+            "layout": {
+                "trigger": {
+                    "x": (
+                        workflow.trigger_position_x
+                        if workflow.trigger_position_x is not None
+                        else 0.0
+                    ),
+                    "y": (
+                        workflow.trigger_position_y
+                        if workflow.trigger_position_y is not None
+                        else 0.0
+                    ),
+                },
+                "viewport": {
+                    "x": workflow.viewport_x
+                    if workflow.viewport_x is not None
+                    else 0.0,
+                    "y": workflow.viewport_y
+                    if workflow.viewport_y is not None
+                    else 0.0,
+                    "zoom": (
+                        workflow.viewport_zoom
+                        if workflow.viewport_zoom is not None
+                        else 1.0
+                    ),
+                },
+                "actions": [
+                    {"ref": action.ref, "x": action.position_x, "y": action.position_y}
+                    for action in actions
+                ],
+            },
+            "schedules": schedules,
+            "case_trigger": case_trigger_payload,
+        }
+    )
+
+
+def _workflow_edit_document_payload(
+    document: WorkflowEditDocument,
+) -> dict[str, Any]:
+    """Serialize the canonical workflow edit document for patching and hashing."""
+    return document.model_dump(mode="json", exclude_none=False)
+
+
+def _compute_workflow_edit_revision(document: WorkflowEditDocument) -> str:
+    """Compute a stable draft revision for the editable workflow document."""
+    payload = _workflow_edit_document_payload(document)
+    serialized = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
+    return hashlib.sha256(serialized).hexdigest()
+
+
+def _validate_workflow_patch_paths(patch_ops: list[JsonPatchOperation]) -> None:
+    """Reject JSON Patch paths outside the editable workflow document."""
+    validate_patch_paths(
+        patch_ops,
+        allowed_top_level_paths=_WORKFLOW_EDITABLE_TOP_LEVEL_PATHS,
+    )
+
+
+def _workflow_edit_document_to_dsl(document: WorkflowEditDocument) -> DSLInput:
+    """Convert the editable workflow document into a DSLInput."""
+    return DSLInput(
+        title=document.metadata.title,
+        description=document.metadata.description,
+        entrypoint=document.definition.entrypoint,
+        actions=document.definition.actions,
+        config=document.definition.config,
+        returns=document.definition.returns,
+        error_handler=document.metadata.error_handler,
+    )
+
+
+def _validate_workflow_edit_document(document: WorkflowEditDocument) -> None:
+    """Validate editable workflow document semantics before persistence."""
+    action_refs = {action.ref for action in document.definition.actions}
+    for action_layout in document.layout.actions:
+        if action_layout.ref not in action_refs:
+            raise ToolError(
+                f"Unknown action ref {action_layout.ref!r} in layout.actions"
+            )
+    if document.definition.actions:
+        try:
+            _workflow_edit_document_to_dsl(document)
+        except (TracecatValidationError, ValidationError, ValueError) as exc:
+            raise ToolError(f"Invalid workflow definition: {exc}") from exc
+
+
+def _parse_workflow_edit_request(
+    *,
+    base_revision: str,
+    patch_ops: list[dict[str, Any]] | list[JsonPatchOperation],
+    validate_only: bool,
+) -> WorkflowEditRequest:
+    """Parse and validate the edit_workflow request payload."""
+    request = WorkflowEditRequest.model_validate(
+        {
+            "base_revision": base_revision,
+            "patch_ops": patch_ops,
+            "validate_only": validate_only,
+        }
+    )
+    _validate_workflow_patch_paths(request.patch_ops)
+    return request
+
+
+async def _persist_workflow_edit_document(
+    *,
+    role: Any,
+    service: WorkflowsManagementService,
+    workflow: Workflow,
+    original_document: WorkflowEditDocument,
+    updated_document: WorkflowEditDocument,
+) -> None:
+    """Persist changes from the editable workflow document back to the draft."""
+    original_payload = _workflow_edit_document_payload(original_document)
+    updated_payload = _workflow_edit_document_payload(updated_document)
+    changed_sections = {
+        key for key in updated_payload if updated_payload[key] != original_payload[key]
+    }
+    if not changed_sections:
+        return
+
+    workflow_id = WorkflowUUID.new(workflow.id)
+    layout_payload = updated_document.layout.model_dump(mode="json", exclude_none=False)
+    _, _, action_positions = _extract_layout_positions(layout_payload)
+
+    if "definition" in changed_sections:
+        if updated_document.definition.actions:
+            await _replace_workflow_definition_from_dsl(
+                service=service,
+                workflow_id=workflow_id,
+                dsl=_workflow_edit_document_to_dsl(updated_document),
+                action_positions=action_positions,
+            )
+        else:
+            workflow.title = updated_document.metadata.title
+            workflow.description = updated_document.metadata.description
+            workflow.status = updated_document.metadata.status
+            workflow.alias = updated_document.metadata.alias
+            workflow.error_handler = updated_document.metadata.error_handler
+            workflow.entrypoint = updated_document.definition.entrypoint.ref
+            entrypoint_data = updated_document.definition.entrypoint.model_dump(
+                exclude_none=True
+            )
+            workflow.expects = entrypoint_data.get("expects") or {}
+            workflow.returns = updated_document.definition.returns
+            workflow.config = updated_document.definition.config.model_dump(mode="json")
+            service.session.add(workflow)
+            await service.session.execute(
+                delete(Action).where(
+                    Action.workspace_id == service.workspace_id,
+                    Action.workflow_id == workflow.id,
+                )
+            )
+            await service.session.flush()
+            await service.session.refresh(workflow, ["actions"])
+    elif "metadata" in changed_sections:
+        metadata = updated_document.metadata
+        update_params = WorkflowUpdate(
+            title=metadata.title,
+            description=metadata.description,
+            status=metadata.status,
+            alias=metadata.alias,
+            error_handler=metadata.error_handler,
+        )
+        for key, value in update_params.model_dump(exclude_unset=True).items():
+            setattr(workflow, key, value)
+        service.session.add(workflow)
+
+    if "layout" in changed_sections:
+        await service.session.refresh(workflow, ["actions"])
+        _apply_layout_to_workflow(
+            workflow=workflow,
+            layout=MCPWorkflowLayout.model_validate(layout_payload),
+        )
+        service.session.add(workflow)
+        for action in workflow.actions:
+            service.session.add(action)
+
+    if "schedules" in changed_sections:
+        schedule_service = WorkflowSchedulesService(service.session, role=role)
+        schedules = [
+            MCPWorkflowSchedule.model_validate(
+                schedule.model_dump(mode="json", exclude_none=False)
+            )
+            for schedule in updated_document.schedules
+        ]
+        await _replace_workflow_schedules(
+            service=schedule_service,
+            workflow_id=workflow_id,
+            schedules=schedules,
+        )
+
+    if "case_trigger" in changed_sections:
+        case_trigger_service = CaseTriggersService(service.session, role=role)
+        if updated_document.case_trigger is None:
+            await case_trigger_service.upsert_case_trigger(
+                workflow_id,
+                CaseTriggerConfig(status="offline", event_types=[], tag_filters=[]),
+                create_missing_tags=True,
+                commit=False,
+            )
+        else:
+            await case_trigger_service.upsert_case_trigger(
+                workflow_id,
+                updated_document.case_trigger,
+                create_missing_tags=True,
+                commit=False,
+            )
+
+    await service.session.commit()
+    await service.session.refresh(workflow)
+    if any(section in changed_sections for section in {"definition", "layout"}):
+        await service.session.refresh(workflow, ["actions"])
+    if "schedules" in changed_sections:
+        await service.session.refresh(workflow, ["schedules"])
+    if "case_trigger" in changed_sections:
+        await service.session.refresh(workflow, ["case_trigger"])
 
 
 def _normalize_workflow_file_relative_path(relative_path: str) -> str:
@@ -1919,16 +2250,16 @@ Within a scatter stream, each child action accesses its item via \
 ## Recommended authoring sequence
 1. `get_workflow_authoring_context` — get action schemas, secrets, and variables
 2. Use `create_workflow` to create a blank workflow shell when needed
-3. Use inline `definition_yaml` on `create_workflow` / `update_workflow` for
-small workflow edits
-4. Use `get_workflow(include_definition_yaml=true)` when you want inline YAML
+3. `get_workflow` — fetch `draft_document` plus `draft_revision` for patch-based edits
+4. `edit_workflow` — apply RFC 6902 JSON Patch operations to the draft document
+5. Use `get_workflow(include_definition_yaml=true)` when you want inline YAML
 for a small workflow, or `get_workflow_file` / `prepare_workflow_file_upload`
 plus the file-based workflow create/update tools for larger workflows
-5. `validate_workflow` — check for structural and expression errors
-6. `publish_workflow` — freeze a versioned snapshot
-7. `run_published_workflow` or `run_draft_workflow` — execute it
-8. `list_workflow_executions` — see run history, find execution IDs
-9. `get_workflow_execution` — inspect execution status, per-action results/errors
+6. `validate_workflow` — check for structural and expression errors
+7. `publish_workflow` — freeze a versioned snapshot
+8. `run_published_workflow` or `run_draft_workflow` — execute it
+9. `list_workflow_executions` — see run history, find execution IDs
+10. `get_workflow_execution` — inspect execution status, per-action results/errors
 
 ## Workflow file tools
 - {_WORKFLOW_FILE_WARNING}
@@ -1937,6 +2268,8 @@ for small payloads up to 128 KB.
 - `get_workflow(include_definition_yaml=true)` returns inline `definition_yaml`
 when the workflow fits within that limit; otherwise it returns
 `definition_transport: "staged_required"` and a `suggested_relative_path`.
+- `get_workflow` also returns a JSON `draft_document` plus `draft_revision` for
+incremental MCP edits via `edit_workflow`.
 - `get_workflow_file` returns a short-lived download URL for remote `/mcp` clients.
 - `prepare_workflow_file_upload` is required for remote `/mcp` workflow file uploads. It returns a short-lived upload URL and an opaque artifact id for the finalize create/update tools.
 
@@ -2871,6 +3204,7 @@ _TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
     "create_workflow_from_uploaded_file": "workflows",
     "update_workflow_from_uploaded_file": "workflows",
     "update_workflow": "workflows",
+    "edit_workflow": "workflows",
     "list_workflows": "workflows",
     "list_workflow_tree": "workflows",
     "create_workflow_folder": "workflows",
@@ -3083,6 +3417,7 @@ async def get_workflow(
             workflow = await svc.get_workflow(wf_id)
             if not workflow:
                 raise ToolError(f"Workflow {workflow_id} not found")
+            draft_document = _build_workflow_edit_document(workflow)
             payload = {
                 "id": str(workflow.id),
                 "title": workflow.title,
@@ -3091,6 +3426,8 @@ async def get_workflow(
                 "version": workflow.version,
                 "alias": workflow.alias,
                 "entrypoint": workflow.entrypoint,
+                "draft_revision": _compute_workflow_edit_revision(draft_document),
+                "draft_document": _workflow_edit_document_payload(draft_document),
             }
             if include_definition_yaml:
                 payload.update(
@@ -3110,6 +3447,81 @@ async def get_workflow(
     except Exception as e:
         logger.error("Failed to get workflow", error=str(e))
         raise ToolError(f"Failed to get workflow: {e}") from None
+
+
+@mcp.tool()
+async def edit_workflow(
+    workspace_id: str,
+    workflow_id: str,
+    base_revision: str,
+    patch_ops: list[JsonPatchOperation],
+    validate_only: bool = False,
+) -> WorkflowEditResponse:
+    """Edit a draft workflow using RFC 6902 JSON Patch."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        wf_id = WorkflowUUID.new(workflow_id)
+        request = _parse_workflow_edit_request(
+            base_revision=base_revision,
+            patch_ops=patch_ops,
+            validate_only=validate_only,
+        )
+
+        async with WorkflowsManagementService.with_session(role=role) as svc:
+            workflow = await svc.get_workflow(wf_id)
+            if workflow is None:
+                raise ToolError(f"Workflow {workflow_id} not found")
+
+            draft_document = _build_workflow_edit_document(workflow)
+            current_revision = _compute_workflow_edit_revision(draft_document)
+            if request.base_revision != current_revision:
+                raise ToolError(
+                    {
+                        "type": "conflict",
+                        "status": "conflict",
+                        "message": "Draft revision mismatch",
+                        "current_revision": current_revision,
+                    }
+                )
+
+            patched_payload = apply_json_patch_operations(
+                document=_workflow_edit_document_payload(draft_document),
+                patch_ops=request.patch_ops,
+            )
+
+            updated_document = WorkflowEditDocument.model_validate(patched_payload)
+            _validate_workflow_edit_document(updated_document)
+
+            if request.validate_only:
+                return WorkflowEditResponse(
+                    message=f"Workflow {workflow_id} patch is valid",
+                    workflow_id=str(workflow.id),
+                    valid=True,
+                    validate_only=True,
+                    draft_revision=_compute_workflow_edit_revision(updated_document),
+                )
+
+            await _persist_workflow_edit_document(
+                role=role,
+                service=svc,
+                workflow=workflow,
+                original_document=draft_document,
+                updated_document=updated_document,
+            )
+            refreshed_document = _build_workflow_edit_document(workflow)
+            return WorkflowEditResponse(
+                message=f"Workflow {workflow_id} updated successfully",
+                workflow_id=str(workflow.id),
+                draft_revision=_compute_workflow_edit_revision(refreshed_document),
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to edit workflow", error=str(e))
+        raise ToolError(f"Failed to edit workflow: {e}") from None
 
 
 @mcp.tool()

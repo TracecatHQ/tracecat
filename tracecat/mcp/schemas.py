@@ -8,9 +8,13 @@ from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLEntrypoint, DSLInput
+from tracecat.dsl.schemas import ActionStatement, DSLConfig
+from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
 
 T = TypeVar("T")
+type JsonPrimitive = None | bool | int | float | str
+type JsonValue = JsonPrimitive | list[JsonValue] | dict[str, JsonValue]
 
 
 class LayoutPosition(BaseModel):
@@ -103,6 +107,68 @@ class WorkflowYamlPayload(BaseModel):
     layout: WorkflowLayout | None = None
     schedules: list[WorkflowSchedule] | None = None
     case_trigger: dict[str, Any] | None = None
+
+
+class WorkflowEditMetadata(BaseModel):
+    title: str = Field(min_length=3, max_length=100)
+    description: str = Field(max_length=1000)
+    status: Literal["online", "offline"]
+    alias: str | None = None
+    error_handler: str | None = None
+
+
+class WorkflowEditDefinition(BaseModel):
+    entrypoint: DSLEntrypoint = Field(default_factory=DSLEntrypoint)
+    actions: list[ActionStatement] = Field(default_factory=list)
+    config: DSLConfig = Field(default_factory=DSLConfig)
+    returns: Any | None = None
+
+
+class WorkflowEditDocument(BaseModel):
+    metadata: WorkflowEditMetadata
+    definition: WorkflowEditDefinition
+    layout: WorkflowLayout = Field(default_factory=WorkflowLayout)
+    schedules: list[WorkflowSchedule] = Field(default_factory=list)
+    case_trigger: CaseTriggerConfig | None = None
+
+
+class JsonPatchOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    op: Literal["add", "remove", "replace", "move", "copy", "test"]
+    path: str
+    from_: str | None = Field(default=None, alias="from")
+    value: JsonValue | None = None
+
+    @model_validator(mode="after")
+    def validate_operation_shape(self) -> JsonPatchOperation:
+        has_value = "value" in self.model_fields_set
+        match self.op:
+            case "add" | "replace" | "test":
+                if not has_value:
+                    raise ValueError(
+                        f"Patch operation {self.op!r} requires field 'value'"
+                    )
+            case "move" | "copy":
+                if self.from_ is None:
+                    raise ValueError(
+                        f"Patch operation {self.op!r} requires field 'from'"
+                    )
+        return self
+
+
+class WorkflowEditRequest(BaseModel):
+    base_revision: str
+    patch_ops: list[JsonPatchOperation]
+    validate_only: bool = False
+
+
+class WorkflowEditResponse(BaseModel):
+    message: str
+    workflow_id: str
+    draft_revision: str
+    valid: bool | None = None
+    validate_only: bool = False
 
 
 class ActionSecretRequirement(BaseModel):
