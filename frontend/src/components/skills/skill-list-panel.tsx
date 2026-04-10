@@ -2,9 +2,7 @@
 
 import {
   AlertCircle,
-  Bot,
   ChevronDown,
-  Copy,
   FilePlus,
   Loader2,
   Plus,
@@ -28,7 +26,6 @@ import { getApiErrorDetail } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 
 type SkillListPanelProps = {
-  workspaceId: string
   activeSkillId: string | null
   search: string
   onSearchChange: (value: string) => void
@@ -36,7 +33,6 @@ type SkillListPanelProps = {
   skillsLoading: boolean
   skillsError: TracecatApiError | null
   onSelectSkill: (skillId: string) => void
-  onCopyLocalAgentPrompt: () => Promise<void>
   onOpenNewSkillDialog: () => void
   onOpenUploadSkillDialog: () => void
 }
@@ -47,7 +43,6 @@ type SkillListPanelProps = {
  * @param props Panel state and callbacks from the parent hook.
  */
 export function SkillListPanel({
-  workspaceId,
   activeSkillId,
   search,
   onSearchChange,
@@ -55,7 +50,6 @@ export function SkillListPanel({
   skillsLoading,
   skillsError,
   onSelectSkill,
-  onCopyLocalAgentPrompt,
   onOpenNewSkillDialog,
   onOpenUploadSkillDialog,
 }: SkillListPanelProps) {
@@ -63,15 +57,15 @@ export function SkillListPanel({
     <div className="flex h-full flex-col">
       <div className="space-y-3 border-b p-4">
         <div className="flex items-center justify-between gap-2">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-base font-semibold">Skills</h2>
-            <p className="text-sm text-muted-foreground">
+            <p className="truncate text-sm text-muted-foreground">
               Author and publish skills.
             </p>
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline">
+              <Button size="sm" variant="ghost">
                 <Plus className="mr-1 size-3.5" />
                 New
                 <ChevronDown className="ml-1 size-3.5" />
@@ -112,30 +106,6 @@ export function SkillListPanel({
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="Search skills"
         />
-
-        <div className="rounded-md border p-3 text-sm">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Bot className="size-4 text-muted-foreground" />
-              <span className="font-medium">Upload via local agent</span>
-            </div>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => void onCopyLocalAgentPrompt()}
-            >
-              <Copy className="size-4" />
-            </Button>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Workspace ID: <span className="font-mono">{workspaceId}</span>
-          </p>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Local agents can call the Tracecat{" "}
-            <span className="font-mono">upload_skill</span> MCP tool to push a
-            local directory directly into this workspace.
-          </p>
-        </div>
       </div>
 
       <ScrollArea className="flex-1">
@@ -180,7 +150,7 @@ export function SkillListPanel({
                     className={cn(
                       "w-full rounded-md border px-3 py-2 text-left transition-colors",
                       isActive
-                        ? "border-foreground bg-muted"
+                        ? "border-primary bg-accent"
                         : "border-transparent hover:border-border hover:bg-muted/50"
                     )}
                   >

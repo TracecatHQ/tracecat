@@ -66,7 +66,6 @@ type UseSkillsStudioReturn = {
   skillsLoading: boolean
   skillsError: TracecatApiError | null
   onSelectSkill: (skillId: string) => void
-  onCopyLocalAgentPrompt: () => Promise<void>
   onOpenNewSkillDialog: () => void
   onOpenUploadSkillDialog: () => void
 
@@ -579,23 +578,8 @@ export function useSkillsStudio(params: {
     if (!selectedSkillId) {
       return
     }
-    if (
-      !window.confirm("Restore this published version into the working copy?")
-    ) {
-      return
-    }
     await restoreSkillVersion({ skillId: selectedSkillId, versionId })
     setDraftChanges({})
-  }
-
-  const handleCopyLocalAgentPrompt = async () => {
-    const exampleSlug = skill?.slug ?? "my-skill"
-    const prompt = `Upload the ./my-skill directory to Tracecat workspace ${workspaceId} as slug ${exampleSlug} using the upload_skill MCP tool.`
-    await navigator.clipboard.writeText(prompt)
-    toast({
-      title: "Prompt copied",
-      description: "The local-agent upload example is on your clipboard.",
-    })
   }
 
   // ── Return ─────────────────────────────────────────────────────────
@@ -610,7 +594,6 @@ export function useSkillsStudio(params: {
     skillsLoading,
     skillsError: skillsError ?? null,
     onSelectSkill: handleSelectSkill,
-    onCopyLocalAgentPrompt: handleCopyLocalAgentPrompt,
     onOpenNewSkillDialog: handleOpenNewSkillDialog,
     onOpenUploadSkillDialog: handleOpenUploadSkillDialog,
 

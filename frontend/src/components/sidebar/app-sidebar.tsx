@@ -116,10 +116,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewCases = useScopeCheck("case:read")
+<<<<<<< HEAD
+||||||| parent of de24ee634 (Improve skills studio and local MCP uploads)
+  const canCreateCase = useScopeCheck("case:create")
+=======
+  const canCreateCase = useScopeCheck("case:create")
+  const shouldLoadAgentEntitlements = canViewAgents === true
+>>>>>>> de24ee634 (Improve skills studio and local MCP uploads)
   const shouldLoadAgentsSection =
-    canViewAgents === true && (agentsSectionOpen || isAgentsRoute)
+    shouldLoadAgentEntitlements && (agentsSectionOpen || isAgentsRoute)
   const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
-    enabled: shouldLoadAgentsSection,
+    enabled: shouldLoadAgentEntitlements,
   })
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
