@@ -90,6 +90,11 @@ class SkillService(BaseWorkspaceService):
 
         return f"skills/{self.workspace_id}/{sha256}"
 
+    def _staged_upload_key_for(self, *, upload_id: uuid.UUID, sha256: str) -> str:
+        """Return the temporary storage key for a staged skill upload."""
+
+        return f"skills/{self.workspace_id}/uploads/{upload_id}/{sha256}"
+
     @staticmethod
     def _normalize_path(path: str) -> str:
         """Normalize and validate a relative POSIX draft path.
@@ -283,11 +288,19 @@ class SkillService(BaseWorkspaceService):
             )
         ).scalar_one_or_none()
         if blob_row is None:
+            canonical_key = self._storage_key_for(upload.sha256)
+            if upload.key != canonical_key:
+                await blob.upload_file(
+                    content=content,
+                    key=canonical_key,
+                    bucket=upload.bucket,
+                    content_type=upload.content_type,
+                )
             blob_row = SkillBlob(
                 workspace_id=self.workspace_id,
                 sha256=upload.sha256,
                 bucket=upload.bucket,
-                key=upload.key,
+                key=canonical_key,
                 size_bytes=upload.size_bytes,
                 content_type=upload.content_type,
             )
@@ -813,7 +826,9 @@ class SkillService(BaseWorkspaceService):
 
         upload_id = uuid.uuid4()
         expires_at = datetime.now(UTC) + timedelta(seconds=DEFAULT_UPLOAD_TTL_SECONDS)
-        storage_key = self._storage_key_for(params.sha256)
+        storage_key = self._staged_upload_key_for(
+            upload_id=upload_id, sha256=params.sha256
+        )
         upload_row = SkillUploadModel(
             workspace_id=self.workspace_id,
             skill_id=skill.id,
