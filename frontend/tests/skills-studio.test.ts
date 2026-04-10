@@ -285,4 +285,62 @@ describe("useSkillsStudio", () => {
     expect(mockCreateSkillDraftUpload).not.toHaveBeenCalled()
     expect(mockPatchSkillDraft).not.toHaveBeenCalled()
   })
+
+  it("preserves edits made while a save is in flight", async () => {
+    const patchDeferred = createDeferred<void>()
+    mockPatchSkillDraft.mockImplementation(() => patchDeferred.promise)
+
+    const { result } = renderHook(() =>
+      useSkillsStudio({
+        workspaceId: "workspace-1",
+        initialSkillId: "skill-1",
+      })
+    )
+
+    await waitFor(() => {
+      expect(result.current.selectedPath).toBe("SKILL.md")
+    })
+
+    act(() => {
+      result.current.markdownEditorActivatedRef.current = true
+      result.current.onEditorChange("First draft")
+    })
+
+    let savePromise: Promise<void> | undefined
+    act(() => {
+      savePromise = result.current.onSaveWorkingCopy()
+    })
+
+    await waitFor(() => {
+      expect(result.current.saveWorkingCopyPending).toBe(true)
+    })
+    expect(mockPatchSkillDraft).toHaveBeenCalledWith({
+      skillId: "skill-1",
+      requestBody: {
+        base_revision: 1,
+        operations: [
+          {
+            op: "upsert_text_file",
+            path: "SKILL.md",
+            content: "First draft",
+            content_type: "text/markdown; charset=utf-8",
+          },
+        ],
+      },
+    })
+
+    act(() => {
+      result.current.onEditorChange("Second draft")
+    })
+
+    patchDeferred.resolve()
+
+    await act(async () => {
+      await savePromise
+    })
+
+    expect(result.current.saveWorkingCopyPending).toBe(false)
+    expect(result.current.hasUnsavedChanges).toBe(true)
+    expect(result.current.currentTextValue).toBe("Second draft")
+  })
 })

@@ -577,7 +577,15 @@ export function useSkillsStudio(params: {
           operations,
         },
       })
-      setDraftChanges({})
+      setDraftChanges((current) => {
+        const next = { ...current }
+        for (const [path, change] of sortedChanges) {
+          if (next[path] === change) {
+            delete next[path]
+          }
+        }
+        return next
+      })
     } catch (error) {
       toast({
         title: "Save failed",
