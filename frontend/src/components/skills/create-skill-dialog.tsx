@@ -64,9 +64,11 @@ export function CreateSkillDialog({
               id="new-skill-title"
               value={title}
               onChange={(event) => {
-                onTitleChange(event.target.value)
-                if (!slug) {
-                  onSlugChange(slugify(event.target.value, "-"))
+                const nextTitle = event.target.value
+                const generatedSlug = slugify(title, "-")
+                onTitleChange(nextTitle)
+                if (!slug || slug === generatedSlug) {
+                  onSlugChange(slugify(nextTitle, "-"))
                 }
               }}
               placeholder="Threat Intel"
