@@ -242,10 +242,13 @@ class SkillService(BaseWorkspaceService):
             _, _, remainder = skill_markdown.partition("---\n")
             frontmatter, separator, body_part = remainder.partition("\n---\n")
             if separator:
-                loaded = yaml.safe_load(frontmatter) or {}
+                body = body_part
+                try:
+                    loaded = yaml.safe_load(frontmatter) or {}
+                except yaml.YAMLError:
+                    loaded = {}
                 if isinstance(loaded, dict):
                     metadata = dict(loaded)
-                    body = body_part
 
         if title is not None:
             metadata["title"] = title
