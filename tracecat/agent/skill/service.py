@@ -16,6 +16,7 @@ import sqlalchemy as sa
 import yaml
 from slugify import slugify
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
@@ -183,14 +184,17 @@ class SkillService(BaseWorkspaceService):
         """Create the seeded root SKILL.md for a new skill."""
 
         resolved_title = title or slug.replace("-", " ").title()
-        lines = [
-            "---",
-            f"title: {resolved_title}",
-        ]
+        metadata: dict[str, str] = {"title": resolved_title}
         if description:
-            lines.append(f"description: {description}")
-        lines.extend(
+            metadata["description"] = description
+        frontmatter_yaml = yaml.safe_dump(
+            metadata,
+            sort_keys=False,
+        ).strip()
+        return "\n".join(
             [
+                "---",
+                frontmatter_yaml,
                 "---",
                 "",
                 f"# {resolved_title}",
@@ -198,7 +202,28 @@ class SkillService(BaseWorkspaceService):
                 "Describe when this skill should be used and what it does.",
             ]
         )
-        return "\n".join(lines)
+
+    @staticmethod
+    def _is_skill_slug_conflict_error(exc: IntegrityError) -> bool:
+        """Return whether an integrity error came from the skill slug unique key."""
+
+        constraint_name = getattr(
+            getattr(exc.orig, "diag", None), "constraint_name", ""
+        )
+        return constraint_name == "uq_skill_workspace_slug" or (
+            "uq_skill_workspace_slug" in str(exc)
+        )
+
+    @staticmethod
+    def _raise_skill_slug_conflict(
+        slug: str, *, from_error: Exception | None = None
+    ) -> None:
+        """Raise the canonical validation error for duplicate skill slugs."""
+
+        raise TracecatValidationError(
+            f"Skill slug '{slug}' is already in use for this workspace",
+            detail={"code": "skill_slug_conflict", "slug": slug},
+        ) from from_error
 
     @staticmethod
     def _merge_skill_markdown_metadata(
@@ -675,10 +700,7 @@ class SkillService(BaseWorkspaceService):
         if exclude_id is not None:
             stmt = stmt.where(Skill.id != exclude_id)
         if (await self.session.execute(stmt)).scalar_one_or_none() is not None:
-            raise TracecatValidationError(
-                f"Skill slug '{normalized}' is already in use for this workspace",
-                detail={"code": "skill_slug_conflict", "slug": normalized},
-            )
+            self._raise_skill_slug_conflict(normalized)
         return normalized
 
     @require_scope("agent:create")
@@ -696,7 +718,13 @@ class SkillService(BaseWorkspaceService):
         slug = await self._normalize_and_validate_slug(slug=params.slug)
         skill = Skill(workspace_id=self.workspace_id, slug=slug, draft_revision=0)
         self.session.add(skill)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if self._is_skill_slug_conflict_error(exc):
+                self._raise_skill_slug_conflict(slug, from_error=exc)
+            raise
         root_markdown = self._build_default_skill_markdown(
             slug=slug,
             title=params.title,
@@ -750,7 +778,13 @@ class SkillService(BaseWorkspaceService):
 
         skill = Skill(workspace_id=self.workspace_id, slug=slug, draft_revision=0)
         self.session.add(skill)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if self._is_skill_slug_conflict_error(exc):
+                self._raise_skill_slug_conflict(slug, from_error=exc)
+            raise
         await self._replace_draft_with_blob_map(skill=skill, path_to_blob=path_to_blob)
         await self.session.commit()
         await self.session.refresh(skill)
