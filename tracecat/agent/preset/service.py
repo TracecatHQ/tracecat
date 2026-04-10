@@ -1161,6 +1161,15 @@ class AgentPresetService(BaseWorkspaceService):
             AgentPresetVersionSkill.preset_version_id == version_id,
         )
         rows = (await self.session.execute(stmt)).tuples().all()
+        await self.skills.validate_binding_inputs(
+            [
+                AgentPresetSkillBindingBase(
+                    skill_id=skill_id,
+                    skill_version_id=skill_version_id,
+                )
+                for skill_id, skill_version_id in rows
+            ]
+        )
         await self.session.execute(
             sa.delete(AgentPresetSkill).where(
                 AgentPresetSkill.workspace_id == self.workspace_id,
