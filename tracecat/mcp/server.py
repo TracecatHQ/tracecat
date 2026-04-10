@@ -6145,8 +6145,16 @@ async def upload_skill(
                 draft = await svc.get_draft(created.id)
                 if draft is None:
                     raise ToolError("Uploaded skill draft was not found")
-                skill_md = SkillService._build_default_skill_markdown(
-                    slug=slug, title=title, description=description
+                skill_md_file = await svc.get_draft_file(
+                    skill_id=created.id,
+                    path="SKILL.md",
+                )
+                if skill_md_file is None or skill_md_file.text_content is None:
+                    raise ToolError("Uploaded skill SKILL.md could not be loaded")
+                skill_md = SkillService._merge_skill_markdown_metadata(
+                    skill_md_file.text_content,
+                    title=title,
+                    description=description,
                 )
                 await svc.patch_draft(
                     skill_id=created.id,
