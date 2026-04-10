@@ -35,6 +35,7 @@ type WorkingCopyBarProps = {
   restoreSkillVersionPending: boolean
   hasUnsavedChanges: boolean
   canPublish: boolean
+  saveWorkingCopyPending: boolean
   patchSkillDraftPending: boolean
   createSkillDraftUploadPending: boolean
   publishSkillPending: boolean
@@ -55,6 +56,7 @@ type WorkingCopyBarProps = {
  *   draft={draft}
  *   hasUnsavedChanges={false}
  *   canPublish
+ *   saveWorkingCopyPending={false}
  *   patchSkillDraftPending={false}
  *   createSkillDraftUploadPending={false}
  *   publishSkillPending={false}
@@ -70,6 +72,7 @@ export function WorkingCopyBar({
   restoreSkillVersionPending,
   hasUnsavedChanges,
   canPublish,
+  saveWorkingCopyPending,
   patchSkillDraftPending,
   createSkillDraftUploadPending,
   publishSkillPending,
@@ -164,12 +167,15 @@ export function WorkingCopyBar({
             onClick={() => void onSaveWorkingCopy()}
             disabled={
               !hasUnsavedChanges ||
+              saveWorkingCopyPending ||
               patchSkillDraftPending ||
               createSkillDraftUploadPending ||
               !draft
             }
           >
-            {patchSkillDraftPending || createSkillDraftUploadPending ? (
+            {saveWorkingCopyPending ||
+            patchSkillDraftPending ||
+            createSkillDraftUploadPending ? (
               <Loader2 className="mr-2 size-4 animate-spin" />
             ) : (
               <Save className="mr-2 size-4" />

@@ -56,6 +56,7 @@ function SkillsStudioContent({
                   restoreSkillVersionPending={studio.restoreSkillVersionPending}
                   hasUnsavedChanges={studio.hasUnsavedChanges}
                   canPublish={studio.canPublish}
+                  saveWorkingCopyPending={studio.saveWorkingCopyPending}
                   patchSkillDraftPending={studio.patchSkillDraftPending}
                   createSkillDraftUploadPending={
                     studio.createSkillDraftUploadPending
