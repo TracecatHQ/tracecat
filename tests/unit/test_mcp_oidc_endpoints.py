@@ -363,9 +363,10 @@ def test_authorize_accepts_redirect_uri_without_explicit_default_http_port(
     [
         "http://localhost:abc/auth/callback",
         "http://localhost:70000/auth/callback",
+        "http://[::1/auth/callback",
     ],
 )
-def test_authorize_rejects_redirect_uri_with_invalid_port(
+def test_authorize_rejects_malformed_redirect_uri(
     client: TestClient,
     redirect_uri: str,
 ) -> None:

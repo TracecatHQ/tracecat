@@ -92,7 +92,11 @@ def _allowed_redirect_uri() -> str:
 
 def _normalize_default_port_uri(uri: str) -> str:
     """Normalize default HTTP(S) ports so equivalent callback URIs compare equal."""
-    parts = urlsplit(uri)
+    try:
+        parts = urlsplit(uri)
+    except ValueError:
+        return uri
+
     if not parts.scheme or not parts.hostname:
         return uri
 
