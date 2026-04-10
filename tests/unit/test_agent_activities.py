@@ -8,6 +8,7 @@ These tests cover:
 from __future__ import annotations
 
 import asyncio
+import shutil
 import uuid
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,7 @@ from tracecat.agent.session.activities import (
     load_session_activity,
 )
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.tools import BuildToolsResult
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -706,3 +708,74 @@ class TestSandboxedAgentExecutorSkillCaching:
         assert (cache_dir / "skill-a" / "SKILL.md").read_text() == "ok"
         assert (cache_dir / "skill-a" / "helper.py").read_text() == "ok"
         assert (cache_dir / "skill-a" / "README.md").read_text() == "ok"
+
+    @pytest.mark.anyio
+    async def test_stage_resolved_skills_offloads_copytree(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Resolved skill staging copies cached skill directories in a worker thread."""
+
+        mock_agent_config.resolved_skills = [
+            ResolvedSkillRef(
+                skill_id=uuid.uuid4(),
+                skill_slug="skill-a",
+                skill_version_id=uuid.uuid4(),
+                manifest_sha256="manifest-sha",
+            )
+        ]
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        cached_dir = tmp_path / "cache"
+        cached_dir.mkdir()
+        (cached_dir / "SKILL.md").write_text("# Cached skill")
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+        to_thread_calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        async def fake_ensure_cached_skill_dir(**kwargs) -> Path:
+            del kwargs
+            return cached_dir
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            to_thread_calls.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+        mock_service = AsyncMock()
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        monkeypatch.setattr(
+            mock_executor,
+            "_ensure_cached_skill_dir",
+            fake_ensure_cached_skill_dir,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.SkillService.with_session",
+            lambda role: mock_ctx,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.asyncio.to_thread",
+            fake_to_thread,
+        )
+
+        await mock_executor._stage_resolved_skills(skills_dir)
+
+        assert len(to_thread_calls) == 1
+        func, args, kwargs = to_thread_calls[0]
+        assert func is shutil.copytree
+        assert args[0] == cached_dir
+        assert args[1] == skills_dir / "skill-a"
+        assert kwargs == {"dirs_exist_ok": True}
+        assert (skills_dir / "skill-a" / "SKILL.md").read_text() == "# Cached skill"
