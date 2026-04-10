@@ -968,6 +968,49 @@ class TestAgentPresetService:
         assert restored_preset.instructions == agent_preset_create_params.instructions
         assert [version.version for version in versions.items] == [2, 1]
 
+    async def test_restore_version_rejects_archived_skill_bindings(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Restoring a version cannot reattach archived skills onto the mutable head."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(slug="archived-restore-skill")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Archived restore preset",
+                description="Preset that snapshots a skill before archiving",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+        version_1 = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(skills=None),
+        )
+        await skill_service.archive_skill(created_skill.id)
+
+        with pytest.raises(TracecatValidationError, match="not found"):
+            await agent_preset_service.restore_version(created_preset, version_1)
+
     async def test_update_preset_slug(
         self,
         agent_preset_service: AgentPresetService,
