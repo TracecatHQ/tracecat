@@ -543,6 +543,48 @@ class SkillService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def _get_bindable_skills(
+        self,
+        skill_ids: Sequence[uuid.UUID],
+        *,
+        for_update: bool = False,
+    ) -> dict[uuid.UUID, Skill]:
+        """Return active skills that can be bound onto a preset.
+
+        When ``for_update`` is true, rows are locked in a deterministic order so
+        skill archival and preset binding writes serialize on the same records.
+        """
+
+        normalized_ids = sorted(set(skill_ids), key=str)
+        if not normalized_ids:
+            return {}
+
+        if not for_update:
+            stmt = select(Skill).where(
+                Skill.workspace_id == self.workspace_id,
+                Skill.id.in_(normalized_ids),
+                Skill.archived_at.is_(None),
+            )
+            return {
+                skill.id: skill
+                for skill in (await self.session.execute(stmt)).scalars().all()
+            }
+
+        skills: dict[uuid.UUID, Skill] = {}
+        for skill_id in normalized_ids:
+            stmt = (
+                select(Skill)
+                .where(
+                    Skill.workspace_id == self.workspace_id,
+                    Skill.id == skill_id,
+                    Skill.archived_at.is_(None),
+                )
+                .with_for_update()
+            )
+            if skill := (await self.session.execute(stmt)).scalar_one_or_none():
+                skills[skill.id] = skill
+        return skills
+
     async def _normalize_and_validate_slug(
         self, *, slug: str, exclude_id: uuid.UUID | None = None
     ) -> str:
@@ -1078,7 +1120,7 @@ class SkillService(BaseWorkspaceService):
     ) -> SkillDraftRead:
         """Replace the mutable draft with a published snapshot."""
 
-        skill = await self.get_skill(skill_id)
+        skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
         version = await self.get_version(version_id)
@@ -1099,7 +1141,7 @@ class SkillService(BaseWorkspaceService):
     async def archive_skill(self, skill_id: uuid.UUID) -> None:
         """Archive a skill unless it is still bound on a preset head."""
 
-        skill = await self.get_skill(skill_id)
+        skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
         binding_stmt = (
@@ -1121,7 +1163,10 @@ class SkillService(BaseWorkspaceService):
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def validate_binding_inputs(
-        self, bindings: Sequence[AgentPresetSkillBindingBase]
+        self,
+        bindings: Sequence[AgentPresetSkillBindingBase],
+        *,
+        for_update: bool = False,
     ) -> None:
         """Validate preset skill bindings before they are persisted."""
 
@@ -1134,15 +1179,10 @@ class SkillService(BaseWorkspaceService):
             )
 
         skill_ids = [binding.skill_id for binding in bindings]
-        stmt = select(Skill).where(
-            Skill.workspace_id == self.workspace_id,
-            Skill.id.in_(skill_ids),
-            Skill.archived_at.is_(None),
+        skills = await self._get_bindable_skills(
+            skill_ids,
+            for_update=for_update,
         )
-        skills = {
-            skill.id: skill
-            for skill in (await self.session.execute(stmt)).scalars().all()
-        }
         missing = [str(skill_id) for skill_id in skill_ids if skill_id not in skills]
         if missing:
             raise TracecatValidationError(
