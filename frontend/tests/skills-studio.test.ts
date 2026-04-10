@@ -264,4 +264,25 @@ describe("useSkillsStudio", () => {
     })
     expect(mockPatchSkillDraft).toHaveBeenCalledTimes(1)
   })
+
+  it("skips save requests when no draft changes are staged", async () => {
+    const { result } = renderHook(() =>
+      useSkillsStudio({
+        workspaceId: "workspace-1",
+        initialSkillId: "skill-1",
+      })
+    )
+
+    await waitFor(() => {
+      expect(result.current.selectedPath).toBe("SKILL.md")
+    })
+
+    await act(async () => {
+      await result.current.onSaveWorkingCopy()
+    })
+
+    expect(result.current.saveWorkingCopyPending).toBe(false)
+    expect(mockCreateSkillDraftUpload).not.toHaveBeenCalled()
+    expect(mockPatchSkillDraft).not.toHaveBeenCalled()
+  })
 })

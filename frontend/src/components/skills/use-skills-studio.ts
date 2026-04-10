@@ -515,6 +515,10 @@ export function useSkillsStudio(params: {
       return
     }
 
+    if (Object.keys(draftChanges).length === 0) {
+      return
+    }
+
     saveWorkingCopyPendingRef.current = true
     setSaveWorkingCopyPending(true)
 
