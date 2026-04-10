@@ -33,6 +33,7 @@ from tracecat.agent.skill.service import SkillService
 from tracecat.auth.types import Role
 from tracecat.db.models import SkillBlob, SkillVersion, Workspace
 from tracecat.exceptions import TracecatValidationError
+from tracecat.pagination import CursorPaginationParams
 from tracecat.storage.blob import ensure_bucket_exists
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -228,9 +229,54 @@ class TestSkillService:
         assert payload_file is not None
         assert payload_file.kind == "download"
         assert payload_file.content_type == "application/octet-stream"
+        assert len({blob_row.key for blob_row in blob_rows}) == 2
         assert sorted(blob_row.content_type for blob_row in blob_rows) == [
             "application/octet-stream",
             "text/plain; charset=utf-8",
+        ]
+
+    async def test_invalid_skill_md_frontmatter_stays_in_validation_channel(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Malformed frontmatter should not break draft, read, or list responses."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(slug="broken-frontmatter")
+        )
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\ntitle: [broken\n---\n# Broken skill\n",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+
+        updated_draft = await skill_service.get_draft(created.id)
+        skill_read = await skill_service.get_skill_read(created.id)
+        listing = await skill_service.list_skills(CursorPaginationParams(limit=10))
+
+        assert updated_draft is not None
+        assert updated_draft.is_publishable is False
+        assert [error.code for error in updated_draft.validation_errors] == [
+            "invalid_skill_md_frontmatter"
+        ]
+        assert skill_read is not None
+        assert [error.code for error in skill_read.draft_validation_errors] == [
+            "invalid_skill_md_frontmatter"
+        ]
+        assert len(listing.items) == 1
+        assert [error.code for error in listing.items[0].draft_validation_errors] == [
+            "invalid_skill_md_frontmatter"
         ]
 
     async def test_patch_draft_enforces_revision(
@@ -403,7 +449,9 @@ class TestSkillService:
             ),
         )
 
-        canonical_key = skill_service._storage_key_for(sha256)
+        canonical_key = skill_service._storage_key_for(
+            sha256, "text/plain; charset=utf-8"
+        )
         assert upload.key != canonical_key
         assert "/uploads/" in upload.key
 

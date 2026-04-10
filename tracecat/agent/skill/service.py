@@ -85,10 +85,25 @@ class SkillService(BaseWorkspaceService):
 
         return hashlib.sha256(content).hexdigest()
 
-    def _storage_key_for(self, sha256: str) -> str:
+    @staticmethod
+    def _normalize_content_type(content_type: str) -> str:
+        """Return a canonical MIME type string for storage key derivation."""
+
+        parts = [part.strip().lower() for part in content_type.split(";")]
+        return "; ".join(part for part in parts if part)
+
+    @classmethod
+    def _content_type_digest(cls, content_type: str) -> str:
+        """Return a short stable digest for a canonicalized MIME type."""
+
+        normalized = cls._normalize_content_type(content_type)
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+    def _storage_key_for(self, sha256: str, content_type: str) -> str:
         """Return the canonical storage key for a skill blob."""
 
-        return f"skills/{self.workspace_id}/{sha256}"
+        content_type_digest = self._content_type_digest(content_type)
+        return f"skills/{self.workspace_id}/{sha256}/{content_type_digest}"
 
     def _staged_upload_key_for(self, *, upload_id: uuid.UUID, sha256: str) -> str:
         """Return the temporary storage key for a staged skill upload."""
@@ -223,7 +238,11 @@ class SkillService(BaseWorkspaceService):
 
     @staticmethod
     def _extract_frontmatter(skill_markdown: str) -> tuple[str | None, str | None]:
-        """Extract title and description from root SKILL.md frontmatter."""
+        """Extract title and description from root SKILL.md frontmatter.
+
+        Raises:
+            TracecatValidationError: If the frontmatter contains invalid YAML.
+        """
 
         if not skill_markdown.startswith("---\n"):
             return None, None
@@ -231,7 +250,13 @@ class SkillService(BaseWorkspaceService):
         frontmatter, separator, _ = remainder.partition("\n---\n")
         if not separator:
             return None, None
-        loaded = yaml.safe_load(frontmatter) or {}
+        try:
+            loaded = yaml.safe_load(frontmatter) or {}
+        except yaml.YAMLError as exc:
+            raise TracecatValidationError(
+                "Root SKILL.md frontmatter must be valid YAML",
+                detail={"code": "invalid_skill_md_frontmatter", "path": "SKILL.md"},
+            ) from exc
         if not isinstance(loaded, dict):
             return None, None
         title = loaded.get("title")
@@ -266,7 +291,7 @@ class SkillService(BaseWorkspaceService):
         if existing is not None:
             return existing
 
-        storage_key = self._storage_key_for(sha256)
+        storage_key = self._storage_key_for(sha256, content_type)
         await blob.upload_file(
             content=content,
             key=storage_key,
@@ -335,7 +360,7 @@ class SkillService(BaseWorkspaceService):
             )
         ).scalar_one_or_none()
         if blob_row is None:
-            canonical_key = self._storage_key_for(upload.sha256)
+            canonical_key = self._storage_key_for(upload.sha256, upload.content_type)
             if upload.key != canonical_key:
                 await blob.upload_file(
                     content=content,
@@ -453,7 +478,16 @@ class SkillService(BaseWorkspaceService):
             )
             return result
 
-        result.title, result.description = self._extract_frontmatter(markdown)
+        try:
+            result.title, result.description = self._extract_frontmatter(markdown)
+        except TracecatValidationError as exc:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="invalid_skill_md_frontmatter",
+                    message=str(exc),
+                    path="SKILL.md",
+                )
+            )
         return result
 
     async def _build_draft_read(self, skill: Skill) -> SkillDraftRead:
