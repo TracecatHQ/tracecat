@@ -17,6 +17,59 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _reconcile_skill_blob_duplicates_for_downgrade() -> None:
+    """Collapse content-type-split blobs back to one row per workspace and digest."""
+
+    duplicate_blob_cte = """
+    WITH duplicate_blobs AS (
+        SELECT
+            id AS duplicate_id,
+            MIN(id) OVER (PARTITION BY workspace_id, sha256) AS canonical_id
+        FROM skill_blob
+    )
+    """
+
+    op.execute(
+        duplicate_blob_cte
+        + """
+        UPDATE skill_draft_file AS draft_file
+        SET blob_id = duplicate_blobs.canonical_id
+        FROM duplicate_blobs
+        WHERE draft_file.blob_id = duplicate_blobs.duplicate_id
+          AND duplicate_blobs.duplicate_id <> duplicate_blobs.canonical_id
+        """
+    )
+    op.execute(
+        duplicate_blob_cte
+        + """
+        UPDATE skill_version_file AS version_file
+        SET blob_id = duplicate_blobs.canonical_id
+        FROM duplicate_blobs
+        WHERE version_file.blob_id = duplicate_blobs.duplicate_id
+          AND duplicate_blobs.duplicate_id <> duplicate_blobs.canonical_id
+        """
+    )
+    op.execute(
+        duplicate_blob_cte
+        + """
+        UPDATE skill_upload AS upload
+        SET blob_id = duplicate_blobs.canonical_id
+        FROM duplicate_blobs
+        WHERE upload.blob_id = duplicate_blobs.duplicate_id
+          AND duplicate_blobs.duplicate_id <> duplicate_blobs.canonical_id
+        """
+    )
+    op.execute(
+        duplicate_blob_cte
+        + """
+        DELETE FROM skill_blob
+        USING duplicate_blobs
+        WHERE skill_blob.id = duplicate_blobs.duplicate_id
+          AND duplicate_blobs.duplicate_id <> duplicate_blobs.canonical_id
+        """
+    )
+
+
 def upgrade() -> None:
     op.drop_constraint(
         "uq_skill_blob_workspace_sha256",
@@ -31,6 +84,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _reconcile_skill_blob_duplicates_for_downgrade()
     op.drop_constraint(
         "uq_skill_blob_workspace_sha256_content_type",
         "skill_blob",
