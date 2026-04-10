@@ -9,6 +9,7 @@ import uuid
 import pytest
 from dotenv import dotenv_values
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
@@ -110,6 +111,19 @@ async def configure_minio_for_skills(
 
 @pytest.mark.anyio
 class TestSkillService:
+    @staticmethod
+    def _skill_slug_integrity_error() -> IntegrityError:
+        class FakeDiag:
+            constraint_name = "uq_skill_workspace_slug"
+
+        class FakeUniqueViolationError(Exception):
+            diag: FakeDiag
+            pass
+
+        error = FakeUniqueViolationError("duplicate skill slug")
+        error.diag = FakeDiag()
+        return IntegrityError("INSERT INTO skill ...", {}, error)
+
     async def test_create_skill_seeds_default_draft(
         self,
         skill_service: SkillService,
@@ -134,6 +148,27 @@ class TestSkillService:
         assert draft.title == "Triage skill"
         assert draft.description == "Handle security triage"
         assert [file.path for file in draft.files] == ["SKILL.md"]
+
+    async def test_create_skill_escapes_frontmatter_values(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Seeded SKILL.md should remain valid for YAML-sensitive values."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(
+                slug="yaml-skill",
+                title="SOC: Triage",
+                description="Line one\nLine two",
+            )
+        )
+
+        draft = await skill_service.get_draft(created.id)
+
+        assert draft is not None
+        assert draft.is_publishable is True
+        assert draft.title == "SOC: Triage"
+        assert draft.description == "Line one\nLine two"
 
     async def test_create_skill_slugifies_to_kebab_case(
         self,
@@ -234,6 +269,73 @@ class TestSkillService:
             "application/octet-stream",
             "text/plain; charset=utf-8",
         ]
+
+    async def test_create_skill_translates_slug_integrity_error(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Create should map DB uniqueness races to the standard validation error."""
+
+        async def fail_flush() -> None:
+            raise self._skill_slug_integrity_error()
+
+        monkeypatch.setattr(skill_service.session, "flush", fail_flush)
+
+        with pytest.raises(TracecatValidationError, match="already in use") as exc_info:
+            await skill_service.create_skill(SkillCreate(slug="duplicate-skill"))
+
+        assert exc_info.value.detail == {
+            "code": "skill_slug_conflict",
+            "slug": "duplicate-skill",
+        }
+
+    async def test_upload_skill_translates_slug_integrity_error(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Upload should map DB uniqueness races to the standard validation error."""
+
+        seed = await skill_service.create_skill(SkillCreate(slug="seed-skill"))
+        seed_draft = await skill_service.get_draft(seed.id)
+        assert seed_draft is not None
+        seed_blob_id = seed_draft.files[0].blob_id
+        seed_blob = await skill_service.get_blob(seed_blob_id)
+        assert seed_blob is not None
+
+        async def fake_get_or_create_blob(
+            *, content: bytes, content_type: str
+        ) -> SkillBlob:
+            del content, content_type
+            return seed_blob
+
+        async def fail_flush() -> None:
+            raise self._skill_slug_integrity_error()
+
+        monkeypatch.setattr(
+            skill_service, "_get_or_create_blob", fake_get_or_create_blob
+        )
+        monkeypatch.setattr(skill_service.session, "flush", fail_flush)
+
+        with pytest.raises(TracecatValidationError, match="already in use") as exc_info:
+            await skill_service.upload_skill(
+                SkillUpload(
+                    slug="duplicate-skill",
+                    files=[
+                        SkillUploadFile(
+                            path="SKILL.md",
+                            content_base64=base64.b64encode(b"# Duplicate").decode(),
+                            content_type="text/markdown; charset=utf-8",
+                        )
+                    ],
+                )
+            )
+
+        assert exc_info.value.detail == {
+            "code": "skill_slug_conflict",
+            "slug": "duplicate-skill",
+        }
 
     async def test_invalid_skill_md_frontmatter_stays_in_validation_channel(
         self,
