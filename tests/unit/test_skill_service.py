@@ -124,6 +124,48 @@ class TestSkillService:
         error.diag = FakeDiag()
         return IntegrityError("INSERT INTO skill ...", {}, error)
 
+    async def test_insert_blob_row_reuses_existing_blob_identity(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Concurrent blob inserts should reuse the canonical row on conflict."""
+
+        content = b"shared blob content"
+        content_type = "text/plain; charset=utf-8"
+        sha256 = hashlib.sha256(content).hexdigest()
+        storage_key = skill_service._storage_key_for(sha256, content_type)
+
+        original = await skill_service._insert_blob_row(
+            sha256=sha256,
+            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+            key=storage_key,
+            size_bytes=len(content),
+            content_type=content_type,
+        )
+        reused = await skill_service._insert_blob_row(
+            sha256=sha256,
+            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+            key=storage_key,
+            size_bytes=len(content),
+            content_type=content_type,
+        )
+        blob_rows = (
+            (
+                await skill_service.session.execute(
+                    select(SkillBlob).where(
+                        SkillBlob.workspace_id == skill_service.workspace_id,
+                        SkillBlob.sha256 == sha256,
+                        SkillBlob.content_type == content_type,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        assert reused.id == original.id
+        assert len(blob_rows) == 1
+
     async def test_create_skill_seeds_default_draft(
         self,
         skill_service: SkillService,
