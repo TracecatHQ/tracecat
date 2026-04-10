@@ -358,6 +358,29 @@ def test_authorize_accepts_redirect_uri_without_explicit_default_http_port(
     assert response.status_code == 302
 
 
+@pytest.mark.parametrize(
+    "redirect_uri",
+    [
+        "http://localhost:abc/auth/callback",
+        "http://localhost:70000/auth/callback",
+    ],
+)
+def test_authorize_rejects_redirect_uri_with_invalid_port(
+    client: TestClient,
+    redirect_uri: str,
+) -> None:
+    response = client.get(
+        "/authorize",
+        params=_authorize_params(redirect_uri=redirect_uri),
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": "invalid_request",
+        "error_description": "redirect_uri does not match the registered callback",
+    }
+
+
 def test_authorize_rejects_missing_code_challenge(client: TestClient) -> None:
     response = client.get("/authorize", params=_authorize_params(code_challenge=""))
 

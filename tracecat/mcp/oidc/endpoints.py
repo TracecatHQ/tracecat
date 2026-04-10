@@ -97,7 +97,12 @@ def _normalize_default_port_uri(uri: str) -> str:
         return uri
 
     default_port = {"http": 80, "https": 443}.get(parts.scheme.lower())
-    if default_port is None or parts.port != default_port:
+    try:
+        parsed_port = parts.port
+    except ValueError:
+        return uri
+
+    if default_port is None or parsed_port != default_port:
         return uri
 
     host = parts.hostname
