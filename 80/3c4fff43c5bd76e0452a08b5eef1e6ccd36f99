@@ -1,0 +1,25 @@
+tracecat/mcp/server.py
+  1bd12c8b094e9482 3266,3304-3309,3320-3323
+tracecat/mcp/schemas.py
+  1bd12c8b094e9482 166-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "803c4fff43c5bd76e0452a08b5eef1e6ccd36f99",
+  "prompts": {
+    "1bd12c8b094e9482": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "e515aab9-a078-4aaa-a258-70c7f1951148",
+        "model": "default"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 20,
+      "total_deletions": 19,
+      "accepted_lines": 19,
+      "overriden_lines": 0
+    }
+  }
+}
