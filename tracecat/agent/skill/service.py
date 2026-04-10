@@ -111,17 +111,14 @@ class SkillService(BaseWorkspaceService):
                 detail={"code": "invalid_path", "path": path},
             )
 
-        normalized = str(PurePosixPath(path))
+        path_obj = PurePosixPath(path)
+        normalized = str(path_obj)
         if normalized in {"", "."}:
             raise TracecatValidationError(
                 "Skill path cannot be empty",
                 detail={"code": "invalid_path", "path": path},
             )
-        if (
-            normalized.startswith("/")
-            or normalized.startswith("../")
-            or "/../" in normalized
-        ):
+        if path_obj.is_absolute() or ".." in path_obj.parts:
             raise TracecatValidationError(
                 f"Skill path cannot escape the skill root: {path!r}",
                 detail={"code": "invalid_path", "path": path},
