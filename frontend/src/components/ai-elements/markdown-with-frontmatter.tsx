@@ -14,7 +14,11 @@ type MarkdownWithFrontmatterProps = ComponentProps<typeof Streamdown>
  * Renders markdown content while promoting YAML frontmatter into a metadata panel.
  */
 export const MarkdownWithFrontmatter = memo(
-  ({ children, className, ...props }: MarkdownWithFrontmatterProps) => {
+  function MarkdownWithFrontmatterInner({
+    children,
+    className,
+    ...props
+  }: MarkdownWithFrontmatterProps) {
     if (typeof children !== "string") {
       return (
         <Streamdown {...props} className={className}>
@@ -86,8 +90,7 @@ export const MarkdownWithFrontmatter = memo(
         )}
       </div>
     )
-  },
-  (prevProps, nextProps) => prevProps.children === nextProps.children
+  }
 )
 
 MarkdownWithFrontmatter.displayName = "MarkdownWithFrontmatter"
