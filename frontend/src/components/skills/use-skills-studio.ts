@@ -588,8 +588,12 @@ export function useSkillsStudio(params: {
     if (!selectedSkillId) {
       return
     }
-    await restoreSkillVersion({ skillId: selectedSkillId, versionId })
-    setDraftChanges({})
+    try {
+      await restoreSkillVersion({ skillId: selectedSkillId, versionId })
+      setDraftChanges({})
+    } catch {
+      // The mutation hook already reports restore failures to the user.
+    }
   }
 
   // ── Return ─────────────────────────────────────────────────────────
