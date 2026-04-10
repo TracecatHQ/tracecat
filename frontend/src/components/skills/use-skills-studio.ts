@@ -180,14 +180,15 @@ export function useSkillsStudio(params: {
   const selectedFile =
     visibleFiles.find((file) => file.path === selectedPath) ?? null
 
-  const selectedFileQueryPath =
-    selectedFile?.change?.kind === "delete"
-      ? null
-      : selectedFile?.change?.kind === "text" ||
-          selectedFile?.change?.kind === "upload" ||
-          selectedFile?.isNew
-        ? null
-        : (selectedFile?.path ?? null)
+  const selectedFileQueryPath = useMemo(() => {
+    if (!selectedFile || selectedFile.change?.kind === "delete") {
+      return null
+    }
+    if (selectedFile.isNew) {
+      return null
+    }
+    return selectedFile.path
+  }, [selectedFile])
 
   const { draftFile, draftFileLoading } = useSkillDraftFile(
     workspaceId,
