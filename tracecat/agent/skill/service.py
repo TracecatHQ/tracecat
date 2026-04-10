@@ -893,7 +893,7 @@ class SkillService(BaseWorkspaceService):
     async def publish_skill(self, skill_id: uuid.UUID) -> SkillVersionRead:
         """Publish the current draft into a new immutable skill version."""
 
-        skill = await self.get_skill(skill_id)
+        skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
         rows = await self._list_draft_rows(skill.id)

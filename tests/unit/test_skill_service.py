@@ -31,7 +31,7 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.skill.service import SkillService
 from tracecat.auth.types import Role
-from tracecat.db.models import SkillBlob, Workspace
+from tracecat.db.models import SkillBlob, SkillVersion, Workspace
 from tracecat.exceptions import TracecatValidationError
 from tracecat.storage.blob import ensure_bucket_exists
 
@@ -464,6 +464,92 @@ class TestSkillService:
 
         with pytest.raises(TracecatValidationError, match="failed validation"):
             await skill_service.publish_skill(created.id)
+
+    async def test_publish_skill_concurrently_allocates_unique_versions(
+        self,
+        svc_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Concurrent publishes serialize on the skill row and keep version numbers unique."""
+
+        role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+        concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
+        original_get_skill_for_update = SkillService._get_skill_for_update
+        lock_calls = 0
+
+        async def instrumented_get_skill_for_update(
+            self: SkillService, skill_id: uuid.UUID
+        ):
+            nonlocal lock_calls
+            lock_calls += 1
+            return await original_get_skill_for_update(self, skill_id)
+
+        monkeypatch.setattr(
+            SkillService,
+            "_get_skill_for_update",
+            instrumented_get_skill_for_update,
+        )
+
+        try:
+            async with session_factory() as seed_session:
+                workspace = await seed_session.scalar(
+                    select(Workspace).where(Workspace.id == role.workspace_id)
+                )
+                if workspace is None:
+                    seed_session.add(
+                        Workspace(
+                            id=role.workspace_id,
+                            name="test-workspace",
+                            organization_id=role.organization_id,
+                        )
+                    )
+                    await seed_session.commit()
+
+                seed_service = SkillService(
+                    session=seed_session,
+                    role=role.model_copy(deep=True),
+                )
+                created = await seed_service.create_skill(
+                    SkillCreate(slug="concurrent-publish-skill")
+                )
+
+            async def publish_once(index: int):
+                del index
+                async with session_factory() as concurrent_session:
+                    service = SkillService(
+                        session=concurrent_session,
+                        role=role.model_copy(deep=True),
+                    )
+                    return await service.publish_skill(created.id)
+
+            published_versions = await asyncio.gather(
+                publish_once(1),
+                publish_once(2),
+            )
+
+            assert lock_calls == 2
+            assert sorted(version.version for version in published_versions) == [1, 2]
+
+            async with session_factory() as verification_session:
+                versions = (
+                    (
+                        await verification_session.execute(
+                            select(SkillVersion.version)
+                            .where(SkillVersion.skill_id == created.id)
+                            .order_by(SkillVersion.version.asc())
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+
+            assert versions == [1, 2]
+        finally:
+            await concurrent_engine.dispose()
 
     async def test_publish_snapshots_and_restore_replaces_draft(
         self,
