@@ -13,7 +13,7 @@ import hmac
 import secrets
 import time
 from typing import Annotated, Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import jwt
 from fastapi import APIRouter, Depends, Form, Header, Query, Request
@@ -88,6 +88,29 @@ def _allowed_redirect_uri() -> str:
     The FastMCP proxy's callback is ``{PUBLIC_APP_URL}/auth/callback``.
     """
     return f"{TRACECAT__PUBLIC_APP_URL.rstrip('/')}/auth/callback"
+
+
+def _normalize_default_port_uri(uri: str) -> str:
+    """Normalize default HTTP(S) ports so equivalent callback URIs compare equal."""
+    parts = urlsplit(uri)
+    if not parts.scheme or not parts.hostname:
+        return uri
+
+    default_port = {"http": 80, "https": 443}.get(parts.scheme.lower())
+    if default_port is None or parts.port != default_port:
+        return uri
+
+    host = parts.hostname
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if parts.username is not None:
+        userinfo = parts.username
+        if parts.password is not None:
+            userinfo = f"{userinfo}:{parts.password}"
+        netloc = f"{userinfo}@{host}"
+    else:
+        netloc = host
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
 def _error_response(
@@ -221,7 +244,9 @@ async def _handle_authorize(
         return _error_response("unsupported_response_type", "Only 'code' is supported")
     if client_id != oidc_config.INTERNAL_CLIENT_ID:
         return _error_response("invalid_client", "Unknown client_id")
-    if redirect_uri != _allowed_redirect_uri():
+    if _normalize_default_port_uri(redirect_uri) != _normalize_default_port_uri(
+        _allowed_redirect_uri()
+    ):
         return _error_response(
             "invalid_request",
             "redirect_uri does not match the registered callback",

@@ -333,6 +333,31 @@ def test_authorize_rejects_wrong_redirect_uri(client: TestClient) -> None:
     assert response.json()["error"] == "invalid_request"
 
 
+def test_authorize_accepts_redirect_uri_without_explicit_default_http_port(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.TRACECAT__PUBLIC_APP_URL",
+        "http://localhost:80",
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
+        AsyncMock(return_value=SessionNeedsAction(action=NeedsAction.LOGIN)),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.store_resume_transaction", AsyncMock()
+    )
+
+    response = client.get(
+        "/authorize",
+        params=_authorize_params(redirect_uri="http://localhost/auth/callback"),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+
+
 def test_authorize_rejects_missing_code_challenge(client: TestClient) -> None:
     response = client.get("/authorize", params=_authorize_params(code_challenge=""))
 
