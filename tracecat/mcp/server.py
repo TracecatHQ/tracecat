@@ -3477,7 +3477,7 @@ async def edit_workflow(
         )
 
         async with WorkflowsManagementService.with_session(role=role) as svc:
-            workflow = await svc.get_workflow(wf_id)
+            workflow = await svc.get_workflow(wf_id, for_update=True)
             if workflow is None:
                 raise ToolError(f"Workflow {workflow_id} not found")
 

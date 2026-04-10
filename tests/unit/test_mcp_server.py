@@ -575,9 +575,13 @@ async def test_update_workflow_definition_yaml_uses_shared_yaml_update(monkeypat
     class _WorkflowService:
         def __init__(self) -> None:
             self.session = _FakeSession()
+            self.for_update_calls: list[bool] = []
 
-        async def get_workflow(self, _wf_id):
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            self.for_update_calls.append(for_update)
             return workflow
+
+    workflow_service = _WorkflowService()
 
     async def _apply_yaml_update(**kwargs):
         captured.update(kwargs)
@@ -586,7 +590,7 @@ async def test_update_workflow_definition_yaml_uses_shared_yaml_update(monkeypat
     monkeypatch.setattr(
         mcp_server.WorkflowsManagementService,
         "with_session",
-        lambda role: _AsyncContext(_WorkflowService()),
+        lambda role: _AsyncContext(workflow_service),
     )
     monkeypatch.setattr(
         mcp_server,
@@ -687,15 +691,19 @@ async def test_edit_workflow_updates_metadata(monkeypatch):
     class _WorkflowService:
         def __init__(self) -> None:
             self.session = _FakeSession()
+            self.for_update_calls: list[bool] = []
 
-        async def get_workflow(self, _wf_id):
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            self.for_update_calls.append(for_update)
             return workflow
+
+    workflow_service = _WorkflowService()
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
         mcp_server.WorkflowsManagementService,
         "with_session",
-        lambda role: _AsyncContext(_WorkflowService()),
+        lambda role: _AsyncContext(workflow_service),
     )
 
     base_revision = mcp_server._compute_workflow_edit_revision(
@@ -717,6 +725,7 @@ async def test_edit_workflow_updates_metadata(monkeypatch):
     assert payload["message"] == f"Workflow {workflow_id} updated successfully"
     assert payload["draft_revision"]
     assert workflow.title == "Updated flow"
+    assert workflow_service.for_update_calls == [True]
 
 
 @pytest.mark.anyio
@@ -751,7 +760,8 @@ async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
         def __init__(self) -> None:
             self.session = object()
 
-        async def get_workflow(self, _wf_id):
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
             return workflow
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -819,7 +829,8 @@ async def test_edit_workflow_rejects_stale_revision(monkeypatch):
         def __init__(self) -> None:
             self.session = object()
 
-        async def get_workflow(self, _wf_id):
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
             return workflow
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)

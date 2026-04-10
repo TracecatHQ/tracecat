@@ -538,7 +538,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
             has_previous=params.cursor is not None,
         )
 
-    async def get_workflow(self, workflow_id: WorkflowID) -> Workflow | None:
+    async def get_workflow(
+        self, workflow_id: WorkflowID, *, for_update: bool = False
+    ) -> Workflow | None:
         workflow_uuid = WorkflowUUID.new(workflow_id)
         statement = (
             select(Workflow)
@@ -553,6 +555,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 selectinload(Workflow.schedules),
             )
         )
+        if for_update:
+            statement = statement.with_for_update()
         result = await self.session.execute(statement)
         workflow = result.scalar_one_or_none()
         if workflow:
