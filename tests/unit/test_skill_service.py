@@ -1,10 +1,12 @@
 """Tests for SkillService."""
 
 import base64
+import hashlib
 import os
 
 import pytest
 from dotenv import dotenv_values
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -15,14 +17,17 @@ from tracecat.agent.preset.schemas import (
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.skill.schemas import (
     SkillCreate,
+    SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
     SkillDraftPatch,
     SkillDraftUpsertTextFileOp,
     SkillUpload,
     SkillUploadFile,
+    SkillUploadSessionCreate,
 )
 from tracecat.agent.skill.service import SkillService
 from tracecat.auth.types import Role
+from tracecat.db.models import SkillBlob
 from tracecat.exceptions import TracecatValidationError
 from tracecat.storage.blob import ensure_bucket_exists
 
@@ -208,6 +213,83 @@ class TestSkillService:
                     ],
                 ),
             )
+
+    async def test_attach_uploaded_blob_promotes_from_staged_key(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Staged uploads use a temporary key until validated and promoted."""
+
+        created = await skill_service.create_skill(SkillCreate(slug="staged-upload"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        content = b"uploaded content"
+        sha256 = hashlib.sha256(content).hexdigest()
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=sha256,
+                size_bytes=len(content),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+
+        canonical_key = skill_service._storage_key_for(sha256)
+        assert upload.key != canonical_key
+        assert "/uploads/" in upload.key
+
+        uploaded: dict[str, str] = {}
+
+        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+            del key, bucket
+            return True
+
+        async def fake_download_file(*, key: str, bucket: str) -> bytes:
+            del key, bucket
+            return content
+
+        async def fake_upload_file(
+            *, content: bytes, key: str, bucket: str, content_type: str | None = None
+        ) -> None:
+            del content, bucket, content_type
+            uploaded["key"] = key
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.download_file", fake_download_file
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.upload_file", fake_upload_file
+        )
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftAttachUploadedBlobOp(
+                        path="references/uploaded.txt",
+                        upload_id=upload.upload_id,
+                    )
+                ],
+            ),
+        )
+
+        blob_row = (
+            await skill_service.session.execute(
+                select(SkillBlob).where(
+                    SkillBlob.workspace_id == skill_service.workspace_id,
+                    SkillBlob.sha256 == sha256,
+                )
+            )
+        ).scalar_one()
+
+        assert uploaded["key"] == canonical_key
+        assert blob_row.key == canonical_key
 
     async def test_publish_requires_root_skill_md(
         self,
