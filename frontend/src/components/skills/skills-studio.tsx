@@ -1,5 +1,7 @@
 "use client"
 
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 import { AddFileDialog } from "@/components/skills/add-file-dialog"
 import { CreateSkillDialog } from "@/components/skills/create-skill-dialog"
 import { EditorPanel } from "@/components/skills/editor-panel"
@@ -12,17 +14,9 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
+import { useEntitlements } from "@/hooks/use-entitlements"
 
-/**
- * Full-screen skills authoring and QA surface for a workspace.
- *
- * @param props Component props.
- * @returns The skills studio split view.
- *
- * @example
- * <SkillsStudio workspaceId={workspaceId} initialSkillId={skillId} />
- */
-export function SkillsStudio({
+function SkillsStudioContent({
   workspaceId,
   initialSkillId,
 }: {
@@ -134,5 +128,47 @@ export function SkillsStudio({
         onCreateFile={studio.onCreateNewFile}
       />
     </>
+  )
+}
+
+/**
+ * Full-screen skills authoring and QA surface for a workspace.
+ *
+ * @param props Component props.
+ * @returns The skills studio split view.
+ *
+ * @example
+ * <SkillsStudio workspaceId={workspaceId} initialSkillId={skillId} />
+ */
+export function SkillsStudio({
+  workspaceId,
+  initialSkillId,
+}: {
+  workspaceId: string
+  initialSkillId?: string
+}) {
+  const router = useRouter()
+  const { hasEntitlement, isLoading } = useEntitlements()
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
+
+  useEffect(() => {
+    if (!isLoading && !agentAddonsEnabled) {
+      router.replace(`/workspaces/${workspaceId}`)
+    }
+  }, [agentAddonsEnabled, isLoading, router, workspaceId])
+
+  if (isLoading) {
+    return <div className="size-full animate-pulse bg-muted/20" />
+  }
+
+  if (!agentAddonsEnabled) {
+    return null
+  }
+
+  return (
+    <SkillsStudioContent
+      workspaceId={workspaceId}
+      initialSkillId={initialSkillId}
+    />
   )
 }
