@@ -153,4 +153,31 @@ Body without a closing delimiter`}</MarkdownWithFrontmatter>
     )
     expect(screen.queryByText("Raw frontmatter")).not.toBeInTheDocument()
   })
+
+  it("rerenders when non-children props change", () => {
+    const { rerender } = render(
+      <MarkdownWithFrontmatter className="text-red-500">
+        {`---
+title: Incident triage
+---
+
+Body`}
+      </MarkdownWithFrontmatter>
+    )
+
+    expect(screen.getByTestId("streamdown")).toHaveClass("text-red-500")
+
+    rerender(
+      <MarkdownWithFrontmatter className="text-blue-500">
+        {`---
+title: Incident triage
+---
+
+Body`}
+      </MarkdownWithFrontmatter>
+    )
+
+    expect(screen.getByTestId("streamdown")).toHaveClass("text-blue-500")
+    expect(screen.getByTestId("streamdown")).not.toHaveClass("text-red-500")
+  })
 })
