@@ -15,6 +15,7 @@ from tracecat import config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetSkillBindingBase,
+    AgentPresetSkillBindingRead,
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
@@ -678,6 +679,93 @@ class TestAgentPresetService:
         assert len(version_read.skills) == 1
         assert version_read.skills[0].skill_version_id == skill_version.id
         assert version_read.skills[0].skill_version == 1
+
+    async def test_build_version_reads_minimal_batches_skill_bindings(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Minimal version reads batch skill binding lookups for list endpoints."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(slug="batched-skill")
+        )
+        skill_version_one = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Batched preset",
+                description="Preset with batched version reads",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version_one.id,
+                    )
+                ],
+            )
+        )
+
+        draft = await skill_service.get_draft(created_skill.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created_skill.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="references/upgrade.md",
+                        content="Second published version",
+                    )
+                ],
+            ),
+        )
+        skill_version_two = await skill_service.publish_skill(created_skill.id)
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(
+                instructions="Updated instructions",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version_two.id,
+                    )
+                ],
+            ),
+        )
+        versions = await agent_preset_service.list_versions(
+            created_preset.id,
+            CursorPaginationParams(limit=10),
+        )
+
+        async def fail_single_version_lookup(
+            version_id: uuid.UUID,
+        ) -> list[AgentPresetSkillBindingRead]:
+            del version_id
+            raise AssertionError("list endpoint should batch skill binding lookups")
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_list_version_skill_bindings",
+            fail_single_version_lookup,
+        )
+
+        version_reads = await agent_preset_service.build_version_reads_minimal(
+            versions.items
+        )
+
+        assert [version.version for version in version_reads] == [2, 1]
+        assert [version.skills[0].skill_version_id for version in version_reads] == [
+            skill_version_two.id,
+            skill_version_one.id,
+        ]
 
     async def test_restore_version_restores_historical_skill_versions_on_head(
         self,
