@@ -972,6 +972,7 @@ async def _persist_workflow_edit_document(
     workflow_id = WorkflowUUID.new(workflow.id)
     layout_payload = updated_document.layout.model_dump(mode="json", exclude_none=False)
     _, _, action_positions = _extract_layout_positions(layout_payload)
+    offline_schedule_ids: list[uuid.UUID] = []
 
     if "definition" in changed_sections:
         if updated_document.definition.actions:
@@ -1003,7 +1004,7 @@ async def _persist_workflow_edit_document(
             )
             await service.session.flush()
             await service.session.refresh(workflow, ["actions"])
-    elif "metadata" in changed_sections:
+    if "metadata" in changed_sections:
         metadata = updated_document.metadata
         update_params = WorkflowUpdate(
             title=metadata.title,
@@ -1034,7 +1035,7 @@ async def _persist_workflow_edit_document(
             )
             for schedule in updated_document.schedules
         ]
-        await _replace_workflow_schedules(
+        offline_schedule_ids = await _replace_workflow_schedules(
             service=schedule_service,
             workflow_id=workflow_id,
             schedules=schedules,
@@ -1063,6 +1064,13 @@ async def _persist_workflow_edit_document(
         await service.session.refresh(workflow, ["actions"])
     if "schedules" in changed_sections:
         await service.session.refresh(workflow, ["schedules"])
+    if offline_schedule_ids:
+        schedule_service = WorkflowSchedulesService(service.session, role=role)
+        for schedule_id in offline_schedule_ids:
+            await schedule_service.update_schedule(
+                schedule_id,
+                ScheduleUpdate(status="offline"),
+            )
     if "case_trigger" in changed_sections:
         await service.session.refresh(workflow, ["case_trigger"])
 
