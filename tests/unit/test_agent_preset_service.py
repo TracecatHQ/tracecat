@@ -1051,6 +1051,85 @@ class TestAgentPresetService:
 
         assert captured_for_update == [True]
 
+    async def test_update_preset_locks_preset_before_replacing_skill_bindings(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Preset updates lock before reading or replacing mutable skill bindings."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(slug="ordered-lock-skill")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Ordered lock preset",
+                description="Preset used to verify lock ordering on update",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+        )
+
+        original_lock = agent_preset_service._lock_preset_for_versioning
+        original_get_specs = agent_preset_service._get_head_skill_binding_specs
+        original_replace = agent_preset_service._replace_head_skill_bindings
+        call_order: list[str] = []
+
+        async def instrumented_lock(preset_id: uuid.UUID) -> None:
+            call_order.append("lock")
+            await original_lock(preset_id)
+
+        async def instrumented_get_specs(
+            preset_id: uuid.UUID,
+        ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+            call_order.append("read_specs")
+            return await original_get_specs(preset_id)
+
+        async def instrumented_replace(
+            preset_id: uuid.UUID,
+            bindings: list[AgentPresetSkillBindingBase],
+        ) -> None:
+            call_order.append("replace")
+            await original_replace(preset_id, bindings)
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_lock_preset_for_versioning",
+            instrumented_lock,
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_get_head_skill_binding_specs",
+            instrumented_get_specs,
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_replace_head_skill_bindings",
+            instrumented_replace,
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ]
+            ),
+        )
+
+        assert call_order[:3] == ["lock", "read_specs", "replace"]
+        assert call_order.count("lock") == 1
+
     async def test_restore_version_moves_current_pointer(
         self,
         agent_preset_service: AgentPresetService,

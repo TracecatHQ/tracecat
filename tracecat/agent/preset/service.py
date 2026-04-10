@@ -375,6 +375,7 @@ class AgentPresetService(BaseWorkspaceService):
         set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
         execution_changed = False
         requested_skills = None
+        preset_locked = False
         if "skills" in params.model_fields_set:
             requested_skills = params.skills or []
 
@@ -408,6 +409,8 @@ class AgentPresetService(BaseWorkspaceService):
                 execution_changed = True
 
         if requested_skills is not None:
+            await self._lock_preset_for_versioning(preset.id)
+            preset_locked = True
             await self.skills.validate_binding_inputs(
                 requested_skills,
                 for_update=True,
@@ -427,7 +430,10 @@ class AgentPresetService(BaseWorkspaceService):
 
         self.session.add(preset)
         if execution_changed:
-            version = await self._create_version_from_preset(preset)
+            version = await self._create_version_from_preset(
+                preset,
+                preset_locked=preset_locked,
+            )
             preset.current_version_id = version.id
             self.session.add(preset)
         await self.session.commit()
@@ -1430,10 +1436,11 @@ class AgentPresetService(BaseWorkspaceService):
         )
 
     async def _create_version_from_preset(
-        self, preset: AgentPreset
+        self, preset: AgentPreset, *, preset_locked: bool = False
     ) -> AgentPresetVersion:
         """Create and flush a new immutable version from the preset head."""
-        await self._lock_preset_for_versioning(preset.id)
+        if not preset_locked:
+            await self._lock_preset_for_versioning(preset.id)
         stmt = (
             select(AgentPresetVersion.version)
             .where(
