@@ -168,6 +168,71 @@ class TestSkillService:
                 )
             )
 
+    async def test_upload_skill_preserves_distinct_blob_content_types(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Same bytes can back separate skill blobs when MIME types differ."""
+
+        shared_bytes = b"shared payload"
+        encoded = base64.b64encode(shared_bytes).decode()
+
+        created = await skill_service.upload_skill(
+            SkillUpload(
+                slug="content-type-skill",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(b"# Skill").decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                    SkillUploadFile(
+                        path="notes.txt",
+                        content_base64=encoded,
+                        content_type="text/plain; charset=utf-8",
+                    ),
+                    SkillUploadFile(
+                        path="payload.bin",
+                        content_base64=encoded,
+                        content_type="application/octet-stream",
+                    ),
+                ],
+            )
+        )
+
+        notes_file = await skill_service.get_draft_file(
+            skill_id=created.id,
+            path="notes.txt",
+        )
+        payload_file = await skill_service.get_draft_file(
+            skill_id=created.id,
+            path="payload.bin",
+        )
+        sha256 = hashlib.sha256(shared_bytes).hexdigest()
+        blob_rows = (
+            (
+                await skill_service.session.execute(
+                    select(SkillBlob).where(
+                        SkillBlob.workspace_id == skill_service.workspace_id,
+                        SkillBlob.sha256 == sha256,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        assert notes_file is not None
+        assert notes_file.kind == "inline"
+        assert notes_file.content_type == "text/plain; charset=utf-8"
+        assert payload_file is not None
+        assert payload_file.kind == "download"
+        assert payload_file.content_type == "application/octet-stream"
+        assert sorted(blob_row.content_type for blob_row in blob_rows) == [
+            "application/octet-stream",
+            "text/plain; charset=utf-8",
+        ]
+
     async def test_patch_draft_enforces_revision(
         self,
         skill_service: SkillService,

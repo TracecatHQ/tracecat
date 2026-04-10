@@ -186,6 +186,42 @@ class SkillService(BaseWorkspaceService):
         return "\n".join(lines)
 
     @staticmethod
+    def _merge_skill_markdown_metadata(
+        skill_markdown: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+    ) -> str:
+        """Merge title/description frontmatter into an existing SKILL.md body."""
+
+        metadata: dict[str, object] = {}
+        body = skill_markdown
+
+        if skill_markdown.startswith("---\n"):
+            _, _, remainder = skill_markdown.partition("---\n")
+            frontmatter, separator, body_part = remainder.partition("\n---\n")
+            if separator:
+                loaded = yaml.safe_load(frontmatter) or {}
+                if isinstance(loaded, dict):
+                    metadata = dict(loaded)
+                    body = body_part
+
+        if title is not None:
+            metadata["title"] = title
+        if description is not None:
+            metadata["description"] = description
+
+        frontmatter_yaml = yaml.safe_dump(
+            metadata,
+            sort_keys=False,
+        ).strip()
+        if not body:
+            return f"---\n{frontmatter_yaml}\n---\n"
+        if body.startswith("\n"):
+            return f"---\n{frontmatter_yaml}\n---{body}"
+        return f"---\n{frontmatter_yaml}\n---\n\n{body}"
+
+    @staticmethod
     def _extract_frontmatter(skill_markdown: str) -> tuple[str | None, str | None]:
         """Extract title and description from root SKILL.md frontmatter."""
 
@@ -224,6 +260,7 @@ class SkillService(BaseWorkspaceService):
         stmt = select(SkillBlob).where(
             SkillBlob.workspace_id == self.workspace_id,
             SkillBlob.sha256 == sha256,
+            SkillBlob.content_type == content_type,
         )
         existing = (await self.session.execute(stmt)).scalar_one_or_none()
         if existing is not None:
@@ -293,6 +330,7 @@ class SkillService(BaseWorkspaceService):
                 select(SkillBlob).where(
                     SkillBlob.workspace_id == self.workspace_id,
                     SkillBlob.sha256 == upload.sha256,
+                    SkillBlob.content_type == upload.content_type,
                 )
             )
         ).scalar_one_or_none()

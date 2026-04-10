@@ -3299,7 +3299,8 @@ class SkillBlob(WorkspaceModel):
         UniqueConstraint(
             "workspace_id",
             "sha256",
-            name="uq_skill_blob_workspace_sha256",
+            "content_type",
+            name="uq_skill_blob_workspace_sha256_content_type",
         ),
     )
 
@@ -3314,7 +3315,7 @@ class SkillBlob(WorkspaceModel):
         String(64),
         nullable=False,
         index=True,
-        doc="SHA256 hash for blob deduplication",
+        doc="SHA256 hash for blob deduplication within one MIME type",
     )
     bucket: Mapped[str] = mapped_column(
         String(255),

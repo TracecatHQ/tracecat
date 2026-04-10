@@ -4678,6 +4678,121 @@ async def test_upload_skill_uses_workspace_skill_service(
     assert payload["draft_file_count"] == 1
 
 
+@pytest.mark.anyio
+async def test_upload_skill_preserves_uploaded_skill_markdown_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    captured: dict[str, Any] = {}
+    existing_skill_md = (
+        "---\n"
+        "title: Existing title\n"
+        "description: Existing description\n"
+        "tags:\n"
+        "  - keep\n"
+        "---\n"
+        "\n"
+        "# Real instructions\n"
+        "\n"
+        "Use the uploaded body.\n"
+    )
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def upload_skill(self, params):
+            captured["upload_params"] = params
+            now = datetime.now(UTC)
+            return SkillRead(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                slug=params.slug,
+                title="Existing title",
+                description="Existing description",
+                current_version_id=None,
+                draft_revision=2,
+                created_at=now,
+                updated_at=now,
+                archived_at=None,
+                current_version=None,
+                is_draft_publishable=True,
+                draft_validation_errors=[],
+                draft_file_count=len(params.files),
+            )
+
+        async def get_draft(self, _skill_id):
+            return SimpleNamespace(draft_revision=2)
+
+        async def get_draft_file(self, *, skill_id, path):
+            captured["draft_file_request"] = {
+                "skill_id": skill_id,
+                "path": path,
+            }
+            return SimpleNamespace(
+                kind="inline",
+                text_content=existing_skill_md,
+            )
+
+        async def patch_draft(self, *, skill_id, params):
+            captured["patch_skill_id"] = skill_id
+            captured["patch_params"] = params
+
+        async def get_skill_read(self, skill_id):
+            captured["get_skill_read"] = skill_id
+            now = datetime.now(UTC)
+            return SkillRead(
+                id=skill_id,
+                workspace_id=workspace_id,
+                slug="triage-skill",
+                title="Updated title",
+                description="Updated description",
+                current_version_id=None,
+                draft_revision=3,
+                created_at=now,
+                updated_at=now,
+                archived_at=None,
+                current_version=None,
+                is_draft_publishable=True,
+                draft_validation_errors=[],
+                draft_file_count=1,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.upload_skill)(
+        workspace_id=str(workspace_id),
+        slug="triage-skill",
+        title="Updated title",
+        description="Updated description",
+        files=[
+            SkillUploadFile(
+                path="SKILL.md",
+                content_base64="IyBUcmlhZ2U=",
+                content_type="text/markdown; charset=utf-8",
+            )
+        ],
+    )
+
+    payload = _payload(result)
+    patched_content = captured["patch_params"].operations[0].content
+
+    assert captured["draft_file_request"]["path"] == "SKILL.md"
+    assert "title: Updated title" in patched_content
+    assert "description: Updated description" in patched_content
+    assert "tags:" in patched_content
+    assert "# Real instructions" in patched_content
+    assert "Use the uploaded body." in patched_content
+    assert "Describe when this skill should be used" not in patched_content
+    assert payload["title"] == "Updated title"
+
+
 def test_mcp_instructions_include_agent_preset_authoring_tools() -> None:
     assert "get_agent_preset_authoring_context" in mcp_server._MCP_INSTRUCTIONS
     assert "list_integrations" in mcp_server._MCP_INSTRUCTIONS
