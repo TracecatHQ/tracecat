@@ -453,10 +453,19 @@ export function useSkillsStudio(params: {
     if (!path) {
       return
     }
+    if (visibleFiles.some((file) => file.path === path)) {
+      toast({
+        title: "File already exists",
+        description: "Choose a new path instead of replacing an existing file.",
+        variant: "destructive",
+      })
+      return
+    }
     if (!isEditablePath(path)) {
       toast({
         title: "Unsupported file type",
-        description: "Only .md and .py files can be created inline.",
+        description:
+          "Only text-editable file types can be created inline (for example .md, .py, .ts, .json, and .yaml).",
         variant: "destructive",
       })
       return
