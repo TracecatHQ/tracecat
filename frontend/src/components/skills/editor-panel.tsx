@@ -163,7 +163,9 @@ export function EditorPanel({
         <div className="flex items-center justify-between border-b px-3 py-2">
           <div className="min-w-0">
             <div className="text-sm font-medium">Files</div>
-            <div className="text-xs text-muted-foreground">Working copy</div>
+            <div className="truncate text-xs text-muted-foreground">
+              Draft files
+            </div>
           </div>
           <Button size="icon" variant="ghost" onClick={onOpenNewFileDialog}>
             <Plus className="size-4" />
