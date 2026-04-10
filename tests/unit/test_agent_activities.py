@@ -686,3 +686,49 @@ class TestSandboxedAgentExecutorSkillCaching:
         assert args[1] == skills_dir / "skill-a"
         assert kwargs == {"dirs_exist_ok": True}
         assert (skills_dir / "skill-a" / "SKILL.md").read_text() == "# Cached skill"
+
+    @pytest.mark.anyio
+    async def test_cleanup_offloads_job_dir_removal(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Job directory cleanup runs in a worker thread."""
+
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "job"
+        job_dir.mkdir()
+        (job_dir / "session.log").write_text("log")
+        mock_executor._job_dir = job_dir
+
+        to_thread_calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            to_thread_calls.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.asyncio.to_thread",
+            fake_to_thread,
+        )
+
+        await mock_executor._cleanup()
+
+        assert len(to_thread_calls) == 1
+        func, args, kwargs = to_thread_calls[0]
+        assert func is shutil.rmtree
+        assert args == (job_dir,)
+        assert kwargs == {}
+        assert not job_dir.exists()
