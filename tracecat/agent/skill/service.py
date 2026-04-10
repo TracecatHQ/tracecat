@@ -269,10 +269,19 @@ class SkillService(BaseWorkspaceService):
             )
 
         content = await blob.download_file(key=upload.key, bucket=upload.bucket)
+        actual_size_bytes = len(content)
         actual_sha256 = self._compute_sha256(content)
         if actual_sha256 != upload.sha256:
             raise TracecatValidationError(
                 "Uploaded blob SHA-256 mismatch",
+                detail={
+                    "code": "upload_integrity_error",
+                    "upload_id": str(upload.id),
+                },
+            )
+        if actual_size_bytes != upload.size_bytes:
+            raise TracecatValidationError(
+                "Uploaded blob size mismatch",
                 detail={
                     "code": "upload_integrity_error",
                     "upload_id": str(upload.id),
@@ -301,7 +310,7 @@ class SkillService(BaseWorkspaceService):
                 sha256=upload.sha256,
                 bucket=upload.bucket,
                 key=canonical_key,
-                size_bytes=upload.size_bytes,
+                size_bytes=actual_size_bytes,
                 content_type=upload.content_type,
             )
             self.session.add(blob_row)

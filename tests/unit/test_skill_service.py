@@ -291,6 +291,57 @@ class TestSkillService:
         assert uploaded["key"] == canonical_key
         assert blob_row.key == canonical_key
 
+    async def test_attach_uploaded_blob_rejects_size_mismatch(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Uploaded blob finalization validates the actual object length."""
+
+        created = await skill_service.create_skill(SkillCreate(slug="size-mismatch"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        content = b"size mismatch payload"
+        sha256 = hashlib.sha256(content).hexdigest()
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=sha256,
+                size_bytes=len(content) - 1,
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+
+        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+            del key, bucket
+            return True
+
+        async def fake_download_file(*, key: str, bucket: str) -> bytes:
+            del key, bucket
+            return content
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.download_file", fake_download_file
+        )
+
+        with pytest.raises(TracecatValidationError, match="size mismatch"):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftAttachUploadedBlobOp(
+                            path="references/uploaded.txt",
+                            upload_id=upload.upload_id,
+                        )
+                    ],
+                ),
+            )
+
     async def test_publish_requires_root_skill_md(
         self,
         skill_service: SkillService,
