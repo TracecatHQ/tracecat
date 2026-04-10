@@ -120,6 +120,26 @@ def _workflow_stub(**overrides: Any) -> SimpleNamespace:
     return SimpleNamespace(**data)
 
 
+def _schedule_stub(**overrides: Any) -> SimpleNamespace:
+    data: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "workspace_id": uuid.uuid4(),
+        "workflow_id": uuid.uuid4(),
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
+        "inputs": {},
+        "cron": "0 * * * *",
+        "every": None,
+        "offset": None,
+        "start_at": None,
+        "end_at": None,
+        "timeout": 0.0,
+        "status": "offline",
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
+
+
 @pytest.mark.anyio
 async def test_resolve_workspace_role_rejects_invalid_workspace_id():
     with pytest.raises(ToolError, match="Invalid workspace ID"):
@@ -633,6 +653,18 @@ async def test_get_workflow_returns_metadata_only(monkeypatch):
     assert payload["draft_revision"]
     assert payload["draft_document"]["metadata"]["title"] == "Example workflow"
     assert "definition_yaml" not in payload
+
+
+def test_build_workflow_edit_document_normalizes_null_schedule_timeout() -> None:
+    workflow = _workflow_stub(schedules=[_schedule_stub(timeout=None)])
+
+    document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+
+    assert document.schedules is not None
+    assert len(document.schedules) == 1
+    assert document.schedules[0].timeout == 0
 
 
 @pytest.mark.anyio
