@@ -181,6 +181,34 @@ class TestSkillService:
                 ),
             )
 
+    async def test_patch_draft_rejects_terminal_parent_path_segments(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Draft mutations reject any path segment equal to '..'."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(slug="invalid-path-skill")
+        )
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        with pytest.raises(
+            TracecatValidationError, match="cannot escape the skill root"
+        ):
+            await skill_service.patch_draft(
+                skill_id=created.id,
+                params=SkillDraftPatch(
+                    base_revision=draft.draft_revision,
+                    operations=[
+                        SkillDraftUpsertTextFileOp(
+                            path="references/..",
+                            content="blocked",
+                        )
+                    ],
+                ),
+            )
+
     async def test_publish_requires_root_skill_md(
         self,
         skill_service: SkillService,
