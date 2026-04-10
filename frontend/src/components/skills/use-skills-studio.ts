@@ -101,6 +101,7 @@ type UseSkillsStudioReturn = {
   // Inspector panel
   hasUnsavedChanges: boolean
   canPublish: boolean
+  saveWorkingCopyPending: boolean
   patchSkillDraftPending: boolean
   createSkillDraftUploadPending: boolean
   publishSkillPending: boolean
@@ -162,6 +163,8 @@ export function useSkillsStudio(params: {
   const [newSkillDescription, setNewSkillDescription] = useState("")
   const [newFilePath, setNewFilePath] = useState("")
   const [isDragOver, setIsDragOver] = useState(false)
+  const [saveWorkingCopyPending, setSaveWorkingCopyPending] = useState(false)
+  const saveWorkingCopyPendingRef = useRef(false)
 
   // ── Data fetching ──────────────────────────────────────────────────
   const { skills, skillsLoading, skillsError } = useSkills(workspaceId)
@@ -508,9 +511,12 @@ export function useSkillsStudio(params: {
   }
 
   const handleSaveWorkingCopy = async () => {
-    if (!draft || !selectedSkillId) {
+    if (!draft || !selectedSkillId || saveWorkingCopyPendingRef.current) {
       return
     }
+
+    saveWorkingCopyPendingRef.current = true
+    setSaveWorkingCopyPending(true)
 
     try {
       const sortedChanges = Object.entries(draftChanges).sort(
@@ -574,6 +580,9 @@ export function useSkillsStudio(params: {
         description: getApiErrorDetail(error) ?? "Failed to save working copy.",
         variant: "destructive",
       })
+    } finally {
+      saveWorkingCopyPendingRef.current = false
+      setSaveWorkingCopyPending(false)
     }
   }
 
@@ -648,6 +657,7 @@ export function useSkillsStudio(params: {
 
     hasUnsavedChanges,
     canPublish,
+    saveWorkingCopyPending,
     patchSkillDraftPending,
     createSkillDraftUploadPending,
     publishSkillPending,

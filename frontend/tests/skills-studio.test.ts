@@ -1,11 +1,12 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
+import type { ChangeEvent } from "react"
 import type { SkillDraftRead, SkillRead } from "@/client"
 import { useSkillsStudio } from "@/components/skills/use-skills-studio"
 import {
   composeMarkdownFrontmatter,
   splitMarkdownFrontmatter,
 } from "@/lib/markdown-frontmatter"
-import { getLanguageForPath } from "@/lib/skills-studio"
+import { getLanguageForPath, uploadFileToSession } from "@/lib/skills-studio"
 
 const mockRouterPush = jest.fn()
 const mockCreateSkill = jest.fn()
@@ -14,6 +15,15 @@ const mockPatchSkillDraft = jest.fn()
 const mockCreateSkillDraftUpload = jest.fn()
 const mockPublishSkill = jest.fn()
 const mockRestoreSkillVersion = jest.fn()
+
+jest.mock("@/lib/skills-studio", () => {
+  const actual = jest.requireActual("@/lib/skills-studio")
+  return {
+    ...actual,
+    computeFileSha256: jest.fn(async () => "sha-upload"),
+    uploadFileToSession: jest.fn(),
+  }
+})
 
 const mockSkill: SkillRead = {
   id: "skill-1",
@@ -119,6 +129,20 @@ jest.mock("@/hooks/use-skills", () => ({
   }),
 }))
 
+const mockUploadFileToSession = uploadFileToSession as jest.MockedFunction<
+  typeof uploadFileToSession
+>
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
 describe("skills studio markdown editor selection", () => {
   it("splits and recomposes a frontmatter document", () => {
     const split = splitMarkdownFrontmatter(`---
@@ -183,5 +207,61 @@ describe("useSkillsStudio", () => {
       "SKILL.md",
     ])
     expect(result.current.hasUnsavedChanges).toBe(false)
+  })
+
+  it("keeps the full save lifecycle locked while uploads are in flight", async () => {
+    const uploadDeferred = createDeferred<void>()
+    mockCreateSkillDraftUpload.mockResolvedValue({
+      upload_id: "upload-1",
+      upload_url: "https://example.com/upload",
+      method: "PUT",
+      headers: {},
+    })
+    mockUploadFileToSession.mockImplementation(() => uploadDeferred.promise)
+    mockPatchSkillDraft.mockResolvedValue(undefined)
+
+    const { result } = renderHook(() =>
+      useSkillsStudio({
+        workspaceId: "workspace-1",
+        initialSkillId: "skill-1",
+      })
+    )
+
+    await waitFor(() => {
+      expect(result.current.selectedPath).toBe("SKILL.md")
+    })
+
+    const file = new File(["updated"], "SKILL.md", {
+      type: "text/markdown; charset=utf-8",
+    })
+
+    act(() => {
+      result.current.onReplaceFile({
+        target: { files: [file], value: "" },
+      } as unknown as ChangeEvent<HTMLInputElement>)
+    })
+
+    expect(result.current.hasUnsavedChanges).toBe(true)
+
+    let savePromise: Promise<void> | undefined
+    act(() => {
+      savePromise = result.current.onSaveWorkingCopy()
+    })
+
+    await waitFor(() => {
+      expect(result.current.saveWorkingCopyPending).toBe(true)
+    })
+    expect(mockPatchSkillDraft).not.toHaveBeenCalled()
+
+    uploadDeferred.resolve()
+
+    await act(async () => {
+      await savePromise
+    })
+
+    await waitFor(() => {
+      expect(result.current.saveWorkingCopyPending).toBe(false)
+    })
+    expect(mockPatchSkillDraft).toHaveBeenCalledTimes(1)
   })
 })
