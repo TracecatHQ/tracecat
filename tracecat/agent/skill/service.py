@@ -16,6 +16,7 @@ import sqlalchemy as sa
 import yaml
 from slugify import slugify
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -293,6 +294,61 @@ class SkillService(BaseWorkspaceService):
             else None,
         )
 
+    async def _get_blob_by_identity(
+        self, *, sha256: str, content_type: str
+    ) -> SkillBlob | None:
+        """Return the blob row for a workspace-scoped content identity."""
+
+        stmt = select(SkillBlob).where(
+            SkillBlob.workspace_id == self.workspace_id,
+            SkillBlob.sha256 == sha256,
+            SkillBlob.content_type == content_type,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def _insert_blob_row(
+        self,
+        *,
+        sha256: str,
+        bucket: str,
+        key: str,
+        size_bytes: int,
+        content_type: str,
+    ) -> SkillBlob:
+        """Insert a blob row, reusing the canonical row if another writer won."""
+
+        stmt = (
+            pg_insert(SkillBlob)
+            .values(
+                workspace_id=self.workspace_id,
+                sha256=sha256,
+                bucket=bucket,
+                key=key,
+                size_bytes=size_bytes,
+                content_type=content_type,
+            )
+            .on_conflict_do_nothing(
+                constraint="uq_skill_blob_workspace_sha256_content_type"
+            )
+            .returning(SkillBlob.id)
+        )
+        blob_id = (await self.session.execute(stmt)).scalar_one_or_none()
+        if blob_id is not None:
+            blob_row = await self.get_blob(blob_id)
+            if blob_row is None:
+                raise TracecatNotFoundError(f"Skill blob '{blob_id}' not found")
+            return blob_row
+
+        existing = await self._get_blob_by_identity(
+            sha256=sha256,
+            content_type=content_type,
+        )
+        if existing is None:
+            raise TracecatNotFoundError(
+                "Skill blob row was not found after a concurrent insert"
+            )
+        return existing
+
     async def _get_or_create_blob(
         self, *, content: bytes, content_type: str
     ) -> SkillBlob:
@@ -307,12 +363,10 @@ class SkillService(BaseWorkspaceService):
         """
 
         sha256 = self._compute_sha256(content)
-        stmt = select(SkillBlob).where(
-            SkillBlob.workspace_id == self.workspace_id,
-            SkillBlob.sha256 == sha256,
-            SkillBlob.content_type == content_type,
+        existing = await self._get_blob_by_identity(
+            sha256=sha256,
+            content_type=content_type,
         )
-        existing = (await self.session.execute(stmt)).scalar_one_or_none()
         if existing is not None:
             return existing
 
@@ -323,17 +377,13 @@ class SkillService(BaseWorkspaceService):
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             content_type=content_type,
         )
-        created = SkillBlob(
-            workspace_id=self.workspace_id,
+        return await self._insert_blob_row(
             sha256=sha256,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
             size_bytes=len(content),
             content_type=content_type,
         )
-        self.session.add(created)
-        await self.session.flush()
-        return created
 
     async def _materialize_uploaded_blob(self, upload: SkillUploadModel) -> SkillBlob:
         """Finalize a staged upload into a reusable blob row."""
@@ -375,15 +425,10 @@ class SkillService(BaseWorkspaceService):
                 },
             )
 
-        blob_row = (
-            await self.session.execute(
-                select(SkillBlob).where(
-                    SkillBlob.workspace_id == self.workspace_id,
-                    SkillBlob.sha256 == upload.sha256,
-                    SkillBlob.content_type == upload.content_type,
-                )
-            )
-        ).scalar_one_or_none()
+        blob_row = await self._get_blob_by_identity(
+            sha256=upload.sha256,
+            content_type=upload.content_type,
+        )
         if blob_row is None:
             canonical_key = self._storage_key_for(upload.sha256, upload.content_type)
             if upload.key != canonical_key:
@@ -393,16 +438,13 @@ class SkillService(BaseWorkspaceService):
                     bucket=upload.bucket,
                     content_type=upload.content_type,
                 )
-            blob_row = SkillBlob(
-                workspace_id=self.workspace_id,
+            blob_row = await self._insert_blob_row(
                 sha256=upload.sha256,
                 bucket=upload.bucket,
                 key=canonical_key,
                 size_bytes=actual_size_bytes,
                 content_type=upload.content_type,
             )
-            self.session.add(blob_row)
-            await self.session.flush()
 
         upload.blob_id = blob_row.id
         upload.completed_at = datetime.now(UTC)
