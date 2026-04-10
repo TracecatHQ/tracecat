@@ -850,18 +850,21 @@ def _build_workflow_edit_document(
         workflow.schedules or [],
         key=_workflow_schedule_sort_key,
     ):
-        schedules.append(
-            ScheduleRead.model_validate(schedule, from_attributes=True).model_dump(
-                mode="json",
-                exclude={
-                    "id",
-                    "workspace_id",
-                    "workflow_id",
-                    "created_at",
-                    "updated_at",
-                },
-            )
+        schedule_payload = ScheduleRead.model_validate(
+            schedule, from_attributes=True
+        ).model_dump(
+            mode="json",
+            exclude={
+                "id",
+                "workspace_id",
+                "workflow_id",
+                "created_at",
+                "updated_at",
+            },
         )
+        if schedule_payload["timeout"] is None:
+            schedule_payload["timeout"] = 0
+        schedules.append(schedule_payload)
 
     case_trigger_payload: dict[str, Any] | None = None
     if case_trigger := workflow.case_trigger:
