@@ -317,7 +317,10 @@ class AgentPresetService(BaseWorkspaceService):
         if params.mcp_integrations:
             await self.validate_mcp_integrations(params.mcp_integrations)
         if params.skills:
-            await self.skills.validate_binding_inputs(params.skills)
+            await self.skills.validate_binding_inputs(
+                params.skills,
+                for_update=True,
+            )
         preset = AgentPreset(
             workspace_id=self.workspace_id,
             slug=slug,
@@ -405,7 +408,10 @@ class AgentPresetService(BaseWorkspaceService):
                 execution_changed = True
 
         if requested_skills is not None:
-            await self.skills.validate_binding_inputs(requested_skills)
+            await self.skills.validate_binding_inputs(
+                requested_skills,
+                for_update=True,
+            )
             current_specs = await self._get_head_skill_binding_specs(preset.id)
             requested_specs = self._binding_specs_from_inputs(requested_skills)
             if current_specs != requested_specs:
@@ -1170,7 +1176,8 @@ class AgentPresetService(BaseWorkspaceService):
                     skill_version_id=skill_version_id,
                 )
                 for skill_id, skill_version_id in rows
-            ]
+            ],
+            for_update=True,
         )
         await self.session.execute(
             sa.delete(AgentPresetSkill).where(

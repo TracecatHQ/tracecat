@@ -605,6 +605,36 @@ class TestSkillService:
         assert restored_file.kind == "inline"
         assert restored_file.text_content == "Version one"
 
+    async def test_restore_version_locks_skill_row(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Restoring a draft snapshot locks the mutable skill row first."""
+
+        created = await skill_service.create_skill(SkillCreate(slug="locked-restore"))
+        version = await skill_service.publish_skill(created.id)
+
+        original_get_skill_for_update = SkillService._get_skill_for_update
+        lock_calls = 0
+
+        async def instrumented_get_skill_for_update(
+            self: SkillService, skill_id: uuid.UUID
+        ):
+            nonlocal lock_calls
+            lock_calls += 1
+            return await original_get_skill_for_update(self, skill_id)
+
+        monkeypatch.setattr(
+            SkillService,
+            "_get_skill_for_update",
+            instrumented_get_skill_for_update,
+        )
+
+        await skill_service.restore_version(skill_id=created.id, version_id=version.id)
+
+        assert lock_calls == 1
+
     async def test_archive_blocks_when_preset_head_references_skill(
         self,
         session: AsyncSession,
@@ -636,3 +666,35 @@ class TestSkillService:
         assert preset.current_version_id is not None
         with pytest.raises(TracecatValidationError, match="still attached to a preset"):
             await skill_service.archive_skill(created.id)
+
+    async def test_archive_skill_locks_skill_row(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Archiving a skill locks the row before checking preset bindings."""
+
+        created = await skill_service.create_skill(SkillCreate(slug="locked-archive"))
+
+        original_get_skill_for_update = SkillService._get_skill_for_update
+        lock_calls = 0
+
+        async def instrumented_get_skill_for_update(
+            self: SkillService, skill_id: uuid.UUID
+        ):
+            nonlocal lock_calls
+            lock_calls += 1
+            return await original_get_skill_for_update(self, skill_id)
+
+        monkeypatch.setattr(
+            SkillService,
+            "_get_skill_for_update",
+            instrumented_get_skill_for_update,
+        )
+
+        await skill_service.archive_skill(created.id)
+        archived = await skill_service.get_skill(created.id)
+
+        assert lock_calls == 1
+        assert archived is not None
+        assert archived.archived_at is not None
