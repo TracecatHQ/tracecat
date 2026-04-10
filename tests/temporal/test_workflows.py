@@ -2810,6 +2810,109 @@ async def test_workflow_join_unreachable(
 
 
 @pytest.mark.anyio
+async def test_workflow_join_run_if_skip_ok(
+    test_role, runtime_config, test_worker_factory, test_executor_worker_factory
+):
+    """Test that a guarded join can self-skip before mixed parent reachability fails.
+
+    Minimal shape:
+
+        start -> left ----\
+                           -> join
+        start -> right ---/
+        start -> gate
+
+    Where:
+        - ``right.run_if`` depends on ``gate``
+        - ``join.run_if`` depends on the same ``gate``
+        - ``join.join_strategy == all``
+
+    When ``gate`` resolves to ``False``, the runtime state becomes:
+        - ``left`` visited
+        - ``right`` skipped
+        - ``join`` should skip cleanly instead of failing as unreachable
+    """
+
+    dsl_data = {
+        "title": "join_run_if_skip_ok",
+        "description": "Test that a guarded join skips cleanly with a skipped sibling",
+        "entrypoint": {"expects": {}, "ref": "start"},
+        "actions": [
+            {
+                "ref": "start",
+                "action": "core.transform.reshape",
+                "args": {"value": "ROOT"},
+            },
+            {
+                "ref": "gate",
+                "action": "core.transform.reshape",
+                "args": {"value": False},
+                "depends_on": ["start"],
+            },
+            {
+                "ref": "left",
+                "action": "core.transform.reshape",
+                "args": {"value": "LEFT"},
+                "depends_on": ["start"],
+            },
+            {
+                "ref": "right",
+                "action": "core.transform.reshape",
+                "args": {"value": "RIGHT"},
+                "depends_on": ["start"],
+                "run_if": "${{ ACTIONS.gate.result }}",
+            },
+            {
+                "ref": "join",
+                "action": "core.transform.reshape",
+                "args": {"value": "JOIN"},
+                "depends_on": ["left", "right"],
+                "join_strategy": "all",
+                "run_if": "${{ ACTIONS.gate.result }}",
+            },
+        ],
+        "returns": {
+            "gate": "${{ ACTIONS.gate.result }}",
+            "left": "${{ ACTIONS.left.result }}",
+            "right": "${{ ACTIONS.right.result }}",
+            "join": "${{ ACTIONS.join.result }}",
+        },
+    }
+    dsl = DSLInput(**dsl_data)
+    test_name = f"test_workflow_join_run_if_skip_ok-{dsl.title}"
+    wf_exec_id = generate_test_exec_id(test_name)
+    client = await get_temporal_client()
+
+    async with test_worker_factory(client), test_executor_worker_factory(client):
+        result = await client.execute_workflow(
+            DSLWorkflow.run,
+            DSLRunArgs(
+                dsl=dsl,
+                role=test_role,
+                wf_id=TEST_WF_ID,
+                runtime_config=runtime_config,
+            ),
+            id=wf_exec_id,
+            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            run_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(
+                maximum_attempts=1,
+                non_retryable_error_types=[
+                    "tracecat.exceptions.TracecatExpressionError",
+                    "TracecatValidationError",
+                ],
+            ),
+        )
+
+    assert await to_data(result) == {
+        "gate": False,
+        "left": "LEFT",
+        "right": None,
+        "join": None,
+    }
+
+
+@pytest.mark.anyio
 async def test_workflow_multiple_entrypoints(
     test_role, runtime_config, test_worker_factory, test_executor_worker_factory
 ):
