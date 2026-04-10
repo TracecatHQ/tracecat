@@ -512,7 +512,8 @@ class SandboxedAgentExecutor:
                     manifest_sha256=resolved_skill.manifest_sha256,
                     skill_version_id=resolved_skill.skill_version_id,
                 )
-                shutil.copytree(
+                await asyncio.to_thread(
+                    shutil.copytree,
                     cached_dir,
                     skills_dir / resolved_skill.skill_slug,
                     dirs_exist_ok=True,
