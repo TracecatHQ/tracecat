@@ -66,6 +66,8 @@ type NavItem = {
   url?: string
   icon: LucideIcon
   isActive?: boolean
+  isLocked?: boolean
+  onSelect?: () => void
   visible?: boolean
   requiredScope?: string
   items?: {
@@ -197,7 +199,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         url: `${basePath}/skills`,
         icon: Pyramid,
         isActive: pathname?.startsWith(`${basePath}/skills`),
-        visible: agentAddonsEnabled && canViewAgents === true,
+        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
+        onSelect: entitlementsIsLoading
+          ? undefined
+          : () => setLockedFeatureDialogOpen(true),
+        visible: canViewAgents === true,
       },
       {
         title: "Actions",
@@ -216,6 +222,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       canViewVariables,
       canViewSecrets,
       canViewIntegrations,
+      entitlementsIsLoading,
       agentAddonsEnabled,
       canViewAgents,
       canViewActions,
@@ -289,6 +296,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                 ))}
                               </SidebarMenuSub>
                             </SidebarMenuItem>
+                          ) : item.isLocked ? (
+                            <SidebarMenuButton
+                              type="button"
+                              isActive={item.isActive}
+                              onClick={item.onSelect}
+                              className="text-muted-foreground"
+                            >
+                              <item.icon />
+                              <span>{item.title}</span>
+                              <LockedFeatureChip className="ml-auto shrink-0" />
+                            </SidebarMenuButton>
                           ) : (
                             <SidebarMenuButton asChild isActive={item.isActive}>
                               <Link href={item.url!}>
