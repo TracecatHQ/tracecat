@@ -530,6 +530,19 @@ class SkillService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def _get_skill_for_update(self, skill_id: uuid.UUID) -> Skill | None:
+        """Return and lock a skill row for mutation."""
+
+        stmt = (
+            select(Skill)
+            .where(
+                Skill.workspace_id == self.workspace_id,
+                Skill.id == skill_id,
+            )
+            .with_for_update()
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def _normalize_and_validate_slug(
         self, *, slug: str, exclude_id: uuid.UUID | None = None
     ) -> str:
@@ -770,10 +783,9 @@ class SkillService(BaseWorkspaceService):
     ) -> SkillDraftRead:
         """Apply optimistic-concurrency mutations to a skill draft."""
 
-        skill = await self.get_skill(skill_id)
+        skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
-        await self.session.refresh(skill, attribute_names=["draft_files"])
         if skill.draft_revision != params.base_revision:
             raise TracecatValidationError(
                 "Draft revision conflict",

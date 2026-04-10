@@ -1,14 +1,17 @@
 """Tests for SkillService."""
 
+import asyncio
 import base64
 import hashlib
 import os
+import uuid
 
 import pytest
 from dotenv import dotenv_values
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -20,6 +23,7 @@ from tracecat.agent.skill.schemas import (
     SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
     SkillDraftPatch,
+    SkillDraftRead,
     SkillDraftUpsertTextFileOp,
     SkillUpload,
     SkillUploadFile,
@@ -27,7 +31,7 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.skill.service import SkillService
 from tracecat.auth.types import Role
-from tracecat.db.models import SkillBlob
+from tracecat.db.models import SkillBlob, Workspace
 from tracecat.exceptions import TracecatValidationError
 from tracecat.storage.blob import ensure_bucket_exists
 
@@ -213,6 +217,104 @@ class TestSkillService:
                     ],
                 ),
             )
+
+    async def test_patch_draft_concurrent_requests_conflict(
+        self,
+        svc_role: Role,
+    ) -> None:
+        """Concurrent draft patches with the same revision do not both commit."""
+
+        role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
+        concurrent_engine = create_async_engine(TEST_DB_CONFIG.test_url)
+        session_factory = async_sessionmaker(
+            bind=concurrent_engine,
+            expire_on_commit=False,
+        )
+
+        try:
+            async with session_factory() as seed_session:
+                workspace = await seed_session.scalar(
+                    select(Workspace).where(Workspace.id == role.workspace_id)
+                )
+                if workspace is None:
+                    seed_session.add(
+                        Workspace(
+                            id=role.workspace_id,
+                            name="test-workspace",
+                            organization_id=role.organization_id,
+                        )
+                    )
+                    await seed_session.commit()
+
+                seed_service = SkillService(
+                    session=seed_session,
+                    role=role.model_copy(deep=True),
+                )
+                created = await seed_service.create_skill(
+                    SkillCreate(slug="concurrent-draft-skill")
+                )
+                draft = await seed_service.get_draft(created.id)
+                assert draft is not None
+
+            async def patch_draft(
+                index: int,
+            ) -> SkillDraftRead | TracecatValidationError:
+                async with session_factory() as concurrent_session:
+                    service = SkillService(
+                        session=concurrent_session,
+                        role=role.model_copy(deep=True),
+                    )
+                    try:
+                        return await service.patch_draft(
+                            skill_id=created.id,
+                            params=SkillDraftPatch(
+                                base_revision=draft.draft_revision,
+                                operations=[
+                                    SkillDraftUpsertTextFileOp(
+                                        path=f"references/{index}.md",
+                                        content=f"content {index}",
+                                    )
+                                ],
+                            ),
+                        )
+                    except TracecatValidationError as exc:
+                        return exc
+
+            results = await asyncio.gather(
+                patch_draft(1),
+                patch_draft(2),
+            )
+
+            successes = [
+                result for result in results if isinstance(result, SkillDraftRead)
+            ]
+            conflicts = [
+                result
+                for result in results
+                if isinstance(result, TracecatValidationError)
+            ]
+
+            assert len(successes) == 1
+            assert len(conflicts) == 1
+            assert "Draft revision conflict" in str(conflicts[0])
+
+            async with session_factory() as verification_session:
+                service = SkillService(
+                    session=verification_session,
+                    role=role.model_copy(deep=True),
+                )
+                final_draft = await service.get_draft(created.id)
+
+            assert final_draft is not None
+            assert final_draft.draft_revision == draft.draft_revision + 1
+            reference_paths = [
+                file.path
+                for file in final_draft.files
+                if file.path.startswith("references/")
+            ]
+            assert len(reference_paths) == 1
+        finally:
+            await concurrent_engine.dispose()
 
     async def test_attach_uploaded_blob_promotes_from_staged_key(
         self,
