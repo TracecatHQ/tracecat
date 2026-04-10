@@ -522,6 +522,23 @@ class SkillService(BaseWorkspaceService):
             if normalized == "SKILL.md":
                 skill_md_blob = blob_row
 
+        for normalized in sorted(seen_paths):
+            parts = normalized.split("/")
+            for index in range(1, len(parts)):
+                ancestor = "/".join(parts[:index])
+                if ancestor in seen_paths:
+                    result.errors.append(
+                        SkillValidationErrorDetail(
+                            code="path_prefix_collision",
+                            message=(
+                                f"Skill path {normalized!r} conflicts with file path "
+                                f"{ancestor!r}"
+                            ),
+                            path=normalized,
+                        )
+                    )
+                    break
+
         if skill_md_blob is None:
             result.errors.append(
                 SkillValidationErrorDetail(
