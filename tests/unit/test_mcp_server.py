@@ -109,6 +109,32 @@ def _fake_ctx(
     return SimpleNamespace(session_id=session_id, transport=transport)
 
 
+def _workflow_stub(**overrides: Any) -> SimpleNamespace:
+    data: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "title": "Example workflow",
+        "description": "Example description",
+        "status": "offline",
+        "version": None,
+        "alias": None,
+        "entrypoint": None,
+        "error_handler": None,
+        "expects": {},
+        "returns": None,
+        "config": {},
+        "actions": [],
+        "schedules": [],
+        "case_trigger": None,
+        "trigger_position_x": 0.0,
+        "trigger_position_y": 0.0,
+        "viewport_x": 0.0,
+        "viewport_y": 0.0,
+        "viewport_zoom": 1.0,
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
+
+
 @pytest.mark.anyio
 async def test_resolve_workspace_role_rejects_invalid_workspace_id():
     with pytest.raises(ToolError, match="Invalid workspace ID"):
@@ -592,15 +618,7 @@ async def test_get_workflow_returns_metadata_only(monkeypatch):
         return uuid.uuid4(), SimpleNamespace()
 
     workflow_id = uuid.uuid4()
-    workflow = SimpleNamespace(
-        id=workflow_id,
-        title="Example workflow",
-        description="Example description",
-        status="offline",
-        version=None,
-        alias=None,
-        entrypoint=None,
-    )
+    workflow = _workflow_stub(id=workflow_id)
 
     class _WorkflowService:
         def __init__(self) -> None:
@@ -821,7 +839,7 @@ async def test_edit_workflow_rejects_stale_revision(monkeypatch):
             ],
         )
 
-    payload = json.loads(str(exc_info.value))
+    payload = cast(dict[str, Any], exc_info.value.args[0])
     assert payload["status"] == "conflict"
     assert payload["current_revision"]
 
@@ -843,20 +861,139 @@ async def test_edit_workflow_rejects_forbidden_paths(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_persist_workflow_edit_document_applies_metadata_with_definition_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _workflow_stub(status="offline", alias=None)
+    original_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload["metadata"]["status"] = "online"
+    updated_payload["metadata"]["alias"] = "new-alias"
+    updated_payload["definition"]["actions"] = [
+        {
+            "ref": "step_a",
+            "action": "core.noop",
+            "args": {},
+            "depends_on": [],
+            "description": "",
+        }
+    ]
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            _ = obj
+
+        async def execute(self, stmt: Any) -> None:
+            _ = stmt
+
+        async def flush(self) -> None:
+            return None
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
+        async def commit(self) -> None:
+            return None
+
+    captured: dict[str, Any] = {}
+
+    async def _replace_definition_from_dsl(**kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        mcp_server,
+        "_replace_workflow_definition_from_dsl",
+        _replace_definition_from_dsl,
+    )
+
+    service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
+    await mcp_server._persist_workflow_edit_document(
+        role=SimpleNamespace(),
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+    assert captured["workflow_id"] == mcp_server.WorkflowUUID.new(workflow.id)
+    assert workflow.status == "online"
+    assert workflow.alias == "new-alias"
+
+
+@pytest.mark.anyio
+async def test_persist_workflow_edit_document_preserves_offline_schedule_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _workflow_stub()
+    original_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload["schedules"] = [
+        {
+            "cron": "0 * * * *",
+            "status": "offline",
+            "inputs": {},
+            "timeout": 0,
+        }
+    ]
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            _ = obj
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
+        async def commit(self) -> None:
+            return None
+
+    offline_schedule_id = uuid.uuid4()
+    updated_schedules: list[tuple[uuid.UUID, Any]] = []
+
+    async def _replace_schedules(**kwargs: Any) -> list[uuid.UUID]:
+        _ = kwargs
+        return [offline_schedule_id]
+
+    class _FakeWorkflowSchedulesService:
+        def __init__(self, session: Any, role: Any) -> None:
+            _ = session, role
+
+        async def update_schedule(self, schedule_id: uuid.UUID, params: Any) -> None:
+            updated_schedules.append((schedule_id, params))
+
+    monkeypatch.setattr(mcp_server, "_replace_workflow_schedules", _replace_schedules)
+    monkeypatch.setattr(
+        mcp_server,
+        "WorkflowSchedulesService",
+        _FakeWorkflowSchedulesService,
+    )
+
+    service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
+    await mcp_server._persist_workflow_edit_document(
+        role=SimpleNamespace(),
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+    assert len(updated_schedules) == 1
+    assert updated_schedules[0][0] == offline_schedule_id
+    assert updated_schedules[0][1].status == "offline"
+
+
+@pytest.mark.anyio
 async def test_get_workflow_returns_inline_definition_when_requested(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
 
     workflow_id = uuid.uuid4()
-    workflow = SimpleNamespace(
-        id=workflow_id,
-        title="Example workflow",
-        description="Example description",
-        status="offline",
-        version=None,
-        alias=None,
-        entrypoint=None,
-    )
+    workflow = _workflow_stub(id=workflow_id)
 
     class _WorkflowService:
         def __init__(self) -> None:
@@ -905,15 +1042,7 @@ async def test_get_workflow_returns_staged_metadata_when_inline_is_too_large(
         return uuid.uuid4(), SimpleNamespace()
 
     workflow_id = uuid.uuid4()
-    workflow = SimpleNamespace(
-        id=workflow_id,
-        title="Example workflow",
-        description="Example description",
-        status="offline",
-        version=None,
-        alias=None,
-        entrypoint=None,
-    )
+    workflow = _workflow_stub(id=workflow_id)
 
     class _WorkflowService:
         def __init__(self) -> None:
