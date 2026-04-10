@@ -1926,7 +1926,14 @@ function AgentPresetSkillsPanel({
     [selectedSkills]
   )
   const availableSkillsToAdd = useMemo(
-    () => (skills ?? []).filter((skill) => !attachedSkillIds.has(skill.id)),
+    () =>
+      (skills ?? []).filter((skill) => {
+        return !!skill.current_version_id && !attachedSkillIds.has(skill.id)
+      }),
+    [attachedSkillIds, skills]
+  )
+  const hasUnattachedSkills = useMemo(
+    () => (skills ?? []).some((skill) => !attachedSkillIds.has(skill.id)),
     [attachedSkillIds, skills]
   )
 
@@ -1999,7 +2006,9 @@ function AgentPresetSkillsPanel({
           skillFields.length > 0 &&
           availableSkillsToAdd.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              All workspace skills are already attached to this preset.
+              {hasUnattachedSkills
+                ? "Only skills with published versions can be attached."
+                : "All workspace skills are already attached to this preset."}
             </p>
           ) : null}
         </section>
