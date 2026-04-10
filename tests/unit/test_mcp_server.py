@@ -4766,7 +4766,7 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
         lambda role: _AsyncContext(_SkillService()),
     )
 
-    result = await _tool(mcp_server.upload_skill)(
+    await _tool(mcp_server.upload_skill)(
         workspace_id=str(workspace_id),
         slug="triage-skill",
         title="Updated title",
@@ -4780,7 +4780,6 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
         ],
     )
 
-    payload = _payload(result)
     patched_content = captured["patch_params"].operations[0].content
 
     assert captured["draft_file_request"]["path"] == "SKILL.md"
@@ -4788,9 +4787,111 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
     assert "description: Updated description" in patched_content
     assert "tags:" in patched_content
     assert "# Real instructions" in patched_content
-    assert "Use the uploaded body." in patched_content
+
+
+@pytest.mark.anyio
+async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    captured: dict[str, Any] = {}
+    malformed_skill_md = (
+        "---\ntitle: [broken\n---\n\n# Real instructions\n\nKeep this body.\n"
+    )
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def upload_skill(self, params):
+            now = datetime.now(UTC)
+            return SkillRead(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                slug=params.slug,
+                title=None,
+                description=None,
+                current_version_id=None,
+                draft_revision=2,
+                created_at=now,
+                updated_at=now,
+                archived_at=None,
+                current_version=None,
+                is_draft_publishable=True,
+                draft_validation_errors=[],
+                draft_file_count=len(params.files),
+            )
+
+        async def get_draft(self, _skill_id):
+            return SimpleNamespace(draft_revision=2)
+
+        async def get_draft_file(self, *, skill_id, path):
+            captured["draft_file_request"] = {
+                "skill_id": skill_id,
+                "path": path,
+            }
+            return SimpleNamespace(kind="inline", text_content=malformed_skill_md)
+
+        async def patch_draft(self, *, skill_id, params):
+            captured["patch_skill_id"] = skill_id
+            captured["patch_params"] = params
+
+        async def get_skill_read(self, skill_id):
+            now = datetime.now(UTC)
+            return SkillRead(
+                id=skill_id,
+                workspace_id=workspace_id,
+                slug="triage-skill",
+                title="Recovered title",
+                description="Recovered description",
+                current_version_id=None,
+                draft_revision=3,
+                created_at=now,
+                updated_at=now,
+                archived_at=None,
+                current_version=None,
+                is_draft_publishable=True,
+                draft_validation_errors=[],
+                draft_file_count=1,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.upload_skill)(
+        workspace_id=str(workspace_id),
+        slug="triage-skill",
+        title="Recovered title",
+        description="Recovered description",
+        files=[
+            SkillUploadFile(
+                path="SKILL.md",
+                content_base64="IyBUcmlhZ2U=",
+                content_type="text/markdown; charset=utf-8",
+            )
+        ],
+    )
+
+    payload = _payload(result)
+    patched_content = captured["patch_params"].operations[0].content
+    _, _, remainder = patched_content.partition("---\n")
+    frontmatter, separator, body = remainder.partition("\n---\n")
+
+    assert payload["title"] == "Recovered title"
+    assert payload["description"] == "Recovered description"
+    assert separator == "\n---\n"
+    assert yaml.safe_load(frontmatter) == {
+        "title": "Recovered title",
+        "description": "Recovered description",
+    }
+    assert "# Real instructions" in body
+    assert "Keep this body." in body
     assert "Describe when this skill should be used" not in patched_content
-    assert payload["title"] == "Updated title"
 
 
 def test_mcp_instructions_include_agent_preset_authoring_tools() -> None:
