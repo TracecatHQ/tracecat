@@ -722,6 +722,47 @@ class TestSkillService:
         with pytest.raises(TracecatValidationError, match="failed validation"):
             await skill_service.publish_skill(created.id)
 
+    async def test_publish_rejects_file_directory_path_collisions(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Publishing fails when one manifest path is a parent of another."""
+
+        created = await skill_service.create_skill(SkillCreate(slug="path-collision"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="docs",
+                        content="plain file",
+                        content_type="text/plain; charset=utf-8",
+                    ),
+                    SkillDraftUpsertTextFileOp(
+                        path="docs/readme.md",
+                        content="# Readme",
+                        content_type="text/markdown; charset=utf-8",
+                    ),
+                ],
+            ),
+        )
+
+        updated_draft = await skill_service.get_draft(created.id)
+
+        assert updated_draft is not None
+        assert updated_draft.is_publishable is False
+        assert [error.code for error in updated_draft.validation_errors] == [
+            "path_prefix_collision"
+        ]
+        assert updated_draft.validation_errors[0].path == "docs/readme.md"
+
+        with pytest.raises(TracecatValidationError, match="failed validation"):
+            await skill_service.publish_skill(created.id)
+
     async def test_publish_skill_concurrently_allocates_unique_versions(
         self,
         svc_role: Role,
