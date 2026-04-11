@@ -209,6 +209,43 @@ describe("useSkillsStudio", () => {
     expect(result.current.hasUnsavedChanges).toBe(false)
   })
 
+  it("keeps new files staged when their content is cleared back to empty", async () => {
+    const { result } = renderHook(() =>
+      useSkillsStudio({
+        workspaceId: "workspace-1",
+        initialSkillId: "skill-1",
+      })
+    )
+
+    await waitFor(() => {
+      expect(result.current.selectedPath).toBe("SKILL.md")
+    })
+
+    act(() => {
+      result.current.onNewFilePathChange("notes.txt")
+    })
+
+    act(() => {
+      result.current.onCreateNewFile()
+    })
+
+    act(() => {
+      result.current.onEditorChange("draft notes")
+    })
+
+    act(() => {
+      result.current.onEditorChange("")
+    })
+
+    expect(result.current.selectedFile?.path).toBe("notes.txt")
+    expect(result.current.currentTextValue).toBe("")
+    expect(result.current.visibleFiles.map((file) => file.path)).toEqual([
+      "notes.txt",
+      "SKILL.md",
+    ])
+    expect(result.current.hasUnsavedChanges).toBe(true)
+  })
+
   it("keeps the full save lifecycle locked while uploads are in flight", async () => {
     const uploadDeferred = createDeferred<void>()
     mockCreateSkillDraftUpload.mockResolvedValue({
