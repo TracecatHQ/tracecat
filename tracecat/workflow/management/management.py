@@ -560,11 +560,14 @@ class WorkflowsManagementService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         workflow = result.scalar_one_or_none()
         if workflow:
-            await self._ensure_workflow_system_resources(workflow)
-            await self._reconcile_graph_object_with_actions(workflow)
+            commit = not for_update
+            await self._ensure_workflow_system_resources(workflow, commit=commit)
+            await self._reconcile_graph_object_with_actions(workflow, commit=commit)
         return workflow
 
-    async def _ensure_workflow_system_resources(self, workflow: Workflow) -> bool:
+    async def _ensure_workflow_system_resources(
+        self, workflow: Workflow, *, commit: bool = True
+    ) -> bool:
         """Create missing default webhook/case trigger rows for legacy workflows."""
 
         changed = False
@@ -583,12 +586,17 @@ class WorkflowsManagementService(BaseWorkspaceService):
             changed = True
 
         if changed:
-            await self.session.commit()
+            if commit:
+                await self.session.commit()
+            else:
+                await self.session.flush()
             await self.session.refresh(workflow, ["webhook", "case_trigger"])
 
         return changed
 
-    async def _reconcile_graph_object_with_actions(self, workflow: Workflow) -> bool:
+    async def _reconcile_graph_object_with_actions(
+        self, workflow: Workflow, *, commit: bool = True
+    ) -> bool:
         """Remove stale upstream edge references from actions.
 
         The graph layout is stored in action.upstream_edges and workflow trigger
@@ -637,7 +645,10 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 self.session.add(action)
 
         if changed:
-            await self.session.commit()
+            if commit:
+                await self.session.commit()
+            else:
+                await self.session.flush()
             await self.session.refresh(workflow, ["actions"])
 
         return changed
