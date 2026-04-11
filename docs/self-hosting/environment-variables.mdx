@@ -7,8 +7,6 @@ import EnvironmentVariables from "/snippets/environment-variables.mdx";
 
 ## Required secrets
 
-Tracecat requires four secrets that must be unique per deployment.
-
 | Secret | Purpose |
 | :----- | :------ |
 | `TRACECAT__DB_ENCRYPTION_KEY` | Fernet key for at-rest encryption in PostgreSQL. Losing it makes encrypted credentials unrecoverable. |
@@ -18,24 +16,38 @@ Tracecat requires four secrets that must be unique per deployment.
 
 Generate all four with `openssl`:
 
-<Snippet file="generate-secrets.mdx" />
-
-## Create your `.env` file
-
-Download the `.env.example` template and the `env.sh` setup script, then run it to generate your `.env` file:
-
 ```bash
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.39/env.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.39/.env.example
-chmod +x env.sh && ./env.sh
+# TRACECAT__SERVICE_KEY
+openssl rand -hex 32
+
+# TRACECAT__SIGNING_SECRET
+openssl rand -hex 32
+
+# USER_AUTH_SECRET
+openssl rand -hex 32
+
+# TRACECAT__DB_ENCRYPTION_KEY (Fernet-compatible base64)
+openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_'
 ```
 
-The script prompts you for `PUBLIC_APP_URL`, PostgreSQL SSL mode, and superadmin email, then writes a `.env` file with generated secrets.
+## Example `.env`
 
-You can also view the raw template at [`/.env.example`](https://github.com/TracecatHQ/tracecat/blob/main/.env.example).
+```bash
+PUBLIC_APP_URL=https://tracecat.yourdomain.com
+PUBLIC_API_URL=https://tracecat.yourdomain.com/api
+TRACECAT__APP_ENV=production
+TRACECAT__DB_ENCRYPTION_KEY=<openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_'>
+TRACECAT__SERVICE_KEY=<openssl rand -hex 32>
+TRACECAT__SIGNING_SECRET=<openssl rand -hex 32>
+USER_AUTH_SECRET=<openssl rand -hex 32>
+TRACECAT__AUTH_SUPERADMIN_EMAIL=admin@yourdomain.com
+TRACECAT__DB_SSLMODE=require
+TRACECAT__POSTGRES_USER=postgres
+TRACECAT__POSTGRES_PASSWORD=<secure-password>
+```
 
-See [Docker Compose](/self-hosting/docker-compose) for full deployment steps.
+See [`.env.example`](https://github.com/TracecatHQ/tracecat/blob/main/.env.example) for all options.
 
-## Variable reference
+## Variables
 
 <EnvironmentVariables />

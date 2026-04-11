@@ -95,6 +95,10 @@ See [SAML configuration](/authentication/saml) for provider-specific setup instr
     See [Configure SSL for production](/self-hosting/docker-compose#how-do-i-configure-ssl-for-production) for step-by-step instructions.
   </Accordion>
 
+  <Accordion title="Can I use any S3-compatible bucket?">
+    Yes. Tracecat has been tested with Amazon S3, MinIO, SeaweedFS, and RustFS.
+  </Accordion>
+
   <Accordion title="How do I connect Tracecat MCP from my IDE?">
     Point your IDE's MCP configuration to `<PUBLIC_APP_URL>/mcp`. Authentication uses a built-in OIDC provider — your agent will be redirected to sign in through the browser on first connection.
 
