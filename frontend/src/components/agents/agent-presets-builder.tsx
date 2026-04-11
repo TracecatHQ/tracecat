@@ -2161,30 +2161,21 @@ function AgentPresetSkillBindingRow({
   return (
     <div className="flex min-w-0 items-start gap-3 rounded-md border px-3 py-2.5">
       <Pyramid className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-      <div
-        className={
-          skillHref
-            ? "min-w-0 flex-1 space-y-0.5 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
-            : "min-w-0 flex-1 space-y-0.5"
-        }
-        role={skillHref ? "link" : undefined}
-        tabIndex={skillHref ? 0 : undefined}
-        onClick={skillHref ? handleOpenSkill : undefined}
-        onKeyDown={
-          skillHref
-            ? (event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault()
-                  handleOpenSkill()
-                }
-              }
-            : undefined
-        }
-      >
+      <div className="min-w-0 flex-1 space-y-0.5">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-medium">
-            {selectedSkill?.title ?? selectedSkill?.slug ?? "Unknown skill"}
-          </span>
+          {skillHref ? (
+            <button
+              type="button"
+              className="min-w-0 truncate rounded-sm text-left text-sm font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={handleOpenSkill}
+            >
+              {selectedSkill?.title ?? selectedSkill?.slug ?? "Unknown skill"}
+            </button>
+          ) : (
+            <span className="truncate text-sm font-medium">
+              {selectedSkill?.title ?? selectedSkill?.slug ?? "Unknown skill"}
+            </span>
+          )}
           {selectedSkill?.title &&
           selectedSkill.title !== selectedSkill.slug ? (
             <span className="shrink-0 text-xs text-muted-foreground">
