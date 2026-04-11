@@ -4725,15 +4725,12 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
         async def get_draft(self, _skill_id):
             return SimpleNamespace(draft_revision=2)
 
-        async def get_draft_file(self, *, skill_id, path):
-            captured["draft_file_request"] = {
+        async def get_draft_text_file(self, *, skill_id, path):
+            captured["draft_text_request"] = {
                 "skill_id": skill_id,
                 "path": path,
             }
-            return SimpleNamespace(
-                kind="inline",
-                text_content=existing_skill_md,
-            )
+            return existing_skill_md
 
         async def patch_draft(self, *, skill_id, params):
             captured["patch_skill_id"] = skill_id
@@ -4782,7 +4779,7 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
 
     patched_content = captured["patch_params"].operations[0].content
 
-    assert captured["draft_file_request"]["path"] == "SKILL.md"
+    assert captured["draft_text_request"]["path"] == "SKILL.md"
     assert "title: Updated title" in patched_content
     assert "description: Updated description" in patched_content
     assert "tags:" in patched_content
@@ -4826,12 +4823,12 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
         async def get_draft(self, _skill_id):
             return SimpleNamespace(draft_revision=2)
 
-        async def get_draft_file(self, *, skill_id, path):
-            captured["draft_file_request"] = {
+        async def get_draft_text_file(self, *, skill_id, path):
+            captured["draft_text_request"] = {
                 "skill_id": skill_id,
                 "path": path,
             }
-            return SimpleNamespace(kind="inline", text_content=malformed_skill_md)
+            return malformed_skill_md
 
         async def patch_draft(self, *, skill_id, params):
             captured["patch_skill_id"] = skill_id
@@ -4892,6 +4889,105 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
     assert "# Real instructions" in body
     assert "Keep this body." in body
     assert "Describe when this skill should be used" not in patched_content
+
+
+@pytest.mark.anyio
+async def test_upload_skill_merges_metadata_for_large_skill_markdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    captured: dict[str, Any] = {}
+    large_skill_md = "---\ntitle: Existing title\n---\n\n# Real instructions\n\n" + (
+        "A" * 300_000
+    )
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def upload_skill(self, params):
+            now = datetime.now(UTC)
+            return SkillRead(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                slug=params.slug,
+                title=None,
+                description=None,
+                current_version_id=None,
+                draft_revision=2,
+                created_at=now,
+                updated_at=now,
+                archived_at=None,
+                current_version=None,
+                is_draft_publishable=True,
+                draft_validation_errors=[],
+                draft_file_count=len(params.files),
+            )
+
+        async def get_draft(self, _skill_id):
+            return SimpleNamespace(draft_revision=2)
+
+        async def get_draft_text_file(self, *, skill_id, path):
+            captured["draft_text_request"] = {
+                "skill_id": skill_id,
+                "path": path,
+            }
+            return large_skill_md
+
+        async def patch_draft(self, *, skill_id, params):
+            captured["patch_skill_id"] = skill_id
+            captured["patch_params"] = params
+
+        async def get_skill_read(self, skill_id):
+            now = datetime.now(UTC)
+            return SkillRead(
+                id=skill_id,
+                workspace_id=workspace_id,
+                slug="triage-skill",
+                title="Updated title",
+                description="Updated description",
+                current_version_id=None,
+                draft_revision=3,
+                created_at=now,
+                updated_at=now,
+                archived_at=None,
+                current_version=None,
+                is_draft_publishable=True,
+                draft_validation_errors=[],
+                draft_file_count=1,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = await _tool(mcp_server.upload_skill)(
+        workspace_id=str(workspace_id),
+        slug="triage-skill",
+        title="Updated title",
+        description="Updated description",
+        files=[
+            SkillUploadFile(
+                path="SKILL.md",
+                content_base64="IyBUcmlhZ2U=",
+                content_type="text/markdown; charset=utf-8",
+            )
+        ],
+    )
+
+    payload = _payload(result)
+    patched_content = captured["patch_params"].operations[0].content
+
+    assert captured["draft_text_request"]["path"] == "SKILL.md"
+    assert payload["title"] == "Updated title"
+    assert payload["description"] == "Updated description"
+    assert "# Real instructions" in patched_content
+    assert "Updated description" in patched_content
+    assert len(patched_content) > 300_000
 
 
 def test_mcp_instructions_include_agent_preset_authoring_tools() -> None:

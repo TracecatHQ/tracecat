@@ -986,6 +986,35 @@ class SkillService(BaseWorkspaceService):
             ),
         )
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_draft_text_file(
+        self, *, skill_id: uuid.UUID, path: str
+    ) -> str | None:
+        """Return one draft file decoded as UTF-8 text regardless of inline size."""
+
+        normalized_path = self._normalize_path(path)
+        stmt = (
+            select(SkillDraftFile, SkillBlob)
+            .join(SkillBlob, SkillDraftFile.blob_id == SkillBlob.id)
+            .where(
+                SkillDraftFile.workspace_id == self.workspace_id,
+                SkillDraftFile.skill_id == skill_id,
+                SkillDraftFile.path == normalized_path,
+            )
+        )
+        row = (await self.session.execute(stmt)).tuples().first()
+        if row is None:
+            return None
+        _, blob_row = row
+        try:
+            content = await blob.download_file(
+                key=blob_row.key,
+                bucket=blob_row.bucket,
+            )
+            return content.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
     @require_scope("agent:update")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def patch_draft(
