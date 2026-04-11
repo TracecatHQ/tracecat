@@ -25,7 +25,7 @@ jest.mock("@/lib/skills-studio", () => {
   }
 })
 
-const mockSkill: SkillRead = {
+const mockSkillOne: SkillRead = {
   id: "skill-1",
   workspace_id: "workspace-1",
   slug: "skill-1",
@@ -42,7 +42,31 @@ const mockSkill: SkillRead = {
   draft_file_count: 1,
 }
 
-const mockDraft: SkillDraftRead = {
+const mockSkillTwo: SkillRead = {
+  id: "skill-2",
+  workspace_id: "workspace-1",
+  slug: "skill-2",
+  title: "Skill 2",
+  description: null,
+  current_version_id: null,
+  draft_revision: 3,
+  created_at: "2026-04-10T00:00:00.000Z",
+  updated_at: "2026-04-10T00:00:00.000Z",
+  archived_at: null,
+  current_version: null,
+  is_draft_publishable: true,
+  draft_validation_errors: [],
+  draft_file_count: 1,
+}
+
+const mockSkills = [mockSkillOne, mockSkillTwo]
+
+const mockSkillsById: Record<string, SkillRead> = {
+  [mockSkillOne.id]: mockSkillOne,
+  [mockSkillTwo.id]: mockSkillTwo,
+}
+
+const mockDraftOne: SkillDraftRead = {
   skill_id: "skill-1",
   skill_slug: "skill-1",
   draft_revision: 1,
@@ -61,23 +85,56 @@ const mockDraft: SkillDraftRead = {
   validation_errors: [],
 }
 
+const mockDraftTwo: SkillDraftRead = {
+  skill_id: "skill-2",
+  skill_slug: "skill-2",
+  draft_revision: 3,
+  title: "Skill 2",
+  description: null,
+  files: [
+    {
+      path: "README.md",
+      blob_id: "blob-2",
+      sha256: "sha-2",
+      size_bytes: 16,
+      content_type: "text/markdown; charset=utf-8",
+    },
+  ],
+  is_publishable: true,
+  validation_errors: [],
+}
+
+const mockDraftsBySkillId: Record<string, SkillDraftRead> = {
+  [mockDraftOne.skill_id]: mockDraftOne,
+  [mockDraftTwo.skill_id]: mockDraftTwo,
+}
+
+const mockDraftFileContentsBySkillId: Record<string, Record<string, string>> = {
+  "skill-1": {
+    "SKILL.md": "# Skill\n",
+  },
+  "skill-2": {
+    "README.md": "# Skill 2\n",
+  },
+}
+
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockRouterPush }),
 }))
 
 jest.mock("@/hooks/use-skills", () => ({
   useSkills: () => ({
-    skills: [mockSkill],
+    skills: mockSkills,
     skillsLoading: false,
     skillsError: null,
   }),
-  useSkill: () => ({
-    skill: mockSkill,
+  useSkill: (_workspaceId: string, skillId: string | null) => ({
+    skill: skillId ? mockSkillsById[skillId] : undefined,
     skillLoading: false,
     skillError: null,
   }),
-  useSkillDraft: () => ({
-    draft: mockDraft,
+  useSkillDraft: (_workspaceId: string, skillId: string | null) => ({
+    draft: skillId ? mockDraftsBySkillId[skillId] : undefined,
     draftLoading: false,
     draftError: null,
   }),
@@ -86,17 +143,30 @@ jest.mock("@/hooks/use-skills", () => ({
     versionsLoading: false,
     versionsError: null,
   }),
-  useSkillDraftFile: () => ({
-    draftFile: {
-      kind: "inline",
-      path: "SKILL.md",
-      content_type: "text/markdown; charset=utf-8",
-      size_bytes: 12,
-      text_content: "# Skill\n",
-    },
-    draftFileLoading: false,
-    draftFileError: null,
-  }),
+  useSkillDraftFile: (
+    _workspaceId: string,
+    skillId: string | null,
+    path: string | null
+  ) => {
+    const textContent =
+      skillId && path
+        ? mockDraftFileContentsBySkillId[skillId]?.[path]
+        : undefined
+    return {
+      draftFile:
+        textContent === undefined || path === null
+          ? undefined
+          : {
+              kind: "inline",
+              path,
+              content_type: "text/markdown; charset=utf-8",
+              size_bytes: textContent.length,
+              text_content: textContent,
+            },
+      draftFileLoading: false,
+      draftFileError: null,
+    }
+  },
   useCreateSkill: () => ({
     createSkill: mockCreateSkill,
     createSkillPending: false,
@@ -207,6 +277,59 @@ describe("useSkillsStudio", () => {
       "SKILL.md",
     ])
     expect(result.current.hasUnsavedChanges).toBe(false)
+  })
+
+  it("preserves staged edits per skill when switching selections", async () => {
+    const { result, rerender } = renderHook(
+      ({ initialSkillId }: { initialSkillId: string }) =>
+        useSkillsStudio({
+          workspaceId: "workspace-1",
+          initialSkillId,
+        }),
+      {
+        initialProps: {
+          initialSkillId: "skill-1",
+        },
+      }
+    )
+
+    await waitFor(() => {
+      expect(result.current.selectedPath).toBe("SKILL.md")
+    })
+
+    act(() => {
+      result.current.markdownEditorActivatedRef.current = true
+      result.current.onEditorChange("Updated skill one")
+    })
+
+    expect(result.current.currentTextValue).toBe("Updated skill one")
+    expect(result.current.hasUnsavedChanges).toBe(true)
+
+    act(() => {
+      result.current.onSelectSkill("skill-2")
+    })
+    rerender({ initialSkillId: "skill-2" })
+
+    await waitFor(() => {
+      expect(result.current.selectedSkillId).toBe("skill-2")
+      expect(result.current.selectedPath).toBe("README.md")
+    })
+
+    expect(result.current.currentTextValue).toBe("# Skill 2\n")
+    expect(result.current.hasUnsavedChanges).toBe(false)
+
+    act(() => {
+      result.current.onSelectSkill("skill-1")
+    })
+    rerender({ initialSkillId: "skill-1" })
+
+    await waitFor(() => {
+      expect(result.current.selectedSkillId).toBe("skill-1")
+      expect(result.current.selectedPath).toBe("SKILL.md")
+    })
+
+    expect(result.current.currentTextValue).toBe("Updated skill one")
+    expect(result.current.hasUnsavedChanges).toBe(true)
   })
 
   it("keeps new files staged when their content is cleared back to empty", async () => {

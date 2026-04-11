@@ -131,6 +131,11 @@ type UseSkillsStudioReturn = {
   onCreateNewFile: () => void
 }
 
+type DraftChangesForSkill = Record<string, DraftChange>
+type DraftChangesBySkillId = Record<string, DraftChangesForSkill>
+
+const EMPTY_DRAFT_CHANGES: DraftChangesForSkill = {}
+
 /**
  * Encapsulates all state, data-fetching, and handlers for the skills studio.
  *
@@ -152,9 +157,8 @@ export function useSkillsStudio(params: {
     initialSkillId ?? null
   )
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
-  const [draftChanges, setDraftChanges] = useState<Record<string, DraftChange>>(
-    {}
-  )
+  const [draftChangesBySkillId, setDraftChangesBySkillId] =
+    useState<DraftChangesBySkillId>({})
   const [showNewSkillDialog, setShowNewSkillDialog] = useState(false)
   const [showUploadSkillDialog, setShowUploadSkillDialog] = useState(false)
   const [showNewFileDialog, setShowNewFileDialog] = useState(false)
@@ -165,6 +169,46 @@ export function useSkillsStudio(params: {
   const [isDragOver, setIsDragOver] = useState(false)
   const [saveWorkingCopyPending, setSaveWorkingCopyPending] = useState(false)
   const saveWorkingCopyPendingRef = useRef(false)
+
+  const draftChanges = useMemo(() => {
+    if (!selectedSkillId) {
+      return EMPTY_DRAFT_CHANGES
+    }
+    return draftChangesBySkillId[selectedSkillId] ?? EMPTY_DRAFT_CHANGES
+  }, [draftChangesBySkillId, selectedSkillId])
+
+  const updateDraftChanges = useCallback(
+    (
+      updater:
+        | DraftChangesForSkill
+        | ((current: DraftChangesForSkill) => DraftChangesForSkill)
+    ) => {
+      if (!selectedSkillId) {
+        return
+      }
+
+      setDraftChangesBySkillId((current) => {
+        const currentForSkill = current[selectedSkillId] ?? EMPTY_DRAFT_CHANGES
+        const nextForSkill =
+          typeof updater === "function" ? updater(currentForSkill) : updater
+
+        if (Object.keys(nextForSkill).length === 0) {
+          if (!(selectedSkillId in current)) {
+            return current
+          }
+
+          const { [selectedSkillId]: _removed, ...rest } = current
+          return rest
+        }
+
+        return {
+          ...current,
+          [selectedSkillId]: nextForSkill,
+        }
+      })
+    },
+    [selectedSkillId]
+  )
 
   // ── Data fetching ──────────────────────────────────────────────────
   const { skills, skillsLoading, skillsError } = useSkills(workspaceId)
@@ -256,7 +300,6 @@ export function useSkillsStudio(params: {
   }, [initialSkillId])
 
   useEffect(() => {
-    setDraftChanges({})
     setSelectedPath(null)
     markdownEditorActivatedRef.current = false
   }, [selectedSkillId])
@@ -405,7 +448,7 @@ export function useSkillsStudio(params: {
       return
     }
 
-    setDraftChanges((current) => {
+    updateDraftChanges((current) => {
       let serverText: string | null = null
       if (draftFile?.kind === "inline") {
         serverText = draftFile.text_content ?? ""
@@ -432,7 +475,7 @@ export function useSkillsStudio(params: {
     if (!selectedFile) {
       return
     }
-    setDraftChanges((current) => {
+    updateDraftChanges((current) => {
       if (selectedFile.isNew) {
         const next = { ...current }
         delete next[selectedFile.path]
@@ -450,7 +493,7 @@ export function useSkillsStudio(params: {
     if (!selectedFile) {
       return
     }
-    setDraftChanges((current) => {
+    updateDraftChanges((current) => {
       const next = { ...current }
       delete next[selectedFile.path]
       return next
@@ -479,7 +522,7 @@ export function useSkillsStudio(params: {
       })
       return
     }
-    setDraftChanges((current) => ({
+    updateDraftChanges((current) => ({
       ...current,
       [path]: {
         kind: "text",
@@ -497,7 +540,7 @@ export function useSkillsStudio(params: {
     if (!selectedFile || !file) {
       return
     }
-    setDraftChanges((current) => ({
+    updateDraftChanges((current) => ({
       ...current,
       [selectedFile.path]: {
         kind: "upload",
@@ -575,7 +618,7 @@ export function useSkillsStudio(params: {
           operations,
         },
       })
-      setDraftChanges((current) => {
+      updateDraftChanges((current) => {
         const next = { ...current }
         for (const [path, change] of sortedChanges) {
           if (next[path] === change) {
@@ -617,7 +660,7 @@ export function useSkillsStudio(params: {
     }
     try {
       await restoreSkillVersion({ skillId: selectedSkillId, versionId })
-      setDraftChanges({})
+      updateDraftChanges({})
     } catch {
       // The mutation hook already reports restore failures to the user.
     }
