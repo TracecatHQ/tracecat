@@ -611,6 +611,10 @@ class CaseDurationService(BaseWorkspaceService):
     ) -> tuple[CaseEvent, datetime] | None:
         candidates: list[tuple[CaseEvent, datetime]] = []
         for event in events:
+            # A transition to `closed` is emitted as `case_closed` (and reopening
+            # as `case_reopened`), so exact matching on `status_changed` would
+            # otherwise miss those transitions. Expand the match here so duration
+            # definitions filtered on `status_changed` still see close/reopen.
             if anchor.event_type is CaseEventType.STATUS_CHANGED:
                 if event.type not in (
                     CaseEventType.STATUS_CHANGED,

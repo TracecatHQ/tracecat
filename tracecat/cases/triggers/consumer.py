@@ -337,6 +337,10 @@ class CaseTriggerConsumer:
         self, session, workspace_id: uuid.UUID, event_type: str
     ) -> list[CaseTrigger]:
         normalized_event_type = CaseEventType(event_type)
+        # Cases emit `case_closed` / `case_reopened` instead of `status_changed`
+        # for those transitions, so exact trigger lookup would otherwise skip
+        # workflows subscribed to `status_changed`. Expand the incoming event to
+        # include that subscription without changing the stored event type.
         if normalized_event_type in (
             CaseEventType.CASE_CLOSED,
             CaseEventType.CASE_REOPENED,
