@@ -19,7 +19,7 @@ from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.cases.enums import get_case_trigger_match_values
+from tracecat.cases.enums import CaseEventType
 from tracecat.cases.schemas import CaseCommentWorkflowStatus
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Case, CaseComment, CaseEvent, CaseTrigger, Workspace
@@ -336,7 +336,17 @@ class CaseTriggerConsumer:
     async def _load_triggers(
         self, session, workspace_id: uuid.UUID, event_type: str
     ) -> list[CaseTrigger]:
-        matching_event_types = get_case_trigger_match_values(event_type)
+        normalized_event_type = CaseEventType(event_type)
+        if normalized_event_type in (
+            CaseEventType.CASE_CLOSED,
+            CaseEventType.CASE_REOPENED,
+        ):
+            matching_event_types = (
+                normalized_event_type.value,
+                CaseEventType.STATUS_CHANGED.value,
+            )
+        else:
+            matching_event_types = (normalized_event_type.value,)
         stmt = select(CaseTrigger).where(
             CaseTrigger.workspace_id == workspace_id,
             CaseTrigger.status == "online",

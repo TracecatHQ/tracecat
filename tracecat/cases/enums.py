@@ -92,39 +92,6 @@ class CaseEventType(StrEnum):
     COMMENT_REPLY_DELETED = "comment_reply_deleted"
 
 
-_STATUS_CHANGED_MATCH_VALUES = (
-    CaseEventType.STATUS_CHANGED.value,
-    CaseEventType.CASE_CLOSED.value,
-    CaseEventType.CASE_REOPENED.value,
-)
-
-
-def get_case_event_match_values(event_type: CaseEventType | str) -> tuple[str, ...]:
-    """Expand event types that should match compatibility aliases."""
-    normalized = CaseEventType(event_type)
-    if normalized is CaseEventType.STATUS_CHANGED:
-        return _STATUS_CHANGED_MATCH_VALUES
-    return (normalized.value,)
-
-
-def case_event_type_matches(
-    actual_event_type: CaseEventType | str,
-    expected_event_type: CaseEventType | str,
-) -> bool:
-    """Return whether an event should satisfy an expected case event type."""
-    return CaseEventType(actual_event_type).value in get_case_event_match_values(
-        expected_event_type
-    )
-
-
-def get_case_trigger_match_values(event_type: CaseEventType | str) -> tuple[str, ...]:
-    """Return trigger subscriptions that should fire for an incoming event."""
-    normalized = CaseEventType(event_type)
-    if normalized in (CaseEventType.CASE_CLOSED, CaseEventType.CASE_REOPENED):
-        return (normalized.value, CaseEventType.STATUS_CHANGED.value)
-    return (normalized.value,)
-
-
 class CaseTaskStatus(StrEnum):
     """Case task status values."""
 

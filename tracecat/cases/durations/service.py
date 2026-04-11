@@ -25,7 +25,7 @@ from tracecat.cases.durations.schemas import (
     CaseDurationRead,
     CaseDurationUpdate,
 )
-from tracecat.cases.enums import case_event_type_matches
+from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Case, CaseDuration, CaseEvent
 from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
 from tracecat.exceptions import (
@@ -611,7 +611,14 @@ class CaseDurationService(BaseWorkspaceService):
     ) -> tuple[CaseEvent, datetime] | None:
         candidates: list[tuple[CaseEvent, datetime]] = []
         for event in events:
-            if not case_event_type_matches(event.type, anchor.event_type):
+            if anchor.event_type is CaseEventType.STATUS_CHANGED:
+                if event.type not in (
+                    CaseEventType.STATUS_CHANGED,
+                    CaseEventType.CASE_CLOSED,
+                    CaseEventType.CASE_REOPENED,
+                ):
+                    continue
+            elif event.type != anchor.event_type:
                 continue
             if not self._matches_filters(event, anchor.field_filters):
                 continue
