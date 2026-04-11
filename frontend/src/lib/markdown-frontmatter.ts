@@ -158,7 +158,7 @@ function stripLeadingDuplicateTitleHeading(
   const remainder =
     lineBreakIndex === -1 ? "" : withoutLeadingBlankLines.slice(lineBreakIndex)
 
-  return remainder.replace(/^(?:\r?\n\s*)+/, "")
+  return remainder.replace(/^\r?\n(?:[ \t]*\r?\n)*/, "")
 }
 
 function normalizeHeading(value: string): string {
