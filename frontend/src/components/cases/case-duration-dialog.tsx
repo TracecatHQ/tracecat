@@ -178,7 +178,7 @@ const formSchema = z
       })
     }
 
-    // Overlap validation — skip for dropdown events (definition_id distinguishes)
+    // Overlap validation for filterValues-based events
     if (
       startRequiresFilter &&
       endRequiresFilter &&
@@ -199,6 +199,31 @@ const formSchema = z
           path: ["end", "filterValues"],
           code: z.ZodIssueCode.custom,
           message: `Choose ${label.toLowerCase()} values that differ from the "From event".`,
+        })
+      }
+    }
+
+    // Overlap validation for dropdown events
+    if (
+      isCaseDropdownEventType(startEventType) &&
+      isCaseDropdownEventType(endEventType) &&
+      values.start.dropdownDefinitionId &&
+      values.start.dropdownDefinitionId === values.end.dropdownDefinitionId
+    ) {
+      const startOpts = values.start.dropdownOptionIds ?? []
+      const endOpts = values.end.dropdownOptionIds ?? []
+      const overlapping = startOpts.filter((id) => endOpts.includes(id))
+      if (overlapping.length > 0) {
+        ctx.addIssue({
+          path: ["start", "dropdownOptionIds"],
+          code: z.ZodIssueCode.custom,
+          message:
+            'Remove duplicate option selections shared with the "To event".',
+        })
+        ctx.addIssue({
+          path: ["end", "dropdownOptionIds"],
+          code: z.ZodIssueCode.custom,
+          message: 'Choose options that differ from the "From event".',
         })
       }
     }
