@@ -97,9 +97,6 @@ const getFilterLabel = (
   if (isCaseFieldEventType(eventType)) {
     return "Field"
   }
-  if (isCaseDropdownEventType(eventType)) {
-    return "Dropdown"
-  }
   return null
 }
 
@@ -437,55 +434,65 @@ export function CaseDurationDialog({
     [endEventType, tagFilterOptions, fieldFilterOptions]
   )
 
-  const startDropdownOptions = useMemo<CaseFilterOption[]>(() => {
-    if (!startDropdownDefId || !dropdownDefinitions) return []
-    const def = dropdownDefinitions.find((d) => d.id === startDropdownDefId)
+  const getDropdownOptions = (
+    defId: string | undefined
+  ): CaseFilterOption[] => {
+    if (!defId || !dropdownDefinitions) return []
+    const def = dropdownDefinitions.find((d) => d.id === defId)
     return def?.options?.map((o) => ({ value: o.id, label: o.label })) ?? []
-  }, [startDropdownDefId, dropdownDefinitions])
+  }
 
-  const endDropdownOptions = useMemo<CaseFilterOption[]>(() => {
-    if (!endDropdownDefId || !dropdownDefinitions) return []
-    const def = dropdownDefinitions.find((d) => d.id === endDropdownDefId)
-    return def?.options?.map((o) => ({ value: o.id, label: o.label })) ?? []
-  }, [endDropdownDefId, dropdownDefinitions])
+  const startDropdownOptions = useMemo(
+    () => getDropdownOptions(startDropdownDefId),
+    [startDropdownDefId, dropdownDefinitions]
+  )
+  const endDropdownOptions = useMemo(
+    () => getDropdownOptions(endDropdownDefId),
+    [endDropdownDefId, dropdownDefinitions]
+  )
 
   const startFilterLabel = startEventType
     ? getFilterLabel(startEventType)
     : null
   const endFilterLabel = endEventType ? getFilterLabel(endEventType) : null
 
-  const hasStartFilters = (eventType: CaseDurationEventTypeValue): boolean => {
-    if (isCaseDropdownEventType(eventType)) {
-      return !!startDropdownDefId && startDropdownOptionCount > 0
-    }
-    return startFilterCount > 0
-  }
-
-  const hasEndFilters = (eventType: CaseDurationEventTypeValue): boolean => {
-    if (isCaseDropdownEventType(eventType)) {
-      return !!endDropdownDefId && endDropdownOptionCount > 0
-    }
-    return endFilterCount > 0
-  }
-
   const isSubmitDisabled = useMemo(() => {
-    if (isSubmitting) {
-      return true
+    if (isSubmitting) return true
+    if (!nameValue?.trim()) return true
+    if (!startEventType || !endEventType) return true
+
+    const hasFilters = (
+      eventType: CaseDurationEventTypeValue,
+      filterCount: number,
+      dropdownDefId: string | undefined,
+      dropdownOptionCount: number
+    ): boolean => {
+      if (isCaseDropdownEventType(eventType)) {
+        return !!dropdownDefId && dropdownOptionCount > 0
+      }
+      return filterCount > 0
     }
-    const trimmedName = nameValue?.trim() ?? ""
-    if (!trimmedName) {
-      return true
-    }
-    if (!startEventType || !endEventType) {
-      return true
-    }
+
     if (
       requiresFilterSelection(startEventType) &&
-      !hasStartFilters(startEventType)
+      !hasFilters(
+        startEventType,
+        startFilterCount,
+        startDropdownDefId,
+        startDropdownOptionCount
+      )
     ) {
       return true
     }
-    if (requiresFilterSelection(endEventType) && !hasEndFilters(endEventType)) {
+    if (
+      requiresFilterSelection(endEventType) &&
+      !hasFilters(
+        endEventType,
+        endFilterCount,
+        endDropdownDefId,
+        endDropdownOptionCount
+      )
+    ) {
       return true
     }
     return false
