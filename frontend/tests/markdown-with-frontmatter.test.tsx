@@ -79,6 +79,19 @@ Body`)
     expect(withBom?.body.trim()).toBe("Body")
   })
 
+  it("keeps indented first lines that only look like duplicate headings", () => {
+    const parsed = extractMarkdownFrontmatter(`---
+title: Incident triage
+---
+
+    # Incident triage
+
+Body`)
+
+    expect(parsed).not.toBeNull()
+    expect(parsed?.body).toBe("\n    # Incident triage\n\nBody")
+  })
+
   it("leaves markdown untouched when there is no valid frontmatter block", () => {
     expect(extractMarkdownFrontmatter("# Plain heading")).toBeNull()
     expect(
