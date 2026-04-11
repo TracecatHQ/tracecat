@@ -4,10 +4,8 @@ import {
   BlocksIcon,
   BoxIcon,
   ChevronDown,
-  InboxIcon,
   KeyRound,
   LayersIcon,
-  LayersPlus,
   ListVideoIcon,
   type LucideIcon,
   Plus,
@@ -22,7 +20,6 @@ import type * as React from "react"
 import { useEffect, useRef, useState } from "react"
 import type { AgentPresetReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import {
   LockedFeatureChip,
   LockedFeatureModal,
@@ -74,7 +71,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const casesListPath = `${basePath}/cases`
   const isCasesList = pathname === casesListPath
   const isAgentsRoute = pathname?.startsWith(`${basePath}/agents`) ?? false
-  const [createCaseDialogOpen, setCreateCaseDialogOpen] = useState(false)
   const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
   const [agentsSectionOpen, setAgentsSectionOpen] = useState(isAgentsRoute)
 
@@ -116,7 +112,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewInbox = useScopeCheck("inbox:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewCases = useScopeCheck("case:read")
-  const canCreateCase = useScopeCheck("case:create")
   const shouldLoadAgentsSection =
     canViewAgents === true && (agentsSectionOpen || isAgentsRoute)
   const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
@@ -189,10 +184,31 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     },
     {
       title: "Actions",
-      url: `${basePath}/actions`,
       icon: BoxIcon,
-      isActive: pathname?.startsWith(`${basePath}/actions`),
-      visible: canViewActions === true,
+      isActive:
+        pathname?.startsWith(`${basePath}/actions`) ||
+        pathname?.startsWith(`${basePath}/inbox`),
+      visible: canViewActions === true || canViewInbox === true,
+      items: [
+        ...(canViewActions === true
+          ? [
+              {
+                title: "Registry",
+                url: `${basePath}/actions`,
+                isActive: pathname?.startsWith(`${basePath}/actions`),
+              },
+            ]
+          : []),
+        ...(canViewInbox === true
+          ? [
+              {
+                title: "Approvals",
+                url: `${basePath}/inbox`,
+                isActive: pathname?.startsWith(`${basePath}/inbox`),
+              },
+            ]
+          : []),
+      ],
     },
   ]
 
@@ -206,39 +222,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           open={lockedFeatureDialogOpen}
           onOpenChange={setLockedFeatureDialogOpen}
         />
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {canCreateCase === true && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    onClick={() => setCreateCaseDialogOpen(true)}
-                  >
-                    <LayersPlus />
-                    <span>Add case</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-              {canViewInbox === true && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname?.startsWith(`${basePath}/inbox`)}
-                  >
-                    <Link href={`${basePath}/inbox`}>
-                      <InboxIcon />
-                      <span>Inbox</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-            </SidebarMenu>
-            <CreateCaseDialog
-              open={createCaseDialogOpen}
-              onOpenChange={setCreateCaseDialogOpen}
-            />
-          </SidebarGroupContent>
-        </SidebarGroup>
         {navWorkspace.some((item) => item.visible === true) && (
           <Collapsible defaultOpen className="group/collapsible">
             <SidebarGroup>
