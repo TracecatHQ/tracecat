@@ -121,7 +121,7 @@ title: Missing terminator
 describe("MarkdownWithFrontmatter", () => {
   it("renders a metadata panel and keeps the markdown body", () => {
     render(
-      <MarkdownWithFrontmatter>
+      <MarkdownWithFrontmatter enableFrontmatter>
         {`---
 title: Incident triage
 description: Handles incoming incidents.
@@ -152,7 +152,7 @@ Runbook body.`}
 
   it("renders frontmatter metadata when the document starts with a blank line", () => {
     render(
-      <MarkdownWithFrontmatter>
+      <MarkdownWithFrontmatter enableFrontmatter>
         {`
 ---
 title: Incident triage
@@ -170,7 +170,7 @@ Body`}
 
   it("falls back to plain markdown rendering when frontmatter is absent", () => {
     render(
-      <MarkdownWithFrontmatter>{`---
+      <MarkdownWithFrontmatter enableFrontmatter>{`---
 owner: Platform
 
 Body without a closing delimiter`}</MarkdownWithFrontmatter>
@@ -182,9 +182,24 @@ Body without a closing delimiter`}</MarkdownWithFrontmatter>
     expect(screen.queryByText("Raw frontmatter")).not.toBeInTheDocument()
   })
 
+  it("renders YAML-leading content as plain markdown when frontmatter parsing is disabled", () => {
+    render(
+      <MarkdownWithFrontmatter>{`---
+title: Incident triage
+---
+
+Body`}</MarkdownWithFrontmatter>
+    )
+
+    expect(screen.getByTestId("streamdown").textContent).toBe(
+      "---\ntitle: Incident triage\n---\n\nBody"
+    )
+    expect(screen.queryByText("Raw frontmatter")).not.toBeInTheDocument()
+  })
+
   it("rerenders when non-children props change", () => {
     const { rerender } = render(
-      <MarkdownWithFrontmatter className="text-red-500">
+      <MarkdownWithFrontmatter className="text-red-500" enableFrontmatter>
         {`---
 title: Incident triage
 ---
@@ -196,7 +211,7 @@ Body`}
     expect(screen.getByTestId("streamdown")).toHaveClass("text-red-500")
 
     rerender(
-      <MarkdownWithFrontmatter className="text-blue-500">
+      <MarkdownWithFrontmatter className="text-blue-500" enableFrontmatter>
         {`---
 title: Incident triage
 ---

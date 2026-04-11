@@ -8,18 +8,22 @@ import {
   stringifyFrontmatterValue,
 } from "@/lib/markdown-frontmatter"
 
-type MarkdownWithFrontmatterProps = ComponentProps<typeof Streamdown>
+type MarkdownWithFrontmatterProps = ComponentProps<typeof Streamdown> & {
+  enableFrontmatter?: boolean
+}
 
 /**
- * Renders markdown content while promoting YAML frontmatter into a metadata panel.
+ * Renders markdown content and can promote leading YAML frontmatter into a
+ * metadata panel when explicitly enabled.
  */
 export const MarkdownWithFrontmatter = memo(
   function MarkdownWithFrontmatterInner({
     children,
     className,
+    enableFrontmatter = false,
     ...props
   }: MarkdownWithFrontmatterProps) {
-    if (typeof children !== "string") {
+    if (typeof children !== "string" || !enableFrontmatter) {
       return (
         <Streamdown {...props} className={className}>
           {children}

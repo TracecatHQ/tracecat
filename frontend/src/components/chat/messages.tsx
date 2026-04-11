@@ -215,6 +215,7 @@ export function Messages({
             defaultOrigin={DEFAULT_MARKDOWN_ORIGIN}
             rehypePlugins={chatMessageRehypePlugins}
             className={`${assistantMarkdownStyle} flex-1`}
+            enableFrontmatter={false}
             parseIncompleteMarkdown
           >
             {streamingText}
@@ -282,6 +283,7 @@ function AgentChatMessage({ message }: { message: ModelResponse }) {
             defaultOrigin={DEFAULT_MARKDOWN_ORIGIN}
             rehypePlugins={chatMessageRehypePlugins}
             className={assistantMarkdownStyle}
+            enableFrontmatter={false}
           >
             {textContent}
           </MarkdownWithFrontmatter>

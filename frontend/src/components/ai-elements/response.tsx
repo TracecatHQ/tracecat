@@ -25,6 +25,7 @@ export const Response = memo(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className
       )}
+      enableFrontmatter={false}
       allowedImagePrefixes={ALLOWED_MARKDOWN_IMAGE_PREFIXES}
       allowedLinkPrefixes={ALLOWED_MARKDOWN_LINK_PREFIXES}
       defaultOrigin={DEFAULT_MARKDOWN_ORIGIN}
