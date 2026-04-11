@@ -8,6 +8,7 @@ import {
   PencilIcon,
   PencilLineIcon,
   PlusIcon,
+  TagIcon,
   TrashIcon,
   UserIcon,
   UserXIcon,
@@ -31,6 +32,8 @@ import type {
   ReopenedEventRead,
   SeverityChangedEventRead,
   StatusChangedEventRead,
+  TagAddedEventRead,
+  TagRemovedEventRead,
   TaskAssigneeChangedEventRead,
   TaskCreatedEventRead,
   TaskDeletedEventRead,
@@ -790,6 +793,44 @@ export function TaskWorkflowChangedEvent({
         <span className="font-medium max-w-32 inline-block truncate align-bottom">
           {event.title}
         </span>
+      </span>
+    </div>
+  )
+}
+
+// Tag events
+
+export function TagAddedEvent({
+  event,
+  actor,
+}: {
+  event: TagAddedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={TagIcon} />
+      <span>
+        <EventActor user={actor} /> added tag{" "}
+        <span className="font-medium">{event.tag_name}</span>
+      </span>
+    </div>
+  )
+}
+
+export function TagRemovedEvent({
+  event,
+  actor,
+}: {
+  event: TagRemovedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={TagIcon} className="text-red-600 bg-red-50" />
+      <span>
+        <EventActor user={actor} /> removed tag{" "}
+        <span className="font-medium">{event.tag_name}</span>
       </span>
     </div>
   )

@@ -30,11 +30,13 @@ export function AddCaseDurationDialog({
 
       const startFieldFilters = buildFieldFilters(
         values.start.eventType,
-        values.start.filterValues
+        values.start.filterValues,
+        values.start
       )
       const endFieldFilters = buildFieldFilters(
         values.end.eventType,
-        values.end.filterValues
+        values.end.filterValues,
+        values.end
       )
 
       const payload = {

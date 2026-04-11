@@ -34,6 +34,8 @@ import {
   PriorityChangedEvent,
   SeverityChangedEvent,
   StatusChangedEvent,
+  TagAddedEvent,
+  TagRemovedEvent,
   TaskAssigneeChangedEvent,
   TaskCreatedEvent,
   TaskDeletedEvent,
@@ -61,6 +63,39 @@ import { useAppInfo, useCaseEvents } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 import { InlineDotSeparator } from "../separator"
+
+const HANDLED_FEED_EVENT_TYPES = new Set([
+  "case_created",
+  "case_closed",
+  "case_reopened",
+  "case_viewed",
+  "case_updated",
+  "status_changed",
+  "priority_changed",
+  "severity_changed",
+  "fields_changed",
+  "assignee_changed",
+  "task_created",
+  "task_deleted",
+  "task_status_changed",
+  "task_priority_changed",
+  "task_workflow_changed",
+  "task_assignee_changed",
+  "attachment_created",
+  "attachment_deleted",
+  "payload_changed",
+  "comment_created",
+  "comment_reply_created",
+  "comment_updated",
+  "comment_reply_updated",
+  "comment_deleted",
+  "comment_reply_deleted",
+  "dropdown_value_changed",
+  "table_row_linked",
+  "table_row_unlinked",
+  "tag_added",
+  "tag_removed",
+])
 
 function CaseFeedEvent({
   event,
@@ -206,6 +241,23 @@ function CaseFeedEvent({
             <span>
               <EventActor user={actor} /> unlinked a row from{" "}
               {(event as { table_name?: string }).table_name || "a table"}
+            </span>
+          </div>
+        )}
+
+        {event.type === "tag_added" && (
+          <TagAddedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "tag_removed" && (
+          <TagRemovedEvent event={event} actor={actor} />
+        )}
+
+        {event.type && !HANDLED_FEED_EVENT_TYPES.has(event.type) && (
+          <div className="flex items-center space-x-2 text-xs">
+            <EventIcon icon={PlusIcon} />
+            <span>
+              <EventActor user={actor} /> {event.type.replace(/_/g, " ")}
             </span>
           </div>
         )}

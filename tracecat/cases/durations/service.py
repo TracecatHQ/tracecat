@@ -678,7 +678,18 @@ class CaseDurationService(BaseWorkspaceService):
     def _resolve_field(self, event: CaseEvent, path: str) -> Any:
         value: Any = event
         for part in path.split("."):
-            if isinstance(value, dict):
+            if isinstance(value, list):
+                # Traverse into each list item and collect the resolved values
+                collected = []
+                for item in value:
+                    if isinstance(item, dict):
+                        resolved = item.get(part)
+                    else:
+                        resolved = getattr(item, part, None)
+                    if resolved is not None:
+                        collected.append(resolved)
+                return collected if collected else None
+            elif isinstance(value, dict):
                 value = value.get(part)
             else:
                 value = getattr(value, part, None)

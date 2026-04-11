@@ -811,3 +811,88 @@ async def test_compute_durations_empty_cases_list(
     durations = await duration_service.compute_durations([])
 
     assert durations == {}
+
+
+# --- _resolve_field array traversal tests ---
+
+
+@pytest.mark.anyio
+async def test_resolve_field_traverses_array_of_dicts(
+    session: AsyncSession, svc_role
+) -> None:
+    """_resolve_field should collect values from each item in a list."""
+    from tracecat.db.models import CaseEvent
+
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    event = CaseEvent(
+        workspace_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        type=CaseEventType.FIELDS_CHANGED,
+        data={
+            "changes": [
+                {"field": "severity_score", "old": 3, "new": 8},
+                {"field": "team", "old": "alpha", "new": "beta"},
+            ]
+        },
+    )
+
+    result = duration_service._resolve_field(event, "data.changes.field")
+    assert result == ["severity_score", "team"]
+
+
+@pytest.mark.anyio
+async def test_resolve_field_array_returns_none_when_no_items_have_key(
+    session: AsyncSession, svc_role
+) -> None:
+    """_resolve_field should return None if no array items have the target key."""
+    from tracecat.db.models import CaseEvent
+
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    event = CaseEvent(
+        workspace_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        type=CaseEventType.FIELDS_CHANGED,
+        data={"changes": [{"other": "value"}, {"other": "value2"}]},
+    )
+
+    result = duration_service._resolve_field(event, "data.changes.field")
+    assert result is None
+
+
+@pytest.mark.anyio
+async def test_matches_filters_with_array_resolved_values(
+    session: AsyncSession, svc_role
+) -> None:
+    """_matches_filters should work when _resolve_field returns a list from array traversal."""
+    from tracecat.db.models import CaseEvent
+
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    event = CaseEvent(
+        workspace_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        type=CaseEventType.FIELDS_CHANGED,
+        data={
+            "changes": [
+                {"field": "severity_score", "old": 3, "new": 8},
+                {"field": "team", "old": "alpha", "new": "beta"},
+            ]
+        },
+    )
+
+    # Should match when filter value is in the resolved list
+    assert duration_service._matches_filters(
+        event, {"data.changes.field": ["severity_score"]}
+    )
+
+    # Should match when multiple filter values overlap
+    assert duration_service._matches_filters(
+        event, {"data.changes.field": ["severity_score", "unrelated"]}
+    )
+
+    # Should NOT match when filter value is not in the resolved list
+    assert not duration_service._matches_filters(
+        event, {"data.changes.field": ["nonexistent_field"]}
+    )
