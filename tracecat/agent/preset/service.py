@@ -1305,6 +1305,7 @@ class AgentPresetService(BaseWorkspaceService):
                 "Preset version does not belong to the selected preset"
             )
 
+        await self._lock_preset_for_versioning(preset.id)
         self._sync_preset_head_from_version(preset, version)
         await self._restore_head_skill_bindings_from_version(
             preset_id=preset.id,
