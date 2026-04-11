@@ -1025,6 +1025,7 @@ async def _persist_workflow_edit_document(
         _apply_layout_to_workflow(
             workflow=workflow,
             layout=MCPWorkflowLayout.model_validate(layout_payload),
+            clear_missing=True,
         )
         service.session.add(workflow)
         for action in workflow.actions:
@@ -1733,21 +1734,32 @@ def _apply_layout_to_workflow(
     *,
     workflow: Any,
     layout: MCPWorkflowLayout,
+    clear_missing: bool = False,
 ) -> None:
     """Apply optional trigger/action/viewport layout updates to a workflow."""
     if layout.trigger is not None:
-        if layout.trigger.x is not None:
-            workflow.trigger_position_x = layout.trigger.x
-        if layout.trigger.y is not None:
-            workflow.trigger_position_y = layout.trigger.y
+        if clear_missing or layout.trigger.x is not None:
+            workflow.trigger_position_x = (
+                layout.trigger.x if layout.trigger.x is not None else 0.0
+            )
+        if clear_missing or layout.trigger.y is not None:
+            workflow.trigger_position_y = (
+                layout.trigger.y if layout.trigger.y is not None else 0.0
+            )
 
     if layout.viewport is not None:
-        if layout.viewport.x is not None:
-            workflow.viewport_x = layout.viewport.x
-        if layout.viewport.y is not None:
-            workflow.viewport_y = layout.viewport.y
-        if layout.viewport.zoom is not None:
-            workflow.viewport_zoom = layout.viewport.zoom
+        if clear_missing or layout.viewport.x is not None:
+            workflow.viewport_x = (
+                layout.viewport.x if layout.viewport.x is not None else 0.0
+            )
+        if clear_missing or layout.viewport.y is not None:
+            workflow.viewport_y = (
+                layout.viewport.y if layout.viewport.y is not None else 0.0
+            )
+        if clear_missing or layout.viewport.zoom is not None:
+            workflow.viewport_zoom = (
+                layout.viewport.zoom if layout.viewport.zoom is not None else 1.0
+            )
 
     action_by_ref = {action.ref: action for action in workflow.actions}
     for action_position in layout.actions:
@@ -1756,10 +1768,14 @@ def _apply_layout_to_workflow(
             raise ToolError(
                 f"Unknown action ref {action_position.ref!r} in layout.actions"
             )
-        if action_position.x is not None:
-            action.position_x = action_position.x
-        if action_position.y is not None:
-            action.position_y = action_position.y
+        if clear_missing or action_position.x is not None:
+            action.position_x = (
+                action_position.x if action_position.x is not None else 0.0
+            )
+        if clear_missing or action_position.y is not None:
+            action.position_y = (
+                action_position.y if action_position.y is not None else 0.0
+            )
 
 
 async def _replace_workflow_schedules(
