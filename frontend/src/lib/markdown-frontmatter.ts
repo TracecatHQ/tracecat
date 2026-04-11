@@ -136,12 +136,15 @@ function stripLeadingDuplicateTitleHeading(
     return markdown
   }
 
-  const withoutLeadingWhitespace = markdown.replace(/^\s*/, "")
-  const lineBreakIndex = withoutLeadingWhitespace.search(/\r?\n/)
+  const withoutLeadingBlankLines = markdown.replace(
+    /^(?:\uFEFF)?(?:[ \t]*\r?\n)*/,
+    ""
+  )
+  const lineBreakIndex = withoutLeadingBlankLines.search(/\r?\n/)
   const firstLine =
     lineBreakIndex === -1
-      ? withoutLeadingWhitespace
-      : withoutLeadingWhitespace.slice(0, lineBreakIndex)
+      ? withoutLeadingBlankLines
+      : withoutLeadingBlankLines.slice(0, lineBreakIndex)
 
   if (!firstLine.startsWith("#")) {
     return markdown
@@ -153,7 +156,7 @@ function stripLeadingDuplicateTitleHeading(
   }
 
   const remainder =
-    lineBreakIndex === -1 ? "" : withoutLeadingWhitespace.slice(lineBreakIndex)
+    lineBreakIndex === -1 ? "" : withoutLeadingBlankLines.slice(lineBreakIndex)
 
   return remainder.replace(/^(?:\r?\n\s*)+/, "")
 }
