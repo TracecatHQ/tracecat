@@ -9,7 +9,7 @@ from time import monotonic
 from typing import Any
 
 from redis.exceptions import ResponseError
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import selectinload
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from tenacity import RetryError
@@ -19,6 +19,7 @@ from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.cases.enums import get_case_trigger_match_values
 from tracecat.cases.schemas import CaseCommentWorkflowStatus
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Case, CaseComment, CaseEvent, CaseTrigger, Workspace
@@ -335,10 +336,16 @@ class CaseTriggerConsumer:
     async def _load_triggers(
         self, session, workspace_id: uuid.UUID, event_type: str
     ) -> list[CaseTrigger]:
+        matching_event_types = get_case_trigger_match_values(event_type)
         stmt = select(CaseTrigger).where(
             CaseTrigger.workspace_id == workspace_id,
             CaseTrigger.status == "online",
-            CaseTrigger.event_types.contains([event_type]),
+            or_(
+                *[
+                    CaseTrigger.event_types.contains([matching_event_type])
+                    for matching_event_type in matching_event_types
+                ]
+            ),
         )
         result = await session.execute(stmt)
         return list(result.scalars().all())

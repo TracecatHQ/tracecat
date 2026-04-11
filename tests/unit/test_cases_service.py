@@ -1,5 +1,6 @@
 import uuid  # noqa: I001
 import asyncio
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Literal
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,7 +20,12 @@ from tracecat.cases.dropdowns.service import (
     CaseDropdownDefinitionsService,
     CaseDropdownValuesService,
 )
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import (
+    CaseEventType,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
 from tracecat.cases.schemas import (
     CaseCreate,
     CaseFieldCreate,
@@ -35,6 +41,25 @@ from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.enums import SqlType
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(autouse=True)
+def stub_case_duration_sync() -> Iterator[None]:
+    with patch(
+        "tracecat.cases.service.CaseDurationService.sync_case_durations",
+        new=AsyncMock(return_value=None),
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def stub_case_addons_entitlement() -> Iterator[None]:
+    with patch.object(
+        CasesService,
+        "has_entitlement",
+        new=AsyncMock(return_value=True),
+    ):
+        yield
 
 
 @pytest.mark.anyio
@@ -645,6 +670,23 @@ class TestCasesService:
         assert retrieved_case.summary == update_params.summary
         assert retrieved_case.status == update_params.status
         assert retrieved_case.priority == update_params.priority
+
+    async def test_update_case_close_emits_case_closed_event(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        """Closing a case should persist a specialized close event."""
+        created_case = await cases_service.create_case(case_create_params)
+
+        await cases_service.update_case(
+            created_case,
+            CaseUpdate(status=CaseStatus.CLOSED),
+        )
+
+        events = await cases_service.events.list_events(created_case)
+        assert len(events) >= 2
+        assert events[0].type == CaseEventType.CASE_CLOSED
+        assert events[0].data["old"] == CaseStatus.NEW.value
+        assert events[0].data["new"] == CaseStatus.CLOSED.value
 
     async def test_update_case_with_assignee(
         self,

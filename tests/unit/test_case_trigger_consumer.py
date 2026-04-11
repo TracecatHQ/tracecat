@@ -58,6 +58,77 @@ async def test_case_trigger_consumer_matches_event_type(
     assert unmatched == []
 
 
+@pytest.mark.anyio
+async def test_case_trigger_consumer_matches_status_changed_aliases(
+    session: AsyncSession, svc_role
+):
+    status_workflow = Workflow(
+        title="Status Trigger Alias",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    closed_workflow = Workflow(
+        title="Closed Trigger Alias",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    reopened_workflow = Workflow(
+        title="Reopened Trigger Alias",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add_all([status_workflow, closed_workflow, reopened_workflow])
+    await session.flush()
+
+    status_trigger = CaseTrigger(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=status_workflow.id,
+        status="online",
+        event_types=["status_changed"],
+        tag_filters=[],
+    )
+    closed_trigger = CaseTrigger(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=closed_workflow.id,
+        status="online",
+        event_types=["case_closed"],
+        tag_filters=[],
+    )
+    reopened_trigger = CaseTrigger(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=reopened_workflow.id,
+        status="online",
+        event_types=["case_reopened"],
+        tag_filters=[],
+    )
+    session.add_all([status_trigger, closed_trigger, reopened_trigger])
+    await session.commit()
+
+    closed_matches = await CaseTriggerConsumer(client=AsyncMock())._load_triggers(
+        session, svc_role.workspace_id, "case_closed"
+    )
+    assert {trigger.id for trigger in closed_matches} == {
+        status_trigger.id,
+        closed_trigger.id,
+    }
+
+    reopened_matches = await CaseTriggerConsumer(client=AsyncMock())._load_triggers(
+        session, svc_role.workspace_id, "case_reopened"
+    )
+    assert {trigger.id for trigger in reopened_matches} == {
+        status_trigger.id,
+        reopened_trigger.id,
+    }
+
+    status_matches = await CaseTriggerConsumer(client=AsyncMock())._load_triggers(
+        session, svc_role.workspace_id, "status_changed"
+    )
+    assert {trigger.id for trigger in status_matches} == {status_trigger.id}
+
+
 def _build_role(workspace_id: uuid.UUID) -> Role:
     return Role(
         type="service",
