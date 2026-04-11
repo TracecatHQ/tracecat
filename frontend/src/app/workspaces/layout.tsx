@@ -172,7 +172,7 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isWorkflowBuilder = !!params?.workflowId
   const isCasesPage = Boolean(pathname?.match(/\/cases(\/|$)/))
-  const isInboxPage = pathname?.includes("/inbox")
+  const isApprovalsPage = pathname?.includes("/approvals")
   const isTablesPage = Boolean(pathname?.match(/\/tables(\/|$)/))
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
@@ -205,8 +205,8 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
-  // Inbox pages have their own layout with chat sidebar
-  if (isInboxPage) {
+  // Approvals pages have their own layout with chat sidebar
+  if (isApprovalsPage) {
     return <>{children}</>
   }
 

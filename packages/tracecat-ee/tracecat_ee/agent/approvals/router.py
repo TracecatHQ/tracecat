@@ -69,7 +69,7 @@ def _to_approval_decisions(approvals: ApprovalMap) -> list[ApprovalDecision]:
     return decisions
 
 
-@router.post("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def submit_approvals(
     *,
     role: WorkspaceUserRole,
@@ -114,7 +114,7 @@ async def submit_approvals(
         decisions = _to_approval_decisions(payload.approvals)
         continuation = ContinueRunRequest(
             decisions=decisions,
-            source="inbox",
+            source="approval",
         )
         await session_service.run_turn(session_id, continuation)
     except TracecatNotFoundError as exc:

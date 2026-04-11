@@ -1,4 +1,4 @@
-"""Inbox provider dependencies."""
+"""Approval provider dependencies."""
 
 from __future__ import annotations
 
@@ -9,28 +9,28 @@ from tracecat.logger import logger
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from tracecat.approvals.types import ApprovalProvider
     from tracecat.auth.types import Role
-    from tracecat.inbox.types import InboxProvider
 
 
-def get_inbox_providers(
+def get_approval_providers(
     session: AsyncSession,
     role: Role,
-) -> list[InboxProvider]:
-    """Get list of inbox providers.
+) -> list[ApprovalProvider]:
+    """Get list of approval providers.
 
     Providers are registered dynamically based on available features.
     EE features (like approvals) are loaded if the tracecat_ee package is available.
     """
-    providers: list[InboxProvider] = []
+    providers: list[ApprovalProvider] = []
 
     # EE: Add approvals provider if available
     try:
-        from tracecat_ee.inbox.providers.approvals import ApprovalsInboxProvider
+        from tracecat_ee.approvals.providers.approvals import ApprovalsProvider
 
-        providers.append(ApprovalsInboxProvider(session, role))
-        logger.debug("Loaded ApprovalsInboxProvider")
+        providers.append(ApprovalsProvider(session, role))
+        logger.debug("Loaded ApprovalsProvider")
     except ImportError:
-        logger.debug("ApprovalsInboxProvider not available (EE feature)")
+        logger.debug("ApprovalsProvider not available (EE feature)")
 
     return providers

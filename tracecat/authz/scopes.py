@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 VIEWER_SCOPES: frozenset[str] = frozenset(
     {
-        "inbox:read",
+        "approval:read",
         "workflow:read",
         "integration:read",
         "case:read",
@@ -147,7 +147,7 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "workspace:rbac:read",
         "workspace:rbac:manage",
         # Full resource control
-        "inbox:read",
+        "approval:read",
         "workflow:read",
         "workflow:sync",
         "workflow:create",
@@ -239,7 +239,7 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "workspace:rbac:read",
         "workspace:rbac:manage",
         # Full resource control
-        "inbox:read",
+        "approval:read",
         "workflow:read",
         "workflow:sync",
         "workflow:create",
@@ -322,7 +322,7 @@ PRESET_ROLE_SCOPES: dict[str, frozenset[str]] = {
 
 WORKSPACE_OPERATIONAL_SCOPES: frozenset[str] = frozenset(
     {
-        "inbox:read",
+        "approval:read",
         "workflow:read",
         "workflow:sync",
         "workflow:create",

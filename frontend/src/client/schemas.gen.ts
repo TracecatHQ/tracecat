@@ -2248,7 +2248,7 @@ Determines the context and behavior of the session:
 - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
 - COPILOT: Workspace-level copilot assistant
 - WORKFLOW: Workflow-initiated agent run (from action)
-- APPROVAL: Inbox approval continuation (hidden from main chat list)
+- APPROVAL: Approval continuation (hidden from main chat list)
 - EXTERNAL_CHANNEL: External channel session (e.g. Slack thread)`,
 } as const
 
@@ -2264,7 +2264,7 @@ export const $AgentSessionForkRequest = {
         },
       ],
       description:
-        "Override entity type for the forked session. Use 'approval' for inbox forks to hide from main chat list.",
+        "Override entity type for the forked session. Use 'approval' for approval forks to hide from main chat list.",
     },
   },
   type: "object",
@@ -3107,6 +3107,116 @@ export const $ApprovalInteraction = {
   required: ["type"],
   title: "ApprovalInteraction",
   description: "Configuration for an approval interaction.",
+} as const
+
+export const $ApprovalItemRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "Unique approval item ID",
+    },
+    type: {
+      $ref: "#/components/schemas/ApprovalItemType",
+      description: "Type of approval item",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Display title",
+    },
+    preview: {
+      type: "string",
+      title: "Preview",
+      description: "Preview text",
+    },
+    status: {
+      $ref: "#/components/schemas/ApprovalItemStatus",
+      description: "Item status",
+    },
+    unread: {
+      type: "boolean",
+      title: "Unread",
+      description: "Whether the item is unread",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "Creation timestamp",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "Last update timestamp",
+    },
+    workflow: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSummary",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Associated workflow",
+    },
+    source_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Id",
+      description: "ID of the source entity",
+    },
+    source_type: {
+      type: "string",
+      title: "Source Type",
+      description: "Type of source entity (e.g., agent_session)",
+    },
+    metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Metadata",
+      description: "Type-specific metadata",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "type",
+    "title",
+    "preview",
+    "status",
+    "unread",
+    "created_at",
+    "updated_at",
+    "source_id",
+    "source_type",
+  ],
+  title: "ApprovalItemRead",
+  description: "Read model for approval items.",
+} as const
+
+export const $ApprovalItemStatus = {
+  type: "string",
+  enum: ["pending", "completed", "failed"],
+  title: "ApprovalItemStatus",
+  description: "Status of approval items.",
+} as const
+
+export const $ApprovalItemType = {
+  type: "string",
+  enum: ["approval"],
+  title: "ApprovalItemType",
+  description: "Types of approval items.",
 } as const
 
 export const $ApprovalMap = {
@@ -8134,11 +8244,11 @@ export const $ContinueRunRequest = {
     },
     source: {
       type: "string",
-      enum: ["inbox", "slack"],
+      enum: ["approval", "slack"],
       title: "Source",
       description:
-        "Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.",
-      default: "inbox",
+        "Origin of the approval decision submission. Use 'approval' for Tracecat UI/API and 'slack' for Slack actions.",
+      default: "approval",
     },
   },
   type: "object",
@@ -8254,6 +8364,69 @@ export const $CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[AgentPresetVersionReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_ApprovalItemRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ApprovalItemRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[ApprovalItemRead]",
 } as const
 
 export const $CursorPaginatedResponse_CaseReadMinimal_ = {
@@ -8380,69 +8553,6 @@ export const $CursorPaginatedResponse_CaseTableRowRead_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[CaseTableRowRead]",
-} as const
-
-export const $CursorPaginatedResponse_InboxItemRead_ = {
-  properties: {
-    items: {
-      items: {
-        $ref: "#/components/schemas/InboxItemRead",
-      },
-      type: "array",
-      title: "Items",
-    },
-    next_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Next Cursor",
-      description: "Cursor for next page",
-    },
-    prev_cursor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Prev Cursor",
-      description: "Cursor for previous page",
-    },
-    has_more: {
-      type: "boolean",
-      title: "Has More",
-      description: "Whether more items exist",
-      default: false,
-    },
-    has_previous: {
-      type: "boolean",
-      title: "Has Previous",
-      description: "Whether previous items exist",
-      default: false,
-    },
-    total_estimate: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Total Estimate",
-      description: "Estimated total count from table statistics",
-    },
-  },
-  type: "object",
-  required: ["items"],
-  title: "CursorPaginatedResponse[InboxItemRead]",
 } as const
 
 export const $CursorPaginatedResponse_TableRowRead_ = {
@@ -11413,116 +11523,6 @@ distinguish multiple files.`,
   required: ["url", "media_type", "identifier"],
   title: "ImageUrl",
   description: "A URL to an image.",
-} as const
-
-export const $InboxItemRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-      description: "Unique inbox item ID",
-    },
-    type: {
-      $ref: "#/components/schemas/InboxItemType",
-      description: "Type of inbox item",
-    },
-    title: {
-      type: "string",
-      title: "Title",
-      description: "Display title",
-    },
-    preview: {
-      type: "string",
-      title: "Preview",
-      description: "Preview text",
-    },
-    status: {
-      $ref: "#/components/schemas/InboxItemStatus",
-      description: "Item status",
-    },
-    unread: {
-      type: "boolean",
-      title: "Unread",
-      description: "Whether the item is unread",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-      description: "Creation timestamp",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-      description: "Last update timestamp",
-    },
-    workflow: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/WorkflowSummary",
-        },
-        {
-          type: "null",
-        },
-      ],
-      description: "Associated workflow",
-    },
-    source_id: {
-      type: "string",
-      format: "uuid",
-      title: "Source Id",
-      description: "ID of the source entity",
-    },
-    source_type: {
-      type: "string",
-      title: "Source Type",
-      description: "Type of source entity (e.g., agent_session)",
-    },
-    metadata: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Metadata",
-      description: "Type-specific metadata",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "type",
-    "title",
-    "preview",
-    "status",
-    "unread",
-    "created_at",
-    "updated_at",
-    "source_id",
-    "source_type",
-  ],
-  title: "InboxItemRead",
-  description: "Read model for inbox items.",
-} as const
-
-export const $InboxItemStatus = {
-  type: "string",
-  enum: ["pending", "completed", "failed"],
-  title: "InboxItemStatus",
-  description: "Status of inbox items.",
-} as const
-
-export const $InboxItemType = {
-  type: "string",
-  enum: ["approval"],
-  title: "InboxItemType",
-  description: "Types of inbox items.",
 } as const
 
 export const $InferredColumn = {
@@ -25068,7 +25068,7 @@ export const $WorkflowSummary = {
   type: "object",
   required: ["id", "title"],
   title: "WorkflowSummary",
-  description: "Summary of a workflow for inbox item context.",
+  description: "Summary of a workflow for approval item context.",
 } as const
 
 export const $WorkflowSyncPullRequest = {

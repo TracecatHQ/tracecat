@@ -2,15 +2,15 @@
 
 import { useEffect, useState } from "react"
 import { agentSessionsListSessions } from "@/client"
-import type { InboxSessionItem } from "@/lib/agents"
+import type { ApprovalSessionItem } from "@/lib/agents"
 import { useWorkspaceId } from "@/providers/workspace-id"
-import { InboxDetail } from "./inbox-detail"
+import { ApprovalsDetail } from "./approvals-detail"
 
-interface InboxChatProps {
-  session: InboxSessionItem
+interface ApprovalsChatProps {
+  session: ApprovalSessionItem
 }
 
-export function InboxChat({ session }: InboxChatProps) {
+export function ApprovalsChat({ session }: ApprovalsChatProps) {
   const workspaceId = useWorkspaceId()
 
   // Track the forked session ID and pending message
@@ -71,7 +71,7 @@ export function InboxChat({ session }: InboxChatProps) {
   }
 
   return (
-    <InboxDetail
+    <ApprovalsDetail
       key={activeSessionId}
       sessionId={activeSessionId}
       parentSessionId={session.id}

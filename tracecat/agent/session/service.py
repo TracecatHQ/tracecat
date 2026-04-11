@@ -672,12 +672,12 @@ class AgentSessionService(BaseWorkspaceService):
         self,
         *,
         session_id: uuid.UUID,
-        source: Literal["inbox", "slack"],
-    ) -> Literal["inbox", "slack"]:
+        source: Literal["approval", "slack"],
+    ) -> Literal["approval", "slack"]:
         """Legacy no-op sink claim kept for backwards compatibility.
 
         External-channel approvals are no longer source-locked. Decisions can be
-        submitted from Slack or inbox; first accepted continuation wins.
+        submitted from Slack or approval; first accepted continuation wins.
         """
         stmt = select(AgentSession).where(
             AgentSession.id == session_id,
@@ -1106,10 +1106,10 @@ class AgentSessionService(BaseWorkspaceService):
                 f"No active workflow run for session {session_id}"
             )
 
-        source: Literal["inbox", "slack"] = request.source
+        source: Literal["approval", "slack"] = request.source
 
         # Idempotency path: if approvals are already resolved, accept duplicate
-        # submissions as a no-op (cross-surface races Slack <-> inbox).
+        # submissions as a no-op (cross-surface races Slack <-> approval).
         if not await self.has_pending_approvals(session_id):
             logger.info(
                 "Ignoring approval continuation without pending approvals",
@@ -1819,7 +1819,7 @@ class AgentSessionService(BaseWorkspaceService):
         Args:
             parent_session_id: The ID of the session to fork.
             entity_type: Override entity type for the forked session. If None,
-                inherits from parent. Use APPROVAL for inbox forks to hide
+                inherits from parent. Use APPROVAL for approval forks to hide
                 from main chat list.
 
         Returns:

@@ -41,7 +41,7 @@ export default function WorkspacePage() {
   const canViewSecrets = useScopeCheck("secret:read")
   const canViewIntegrations = useScopeCheck("integration:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
-  const canViewInbox = useScopeCheck("inbox:read")
+  const canViewApprovals = useScopeCheck("approval:read")
 
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
@@ -57,7 +57,7 @@ export default function WorkspacePage() {
       canViewSecrets,
       canViewIntegrations,
       canViewMembers,
-      canViewInbox,
+      canViewApprovals,
     ].some((value) => value === undefined)
 
   const landingPath = useMemo(() => {
@@ -89,15 +89,15 @@ export default function WorkspacePage() {
     if (canViewMembers === true) {
       return `${basePath}/members`
     }
-    if (canViewInbox === true) {
-      return `${basePath}/inbox`
+    if (canViewApprovals === true) {
+      return `${basePath}/approvals`
     }
     return null
   }, [
     agentAddonsEnabled,
     canViewAgents,
     canViewCases,
-    canViewInbox,
+    canViewApprovals,
     canViewIntegrations,
     canViewMembers,
     canViewSecrets,

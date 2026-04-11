@@ -9,15 +9,15 @@ import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import { useGetChatVercel } from "@/hooks/use-chat"
-import type { InboxSessionItem } from "@/lib/agents"
+import type { ApprovalSessionItem } from "@/lib/agents"
 import { useChatReadiness } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-interface InboxDetailProps {
+interface ApprovalsDetailProps {
   sessionId: string
   /** The original parent session ID - used for forking */
   parentSessionId: string
-  session: InboxSessionItem
+  session: ApprovalSessionItem
   /** Called after successfully forking, passes the forked session ID and the message to send */
   onForked?: (forkedSessionId: string, pendingMessage: string) => void
   /** Message to send immediately (passed from parent after fork) */
@@ -26,14 +26,14 @@ interface InboxDetailProps {
   onPendingMessageSent?: () => void
 }
 
-export function InboxDetail({
+export function ApprovalsDetail({
   sessionId,
   parentSessionId,
   session,
   onForked,
   pendingMessage,
   onPendingMessageSent,
-}: InboxDetailProps) {
+}: ApprovalsDetailProps) {
   const workspaceId = useWorkspaceId()
   const [isForking, setIsForking] = useState(false)
   const forkingRef = useRef(false)

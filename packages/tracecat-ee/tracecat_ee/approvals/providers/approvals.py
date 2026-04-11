@@ -1,4 +1,4 @@
-"""Approvals inbox provider for workflow-initiated agent sessions."""
+"""Approvals provider for workflow-initiated agent sessions."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from sqlalchemy import and_, or_, select
 from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.approvals.schemas import ApprovalItemRead, WorkflowSummary
+from tracecat.approvals.types import ApprovalItemStatus, ApprovalItemType
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import AgentSession, Approval, Workflow
 from tracecat.dsl.client import get_temporal_client
-from tracecat.inbox.schemas import InboxItemRead, WorkflowSummary
-from tracecat.inbox.types import InboxItemStatus, InboxItemType
 from tracecat.logger import logger
 from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
 from tracecat_ee.agent.types import AgentWorkflowID
@@ -34,8 +34,8 @@ if TYPE_CHECKING:
     from tracecat.auth.types import Role
 
 
-class ApprovalsInboxProvider(BaseCursorPaginator):
-    """Provides approval items for the inbox.
+class ApprovalsProvider(BaseCursorPaginator):
+    """Provides approval items for the approvals queue.
 
     Filters to workflow-initiated sessions only and enriches with workflow metadata.
     """
@@ -77,7 +77,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
                 return session_id, description.status
             except Exception as exc:
                 logger.warning(
-                    "Failed to describe agent workflow for inbox status",
+                    "Failed to describe agent workflow for approval status",
                     session_id=str(session_id),
                     run_id=str(run_id),
                     error=str(exc),
@@ -96,7 +96,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
                 statuses[session_id] = status
         return statuses
 
-    async def list_items(
+    async def list_approvals(
         self,
         *,
         limit: int = 20,
@@ -104,7 +104,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
         reverse: bool = False,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
-    ) -> CursorPaginatedResponse[InboxItemRead]:
+    ) -> CursorPaginatedResponse[ApprovalItemRead]:
         """List workflow approval items with cursor pagination."""
         # Base query for workflow-initiated sessions with approvals
         base_stmt = (
@@ -272,8 +272,8 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
     async def _enrich_sessions(
         self,
         sessions: Sequence[AgentSession],
-    ) -> list[InboxItemRead]:
-        """Transform sessions to inbox items with workflow metadata."""
+    ) -> list[ApprovalItemRead]:
+        """Transform sessions to approval items with workflow metadata."""
         if not sessions:
             return []
 
@@ -306,8 +306,8 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
             workflows = workflow_result.scalars().all()
             workflows_by_id = {w.id: w for w in workflows}
 
-        # Transform to InboxItemRead
-        items: list[InboxItemRead] = []
+        # Transform to ApprovalItemRead
+        items: list[ApprovalItemRead] = []
         for session in sessions:
             session_approvals = approvals_by_session.get(session.id, [])
 
@@ -322,13 +322,13 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
             temporal_status_name = temporal_status.name if temporal_status else None
 
             if pending_count > 0:
-                status = InboxItemStatus.PENDING
+                status = ApprovalItemStatus.PENDING
             elif temporal_status in FAILED_STATUSES:
-                status = InboxItemStatus.FAILED
+                status = ApprovalItemStatus.FAILED
             elif failed_count > 0:
-                status = InboxItemStatus.FAILED
+                status = ApprovalItemStatus.FAILED
             else:
-                status = InboxItemStatus.COMPLETED
+                status = ApprovalItemStatus.COMPLETED
 
             # Build preview text
             if pending_count > 0:
@@ -353,7 +353,7 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
                     title=workflow.title or "Untitled workflow",
                     alias=workflow.alias,
                 )
-                # Use workflow alias or title as the inbox item title
+                # Use workflow alias or title as the approval item title
                 title = workflow.alias or workflow.title or title
 
             # Build metadata
@@ -374,9 +374,9 @@ class ApprovalsInboxProvider(BaseCursorPaginator):
             }
 
             items.append(
-                InboxItemRead(
+                ApprovalItemRead(
                     id=session.id,
-                    type=InboxItemType.APPROVAL,
+                    type=ApprovalItemType.APPROVAL,
                     title=title,
                     preview=preview,
                     status=status,

@@ -109,7 +109,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewSecrets = useScopeCheck("secret:read")
   const canViewIntegrations = useScopeCheck("integration:read")
   const canViewActions = useScopeCheck("org:registry:read")
-  const canViewInbox = useScopeCheck("inbox:read")
+  const canViewApprovals = useScopeCheck("approval:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewCases = useScopeCheck("case:read")
   const shouldLoadAgentsSection =
@@ -187,8 +187,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: BoxIcon,
       isActive:
         pathname?.startsWith(`${basePath}/actions`) ||
-        pathname?.startsWith(`${basePath}/inbox`),
-      visible: canViewActions === true || canViewInbox === true,
+        pathname?.startsWith(`${basePath}/approvals`),
+      visible: canViewActions === true || canViewApprovals === true,
       items: [
         ...(canViewActions === true
           ? [
@@ -199,12 +199,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               },
             ]
           : []),
-        ...(canViewInbox === true
+        ...(canViewApprovals === true
           ? [
               {
                 title: "Approvals",
-                url: `${basePath}/inbox`,
-                isActive: pathname?.startsWith(`${basePath}/inbox`),
+                url: `${basePath}/approvals`,
+                isActive: pathname?.startsWith(`${basePath}/approvals`),
               },
             ]
           : []),

@@ -457,7 +457,7 @@ async def fork_session(
     Creates a new session linked to the parent session, allowing users
     to ask the agent for context after making approval decisions.
 
-    Set entity_type to 'approval' for inbox forks to hide from main chat list.
+    Set entity_type to 'approval' for approval forks to hide from main chat list.
     """
     try:
         svc = AgentSessionService(session, role)

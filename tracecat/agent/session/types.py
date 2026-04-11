@@ -12,7 +12,7 @@ class AgentSessionEntity(StrEnum):
     - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
     - COPILOT: Workspace-level copilot assistant
     - WORKFLOW: Workflow-initiated agent run (from action)
-    - APPROVAL: Inbox approval continuation (hidden from main chat list)
+    - APPROVAL: Approval continuation (hidden from main chat list)
     - EXTERNAL_CHANNEL: External channel session (e.g. Slack thread)
     """
 

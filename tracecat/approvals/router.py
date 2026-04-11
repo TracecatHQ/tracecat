@@ -1,21 +1,21 @@
-"""Inbox API router."""
+"""Approvals API router."""
 
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat import config
+from tracecat.approvals.dependencies import get_approval_providers
+from tracecat.approvals.schemas import ApprovalItemRead
+from tracecat.approvals.service import ApprovalService
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.inbox.dependencies import get_inbox_providers
-from tracecat.inbox.schemas import InboxItemRead
-from tracecat.inbox.service import InboxService
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse
 
-router = APIRouter(prefix="/inbox", tags=["inbox"])
+router = APIRouter(prefix="/approvals", tags=["approvals"])
 
 WorkspaceUser = Annotated[
     Role,
@@ -27,9 +27,9 @@ WorkspaceUser = Annotated[
 ]
 
 
-@router.get("/items")
-@require_scope("inbox:read")
-async def list_items(
+@router.get("")
+@require_scope("approval:read")
+async def list_approvals(
     role: WorkspaceUser,
     session: AsyncDBSession,
     limit: int = Query(
@@ -46,17 +46,17 @@ async def list_items(
     sort: Literal["asc", "desc"] | None = Query(
         default=None, description="Sort direction (asc or desc)"
     ),
-) -> CursorPaginatedResponse[InboxItemRead]:
-    """List inbox items with cursor-based pagination.
+) -> CursorPaginatedResponse[ApprovalItemRead]:
+    """List approval items with cursor-based pagination.
 
     Supports sorting by created_at, updated_at, or status.
     Default sort is by created_at descending.
     """
-    providers = get_inbox_providers(session, role)
-    service = InboxService(session, role, providers)
+    providers = get_approval_providers(session, role)
+    service = ApprovalService(session, role, providers)
 
     try:
-        return await service.list_items(
+        return await service.list_approvals(
             limit=limit,
             cursor=cursor,
             reverse=reverse,
@@ -64,7 +64,7 @@ async def list_items(
             sort=sort,
         )
     except ValueError as e:
-        logger.warning(f"Invalid request for list inbox items: {e}")
+        logger.warning(f"Invalid request for list approval items: {e}")
 
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

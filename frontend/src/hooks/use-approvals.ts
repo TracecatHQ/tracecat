@@ -4,28 +4,28 @@ import { type Query, useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   type AgentSessionEntity,
-  type InboxItemRead,
-  type InboxItemStatus,
-  type InboxListItemsResponse,
-  inboxListItems,
+  type ApprovalItemRead,
+  type ApprovalItemStatus,
+  type ApprovalsListApprovalsResponse,
+  approvalsListApprovals,
 } from "@/client"
 import {
   type AgentDerivedStatus,
   type AgentStatusTone,
+  type ApprovalSessionItem,
   getAgentStatusMetadata,
-  type InboxSessionItem,
 } from "@/lib/agents"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-export interface UseInboxOptions {
+export interface UseApprovalOptions {
   enabled?: boolean
   autoRefresh?: boolean
 }
 
 export type DateFilterValue = "1d" | "3d" | "1w" | "1m" | null
 
-export interface UseInboxFilters {
+export interface UseApprovalFilters {
   searchQuery: string
   entityType: AgentSessionEntity | "all"
   limit: number
@@ -33,14 +33,14 @@ export interface UseInboxFilters {
   createdAfter: DateFilterValue
 }
 
-export interface UseInboxResult {
-  sessions: InboxSessionItem[]
+export interface UseApprovalResult {
+  sessions: ApprovalSessionItem[]
   selectedId: string | null
   setSelectedId: (id: string | null) => void
   isLoading: boolean
   error: Error | null
   refetch: () => void
-  filters: UseInboxFilters
+  filters: UseApprovalFilters
   setSearchQuery: (query: string) => void
   setEntityType: (type: AgentSessionEntity | "all") => void
   setLimit: (limit: number) => void
@@ -49,7 +49,7 @@ export interface UseInboxResult {
 }
 
 /**
- * Maps InboxItemStatus to the derived status and display properties used by the UI.
+ * Maps ApprovalItemStatus to the derived status and display properties used by the UI.
  */
 const TEMPORAL_DERIVED_STATUSES = new Set<AgentDerivedStatus>([
   "RUNNING",
@@ -62,11 +62,11 @@ const TEMPORAL_DERIVED_STATUSES = new Set<AgentDerivedStatus>([
   "UNKNOWN",
 ])
 
-function mapInboxStatusToAgentStatus(
-  status: InboxItemStatus,
+function mapApprovalStatusToAgentStatus(
+  status: ApprovalItemStatus,
   temporalStatusRaw: string | null
 ): {
-  derivedStatus: InboxSessionItem["derivedStatus"]
+  derivedStatus: ApprovalSessionItem["derivedStatus"]
   statusLabel: string
   statusPriority: number
   statusTone: AgentStatusTone
@@ -118,15 +118,20 @@ function mapInboxStatusToAgentStatus(
 }
 
 /**
- * Converts an InboxItemRead to the InboxSessionItem format expected by UI components.
- * This bridges the inbox API with inbox UI components.
+ * Converts an ApprovalItemRead to the ApprovalSessionItem format expected by UI components.
+ * This bridges the approvals API with approvals UI components.
  */
-function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
+function approvalItemToSessionItem(
+  item: ApprovalItemRead
+): ApprovalSessionItem {
   const temporalStatusRaw =
     typeof item.metadata?.temporal_status === "string"
       ? item.metadata.temporal_status
       : null
-  const statusInfo = mapInboxStatusToAgentStatus(item.status, temporalStatusRaw)
+  const statusInfo = mapApprovalStatusToAgentStatus(
+    item.status,
+    temporalStatusRaw
+  )
 
   return {
     // Core session fields - use source_id as the session identifier
@@ -137,7 +142,7 @@ function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
     created_at: item.created_at,
     updated_at: item.updated_at,
 
-    // Workflow metadata from inbox item
+    // Workflow metadata from approval item
     parent_workflow: item.workflow
       ? {
           id: item.workflow.id,
@@ -146,7 +151,7 @@ function inboxItemToSessionItem(item: InboxItemRead): InboxSessionItem {
         }
       : null,
 
-    // Status fields derived from inbox status
+    // Status fields derived from approval status
     ...statusInfo,
     pendingApprovalCount:
       (item.metadata?.pending_count as number) ??
@@ -171,7 +176,9 @@ function getDateFromFilter(filter: DateFilterValue): Date | null {
   }
 }
 
-export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
+export function useApprovals(
+  options: UseApprovalOptions = {}
+): UseApprovalResult {
   const { enabled = true, autoRefresh = true } = options
   const workspaceId = useWorkspaceId()
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -184,7 +191,7 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const [createdAfter, setCreatedAfter] = useState<DateFilterValue>(null)
 
   /**
-   * Computes the refetch interval for inbox items based on current state.
+   * Computes the refetch interval for approval items based on current state.
    *
    * Returns `false` to disable polling when:
    * - Auto-refresh is disabled
@@ -197,9 +204,9 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
   const computeRefetchInterval = useCallback(
     (
       query: Query<
-        InboxListItemsResponse,
+        ApprovalsListApprovalsResponse,
         TracecatApiError,
-        InboxListItemsResponse,
+        ApprovalsListApprovalsResponse,
         readonly unknown[]
       >
     ) => {
@@ -238,23 +245,27 @@ export function useInbox(options: UseInboxOptions = {}): UseInboxResult {
     [autoRefresh]
   )
 
-  // Fetch inbox items from the unified inbox endpoint
+  // Fetch approval items from the unified approvals endpoint.
   // This endpoint properly aggregates approval status from the backend
   const {
     data: sessions,
     isLoading,
     error,
     refetch,
-  } = useQuery<InboxListItemsResponse, TracecatApiError, InboxSessionItem[]>({
-    queryKey: ["inbox-items", workspaceId, limit],
+  } = useQuery<
+    ApprovalsListApprovalsResponse,
+    TracecatApiError,
+    ApprovalSessionItem[]
+  >({
+    queryKey: ["approval-items", workspaceId, limit],
     queryFn: () =>
-      inboxListItems({
+      approvalsListApprovals({
         workspaceId,
         limit,
       }),
     select: (data) => {
-      // Convert inbox items to session format and sort by priority
-      const converted = data.items.map(inboxItemToSessionItem)
+      // Convert approval items to session format and sort by priority
+      const converted = data.items.map(approvalItemToSessionItem)
       // Sort by status priority (pending approvals first), then by updated_at (most recent first)
       return converted.sort((a, b) => {
         if (a.statusPriority !== b.statusPriority) {

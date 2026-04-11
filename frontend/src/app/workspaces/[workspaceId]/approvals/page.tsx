@@ -1,41 +1,41 @@
 "use client"
 
 import { useEffect } from "react"
+import { ActivityLayout } from "@/components/approvals"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
-import { ActivityLayout } from "@/components/inbox"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { useApprovals } from "@/hooks/use-approvals"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useInbox } from "@/hooks/use-inbox"
 
-export default function InboxPage() {
+export default function ApprovalsPage() {
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
-  const canReadInbox = useScopeCheck("inbox:read")
+  const canReadApprovals = useScopeCheck("approval:read")
 
   const {
     sessions,
     selectedId,
     setSelectedId,
-    isLoading: inboxIsLoading,
-    error: inboxError,
+    isLoading: approvalsIsLoading,
+    error: approvalsError,
     filters,
     setSearchQuery,
     setEntityType,
     setLimit,
     setUpdatedAfter,
     setCreatedAfter,
-  } = useInbox({ enabled: agentAddonsEnabled && canReadInbox })
+  } = useApprovals({ enabled: agentAddonsEnabled && canReadApprovals })
 
   useEffect(() => {
-    document.title = "Inbox"
+    document.title = "Approvals"
   }, [])
 
   if (entitlementsLoading) {
     return <CenteredSpinner />
   }
 
-  if (!canReadInbox) {
+  if (!canReadApprovals) {
     return null
   }
 
@@ -57,8 +57,8 @@ export default function InboxPage() {
       sessions={sessions}
       selectedId={selectedId}
       onSelect={setSelectedId}
-      isLoading={inboxIsLoading}
-      error={inboxError ?? null}
+      isLoading={approvalsIsLoading}
+      error={approvalsError ?? null}
       filters={filters}
       onSearchChange={setSearchQuery}
       onEntityTypeChange={setEntityType}

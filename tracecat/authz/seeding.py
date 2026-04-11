@@ -231,8 +231,8 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
     ScopeDefinition("case:create", "case", "create", "Create new cases"),
     ScopeDefinition("case:update", "case", "update", "Modify existing cases"),
     ScopeDefinition("case:delete", "case", "delete", "Delete cases"),
-    # Inbox scopes
-    ScopeDefinition("inbox:read", "inbox", "read", "View inbox items"),
+    # Approval scopes
+    ScopeDefinition("approval:read", "approval", "read", "View approval items"),
     # Table scopes
     ScopeDefinition("table:read", "table", "read", "View tables"),
     ScopeDefinition("table:create", "table", "create", "Create new tables"),

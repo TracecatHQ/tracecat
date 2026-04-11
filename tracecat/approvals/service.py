@@ -1,37 +1,37 @@
-"""Inbox service for aggregating notification items from multiple providers."""
+"""Approvals service for aggregating notification items from multiple providers."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from tracecat.inbox.schemas import InboxItemRead
-from tracecat.inbox.types import InboxItemStatus
+from tracecat.approvals.schemas import ApprovalItemRead
+from tracecat.approvals.types import ApprovalItemStatus
 from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
 from tracecat.service import BaseWorkspaceService
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from tracecat.approvals.types import ApprovalProvider
     from tracecat.auth.types import Role
-    from tracecat.inbox.types import InboxProvider
 
 
-class InboxService(BaseWorkspaceService, BaseCursorPaginator):
-    """Service for aggregating inbox items from multiple providers."""
+class ApprovalService(BaseWorkspaceService, BaseCursorPaginator):
+    """Service for aggregating approval items from multiple providers."""
 
-    service_name = "inbox"
+    service_name = "approvals"
 
     def __init__(
         self,
         session: AsyncSession,
         role: Role,
-        providers: list[InboxProvider] | None = None,
+        providers: list[ApprovalProvider] | None = None,
     ):
         BaseWorkspaceService.__init__(self, session, role)
         BaseCursorPaginator.__init__(self, session)
         self.providers = providers or []
 
-    async def list_items(
+    async def list_approvals(
         self,
         *,
         limit: int = 20,
@@ -39,18 +39,18 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
         reverse: bool = False,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
-    ) -> CursorPaginatedResponse[InboxItemRead]:
-        """List inbox items with cursor-based pagination.
+    ) -> CursorPaginatedResponse[ApprovalItemRead]:
+        """List approval items with cursor-based pagination.
 
         For the initial implementation, this delegates pagination to providers
         and merges results. Future optimization could use a materialized view
         or unified table for more efficient cross-provider pagination.
         """
         # For now, use simple aggregation with in-memory pagination
-        # This works well for small-medium inbox sizes
-        # TODO: Optimize for large inboxes with cross-provider cursor pagination
+        # This works well for small-medium approval queue sizes.
+        # TODO: Optimize for large queues with cross-provider cursor pagination.
 
-        all_items: list[InboxItemRead] = []
+        all_items: list[ApprovalItemRead] = []
 
         # Decode cursor to get target item ID if present
         cursor_id: str | None = None
@@ -61,13 +61,13 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
         # Initial fetch - get enough items to likely include cursor position.
         # For cross-provider aggregation, we fetch a larger window to increase
         # the likelihood of including the cursor item. This is a known limitation
-        # of in-memory aggregation; very large inboxes may need a unified table.
+        # of in-memory aggregation; very large queues may need a unified table.
         # Fetch more when we have a cursor to search for.
         initial_fetch_limit = limit * 10 if cursor_id else limit * 2
 
         for provider in self.providers:
             # Fetch items without cursor - handle pagination at aggregate level
-            provider_response = await provider.list_items(
+            provider_response = await provider.list_approvals(
                 limit=initial_fetch_limit,
                 cursor=None,
                 reverse=reverse,
@@ -93,7 +93,7 @@ class InboxService(BaseWorkspaceService, BaseCursorPaginator):
             # Secondary sort by created_at in the same direction
             all_items.sort(
                 key=lambda x: (
-                    x.status != InboxItemStatus.PENDING,
+                    x.status != ApprovalItemStatus.PENDING,
                     x.created_at.timestamp()
                     if sort_desc
                     else -x.created_at.timestamp(),

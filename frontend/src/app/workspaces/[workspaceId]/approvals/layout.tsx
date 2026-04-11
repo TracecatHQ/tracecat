@@ -3,39 +3,41 @@
 import { XIcon } from "lucide-react"
 import type React from "react"
 import { createContext, useCallback, useContext, useRef, useState } from "react"
-import { InboxChat } from "@/components/inbox/inbox-chat"
+import { ApprovalsChat } from "@/components/approvals/approvals-chat"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import type { InboxSessionItem } from "@/lib/agents"
+import type { ApprovalSessionItem } from "@/lib/agents"
 
-interface InboxChatContextValue {
-  selectedSession: InboxSessionItem | null
-  setSelectedSession: (session: InboxSessionItem | null) => void
+interface ApprovalsChatContextValue {
+  selectedSession: ApprovalSessionItem | null
+  setSelectedSession: (session: ApprovalSessionItem | null) => void
   chatOpen: boolean
   setChatOpen: (open: boolean) => void
   registerOnClose: (callback: () => void) => void
 }
 
-const InboxChatContext = createContext<InboxChatContextValue | null>(null)
+const ApprovalsChatContext = createContext<ApprovalsChatContextValue | null>(
+  null
+)
 
-export function useInboxChat() {
-  const context = useContext(InboxChatContext)
+export function useApprovalsChat() {
+  const context = useContext(ApprovalsChatContext)
   if (!context) {
-    throw new Error("useInboxChat must be used within InboxLayout")
+    throw new Error("useApprovalsChat must be used within ApprovalsLayout")
   }
   return context
 }
 
-export default function InboxLayout({
+export default function ApprovalsLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
   const [selectedSession, setSelectedSession] =
-    useState<InboxSessionItem | null>(null)
+    useState<ApprovalSessionItem | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const onCloseCallbackRef = useRef<(() => void) | null>(null)
 
@@ -50,7 +52,7 @@ export default function InboxLayout({
   }
 
   return (
-    <InboxChatContext.Provider
+    <ApprovalsChatContext.Provider
       value={{
         selectedSession,
         setSelectedSession,
@@ -101,12 +103,12 @@ export default function InboxLayout({
 
               {/* Chat content */}
               <div className="min-h-0 flex-1">
-                <InboxChat session={selectedSession} />
+                <ApprovalsChat session={selectedSession} />
               </div>
             </div>
           </ResizableSidebar>
         )}
       </SidebarProvider>
-    </InboxChatContext.Provider>
+    </ApprovalsChatContext.Provider>
   )
 }

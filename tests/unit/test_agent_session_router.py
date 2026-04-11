@@ -44,7 +44,7 @@ async def test_send_message_continue_uses_path_session_id_for_stream_key() -> No
                 action="approve",
             )
         ],
-        source="inbox",
+        source="approval",
     )
 
     fake_svc = SimpleNamespace(
@@ -169,7 +169,7 @@ async def test_send_message_does_not_reset_stream_when_validation_fails() -> Non
                 action="approve",
             )
         ],
-        source="inbox",
+        source="approval",
     )
 
     fake_svc = SimpleNamespace(

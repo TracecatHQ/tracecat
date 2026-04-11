@@ -1,21 +1,21 @@
 "use client"
 
 import { useEffect } from "react"
-import { useInboxChat } from "@/app/workspaces/[workspaceId]/inbox/layout"
+import { useApprovalsChat } from "@/app/workspaces/[workspaceId]/approvals/layout"
 import type { AgentSessionEntity } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import type { DateFilterValue, UseInboxFilters } from "@/hooks/use-inbox"
-import type { InboxSessionItem } from "@/lib/agents"
+import type { DateFilterValue, UseApprovalFilters } from "@/hooks/use-approvals"
+import type { ApprovalSessionItem } from "@/lib/agents"
 import { ActivityAccordion } from "./activity-accordion"
-import { InboxHeader } from "./inbox-header"
+import { ApprovalsHeader } from "./approvals-header"
 
 interface ActivityLayoutProps {
-  sessions: InboxSessionItem[]
+  sessions: ApprovalSessionItem[]
   selectedId: string | null
   onSelect: (id: string | null) => void
   isLoading: boolean
   error: Error | null
-  filters: UseInboxFilters
+  filters: UseApprovalFilters
   onSearchChange: (query: string) => void
   onEntityTypeChange: (type: AgentSessionEntity | "all") => void
   onLimitChange: (limit: number) => void
@@ -36,7 +36,8 @@ export function ActivityLayout({
   onUpdatedAfterChange,
   onCreatedAfterChange,
 }: ActivityLayoutProps) {
-  const { setSelectedSession, setChatOpen, registerOnClose } = useInboxChat()
+  const { setSelectedSession, setChatOpen, registerOnClose } =
+    useApprovalsChat()
 
   // Sync selected session with layout context
   const selectedSession = sessions.find((s) => s.id === selectedId) ?? null
@@ -58,7 +59,7 @@ export function ActivityLayout({
   if (isLoading) {
     return (
       <div className="flex size-full flex-col">
-        <InboxHeader
+        <ApprovalsHeader
           searchQuery={filters.searchQuery}
           onSearchChange={onSearchChange}
           entityType={filters.entityType}
@@ -80,7 +81,7 @@ export function ActivityLayout({
   if (error) {
     return (
       <div className="flex size-full flex-col">
-        <InboxHeader
+        <ApprovalsHeader
           searchQuery={filters.searchQuery}
           onSearchChange={onSearchChange}
           entityType={filters.entityType}
@@ -103,7 +104,7 @@ export function ActivityLayout({
 
   return (
     <div className="flex size-full flex-col">
-      <InboxHeader
+      <ApprovalsHeader
         searchQuery={filters.searchQuery}
         onSearchChange={onSearchChange}
         entityType={filters.entityType}

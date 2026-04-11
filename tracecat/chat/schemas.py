@@ -280,11 +280,11 @@ class ContinueRunRequest(BaseModel):
 
     kind: Literal["continue"] = Field(default="continue", frozen=True)
     decisions: list[ApprovalDecision]
-    source: Literal["inbox", "slack"] = Field(
-        default="inbox",
+    source: Literal["approval", "slack"] = Field(
+        default="approval",
         description=(
             "Origin of the approval decision submission. "
-            "Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions."
+            "Use 'approval' for Tracecat UI/API and 'slack' for Slack actions."
         ),
     )
 

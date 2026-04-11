@@ -5,10 +5,10 @@ from collections.abc import Awaitable, Callable, Sequence
 import pytest
 
 from tracecat.agent.preset import router as agent_preset_router
+from tracecat.approvals import router as approvals_router
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
-from tracecat.inbox import router as inbox_router
 from tracecat.integrations import router as integrations_router
 from tracecat.organization import router as organization_router
 from tracecat.registry.actions import router as registry_actions_router
@@ -123,10 +123,12 @@ async def test_table_update_row_requires_table_update_scope() -> None:
 @pytest.mark.parametrize(
     ("endpoint", "required_scope"),
     [
-        (inbox_router.list_items, "inbox:read"),
+        (approvals_router.list_approvals, "approval:read"),
     ],
 )
-async def test_inbox_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
+async def test_approval_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
 
 

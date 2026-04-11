@@ -531,7 +531,7 @@ async def test_handle_clears_dedup_key_after_processing_failure() -> None:
 
 
 @pytest.mark.anyio
-async def test_handle_app_mention_allows_session_when_inbox_was_previous_source() -> (
+async def test_handle_app_mention_allows_session_when_approval_was_previous_source() -> (
     None
 ):
     workspace_id = uuid.uuid4()
@@ -591,7 +591,7 @@ async def test_handle_app_mention_allows_session_when_inbox_was_previous_source(
         patch(
             "tracecat.agent.channels.handlers.slack.AgentSessionService.get_session",
             new_callable=AsyncMock,
-            return_value=SimpleNamespace(channel_context={"active_sink": "inbox"}),
+            return_value=SimpleNamespace(channel_context={"active_sink": "approval"}),
         ),
         patch(
             "tracecat.agent.channels.handlers.slack.AgentSessionService.has_pending_approvals",

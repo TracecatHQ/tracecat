@@ -1,13 +1,13 @@
 /**
- * Inbox utilities for the Linear-style inbox UI.
+ * Approval queue utilities for the approvals UI.
  */
 
-import type { InboxItemStatus } from "@/client"
+import type { ApprovalItemStatus } from "@/client"
 
 /**
  * Get display color class for status badge.
  */
-export function getStatusBadgeClass(status: InboxItemStatus): string {
+export function getStatusBadgeClass(status: ApprovalItemStatus): string {
   switch (status) {
     case "pending":
       return "border-amber-500/50 text-amber-600"

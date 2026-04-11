@@ -198,7 +198,7 @@ export interface ChatSessionPaneProps {
    * Called before sending a message. If provided, receives the message text
    * and should handle sending it (e.g., to a forked session). Returns the
    * new session ID to switch to, or null to cancel.
-   * Used for inbox fork-on-send behavior.
+   * Used for approval fork-on-send behavior.
    */
   onBeforeSend?: (
     messageText: string,

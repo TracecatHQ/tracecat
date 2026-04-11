@@ -148,6 +148,8 @@ import type {
   AgentSetDefaultModelResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
+  ApprovalsListApprovalsData,
+  ApprovalsListApprovalsResponse,
   ApprovalsSubmitApprovalsData,
   ApprovalsSubmitApprovalsResponse,
   AuthAuthDatabaseLoginData,
@@ -314,8 +316,6 @@ import type {
   GraphApplyGraphOperationsResponse,
   GraphGetGraphData,
   GraphGetGraphResponse,
-  InboxListItemsData,
-  InboxListItemsResponse,
   IntegrationsConnectProviderData,
   IntegrationsConnectProviderResponse,
   IntegrationsDeleteIntegrationData,
@@ -4719,7 +4719,7 @@ export const agentSessionsStreamSessionEvents = (
  * Creates a new session linked to the parent session, allowing users
  * to ask the agent for context after making approval decisions.
  *
- * Set entity_type to 'approval' for inbox forks to hide from main chat list.
+ * Set entity_type to 'approval' for approval forks to hide from main chat list.
  * @param data The data for the request.
  * @param data.sessionId
  * @param data.workspaceId
@@ -4775,7 +4775,7 @@ export const approvalsSubmitApprovals = (
   data: ApprovalsSubmitApprovalsData
 ): CancelablePromise<ApprovalsSubmitApprovalsResponse> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "PATCH",
     url: "/approvals/{session_id}",
     path: {
       session_id: data.sessionId,
@@ -5751,8 +5751,8 @@ export const adminRegistryPromoteRegistryVersion = (
 }
 
 /**
- * List Items
- * List inbox items with cursor-based pagination.
+ * List Approvals
+ * List approval items with cursor-based pagination.
  *
  * Supports sorting by created_at, updated_at, or status.
  * Default sort is by created_at descending.
@@ -5763,15 +5763,15 @@ export const adminRegistryPromoteRegistryVersion = (
  * @param data.reverse
  * @param data.orderBy Column name to order by (created_at, updated_at, status)
  * @param data.sort Sort direction (asc or desc)
- * @returns CursorPaginatedResponse_InboxItemRead_ Successful Response
+ * @returns CursorPaginatedResponse_ApprovalItemRead_ Successful Response
  * @throws ApiError
  */
-export const inboxListItems = (
-  data: InboxListItemsData
-): CancelablePromise<InboxListItemsResponse> => {
+export const approvalsListApprovals = (
+  data: ApprovalsListApprovalsData
+): CancelablePromise<ApprovalsListApprovalsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/inbox/items",
+    url: "/approvals",
     query: {
       limit: data.limit,
       cursor: data.cursor,

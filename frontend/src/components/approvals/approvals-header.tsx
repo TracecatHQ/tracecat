@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import type { DateFilterValue } from "@/hooks/use-inbox"
+import type { DateFilterValue } from "@/hooks/use-approvals"
 import { cn } from "@/lib/utils"
 
 const ENTITY_TYPE_OPTIONS: Array<{
@@ -52,7 +52,7 @@ const DATE_FILTER_OPTIONS: Array<{
   { value: "1m", label: "1 month ago" },
 ]
 
-interface InboxHeaderProps {
+interface ApprovalsHeaderProps {
   searchQuery: string
   onSearchChange: (query: string) => void
   entityType: AgentSessionEntity | "all"
@@ -65,7 +65,7 @@ interface InboxHeaderProps {
   onCreatedAfterChange: (value: DateFilterValue) => void
 }
 
-export function InboxHeader({
+export function ApprovalsHeader({
   searchQuery,
   onSearchChange,
   entityType,
@@ -76,7 +76,7 @@ export function InboxHeader({
   onUpdatedAfterChange,
   createdAfter,
   onCreatedAfterChange,
-}: InboxHeaderProps) {
+}: ApprovalsHeaderProps) {
   // Count only non-default filters (don't count limit since it always has a value)
   const activeFilterCount =
     (entityType !== "all" ? 1 : 0) +

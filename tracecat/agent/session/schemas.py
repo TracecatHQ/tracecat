@@ -144,5 +144,5 @@ class AgentSessionForkRequest(BaseModel):
     entity_type: AgentSessionEntity | None = Field(
         default=None,
         description="Override entity type for the forked session. "
-        "Use 'approval' for inbox forks to hide from main chat list.",
+        "Use 'approval' for approval forks to hide from main chat list.",
     )

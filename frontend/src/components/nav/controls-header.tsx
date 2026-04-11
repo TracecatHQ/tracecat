@@ -1733,12 +1733,6 @@ function getPageConfig(
     }
   }
 
-  if (pagePath.startsWith("/inbox")) {
-    return {
-      title: "Inbox",
-    }
-  }
-
   return null
 }
 

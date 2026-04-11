@@ -36,6 +36,7 @@ from tracecat.api.common import (
     generic_exception_handler,
     tracecat_exception_handler,
 )
+from tracecat.approvals.router import router as approvals_queue_router
 from tracecat.auth.credentials import authenticated_user_only
 from tracecat.auth.dependencies import (
     require_any_auth_type_enabled,
@@ -101,7 +102,6 @@ from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
 from tracecat.feature_flags import FlagLike, is_feature_enabled
 from tracecat.feature_flags.router import router as feature_flags_router
-from tracecat.inbox.router import router as inbox_router
 from tracecat.integrations.router import (
     integrations_router,
     mcp_router,
@@ -447,7 +447,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(watchtower_router)
     app.include_router(admin_router)
     app.include_router(admin_registry_router, prefix="/admin")
-    app.include_router(inbox_router)
+    app.include_router(approvals_queue_router)
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)

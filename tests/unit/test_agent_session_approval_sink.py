@@ -80,10 +80,10 @@ async def test_claim_external_channel_approval_sink_allows_source_switch(
 
     switched = await service.claim_external_channel_approval_sink(
         session_id=external_agent_session.id,
-        source="inbox",
+        source="approval",
     )
 
-    assert switched == "inbox"
+    assert switched == "approval"
 
 
 @pytest.mark.anyio
@@ -96,15 +96,15 @@ async def test_claim_external_channel_approval_sink_is_idempotent(
 
     first = await service.claim_external_channel_approval_sink(
         session_id=external_agent_session.id,
-        source="inbox",
+        source="approval",
     )
     second = await service.claim_external_channel_approval_sink(
         session_id=external_agent_session.id,
-        source="inbox",
+        source="approval",
     )
 
-    assert first == "inbox"
-    assert second == "inbox"
+    assert first == "approval"
+    assert second == "approval"
 
 
 @pytest.mark.anyio
@@ -181,7 +181,7 @@ async def test_list_messages_preserves_compaction_metadata(
 
 
 @pytest.mark.anyio
-async def test_run_turn_continue_with_inbox_source_for_non_external_session(
+async def test_run_turn_continue_with_approval_source_for_non_external_session(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -215,7 +215,7 @@ async def test_run_turn_continue_with_inbox_source_for_non_external_session(
                 action="approve",
             )
         ],
-        source="inbox",
+        source="approval",
     )
 
     fake_handle = SimpleNamespace(execute_update=AsyncMock(return_value=None))
@@ -266,7 +266,7 @@ async def test_run_turn_continue_without_pending_approvals_is_noop(
                 action="approve",
             )
         ],
-        source="inbox",
+        source="approval",
     )
 
     fake_handle = SimpleNamespace(execute_update=AsyncMock(return_value=None))
@@ -318,7 +318,7 @@ async def test_run_turn_continue_duplicate_submission_is_noop(
                 action="approve",
             )
         ],
-        source="inbox",
+        source="approval",
     )
 
     fake_redis = SimpleNamespace(

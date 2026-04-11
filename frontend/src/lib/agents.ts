@@ -138,12 +138,12 @@ export type AgentSessionWithStatus = AgentSessionReadWithMeta & {
 }
 
 /**
- * Minimal inbox item type for the inbox list view.
- * This is a simpler type that works with the unified inbox API
- * while maintaining compatibility with inbox UI components.
+ * Minimal approval item type for the approvals list view.
+ * This is a simpler type that works with the unified approvals API
+ * while maintaining compatibility with approvals UI components.
  */
-export interface InboxSessionItem {
-  /** The agent session ID (source_id from inbox API) */
+export interface ApprovalSessionItem {
+  /** The agent session ID (source_id from approvals API) */
   id: string
   title: string
   entity_type: string

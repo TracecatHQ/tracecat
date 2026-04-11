@@ -165,7 +165,7 @@ class FanoutStreamSink:
     """Broadcasts stream events to multiple sinks.
 
     Used for external-channel sessions where we need Slack thread updates and
-    Redis stream updates (for inbox/UI) in parallel.
+    Redis stream updates (for approval/UI) in parallel.
     """
 
     sinks: tuple[LoopbackEventSink, ...]

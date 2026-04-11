@@ -518,7 +518,7 @@ export type AgentSessionCreate = {
  * - AGENT_PRESET_BUILDER: Builder chat for editing/configuring a preset
  * - COPILOT: Workspace-level copilot assistant
  * - WORKFLOW: Workflow-initiated agent run (from action)
- * - APPROVAL: Inbox approval continuation (hidden from main chat list)
+ * - APPROVAL: Approval continuation (hidden from main chat list)
  * - EXTERNAL_CHANNEL: External channel session (e.g. Slack thread)
  */
 export type AgentSessionEntity =
@@ -535,7 +535,7 @@ export type AgentSessionEntity =
  */
 export type AgentSessionForkRequest = {
   /**
-   * Override entity type for the forked session. Use 'approval' for inbox forks to hide from main chat list.
+   * Override entity type for the forked session. Use 'approval' for approval forks to hide from main chat list.
    */
   entity_type?: AgentSessionEntity | null
 }
@@ -757,6 +757,72 @@ export type ApprovalInteraction = {
    */
   approve_if?: string | null
 }
+
+/**
+ * Read model for approval items.
+ */
+export type ApprovalItemRead = {
+  /**
+   * Unique approval item ID
+   */
+  id: string
+  /**
+   * Type of approval item
+   */
+  type: ApprovalItemType
+  /**
+   * Display title
+   */
+  title: string
+  /**
+   * Preview text
+   */
+  preview: string
+  /**
+   * Item status
+   */
+  status: ApprovalItemStatus
+  /**
+   * Whether the item is unread
+   */
+  unread: boolean
+  /**
+   * Creation timestamp
+   */
+  created_at: string
+  /**
+   * Last update timestamp
+   */
+  updated_at: string
+  /**
+   * Associated workflow
+   */
+  workflow?: WorkflowSummary | null
+  /**
+   * ID of the source entity
+   */
+  source_id: string
+  /**
+   * Type of source entity (e.g., agent_session)
+   */
+  source_type: string
+  /**
+   * Type-specific metadata
+   */
+  metadata?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
+ * Status of approval items.
+ */
+export type ApprovalItemStatus = "pending" | "completed" | "failed"
+
+/**
+ * Types of approval items.
+ */
+export type ApprovalItemType = "approval"
 
 export type ApprovalMap = {
   [key: string]: boolean | ToolApproved | ToolDenied
@@ -2328,15 +2394,15 @@ export type ContinueRunRequest = {
   kind?: "continue"
   decisions: Array<ApprovalDecision>
   /**
-   * Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.
+   * Origin of the approval decision submission. Use 'approval' for Tracecat UI/API and 'slack' for Slack actions.
    */
-  source?: "inbox" | "slack"
+  source?: "approval" | "slack"
 }
 
 /**
- * Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.
+ * Origin of the approval decision submission. Use 'approval' for Tracecat UI/API and 'slack' for Slack actions.
  */
-export type source = "inbox" | "slack"
+export type source = "approval" | "slack"
 
 /**
  * Event for when a case is created.
@@ -2359,6 +2425,30 @@ export type CreatedEventRead = {
 
 export type CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
   items: Array<AgentPresetVersionReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_ApprovalItemRead_ = {
+  items: Array<ApprovalItemRead>
   /**
    * Cursor for next page
    */
@@ -2407,30 +2497,6 @@ export type CursorPaginatedResponse_CaseReadMinimal_ = {
 
 export type CursorPaginatedResponse_CaseTableRowRead_ = {
   items: Array<CaseTableRowRead>
-  /**
-   * Cursor for next page
-   */
-  next_cursor?: string | null
-  /**
-   * Cursor for previous page
-   */
-  prev_cursor?: string | null
-  /**
-   * Whether more items exist
-   */
-  has_more?: boolean
-  /**
-   * Whether previous items exist
-   */
-  has_previous?: boolean
-  /**
-   * Estimated total count from table statistics
-   */
-  total_estimate?: number | null
-}
-
-export type CursorPaginatedResponse_InboxItemRead_ = {
-  items: Array<InboxItemRead>
   /**
    * Cursor for next page
    */
@@ -3513,72 +3579,6 @@ export type ImageUrl = {
    */
   readonly identifier: string
 }
-
-/**
- * Read model for inbox items.
- */
-export type InboxItemRead = {
-  /**
-   * Unique inbox item ID
-   */
-  id: string
-  /**
-   * Type of inbox item
-   */
-  type: InboxItemType
-  /**
-   * Display title
-   */
-  title: string
-  /**
-   * Preview text
-   */
-  preview: string
-  /**
-   * Item status
-   */
-  status: InboxItemStatus
-  /**
-   * Whether the item is unread
-   */
-  unread: boolean
-  /**
-   * Creation timestamp
-   */
-  created_at: string
-  /**
-   * Last update timestamp
-   */
-  updated_at: string
-  /**
-   * Associated workflow
-   */
-  workflow?: WorkflowSummary | null
-  /**
-   * ID of the source entity
-   */
-  source_id: string
-  /**
-   * Type of source entity (e.g., agent_session)
-   */
-  source_type: string
-  /**
-   * Type-specific metadata
-   */
-  metadata?: {
-    [key: string]: unknown
-  } | null
-}
-
-/**
- * Status of inbox items.
- */
-export type InboxItemStatus = "pending" | "completed" | "failed"
-
-/**
- * Types of inbox items.
- */
-export type InboxItemType = "approval"
 
 /**
  * Inferred column mapping between CSV headers and table columns.
@@ -7645,7 +7645,7 @@ export type WorkflowRunReadMinimal = {
 }
 
 /**
- * Summary of a workflow for inbox item context.
+ * Summary of a workflow for approval item context.
  */
 export type WorkflowSummary = {
   /**
@@ -9428,7 +9428,7 @@ export type AdminRegistryPromoteRegistryVersionData = {
 export type AdminRegistryPromoteRegistryVersionResponse =
   tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
 
-export type InboxListItemsData = {
+export type ApprovalsListApprovalsData = {
   cursor?: string | null
   limit?: number
   /**
@@ -9443,7 +9443,8 @@ export type InboxListItemsData = {
   workspaceId: string
 }
 
-export type InboxListItemsResponse = CursorPaginatedResponse_InboxItemRead_
+export type ApprovalsListApprovalsResponse =
+  CursorPaginatedResponse_ApprovalItemRead_
 
 export type EditorListFunctionsData = {
   workspaceId: string
@@ -13019,7 +13020,7 @@ export type $OpenApiTs = {
     }
   }
   "/approvals/{session_id}": {
-    post: {
+    patch: {
       req: ApprovalsSubmitApprovalsData
       res: {
         /**
@@ -13601,14 +13602,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/inbox/items": {
+  "/approvals": {
     get: {
-      req: InboxListItemsData
+      req: ApprovalsListApprovalsData
       res: {
         /**
          * Successful Response
          */
-        200: CursorPaginatedResponse_InboxItemRead_
+        200: CursorPaginatedResponse_ApprovalItemRead_
         /**
          * Validation Error
          */

@@ -10,11 +10,11 @@ import {
   EventUpdatedAt,
 } from "@/components/cases/cases-feed-event"
 import { Badge } from "@/components/ui/badge"
-import type { InboxSessionItem } from "@/lib/agents"
+import type { ApprovalSessionItem } from "@/lib/agents"
 import { cn } from "@/lib/utils"
 
 interface ActivityItemProps {
-  session: InboxSessionItem
+  session: ApprovalSessionItem
   isSelected: boolean
   onClick: () => void
 }
