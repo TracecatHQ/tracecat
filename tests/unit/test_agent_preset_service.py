@@ -1159,6 +1159,78 @@ class TestAgentPresetService:
         assert restored_preset.instructions == agent_preset_create_params.instructions
         assert [version.version for version in versions.items] == [2, 1]
 
+    async def test_restore_version_locks_preset_before_replacing_skill_bindings(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Preset restore locks before replacing mutable head skill bindings."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(slug="restore-ordered-lock-skill")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Restore ordered lock preset",
+                description="Preset used to verify lock ordering on restore",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+        version_1 = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(skills=[]),
+        )
+
+        original_lock = agent_preset_service._lock_preset_for_versioning
+        original_restore = (
+            agent_preset_service._restore_head_skill_bindings_from_version
+        )
+        call_order: list[str] = []
+
+        async def instrumented_lock(preset_id: uuid.UUID) -> None:
+            call_order.append("lock")
+            await original_lock(preset_id)
+
+        async def instrumented_restore(
+            *, preset_id: uuid.UUID, version_id: uuid.UUID
+        ) -> None:
+            call_order.append("restore_bindings")
+            await original_restore(preset_id=preset_id, version_id=version_id)
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_lock_preset_for_versioning",
+            instrumented_lock,
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_restore_head_skill_bindings_from_version",
+            instrumented_restore,
+        )
+
+        await agent_preset_service.restore_version(created_preset, version_1)
+
+        assert call_order[:2] == ["lock", "restore_bindings"]
+        assert call_order.count("lock") == 1
+
     async def test_restore_version_rejects_archived_skill_bindings(
         self,
         configure_minio_for_skills,
