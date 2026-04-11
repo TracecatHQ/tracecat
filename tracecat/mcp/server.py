@@ -1856,12 +1856,14 @@ def _apply_layout_to_workflow(
             )
 
     action_by_ref = {action.ref: action for action in workflow.actions}
+    seen_action_refs: set[str] = set()
     for action_position in layout.actions:
         action = action_by_ref.get(action_position.ref)
         if action is None:
             raise ToolError(
                 f"Unknown action ref {action_position.ref!r} in layout.actions"
             )
+        seen_action_refs.add(action_position.ref)
         if clear_missing or action_position.x is not None:
             action.position_x = (
                 action_position.x if action_position.x is not None else 0.0
@@ -1870,6 +1872,13 @@ def _apply_layout_to_workflow(
             action.position_y = (
                 action_position.y if action_position.y is not None else 0.0
             )
+
+    if clear_missing:
+        missing_action_refs = set(action_by_ref) - seen_action_refs
+        for action_ref in missing_action_refs:
+            action = action_by_ref[action_ref]
+            action.position_x = 0.0
+            action.position_y = 0.0
 
 
 async def _replace_workflow_schedules(
