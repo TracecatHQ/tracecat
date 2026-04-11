@@ -66,17 +66,17 @@
 | `TRACECAT__AUTH_TYPES` | `basic` | One or more comma-separated values from `basic`, `oidc`, `saml` |
 | `TRACECAT__AUTH_ALLOWED_DOMAINS` |  | One or more comma-separated domains, e.g. `example.com,example.org` Leave blank to allow all domains |
 | `TRACECAT__AUTH_MIN_PASSWORD_LENGTH` | `12` |  |
-| `OIDC_ISSUER` |  | OIDC / OAuth |
+| `OIDC_ISSUER` |  |  |
 | `OIDC_CLIENT_ID` |  |  |
 | `OIDC_CLIENT_SECRET` |  |  |
 | `OIDC_SCOPES` | `openid profile email` |  |
-| `TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS` | `300` | MCP server (external IDE integrations) |
+| `TRACECAT_MCP__FILE_TRANSFER_URL_EXPIRY_SECONDS` | `300` |  |
 | `TRACECAT_MCP__STARTUP_MAX_ATTEMPTS` | `3` |  |
 | `TRACECAT_MCP__STARTUP_RETRY_DELAY_SECONDS` | `2` |  |
-| `OAUTH_CLIENT_ID` |  | Legacy aliases (still supported) |
+| `OAUTH_CLIENT_ID` |  |  |
 | `OAUTH_CLIENT_SECRET` |  |  |
 | `USER_AUTH_SECRET` | `your-auth-secret` | Used for password reset and email verification tokens Can be generated using `openssl rand -hex 32` |
-| `SAML_IDP_METADATA_URL` |  | SAML SSO settings |
+| `SAML_IDP_METADATA_URL` |  |  |
 | `SAML_ACCEPTED_TIME_DIFF` | `3` |  |
 
 ## Temporal
@@ -147,5 +147,5 @@
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
-| `TRACECAT__FEATURE_FLAGS` |  | Feature flags (comma-separated list) Modifying the following flags requires a Tracecat Enterprise License. Features activated by feature flags may be gated behind a license key in the future. |
+| `TRACECAT__FEATURE_FLAGS` |  | Feature flags (comma-separated list) |
 | `TRACECAT__EE_MULTI_TENANT` | `false` |  |

@@ -62,6 +62,13 @@ def _parse_env_example(path: Path) -> list[tuple[str, list[tuple[str, str, str]]
             comment_buf.clear()
             continue
 
+        # Sub-section label (## prefix) – group heading, not a variable
+        # description.  Clear any accumulated comments so the label is not
+        # attached to the next variable.
+        if line.startswith("##"):
+            comment_buf.clear()
+            continue
+
         # Comment line.
         if line.startswith("#"):
             text = line.lstrip("#").strip()
