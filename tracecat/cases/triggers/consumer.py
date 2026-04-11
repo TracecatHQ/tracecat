@@ -336,7 +336,11 @@ class CaseTriggerConsumer:
     async def _load_triggers(
         self, session, workspace_id: uuid.UUID, event_type: str
     ) -> list[CaseTrigger]:
-        normalized_event_type = CaseEventType(event_type)
+        try:
+            normalized_event_type = CaseEventType(event_type)
+        except ValueError:
+            logger.warning("Unknown case event type, skipping", event_type=event_type)
+            return []
         # Cases emit `case_closed` / `case_reopened` instead of `status_changed`
         # for those transitions, so exact trigger lookup would otherwise skip
         # workflows subscribed to `status_changed`. Expand the incoming event to
