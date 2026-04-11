@@ -1746,6 +1746,9 @@ def _apply_layout_to_workflow(
             workflow.trigger_position_y = (
                 layout.trigger.y if layout.trigger.y is not None else 0.0
             )
+    elif clear_missing:
+        workflow.trigger_position_x = 0.0
+        workflow.trigger_position_y = 0.0
 
     if layout.viewport is not None:
         if clear_missing or layout.viewport.x is not None:
@@ -1760,6 +1763,10 @@ def _apply_layout_to_workflow(
             workflow.viewport_zoom = (
                 layout.viewport.zoom if layout.viewport.zoom is not None else 1.0
             )
+    elif clear_missing:
+        workflow.viewport_x = 0.0
+        workflow.viewport_y = 0.0
+        workflow.viewport_zoom = 1.0
 
     action_by_ref = {action.ref: action for action in workflow.actions}
     seen_action_refs: set[str] = set()
