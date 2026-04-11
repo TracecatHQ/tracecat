@@ -1192,8 +1192,8 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
           if (!open) setCommentText("")
         }}
       >
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader className="text-left">
             <DialogTitle>Add comment</DialogTitle>
             <DialogDescription>
               Add a comment to {selectedCount} selected
@@ -1206,7 +1206,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
             placeholder="Enter comment..."
             className="min-h-[150px]"
           />
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end space-x-2">
             <Button
               variant="outline"
               onClick={() => {
@@ -1239,8 +1239,8 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
           if (!open) setAppendText("")
         }}
       >
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader className="text-left">
             <DialogTitle>Append to description</DialogTitle>
             <DialogDescription>
               Append text to the description of {selectedCount} selected
@@ -1253,7 +1253,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
             placeholder="Enter text to append..."
             className="min-h-[150px]"
           />
-          <DialogFooter>
+          <DialogFooter className="flex-row justify-end space-x-2">
             <Button
               variant="outline"
               onClick={() => {
