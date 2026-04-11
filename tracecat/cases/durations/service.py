@@ -688,7 +688,9 @@ class CaseDurationService(BaseWorkspaceService):
                         resolved = getattr(item, part, None)
                     if resolved is not None:
                         collected.append(resolved)
-                return collected if collected else None
+                if not collected:
+                    return None
+                value = collected
             elif isinstance(value, dict):
                 value = value.get(part)
             else:
