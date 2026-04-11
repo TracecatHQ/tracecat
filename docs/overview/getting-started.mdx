@@ -3,16 +3,10 @@ title: "Getting started"
 ---
 
 import McpInstallation from "/snippets/mcp-installation.mdx";
+import McpInstallationSelfHosted from "/snippets/mcp-installation-self-hosted.mdx";
 
-Join Tracecat Community Cloud or self-host your own instance.
+Self-host your own instance or join Tracecat Community Cloud.
 The easiest way to get started is to connect your agent harness (Claude Code, Cursor, OpenAI Codex) to Tracecat.
-
-## Cloud
-
-Connecting your agent to Tracecat Cloud automatically creates an account for you.
-You can also sign up manually via [https://platform.tracecat.com](https://platform.tracecat.com).
-
-<McpInstallation />
 
 ## Self-host
 
@@ -34,3 +28,16 @@ curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat
 # Start Tracecat
 docker compose up -d
 ```
+
+## Connect MCP
+
+<McpInstallationSelfHosted />
+
+## Cloud
+
+<Badge icon="credit-card" color="blue" size="lg" shape="pill">Subscription required</Badge>
+
+Connecting your agent to Tracecat Cloud automatically creates an account for you.
+You can also sign up manually via [https://platform.tracecat.com](https://platform.tracecat.com).
+
+<McpInstallation />

@@ -1,0 +1,53 @@
+---
+title: Environment variables
+description: Reference for all Tracecat environment variables.
+---
+
+import EnvironmentVariables from "/snippets/environment-variables.mdx";
+
+## Required secrets
+
+| Secret | Purpose |
+| :----- | :------ |
+| `TRACECAT__DB_ENCRYPTION_KEY` | Fernet key for at-rest encryption in PostgreSQL. Losing it makes encrypted credentials unrecoverable. |
+| `TRACECAT__SERVICE_KEY` | HMAC key for service-to-service JWT signing. |
+| `TRACECAT__SIGNING_SECRET` | Signs webhook URLs and HMAC operations. Changing it invalidates existing webhook URLs. |
+| `USER_AUTH_SECRET` | Signs OAuth state parameters and password-reset tokens. |
+
+Generate all four with `openssl`:
+
+```bash
+# TRACECAT__SERVICE_KEY
+openssl rand -hex 32
+
+# TRACECAT__SIGNING_SECRET
+openssl rand -hex 32
+
+# USER_AUTH_SECRET
+openssl rand -hex 32
+
+# TRACECAT__DB_ENCRYPTION_KEY (Fernet-compatible base64)
+openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_'
+```
+
+## Example `.env`
+
+```bash
+PUBLIC_APP_URL=https://tracecat.yourdomain.com
+PUBLIC_API_URL=https://tracecat.yourdomain.com/api
+TRACECAT__APP_ENV=production
+TRACECAT__DB_ENCRYPTION_KEY=<openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_'>
+TRACECAT__SERVICE_KEY=<openssl rand -hex 32>
+TRACECAT__SIGNING_SECRET=<openssl rand -hex 32>
+USER_AUTH_SECRET=<openssl rand -hex 32>
+TRACECAT__AUTH_SUPERADMIN_EMAIL=admin@yourdomain.com
+TRACECAT__DB_SSLMODE=require
+TRACECAT__POSTGRES_USER=postgres
+TRACECAT__POSTGRES_PASSWORD=<secure-password>
+```
+
+See [`.env.example`](https://github.com/TracecatHQ/tracecat/blob/main/.env.example) for all options.
+
+## Variables
+
+<EnvironmentVariables />

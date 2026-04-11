@@ -191,39 +191,9 @@ docker stack services tracecat
 
 ## FAQ
 
+For an overview of all services and networking, see [Architecture](/self-hosting/architecture).
+
 <AccordionGroup>
-  <Accordion title="What services are started by docker-compose.yml?">
-    The stack runs 15 containers grouped into application and infrastructure services.
-
-    Application services:
-
-    - `caddy` — Reverse proxy that routes traffic to the UI, API, and MCP
-    - `api` — FastAPI backend (port 8000)
-    - `ui` — Next.js frontend (port 3000)
-    - `worker` — Workflow orchestrator (Temporal worker)
-    - `executor` — Action executor with optional sandbox isolation
-    - `agent-worker` — AI agent orchestrator
-    - `agent-executor` — AI agent executor with LLM gateway support
-    - `mcp` — Model Context Protocol server (port 8099)
-
-    Infrastructure services:
-
-    - `postgres_db` — PostgreSQL 16 (application database)
-    - `temporal` — Temporal workflow engine (auto-setup)
-    - `temporal_postgres_db` — PostgreSQL 13 (Temporal database)
-    - `temporal_ui` — Temporal web UI (not exposed by default)
-    - `minio` — S3-compatible object storage
-    - `redis` — Cache and task queue
-    - `migrations` — One-shot database migration runner (exits after completion)
-  </Accordion>
-
-  <Accordion title="Does Docker Compose support Tracecat MCP?">
-    Yes. Tracecat uses [Dex](https://github.com/dexidp/dex) as a built-in OIDC provider for MCP.
-    Dex is shipped with the Tracecat Docker Compose stack.
-
-    Seek assistance in our [#help-chat](https://discord.gg/3W3BMe85q6) channel if you encounter any issues.
-  </Accordion>
-
   <Accordion title="Does Tracecat support Windows?">
     Yes but don't forget to set `PUBLIC_APP_URL` to `127.0.0.1` instead of `localhost` in your `.env` file.
   </Accordion>

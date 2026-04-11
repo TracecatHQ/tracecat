@@ -4,6 +4,7 @@ description: "Build automations through your own agent harness."
 ---
 
 import McpInstallation from "/snippets/mcp-installation.mdx";
+import McpInstallationSelfHosted from "/snippets/mcp-installation-self-hosted.mdx";
 import McpTools from "/snippets/mcp-tools.mdx";
 
 Tracecat works best with agentic coding tools (Claude Code, Cursor, Codex, OpenCode).
@@ -18,7 +19,15 @@ Agents connected to Tracecat MCP gain the ability to build and orchestrate core 
 
 Tracecat MCP turns any coding agent into a security automation architect and engineer.
 
-## Installation
+## Self-hosted
+
+MCP authentication uses a built-in OIDC provider. Your agent will be redirected to sign in through the browser on first connection.
+
+<McpInstallationSelfHosted />
+
+## Cloud
+
+<Badge icon="credit-card" color="blue" size="lg" shape="pill">Subscription required</Badge>
 
 <McpInstallation />
 
