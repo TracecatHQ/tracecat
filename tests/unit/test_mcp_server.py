@@ -1158,6 +1158,66 @@ async def test_persist_workflow_edit_document_resets_removed_layout_actions() ->
 
 
 @pytest.mark.anyio
+async def test_persist_workflow_edit_document_resets_removed_layout_object() -> None:
+    action = SimpleNamespace(
+        id=uuid.uuid4(),
+        ref="step_a",
+        type="core.noop",
+        title="Step A",
+        description="",
+        status="offline",
+        inputs="{}",
+        control_flow={},
+        is_interactive=False,
+        interaction=None,
+        upstream_edges=[],
+        position_x=40.0,
+        position_y=50.0,
+    )
+    workflow = _workflow_stub(
+        trigger_position_x=10.0,
+        trigger_position_y=20.0,
+        viewport_x=30.0,
+        viewport_y=40.0,
+        viewport_zoom=1.5,
+        actions=[action],
+    )
+    original_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    del updated_payload["layout"]
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            _ = obj
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
+        async def commit(self) -> None:
+            return None
+
+    service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
+    await mcp_server._persist_workflow_edit_document(
+        role=SimpleNamespace(),
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+    assert workflow.trigger_position_x == 0.0
+    assert workflow.trigger_position_y == 0.0
+    assert workflow.viewport_x == 0.0
+    assert workflow.viewport_y == 0.0
+    assert workflow.viewport_zoom == 1.0
+    assert action.position_x == 0.0
+    assert action.position_y == 0.0
+
+
+@pytest.mark.anyio
 async def test_get_workflow_returns_inline_definition_when_requested(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
