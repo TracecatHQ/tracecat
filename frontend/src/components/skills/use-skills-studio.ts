@@ -407,9 +407,7 @@ export function useSkillsStudio(params: {
 
     setDraftChanges((current) => {
       let serverText: string | null = null
-      if (selectedFile.isNew) {
-        serverText = ""
-      } else if (draftFile?.kind === "inline") {
+      if (draftFile?.kind === "inline") {
         serverText = draftFile.text_content ?? ""
       }
       if (serverText !== null && nextValue === serverText) {
