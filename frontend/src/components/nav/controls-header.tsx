@@ -144,7 +144,6 @@ import { CreateCredentialDialog } from "@/components/workspaces/create-credentia
 import { useAgentPreset } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
-import { getDisplayName } from "@/lib/auth"
 import {
   useCaseDropdownDefinitions,
   useCaseDurationDefinitions,
@@ -666,11 +665,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
     },
     ...(members?.map((member) => ({
       value: member.user_id,
-      label: getDisplayName({
-        first_name: member.first_name,
-        last_name: member.last_name,
-        email: member.email,
-      }),
+      label: member.email,
     })) ?? []),
   ]
 

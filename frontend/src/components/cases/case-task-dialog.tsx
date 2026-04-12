@@ -33,7 +33,6 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
-import { getDisplayName } from "@/lib/auth"
 import {
   useCreateCaseTask,
   useUpdateCaseTask,
@@ -268,21 +267,14 @@ export function CaseTaskDialog({
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
-                          {members?.map((member) => {
-                            const displayName = getDisplayName({
-                              email: member.email,
-                              first_name: member.first_name,
-                              last_name: member.last_name,
-                            })
-                            return (
-                              <SelectItem
-                                key={member.user_id}
-                                value={member.user_id}
-                              >
-                                {displayName}
-                              </SelectItem>
-                            )
-                          })}
+                          {members?.map((member) => (
+                            <SelectItem
+                              key={member.user_id}
+                              value={member.user_id}
+                            >
+                              {member.email}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </FormControl>
