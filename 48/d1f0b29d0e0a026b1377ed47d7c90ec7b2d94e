@@ -1,0 +1,23 @@
+frontend/src/components/tiptap-templates/plain/plain-text-editor.tsx
+  7a57ed7b18619e83 1-96,98-115,117-119,121-124,126-144,146-170,173-225
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "48d1f0b29d0e0a026b1377ed47d7c90ec7b2d94e",
+  "prompts": {
+    "7a57ed7b18619e83": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c715e816-8e48-4375-b308-ce4cc5bb2897",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 975,
+      "total_deletions": 351,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    }
+  }
+}
