@@ -149,7 +149,13 @@ export function CaseItem({
         const value = caseData.field_values?.[fieldId]
         if (value != null) {
           const label =
-            typeof value === "boolean" ? (value ? "Yes" : "No") : String(value)
+            typeof value === "boolean"
+              ? value
+                ? "Yes"
+                : "No"
+              : typeof value === "number"
+                ? String(parseFloat(value.toFixed(2)))
+                : String(value)
           badges.push(
             <CaseColumnBadge
               key={columnId}
