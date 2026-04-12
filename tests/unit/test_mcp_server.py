@@ -1045,6 +1045,102 @@ async def test_edit_workflow_updates_metadata_with_disconnected_layout_actions(
 
 
 @pytest.mark.anyio
+async def test_edit_workflow_validate_only_canonicalizes_draft_revision(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    trigger_id = f"trigger-{workflow_id}"
+    action_a = _action_stub(
+        ref="step_a",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+        position_x=10.0,
+        position_y=20.0,
+    )
+    action_b = _action_stub(
+        ref="step_b",
+        upstream_edges=[
+            {
+                "source_id": str(action_a.id),
+                "source_type": "udf",
+                "source_handle": "success",
+            }
+        ],
+        position_x=30.0,
+        position_y=40.0,
+    )
+    workflow = _workflow_stub(
+        id=workflow_id,
+        actions=[action_b, action_a],
+        schedules=[
+            _schedule_stub(cron="30 * * * *", timeout=30.0),
+            _schedule_stub(cron="0 * * * *", timeout=0.0),
+        ],
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    draft_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = mcp_server._compute_workflow_edit_revision(draft_document)
+    reversed_definition_actions = list(
+        reversed(draft_document.definition.model_dump(mode="json")["actions"])
+    )
+    reversed_layout_actions = list(
+        reversed(draft_document.layout.model_dump(mode="json")["actions"])
+    )
+    reversed_schedules = list(
+        reversed(
+            [schedule.model_dump(mode="json") for schedule in draft_document.schedules]
+        )
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/definition/actions",
+                    "value": reversed_definition_actions,
+                },
+                {
+                    "op": "replace",
+                    "path": "/layout/actions",
+                    "value": reversed_layout_actions,
+                },
+                {
+                    "op": "replace",
+                    "path": "/schedules",
+                    "value": reversed_schedules,
+                },
+            ],
+            validate_only=True,
+        )
+    )
+
+    assert payload["valid"] is True
+    assert payload["validate_only"] is True
+    assert payload["draft_revision"] == base_revision
+
+
+@pytest.mark.anyio
 async def test_edit_workflow_rejects_stale_revision(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()

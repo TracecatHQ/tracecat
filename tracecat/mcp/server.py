@@ -948,9 +948,39 @@ def _workflow_edit_document_payload(
     return document.model_dump(mode="json", exclude_none=False)
 
 
+def _workflow_schedule_payload_sort_key(schedule: dict[str, Any]) -> str:
+    """Return a stable sort key for already-serialized workflow schedules."""
+    payload = dict(schedule)
+    if payload["timeout"] is None:
+        payload["timeout"] = 0
+    return json.dumps(payload, sort_keys=True)
+
+
+def _canonicalize_workflow_edit_document(
+    document: WorkflowEditDocument,
+) -> WorkflowEditDocument:
+    """Normalize document ordering before hashing or comparison."""
+    payload = _workflow_edit_document_payload(document)
+    payload["definition"]["actions"] = sorted(
+        payload["definition"]["actions"],
+        key=lambda action: cast(str, action["ref"]),
+    )
+    payload["layout"]["actions"] = sorted(
+        payload["layout"]["actions"],
+        key=lambda action: cast(str, action["ref"]),
+    )
+    payload["schedules"] = sorted(
+        payload["schedules"],
+        key=_workflow_schedule_payload_sort_key,
+    )
+    return WorkflowEditDocument.model_validate(payload)
+
+
 def _compute_workflow_edit_revision(document: WorkflowEditDocument) -> str:
     """Compute a stable draft revision for the editable workflow document."""
-    payload = _workflow_edit_document_payload(document)
+    payload = _workflow_edit_document_payload(
+        _canonicalize_workflow_edit_document(document)
+    )
     serialized = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
     return hashlib.sha256(serialized).hexdigest()
 
