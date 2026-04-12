@@ -2480,8 +2480,8 @@ export type CursorPaginatedResponse_InboxItemRead_ = {
   total_estimate?: number | null
 }
 
-export type CursorPaginatedResponse_SkillRead_ = {
-  items: Array<SkillRead>
+export type CursorPaginatedResponse_SkillReadMinimal_ = {
+  items: Array<SkillReadMinimal>
   /**
    * Cursor for next page
    */
@@ -5678,6 +5678,21 @@ export type SkillRead = {
   is_draft_publishable: boolean
   draft_validation_errors?: Array<SkillValidationErrorDetail>
   draft_file_count: number
+}
+
+/**
+ * Minimal response model for listing workspace skills.
+ */
+export type SkillReadMinimal = {
+  id: string
+  workspace_id: string
+  slug: string
+  title?: string | null
+  description?: string | null
+  current_version_id?: string | null
+  created_at: string
+  updated_at: string
+  archived_at?: string | null
 }
 
 /**
@@ -9331,7 +9346,8 @@ export type AgentSkillsListSkillsData = {
   workspaceId: string
 }
 
-export type AgentSkillsListSkillsResponse = CursorPaginatedResponse_SkillRead_
+export type AgentSkillsListSkillsResponse =
+  CursorPaginatedResponse_SkillReadMinimal_
 
 export type AgentSkillsCreateSkillData = {
   requestBody: SkillCreate
@@ -9424,7 +9440,7 @@ export type AgentSkillsRestoreSkillVersionData = {
   workspaceId: string
 }
 
-export type AgentSkillsRestoreSkillVersionResponse = SkillDraftRead
+export type AgentSkillsRestoreSkillVersionResponse = SkillReadMinimal
 
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
@@ -13298,7 +13314,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: CursorPaginatedResponse_SkillRead_
+        200: CursorPaginatedResponse_SkillReadMinimal_
         /**
          * Validation Error
          */
@@ -13472,7 +13488,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: SkillDraftRead
+        200: SkillReadMinimal
         /**
          * Validation Error
          */

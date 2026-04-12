@@ -14,6 +14,7 @@ from tracecat.agent.skill.schemas import (
     SkillDraftPatch,
     SkillDraftRead,
     SkillRead,
+    SkillReadMinimal,
     SkillUpload,
     SkillUploadSessionCreate,
     SkillUploadSessionRead,
@@ -56,7 +57,7 @@ def _raise_skill_validation_error(exc: TracecatValidationError) -> Never:
     ) from exc
 
 
-@router.get("", response_model=CursorPaginatedResponse[SkillRead])
+@router.get("", response_model=CursorPaginatedResponse[SkillReadMinimal])
 @require_scope("agent:read")
 async def list_skills(
     *,
@@ -69,7 +70,7 @@ async def list_skills(
     ),
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),
-) -> CursorPaginatedResponse[SkillRead]:
+) -> CursorPaginatedResponse[SkillReadMinimal]:
     """List workspace skills for the current workspace."""
 
     service = SkillService(session, role=role)
@@ -303,7 +304,9 @@ async def get_skill_version(
         ) from exc
 
 
-@router.post("/{skill_id}/versions/{version_id}/restore", response_model=SkillDraftRead)
+@router.post(
+    "/{skill_id}/versions/{version_id}/restore", response_model=SkillReadMinimal
+)
 @require_scope("agent:update")
 async def restore_skill_version(
     *,
@@ -311,8 +314,8 @@ async def restore_skill_version(
     version_id: uuid.UUID,
     role: WorkspaceEditorRole,
     session: AsyncDBSession,
-) -> SkillDraftRead:
-    """Replace the mutable draft with a published snapshot."""
+) -> SkillReadMinimal:
+    """Restore a historical version as the current selected skill version."""
 
     service = SkillService(session, role=role)
     try:

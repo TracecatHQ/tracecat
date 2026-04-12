@@ -74,6 +74,20 @@ class SkillRead(Schema):
     draft_file_count: int
 
 
+class SkillReadMinimal(Schema):
+    """Minimal response model for listing workspace skills."""
+
+    id: uuid.UUID
+    workspace_id: WorkspaceID
+    slug: str
+    title: str | None = Field(default=None)
+    description: str | None = Field(default=None)
+    current_version_id: uuid.UUID | None = Field(default=None)
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None = Field(default=None)
+
+
 class SkillCreate(Schema):
     """Payload for creating a new logical skill."""
 

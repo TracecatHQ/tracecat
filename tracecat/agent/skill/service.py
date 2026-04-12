@@ -32,6 +32,7 @@ from tracecat.agent.skill.schemas import (
     SkillDraftUpsertTextFileOp,
     SkillFileEntry,
     SkillRead,
+    SkillReadMinimal,
     SkillUpload,
     SkillUploadSessionCreate,
     SkillUploadSessionRead,
@@ -645,6 +646,22 @@ class SkillService(BaseWorkspaceService):
             draft_file_count=len(draft.files),
         )
 
+    @staticmethod
+    def _build_skill_read_minimal(skill: Skill) -> SkillReadMinimal:
+        """Build the minimal list response for a skill."""
+
+        return SkillReadMinimal(
+            id=skill.id,
+            workspace_id=skill.workspace_id,
+            slug=skill.slug,
+            title=skill.title,
+            description=skill.description,
+            current_version_id=skill.current_version_id,
+            created_at=skill.created_at,
+            updated_at=skill.updated_at,
+            archived_at=skill.archived_at,
+        )
+
     async def _replace_draft_with_blob_map(
         self, *, skill: Skill, path_to_blob: dict[str, SkillFileBlobRef]
     ) -> None:
@@ -864,15 +881,11 @@ class SkillService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_skills(
         self, params: CursorPaginationParams
-    ) -> CursorPaginatedResponse[SkillRead]:
+    ) -> CursorPaginatedResponse[SkillReadMinimal]:
         """List workspace skills with cursor pagination."""
 
         paginator = BaseCursorPaginator(self.session)
-        stmt = (
-            select(Skill)
-            .options(selectinload(Skill.current_version))
-            .where(Skill.workspace_id == self.workspace_id)
-        )
+        stmt = select(Skill).where(Skill.workspace_id == self.workspace_id)
         if params.cursor:
             try:
                 cursor_data = paginator.decode_cursor(params.cursor)
@@ -923,7 +936,7 @@ class SkillService(BaseWorkspaceService):
             )
 
         return CursorPaginatedResponse(
-            items=[await self._build_skill_read(skill) for skill in items],
+            items=[self._build_skill_read_minimal(skill) for skill in items],
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
@@ -1365,8 +1378,8 @@ class SkillService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def restore_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
-    ) -> SkillDraftRead:
-        """Replace the mutable draft with a published snapshot."""
+    ) -> SkillReadMinimal:
+        """Restore a historical version as the current selected skill version."""
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
@@ -1374,19 +1387,13 @@ class SkillService(BaseWorkspaceService):
         version = await self.get_version(version_id)
         if version is None or version.skill_id != skill.id:
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
-        rows = await self._list_version_rows(version.id)
-        await self._replace_draft_with_blob_map(
-            skill=skill,
-            path_to_blob={
-                version_file.path: SkillFileBlobRef(
-                    blob=blob_row,
-                    content_type=version_file.content_type,
-                )
-                for version_file, blob_row in rows
-            },
-        )
+        skill.current_version_id = version.id
+        skill.title = version.title
+        skill.description = version.description
+        self.session.add(skill)
         await self.session.commit()
-        return await self._build_draft_read(skill)
+        await self.session.refresh(skill)
+        return self._build_skill_read_minimal(skill)
 
     @require_scope("agent:delete")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
