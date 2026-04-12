@@ -773,6 +773,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
             status="offline",
             event_types=[],
             tag_filters=[],
+            event_filters={},
         )
         case_trigger.workflow = workflow
         self.session.add(case_trigger)
@@ -979,6 +980,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
             status="offline",
             event_types=[],
             tag_filters=[],
+            event_filters={},
         )
         self.session.add(case_trigger)
         workflow.case_trigger = case_trigger

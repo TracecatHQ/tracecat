@@ -608,6 +608,7 @@ async def export_workflow(
                     "status": workflow.case_trigger.status,
                     "event_types": workflow.case_trigger.event_types,
                     "tag_filters": workflow.case_trigger.tag_filters,
+                    "event_filters": workflow.case_trigger.event_filters,
                 }
             )
 

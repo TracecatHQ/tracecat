@@ -1859,9 +1859,16 @@ export type CaseTriggerCreate = {
   status?: "online" | "offline"
   event_types?: Array<CaseEventType>
   tag_filters?: Array<string>
+  event_filters?: CaseTriggerEventFilters
 }
 
 export type status2 = "online" | "offline"
+
+export type CaseTriggerEventFilters = {
+  status_changed?: Array<CaseStatus>
+  severity_changed?: Array<CaseSeverity>
+  priority_changed?: Array<CasePriority>
+}
 
 export type CaseTriggerRead = {
   id: string
@@ -1869,12 +1876,14 @@ export type CaseTriggerRead = {
   status: "online" | "offline"
   event_types: Array<CaseEventType>
   tag_filters: Array<string>
+  event_filters?: CaseTriggerEventFilters
 }
 
 export type CaseTriggerUpdate = {
   status?: "online" | "offline" | null
   event_types?: Array<CaseEventType> | null
   tag_filters?: Array<string> | null
+  event_filters?: CaseTriggerEventFilters | null
 }
 
 export type CaseUpdate = {

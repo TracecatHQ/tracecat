@@ -137,6 +137,11 @@ export interface CaseEventFilterOption {
   label: string
 }
 
+export interface CaseEventFilterSelectOption extends CaseEventFilterOption {
+  icon?: LucideIcon
+  iconClassName?: string
+}
+
 export const CASE_EVENT_FILTER_OPTIONS = {
   priority_changed: {
     label: "Priority",
@@ -171,6 +176,35 @@ export function isCaseEventFilterType(
   value: CaseEventType
 ): value is CaseEventFilterType {
   return value in CASE_EVENT_FILTER_OPTIONS
+}
+
+const CATEGORY_OPTIONS = {
+  priority_changed: PRIORITIES,
+  severity_changed: SEVERITIES,
+  status_changed: STATUSES,
+} as const
+
+const getOptionIconClass = (color?: string) =>
+  color?.split(" ").find((token) => token.startsWith("text-")) ||
+  "text-muted-foreground"
+
+export function buildCaseEventFilterOptions(
+  eventType: CaseEventFilterType
+): CaseEventFilterSelectOption[] {
+  const categoryMap = CATEGORY_OPTIONS[eventType] as Record<
+    string,
+    { icon: LucideIcon; color?: string }
+  >
+
+  return CASE_EVENT_FILTER_OPTIONS[eventType].options.map((option) => {
+    const category = categoryMap[option.value]
+    return {
+      value: option.value,
+      label: option.label,
+      icon: category?.icon,
+      iconClassName: getOptionIconClass(category?.color),
+    }
+  })
 }
 
 const CASE_TAG_EVENT_TYPES = [

@@ -1063,6 +1063,12 @@ class CaseTrigger(WorkspaceModel):
         nullable=False,
         server_default=text("'[]'::jsonb"),
     )
+    event_filters: Mapped[dict[str, list[str]]] = mapped_column(
+        JSONB,
+        default=dict,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+    )
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID,
         ForeignKey("workflow.id", ondelete="CASCADE"),
