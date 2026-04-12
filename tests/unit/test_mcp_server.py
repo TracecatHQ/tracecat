@@ -1162,6 +1162,83 @@ async def test_persist_workflow_edit_document_ignores_stale_layout_refs_after_de
 
 
 @pytest.mark.anyio
+async def test_persist_workflow_edit_document_skips_reorder_only_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_id = uuid.uuid4()
+    trigger_id = f"trigger-{workflow_id}"
+    action_a = _action_stub(
+        ref="step_a",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+        position_x=10.0,
+        position_y=20.0,
+    )
+    action_b = _action_stub(
+        ref="step_b",
+        upstream_edges=[
+            {
+                "source_id": str(action_a.id),
+                "source_type": "udf",
+                "source_handle": "success",
+            }
+        ],
+        position_x=30.0,
+        position_y=40.0,
+    )
+    workflow = _workflow_stub(
+        id=workflow_id,
+        actions=[action_b, action_a],
+        schedules=[
+            _schedule_stub(cron="30 * * * *", timeout=30.0),
+            _schedule_stub(cron="0 * * * *", timeout=0.0),
+        ],
+    )
+    original_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload["definition"]["actions"] = list(
+        reversed(updated_payload["definition"]["actions"])
+    )
+    updated_payload["layout"]["actions"] = list(
+        reversed(updated_payload["layout"]["actions"])
+    )
+    updated_payload["schedules"] = list(reversed(updated_payload["schedules"]))
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            raise AssertionError(f"unexpected add({obj!r})")
+
+        async def execute(self, stmt: Any) -> None:
+            raise AssertionError(f"unexpected execute({stmt!r})")
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            raise AssertionError(f"unexpected refresh({obj!r}, {attrs!r})")
+
+        async def commit(self) -> None:
+            raise AssertionError("unexpected commit()")
+
+    async def _replace_definition_from_dsl(**kwargs: Any) -> None:
+        raise AssertionError(f"unexpected definition replacement: {kwargs!r}")
+
+    monkeypatch.setattr(
+        mcp_server,
+        "_replace_workflow_definition_from_dsl",
+        _replace_definition_from_dsl,
+    )
+
+    service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
+    await mcp_server._persist_workflow_edit_document(
+        role=SimpleNamespace(),
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+
+@pytest.mark.anyio
 async def test_edit_workflow_validate_only_canonicalizes_draft_revision(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()

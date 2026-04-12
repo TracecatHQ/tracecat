@@ -1034,8 +1034,12 @@ async def _persist_workflow_edit_document(
     updated_document: WorkflowEditDocument,
 ) -> None:
     """Persist changes from the editable workflow document back to the draft."""
-    original_payload = _workflow_edit_document_payload(original_document)
-    updated_payload = _workflow_edit_document_payload(updated_document)
+    original_payload = _workflow_edit_document_payload(
+        _canonicalize_workflow_edit_document(original_document)
+    )
+    updated_payload = _workflow_edit_document_payload(
+        _canonicalize_workflow_edit_document(updated_document)
+    )
     changed_sections = {
         key for key in updated_payload if updated_payload[key] != original_payload[key]
     }
