@@ -750,6 +750,10 @@ def _compute_sha256(content: bytes) -> str:
 _WORKFLOW_EDITABLE_TOP_LEVEL_PATHS = frozenset(
     {"metadata", "definition", "layout", "schedules", "case_trigger"}
 )
+_WORKFLOW_NONEDITABLE_PATH_PATTERNS: tuple[tuple[str, ...], ...] = (
+    ("definition", "config", "scheduler"),
+    ("definition", "actions", "*", "id"),
+)
 
 
 class _WorkflowEditDocumentSource(Protocol):
@@ -903,12 +907,41 @@ def _compute_workflow_edit_revision(document: WorkflowEditDocument) -> str:
     return hashlib.sha256(serialized).hexdigest()
 
 
+def _decode_patch_path(path: str) -> tuple[str, ...]:
+    """Decode a JSON pointer path into unescaped tokens."""
+    return tuple(
+        token.replace("~1", "/").replace("~0", "~") for token in path.split("/")[1:]
+    )
+
+
+def _patch_path_matches_pattern(path: str, pattern: tuple[str, ...]) -> bool:
+    """Check whether a decoded patch path matches a non-editable pattern."""
+    tokens = _decode_patch_path(path)
+    if len(tokens) < len(pattern):
+        return False
+    return all(
+        expected in {"*", actual}
+        for actual, expected in zip(tokens, pattern, strict=False)
+    )
+
+
 def _validate_workflow_patch_paths(patch_ops: list[JsonPatchOperation]) -> None:
     """Reject JSON Patch paths outside the editable workflow document."""
     validate_patch_paths(
         patch_ops,
         allowed_top_level_paths=_WORKFLOW_EDITABLE_TOP_LEVEL_PATHS,
     )
+    for patch_op in patch_ops:
+        for path in (patch_op.path, patch_op.from_):
+            if path is None:
+                continue
+            if any(
+                _patch_path_matches_pattern(path, pattern)
+                for pattern in _WORKFLOW_NONEDITABLE_PATH_PATTERNS
+            ):
+                raise ToolError(
+                    f"Patch path '{path}' is not editable via edit_workflow"
+                )
 
 
 def _workflow_edit_document_to_dsl(document: WorkflowEditDocument) -> DSLInput:
