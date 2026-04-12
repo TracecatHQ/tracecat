@@ -96,7 +96,8 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "workspace_id",
             "sha256",
-            name="uq_skill_blob_workspace_sha256",
+            "content_type",
+            name="uq_skill_blob_workspace_sha256_content_type",
         ),
     )
     op.create_index(op.f("ix_skill_blob_id"), "skill_blob", ["id"], unique=True)
