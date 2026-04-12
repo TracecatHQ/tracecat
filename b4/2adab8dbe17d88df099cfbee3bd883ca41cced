@@ -1,0 +1,25 @@
+tests/unit/test_mcp_server.py
+  d22d4a0b01721eb6 890-957
+tracecat/mcp/server.py
+  d22d4a0b01721eb6 3433-3436
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "b42adab8dbe17d88df099cfbee3bd883ca41cced",
+  "prompts": {
+    "d22d4a0b01721eb6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d829a-f370-7af0-80f7-be59b0dcc0b9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 74,
+      "total_deletions": 1,
+      "accepted_lines": 73,
+      "overriden_lines": 0
+    }
+  }
+}
