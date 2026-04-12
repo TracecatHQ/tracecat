@@ -7171,6 +7171,7 @@ export const casesCreateCase = (
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @param data.includeRows Include linked table rows
+ * @param data.includeFields Include custom field values
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -7199,6 +7200,7 @@ export const casesSearchCases = (
       order_by: data.orderBy,
       sort: data.sort,
       include_rows: data.includeRows,
+      include_fields: data.includeFields,
       workspace_id: data.workspaceId,
     },
     errors: {

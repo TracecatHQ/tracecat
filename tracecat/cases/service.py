@@ -28,6 +28,7 @@ from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueRead,
 )
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
+from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import (
     CaseEventType,
@@ -397,7 +398,7 @@ class CasesService(BaseWorkspaceService):
             updated_after=updated_after,
         )
 
-        # Base query - eagerly load tags, assignee, and dropdown values
+        # Base query - eagerly load tags, assignee, dropdown values, and durations
         stmt = (
             select(Case)
             .options(selectinload(Case.tags))
@@ -412,6 +413,7 @@ class CasesService(BaseWorkspaceService):
                     CaseDropdownValue.option
                 )
             )
+            .options(selectinload(Case.durations))
         )
 
         for clause in filters:
@@ -607,6 +609,7 @@ class CasesService(BaseWorkspaceService):
             ]
 
             dropdown_reads = []
+            duration_reads: list[CaseDurationRead] | None = None
             if include_dropdown_values:
                 # Dropdown values are already loaded via selectinload
                 dropdown_reads = [
@@ -623,6 +626,12 @@ class CasesService(BaseWorkspaceService):
                     )
                     for dv in case.dropdown_values
                 ]
+                # Durations are already loaded via selectinload
+                if case.durations:
+                    duration_reads = [
+                        CaseDurationRead.model_validate(d, from_attributes=True)
+                        for d in case.durations
+                    ]
 
             case_items.append(
                 CaseReadMinimal(
@@ -641,6 +650,7 @@ class CasesService(BaseWorkspaceService):
                     else None,
                     tags=tag_reads,
                     dropdown_values=dropdown_reads,
+                    durations=duration_reads,
                     num_tasks_completed=task_counts[case.id]["completed"],
                     num_tasks_total=task_counts[case.id]["total"],
                 )
@@ -1360,6 +1370,28 @@ class CaseFieldsService(CustomFieldsService):
             sa.select(table.c.id).where(table.c.case_id == case.id)
         )
         return await self.editor.get_row(row_id) if row_id else None
+
+    async def batch_get_fields(
+        self, case_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, dict[str, Any]]:
+        """Batch-load custom field values for multiple cases."""
+        if not case_ids:
+            return {}
+        await self._ensure_schema_ready()
+        table = self._table_definition()
+        conn = await self.session.connection()
+        stmt = sa.select(table).where(table.c.case_id.in_(case_ids))
+        result = await conn.execute(stmt)
+        rows = result.mappings().all()
+        reserved = self._reserved_columns
+        return {
+            row["case_id"]: {
+                k: v
+                for k, v in dict(row).items()
+                if k not in reserved and v is not None
+            }
+            for row in rows
+        }
 
     @require_scope("case:create", "case:update", require_all=False)
     async def upsert_field_values(

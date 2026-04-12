@@ -52,6 +52,7 @@ from tracecat.cases.schemas import (
 )
 from tracecat.cases.service import (
     CaseCommentsService,
+    CaseFieldsService,
     CasesService,
     CaseTasksService,
 )
@@ -140,6 +141,7 @@ async def list_cases(
         None, description="Direction to sort (asc or desc)"
     ),
     include_rows: bool = Query(False, description="Include linked table rows"),
+    include_fields: bool = Query(False, description="Include custom field values"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
@@ -173,6 +175,15 @@ async def list_cases(
         )
         cases.items = [
             item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
+            for item in cases.items
+        ]
+    if include_fields and cases.items:
+        fields_service = CaseFieldsService(session, role)
+        fields_by_case = await fields_service.batch_get_fields(
+            case_ids=[item.id for item in cases.items]
+        )
+        cases.items = [
+            item.model_copy(update={"field_values": fields_by_case.get(item.id)})
             for item in cases.items
         ]
     return cases
@@ -235,6 +246,7 @@ async def search_cases(
         None, description="Direction to sort (asc or desc)"
     ),
     include_rows: bool = Query(False, description="Include linked table rows"),
+    include_fields: bool = Query(False, description="Include custom field values"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
@@ -294,6 +306,15 @@ async def search_cases(
             )
             cases.items = [
                 item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
+                for item in cases.items
+            ]
+        if include_fields and cases.items:
+            fields_service = CaseFieldsService(session, role)
+            fields_by_case = await fields_service.batch_get_fields(
+                case_ids=[item.id for item in cases.items]
+            )
+            cases.items = [
+                item.model_copy(update={"field_values": fields_by_case.get(item.id)})
                 for item in cases.items
             ]
         return cases

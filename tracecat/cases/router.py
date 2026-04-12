@@ -298,6 +298,7 @@ async def search_cases(
         None, description="Direction to sort (asc or desc)"
     ),
     include_rows: bool = Query(False, description="Include linked table rows"),
+    include_fields: bool = Query(False, description="Include custom field values"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)
@@ -364,6 +365,22 @@ async def search_cases(
             raise HTTPException(
                 status_code=HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to hydrate linked rows",
+            ) from e
+    if include_fields and cases.items:
+        try:
+            fields_service = CaseFieldsService(session, role)
+            fields_by_case = await fields_service.batch_get_fields(
+                case_ids=[item.id for item in cases.items]
+            )
+            cases.items = [
+                item.model_copy(update={"field_values": fields_by_case.get(item.id)})
+                for item in cases.items
+            ]
+        except Exception as e:
+            logger.error(f"Failed to hydrate case fields: {e}")
+            raise HTTPException(
+                status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to hydrate case fields",
             ) from e
     return cases
 
