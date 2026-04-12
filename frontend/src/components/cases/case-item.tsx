@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import {
   Check,
   CircleIcon,
+  CircleSlashIcon,
   Copy,
   ExternalLink,
   ListIcon,
@@ -37,6 +38,7 @@ import {
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
+import { CaseUserAvatar } from "@/components/cases/case-panel-common"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import {
   EventCreatedAt,
@@ -58,7 +60,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { toast } from "@/components/ui/use-toast"
-import { getDisplayName } from "@/lib/auth"
+import { User } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -415,6 +417,17 @@ export function CaseItem({
               </div>
             )}
 
+            {/* Assignee */}
+            {caseData.assignee && (
+              <div className="flex shrink-0 items-center gap-1">
+                <CaseUserAvatar user={new User(caseData.assignee)} size="sm" />
+                <span className="max-w-[80px] truncate text-xs text-muted-foreground">
+                  {caseData.assignee.first_name?.split(/\s/)[0] ||
+                    caseData.assignee.email.split("@")[0]}
+                </span>
+              </div>
+            )}
+
             {/* Timestamps */}
             <div className="flex shrink-0 items-center gap-2">
               <EventCreatedAt createdAt={caseData.created_at} />
@@ -526,25 +539,18 @@ export function CaseItem({
             <UserIcon className="mr-2 size-3.5" />
             Assignee
           </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-48">
+          <ContextMenuSubContent className="w-56">
             <ContextMenuRadioGroup value={caseData.assignee?.id ?? UNASSIGNED}>
               <ContextMenuRadioItem
                 value={UNASSIGNED}
                 className="text-xs"
                 onClick={() => handleAssigneeChange(UNASSIGNED)}
               >
-                <UserIcon className="mr-2 size-3.5 text-muted-foreground" />
+                <CircleSlashIcon className="mr-2 size-3 text-muted-foreground/50" />
                 Unassigned
               </ContextMenuRadioItem>
               {members?.map((member) => {
-                const displayName = getDisplayName({
-                  first_name: member.first_name,
-                  last_name: member.last_name,
-                  email: member.email,
-                })
-                const initials = member.first_name
-                  ? member.first_name[0].toUpperCase()
-                  : member.email[0].toUpperCase()
+                const initials = member.email[0].toUpperCase()
                 return (
                   <ContextMenuRadioItem
                     key={member.user_id}
@@ -557,7 +563,7 @@ export function CaseItem({
                         {initials}
                       </AvatarFallback>
                     </Avatar>
-                    <span className="truncate">{displayName}</span>
+                    <span className="truncate">{member.email}</span>
                   </ContextMenuRadioItem>
                 )
               })}
