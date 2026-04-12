@@ -120,7 +120,7 @@ class AgentPresetService(BaseWorkspaceService):
             select(
                 binding_model.skill_id,
                 Skill.slug,
-                Skill.title,
+                SkillVersion.title,
                 binding_model.skill_version_id,
                 SkillVersion.version,
             )
