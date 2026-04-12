@@ -2,14 +2,27 @@
 
 import { useEffect } from "react"
 import { CasesLayout } from "@/components/cases/cases-layout"
+import { useCaseColumnVisibility } from "@/hooks/use-case-column-visibility"
 import { useCases } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
-import { useCaseDropdownDefinitions, useCaseTagCatalog } from "@/lib/hooks"
+import {
+  useCaseDropdownDefinitions,
+  useCaseDurationDefinitions,
+  useCaseFields,
+  useCaseTagCatalog,
+} from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function CasesPage() {
   const workspaceId = useWorkspaceId()
+  const { hasEntitlement } = useEntitlements()
+  const caseAddonsEnabled = hasEntitlement("case_addons")
+
+  const { visibleColumnIds, toggleColumn } =
+    useCaseColumnVisibility(workspaceId)
+
+  const includeFields = visibleColumnIds.some((id) => id.startsWith("field:"))
 
   const {
     cases,
@@ -45,13 +58,16 @@ export default function CasesPage() {
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useCases()
+  } = useCases({ includeFields })
 
   const { members } = useWorkspaceMembers(workspaceId)
   const { caseTags } = useCaseTagCatalog(workspaceId)
-  const { hasEntitlement } = useEntitlements()
-  const caseAddonsEnabled = hasEntitlement("case_addons")
   const { dropdownDefinitions } = useCaseDropdownDefinitions(
+    workspaceId,
+    caseAddonsEnabled
+  )
+  const { caseFields } = useCaseFields(workspaceId, caseAddonsEnabled)
+  const { caseDurationDefinitions } = useCaseDurationDefinitions(
     workspaceId,
     caseAddonsEnabled
   )
@@ -92,6 +108,12 @@ export default function CasesPage() {
         dropdownDefinitions={
           caseAddonsEnabled ? dropdownDefinitions : undefined
         }
+        fieldDefinitions={caseAddonsEnabled ? caseFields : undefined}
+        durationDefinitions={
+          caseAddonsEnabled ? caseDurationDefinitions : undefined
+        }
+        visibleColumnIds={visibleColumnIds}
+        onToggleColumn={toggleColumn}
         onDropdownFilterChange={setDropdownFilter}
         onDropdownModeChange={setDropdownMode}
         onDropdownSortDirectionChange={setDropdownSortDirection}

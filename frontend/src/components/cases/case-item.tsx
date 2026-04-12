@@ -16,7 +16,7 @@ import {
   UserIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
   CasePriority,
@@ -32,7 +32,7 @@ import {
   casesSetCaseDropdownValue,
   casesUpdateCase,
 } from "@/client"
-import { CaseBadge } from "@/components/cases/case-badge"
+import { CaseBadge, CaseColumnBadge } from "@/components/cases/case-badge"
 import {
   PRIORITIES,
   SEVERITIES,
@@ -64,6 +64,22 @@ import { User } from "@/lib/auth"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+/** Parse an ISO 8601 duration string (e.g. "PT2H15M30S") to a short label. */
+function formatIsoDuration(iso: string): string | null {
+  const match = iso.match(
+    /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/
+  )
+  if (!match) return null
+  const days = Number(match[1] || 0)
+  const hours = Number(match[2] || 0) + days * 24
+  const minutes = Number(match[3] || 0)
+  const seconds = Number(match[4] || 0)
+  const total = hours * 3600 + minutes * 60 + seconds
+  if (total < 60) return `${Math.round(total)}s`
+  if (total < 3600) return `${Math.floor(total / 60)}m`
+  return `${Math.floor(total / 3600)}h`
+}
+
 interface CaseItemProps {
   caseData: CaseReadMinimal
   isSelected: boolean
@@ -74,6 +90,7 @@ interface CaseItemProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  visibleColumnIds?: string[]
 }
 
 export function CaseItem({
@@ -86,6 +103,7 @@ export function CaseItem({
   tags,
   members,
   dropdownDefinitions,
+  visibleColumnIds,
 }: CaseItemProps) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
@@ -102,6 +120,69 @@ export function CaseItem({
   useEffect(() => {
     setOptimisticTags(null)
   }, [caseData.tags])
+
+  // Compute visible column badges
+  const columnBadges = useMemo(() => {
+    if (!visibleColumnIds || visibleColumnIds.length === 0) {
+      return null
+    }
+    const badges: React.ReactNode[] = []
+    for (const columnId of visibleColumnIds) {
+      if (columnId.startsWith("dropdown:")) {
+        const ref = columnId.slice("dropdown:".length)
+        const dv = caseData.dropdown_values?.find(
+          (v) => v.definition_ref === ref
+        )
+        if (dv?.option_label) {
+          badges.push(
+            <CaseColumnBadge
+              key={columnId}
+              label={dv.option_label}
+              iconName={dv.option_icon_name}
+              color={dv.option_color}
+              className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+            />
+          )
+        }
+      } else if (columnId.startsWith("field:")) {
+        const fieldId = columnId.slice("field:".length)
+        const value = caseData.field_values?.[fieldId]
+        if (value != null) {
+          const label =
+            typeof value === "boolean" ? (value ? "Yes" : "No") : String(value)
+          badges.push(
+            <CaseColumnBadge
+              key={columnId}
+              label={label}
+              className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+            />
+          )
+        }
+      } else if (columnId.startsWith("duration:")) {
+        const defId = columnId.slice("duration:".length)
+        const dur = caseData.durations?.find((d) => d.definition_id === defId)
+        if (dur?.duration != null) {
+          const label = formatIsoDuration(dur.duration)
+          if (label) {
+            badges.push(
+              <CaseColumnBadge
+                key={columnId}
+                label={label}
+                iconName="timer"
+                className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+              />
+            )
+          }
+        }
+      }
+    }
+    return badges.length > 0 ? badges : null
+  }, [
+    visibleColumnIds,
+    caseData.dropdown_values,
+    caseData.field_values,
+    caseData.durations,
+  ])
 
   const handleCheckboxClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -385,6 +466,8 @@ export function CaseItem({
                   className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
                 />
               )}
+              {/* Custom column badges */}
+              {columnBadges}
             </div>
 
             {/* Tags - right aligned */}

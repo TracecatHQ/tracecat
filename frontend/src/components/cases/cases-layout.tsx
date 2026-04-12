@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   type CaseDropdownDefinitionRead,
+  type CaseDurationDefinitionRead,
+  type CaseFieldReadMinimal,
   type CasePriority,
   type CaseReadMinimal,
   type CaseSearchAggregateRead,
@@ -58,6 +60,10 @@ interface CasesLayoutProps {
   onUpdatedAfterChange: (value: CaseDateFilterValue) => void
   onCreatedAfterChange: (value: CaseDateFilterValue) => void
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  fieldDefinitions?: CaseFieldReadMinimal[]
+  durationDefinitions?: CaseDurationDefinitionRead[]
+  visibleColumnIds?: string[]
+  onToggleColumn?: (columnId: string) => void
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
   onDropdownSortDirectionChange: (ref: string, direction: SortDirection) => void
@@ -97,6 +103,10 @@ export function CasesLayout({
   onUpdatedAfterChange,
   onCreatedAfterChange,
   dropdownDefinitions,
+  fieldDefinitions,
+  durationDefinitions,
+  visibleColumnIds,
+  onToggleColumn,
   onDropdownFilterChange,
   onDropdownModeChange,
   onDropdownSortDirectionChange,
@@ -303,6 +313,10 @@ export function CasesLayout({
     members,
     tags,
     dropdownDefinitions,
+    fieldDefinitions,
+    durationDefinitions,
+    visibleColumnIds,
+    onToggleColumn,
     dropdownFilters: filters.dropdownFilters,
     onDropdownFilterChange,
     onDropdownModeChange,
@@ -377,6 +391,7 @@ export function CasesLayout({
             tags={tags}
             members={members}
             dropdownDefinitions={dropdownDefinitions}
+            visibleColumnIds={visibleColumnIds}
             prioritySortDirection={filters.prioritySortDirection}
             severitySortDirection={filters.severitySortDirection}
             assigneeSortDirection={filters.assigneeSortDirection}

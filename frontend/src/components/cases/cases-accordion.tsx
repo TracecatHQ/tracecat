@@ -122,6 +122,7 @@ interface CasesAccordionProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  visibleColumnIds?: string[]
   prioritySortDirection?: SortDirection
   severitySortDirection?: SortDirection
   assigneeSortDirection?: SortDirection
@@ -149,6 +150,7 @@ interface VirtualizedGroupRowsProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  visibleColumnIds?: string[]
 }
 
 function VirtualizedGroupRows({
@@ -162,6 +164,7 @@ function VirtualizedGroupRows({
   tags,
   members,
   dropdownDefinitions,
+  visibleColumnIds,
 }: VirtualizedGroupRowsProps) {
   const groupContainerRef = useRef<HTMLDivElement | null>(null)
   const [scrollMargin, setScrollMargin] = useState(0)
@@ -270,6 +273,7 @@ function VirtualizedGroupRows({
               tags={tags}
               members={members}
               dropdownDefinitions={dropdownDefinitions}
+              visibleColumnIds={visibleColumnIds}
             />
           </div>
         )
@@ -288,6 +292,7 @@ export function CasesAccordion({
   tags,
   members,
   dropdownDefinitions,
+  visibleColumnIds,
   prioritySortDirection,
   severitySortDirection,
   assigneeSortDirection,
@@ -479,6 +484,7 @@ export function CasesAccordion({
                     tags={tags}
                     members={members}
                     dropdownDefinitions={dropdownDefinitions}
+                    visibleColumnIds={visibleColumnIds}
                   />
                 </div>
               </AccordionPrimitive.Content>

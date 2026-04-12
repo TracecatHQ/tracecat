@@ -1,7 +1,8 @@
-import type { LucideIcon } from "lucide-react"
+import { CircleIcon, type LucideIcon } from "lucide-react"
 import type React from "react"
 import type { PropsWithChildren } from "react"
 import type { CasePriority, CaseSeverity, CaseStatus } from "@/client"
+import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
@@ -37,6 +38,52 @@ export function CaseBadge<T extends CaseBadgeValue>({
         strokeWidth={3}
       />
       <span>{label}</span>
+    </Badge>
+  )
+}
+
+export interface CaseColumnBadgeProps {
+  label: string
+  iconName?: string | null
+  color?: string | null
+  className?: string
+}
+
+/** Generic badge for custom columns (dropdowns, fields, durations). */
+export function CaseColumnBadge({
+  label,
+  iconName,
+  color,
+  className,
+}: CaseColumnBadgeProps) {
+  const fallbackIcon = (
+    <CircleIcon className="size-[0.9em] flex-none" strokeWidth={3} />
+  )
+  const colorStyle = color
+    ? ({ backgroundColor: `${color}20`, color } as React.CSSProperties)
+    : undefined
+
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        !color && defaultColor,
+        "max-w-[120px] items-center gap-1 border-0 leading-tight",
+        className
+      )}
+      style={colorStyle}
+    >
+      {iconName ? (
+        <DynamicLucideIcon
+          name={iconName}
+          className="size-[0.9em] flex-none"
+          strokeWidth={3}
+          fallback={fallbackIcon}
+        />
+      ) : (
+        fallbackIcon
+      )}
+      <span className="truncate">{label}</span>
     </Badge>
   )
 }
