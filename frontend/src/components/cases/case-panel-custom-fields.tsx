@@ -453,7 +453,10 @@ export function CustomFieldInner({
                   value={
                     field.value === null || field.value === undefined
                       ? ""
-                      : String(field.value)
+                      : typeof field.value === "number" &&
+                          customField.type === "NUMERIC"
+                        ? String(parseFloat(field.value.toFixed(2)))
+                        : String(field.value)
                   }
                   placeholder="Empty"
                   onChange={(e) => field.onChange(e.target.value)}
@@ -484,7 +487,7 @@ export function CustomFieldInner({
                       field.onChange(customField.value)
                       return
                     }
-                    onBlur?.(customField.id, parsed)
+                    onBlur?.(customField.id, parseFloat(parsed.toFixed(2)))
                   }}
                 />
               </FormControl>
