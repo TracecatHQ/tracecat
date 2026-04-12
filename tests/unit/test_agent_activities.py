@@ -710,6 +710,80 @@ class TestSandboxedAgentExecutorSkillCaching:
         assert (cache_dir / "skill-a" / "README.md").read_text() == "ok"
 
     @pytest.mark.anyio
+    async def test_ensure_cached_skill_dir_clamps_non_positive_download_limit(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Skill caching should still complete when concurrency config is invalid."""
+
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        manifest_sha256 = "manifest-sha"
+        skill_version_id = uuid.uuid4()
+        mock_service = AsyncMock()
+        mock_service.get_version_file_materialization.return_value = [
+            (
+                "skill-a/SKILL.md",
+                MagicMock(
+                    key="k1",
+                    bucket="skills",
+                    sha256="s1",
+                    size_bytes=10,
+                ),
+            )
+        ]
+
+        async def fake_download_file_to_path(
+            *,
+            key: str,
+            bucket: str,
+            output_path: Path,
+            expected_sha256: str | None = None,
+            max_bytes: int | None = None,
+        ) -> int:
+            del key, bucket, expected_sha256, max_bytes
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text("ok")
+            return 2
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SKILL_CACHE_DIR",
+            str(tmp_path),
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS",
+            0,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.blob.download_file_to_path",
+            fake_download_file_to_path,
+        )
+
+        cache_dir = await asyncio.wait_for(
+            mock_executor._ensure_cached_skill_dir(
+                service=mock_service,
+                manifest_sha256=manifest_sha256,
+                skill_version_id=skill_version_id,
+            ),
+            timeout=1,
+        )
+
+        assert cache_dir == tmp_path / manifest_sha256
+        assert (cache_dir / "skill-a" / "SKILL.md").read_text() == "ok"
+
+    @pytest.mark.anyio
     async def test_stage_resolved_skills_offloads_copytree(
         self,
         mock_role: Role,
