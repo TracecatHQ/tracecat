@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from temporalio import activity
 
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import Schedule
+from tracecat.db.models import Schedule, Workflow
 from tracecat.db.session_events import add_after_commit_callback
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
-from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage.object import InlineObject
@@ -26,6 +28,19 @@ class WorkflowSchedulesService(BaseWorkspaceService):
     """Manages schedules for Workflows."""
 
     service_name = "workflow_schedules"
+
+    async def _lock_workflow(self, workflow_id: AnyWorkflowID | uuid.UUID) -> None:
+        workflow_uuid = WorkflowUUID.new(workflow_id)
+        stmt = (
+            select(Workflow.id)
+            .where(
+                Workflow.workspace_id == self.workspace_id,
+                Workflow.id == workflow_uuid,
+            )
+            .with_for_update()
+        )
+        if await self.session.scalar(stmt) is None:
+            raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
 
     async def list_schedules(
         self, workflow_id: WorkflowID | None = None
@@ -73,6 +88,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             If there is an error creating the schedule.
 
         """
+        await self._lock_workflow(params.workflow_id)
         schedule = Schedule(
             workspace_id=self.workspace_id,
             workflow_id=WorkflowUUID.new(params.workflow_id),
@@ -198,6 +214,8 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             If there is an error updating the schedule.
         """
         schedule = await self.get_schedule(schedule_id)
+        await self._lock_workflow(schedule.workflow_id)
+        schedule = await self.get_schedule(schedule_id)
 
         # Update the schedule in DB first
         for key, value in params.model_dump(exclude_unset=True).items():
@@ -245,6 +263,9 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             If an error occurs while deleting the schedule from Temporal.
 
         """
+        schedule = await self.get_schedule(schedule_id)
+        await self._lock_workflow(schedule.workflow_id)
+
         # Stage DB delete (if exists)
         try:
             schedule = await self.get_schedule(schedule_id)
