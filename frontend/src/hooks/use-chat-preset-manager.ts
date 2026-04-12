@@ -4,6 +4,7 @@ import { toast } from "@/components/ui/use-toast"
 import {
   useAgentPreset,
   useAgentPresets,
+  useAgentPresetVersion,
   useAgentPresetVersions,
 } from "@/hooks/use-agent-presets"
 import { parseChatError, type useUpdateChat } from "@/hooks/use-chat"
@@ -90,8 +91,23 @@ export function useChatPresetManager({
     ) ??
     versions?.[0] ??
     null
-  const selectedPresetVersion =
+  const selectedPresetVersionMeta =
     versions?.find((version) => version.id === effectivePresetVersionId) ?? null
+  const {
+    presetVersion: selectedPresetVersion,
+    presetVersionIsLoading: selectedPresetVersionIsLoading,
+  } = useAgentPresetVersion(
+    workspaceId,
+    effectivePresetId,
+    effectivePresetVersionId,
+    {
+      enabled:
+        enabled &&
+        Boolean(workspaceId) &&
+        Boolean(effectivePresetId) &&
+        Boolean(effectivePresetVersionId),
+    }
+  )
 
   const handlePresetChange = async (nextPresetId: string | null) => {
     if (nextPresetId === effectivePresetId) {
@@ -171,10 +187,10 @@ export function useChatPresetManager({
   const presetMenuDisabled = !enabled || chatLoading || isUpdatingChat
   const showPresetSpinner =
     presetsIsLoading || isUpdatingChat || chatLoading || selectedPresetLoading
-  const presetVersionMenuLabel = selectedPresetVersion
-    ? selectedPresetVersion.id === currentPresetVersion?.id
-      ? `Current (v${selectedPresetVersion.version})`
-      : `Pinned v${selectedPresetVersion.version}`
+  const presetVersionMenuLabel = selectedPresetVersionMeta
+    ? selectedPresetVersionMeta.id === currentPresetVersion?.id
+      ? `Current (v${selectedPresetVersionMeta.version})`
+      : `Pinned v${selectedPresetVersionMeta.version}`
     : currentPresetVersion
       ? `Current (v${currentPresetVersion.version})`
       : "Current"
@@ -184,7 +200,11 @@ export function useChatPresetManager({
     chatLoading ||
     isUpdatingChat ||
     versionsIsLoading
-  const showVersionSpinner = versionsIsLoading || isUpdatingChat || chatLoading
+  const showVersionSpinner =
+    versionsIsLoading ||
+    selectedPresetVersionIsLoading ||
+    isUpdatingChat ||
+    chatLoading
   const selectedPresetConfig = selectedPresetVersion ?? selectedPreset
 
   return {
@@ -193,6 +213,7 @@ export function useChatPresetManager({
     presetsError,
     selectedPreset,
     selectedPresetConfig,
+    selectedPresetVersionIsLoading,
     selectedPresetId: effectivePresetId,
     selectedPresetVersionId: effectivePresetVersionId,
     selectedPresetLoading,

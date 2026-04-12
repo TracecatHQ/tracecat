@@ -173,14 +173,7 @@ async def list_agent_preset_versions(
         preset_id,
         CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
     )
-    return CursorPaginatedResponse(
-        items=await service.build_version_reads_minimal(versions.items),
-        next_cursor=versions.next_cursor,
-        prev_cursor=versions.prev_cursor,
-        has_more=versions.has_more,
-        has_previous=versions.has_previous,
-        total_estimate=versions.total_estimate,
-    )
+    return versions
 
 
 @router.get("/{preset_id}/versions/{version_id}", response_model=AgentPresetVersionRead)

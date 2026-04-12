@@ -178,8 +178,21 @@ class AgentPresetWithConfig(AgentPresetRead):
         return cls(**preset.model_dump(), config=preset.to_agent_config())
 
 
-class AgentPresetVersionReadMinimal(AgentPresetExecutionConfig):
-    """Minimal response model for agent preset versions."""
+class AgentPresetVersionReadMinimal(Schema):
+    """Metadata returned when listing immutable preset versions."""
+
+    id: uuid.UUID
+    preset_id: uuid.UUID
+    workspace_id: WorkspaceID
+    version: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AgentPresetVersionRead(AgentPresetExecutionConfig):
+    """Full response model for an immutable preset version."""
 
     id: uuid.UUID
     preset_id: uuid.UUID
@@ -190,10 +203,6 @@ class AgentPresetVersionReadMinimal(AgentPresetExecutionConfig):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class AgentPresetVersionRead(AgentPresetVersionReadMinimal):
-    """Full response model for an immutable preset version."""
 
 
 class ScalarFieldChange(BaseModel):

@@ -426,8 +426,7 @@ class TestAgentPresetService:
         assert updated_preset.current_version_id is not None
         assert updated_preset.current_version_id != version_1.id
         assert [version.version for version in versions.items] == [2, 1]
-        assert versions.items[0].instructions == "Updated instructions"
-        assert versions.items[0].retries == 7
+        assert versions.items[0].id == updated_preset.current_version_id
 
     async def test_list_versions_returns_cursor_paginated_versions(
         self,
@@ -681,7 +680,7 @@ class TestAgentPresetService:
         assert version_read.skills[0].skill_version_id == skill_version.id
         assert version_read.skills[0].skill_version == 1
 
-    async def test_build_version_reads_minimal_batches_skill_bindings(
+    async def test_list_versions_returns_metadata_without_skill_lookups(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
@@ -689,7 +688,7 @@ class TestAgentPresetService:
         agent_preset_service: AgentPresetService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Minimal version reads batch skill binding lookups for list endpoints."""
+        """Version list metadata does not resolve skill bindings."""
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
@@ -741,10 +740,6 @@ class TestAgentPresetService:
                 ],
             ),
         )
-        versions = await agent_preset_service.list_versions(
-            created_preset.id,
-            CursorPaginationParams(limit=10),
-        )
 
         async def fail_single_version_lookup(
             version_id: uuid.UUID,
@@ -758,15 +753,12 @@ class TestAgentPresetService:
             fail_single_version_lookup,
         )
 
-        version_reads = await agent_preset_service.build_version_reads_minimal(
-            versions.items
+        version_reads = await agent_preset_service.list_versions(
+            created_preset.id,
+            CursorPaginationParams(limit=10),
         )
 
-        assert [version.version for version in version_reads] == [2, 1]
-        assert [version.skills[0].skill_version_id for version in version_reads] == [
-            skill_version_two.id,
-            skill_version_one.id,
-        ]
+        assert [version.version for version in version_reads.items] == [2, 1]
 
     async def test_restore_version_restores_historical_skill_versions_on_head(
         self,

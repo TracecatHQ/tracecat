@@ -2143,116 +2143,6 @@ export const $AgentPresetVersionRead = {
 
 export const $AgentPresetVersionReadMinimal = {
   properties: {
-    instructions: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Instructions",
-    },
-    model_name: {
-      type: "string",
-      maxLength: 120,
-      title: "Model Name",
-    },
-    model_provider: {
-      type: "string",
-      maxLength: 120,
-      title: "Model Provider",
-    },
-    base_url: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 500,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Base Url",
-    },
-    output_type: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/OutputType",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    actions: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Actions",
-    },
-    namespaces: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Namespaces",
-    },
-    tool_approvals: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "boolean",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tool Approvals",
-    },
-    mcp_integrations: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Mcp Integrations",
-    },
-    retries: {
-      type: "integer",
-      minimum: 0,
-      title: "Retries",
-      default: 3,
-    },
-    enable_internet_access: {
-      type: "boolean",
-      title: "Enable Internet Access",
-      default: false,
-    },
     id: {
       type: "string",
       format: "uuid",
@@ -2272,13 +2162,6 @@ export const $AgentPresetVersionReadMinimal = {
       type: "integer",
       title: "Version",
     },
-    skills: {
-      items: {
-        $ref: "#/components/schemas/AgentPresetSkillBindingRead",
-      },
-      type: "array",
-      title: "Skills",
-    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -2292,8 +2175,6 @@ export const $AgentPresetVersionReadMinimal = {
   },
   type: "object",
   required: [
-    "model_name",
-    "model_provider",
     "id",
     "preset_id",
     "workspace_id",
@@ -2302,7 +2183,7 @@ export const $AgentPresetVersionReadMinimal = {
     "updated_at",
   ],
   title: "AgentPresetVersionReadMinimal",
-  description: "Minimal response model for agent preset versions.",
+  description: "Metadata returned when listing immutable preset versions.",
 } as const
 
 export const $AgentSessionCreate = {

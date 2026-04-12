@@ -112,21 +112,10 @@ def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields
             "preset_id": "f3af894f-3d0e-484d-8a2c-36931ca68cc0",
             "workspace_id": "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2",
             "version": 1,
-            "instructions": None,
-            "model_name": "   ",
-            "model_provider": "   ",
-            "base_url": None,
-            "output_type": None,
-            "actions": None,
-            "namespaces": None,
-            "tool_approvals": None,
-            "mcp_integrations": None,
-            "retries": 3,
-            "enable_internet_access": False,
             "created_at": "2026-03-09T00:00:00Z",
             "updated_at": "2026-03-09T00:00:00Z",
         }
     )
 
-    assert payload.model_name == "   "
-    assert payload.model_provider == "   "
+    assert payload.version == 1
+    assert str(payload.workspace_id) == "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2"

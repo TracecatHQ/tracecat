@@ -166,58 +166,6 @@ class AgentPresetService(BaseWorkspaceService):
             owner_id=version_id,
         )
 
-    async def _list_version_skill_bindings_for_versions(
-        self, version_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, list[AgentPresetSkillBindingRead]]:
-        """Return exact skill bindings for multiple immutable preset versions."""
-
-        if not version_ids:
-            return {}
-
-        stmt = (
-            select(
-                AgentPresetVersionSkill.preset_version_id,
-                AgentPresetVersionSkill.skill_id,
-                Skill.slug,
-                Skill.title,
-                AgentPresetVersionSkill.skill_version_id,
-                SkillVersion.version,
-            )
-            .join(Skill, AgentPresetVersionSkill.skill_id == Skill.id)
-            .join(
-                SkillVersion,
-                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
-            )
-            .where(
-                AgentPresetVersionSkill.workspace_id == self.workspace_id,
-                AgentPresetVersionSkill.preset_version_id.in_(version_ids),
-            )
-            .order_by(
-                AgentPresetVersionSkill.preset_version_id.asc(),
-                Skill.slug.asc(),
-            )
-        )
-        rows = (await self.session.execute(stmt)).tuples().all()
-        bindings_by_version = {version_id: [] for version_id in version_ids}
-        for (
-            preset_version_id,
-            skill_id,
-            skill_slug,
-            skill_title,
-            skill_version_id,
-            skill_version,
-        ) in rows:
-            bindings_by_version[preset_version_id].append(
-                AgentPresetSkillBindingRead(
-                    skill_id=skill_id,
-                    skill_slug=skill_slug,
-                    skill_title=skill_title,
-                    skill_version_id=skill_version_id,
-                    skill_version=skill_version,
-                )
-            )
-        return bindings_by_version
-
     async def build_preset_read(self, preset: AgentPreset) -> AgentPresetRead:
         """Build the response model for a preset."""
 
@@ -269,38 +217,6 @@ class AgentPresetService(BaseWorkspaceService):
             updated_at=version.updated_at,
             skills=await self._list_version_skill_bindings(version.id),
         )
-
-    async def build_version_reads_minimal(
-        self, versions: Sequence[AgentPresetVersion]
-    ) -> list[AgentPresetVersionReadMinimal]:
-        """Build minimal read models for immutable preset versions in batch."""
-
-        bindings_by_version = await self._list_version_skill_bindings_for_versions(
-            [version.id for version in versions]
-        )
-        return [
-            AgentPresetVersionReadMinimal(
-                id=version.id,
-                preset_id=version.preset_id,
-                workspace_id=version.workspace_id,
-                version=version.version,
-                instructions=version.instructions,
-                model_name=version.model_name,
-                model_provider=version.model_provider,
-                base_url=version.base_url,
-                output_type=cast(OutputType | None, version.output_type),
-                actions=version.actions,
-                namespaces=version.namespaces,
-                tool_approvals=version.tool_approvals,
-                mcp_integrations=version.mcp_integrations,
-                retries=version.retries,
-                enable_internet_access=version.enable_internet_access,
-                created_at=version.created_at,
-                updated_at=version.updated_at,
-                skills=bindings_by_version.get(version.id, []),
-            )
-            for version in versions
-        ]
 
     @require_scope("agent:create")
     @audit_log(resource_type="agent_preset", action="create")
@@ -984,10 +900,17 @@ class AgentPresetService(BaseWorkspaceService):
         self,
         preset_id: uuid.UUID,
         params: CursorPaginationParams,
-    ) -> CursorPaginatedResponse[AgentPresetVersion]:
-        """List immutable versions for a preset ordered newest first."""
+    ) -> CursorPaginatedResponse[AgentPresetVersionReadMinimal]:
+        """List immutable preset version metadata ordered newest first."""
         paginator = BaseCursorPaginator(self.session)
-        stmt = select(AgentPresetVersion).where(
+        stmt = select(
+            AgentPresetVersion.id,
+            AgentPresetVersion.preset_id,
+            AgentPresetVersion.workspace_id,
+            AgentPresetVersion.version,
+            AgentPresetVersion.created_at,
+            AgentPresetVersion.updated_at,
+        ).where(
             AgentPresetVersion.workspace_id == self.workspace_id,
             AgentPresetVersion.preset_id == preset_id,
         )
@@ -1033,7 +956,24 @@ class AgentPresetService(BaseWorkspaceService):
             )
         stmt = stmt.limit(params.limit + 1)
         result = await self.session.execute(stmt)
-        versions = result.scalars().all()
+        versions = [
+            AgentPresetVersionReadMinimal(
+                id=version_id,
+                preset_id=row_preset_id,
+                workspace_id=workspace_id,
+                version=version_number,
+                created_at=created_at,
+                updated_at=updated_at,
+            )
+            for (
+                version_id,
+                row_preset_id,
+                workspace_id,
+                version_number,
+                created_at,
+                updated_at,
+            ) in result.tuples().all()
+        ]
         has_more = len(versions) > params.limit
         items = versions[: params.limit]
 
