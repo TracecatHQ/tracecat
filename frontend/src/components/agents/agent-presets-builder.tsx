@@ -98,6 +98,7 @@ import { toast } from "@/components/ui/use-toast"
 import {
   useAgentPreset,
   useAgentPresets,
+  useAgentPresetVersion,
   useAgentPresetVersions,
   useCreateAgentPreset,
   useDeleteAgentPreset,
@@ -573,42 +574,54 @@ function AgentPresetChatPane({
     preset?.id,
     { enabled: Boolean(preset && workspaceId) }
   )
-  const currentVersion =
-    versions?.find((version) => version.id === preset?.current_version_id) ??
-    versions?.[0] ??
-    null
   const selectedVersion =
     versions?.find((version) => version.id === chat?.agent_preset_version_id) ??
     null
-  const activeVersion = selectedVersion ?? currentVersion
-  const newChatVersion = selectedVersion ?? currentVersion
+  const {
+    presetVersion: selectedVersionConfig,
+    presetVersionIsLoading: selectedVersionConfigIsLoading,
+  } = useAgentPresetVersion(workspaceId, preset?.id, selectedVersion?.id, {
+    enabled: Boolean(workspaceId && preset?.id && selectedVersion?.id),
+  })
+  const selectedVersionId = selectedVersion?.id ?? null
 
   const modelInfo: ModelInfo | null = useMemo(() => {
     if (!preset) {
       return null
     }
-    return {
-      name: activeVersion?.model_name ?? preset.model_name,
-      provider: activeVersion?.model_provider ?? preset.model_provider,
-      baseUrl: activeVersion?.base_url ?? preset.base_url ?? null,
+    if (selectedVersionId && !selectedVersionConfig) {
+      return null
     }
-  }, [activeVersion, preset])
+    return {
+      name: selectedVersionConfig?.model_name ?? preset.model_name,
+      provider: selectedVersionConfig?.model_provider ?? preset.model_provider,
+      baseUrl: selectedVersionConfig?.base_url ?? preset.base_url ?? null,
+    }
+  }, [preset, selectedVersionConfig, selectedVersionId])
 
   const providerReady = useMemo(() => {
     if (!preset) {
       return false
     }
-    const provider = activeVersion?.model_provider ?? preset.model_provider
+    if (selectedVersionId && !selectedVersionConfig) {
+      return false
+    }
+    const provider =
+      selectedVersionConfig?.model_provider ?? preset.model_provider
     return providersStatus?.[provider] ?? false
-  }, [activeVersion, providersStatus, preset])
+  }, [preset, providersStatus, selectedVersionConfig, selectedVersionId])
 
   const newChatProviderReady = useMemo(() => {
     if (!preset) {
       return false
     }
-    const provider = newChatVersion?.model_provider ?? preset.model_provider
+    if (selectedVersionId && !selectedVersionConfig) {
+      return false
+    }
+    const provider =
+      selectedVersionConfig?.model_provider ?? preset.model_provider
     return providersStatus?.[provider] ?? false
-  }, [newChatVersion, providersStatus, preset])
+  }, [preset, providersStatus, selectedVersionConfig, selectedVersionId])
 
   const canStartChat = Boolean(preset && newChatProviderReady)
   const shouldAutoCreateChat =
@@ -624,9 +637,9 @@ function AgentPresetChatPane({
         title: `${preset.name} chat`,
         entity_type: "agent_preset",
         entity_id: preset.id,
-        tools: newChatVersion?.actions ?? preset.actions ?? undefined,
+        tools: selectedVersionConfig?.actions ?? preset.actions ?? undefined,
         agent_preset_id: preset.id,
-        agent_preset_version_id: newChatVersion?.id ?? null,
+        agent_preset_version_id: selectedVersionId,
       })
       setSelectedChatId(newChat.id)
       await refetchChats()
@@ -687,17 +700,25 @@ function AgentPresetChatPane({
       )
     }
 
+    if (selectedVersionConfigIsLoading) {
+      return (
+        <div className="flex h-full items-center justify-center">
+          <CenteredSpinner />
+        </div>
+      )
+    }
+
     if (!providerReady) {
-      const activeProvider =
-        activeVersion?.model_provider ?? preset.model_provider ?? ""
       return (
         <div className="flex h-full flex-col items-center justify-center px-4">
           <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
             <AlertCircle className="size-5 text-amber-500" />
             <p className="text-pretty">
               This agent uses workspace credentials for{" "}
-              <span className="font-medium">{activeProvider}</span>. Configure
-              them on the{" "}
+              <span className="font-medium">
+                {selectedVersionConfig?.model_provider ?? preset.model_provider}
+              </span>
+              . Configure them on the{" "}
               <Link
                 href={`/workspaces/${workspaceId}/credentials`}
                 className="font-medium text-primary hover:underline"

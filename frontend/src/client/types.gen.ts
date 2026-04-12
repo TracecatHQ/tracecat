@@ -483,28 +483,13 @@ export type AgentPresetVersionRead = {
 }
 
 /**
- * Minimal response model for agent preset versions.
+ * Metadata returned when listing immutable preset versions.
  */
 export type AgentPresetVersionReadMinimal = {
-  instructions?: string | null
-  model_name: string
-  model_provider: string
-  base_url?: string | null
-  output_type?: OutputType | null
-  actions?: Array<string> | null
-  namespaces?: Array<string> | null
-  tool_approvals?: {
-    [key: string]: boolean
-  } | null
-  mcp_integrations?: Array<string> | null
-  retries?: number
-  enable_thinking?: boolean
-  enable_internet_access?: boolean
   id: string
   preset_id: string
   workspace_id: string
   version: number
-  skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
 }

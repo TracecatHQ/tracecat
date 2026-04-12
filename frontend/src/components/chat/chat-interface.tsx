@@ -114,6 +114,7 @@ export function ChatInterface({
     presetsError,
     selectedPreset,
     selectedPresetConfig,
+    selectedPresetVersionIsLoading,
     selectedPresetId: effectivePresetId,
     selectedPresetVersionId,
     handlePresetChange,
@@ -129,7 +130,9 @@ export function ChatInterface({
     selectedChatId,
     enabled: presetsEnabled,
   })
-  const activePreset = selectedPresetConfig ?? selectedPreset
+  const activePreset = selectedPresetVersionId
+    ? selectedPresetConfig
+    : selectedPreset
 
   useEffect(() => {
     setAutoCreateAttempted(false)
@@ -257,6 +260,14 @@ export function ChatInterface({
     chatsLoading ||
     (entityType !== "case" && chats && chats.length === 0 && createChatPending)
   ) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <CenteredSpinner />
+      </div>
+    )
+  }
+
+  if (selectedPresetVersionIsLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <CenteredSpinner />
