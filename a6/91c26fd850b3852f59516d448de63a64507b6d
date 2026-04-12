@@ -1,0 +1,20 @@
+frontend/src/components/skills/skills-studio.tsx
+  7a57ed7b18619e83 116-128
+frontend/src/components/sidebar/app-sidebar.tsx
+  f9759fd526f79bba 24,81-90,92-93,222-244
+frontend/src/components/skills/skill-list-panel.tsx
+  7a57ed7b18619e83 3-11,16-21,37,41,54,63,66-67,69-101,126-136,138-140
+  4f6102d2a606520a 137
+frontend/src/components/skills/editor-panel.tsx
+  0654838314e74edc 35,41-44,110-115,271-343,349,351
+  7a57ed7b18619e83 36-39,73-74,102-103,128-145,152-155,157-162,164,174,183,185,188-191,238-270,352-379,382-389
+frontend/src/components/skills/use-skills-studio.ts
+  7a57ed7b18619e83 153,219,243-246,319,337,559-562,599
+  0654838314e74edc 217-218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "a691c26fd850b3852f59516d448de63a64507b6d",
+  "prompts": {}
+}

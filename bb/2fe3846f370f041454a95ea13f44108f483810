@@ -1,0 +1,30 @@
+frontend/src/components/ai-elements/markdown-with-frontmatter.tsx
+  128ffc0ae9b9690c 1-10,14-15,18-19,27-96,98-163
+frontend/src/components/ai-elements/response.tsx
+  128ffc0ae9b9690c 4-5,22,35
+frontend/src/components/chat/messages.tsx
+  128ffc0ae9b9690c 9-10,212,222,280,289
+frontend/tests/markdown-with-frontmatter.test.tsx
+  128ffc0ae9b9690c 1-62,110-123,125-150,169-172,174-180,226,206,209-210,212,215,218,221-222,225,86,88,90-91,93-94,96,99-101,103,105-106,108-109,186,190,192-194,196-199
+  318c690ff2e049cc 63-81,151-154,156-168,204-205,207-208,216-217,219-220,84-85,89,97-98,104,188-189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "bb2fe3846f370f041454a95ea13f44108f483810",
+  "prompts": {
+    "318c690ff2e049cc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d6a15-d806-7811-8c3c-26d009b49e8b",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
