@@ -80,67 +80,6 @@ describe("useCaseColumnVisibility", () => {
     ).toEqual(["field:new1", "field:new2", "field:new3", "field:new4"])
   })
 
-  it("does not truncate persisted IDs before known columns load", async () => {
-    window.localStorage.setItem(
-      getStorageKey("workspace-1"),
-      JSON.stringify([
-        "field:stale1",
-        "field:stale2",
-        "field:stale3",
-        "field:stale4",
-        "field:valid1",
-        "field:valid2",
-      ])
-    )
-
-    type KnownColumnProps = {
-      knownColumnIds: Set<string> | undefined
-    }
-
-    const { result, rerender } = renderHook(
-      ({ knownColumnIds }: KnownColumnProps) =>
-        useCaseColumnVisibility("workspace-1", knownColumnIds),
-      {
-        initialProps: { knownColumnIds: undefined } as KnownColumnProps,
-      }
-    )
-
-    expect(result.current.visibleColumnIds).toEqual([
-      "field:stale1",
-      "field:stale2",
-      "field:stale3",
-      "field:stale4",
-      "field:valid1",
-      "field:valid2",
-    ])
-
-    await waitFor(() => {
-      expect(
-        JSON.parse(
-          window.localStorage.getItem(getStorageKey("workspace-1")) ?? "[]"
-        )
-      ).toEqual([
-        "field:stale1",
-        "field:stale2",
-        "field:stale3",
-        "field:stale4",
-        "field:valid1",
-        "field:valid2",
-      ])
-    })
-
-    rerender({
-      knownColumnIds: new Set(["field:valid1", "field:valid2"]),
-    })
-
-    await waitFor(() => {
-      expect(result.current.visibleColumnIds).toEqual([
-        "field:valid1",
-        "field:valid2",
-      ])
-    })
-  })
-
   it("reloads normalized columns when the workspace changes", async () => {
     window.localStorage.setItem(
       getStorageKey("workspace-1"),
