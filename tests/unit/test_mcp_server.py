@@ -1257,7 +1257,7 @@ async def test_edit_workflow_rejects_stale_revision(monkeypatch):
     [
         ("/version", 2),
         ("/definition/config/scheduler", "static"),
-        ("/definition/actions/0/id", str(uuid.uuid4())),
+        ("/definition/actions/0/id", "00000000-0000-0000-0000-000000000000"),
     ],
 )
 def test_parse_workflow_edit_request_rejects_forbidden_paths(path, value):
