@@ -60,7 +60,7 @@ class RLSMode(StrEnum):
 class LLMExecutionBackend(StrEnum):
     """Execution backend for the agent LLM runtime path."""
 
-    TRACECAT_PROXY = "tracecat_proxy"
+    LITELLM = "litellm"
 
 
 # === Internal Services === #
@@ -642,6 +642,19 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
+TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
+"""Bind port for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_BASE_URL = os.environ.get(
+    "TRACECAT__LITELLM_BASE_URL", f"http://127.0.0.1:{TRACECAT__LITELLM_PORT}"
+)
+"""Internal base URL for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_URL = (
+    os.environ.get("TRACECAT__LITELLM_URL") or TRACECAT__LITELLM_BASE_URL
+)
+"""Internal URL for the managed LiteLLM service."""
+
 TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
     os.environ.get("TRACECAT__LLM_PROXY_READ_TIMEOUT") or 300.0
 )
@@ -649,7 +662,7 @@ TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
 
 try:
     TRACECAT__LLM_EXECUTION_BACKEND = LLMExecutionBackend(
-        (os.environ.get("TRACECAT__LLM_EXECUTION_BACKEND") or "tracecat_proxy").strip()
+        (os.environ.get("TRACECAT__LLM_EXECUTION_BACKEND") or "litellm").strip()
     )
 except ValueError:
     valid = ", ".join(f"'{backend.value}'" for backend in LLMExecutionBackend)

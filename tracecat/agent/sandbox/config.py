@@ -220,7 +220,7 @@ def build_agent_nsjail_config(
     config: AgentSandboxConfig,
     site_packages_dir: Path,
     tracecat_pkg_dir: Path,
-    llm_socket_path: Path,
+    llm_socket_path: Path | None,
     *,
     enable_internet_access: bool = False,
 ) -> str:
@@ -235,7 +235,8 @@ def build_agent_nsjail_config(
         site_packages_dir: Path to site-packages with Claude SDK deps.
         tracecat_pkg_dir: Path to the tracecat package directory.
             Only specific subdirectories are mounted for minimal cold start.
-        llm_socket_path: Path to the LLM socket for proxied LLM gateway access.
+        llm_socket_path: Optional path to the LLM socket for proxied LLM gateway
+            access.
         enable_internet_access: If True, disables network isolation to allow
             direct internet access. Required for MCP stdio servers that need
             to call external APIs. Default is False (network isolated).
@@ -256,7 +257,8 @@ def build_agent_nsjail_config(
     _validate_path(socket_dir, "socket_dir")
     _validate_path(site_packages_dir, "site_packages_dir")
     _validate_path(tracecat_pkg_dir, "tracecat_pkg_dir")
-    _validate_path(llm_socket_path, "llm_socket_path")
+    if llm_socket_path is not None:
+        _validate_path(llm_socket_path, "llm_socket_path")
 
     # Derive control socket path from socket_dir using well-known name
     control_socket_path = socket_dir / CONTROL_SOCKET_NAME
@@ -369,14 +371,19 @@ def build_agent_nsjail_config(
             "",
             "# Per-job control socket",
             f'mount {{ src: "{control_socket_path}" dst: "{JAILED_CONTROL_SOCKET_PATH}" is_bind: true rw: false }}',
-            "",
-            "# Per-job LLM socket (proxied to LLM gateway on host)",
-            f'mount {{ src: "{llm_socket_path}" dst: "{JAILED_LLM_SOCKET_PATH}" is_bind: true rw: false }}',
-            "",
             "# Agent home directory with Claude SDK session storage",
             'mount { dst: "/home/agent" fstype: "tmpfs" rw: true options: "size=128M" }',
         ]
     )
+
+    if llm_socket_path is not None:
+        lines.extend(
+            [
+                "",
+                "# Per-job LLM socket (proxied to LLM gateway on host)",
+                f'mount {{ src: "{llm_socket_path}" dst: "{JAILED_LLM_SOCKET_PATH}" is_bind: true rw: false }}',
+            ]
+        )
 
     # Resource limits
     lines.extend(
@@ -419,6 +426,13 @@ def build_agent_env_map(config: AgentSandboxConfig) -> dict[str, str]:
         AgentSandboxValidationError: If any env var key or value is invalid.
     """
     env_map: dict[str, str] = {**AGENT_SANDBOX_BASE_ENV}
+    for key in (
+        "TRACECAT__LLM_EXECUTION_BACKEND",
+        "TRACECAT__LITELLM_BASE_URL",
+        "TRACECAT__LITELLM_URL",
+    ):
+        if value := os.environ.get(key):
+            env_map[key] = value
 
     for key, value in config.env_vars.items():
         _validate_env_key(key)

@@ -58,14 +58,35 @@ from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
 
-def get_llm_proxy_url() -> str:
-    """Get the LLM proxy URL from the dynamic port assigned by the LLM bridge."""
+def _get_llm_execution_backend() -> str:
+    backend = os.environ.get("TRACECAT__LLM_EXECUTION_BACKEND", "litellm")
+    return backend.strip() or "litellm"
+
+
+def get_litellm_url(*, enable_internet_access: bool) -> str:
+    """Get the Claude SDK base URL for the selected LLM execution path."""
+    if _get_llm_execution_backend() == "litellm" and enable_internet_access:
+        if litellm_url := (
+            os.environ.get("TRACECAT__LITELLM_URL")
+            or os.environ.get("TRACECAT__LITELLM_BASE_URL")
+        ):
+            return litellm_url.rstrip("/")
+
     port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT")
     if not port:
+        if _get_llm_execution_backend() == "litellm" and enable_internet_access:
+            raise RuntimeError(
+                "TRACECAT__LITELLM_URL or TRACECAT__LITELLM_BASE_URL is not set"
+            )
         raise RuntimeError(
             "TRACECAT__LLM_BRIDGE_PORT is not set — LLM bridge was not started"
         )
     return f"http://127.0.0.1:{port}"
+
+
+def get_llm_proxy_url() -> str:
+    """Backward-compatible bridge URL helper for isolated runtime paths."""
+    return get_litellm_url(enable_internet_access=False)
 
 
 def _configure_claude_sdk_process_env() -> None:
@@ -646,7 +667,9 @@ class ClaudeAgentRuntime:
                 fork_session=fork_session,  # If True, creates new session from parent's history
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
-                    "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
+                    "ANTHROPIC_BASE_URL": get_litellm_url(
+                        enable_internet_access=payload.config.enable_internet_access
+                    ),
                     **(
                         {
                             "CLAUDE_CODE_AUTO_COMPACT_WINDOW": CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW

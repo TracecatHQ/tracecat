@@ -28,18 +28,18 @@ async def _wait_for_socket(
 async def start_configured_llm_proxy() -> None:
     """Start any worker-global LLM backend services required by the runtime.
 
-    The Tracecat LLM proxy is execution-scoped (created per job), so no
-    worker-global startup is required.
+    LiteLLM runs as a separate shared service, so the agent executor has no
+    worker-global LLM startup work to do.
     """
     logger.info(
-        "Tracecat LLM proxy is execution-scoped; no worker-global startup required"
+        "LiteLLM is managed outside the agent executor; no worker-global startup required"
     )
 
 
 async def stop_configured_llm_proxy() -> None:
     """Stop any worker-global LLM backend services.
 
-    The Tracecat LLM proxy is execution-scoped, so this is a no-op.
+    LiteLLM is managed outside the agent executor, so this is a no-op.
     """
 
 

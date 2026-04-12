@@ -46,6 +46,7 @@ dependencies = [
     "httpx==0.28.1",
     "jsonpath_ng==1.7.0",
     "lark==1.1.9",
+    "litellm[proxy]==1.83.4",
     "loguru==0.7.3",
     "minio==7.2.18",
     "orjson==3.11.7",
@@ -105,6 +106,10 @@ override-dependencies = [
     "chardet<7",
     "fickling==0.1.10",
     "anthropic==0.87.0",
+    "python-dotenv==1.1.1",
+    "orjson==3.11.7",
+    "fastapi==0.120.3",
+    "cryptography==46.0.6",
 ]
 
 [dependency-groups]

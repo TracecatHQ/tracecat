@@ -1,0 +1,47 @@
+# LiteLLM proxy configuration.
+# Credentials are injected per request via custom auth hooks.
+# Wildcard routes accept any model for each provider; the auth hook
+# rewrites the final provider-specific model ID and credentials.
+
+model_list:
+  - model_name: gemini/*
+    litellm_params:
+      model: gemini/*
+
+  - model_name: vertex_ai/*
+    litellm_params:
+      model: vertex_ai/*
+
+  - model_name: bedrock/*
+    litellm_params:
+      model: bedrock/*
+
+  - model_name: azure/*
+    litellm_params:
+      model: azure/*
+
+  - model_name: azure_ai/*
+    litellm_params:
+      model: azure_ai/*
+
+  - model_name: anthropic/*
+    litellm_params:
+      model: anthropic/*
+
+  - model_name: openai/*
+    litellm_params:
+      model: openai/*
+
+  # Catch-all: unqualified model names are routed to OpenAI.
+  - model_name: "*"
+    litellm_params:
+      model: openai/*
+
+general_settings:
+  custom_auth: tracecat.agent.gateway.user_api_key_auth
+  database_url: null
+
+litellm_settings:
+  callbacks:
+    - tracecat.agent.gateway.callback_handler
+  drop_params: true

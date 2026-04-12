@@ -73,10 +73,8 @@ async def run_sandboxed_runtime() -> None:
     receives init payload, instantiates the runtime, and runs the agent.
 
     The LLM bridge is always started to proxy SDK HTTP traffic through the
-    Unix socket to the host-side LLMSocketProxy. Port allocation:
-    - NSJail mode + network isolated: Fixed port 4000 (own network namespace)
-    - Otherwise (direct mode, or internet-enabled nsjail sharing host network):
-      Dynamic port (port=0) to avoid clashes between concurrent runs
+    Unix socket to the host-side LLMSocketProxy. Managed LiteLLM runs with
+    internet access connect directly to the shared service URL instead.
     """
     socket_path = TRACECAT__AGENT_CONTROL_SOCKET_PATH
     logger.info("Starting sandboxed runtime", socket_path=str(socket_path))
@@ -96,15 +94,18 @@ async def run_sandboxed_runtime() -> None:
         # Parse with orjson + dataclass (lightweight, no Pydantic TypeAdapter)
         payload = RuntimeInitPayload.from_dict(orjson.loads(init_data))
 
-        # Always start the LLM bridge — the SDK needs a localhost HTTP endpoint
-        # to reach the host-side LLMSocketProxy via Unix socket.
-        llm_bridge = LLMBridge(
-            socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH,
-            port=0,
+        backend = os.environ.get("TRACECAT__LLM_EXECUTION_BACKEND", "litellm")
+        uses_direct_litellm_url = (
+            backend.strip() == "litellm" and payload.config.enable_internet_access
         )
-        bridge_port = await llm_bridge.start()
-        os.environ["TRACECAT__LLM_BRIDGE_PORT"] = str(bridge_port)
-        logger.info("LLM bridge started", port=bridge_port)
+        if not uses_direct_litellm_url:
+            llm_bridge = LLMBridge(
+                socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH,
+                port=0,
+            )
+            bridge_port = await llm_bridge.start()
+            os.environ["TRACECAT__LLM_BRIDGE_PORT"] = str(bridge_port)
+            logger.info("LLM bridge started", port=bridge_port, backend=backend)
         logger.info(
             "Received init payload",
             session_id=str(payload.session_id),

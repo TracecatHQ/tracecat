@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 
+from tracecat import config as app_config
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
@@ -26,7 +27,6 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
-from tracecat.agent.llm_proxy.core import TracecatLLMProxy
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
 from tracecat.agent.session.service import AgentSessionService
@@ -142,7 +142,7 @@ class SandboxedAgentExecutor:
     )
 
     def _create_llm_socket_proxy(self, socket_path: Path) -> LLMSocketProxy:
-        """Create the host-side LLM socket proxy for this execution."""
+        """Create the host-side LiteLLM transport proxy for this execution."""
 
         def on_error(error_msg: str) -> None:
             self._fatal_error = error_msg
@@ -150,7 +150,7 @@ class SandboxedAgentExecutor:
 
         return LLMSocketProxy(
             socket_path=socket_path,
-            tracecat_proxy=TracecatLLMProxy.build(),
+            litellm_url=app_config.TRACECAT__LITELLM_URL,
             on_error=on_error,
         )
 
@@ -233,14 +233,17 @@ class SandboxedAgentExecutor:
                 socket_path=str(control_socket_path),
             )
 
-            # Start the host-side LLM socket proxy for this execution.
-            llm_socket_path = socket_dir / LLM_SOCKET_NAME
-            self._llm_proxy = self._create_llm_socket_proxy(llm_socket_path)
-            await self._llm_proxy.start()
-            logger.info(
-                "Started LLM socket proxy",
-                socket_path=str(llm_socket_path),
-            )
+            llm_socket_path: Path | None = socket_dir / LLM_SOCKET_NAME
+            if self.input.config.enable_internet_access:
+                llm_socket_path = None
+            else:
+                self._llm_proxy = self._create_llm_socket_proxy(llm_socket_path)
+                await self._llm_proxy.start()
+                logger.info(
+                    "Started LLM socket proxy",
+                    socket_path=str(llm_socket_path),
+                    backend=app_config.TRACECAT__LLM_EXECUTION_BACKEND.value,
+                )
 
             # Set umask before socket creation to ensure 0o600 permissions from the start
             old_umask = os.umask(0o177)

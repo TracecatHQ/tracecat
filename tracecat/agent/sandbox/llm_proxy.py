@@ -16,11 +16,11 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
+import httpx
 import orjson
 from fastapi import HTTPException
 
-from tracecat.agent.llm_proxy.auth import verify_claims_from_headers
-from tracecat.agent.llm_proxy.core import TracecatLLMProxy
+from tracecat import config as app_config
 from tracecat.agent.observability import get_load_tracker
 from tracecat.logger import logger
 
@@ -29,8 +29,6 @@ LLM_SOCKET_NAME = "llm.sock"
 
 # Maximum request body size (10 MB) - prevents memory exhaustion DoS
 MAX_BODY_SIZE = 10 * 1024 * 1024
-_TRACECAT_PROXY_SHUTDOWN_GRACE_SECONDS = 5.0
-_TRACECAT_PROXY_SHUTDOWN_POLL_SECONDS = 0.05
 
 # Non-critical endpoints that should not trigger fatal errors on failure.
 _NON_CRITICAL_PATHS = frozenset(
@@ -75,6 +73,11 @@ def _get_or_create_trace_request_id(headers: dict[str, str]) -> str:
     return str(uuid4())
 
 
+def get_default_litellm_url() -> str:
+    """Return the configured managed LiteLLM service URL."""
+    return app_config.TRACECAT__LITELLM_URL.rstrip("/")
+
+
 class LLMSocketProxy:
     """Unix socket proxy that forwards HTTP traffic to the LLM gateway.
 
@@ -85,19 +88,24 @@ class LLMSocketProxy:
     def __init__(
         self,
         socket_path: Path,
-        tracecat_proxy: TracecatLLMProxy,
+        litellm_url: str | None = None,
         on_error: Callable[[str], None] | None = None,
     ):
         """Initialize the LLM socket proxy.
 
         Args:
             socket_path: Path where the Unix socket will be created.
-            tracecat_proxy: In-process Tracecat proxy for execution-scoped runs.
+            litellm_url: Managed LiteLLM service URL for shared-service runs.
             on_error: Callback invoked when an error (e.g., auth failure) is detected.
         """
         self.socket_path = socket_path
-        self.tracecat_proxy = tracecat_proxy
+        self.litellm_url = (
+            litellm_url.rstrip("/")
+            if litellm_url is not None
+            else get_default_litellm_url()
+        )
         self._server: asyncio.Server | None = None
+        self._client: httpx.AsyncClient | None = None
         self._on_error = on_error
         self._error_emitted = False  # Only call callback once
 
@@ -114,6 +122,15 @@ class LLMSocketProxy:
         if self.socket_path.exists():
             self.socket_path.unlink()
 
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                connect=20.0,
+                read=app_config.TRACECAT__LLM_PROXY_READ_TIMEOUT,
+                write=30.0,
+                pool=10.0,
+            )
+        )
+
         # Start Unix socket server
         self._server = await asyncio.start_unix_server(
             self._handle_connection,
@@ -126,7 +143,6 @@ class LLMSocketProxy:
         logger.info(
             "LLM socket proxy started",
             socket_path=str(self.socket_path),
-            backend="tracecat_proxy",
             **_load_fields(),
         )
 
@@ -137,8 +153,9 @@ class LLMSocketProxy:
             await self._server.wait_closed()
             self._server = None
 
-        await self._wait_for_tracecat_proxy_requests()
-        await self.tracecat_proxy.close()
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
         # Remove socket file
         if self.socket_path.exists():
@@ -147,25 +164,7 @@ class LLMSocketProxy:
             except OSError:
                 pass
 
-        logger.info("LLM socket proxy stopped", backend="tracecat_proxy")
-
-    async def _wait_for_tracecat_proxy_requests(self) -> None:
-        if self.tracecat_proxy.state.active_requests == 0:
-            return
-
-        logger.info(
-            "Waiting for Tracecat proxy requests to finish before shutdown",
-            active_requests=self.tracecat_proxy.state.active_requests,
-        )
-        deadline = time.monotonic() + _TRACECAT_PROXY_SHUTDOWN_GRACE_SECONDS
-        while self.tracecat_proxy.state.active_requests > 0:
-            if time.monotonic() >= deadline:
-                logger.warning(
-                    "Timed out waiting for Tracecat proxy requests to finish",
-                    active_requests=self.tracecat_proxy.state.active_requests,
-                )
-                return
-            await asyncio.sleep(_TRACECAT_PROXY_SHUTDOWN_POLL_SECONDS)
+        logger.info("LLM socket proxy stopped")
 
     async def _iter_body_chunks(
         self,
@@ -332,7 +331,7 @@ class LLMSocketProxy:
                 )
                 return
 
-            await self._forward_tracecat_proxy_request(
+            await self._forward_http_backend_request(
                 writer=writer,
                 request=request,
                 trace_request_id=trace_request_id,
@@ -349,7 +348,6 @@ class LLMSocketProxy:
             logger.debug(
                 "LLM proxy request finished",
                 request_counter=request_counter,
-                backend="tracecat_proxy",
                 method=method,
                 path=request["path"],
                 trace_request_id=trace_request_id,
@@ -357,7 +355,7 @@ class LLMSocketProxy:
                 active_proxy_requests=end_snapshot.active_requests,
             )
 
-    async def _forward_tracecat_proxy_request(
+    async def _forward_http_backend_request(
         self,
         *,
         writer: asyncio.StreamWriter,
@@ -366,114 +364,67 @@ class LLMSocketProxy:
         request_counter: int,
         started_at: float,
     ) -> None:
+        if self._client is None:
+            await self._write_error_response(
+                writer,
+                status_code=503,
+                detail="LiteLLM proxy not initialized",
+                request_counter=request_counter,
+                trace_request_id=trace_request_id,
+            )
+            self._emit_error("LiteLLM proxy not initialized")
+            return
+
         path = str(request["path"])
-        path_without_query = path.split("?", 1)[0]
         method = str(request["method"])
         headers = cast(dict[str, str], request["headers"])
         body = cast(bytes, request["body"])
-
-        if method != "POST":
-            await self._write_error_response(
-                writer,
-                status_code=405,
-                detail="Method not allowed",
-                request_counter=request_counter,
-                trace_request_id=trace_request_id,
-            )
-            return
+        url = f"{self.litellm_url}{path}"
+        forward_headers = {
+            key: value
+            for key, value in headers.items()
+            if key.lower() not in ("host", "connection", "transfer-encoding")
+        }
 
         try:
-            claims = verify_claims_from_headers(headers)
-        except ValueError as exc:
-            await self._write_error_response(
-                writer,
-                status_code=401,
-                detail=str(exc),
-                request_counter=request_counter,
-                trace_request_id=trace_request_id,
-            )
-            return
-
-        if not body:
-            payload: dict[str, Any] = {}
-        else:
-            try:
-                decoded_payload = orjson.loads(body)
-            except orjson.JSONDecodeError as exc:
-                await self._write_error_response(
+            async with self._client.stream(
+                method=method,
+                url=url,
+                headers=forward_headers,
+                content=body if body else None,
+            ) as response:
+                await self._write_response(
                     writer,
-                    status_code=400,
-                    detail=f"Malformed JSON in request body: {exc}",
-                    request_counter=request_counter,
+                    status_code=response.status_code,
+                    reason_phrase=response.reason_phrase,
+                    headers=dict(response.headers),
+                    body_chunks=response.aiter_bytes(),
                     trace_request_id=trace_request_id,
+                    started_at=started_at,
+                    request_counter=request_counter,
+                    method=method,
+                    path=path,
                 )
-                return
-            match decoded_payload:
-                case dict() as parsed_payload:
-                    payload = parsed_payload
-                case _:
-                    await self._write_error_response(
-                        writer,
-                        status_code=400,
-                        detail="Request body must be a JSON object",
-                        request_counter=request_counter,
-                        trace_request_id=trace_request_id,
-                    )
-                    return
-
-        try:
-            match path_without_query:
-                case "/v1/messages":
-                    events = await self.tracecat_proxy.stream_messages(
-                        payload=payload,
-                        claims=claims,
-                        trace_request_id=trace_request_id,
-                        ingress_headers=headers,
-                    )
-                    await self._write_response(
-                        writer,
-                        status_code=200,
-                        reason_phrase="OK",
-                        headers={"Content-Type": "text/event-stream"},
-                        body_chunks=events,
-                        trace_request_id=trace_request_id,
-                        started_at=started_at,
-                        request_counter=request_counter,
-                        backend="tracecat_proxy",
-                        method=method,
-                        path=path,
-                    )
-                case "/v1/messages/count_tokens":
-                    count_response = {
-                        "type": "count_tokens",
-                        "provider": claims.provider,
-                        "model": claims.model,
-                        "input_tokens": max(1, len(payload.get("messages", []))),
-                    }
-                    await self._write_response(
-                        writer,
-                        status_code=200,
-                        reason_phrase="OK",
-                        headers={"Content-Type": "application/json"},
-                        body_chunks=[orjson.dumps(count_response)],
-                        trace_request_id=trace_request_id,
-                    )
-                case _:
-                    await self._write_error_response(
-                        writer,
-                        status_code=404,
-                        detail="Not found",
-                        request_counter=request_counter,
-                        trace_request_id=trace_request_id,
-                    )
-        except HTTPException as exc:
+        except httpx.ConnectError as exc:
             await self._write_error_response(
                 writer,
-                status_code=exc.status_code,
-                detail=str(exc.detail),
+                status_code=502,
+                detail="LiteLLM unavailable",
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
+            if path.split("?", 1)[0] not in _NON_CRITICAL_PATHS:
+                self._emit_error(f"LiteLLM unavailable: {exc}")
+        except httpx.TimeoutException as exc:
+            await self._write_error_response(
+                writer,
+                status_code=504,
+                detail="Gateway timeout",
+                request_counter=request_counter,
+                trace_request_id=trace_request_id,
+            )
+            if path.split("?", 1)[0] not in _NON_CRITICAL_PATHS:
+                self._emit_error(f"Gateway timeout: {exc}")
 
     async def _write_response(
         self,
@@ -486,7 +437,6 @@ class LLMSocketProxy:
         trace_request_id: str | None = None,
         started_at: float | None = None,
         request_counter: int | None = None,
-        backend: str | None = None,
         method: str | None = None,
         path: str | None = None,
     ) -> None:
@@ -529,7 +479,6 @@ class LLMSocketProxy:
                         logger.info(
                             "LLM proxy first response chunk",
                             request_counter=request_counter,
-                            backend=backend or "tracecat_proxy",
                             method=method,
                             path=path,
                             trace_request_id=trace_request_id,

@@ -293,6 +293,39 @@ services:
         minio:
           condition: service_healthy
 
+  litellm:
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.39}
+    restart: unless-stopped
+    networks:
+      - core
+      - core-db
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL}
+      TRACECAT__APP_ENV: production
+      TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
+      TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
+      TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__LITELLM_PORT: ${TRACECAT__LITELLM_PORT:-4000}
+      TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://litellm:4000}
+      PYTHONPATH: /app:/app/packages/tracecat-registry:/app/packages/tracecat-ee
+    command: ["python", "-m", "tracecat.agent.litellm"]
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os, urllib.request; port=os.environ.get('TRACECAT__LITELLM_PORT', '4000'); urllib.request.urlopen(f'http://127.0.0.1:{port}/health/readiness', timeout=5).read()",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
   agent-executor:
       image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.39}
       restart: unless-stopped
@@ -322,6 +355,8 @@ services:
         TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
         TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
         TRACECAT__API_URL: ${TRACECAT__API_URL:-http://api:8000}
+        TRACECAT__LLM_EXECUTION_BACKEND: ${TRACECAT__LLM_EXECUTION_BACKEND:-litellm}
+        TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://litellm:4000}
         # Compression (must match worker for codec compatibility)
         TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
         TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
@@ -375,6 +410,8 @@ services:
         - sandbox-cache:/var/lib/tracecat/sandbox-cache
       command: ["python", "-m", "tracecat.agent.executor_worker"]
       depends_on:
+        litellm:
+          condition: service_healthy
         migrations:
           condition: service_completed_successfully
         temporal:

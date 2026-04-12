@@ -1033,7 +1033,7 @@ class AgentPresetService(BaseWorkspaceService):
         self, version: AgentPresetVersion
     ) -> AgentConfig:
         mcp_servers = await self._resolve_mcp_integrations(version.mcp_integrations)
-        model_settings: dict[str, Any] = {"reasoning_effort": "medium"}
+        model_settings: dict[str, Any] = {}
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
         return AgentConfig(
