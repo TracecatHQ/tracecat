@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
@@ -126,10 +126,23 @@ class SkillUploadSessionCreate(Schema):
     """Request body for creating a staged draft upload."""
 
     sha256: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=64, max_length=64)
+        str,
+        StringConstraints(
+            strip_whitespace=True,
+            min_length=64,
+            max_length=64,
+            pattern=r"^[0-9a-fA-F]{64}$",
+        ),
     ]
     size_bytes: int = Field(gt=0)
     content_type: str = Field(min_length=1, max_length=255)
+
+    @field_validator("sha256", mode="before")
+    @classmethod
+    def normalize_sha256(cls, value: str) -> str:
+        """Canonicalize SHA-256 hex digests before persistence."""
+
+        return value.lower() if isinstance(value, str) else value
 
 
 class SkillUploadSessionRead(Schema):

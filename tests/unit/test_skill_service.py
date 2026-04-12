@@ -569,7 +569,7 @@ class TestSkillService:
         skill_service: SkillService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Staged uploads use a temporary key until validated and promoted."""
+        """Uppercase upload digests normalize before staged-key promotion."""
 
         created = await skill_service.create_skill(SkillCreate(slug="staged-upload"))
         draft = await skill_service.get_draft(created.id)
@@ -577,10 +577,11 @@ class TestSkillService:
 
         content = b"uploaded content"
         sha256 = hashlib.sha256(content).hexdigest()
+        upload_sha256 = sha256.upper()
         upload = await skill_service.create_draft_upload(
             skill_id=created.id,
             params=SkillUploadSessionCreate(
-                sha256=sha256,
+                sha256=upload_sha256,
                 size_bytes=len(content),
                 content_type="text/plain; charset=utf-8",
             ),
@@ -589,6 +590,7 @@ class TestSkillService:
         canonical_key = skill_service._storage_key_for(sha256)
         assert upload.key != canonical_key
         assert "/uploads/" in upload.key
+        assert upload.key.endswith(sha256)
 
         uploaded: dict[str, str] = {}
 
@@ -655,6 +657,7 @@ class TestSkillService:
 
         assert uploaded["key"] == canonical_key
         assert blob_row.key == canonical_key
+        assert blob_row.sha256 == sha256
 
     async def test_attach_uploaded_blob_rejects_size_mismatch(
         self,
