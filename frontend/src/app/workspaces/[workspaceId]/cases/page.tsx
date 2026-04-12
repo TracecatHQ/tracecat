@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
 import { CasesLayout } from "@/components/cases/cases-layout"
 import { useCaseColumnVisibility } from "@/hooks/use-case-column-visibility"
 import { useCases } from "@/hooks/use-cases"
@@ -19,11 +19,52 @@ export default function CasesPage() {
   const { hasEntitlement } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")
 
-  const { visibleColumnIds, toggleColumn } =
-    useCaseColumnVisibility(workspaceId)
+  const { members } = useWorkspaceMembers(workspaceId)
+  const { caseTags } = useCaseTagCatalog(workspaceId)
+  const { dropdownDefinitions } = useCaseDropdownDefinitions(
+    workspaceId,
+    caseAddonsEnabled
+  )
+  const { caseFields } = useCaseFields(workspaceId)
+  const { caseDurationDefinitions } = useCaseDurationDefinitions(
+    workspaceId,
+    caseAddonsEnabled
+  )
 
-  const includeFields =
-    caseAddonsEnabled && visibleColumnIds.some((id) => id.startsWith("field:"))
+  // Build the set of valid column IDs from loaded definitions so the hook
+  // can prune stale persisted selections (e.g. deleted definitions).
+  // undefined while any definition list is still loading → skip pruning.
+  const validColumnIds = useMemo(() => {
+    const dropdowns = caseAddonsEnabled ? dropdownDefinitions : undefined
+    const durations = caseAddonsEnabled ? caseDurationDefinitions : undefined
+    // Fields are not gated by case_addons
+    if (!caseFields || (caseAddonsEnabled && (!dropdowns || !durations))) {
+      return undefined
+    }
+    const ids = new Set<string>()
+    if (dropdowns) {
+      for (const d of dropdowns) ids.add(`dropdown:${d.ref}`)
+    }
+    for (const f of caseFields) {
+      if (!f.reserved) ids.add(`field:${f.id}`)
+    }
+    if (durations) {
+      for (const d of durations) ids.add(`duration:${d.id}`)
+    }
+    return ids
+  }, [
+    dropdownDefinitions,
+    caseFields,
+    caseDurationDefinitions,
+    caseAddonsEnabled,
+  ])
+
+  const { visibleColumnIds, toggleColumn } = useCaseColumnVisibility(
+    workspaceId,
+    validColumnIds
+  )
+
+  const includeFields = visibleColumnIds.some((id) => id.startsWith("field:"))
 
   const {
     cases,
@@ -61,18 +102,6 @@ export default function CasesPage() {
     fetchNextPage,
   } = useCases({ includeFields })
 
-  const { members } = useWorkspaceMembers(workspaceId)
-  const { caseTags } = useCaseTagCatalog(workspaceId)
-  const { dropdownDefinitions } = useCaseDropdownDefinitions(
-    workspaceId,
-    caseAddonsEnabled
-  )
-  const { caseFields } = useCaseFields(workspaceId, caseAddonsEnabled)
-  const { caseDurationDefinitions } = useCaseDurationDefinitions(
-    workspaceId,
-    caseAddonsEnabled
-  )
-
   useEffect(() => {
     if (typeof window !== "undefined") {
       document.title = "Cases"
@@ -109,7 +138,7 @@ export default function CasesPage() {
         dropdownDefinitions={
           caseAddonsEnabled ? dropdownDefinitions : undefined
         }
-        fieldDefinitions={caseAddonsEnabled ? caseFields : undefined}
+        fieldDefinitions={caseFields}
         durationDefinitions={
           caseAddonsEnabled ? caseDurationDefinitions : undefined
         }

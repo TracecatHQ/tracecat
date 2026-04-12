@@ -49,16 +49,34 @@ export interface UseCaseColumnVisibilityResult {
   toggleColumn: (columnId: string) => void
 }
 
+/**
+ * Manages which optional columns are visible in the case list.
+ *
+ * @param validColumnIds - When provided, stale persisted IDs that are not in
+ *   this set are pruned automatically. Pass `undefined` while definitions are
+ *   still loading to skip pruning.
+ */
 export function useCaseColumnVisibility(
-  workspaceId: string
+  workspaceId: string,
+  validColumnIds?: Set<string>
 ): UseCaseColumnVisibilityResult {
   const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>(() =>
     loadPersistedColumns(workspaceId)
   )
 
+  // Persist whenever columns change
   useEffect(() => {
     persistColumns(workspaceId, visibleColumnIds)
   }, [workspaceId, visibleColumnIds])
+
+  // Prune stale column IDs once definitions are available
+  useEffect(() => {
+    if (!validColumnIds) return
+    setVisibleColumnIds((prev) => {
+      const pruned = prev.filter((id) => validColumnIds.has(id))
+      return pruned.length === prev.length ? prev : pruned
+    })
+  }, [validColumnIds])
 
   const toggleColumn = useCallback((columnId: string) => {
     setVisibleColumnIds((prev) => {
