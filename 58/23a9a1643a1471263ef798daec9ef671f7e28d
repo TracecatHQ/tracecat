@@ -1,0 +1,29 @@
+tests/unit/test_workflow_schedules_service.py
+  d22d4a0b01721eb6 1-47
+tracecat/workflow/schedules/service.py
+  d22d4a0b01721eb6 3-4,10,15,32-43,91,217,266-268
+tests/unit/test_case_triggers.py
+  d22d4a0b01721eb6 200-238
+tracecat/workflow/case_triggers/service.py
+  d22d4a0b01721eb6 21-33,87,130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "5823a9a1643a1471263ef798daec9ef671f7e28d",
+  "prompts": {
+    "d22d4a0b01721eb6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d829a-f370-7af0-80f7-be59b0dcc0b9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 257,
+      "total_deletions": 135,
+      "accepted_lines": 178,
+      "overriden_lines": 0
+    }
+  }
+}
