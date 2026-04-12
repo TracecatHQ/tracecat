@@ -190,6 +190,10 @@ async def list_cases(
         None, description="Direction to sort (asc or desc)"
     ),
     include_rows: bool = Query(False, description="Include linked table rows"),
+    field_ids: list[str] | None = Query(
+        None, description="Include only the requested custom field IDs"
+    ),
+    include_durations: bool = Query(False, description="Include case duration values"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """List cases with default filtering and sorting options."""
     service = CasesService(session, role)
@@ -201,6 +205,7 @@ async def list_cases(
             reverse=reverse,
             order_by=order_by,
             sort=sort,
+            include_durations=include_durations,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list cases: {e}")
@@ -232,6 +237,29 @@ async def list_cases(
             raise HTTPException(
                 status_code=HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to hydrate linked rows",
+            ) from e
+    if field_ids and cases.items:
+        try:
+            fields_service = CaseFieldsService(session, role)
+            fields_by_case = await fields_service.batch_get_fields(
+                case_ids=[item.id for item in cases.items],
+                field_ids=field_ids,
+            )
+            cases.items = [
+                item.model_copy(update={"field_values": fields_by_case.get(item.id)})
+                for item in cases.items
+            ]
+        except ValueError as e:
+            logger.warning(f"Invalid request for case field hydration: {e}")
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            ) from e
+        except Exception as e:
+            logger.error(f"Failed to hydrate case fields: {e}")
+            raise HTTPException(
+                status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to hydrate case fields",
             ) from e
     return cases
 
@@ -298,7 +326,10 @@ async def search_cases(
         None, description="Direction to sort (asc or desc)"
     ),
     include_rows: bool = Query(False, description="Include linked table rows"),
-    include_fields: bool = Query(False, description="Include custom field values"),
+    field_ids: list[str] | None = Query(
+        None, description="Include only the requested custom field IDs"
+    ),
+    include_durations: bool = Query(False, description="Include case duration values"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)
@@ -334,6 +365,7 @@ async def search_cases(
             updated_before=updated_before,
             order_by=order_by,
             sort=sort,
+            include_durations=include_durations,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for search cases: {e}")
@@ -366,16 +398,23 @@ async def search_cases(
                 status_code=HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to hydrate linked rows",
             ) from e
-    if include_fields and cases.items:
+    if field_ids and cases.items:
         try:
             fields_service = CaseFieldsService(session, role)
             fields_by_case = await fields_service.batch_get_fields(
-                case_ids=[item.id for item in cases.items]
+                case_ids=[item.id for item in cases.items],
+                field_ids=field_ids,
             )
             cases.items = [
                 item.model_copy(update={"field_values": fields_by_case.get(item.id)})
                 for item in cases.items
             ]
+        except ValueError as e:
+            logger.warning(f"Invalid request for case field hydration: {e}")
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            ) from e
         except Exception as e:
             logger.error(f"Failed to hydrate case fields: {e}")
             raise HTTPException(

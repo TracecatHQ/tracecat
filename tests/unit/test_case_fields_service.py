@@ -353,6 +353,49 @@ class TestCaseFieldsService:
             assert fields == mock_fields_data
             mock_get_row.assert_called_once_with(row_id)
 
+    async def test_batch_get_fields_selects_only_requested_columns(
+        self,
+        case_fields_service: CaseFieldsService,
+        test_case: Case,
+    ) -> None:
+        """Batch hydration should return only explicitly requested field IDs."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_field1", type=SqlType.TEXT)
+        )
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_field2", type=SqlType.INTEGER)
+        )
+        await case_fields_service.upsert_field_values(
+            test_case,
+            {"custom_field1": "alpha", "custom_field2": 123},
+        )
+
+        fields_by_case = await case_fields_service.batch_get_fields(
+            [test_case.id], ["custom_field2"]
+        )
+
+        assert fields_by_case == {test_case.id: {"custom_field2": 123}}
+
+    async def test_batch_get_fields_rejects_reserved_field_ids(
+        self,
+        case_fields_service: CaseFieldsService,
+        test_case: Case,
+    ) -> None:
+        """Reserved case-field columns should not be selectable for hydration."""
+        with pytest.raises(ValueError, match="reserved field"):
+            await case_fields_service.batch_get_fields([test_case.id], ["case_id"])
+
+    async def test_batch_get_fields_rejects_internal_field_ids(
+        self,
+        case_fields_service: CaseFieldsService,
+        test_case: Case,
+    ) -> None:
+        """Internal/system-managed field IDs should be rejected."""
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await case_fields_service.batch_get_fields(
+                [test_case.id], ["__tc_workspace_id"]
+            )
+
     async def test_upsert_field_values(
         self, case_fields_service: CaseFieldsService, test_case: Case
     ) -> None:

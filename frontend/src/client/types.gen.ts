@@ -9805,6 +9805,14 @@ export type CasesListCasesData = {
    */
   cursor?: string | null
   /**
+   * Include only the requested custom field IDs
+   */
+  fieldIds?: Array<string> | null
+  /**
+   * Include case duration values
+   */
+  includeDurations?: boolean
+  /**
    * Include linked table rows
    */
   includeRows?: boolean
@@ -9861,9 +9869,13 @@ export type CasesSearchCasesData = {
    */
   endTime?: string | null
   /**
-   * Include custom field values
+   * Include only the requested custom field IDs
    */
-  includeFields?: boolean
+  fieldIds?: Array<string> | null
+  /**
+   * Include case duration values
+   */
+  includeDurations?: boolean
   /**
    * Include linked table rows
    */

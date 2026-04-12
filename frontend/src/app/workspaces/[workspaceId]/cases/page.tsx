@@ -31,9 +31,19 @@ export default function CasesPage() {
     caseAddonsEnabled
   )
 
-  // Build stable set of known column IDs for the hook's cap enforcement.
-  // Keyed on definition arrays — only rebuilds when definitions actually change.
-  const knownColumnIds = useMemo(() => {
+  // Avoid pruning persisted selections until the relevant definitions have
+  // resolved; an empty Set during loading would erase stored choices.
+  const knownColumnIds = useMemo<Set<string> | undefined>(() => {
+    if (caseFields === undefined) {
+      return undefined
+    }
+    if (caseAddonsEnabled && dropdownDefinitions === undefined) {
+      return undefined
+    }
+    if (caseAddonsEnabled && caseDurationDefinitions === undefined) {
+      return undefined
+    }
+
     const ids = new Set<string>()
     if (caseAddonsEnabled && dropdownDefinitions) {
       for (const d of dropdownDefinitions) ids.add(`dropdown:${d.ref}`)
@@ -59,7 +69,27 @@ export default function CasesPage() {
     knownColumnIds
   )
 
-  const includeFields = visibleColumnIds.some((id) => id.startsWith("field:"))
+  const selectedFieldIds = useMemo(() => {
+    const validFieldIds = new Set(
+      (caseFields ?? [])
+        .filter((field) => !field.reserved)
+        .map((field) => field.id)
+    )
+    return visibleColumnIds
+      .filter((columnId) => columnId.startsWith("field:"))
+      .map((columnId) => columnId.slice("field:".length))
+      .filter((fieldId) => validFieldIds.has(fieldId))
+  }, [caseFields, visibleColumnIds])
+
+  const includeDurations = useMemo(() => {
+    if (!caseAddonsEnabled || !caseDurationDefinitions) {
+      return false
+    }
+    const durationColumnIds = new Set(
+      caseDurationDefinitions.map((definition) => `duration:${definition.id}`)
+    )
+    return visibleColumnIds.some((columnId) => durationColumnIds.has(columnId))
+  }, [caseAddonsEnabled, caseDurationDefinitions, visibleColumnIds])
 
   const {
     cases,
@@ -95,7 +125,7 @@ export default function CasesPage() {
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useCases({ includeFields })
+  } = useCases({ fieldIds: selectedFieldIds, includeDurations })
 
   useEffect(() => {
     if (typeof window !== "undefined") {

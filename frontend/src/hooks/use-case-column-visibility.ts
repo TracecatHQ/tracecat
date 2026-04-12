@@ -22,12 +22,34 @@ function loadPersistedColumns(workspaceId: string): string[] {
     if (!Array.isArray(parsed)) {
       return []
     }
-    return parsed
-      .filter((item): item is string => typeof item === "string")
-      .slice(0, MAX_VISIBLE_COLUMNS)
+    return parsed.filter((item): item is string => typeof item === "string")
   } catch {
     return []
   }
+}
+
+function normalizeVisibleColumnIds(
+  columnIds: string[],
+  knownColumnIds?: Set<string>
+): string[] {
+  const normalized: string[] = []
+  const seen = new Set<string>()
+
+  for (const columnId of columnIds) {
+    if (seen.has(columnId)) {
+      continue
+    }
+    if (knownColumnIds && !knownColumnIds.has(columnId)) {
+      continue
+    }
+    normalized.push(columnId)
+    seen.add(columnId)
+    if (normalized.length >= MAX_VISIBLE_COLUMNS) {
+      break
+    }
+  }
+
+  return normalized
 }
 
 function persistColumns(workspaceId: string, columns: string[]): void {
@@ -51,15 +73,15 @@ export interface UseCaseColumnVisibilityResult {
 
 /**
  * @param knownColumnIds - Set of currently valid column IDs from loaded
- *   definitions. Used to enforce the max-4 cap only on valid IDs so stale
- *   persisted entries don't block new selections.
+ *   definitions. When provided, stale persisted IDs are pruned and the final
+ *   stored selection is normalized to at most four unique visible columns.
  */
 export function useCaseColumnVisibility(
   workspaceId: string,
   knownColumnIds?: Set<string>
 ): UseCaseColumnVisibilityResult {
   const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>(() =>
-    loadPersistedColumns(workspaceId)
+    normalizeVisibleColumnIds(loadPersistedColumns(workspaceId), knownColumnIds)
   )
 
   // Reload from localStorage when workspace changes
@@ -67,9 +89,24 @@ export function useCaseColumnVisibility(
   useEffect(() => {
     if (prevWorkspaceId.current !== workspaceId) {
       prevWorkspaceId.current = workspaceId
-      setVisibleColumnIds(loadPersistedColumns(workspaceId))
+      setVisibleColumnIds(
+        normalizeVisibleColumnIds(
+          loadPersistedColumns(workspaceId),
+          knownColumnIds
+        )
+      )
     }
-  }, [workspaceId])
+  }, [knownColumnIds, workspaceId])
+
+  useEffect(() => {
+    setVisibleColumnIds((prev) => {
+      const normalized = normalizeVisibleColumnIds(prev, knownColumnIds)
+      return prev.length === normalized.length &&
+        prev.every((columnId, index) => columnId === normalized[index])
+        ? prev
+        : normalized
+    })
+  }, [knownColumnIds])
 
   useEffect(() => {
     persistColumns(workspaceId, visibleColumnIds)
@@ -81,18 +118,14 @@ export function useCaseColumnVisibility(
 
   const toggleColumn = useCallback((columnId: string) => {
     setVisibleColumnIds((prev) => {
-      if (prev.includes(columnId)) {
-        return prev.filter((id) => id !== columnId)
+      const normalizedPrev = normalizeVisibleColumnIds(prev, knownRef.current)
+      if (normalizedPrev.includes(columnId)) {
+        return normalizedPrev.filter((id) => id !== columnId)
       }
-      // Count only IDs that map to current definitions toward the cap
-      const known = knownRef.current
-      const validCount = known
-        ? prev.filter((id) => known.has(id)).length
-        : prev.length
-      if (validCount >= MAX_VISIBLE_COLUMNS) {
-        return prev
-      }
-      return [...prev, columnId]
+      return normalizeVisibleColumnIds(
+        [...normalizedPrev, columnId],
+        knownRef.current
+      )
     })
   }, [])
 

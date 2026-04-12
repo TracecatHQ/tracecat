@@ -121,7 +121,11 @@ from tracecat.pagination import (
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.common import normalize_column_options
 from tracecat.tables.enums import SqlType
-from tracecat.tables.service import DYNAMIC_WORKSPACE_TENANT_COLUMN, TablesService
+from tracecat.tables.service import (
+    DYNAMIC_WORKSPACE_TENANT_COLUMN,
+    TablesService,
+    validate_identifier,
+)
 from tracecat.tiers.enums import Entitlement
 
 
@@ -377,9 +381,11 @@ class CasesService(BaseWorkspaceService):
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        include_durations: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """Search cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
+        include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
         filters = self._build_search_filters(
             search_term=search_term,
             short_id=short_id,
@@ -398,7 +404,7 @@ class CasesService(BaseWorkspaceService):
             updated_after=updated_after,
         )
 
-        # Base query - eagerly load tags, assignee, dropdown values, and durations
+        # Base query - eagerly load tags, assignee, and dropdown values.
         stmt = (
             select(Case)
             .options(selectinload(Case.tags))
@@ -413,8 +419,9 @@ class CasesService(BaseWorkspaceService):
                     CaseDropdownValue.option
                 )
             )
-            .options(selectinload(Case.durations))
         )
+        if include_case_addons and include_durations:
+            stmt = stmt.options(selectinload(Case.durations))
 
         for clause in filters:
             stmt = stmt.where(clause)
@@ -600,7 +607,6 @@ class CasesService(BaseWorkspaceService):
 
         # Convert to CaseReadMinimal objects with tags and dropdown values
         case_items = []
-        include_dropdown_values = await self.has_entitlement(Entitlement.CASE_ADDONS)
         for case in cases:
             # Tags are already loaded via selectinload
             tag_reads = [
@@ -610,7 +616,7 @@ class CasesService(BaseWorkspaceService):
 
             dropdown_reads = []
             duration_reads: list[CaseDurationRead] | None = None
-            if include_dropdown_values:
+            if include_case_addons:
                 # Dropdown values are already loaded via selectinload
                 dropdown_reads = [
                     CaseDropdownValueRead(
@@ -626,12 +632,12 @@ class CasesService(BaseWorkspaceService):
                     )
                     for dv in case.dropdown_values
                 ]
+            if include_case_addons and include_durations and case.durations:
                 # Durations are already loaded via selectinload
-                if case.durations:
-                    duration_reads = [
-                        CaseDurationRead.model_validate(d, from_attributes=True)
-                        for d in case.durations
-                    ]
+                duration_reads = [
+                    CaseDurationRead.model_validate(d, from_attributes=True)
+                    for d in case.durations
+                ]
 
             case_items.append(
                 CaseReadMinimal(
@@ -762,12 +768,14 @@ class CasesService(BaseWorkspaceService):
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        include_durations: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with a simplified default search query."""
         return await self.search_cases(
             params=CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
             order_by=order_by,
             sort=sort,
+            include_durations=include_durations,
         )
 
     async def get_case(
@@ -1372,36 +1380,44 @@ class CaseFieldsService(CustomFieldsService):
         return await self.editor.get_row(row_id) if row_id else None
 
     async def batch_get_fields(
-        self, case_ids: list[uuid.UUID]
+        self, case_ids: list[uuid.UUID], field_ids: Sequence[str]
     ) -> dict[uuid.UUID, dict[str, Any]]:
         """Batch-load custom field values for multiple cases.
 
-        Uses reflected columns via the editor so that user-defined fields
-        (added at runtime) are included in the result.
+        Only selects requested custom-field columns to keep case list hydration
+        proportional to the visible field badges.
         """
-        if not case_ids:
+        if not case_ids or not field_ids:
             return {}
         await self._ensure_schema_ready()
+
+        available_fields = set(await self.get_field_schema())
+        requested_field_ids: list[str] = []
+        for field_id in dict.fromkeys(field_ids):
+            self._assert_user_field_name_allowed(field_id)
+            if field_id in self._reserved_columns:
+                raise ValueError(f"Field {field_id} is a reserved field")
+            normalized_field_id = validate_identifier(field_id)
+            if normalized_field_id in available_fields:
+                requested_field_ids.append(normalized_field_id)
+
+        if not requested_field_ids:
+            return {}
+
         conn = await self.session.connection()
-        reflected = await self.editor.get_columns()
-        col_clauses = [
-            sa.column(col["name"])
-            for col in reflected
-            if isinstance(col.get("name"), str)
-        ]
         stmt = (
-            sa.select(*col_clauses)
+            sa.select(
+                sa.column("case_id"),
+                *(sa.column(field_id) for field_id in requested_field_ids),
+            )
             .select_from(sa.table(self.sanitized_table_name, schema=self.schema_name))
             .where(sa.column("case_id").in_(case_ids))
         )
         result = await conn.execute(stmt)
         rows = result.mappings().all()
-        reserved = self._reserved_columns
         return {
             row["case_id"]: {
-                k: v
-                for k, v in dict(row).items()
-                if k not in reserved and v is not None
+                k: v for k, v in dict(row).items() if k != "case_id" and v is not None
             }
             for row in rows
         }

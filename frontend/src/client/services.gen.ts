@@ -7098,6 +7098,8 @@ export const tablesImportCsv = (
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @param data.includeRows Include linked table rows
+ * @param data.fieldIds Include only the requested custom field IDs
+ * @param data.includeDurations Include case duration values
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -7114,6 +7116,8 @@ export const casesListCases = (
       order_by: data.orderBy,
       sort: data.sort,
       include_rows: data.includeRows,
+      field_ids: data.fieldIds,
+      include_durations: data.includeDurations,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -7171,7 +7175,8 @@ export const casesCreateCase = (
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @param data.includeRows Include linked table rows
- * @param data.includeFields Include custom field values
+ * @param data.fieldIds Include only the requested custom field IDs
+ * @param data.includeDurations Include case duration values
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -7200,7 +7205,8 @@ export const casesSearchCases = (
       order_by: data.orderBy,
       sort: data.sort,
       include_rows: data.includeRows,
-      include_fields: data.includeFields,
+      field_ids: data.fieldIds,
+      include_durations: data.includeDurations,
       workspace_id: data.workspaceId,
     },
     errors: {

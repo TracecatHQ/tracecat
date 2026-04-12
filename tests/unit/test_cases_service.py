@@ -2,12 +2,13 @@ import uuid  # noqa: I001
 import asyncio
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import selectinload as sa_selectinload
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -1035,6 +1036,33 @@ class TestCasesService:
         )
 
         assert search_response.model_dump() == list_response.model_dump()
+
+    async def test_search_cases_gates_duration_selectinload(
+        self, cases_service: CasesService
+    ) -> None:
+        """Duration eager loading should be opt-in for cases list/search."""
+        params = CursorPaginationParams(limit=10, cursor=None, reverse=False)
+        loader_calls: list[str] = []
+
+        def tracked_selectinload(attr: Any):
+            if key := getattr(attr, "key", None):
+                loader_calls.append(key)
+            return sa_selectinload(attr)
+
+        with patch(
+            "tracecat.cases.service.selectinload", side_effect=tracked_selectinload
+        ):
+            await cases_service.search_cases(params=params)
+
+        assert "durations" not in loader_calls
+
+        loader_calls.clear()
+        with patch(
+            "tracecat.cases.service.selectinload", side_effect=tracked_selectinload
+        ):
+            await cases_service.search_cases(params=params, include_durations=True)
+
+        assert "durations" in loader_calls
 
     async def test_search_cases_tag_filter_uses_or_logic(
         self, cases_service: CasesService

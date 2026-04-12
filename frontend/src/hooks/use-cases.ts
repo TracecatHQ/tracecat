@@ -105,7 +105,8 @@ export interface UseCasesFilters {
 export interface UseCasesOptions {
   enabled?: boolean
   autoRefresh?: boolean
-  includeFields?: boolean
+  fieldIds?: string[]
+  includeDurations?: boolean
 }
 
 export interface UseCasesResult {
@@ -573,8 +574,17 @@ function resolveEnumIncludeFilter<T extends string>(
 }
 
 export function useCases(options: UseCasesOptions = {}): UseCasesResult {
-  const { enabled = true, autoRefresh = true, includeFields = false } = options
+  const {
+    enabled = true,
+    autoRefresh = true,
+    fieldIds = [],
+    includeDurations = false,
+  } = options
   const workspaceId = useWorkspaceId()
+  const normalizedFieldIds = useMemo(
+    () => [...new Set(fieldIds)].sort(),
+    [fieldIds]
+  )
   const initialFilterStateRef = useRef<CasesFilterStateSnapshot | null>(null)
   if (initialFilterStateRef.current === null) {
     initialFilterStateRef.current = loadPersistedCasesFilterState(workspaceId)
@@ -922,9 +932,16 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         filtersKey,
         orderBy: serverSortParams.orderBy,
         sort: serverSortParams.sort,
-        includeFields,
+        fieldIds: normalizedFieldIds,
+        includeDurations,
       }),
-    [filtersKey, serverSortParams.orderBy, serverSortParams.sort, includeFields]
+    [
+      filtersKey,
+      serverSortParams.orderBy,
+      serverSortParams.sort,
+      normalizedFieldIds,
+      includeDurations,
+    ]
   )
 
   const computeRefetchInterval = useCallback(() => {
@@ -960,7 +977,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         sort: serverSortParams.sort,
         limit: CASES_PAGE_SIZE,
         cursor: (pageParam as string | null) ?? undefined,
-        includeFields: includeFields || undefined,
+        fieldIds:
+          normalizedFieldIds.length > 0 ? normalizedFieldIds : undefined,
+        includeDurations: includeDurations || undefined,
       }),
     enabled:
       enabled &&
