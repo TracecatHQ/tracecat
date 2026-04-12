@@ -102,18 +102,32 @@ export function CaseColumnPicker({
   onToggle,
 }: CaseColumnPickerProps) {
   const [open, setOpen] = useState(false)
-  const selectedCount = visibleColumnIds.length
-  const isAtLimit = selectedCount >= MAX_VISIBLE_COLUMNS
 
   const nonReservedFields = useMemo(
     () => fieldDefinitions?.filter((f) => !f.reserved) ?? [],
     [fieldDefinitions]
   )
 
-  const hasOptions =
-    (dropdownDefinitions && dropdownDefinitions.length > 0) ||
-    nonReservedFields.length > 0 ||
-    (durationDefinitions && durationDefinitions.length > 0)
+  // Build set of known column IDs so stale persisted IDs don't count
+  // toward the max-4 limit or show in the badge count.
+  const knownColumnIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (dropdownDefinitions) {
+      for (const d of dropdownDefinitions) ids.add(`dropdown:${d.ref}`)
+    }
+    for (const f of nonReservedFields) ids.add(`field:${f.id}`)
+    if (durationDefinitions) {
+      for (const d of durationDefinitions) ids.add(`duration:${d.id}`)
+    }
+    return ids
+  }, [dropdownDefinitions, nonReservedFields, durationDefinitions])
+
+  const selectedCount = visibleColumnIds.filter((id) =>
+    knownColumnIds.has(id)
+  ).length
+  const isAtLimit = selectedCount >= MAX_VISIBLE_COLUMNS
+
+  const hasOptions = knownColumnIds.size > 0
 
   if (!hasOptions) {
     return null
