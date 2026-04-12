@@ -5,6 +5,7 @@ import base64
 import hashlib
 import os
 import uuid
+from contextlib import asynccontextmanager
 
 import pytest
 from dotenv import dotenv_values
@@ -595,24 +596,39 @@ class TestSkillService:
             del key, bucket
             return True
 
-        async def fake_download_file(*, key: str, bucket: str) -> bytes:
-            del key, bucket
-            return content
+        class FakeStream:
+            async def read(self) -> bytes:
+                return content
 
-        async def fake_upload_file(
-            *, content: bytes, key: str, bucket: str, content_type: str | None = None
+            async def iter_chunks(self, *, chunk_size: int):
+                del chunk_size
+                yield content
+
+        @asynccontextmanager
+        async def fake_open_download_stream(*, key: str, bucket: str):
+            del key, bucket
+            yield FakeStream(), len(content)
+
+        async def fake_copy_file(
+            *,
+            source_key: str,
+            destination_key: str,
+            bucket: str,
+            content_type: str | None = None,
         ) -> None:
-            del content, bucket, content_type
-            uploaded["key"] = key
+            del source_key, bucket, content_type
+            uploaded["key"] = destination_key
 
         monkeypatch.setattr(
             "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
         )
         monkeypatch.setattr(
-            "tracecat.agent.skill.service.blob.download_file", fake_download_file
+            "tracecat.agent.skill.service.blob.open_download_stream",
+            fake_open_download_stream,
         )
         monkeypatch.setattr(
-            "tracecat.agent.skill.service.blob.upload_file", fake_upload_file
+            "tracecat.agent.skill.service.blob.copy_file",
+            fake_copy_file,
         )
 
         await skill_service.patch_draft(
@@ -666,15 +682,25 @@ class TestSkillService:
             del key, bucket
             return True
 
-        async def fake_download_file(*, key: str, bucket: str) -> bytes:
+        class FakeStream:
+            async def read(self) -> bytes:
+                return content
+
+            async def iter_chunks(self, *, chunk_size: int):
+                del chunk_size
+                yield content
+
+        @asynccontextmanager
+        async def fake_open_download_stream(*, key: str, bucket: str):
             del key, bucket
-            return content
+            yield FakeStream(), len(content)
 
         monkeypatch.setattr(
             "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
         )
         monkeypatch.setattr(
-            "tracecat.agent.skill.service.blob.download_file", fake_download_file
+            "tracecat.agent.skill.service.blob.open_download_stream",
+            fake_open_download_stream,
         )
 
         with pytest.raises(TracecatValidationError, match="size mismatch"):
