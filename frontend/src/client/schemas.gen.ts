@@ -18483,6 +18483,7 @@ export const $SkillUploadSessionCreate = {
       type: "string",
       maxLength: 64,
       minLength: 64,
+      pattern: "^[0-9a-fA-F]{64}$",
       title: "Sha256",
     },
     size_bytes: {

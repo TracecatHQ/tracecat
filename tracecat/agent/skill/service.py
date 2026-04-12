@@ -97,6 +97,12 @@ class SkillService(BaseWorkspaceService):
         return hashlib.sha256(content).hexdigest()
 
     @staticmethod
+    def _normalize_sha256(sha256: str) -> str:
+        """Return a canonical lowercase SHA-256 hex digest."""
+
+        return sha256.strip().lower()
+
+    @staticmethod
     def _normalize_content_type(content_type: str) -> str:
         """Return a canonical MIME type string for skill file metadata."""
 
@@ -106,12 +112,14 @@ class SkillService(BaseWorkspaceService):
     def _storage_key_for(self, sha256: str) -> str:
         """Return the canonical storage key for a skill blob."""
 
-        return f"skills/{self.workspace_id}/{sha256}"
+        normalized_sha256 = self._normalize_sha256(sha256)
+        return f"skills/{self.workspace_id}/{normalized_sha256}"
 
     def _staged_upload_key_for(self, *, upload_id: uuid.UUID, sha256: str) -> str:
         """Return the temporary storage key for a staged skill upload."""
 
-        return f"skills/{self.workspace_id}/uploads/{upload_id}/{sha256}"
+        normalized_sha256 = self._normalize_sha256(sha256)
+        return f"skills/{self.workspace_id}/uploads/{upload_id}/{normalized_sha256}"
 
     @staticmethod
     def _normalize_path(path: str) -> str:
@@ -301,9 +309,10 @@ class SkillService(BaseWorkspaceService):
     async def _get_blob_by_identity(self, *, sha256: str) -> SkillBlob | None:
         """Return the blob row for a workspace-scoped content identity."""
 
+        normalized_sha256 = self._normalize_sha256(sha256)
         stmt = select(SkillBlob).where(
             SkillBlob.workspace_id == self.workspace_id,
-            SkillBlob.sha256 == sha256,
+            SkillBlob.sha256 == normalized_sha256,
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
@@ -317,11 +326,12 @@ class SkillService(BaseWorkspaceService):
     ) -> SkillBlob:
         """Insert a blob row, reusing the canonical row if another writer won."""
 
+        normalized_sha256 = self._normalize_sha256(sha256)
         stmt = (
             pg_insert(SkillBlob)
             .values(
                 workspace_id=self.workspace_id,
-                sha256=sha256,
+                sha256=normalized_sha256,
                 bucket=bucket,
                 key=key,
                 size_bytes=size_bytes,
@@ -336,7 +346,7 @@ class SkillService(BaseWorkspaceService):
                 raise TracecatNotFoundError(f"Skill blob '{blob_id}' not found")
             return blob_row
 
-        existing = await self._get_blob_by_identity(sha256=sha256)
+        existing = await self._get_blob_by_identity(sha256=normalized_sha256)
         if existing is None:
             raise TracecatNotFoundError(
                 "Skill blob row was not found after a concurrent insert"
@@ -406,7 +416,8 @@ class SkillService(BaseWorkspaceService):
                 actual_size_bytes += len(chunk)
                 hasher.update(chunk)
         actual_sha256 = hasher.hexdigest()
-        if actual_sha256 != upload.sha256:
+        normalized_upload_sha256 = self._normalize_sha256(upload.sha256)
+        if actual_sha256 != normalized_upload_sha256:
             raise TracecatValidationError(
                 "Uploaded blob SHA-256 mismatch",
                 detail={
@@ -423,9 +434,9 @@ class SkillService(BaseWorkspaceService):
                 },
             )
 
-        blob_row = await self._get_blob_by_identity(sha256=upload.sha256)
+        blob_row = await self._get_blob_by_identity(sha256=normalized_upload_sha256)
         if blob_row is None:
-            canonical_key = self._storage_key_for(upload.sha256)
+            canonical_key = self._storage_key_for(normalized_upload_sha256)
             if upload.key != canonical_key:
                 await blob.copy_file(
                     source_key=upload.key,
@@ -434,7 +445,7 @@ class SkillService(BaseWorkspaceService):
                     content_type="application/octet-stream",
                 )
             blob_row = await self._insert_blob_row(
-                sha256=upload.sha256,
+                sha256=normalized_upload_sha256,
                 bucket=upload.bucket,
                 key=canonical_key,
                 size_bytes=actual_size_bytes,
@@ -1111,14 +1122,15 @@ class SkillService(BaseWorkspaceService):
 
         upload_id = uuid.uuid4()
         expires_at = datetime.now(UTC) + timedelta(seconds=DEFAULT_UPLOAD_TTL_SECONDS)
+        normalized_sha256 = self._normalize_sha256(params.sha256)
         storage_key = self._staged_upload_key_for(
-            upload_id=upload_id, sha256=params.sha256
+            upload_id=upload_id, sha256=normalized_sha256
         )
         normalized_content_type = self._normalize_content_type(params.content_type)
         upload_row = SkillUploadModel(
             workspace_id=self.workspace_id,
             skill_id=skill.id,
-            sha256=params.sha256,
+            sha256=normalized_sha256,
             size_bytes=params.size_bytes,
             content_type=normalized_content_type,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
