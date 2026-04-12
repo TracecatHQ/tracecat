@@ -729,20 +729,20 @@ class SkillService(BaseWorkspaceService):
                 for skill in (await self.session.execute(stmt)).scalars().all()
             }
 
-        skills: dict[uuid.UUID, Skill] = {}
-        for skill_id in normalized_ids:
-            stmt = (
-                select(Skill)
-                .where(
-                    Skill.workspace_id == self.workspace_id,
-                    Skill.id == skill_id,
-                    Skill.archived_at.is_(None),
-                )
-                .with_for_update()
+        stmt = (
+            select(Skill)
+            .where(
+                Skill.workspace_id == self.workspace_id,
+                Skill.id.in_(normalized_ids),
+                Skill.archived_at.is_(None),
             )
-            if skill := (await self.session.execute(stmt)).scalar_one_or_none():
-                skills[skill.id] = skill
-        return skills
+            .order_by(Skill.id)
+            .with_for_update()
+        )
+        return {
+            skill.id: skill
+            for skill in (await self.session.execute(stmt)).scalars().all()
+        }
 
     async def _normalize_and_validate_slug(
         self, *, slug: str, exclude_id: uuid.UUID | None = None
