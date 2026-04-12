@@ -77,6 +77,14 @@ class ManifestValidationResult:
     errors: list[SkillValidationErrorDetail] = field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class SkillFileBlobRef:
+    """Presentation metadata for a skill file plus its blob row."""
+
+    blob: SkillBlob
+    content_type: str
+
+
 class SkillService(BaseWorkspaceService):
     """CRUD operations and execution helpers for workspace skills."""
 
@@ -90,23 +98,15 @@ class SkillService(BaseWorkspaceService):
 
     @staticmethod
     def _normalize_content_type(content_type: str) -> str:
-        """Return a canonical MIME type string for storage key derivation."""
+        """Return a canonical MIME type string for skill file metadata."""
 
         parts = [part.strip().lower() for part in content_type.split(";")]
         return "; ".join(part for part in parts if part)
 
-    @classmethod
-    def _content_type_digest(cls, content_type: str) -> str:
-        """Return a short stable digest for a canonicalized MIME type."""
-
-        normalized = cls._normalize_content_type(content_type)
-        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
-
-    def _storage_key_for(self, sha256: str, content_type: str) -> str:
+    def _storage_key_for(self, sha256: str) -> str:
         """Return the canonical storage key for a skill blob."""
 
-        content_type_digest = self._content_type_digest(content_type)
-        return f"skills/{self.workspace_id}/{sha256}/{content_type_digest}"
+        return f"skills/{self.workspace_id}/{sha256}"
 
     def _staged_upload_key_for(self, *, upload_id: uuid.UUID, sha256: str) -> str:
         """Return the temporary storage key for a staged skill upload."""
@@ -298,15 +298,12 @@ class SkillService(BaseWorkspaceService):
             else None,
         )
 
-    async def _get_blob_by_identity(
-        self, *, sha256: str, content_type: str
-    ) -> SkillBlob | None:
+    async def _get_blob_by_identity(self, *, sha256: str) -> SkillBlob | None:
         """Return the blob row for a workspace-scoped content identity."""
 
         stmt = select(SkillBlob).where(
             SkillBlob.workspace_id == self.workspace_id,
             SkillBlob.sha256 == sha256,
-            SkillBlob.content_type == content_type,
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
@@ -317,7 +314,6 @@ class SkillService(BaseWorkspaceService):
         bucket: str,
         key: str,
         size_bytes: int,
-        content_type: str,
     ) -> SkillBlob:
         """Insert a blob row, reusing the canonical row if another writer won."""
 
@@ -329,11 +325,8 @@ class SkillService(BaseWorkspaceService):
                 bucket=bucket,
                 key=key,
                 size_bytes=size_bytes,
-                content_type=content_type,
             )
-            .on_conflict_do_nothing(
-                constraint="uq_skill_blob_workspace_sha256_content_type"
-            )
+            .on_conflict_do_nothing(constraint="uq_skill_blob_workspace_sha256")
             .returning(SkillBlob.id)
         )
         blob_id = (await self.session.execute(stmt)).scalar_one_or_none()
@@ -343,50 +336,40 @@ class SkillService(BaseWorkspaceService):
                 raise TracecatNotFoundError(f"Skill blob '{blob_id}' not found")
             return blob_row
 
-        existing = await self._get_blob_by_identity(
-            sha256=sha256,
-            content_type=content_type,
-        )
+        existing = await self._get_blob_by_identity(sha256=sha256)
         if existing is None:
             raise TracecatNotFoundError(
                 "Skill blob row was not found after a concurrent insert"
             )
         return existing
 
-    async def _get_or_create_blob(
-        self, *, content: bytes, content_type: str
-    ) -> SkillBlob:
+    async def _get_or_create_blob(self, *, content: bytes) -> SkillBlob:
         """Create or reuse a content-addressed skill blob.
 
         Args:
             content: Blob payload.
-            content_type: Blob MIME type.
 
         Returns:
             The deduplicated blob row.
         """
 
         sha256 = self._compute_sha256(content)
-        existing = await self._get_blob_by_identity(
-            sha256=sha256,
-            content_type=content_type,
-        )
+        existing = await self._get_blob_by_identity(sha256=sha256)
         if existing is not None:
             return existing
 
-        storage_key = self._storage_key_for(sha256, content_type)
+        storage_key = self._storage_key_for(sha256)
         await blob.upload_file(
             content=content,
             key=storage_key,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-            content_type=content_type,
+            content_type="application/octet-stream",
         )
         return await self._insert_blob_row(
             sha256=sha256,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
             size_bytes=len(content),
-            content_type=content_type,
         )
 
     async def _materialize_uploaded_blob(self, upload: SkillUploadModel) -> SkillBlob:
@@ -429,25 +412,21 @@ class SkillService(BaseWorkspaceService):
                 },
             )
 
-        blob_row = await self._get_blob_by_identity(
-            sha256=upload.sha256,
-            content_type=upload.content_type,
-        )
+        blob_row = await self._get_blob_by_identity(sha256=upload.sha256)
         if blob_row is None:
-            canonical_key = self._storage_key_for(upload.sha256, upload.content_type)
+            canonical_key = self._storage_key_for(upload.sha256)
             if upload.key != canonical_key:
                 await blob.upload_file(
                     content=content,
                     key=canonical_key,
                     bucket=upload.bucket,
-                    content_type=upload.content_type,
+                    content_type="application/octet-stream",
                 )
             blob_row = await self._insert_blob_row(
                 sha256=upload.sha256,
                 bucket=upload.bucket,
                 key=canonical_key,
                 size_bytes=actual_size_bytes,
-                content_type=upload.content_type,
             )
 
         upload.blob_id = blob_row.id
@@ -591,7 +570,7 @@ class SkillService(BaseWorkspaceService):
                     blob_id=blob_row.id,
                     sha256=blob_row.sha256,
                     size_bytes=blob_row.size_bytes,
-                    content_type=blob_row.content_type,
+                    content_type=draft_file.content_type,
                 )
             )
             validation_pairs.append((draft_file.path, blob_row))
@@ -645,7 +624,7 @@ class SkillService(BaseWorkspaceService):
         )
 
     async def _replace_draft_with_blob_map(
-        self, *, skill: Skill, path_to_blob: dict[str, SkillBlob]
+        self, *, skill: Skill, path_to_blob: dict[str, SkillFileBlobRef]
     ) -> None:
         """Replace the draft manifest with a new set of blob references."""
 
@@ -655,13 +634,14 @@ class SkillService(BaseWorkspaceService):
                 SkillDraftFile.skill_id == skill.id,
             )
         )
-        for path, blob_row in sorted(path_to_blob.items()):
+        for path, file_ref in sorted(path_to_blob.items()):
             self.session.add(
                 SkillDraftFile(
                     workspace_id=self.workspace_id,
                     skill_id=skill.id,
                     path=path,
-                    blob_id=blob_row.id,
+                    blob_id=file_ref.blob.id,
+                    content_type=file_ref.content_type,
                 )
             )
         skill.draft_revision += 1
@@ -794,12 +774,16 @@ class SkillService(BaseWorkspaceService):
             description=params.description,
         )
         root_blob = await self._get_or_create_blob(
-            content=root_markdown.encode("utf-8"),
-            content_type="text/markdown; charset=utf-8",
+            content=root_markdown.encode("utf-8")
         )
         await self._replace_draft_with_blob_map(
             skill=skill,
-            path_to_blob={"SKILL.md": root_blob},
+            path_to_blob={
+                "SKILL.md": SkillFileBlobRef(
+                    blob=root_blob,
+                    content_type="text/markdown; charset=utf-8",
+                )
+            },
         )
         await self.session.commit()
         await self.session.refresh(skill)
@@ -818,7 +802,7 @@ class SkillService(BaseWorkspaceService):
         """
 
         slug = await self._normalize_and_validate_slug(slug=params.slug)
-        path_to_blob: dict[str, SkillBlob] = {}
+        path_to_blob: dict[str, SkillFileBlobRef] = {}
         for file_payload in params.files:
             path = self._normalize_path(file_payload.path)
             if path in path_to_blob:
@@ -833,10 +817,12 @@ class SkillService(BaseWorkspaceService):
                     f"Invalid base64 content for skill path {path!r}",
                     detail={"code": "invalid_base64", "path": path},
                 ) from exc
-            path_to_blob[path] = await self._get_or_create_blob(
-                content=content,
-                content_type=file_payload.content_type
-                or self._guess_content_type(path),
+            content_type = self._normalize_content_type(
+                file_payload.content_type or self._guess_content_type(path)
+            )
+            path_to_blob[path] = SkillFileBlobRef(
+                blob=await self._get_or_create_blob(content=content),
+                content_type=content_type,
             )
 
         skill = Skill(workspace_id=self.workspace_id, slug=slug, draft_revision=0)
@@ -957,8 +943,10 @@ class SkillService(BaseWorkspaceService):
         row = (await self.session.execute(stmt)).tuples().first()
         if row is None:
             return None
-        _, blob_row = row
-        if self._is_inline_text(blob_row.content_type, size_bytes=blob_row.size_bytes):
+        draft_file, blob_row = row
+        if self._is_inline_text(
+            draft_file.content_type, size_bytes=blob_row.size_bytes
+        ):
             try:
                 content = await blob.download_file(
                     key=blob_row.key,
@@ -967,7 +955,7 @@ class SkillService(BaseWorkspaceService):
                 return SkillDraftFileRead(
                     kind="inline",
                     path=normalized_path,
-                    content_type=blob_row.content_type,
+                    content_type=draft_file.content_type,
                     size_bytes=blob_row.size_bytes,
                     sha256=blob_row.sha256,
                     text_content=content.decode("utf-8"),
@@ -978,12 +966,13 @@ class SkillService(BaseWorkspaceService):
         return SkillDraftFileRead(
             kind="download",
             path=normalized_path,
-            content_type=blob_row.content_type,
+            content_type=draft_file.content_type,
             size_bytes=blob_row.size_bytes,
             sha256=blob_row.sha256,
             download_url=await blob.generate_presigned_download_url(
                 key=blob_row.key,
                 bucket=blob_row.bucket,
+                override_content_type=draft_file.content_type,
             ),
         )
 
@@ -1037,17 +1026,24 @@ class SkillService(BaseWorkspaceService):
 
         current_rows = await self._list_draft_rows(skill.id)
         path_to_blob = {
-            draft_file.path: blob_row for draft_file, blob_row in current_rows
+            draft_file.path: SkillFileBlobRef(
+                blob=blob_row,
+                content_type=draft_file.content_type,
+            )
+            for draft_file, blob_row in current_rows
         }
         for operation in params.operations:
             match operation:
                 case SkillDraftUpsertTextFileOp():
                     normalized_path = self._normalize_path(operation.path)
+                    content_type = self._normalize_content_type(operation.content_type)
                     blob_row = await self._get_or_create_blob(
                         content=operation.content.encode("utf-8"),
-                        content_type=operation.content_type,
                     )
-                    path_to_blob[normalized_path] = blob_row
+                    path_to_blob[normalized_path] = SkillFileBlobRef(
+                        blob=blob_row,
+                        content_type=content_type,
+                    )
                 case SkillDraftAttachUploadedBlobOp():
                     normalized_path = self._normalize_path(operation.path)
                     upload_stmt = select(SkillUploadModel).where(
@@ -1063,9 +1059,10 @@ class SkillService(BaseWorkspaceService):
                             f"Skill upload '{operation.upload_id}' not found",
                             detail={"code": "upload_not_found"},
                         )
-                    path_to_blob[
-                        normalized_path
-                    ] = await self._materialize_uploaded_blob(upload)
+                    path_to_blob[normalized_path] = SkillFileBlobRef(
+                        blob=await self._materialize_uploaded_blob(upload),
+                        content_type=upload.content_type,
+                    )
                 case SkillDraftDeleteFileOp():
                     normalized_path = self._normalize_path(operation.path)
                     path_to_blob.pop(normalized_path, None)
@@ -1090,12 +1087,13 @@ class SkillService(BaseWorkspaceService):
         storage_key = self._staged_upload_key_for(
             upload_id=upload_id, sha256=params.sha256
         )
+        normalized_content_type = self._normalize_content_type(params.content_type)
         upload_row = SkillUploadModel(
             workspace_id=self.workspace_id,
             skill_id=skill.id,
             sha256=params.sha256,
             size_bytes=params.size_bytes,
-            content_type=params.content_type,
+            content_type=normalized_content_type,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
             expires_at=expires_at,
@@ -1109,10 +1107,10 @@ class SkillService(BaseWorkspaceService):
             upload_url=await blob.generate_presigned_upload_url(
                 key=storage_key,
                 bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-                content_type=params.content_type,
+                content_type=normalized_content_type,
                 expiry=DEFAULT_UPLOAD_TTL_SECONDS,
             ),
-            headers={"Content-Type": params.content_type},
+            headers={"Content-Type": normalized_content_type},
             expires_at=expires_at,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
@@ -1156,7 +1154,7 @@ class SkillService(BaseWorkspaceService):
                 "path": draft_file.path,
                 "sha256": blob_row.sha256,
                 "size_bytes": blob_row.size_bytes,
-                "content_type": blob_row.content_type,
+                "content_type": draft_file.content_type,
             }
             for draft_file, blob_row in rows
         ]
@@ -1192,6 +1190,7 @@ class SkillService(BaseWorkspaceService):
                     skill_version_id=version.id,
                     path=draft_file.path,
                     blob_id=draft_file.blob_id,
+                    content_type=draft_file.content_type,
                 )
             )
         skill.current_version_id = version.id
@@ -1317,7 +1316,7 @@ class SkillService(BaseWorkspaceService):
                     blob_id=blob_row.id,
                     sha256=blob_row.sha256,
                     size_bytes=blob_row.size_bytes,
-                    content_type=blob_row.content_type,
+                    content_type=version_file.content_type,
                 )
                 for version_file, blob_row in rows
             ],
@@ -1340,7 +1339,11 @@ class SkillService(BaseWorkspaceService):
         await self._replace_draft_with_blob_map(
             skill=skill,
             path_to_blob={
-                version_file.path: blob_row for version_file, blob_row in rows
+                version_file.path: SkillFileBlobRef(
+                    blob=blob_row,
+                    content_type=version_file.content_type,
+                )
+                for version_file, blob_row in rows
             },
         )
         await self.session.commit()
