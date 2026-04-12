@@ -67,7 +67,7 @@ export function CaseColumnBadge({
     <Badge
       variant="outline"
       className={cn(
-        !color && defaultColor,
+        !color && "bg-muted/50 text-muted-foreground",
         "max-w-[120px] items-center gap-1 border-0 leading-tight",
         className
       )}
