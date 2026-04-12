@@ -957,11 +957,16 @@ def _workflow_edit_document_to_dsl(document: WorkflowEditDocument) -> DSLInput:
     )
 
 
-def _validate_workflow_edit_document(document: WorkflowEditDocument) -> None:
+def _validate_workflow_edit_document(
+    document: WorkflowEditDocument,
+    *,
+    existing_layout_action_refs: set[str] | None = None,
+) -> None:
     """Validate editable workflow document semantics before persistence."""
     action_refs = {action.ref for action in document.definition.actions}
+    allowed_layout_action_refs = action_refs | (existing_layout_action_refs or set())
     for action_layout in document.layout.actions:
-        if action_layout.ref not in action_refs:
+        if action_layout.ref not in allowed_layout_action_refs:
             raise ToolError(
                 f"Unknown action ref {action_layout.ref!r} in layout.actions"
             )
@@ -3372,7 +3377,12 @@ async def edit_workflow(
             )
 
             updated_document = WorkflowEditDocument.model_validate(patched_payload)
-            _validate_workflow_edit_document(updated_document)
+            _validate_workflow_edit_document(
+                updated_document,
+                existing_layout_action_refs={
+                    action_layout.ref for action_layout in draft_document.layout.actions
+                },
+            )
 
             if request.validate_only:
                 return WorkflowEditResponse(
