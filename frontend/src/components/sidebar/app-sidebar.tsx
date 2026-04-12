@@ -4,10 +4,9 @@ import {
   BlocksIcon,
   BoxIcon,
   ChevronDown,
-  InboxIcon,
   KeyRound,
   LayersIcon,
-  LayersPlus,
+  ListChecksIcon,
   ListVideoIcon,
   type LucideIcon,
   Plus,
@@ -22,7 +21,6 @@ import type * as React from "react"
 import { useEffect, useRef, useState } from "react"
 import type { AgentPresetReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import {
   LockedFeatureChip,
   LockedFeatureModal,
@@ -74,7 +72,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const casesListPath = `${basePath}/cases`
   const isCasesList = pathname === casesListPath
   const isAgentsRoute = pathname?.startsWith(`${basePath}/agents`) ?? false
-  const [createCaseDialogOpen, setCreateCaseDialogOpen] = useState(false)
   const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
   const [agentsSectionOpen, setAgentsSectionOpen] = useState(isAgentsRoute)
 
@@ -116,7 +113,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewInbox = useScopeCheck("inbox:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewCases = useScopeCheck("case:read")
-  const canCreateCase = useScopeCheck("case:create")
   const shouldLoadAgentsSection =
     canViewAgents === true && (agentsSectionOpen || isAgentsRoute)
   const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
@@ -143,13 +139,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/workflows`,
       icon: WorkflowIcon,
       isActive: pathname?.startsWith(`${basePath}/workflows`),
-      visible: canViewWorkflows === true,
-    },
-    {
-      title: "Runs",
-      url: `${basePath}/runs`,
-      icon: ListVideoIcon,
-      isActive: pathname?.startsWith(`${basePath}/runs`),
       visible: canViewWorkflows === true,
     },
     {
@@ -196,6 +185,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     },
   ]
 
+  const navMonitor: NavItem[] = [
+    {
+      title: "Runs",
+      url: `${basePath}/runs`,
+      icon: ListVideoIcon,
+      isActive: pathname?.startsWith(`${basePath}/runs`),
+      visible: canViewWorkflows === true,
+    },
+    {
+      title: "Approvals",
+      url: `${basePath}/inbox`,
+      icon: ListChecksIcon,
+      isActive: pathname?.startsWith(`${basePath}/inbox`),
+      visible: canViewInbox === true,
+    },
+  ]
+
   return (
     <Sidebar collapsible="offcanvas" variant="inset" {...props}>
       <SidebarHeader>
@@ -206,39 +212,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           open={lockedFeatureDialogOpen}
           onOpenChange={setLockedFeatureDialogOpen}
         />
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {canCreateCase === true && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    onClick={() => setCreateCaseDialogOpen(true)}
-                  >
-                    <LayersPlus />
-                    <span>Add case</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-              {canViewInbox === true && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname?.startsWith(`${basePath}/inbox`)}
-                  >
-                    <Link href={`${basePath}/inbox`}>
-                      <InboxIcon />
-                      <span>Inbox</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-            </SidebarMenu>
-            <CreateCaseDialog
-              open={createCaseDialogOpen}
-              onOpenChange={setCreateCaseDialogOpen}
-            />
-          </SidebarGroupContent>
-        </SidebarGroup>
         {navWorkspace.some((item) => item.visible === true) && (
           <Collapsible defaultOpen className="group/collapsible">
             <SidebarGroup>
@@ -287,6 +260,36 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                               </Link>
                             </SidebarMenuButton>
                           )}
+                        </SidebarMenuItem>
+                      ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+        {navMonitor.some((item) => item.visible === true) && (
+          <Collapsible defaultOpen className="group/collapsible">
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="w-full">
+                  Monitor
+                  <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {navMonitor
+                      .filter((item) => item.visible === true)
+                      .map((item) => (
+                        <SidebarMenuItem key={item.title}>
+                          <SidebarMenuButton asChild isActive={item.isActive}>
+                            <Link href={item.url!}>
+                              <item.icon />
+                              <span>{item.title}</span>
+                            </Link>
+                          </SidebarMenuButton>
                         </SidebarMenuItem>
                       ))}
                   </SidebarMenu>
