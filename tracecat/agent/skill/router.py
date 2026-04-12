@@ -18,6 +18,7 @@ from tracecat.agent.skill.schemas import (
     SkillUploadSessionCreate,
     SkillUploadSessionRead,
     SkillVersionRead,
+    SkillVersionReadMinimal,
 )
 from tracecat.agent.skill.service import SkillService
 from tracecat.auth.credentials import RoleACL
@@ -247,7 +248,8 @@ async def publish_skill(
 
 
 @router.get(
-    "/{skill_id}/versions", response_model=CursorPaginatedResponse[SkillVersionRead]
+    "/{skill_id}/versions",
+    response_model=CursorPaginatedResponse[SkillVersionReadMinimal],
 )
 @require_scope("agent:read")
 async def list_skill_versions(
@@ -262,7 +264,7 @@ async def list_skill_versions(
     ),
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),
-) -> CursorPaginatedResponse[SkillVersionRead]:
+) -> CursorPaginatedResponse[SkillVersionReadMinimal]:
     """List immutable versions for a skill."""
 
     service = SkillService(session, role=role)

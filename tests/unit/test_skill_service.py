@@ -29,6 +29,7 @@ from tracecat.agent.skill.schemas import (
     SkillUpload,
     SkillUploadFile,
     SkillUploadSessionCreate,
+    SkillVersionReadMinimal,
 )
 from tracecat.agent.skill.service import SkillService
 from tracecat.auth.types import Role
@@ -902,6 +903,51 @@ class TestSkillService:
         assert restored_file is not None
         assert restored_file.kind == "inline"
         assert restored_file.text_content == "Version one"
+
+    async def test_list_versions_returns_minimal_read_model(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Version listings should exclude per-file manifests."""
+
+        created = await skill_service.create_skill(SkillCreate(slug="minimal-versions"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="references/guide.md",
+                        content="Version one",
+                    )
+                ],
+            ),
+        )
+        published = await skill_service.publish_skill(created.id)
+
+        versions = await skill_service.list_versions(
+            skill_id=created.id,
+            params=CursorPaginationParams(limit=10),
+        )
+
+        assert len(versions.items) == 1
+        listed_version = versions.items[0]
+        assert isinstance(listed_version, SkillVersionReadMinimal)
+        assert listed_version.id == published.id
+        assert listed_version.version == published.version
+        assert not hasattr(listed_version, "files")
+
+        detailed_version = await skill_service.get_version_read(
+            skill_id=created.id,
+            version_id=published.id,
+        )
+        assert sorted(file.path for file in detailed_version.files) == [
+            "SKILL.md",
+            "references/guide.md",
+        ]
 
     async def test_restore_version_locks_skill_row(
         self,

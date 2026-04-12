@@ -2518,8 +2518,8 @@ export type CursorPaginatedResponse_SkillRead_ = {
   total_estimate?: number | null
 }
 
-export type CursorPaginatedResponse_SkillVersionRead_ = {
-  items: Array<SkillVersionRead>
+export type CursorPaginatedResponse_SkillVersionReadMinimal_ = {
+  items: Array<SkillVersionReadMinimal>
   /**
    * Cursor for next page
    */
@@ -5760,6 +5760,23 @@ export type SkillVersionRead = {
   created_at: string
   updated_at: string
   files?: Array<SkillFileEntry>
+}
+
+/**
+ * Summary response model for published skill versions in list endpoints.
+ */
+export type SkillVersionReadMinimal = {
+  id: string
+  skill_id: string
+  workspace_id: string
+  version: number
+  manifest_sha256: string
+  file_count: number
+  total_size_bytes: number
+  title?: string | null
+  description?: string | null
+  created_at: string
+  updated_at: string
 }
 
 /**
@@ -9405,7 +9422,7 @@ export type AgentSkillsListSkillVersionsData = {
 }
 
 export type AgentSkillsListSkillVersionsResponse =
-  CursorPaginatedResponse_SkillVersionRead_
+  CursorPaginatedResponse_SkillVersionReadMinimal_
 
 export type AgentSkillsGetSkillVersionData = {
   skillId: string
@@ -13439,7 +13456,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: CursorPaginatedResponse_SkillVersionRead_
+        200: CursorPaginatedResponse_SkillVersionReadMinimal_
         /**
          * Validation Error
          */

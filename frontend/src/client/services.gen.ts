@@ -4779,7 +4779,7 @@ export const agentSkillsPublishSkill = (
  * @param data.limit
  * @param data.cursor
  * @param data.reverse
- * @returns CursorPaginatedResponse_SkillVersionRead_ Successful Response
+ * @returns CursorPaginatedResponse_SkillVersionReadMinimal_ Successful Response
  * @throws ApiError
  */
 export const agentSkillsListSkillVersions = (

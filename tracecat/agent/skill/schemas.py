@@ -200,3 +200,21 @@ class SkillVersionRead(Schema):
     files: list[SkillFileEntry] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SkillVersionReadMinimal(Schema):
+    """Summary response model for published skill versions in list endpoints."""
+
+    id: uuid.UUID
+    skill_id: uuid.UUID
+    workspace_id: WorkspaceID
+    version: int
+    manifest_sha256: str
+    file_count: int
+    total_size_bytes: int
+    title: str | None = Field(default=None)
+    description: str | None = Field(default=None)
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
