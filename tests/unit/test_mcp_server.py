@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import re
 import sys
 import uuid
 from collections.abc import Callable, Coroutine
@@ -1479,6 +1480,87 @@ async def test_edit_workflow_rejects_unknown_nested_fields(monkeypatch):
             workflow_id=str(workflow_id),
             base_revision=base_revision,
             patch_ops=[{"op": "add", "path": "/definition/config/foo", "value": "bar"}],
+            validate_only=True,
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("patch_ops", "expected_path"),
+    [
+        (
+            [
+                {
+                    "op": "replace",
+                    "path": "/definition/config",
+                    "value": {"scheduler": "static"},
+                }
+            ],
+            "/definition/config/scheduler",
+        ),
+        (
+            [
+                {
+                    "op": "replace",
+                    "path": "/definition/actions",
+                    "value": [
+                        {
+                            "id": "00000000-0000-0000-0000-000000000000",
+                            "ref": "step_a",
+                            "action": "core.noop",
+                            "args": {},
+                            "depends_on": [],
+                        }
+                    ],
+                }
+            ],
+            "/definition/actions/0/id",
+        ),
+    ],
+)
+async def test_edit_workflow_rejects_excluded_nested_fields_in_parent_replace(
+    monkeypatch,
+    patch_ops,
+    expected_path,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(id=workflow_id)
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+
+    with pytest.raises(
+        ToolError,
+        match=re.escape(
+            f"Patch path '{expected_path}' is not editable via edit_workflow"
+        ),
+    ):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=patch_ops,
             validate_only=True,
         )
 
