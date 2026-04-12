@@ -155,6 +155,26 @@ def _schedule_stub(**overrides: Any) -> SimpleNamespace:
     return SimpleNamespace(**data)
 
 
+def _action_stub(**overrides: Any) -> SimpleNamespace:
+    data: dict[str, Any] = {
+        "id": uuid.uuid4(),
+        "ref": "step_a",
+        "type": "core.noop",
+        "title": "Step A",
+        "description": "",
+        "status": "offline",
+        "inputs": "{}",
+        "control_flow": {},
+        "is_interactive": False,
+        "interaction": None,
+        "upstream_edges": [],
+        "position_x": 0.0,
+        "position_y": 0.0,
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
+
+
 @pytest.mark.anyio
 async def test_resolve_workspace_role_rejects_invalid_workspace_id():
     with pytest.raises(ToolError, match="Invalid workspace ID"):
@@ -948,6 +968,80 @@ async def test_edit_workflow_validate_only_does_not_persist(monkeypatch):
     assert payload["valid"] is True
     assert payload["validate_only"] is True
     assert workflow.title == "Example workflow"
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_updates_metadata_with_disconnected_layout_actions(
+    monkeypatch,
+):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    trigger_id = f"trigger-{workflow_id}"
+    connected_action = _action_stub(
+        ref="step_a",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+        position_x=10.0,
+        position_y=20.0,
+    )
+    disconnected_action = _action_stub(
+        ref="step_orphan",
+        position_x=30.0,
+        position_y=40.0,
+    )
+    workflow = _workflow_stub(
+        id=workflow_id,
+        actions=[disconnected_action, connected_action],
+    )
+
+    class _FakeSession:
+        def add(self, obj):
+            _ = obj
+
+        async def commit(self):
+            return None
+
+        async def refresh(self, obj, attrs=None):
+            _ = obj, attrs
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = _FakeSession()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/metadata/title",
+                    "value": "Updated disconnected flow",
+                }
+            ],
+        )
+    )
+
+    assert payload["message"] == f"Workflow {workflow_id} updated successfully"
+    assert workflow.title == "Updated disconnected flow"
 
 
 @pytest.mark.anyio
