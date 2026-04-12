@@ -148,14 +148,19 @@ export function CaseItem({
         const fieldId = columnId.slice("field:".length)
         const value = caseData.field_values?.[fieldId]
         if (value != null) {
-          const label =
-            typeof value === "boolean"
-              ? value
-                ? "Yes"
-                : "No"
-              : typeof value === "number"
-                ? String(parseFloat(value.toFixed(2)))
-                : String(value)
+          let label: string
+          if (typeof value === "boolean") {
+            label = value ? "Yes" : "No"
+          } else if (typeof value === "number") {
+            label = String(parseFloat(value.toFixed(2)))
+          } else if (typeof value === "object") {
+            // URL-kind fields store {url, label}; JSONB stores arbitrary objects
+            const obj = value as Record<string, unknown>
+            label =
+              typeof obj.label === "string" ? obj.label : JSON.stringify(value)
+          } else {
+            label = String(value)
+          }
           badges.push(
             <CaseColumnBadge
               key={columnId}

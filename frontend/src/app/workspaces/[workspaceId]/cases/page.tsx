@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
 import { CasesLayout } from "@/components/cases/cases-layout"
 import { useCaseColumnVisibility } from "@/hooks/use-case-column-visibility"
 import { useCases } from "@/hooks/use-cases"
@@ -31,8 +31,33 @@ export default function CasesPage() {
     caseAddonsEnabled
   )
 
-  const { visibleColumnIds, toggleColumn } =
-    useCaseColumnVisibility(workspaceId)
+  // Build stable set of known column IDs for the hook's cap enforcement.
+  // Keyed on definition arrays — only rebuilds when definitions actually change.
+  const knownColumnIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (caseAddonsEnabled && dropdownDefinitions) {
+      for (const d of dropdownDefinitions) ids.add(`dropdown:${d.ref}`)
+    }
+    if (caseFields) {
+      for (const f of caseFields) {
+        if (!f.reserved) ids.add(`field:${f.id}`)
+      }
+    }
+    if (caseAddonsEnabled && caseDurationDefinitions) {
+      for (const d of caseDurationDefinitions) ids.add(`duration:${d.id}`)
+    }
+    return ids
+  }, [
+    dropdownDefinitions,
+    caseFields,
+    caseDurationDefinitions,
+    caseAddonsEnabled,
+  ])
+
+  const { visibleColumnIds, toggleColumn } = useCaseColumnVisibility(
+    workspaceId,
+    knownColumnIds
+  )
 
   const includeFields = visibleColumnIds.some((id) => id.startsWith("field:"))
 

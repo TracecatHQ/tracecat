@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 const STORAGE_KEY = "cases-visible-columns:v1"
 const MAX_VISIBLE_COLUMNS = 4
@@ -49,23 +49,47 @@ export interface UseCaseColumnVisibilityResult {
   toggleColumn: (columnId: string) => void
 }
 
+/**
+ * @param knownColumnIds - Set of currently valid column IDs from loaded
+ *   definitions. Used to enforce the max-4 cap only on valid IDs so stale
+ *   persisted entries don't block new selections.
+ */
 export function useCaseColumnVisibility(
-  workspaceId: string
+  workspaceId: string,
+  knownColumnIds?: Set<string>
 ): UseCaseColumnVisibilityResult {
   const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>(() =>
     loadPersistedColumns(workspaceId)
   )
 
+  // Reload from localStorage when workspace changes
+  const prevWorkspaceId = useRef(workspaceId)
+  useEffect(() => {
+    if (prevWorkspaceId.current !== workspaceId) {
+      prevWorkspaceId.current = workspaceId
+      setVisibleColumnIds(loadPersistedColumns(workspaceId))
+    }
+  }, [workspaceId])
+
   useEffect(() => {
     persistColumns(workspaceId, visibleColumnIds)
   }, [workspaceId, visibleColumnIds])
+
+  // Ref so toggleColumn always sees the latest set without re-creating
+  const knownRef = useRef(knownColumnIds)
+  knownRef.current = knownColumnIds
 
   const toggleColumn = useCallback((columnId: string) => {
     setVisibleColumnIds((prev) => {
       if (prev.includes(columnId)) {
         return prev.filter((id) => id !== columnId)
       }
-      if (prev.length >= MAX_VISIBLE_COLUMNS) {
+      // Count only IDs that map to current definitions toward the cap
+      const known = knownRef.current
+      const validCount = known
+        ? prev.filter((id) => known.has(id)).length
+        : prev.length
+      if (validCount >= MAX_VISIBLE_COLUMNS) {
         return prev
       }
       return [...prev, columnId]
