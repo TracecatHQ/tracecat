@@ -1374,13 +1374,26 @@ class CaseFieldsService(CustomFieldsService):
     async def batch_get_fields(
         self, case_ids: list[uuid.UUID]
     ) -> dict[uuid.UUID, dict[str, Any]]:
-        """Batch-load custom field values for multiple cases."""
+        """Batch-load custom field values for multiple cases.
+
+        Uses reflected columns via the editor so that user-defined fields
+        (added at runtime) are included in the result.
+        """
         if not case_ids:
             return {}
         await self._ensure_schema_ready()
-        table = self._table_definition()
         conn = await self.session.connection()
-        stmt = sa.select(table).where(table.c.case_id.in_(case_ids))
+        reflected = await self.editor.get_columns()
+        col_clauses = [
+            sa.column(col["name"])
+            for col in reflected
+            if isinstance(col.get("name"), str)
+        ]
+        stmt = (
+            sa.select(*col_clauses)
+            .select_from(sa.table(self.sanitized_table_name, schema=self.schema_name))
+            .where(sa.column("case_id").in_(case_ids))
+        )
         result = await conn.execute(stmt)
         rows = result.mappings().all()
         reserved = self._reserved_columns
