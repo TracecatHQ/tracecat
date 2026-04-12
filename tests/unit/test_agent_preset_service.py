@@ -886,6 +886,79 @@ class TestAgentPresetService:
         assert len(restored_bindings) == 1
         assert restored_bindings[0].skill_version_id == skill_version_one.id
 
+    async def test_build_version_read_uses_pinned_skill_version_title(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Preset version reads should expose the title from the pinned skill version."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(slug="title-history-skill", title="Version One")
+        )
+        skill_version_one = await skill_service.publish_skill(created_skill.id)
+
+        draft = await skill_service.get_draft(created_skill.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created_skill.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=("---\ntitle: Version Two\n---\n\n# Version Two\n"),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        skill_version_two = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Pinned title preset",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version_one.id,
+                    )
+                ],
+            )
+        )
+        preset_version_one = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(
+                instructions="Bind the newer skill version",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version_two.id,
+                    )
+                ],
+            ),
+        )
+
+        version_read = await agent_preset_service.build_version_read(preset_version_one)
+        head_bindings = await agent_preset_service._list_head_skill_bindings(
+            created_preset.id
+        )
+
+        assert version_read.skills[0].skill_version_id == skill_version_one.id
+        assert version_read.skills[0].skill_title == "Version One"
+        assert head_bindings[0].skill_version_id == skill_version_two.id
+        assert head_bindings[0].skill_title == "Version Two"
+
     async def test_create_preset_locks_skill_bindings_during_validation(
         self,
         configure_minio_for_skills,
