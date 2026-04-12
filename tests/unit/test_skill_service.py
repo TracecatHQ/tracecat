@@ -717,6 +717,94 @@ class TestSkillService:
                 ),
             )
 
+    async def test_attach_uploaded_blob_deletes_staged_key_after_commit(
+        self,
+        skill_service: SkillService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Successful materialization should clean up the staged upload object."""
+
+        created = await skill_service.create_skill(SkillCreate(slug="cleanup-upload"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        content = b"cleanup payload"
+        sha256 = hashlib.sha256(content).hexdigest()
+        upload = await skill_service.create_draft_upload(
+            skill_id=created.id,
+            params=SkillUploadSessionCreate(
+                sha256=sha256,
+                size_bytes=len(content),
+                content_type="text/plain; charset=utf-8",
+            ),
+        )
+
+        deleted: dict[str, str] = {}
+
+        async def fake_file_exists(*, key: str, bucket: str) -> bool:
+            del key, bucket
+            return True
+
+        class FakeStream:
+            async def read(self) -> bytes:
+                return content
+
+            async def iter_chunks(self, *, chunk_size: int):
+                del chunk_size
+                yield content
+
+        @asynccontextmanager
+        async def fake_open_download_stream(*, key: str, bucket: str):
+            del key, bucket
+            yield FakeStream(), len(content)
+
+        async def fake_copy_file(
+            *,
+            source_key: str,
+            destination_key: str,
+            bucket: str,
+            content_type: str | None = None,
+        ) -> None:
+            del source_key, destination_key, bucket, content_type
+
+        async def fake_delete_file(*, key: str, bucket: str) -> None:
+            deleted["key"] = key
+            deleted["bucket"] = bucket
+
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.file_exists", fake_file_exists
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.open_download_stream",
+            fake_open_download_stream,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.copy_file",
+            fake_copy_file,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.skill.service.blob.delete_file",
+            fake_delete_file,
+        )
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftAttachUploadedBlobOp(
+                        path="references/uploaded.txt",
+                        upload_id=upload.upload_id,
+                    )
+                ],
+            ),
+        )
+
+        assert deleted == {
+            "key": upload.key,
+            "bucket": config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+        }
+
     async def test_publish_requires_root_skill_md(
         self,
         skill_service: SkillService,

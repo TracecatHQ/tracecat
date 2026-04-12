@@ -1043,6 +1043,7 @@ class SkillService(BaseWorkspaceService):
             )
             for draft_file, blob_row in current_rows
         }
+        staged_upload_objects_to_delete: set[tuple[str, str]] = set()
         for operation in params.operations:
             match operation:
                 case SkillDraftUpsertTextFileOp():
@@ -1070,16 +1071,31 @@ class SkillService(BaseWorkspaceService):
                             f"Skill upload '{operation.upload_id}' not found",
                             detail={"code": "upload_not_found"},
                         )
+                    should_delete_staged_object = upload.completed_at is None and (
+                        upload.key != self._storage_key_for(upload.sha256)
+                    )
                     path_to_blob[normalized_path] = SkillFileBlobRef(
                         blob=await self._materialize_uploaded_blob(upload),
                         content_type=upload.content_type,
                     )
+                    if should_delete_staged_object:
+                        staged_upload_objects_to_delete.add((upload.key, upload.bucket))
                 case SkillDraftDeleteFileOp():
                     normalized_path = self._normalize_path(operation.path)
                     path_to_blob.pop(normalized_path, None)
 
         await self._replace_draft_with_blob_map(skill=skill, path_to_blob=path_to_blob)
         await self.session.commit()
+        for staged_key, staged_bucket in staged_upload_objects_to_delete:
+            try:
+                await blob.delete_file(key=staged_key, bucket=staged_bucket)
+            except Exception as exc:
+                self.logger.warning(
+                    "Failed to delete staged skill upload after materialization",
+                    key=staged_key,
+                    bucket=staged_bucket,
+                    error=str(exc),
+                )
         return await self._build_draft_read(skill)
 
     @require_scope("agent:update")
