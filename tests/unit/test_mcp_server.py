@@ -715,6 +715,80 @@ def test_build_workflow_edit_document_sorts_schedules_by_canonical_content() -> 
 
 
 @pytest.mark.anyio
+async def test_replace_workflow_definition_from_dsl_uses_existing_workflow() -> None:
+    workflow_id = uuid.uuid4()
+    workflow = _workflow_stub(
+        id=workflow_id,
+        title="Original workflow",
+        description="Original description",
+        entrypoint="start",
+        expects={},
+        config={},
+        returns=None,
+        actions=[],
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    updated_payload["metadata"]["title"] = "Updated workflow"
+    updated_payload["definition"]["entrypoint"]["ref"] = "trigger"
+    updated_payload["definition"]["actions"] = [
+        {
+            "ref": "step_a",
+            "action": "core.noop",
+            "args": {},
+            "depends_on": [],
+            "description": "",
+        }
+    ]
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+    dsl = mcp_server._workflow_edit_document_to_dsl(updated_document)
+
+    captured: dict[str, Any] = {}
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            _ = obj
+
+        async def execute(self, stmt: Any) -> None:
+            _ = stmt
+
+        async def flush(self) -> None:
+            return None
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
+    async def _create_actions_from_dsl(
+        dsl_arg: Any,
+        wf_id: Any,
+        action_positions: dict[str, tuple[float, float]] | None = None,
+    ) -> None:
+        captured["dsl"] = dsl_arg
+        captured["workflow_id"] = wf_id
+        captured["action_positions"] = action_positions
+
+    service = SimpleNamespace(
+        session=_FakeSession(),
+        workspace_id=uuid.uuid4(),
+        create_actions_from_dsl=_create_actions_from_dsl,
+    )
+    await mcp_server._replace_workflow_definition_from_dsl(
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        dsl=dsl,
+        action_positions={"step_a": (10.0, 20.0)},
+    )
+
+    assert workflow.title == "Updated workflow"
+    assert workflow.entrypoint == "trigger"
+    assert captured["workflow_id"] == workflow_id
+    assert captured["action_positions"] == {"step_a": (10.0, 20.0)}
+
+
+@pytest.mark.anyio
 async def test_edit_workflow_updates_metadata(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
@@ -993,7 +1067,7 @@ async def test_persist_workflow_edit_document_applies_metadata_with_definition_c
         updated_document=updated_document,
     )
 
-    assert captured["workflow_id"] == mcp_server.WorkflowUUID.new(workflow.id)
+    assert captured["workflow"] is workflow
     assert workflow.status == "online"
     assert workflow.alias == "new-alias"
 

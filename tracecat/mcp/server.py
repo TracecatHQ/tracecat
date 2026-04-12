@@ -983,7 +983,7 @@ async def _persist_workflow_edit_document(
         if updated_document.definition.actions:
             await _replace_workflow_definition_from_dsl(
                 service=service,
-                workflow_id=workflow_id,
+                workflow=workflow,
                 dsl=_workflow_edit_document_to_dsl(updated_document),
                 action_positions=action_positions,
             )
@@ -1663,15 +1663,11 @@ def _auto_generate_layout(
 
 async def _replace_workflow_definition_from_dsl(
     service: WorkflowsManagementService,
-    workflow_id: WorkflowUUID,
+    workflow: Workflow,
     dsl: DSLInput,
     action_positions: dict[str, tuple[float, float]] | None = None,
 ) -> None:
     """Replace draft workflow definition from DSL (actions + metadata)."""
-    workflow = await service.get_workflow(workflow_id)
-    if workflow is None:
-        raise ToolError(f"Workflow {workflow_id} not found")
-
     workflow.title = dsl.title
     workflow.description = dsl.description
     workflow.entrypoint = dsl.entrypoint.ref
@@ -1953,7 +1949,7 @@ async def _apply_workflow_yaml_update(
     if yaml_payload is not None and yaml_payload.definition is not None:
         await _replace_workflow_definition_from_dsl(
             service=service,
-            workflow_id=workflow_id,
+            workflow=workflow,
             dsl=yaml_payload.definition,
             action_positions=update_action_positions,
         )
