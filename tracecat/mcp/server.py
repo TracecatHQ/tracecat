@@ -14,7 +14,7 @@ import json
 import re
 import uuid
 from collections import defaultdict, deque
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from io import StringIO
@@ -944,6 +944,13 @@ def _decode_patch_path(path: str) -> tuple[str, ...]:
     )
 
 
+def _encode_patch_path(tokens: tuple[str, ...]) -> str:
+    """Encode path tokens into a JSON pointer."""
+    return "/" + "/".join(
+        token.replace("~", "~0").replace("/", "~1") for token in tokens
+    )
+
+
 def _patch_path_matches_pattern(path: str, pattern: tuple[str, ...]) -> bool:
     """Check whether a decoded patch path matches a non-editable pattern."""
     tokens = _decode_patch_path(path)
@@ -953,6 +960,59 @@ def _patch_path_matches_pattern(path: str, pattern: tuple[str, ...]) -> bool:
         expected in {"*", actual}
         for actual, expected in zip(tokens, pattern, strict=False)
     )
+
+
+def _iter_noneditable_payload_paths(
+    payload: Any,
+    pattern: tuple[str, ...],
+    *,
+    prefix: tuple[str, ...] = (),
+) -> Iterator[tuple[str, ...]]:
+    """Yield matching non-editable JSON pointer token paths present in a payload."""
+    if not pattern:
+        yield prefix
+        return
+
+    token, *rest = pattern
+    if isinstance(payload, dict):
+        if token == "*":
+            for key, value in payload.items():
+                yield from _iter_noneditable_payload_paths(
+                    value,
+                    tuple(rest),
+                    prefix=prefix + (str(key),),
+                )
+        elif token in payload:
+            yield from _iter_noneditable_payload_paths(
+                payload[token],
+                tuple(rest),
+                prefix=prefix + (token,),
+            )
+    elif isinstance(payload, list):
+        if token == "*":
+            for index, value in enumerate(payload):
+                yield from _iter_noneditable_payload_paths(
+                    value,
+                    tuple(rest),
+                    prefix=prefix + (str(index),),
+                )
+        elif token.isdigit():
+            index = int(token)
+            if 0 <= index < len(payload):
+                yield from _iter_noneditable_payload_paths(
+                    payload[index],
+                    tuple(rest),
+                    prefix=prefix + (token,),
+                )
+
+
+def _validate_workflow_patch_payload(payload: dict[str, Any]) -> None:
+    """Reject patched payloads that still contain non-editable nested fields."""
+    for pattern in _WORKFLOW_NONEDITABLE_PATH_PATTERNS:
+        if found_path := next(_iter_noneditable_payload_paths(payload, pattern), None):
+            raise ToolError(
+                f"Patch path '{_encode_patch_path(found_path)}' is not editable via edit_workflow"
+            )
 
 
 def _validate_workflow_patch_paths(patch_ops: list[JsonPatchOperation]) -> None:
@@ -3422,6 +3482,7 @@ async def edit_workflow(
                 document=_workflow_edit_document_payload(draft_document),
                 patch_ops=request.patch_ops,
             )
+            _validate_workflow_patch_payload(patched_payload)
 
             updated_document = WorkflowEditDocument.model_validate(patched_payload)
             _validate_workflow_edit_document(
