@@ -44,7 +44,7 @@ function normalizeVisibleColumnIds(
     }
     normalized.push(columnId)
     seen.add(columnId)
-    if (normalized.length >= MAX_VISIBLE_COLUMNS) {
+    if (knownColumnIds && normalized.length >= MAX_VISIBLE_COLUMNS) {
       break
     }
   }
