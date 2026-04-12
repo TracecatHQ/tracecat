@@ -1391,13 +1391,20 @@ class CaseFieldsService(CustomFieldsService):
             return {}
         await self._ensure_schema_ready()
 
-        available_fields = set(await self.get_field_schema())
+        # Validate requested fields against reflected columns so stale or missing
+        # schema metadata does not hide real columns.
+        available_fields = {
+            column_name
+            for column in await self.editor.get_columns()
+            if isinstance((column_name := column.get("name")), str)
+            and column_name not in self._reserved_columns
+        }
         requested_field_ids: list[str] = []
         for field_id in dict.fromkeys(field_ids):
             self._assert_user_field_name_allowed(field_id)
-            if field_id in self._reserved_columns:
-                raise ValueError(f"Field {field_id} is a reserved field")
             normalized_field_id = validate_identifier(field_id)
+            if normalized_field_id in self._reserved_columns:
+                raise ValueError(f"Field {field_id} is a reserved field")
             if normalized_field_id in available_fields:
                 requested_field_ids.append(normalized_field_id)
 

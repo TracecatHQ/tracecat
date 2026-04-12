@@ -8,6 +8,7 @@ import CasesPage from "@/app/workspaces/[workspaceId]/cases/page"
 const mockUseCaseColumnVisibility = jest.fn()
 const mockUseCases = jest.fn()
 
+let mockEntitlementsLoaded = true
 let mockCaseAddonsEnabled = true
 let mockDropdownDefinitions:
   | Array<{
@@ -34,6 +35,8 @@ jest.mock("@/hooks/use-entitlements", () => ({
   useEntitlements: () => ({
     hasEntitlement: (entitlement: string) =>
       entitlement === "case_addons" ? mockCaseAddonsEnabled : false,
+    hasEntitlementData: mockEntitlementsLoaded,
+    isLoading: !mockEntitlementsLoaded,
   }),
 }))
 
@@ -74,6 +77,7 @@ jest.mock("@/components/cases/cases-layout", () => ({
 describe("CasesPage", () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockEntitlementsLoaded = true
     mockCaseAddonsEnabled = true
     mockDropdownDefinitions = undefined
     mockCaseFields = undefined
@@ -120,7 +124,13 @@ describe("CasesPage", () => {
     })
   })
 
-  it("preserves stored columns until definitions resolve", () => {
+  it("preserves stored columns until entitlement data and definitions resolve", () => {
+    mockEntitlementsLoaded = false
+    mockCaseAddonsEnabled = false
+    mockCaseFields = [{ id: "priority_reason", reserved: false }]
+    mockDropdownDefinitions = [{ ref: "region" }]
+    mockCaseDurationDefinitions = [{ id: "duration-1" }]
+
     const { rerender } = render(<CasesPage />)
 
     expect(mockUseCaseColumnVisibility).toHaveBeenLastCalledWith(
@@ -128,9 +138,8 @@ describe("CasesPage", () => {
       undefined
     )
 
-    mockCaseFields = [{ id: "priority_reason", reserved: false }]
-    mockDropdownDefinitions = [{ ref: "region" }]
-    mockCaseDurationDefinitions = [{ id: "duration-1" }]
+    mockEntitlementsLoaded = true
+    mockCaseAddonsEnabled = true
 
     rerender(<CasesPage />)
 

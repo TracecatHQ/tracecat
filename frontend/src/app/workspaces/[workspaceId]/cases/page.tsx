@@ -16,7 +16,7 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function CasesPage() {
   const workspaceId = useWorkspaceId()
-  const { hasEntitlement } = useEntitlements()
+  const { hasEntitlement, hasEntitlementData } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")
 
   const { members } = useWorkspaceMembers(workspaceId)
@@ -31,9 +31,12 @@ export default function CasesPage() {
     caseAddonsEnabled
   )
 
-  // Avoid pruning persisted selections until the relevant definitions have
-  // resolved; an empty Set during loading would erase stored choices.
+  // Avoid pruning persisted selections until entitlement and field metadata
+  // have both resolved; a partial Set during loading would erase stored choices.
   const knownColumnIds = useMemo<Set<string> | undefined>(() => {
+    if (!hasEntitlementData) {
+      return undefined
+    }
     if (caseFields === undefined) {
       return undefined
     }
@@ -58,6 +61,7 @@ export default function CasesPage() {
     }
     return ids
   }, [
+    hasEntitlementData,
     dropdownDefinitions,
     caseFields,
     caseDurationDefinitions,

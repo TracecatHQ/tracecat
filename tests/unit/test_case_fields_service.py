@@ -376,6 +376,54 @@ class TestCaseFieldsService:
 
         assert fields_by_case == {test_case.id: {"custom_field2": 123}}
 
+    async def test_batch_get_fields_uses_reflected_columns_when_schema_missing(
+        self,
+        case_fields_service: CaseFieldsService,
+        test_case: Case,
+    ) -> None:
+        """Reflected columns should keep hydration working when schema metadata is stale."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_field1", type=SqlType.TEXT)
+        )
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_field2", type=SqlType.INTEGER)
+        )
+        await case_fields_service.upsert_field_values(
+            test_case,
+            {"custom_field1": "alpha", "custom_field2": 123},
+        )
+
+        reflected_columns = [
+            {
+                "name": "custom_field1",
+                "type": sa.types.String(),
+                "nullable": True,
+                "default": None,
+                "comment": None,
+            },
+            {
+                "name": "custom_field2",
+                "type": sa.types.Integer(),
+                "nullable": True,
+                "default": None,
+                "comment": None,
+            },
+        ]
+
+        with (
+            patch.object(case_fields_service, "get_field_schema", return_value={}),
+            patch.object(
+                case_fields_service.editor,
+                "get_columns",
+                return_value=reflected_columns,
+            ),
+        ):
+            fields_by_case = await case_fields_service.batch_get_fields(
+                [test_case.id], ["custom_field2"]
+            )
+
+        assert fields_by_case == {test_case.id: {"custom_field2": 123}}
+
     async def test_batch_get_fields_rejects_reserved_field_ids(
         self,
         case_fields_service: CaseFieldsService,
@@ -384,6 +432,9 @@ class TestCaseFieldsService:
         """Reserved case-field columns should not be selectable for hydration."""
         with pytest.raises(ValueError, match="reserved field"):
             await case_fields_service.batch_get_fields([test_case.id], ["case_id"])
+
+        with pytest.raises(ValueError, match="reserved field"):
+            await case_fields_service.batch_get_fields([test_case.id], ["CASE_ID"])
 
     async def test_batch_get_fields_rejects_internal_field_ids(
         self,
