@@ -350,6 +350,44 @@ async def upload_file(
         raise
 
 
+async def copy_file(
+    *,
+    source_key: str,
+    destination_key: str,
+    bucket: str,
+    content_type: str | None = None,
+) -> None:
+    """Copy an object within a bucket without routing bytes through the app."""
+
+    try:
+        async with get_storage_client() as s3_client:
+            kwargs = {
+                "Bucket": bucket,
+                "Key": destination_key,
+                "CopySource": {"Bucket": bucket, "Key": source_key},
+            }
+            if content_type:
+                kwargs["ContentType"] = content_type
+                kwargs["MetadataDirective"] = "REPLACE"
+
+            await s3_client.copy_object(**kwargs)
+            logger.info(
+                "File copied successfully",
+                source_key=source_key,
+                destination_key=destination_key,
+                bucket=bucket,
+            )
+    except ClientError as e:
+        logger.error(
+            "Failed to copy file",
+            source_key=source_key,
+            destination_key=destination_key,
+            bucket=bucket,
+            error=str(e),
+        )
+        raise
+
+
 async def download_file(key: str, bucket: str) -> bytes:
     """Download a file from S3.
 

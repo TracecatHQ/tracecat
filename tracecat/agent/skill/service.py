@@ -392,9 +392,20 @@ class SkillService(BaseWorkspaceService):
                 detail={"code": "upload_missing", "upload_id": str(upload.id)},
             )
 
-        content = await blob.download_file(key=upload.key, bucket=upload.bucket)
-        actual_size_bytes = len(content)
-        actual_sha256 = self._compute_sha256(content)
+        actual_size_bytes = 0
+        hasher = hashlib.sha256()
+        async with blob.open_download_stream(
+            key=upload.key,
+            bucket=upload.bucket,
+        ) as (stream, _content_length):
+            async for chunk in stream.iter_chunks(
+                chunk_size=blob.DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES
+            ):
+                if not chunk:
+                    continue
+                actual_size_bytes += len(chunk)
+                hasher.update(chunk)
+        actual_sha256 = hasher.hexdigest()
         if actual_sha256 != upload.sha256:
             raise TracecatValidationError(
                 "Uploaded blob SHA-256 mismatch",
@@ -416,9 +427,9 @@ class SkillService(BaseWorkspaceService):
         if blob_row is None:
             canonical_key = self._storage_key_for(upload.sha256)
             if upload.key != canonical_key:
-                await blob.upload_file(
-                    content=content,
-                    key=canonical_key,
+                await blob.copy_file(
+                    source_key=upload.key,
+                    destination_key=canonical_key,
                     bucket=upload.bucket,
                     content_type="application/octet-stream",
                 )
