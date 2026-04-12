@@ -3285,8 +3285,7 @@ class SkillBlob(WorkspaceModel):
         UniqueConstraint(
             "workspace_id",
             "sha256",
-            "content_type",
-            name="uq_skill_blob_workspace_sha256_content_type",
+            name="uq_skill_blob_workspace_sha256",
         ),
     )
 
@@ -3301,7 +3300,7 @@ class SkillBlob(WorkspaceModel):
         String(64),
         nullable=False,
         index=True,
-        doc="SHA256 hash for blob deduplication within one MIME type",
+        doc="SHA256 hash for blob deduplication within a workspace",
     )
     bucket: Mapped[str] = mapped_column(
         String(255),
@@ -3317,11 +3316,6 @@ class SkillBlob(WorkspaceModel):
         Integer,
         nullable=False,
         doc="Blob size in bytes",
-    )
-    content_type: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        doc="Blob MIME type",
     )
 
     workspace: Mapped[Workspace] = relationship(back_populates="skill_blobs")
@@ -3448,6 +3442,11 @@ class SkillDraftFile(WorkspaceModel):
         nullable=False,
         index=True,
     )
+    content_type: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="MIME type to use when serving this draft file",
+    )
 
     skill: Mapped[Skill] = relationship(back_populates="draft_files")
     blob: Mapped[SkillBlob] = relationship(back_populates="draft_files")
@@ -3568,6 +3567,11 @@ class SkillVersionFile(WorkspaceModel):
         ForeignKey("skill_blob.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
+    )
+    content_type: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="MIME type to use when serving this published file",
     )
 
     skill_version: Mapped[SkillVersion] = relationship(back_populates="files")

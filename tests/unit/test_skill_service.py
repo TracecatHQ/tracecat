@@ -132,23 +132,20 @@ class TestSkillService:
         """Concurrent blob inserts should reuse the canonical row on conflict."""
 
         content = b"shared blob content"
-        content_type = "text/plain; charset=utf-8"
         sha256 = hashlib.sha256(content).hexdigest()
-        storage_key = skill_service._storage_key_for(sha256, content_type)
+        storage_key = skill_service._storage_key_for(sha256)
 
         original = await skill_service._insert_blob_row(
             sha256=sha256,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
             size_bytes=len(content),
-            content_type=content_type,
         )
         reused = await skill_service._insert_blob_row(
             sha256=sha256,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
             size_bytes=len(content),
-            content_type=content_type,
         )
         blob_rows = (
             (
@@ -156,7 +153,6 @@ class TestSkillService:
                     select(SkillBlob).where(
                         SkillBlob.workspace_id == skill_service.workspace_id,
                         SkillBlob.sha256 == sha256,
-                        SkillBlob.content_type == content_type,
                     )
                 )
             )
@@ -247,11 +243,11 @@ class TestSkillService:
                 )
             )
 
-    async def test_upload_skill_preserves_distinct_blob_content_types(
+    async def test_upload_skill_reuses_blob_across_distinct_file_content_types(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Same bytes can back separate skill blobs when MIME types differ."""
+        """Same bytes should deduplicate even when file MIME types differ."""
 
         shared_bytes = b"shared payload"
         encoded = base64.b64encode(shared_bytes).decode()
@@ -307,11 +303,8 @@ class TestSkillService:
         assert payload_file is not None
         assert payload_file.kind == "download"
         assert payload_file.content_type == "application/octet-stream"
-        assert len({blob_row.key for blob_row in blob_rows}) == 2
-        assert sorted(blob_row.content_type for blob_row in blob_rows) == [
-            "application/octet-stream",
-            "text/plain; charset=utf-8",
-        ]
+        assert len(blob_rows) == 1
+        assert blob_rows[0].key == skill_service._storage_key_for(sha256)
 
     async def test_create_skill_translates_slug_integrity_error(
         self,
@@ -347,10 +340,8 @@ class TestSkillService:
         seed_blob = await skill_service.get_blob(seed_blob_id)
         assert seed_blob is not None
 
-        async def fake_get_or_create_blob(
-            *, content: bytes, content_type: str
-        ) -> SkillBlob:
-            del content, content_type
+        async def fake_get_or_create_blob(*, content: bytes) -> SkillBlob:
+            del content
             return seed_blob
 
         async def fail_flush() -> None:
@@ -594,9 +585,7 @@ class TestSkillService:
             ),
         )
 
-        canonical_key = skill_service._storage_key_for(
-            sha256, "text/plain; charset=utf-8"
-        )
+        canonical_key = skill_service._storage_key_for(sha256)
         assert upload.key != canonical_key
         assert "/uploads/" in upload.key
 

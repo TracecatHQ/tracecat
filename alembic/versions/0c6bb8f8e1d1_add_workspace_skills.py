@@ -71,7 +71,6 @@ def upgrade() -> None:
         sa.Column("bucket", sa.String(length=255), nullable=False),
         sa.Column("key", sa.String(length=1024), nullable=False),
         sa.Column("size_bytes", sa.Integer(), nullable=False),
-        sa.Column("content_type", sa.String(length=255), nullable=False),
         sa.Column("workspace_id", sa.UUID(), nullable=False),
         sa.Column("surrogate_id", sa.Integer(), sa.Identity(), nullable=False),
         sa.Column(
@@ -96,8 +95,7 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "workspace_id",
             "sha256",
-            "content_type",
-            name="uq_skill_blob_workspace_sha256_content_type",
+            name="uq_skill_blob_workspace_sha256",
         ),
     )
     op.create_index(op.f("ix_skill_blob_id"), "skill_blob", ["id"], unique=True)
@@ -221,6 +219,7 @@ def upgrade() -> None:
         sa.Column("skill_id", sa.UUID(), nullable=False),
         sa.Column("path", sa.String(length=1024), nullable=False),
         sa.Column("blob_id", sa.UUID(), nullable=False),
+        sa.Column("content_type", sa.String(length=255), nullable=False),
         sa.Column("workspace_id", sa.UUID(), nullable=False),
         sa.Column("surrogate_id", sa.Integer(), sa.Identity(), nullable=False),
         sa.Column(
@@ -283,6 +282,7 @@ def upgrade() -> None:
         sa.Column("skill_version_id", sa.UUID(), nullable=False),
         sa.Column("path", sa.String(length=1024), nullable=False),
         sa.Column("blob_id", sa.UUID(), nullable=False),
+        sa.Column("content_type", sa.String(length=255), nullable=False),
         sa.Column("workspace_id", sa.UUID(), nullable=False),
         sa.Column("surrogate_id", sa.Integer(), sa.Identity(), nullable=False),
         sa.Column(
