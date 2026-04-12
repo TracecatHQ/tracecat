@@ -1092,10 +1092,17 @@ async def _persist_workflow_edit_document(
 
     if "layout" in changed_sections:
         await service.session.refresh(workflow, ["actions"])
+        allowed_missing_layout_action_refs = {
+            layout_action.ref
+            for layout_action in original_document.layout.actions
+            if layout_action.ref
+            not in {action.ref for action in updated_document.definition.actions}
+        }
         _apply_layout_to_workflow(
             workflow=workflow,
             layout=MCPWorkflowLayout.model_validate(layout_payload),
             clear_missing=True,
+            allowed_missing_action_refs=allowed_missing_layout_action_refs,
         )
         service.session.add(workflow)
         for action in workflow.actions:
@@ -1801,6 +1808,7 @@ def _apply_layout_to_workflow(
     workflow: Any,
     layout: MCPWorkflowLayout,
     clear_missing: bool = False,
+    allowed_missing_action_refs: set[str] | None = None,
 ) -> None:
     """Apply optional trigger/action/viewport layout updates to a workflow."""
     if layout.trigger is not None:
@@ -1839,6 +1847,11 @@ def _apply_layout_to_workflow(
     for action_position in layout.actions:
         action = action_by_ref.get(action_position.ref)
         if action is None:
+            if (
+                allowed_missing_action_refs is not None
+                and action_position.ref in allowed_missing_action_refs
+            ):
+                continue
             raise ToolError(
                 f"Unknown action ref {action_position.ref!r} in layout.actions"
             )

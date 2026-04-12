@@ -1099,6 +1099,69 @@ async def test_edit_workflow_updates_metadata_with_disconnected_layout_actions(
 
 
 @pytest.mark.anyio
+async def test_persist_workflow_edit_document_ignores_stale_layout_refs_after_definition_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_id = uuid.uuid4()
+    trigger_id = f"trigger-{workflow_id}"
+    connected_action = _action_stub(
+        ref="step_a",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+        position_x=10.0,
+        position_y=20.0,
+    )
+    orphan_action = _action_stub(
+        ref="step_orphan",
+        position_x=30.0,
+        position_y=40.0,
+    )
+    workflow = _workflow_stub(
+        id=workflow_id,
+        trigger_position_x=1.0,
+        trigger_position_y=2.0,
+        actions=[orphan_action, connected_action],
+    )
+    original_document = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow)
+    )
+    updated_payload = mcp_server._workflow_edit_document_payload(original_document)
+    updated_payload["definition"]["returns"] = {"status": "ok"}
+    updated_payload["layout"]["trigger"]["x"] = 99.0
+    updated_document = mcp_server.WorkflowEditDocument.model_validate(updated_payload)
+
+    class _FakeSession:
+        def add(self, obj: Any) -> None:
+            _ = obj
+
+        async def refresh(self, obj: Any, attrs: list[str] | None = None) -> None:
+            _ = obj, attrs
+
+        async def commit(self) -> None:
+            return None
+
+    async def _replace_definition_from_dsl(**kwargs: Any) -> None:
+        kwargs["workflow"].actions = [connected_action]
+
+    monkeypatch.setattr(
+        mcp_server,
+        "_replace_workflow_definition_from_dsl",
+        _replace_definition_from_dsl,
+    )
+
+    service = SimpleNamespace(session=_FakeSession(), workspace_id=uuid.uuid4())
+    await mcp_server._persist_workflow_edit_document(
+        role=SimpleNamespace(),
+        service=cast(Any, service),
+        workflow=cast(Any, workflow),
+        original_document=original_document,
+        updated_document=updated_document,
+    )
+
+    assert workflow.trigger_position_x == 99.0
+    assert workflow.actions == [connected_action]
+
+
+@pytest.mark.anyio
 async def test_edit_workflow_validate_only_canonicalizes_draft_revision(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
