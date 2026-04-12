@@ -22,7 +22,8 @@ export default function CasesPage() {
   const { visibleColumnIds, toggleColumn } =
     useCaseColumnVisibility(workspaceId)
 
-  const includeFields = visibleColumnIds.some((id) => id.startsWith("field:"))
+  const includeFields =
+    caseAddonsEnabled && visibleColumnIds.some((id) => id.startsWith("field:"))
 
   const {
     cases,
