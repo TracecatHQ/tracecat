@@ -26,6 +26,7 @@ from tracecat.agent.preset.schemas import (
     StringListFieldChange,
     ToolApprovalFieldChange,
 )
+from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import (
     AgentConfig,
@@ -1088,16 +1089,17 @@ class AgentPresetService(BaseWorkspaceService):
     @staticmethod
     def _binding_specs_from_inputs(
         bindings: Sequence[AgentPresetSkillBindingBase],
-    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    ) -> list[SkillBindingSpec]:
         """Normalize mutable head skill bindings for equality checks."""
 
         return sorted(
-            (binding.skill_id, binding.skill_version_id) for binding in bindings
+            SkillBindingSpec(binding.skill_id, binding.skill_version_id)
+            for binding in bindings
         )
 
     async def _get_head_skill_binding_specs(
         self, preset_id: uuid.UUID
-    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    ) -> list[SkillBindingSpec]:
         """Return the current head bindings for a preset."""
 
         stmt = select(
@@ -1109,7 +1111,8 @@ class AgentPresetService(BaseWorkspaceService):
         )
         rows = (await self.session.execute(stmt)).tuples().all()
         return sorted(
-            (skill_id, skill_version_id) for skill_id, skill_version_id in rows
+            SkillBindingSpec(skill_id, skill_version_id)
+            for skill_id, skill_version_id in rows
         )
 
     async def _replace_head_skill_bindings(
