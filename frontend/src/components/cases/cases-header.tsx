@@ -607,13 +607,22 @@ export function CasesHeader({
           />
         </div>
 
-        {(displayCaseCount ?? totalCaseCount) > 0 && (
-          <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2">
+          {onToggleColumn && visibleColumnIds && (
+            <CaseColumnPicker
+              dropdownDefinitions={dropdownDefinitions}
+              fieldDefinitions={fieldDefinitions}
+              durationDefinitions={durationDefinitions}
+              visibleColumnIds={visibleColumnIds}
+              onToggle={onToggleColumn}
+            />
+          )}
+          {(displayCaseCount ?? totalCaseCount) > 0 && (
             <span className="text-xs text-muted-foreground">
               {displayCaseCount ?? totalCaseCount} cases
             </span>
-          </div>
-        )}
+          )}
+        </div>
       </header>
 
       {/* Row 2: Filter dropdowns */}
@@ -805,16 +814,6 @@ export function CasesHeader({
         />
 
         <CaseSortSelect value={sortBy} onChange={onSortByChange} />
-
-        {onToggleColumn && visibleColumnIds && (
-          <CaseColumnPicker
-            dropdownDefinitions={dropdownDefinitions}
-            fieldDefinitions={fieldDefinitions}
-            durationDefinitions={durationDefinitions}
-            visibleColumnIds={visibleColumnIds}
-            onToggle={onToggleColumn}
-          />
-        )}
 
         {hasFilters && (
           <button

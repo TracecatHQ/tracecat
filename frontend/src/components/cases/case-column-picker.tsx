@@ -131,7 +131,7 @@ export function CaseColumnPicker({
           )}
         >
           <SlidersHorizontalIcon className="size-3.5 text-muted-foreground" />
-          <span>Columns</span>
+          <span>Display</span>
           {selectedCount > 0 && (
             <span className="ml-0.5 text-[10px] font-medium text-muted-foreground">
               {selectedCount}
