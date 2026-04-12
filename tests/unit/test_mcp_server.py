@@ -1010,6 +1010,65 @@ async def test_edit_workflow_rejects_forbidden_paths(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_edit_workflow_rejects_unknown_nested_fields(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = SimpleNamespace(
+        id=workflow_id,
+        title="Example workflow",
+        description="Example description",
+        status="offline",
+        version=None,
+        alias=None,
+        entrypoint=None,
+        error_handler=None,
+        expects={},
+        returns=None,
+        config={},
+        actions=[],
+        schedules=[],
+        case_trigger=None,
+        trigger_position_x=0.0,
+        trigger_position_y=0.0,
+        viewport_x=0.0,
+        viewport_y=0.0,
+        viewport_zoom=1.0,
+    )
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = mcp_server._compute_workflow_edit_revision(
+        mcp_server._build_workflow_edit_document(
+            cast(mcp_server._WorkflowEditDocumentSource, workflow)
+        )
+    )
+
+    with pytest.raises(ToolError, match="Extra inputs are not permitted"):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[{"op": "add", "path": "/definition/config/foo", "value": "bar"}],
+            validate_only=True,
+        )
+
+
+@pytest.mark.anyio
 async def test_persist_workflow_edit_document_applies_metadata_with_definition_changes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
