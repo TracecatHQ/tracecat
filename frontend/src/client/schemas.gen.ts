@@ -8742,11 +8742,11 @@ export const $CursorPaginatedResponse_SkillRead_ = {
   title: "CursorPaginatedResponse[SkillRead]",
 } as const
 
-export const $CursorPaginatedResponse_SkillVersionRead_ = {
+export const $CursorPaginatedResponse_SkillVersionReadMinimal_ = {
   properties: {
     items: {
       items: {
-        $ref: "#/components/schemas/SkillVersionRead",
+        $ref: "#/components/schemas/SkillVersionReadMinimal",
       },
       type: "array",
       title: "Items",
@@ -8802,7 +8802,7 @@ export const $CursorPaginatedResponse_SkillVersionRead_ = {
   },
   type: "object",
   required: ["items"],
-  title: "CursorPaginatedResponse[SkillVersionRead]",
+  title: "CursorPaginatedResponse[SkillVersionReadMinimal]",
 } as const
 
 export const $CursorPaginatedResponse_TableRowRead_ = {
@@ -18815,6 +18815,89 @@ export const $SkillVersionRead = {
   ],
   title: "SkillVersionRead",
   description: "Published skill version response including its manifest.",
+} as const
+
+export const $SkillVersionReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    skill_id: {
+      type: "string",
+      format: "uuid",
+      title: "Skill Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    manifest_sha256: {
+      type: "string",
+      title: "Manifest Sha256",
+    },
+    file_count: {
+      type: "integer",
+      title: "File Count",
+    },
+    total_size_bytes: {
+      type: "integer",
+      title: "Total Size Bytes",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "skill_id",
+    "workspace_id",
+    "version",
+    "manifest_sha256",
+    "file_count",
+    "total_size_bytes",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SkillVersionReadMinimal",
+  description:
+    "Summary response model for published skill versions in list endpoints.",
 } as const
 
 export const $SkillVersionSummary = {

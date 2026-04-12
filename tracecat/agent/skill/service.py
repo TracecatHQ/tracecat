@@ -37,6 +37,7 @@ from tracecat.agent.skill.schemas import (
     SkillUploadSessionRead,
     SkillValidationErrorDetail,
     SkillVersionRead,
+    SkillVersionReadMinimal,
     SkillVersionSummary,
 )
 from tracecat.agent.skill.types import ResolvedSkillRef
@@ -1203,7 +1204,7 @@ class SkillService(BaseWorkspaceService):
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_versions(
         self, *, skill_id: uuid.UUID, params: CursorPaginationParams
-    ) -> CursorPaginatedResponse[SkillVersionRead]:
+    ) -> CursorPaginatedResponse[SkillVersionReadMinimal]:
         """List immutable versions for a skill ordered newest first."""
 
         paginator = BaseCursorPaginator(self.session)
@@ -1267,7 +1268,19 @@ class SkillService(BaseWorkspaceService):
 
         return CursorPaginatedResponse(
             items=[
-                await self.get_version_read(skill_id=skill_id, version_id=version.id)
+                SkillVersionReadMinimal(
+                    id=version.id,
+                    skill_id=version.skill_id,
+                    workspace_id=version.workspace_id,
+                    version=version.version,
+                    manifest_sha256=version.manifest_sha256,
+                    file_count=version.file_count,
+                    total_size_bytes=version.total_size_bytes,
+                    title=version.title,
+                    description=version.description,
+                    created_at=version.created_at,
+                    updated_at=version.updated_at,
+                )
                 for version in items
             ],
             next_cursor=next_cursor,
