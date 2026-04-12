@@ -764,6 +764,29 @@ def _normalize_workflow_file_relative_path(relative_path: str) -> str:
     return path.as_posix()
 
 
+def _read_uploaded_skill_markdown_for_metadata_merge(
+    files: Sequence[SkillUploadFile],
+) -> str:
+    """Return the uploaded root SKILL.md text for a metadata merge."""
+
+    skill_md_file = next((file for file in files if file.path == "SKILL.md"), None)
+    if skill_md_file is None:
+        raise ToolError(
+            "Uploaded skill must include a root SKILL.md when title or description is provided"
+        )
+
+    try:
+        content = base64.b64decode(skill_md_file.content_base64, validate=True)
+    except ValueError as exc:
+        raise ToolError(
+            "Uploaded skill SKILL.md must contain valid base64 content"
+        ) from exc
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ToolError("Uploaded skill SKILL.md must be UTF-8 text") from exc
+
+
 def _infer_folder_path_from_relative_path(relative_path: str) -> str | None:
     """Infer the Tracecat workflow folder path from a relative file path."""
     path = PurePosixPath(relative_path)
@@ -6133,6 +6156,9 @@ async def upload_skill(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
+        skill_md_for_merge = None
+        if title is not None or description is not None:
+            skill_md_for_merge = _read_uploaded_skill_markdown_for_metadata_merge(files)
         params = SkillUpload.model_validate(
             {
                 "slug": slug,
@@ -6141,18 +6167,9 @@ async def upload_skill(
         )
         async with SkillService.with_session(role=role) as svc:
             created = await svc.upload_skill(params)
-            if title is not None or description is not None:
-                draft = await svc.get_draft(created.id)
-                if draft is None:
-                    raise ToolError("Uploaded skill draft was not found")
-                skill_md = await svc.get_draft_text_file(
-                    skill_id=created.id,
-                    path="SKILL.md",
-                )
-                if skill_md is None:
-                    raise ToolError("Uploaded skill SKILL.md could not be loaded")
+            if skill_md_for_merge is not None:
                 skill_md = SkillService._merge_skill_markdown_metadata(
-                    skill_md,
+                    skill_md_for_merge,
                     title=title,
                     description=description,
                 )
@@ -6160,7 +6177,7 @@ async def upload_skill(
                     skill_id=created.id,
                     params=SkillDraftPatch.model_validate(
                         {
-                            "base_revision": draft.draft_revision,
+                            "base_revision": created.draft_revision,
                             "operations": [
                                 {
                                     "op": "upsert_text_file",

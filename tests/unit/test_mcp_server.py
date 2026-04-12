@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import sys
 import uuid
@@ -4550,13 +4551,6 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
         async def get_draft(self, _skill_id):
             return SimpleNamespace(draft_revision=2)
 
-        async def get_draft_text_file(self, *, skill_id, path):
-            captured["draft_text_request"] = {
-                "skill_id": skill_id,
-                "path": path,
-            }
-            return existing_skill_md
-
         async def patch_draft(self, *, skill_id, params):
             captured["patch_skill_id"] = skill_id
             captured["patch_params"] = params
@@ -4596,7 +4590,9 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
         files=[
             SkillUploadFile(
                 path="SKILL.md",
-                content_base64="IyBUcmlhZ2U=",
+                content_base64=base64.b64encode(
+                    existing_skill_md.encode("utf-8")
+                ).decode("ascii"),
                 content_type="text/markdown; charset=utf-8",
             )
         ],
@@ -4604,7 +4600,6 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
 
     patched_content = captured["patch_params"].operations[0].content
 
-    assert captured["draft_text_request"]["path"] == "SKILL.md"
     assert "title: Updated title" in patched_content
     assert "description: Updated description" in patched_content
     assert "tags:" in patched_content
@@ -4648,13 +4643,6 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
         async def get_draft(self, _skill_id):
             return SimpleNamespace(draft_revision=2)
 
-        async def get_draft_text_file(self, *, skill_id, path):
-            captured["draft_text_request"] = {
-                "skill_id": skill_id,
-                "path": path,
-            }
-            return malformed_skill_md
-
         async def patch_draft(self, *, skill_id, params):
             captured["patch_skill_id"] = skill_id
             captured["patch_params"] = params
@@ -4693,7 +4681,9 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
         files=[
             SkillUploadFile(
                 path="SKILL.md",
-                content_base64="IyBUcmlhZ2U=",
+                content_base64=base64.b64encode(
+                    malformed_skill_md.encode("utf-8")
+                ).decode("ascii"),
                 content_type="text/markdown; charset=utf-8",
             )
         ],
@@ -4753,13 +4743,6 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
         async def get_draft(self, _skill_id):
             return SimpleNamespace(draft_revision=2)
 
-        async def get_draft_text_file(self, *, skill_id, path):
-            captured["draft_text_request"] = {
-                "skill_id": skill_id,
-                "path": path,
-            }
-            return large_skill_md
-
         async def patch_draft(self, *, skill_id, params):
             captured["patch_skill_id"] = skill_id
             captured["patch_params"] = params
@@ -4798,7 +4781,9 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
         files=[
             SkillUploadFile(
                 path="SKILL.md",
-                content_base64="IyBUcmlhZ2U=",
+                content_base64=base64.b64encode(large_skill_md.encode("utf-8")).decode(
+                    "ascii"
+                ),
                 content_type="text/markdown; charset=utf-8",
             )
         ],
@@ -4807,12 +4792,98 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
     payload = _payload(result)
     patched_content = captured["patch_params"].operations[0].content
 
-    assert captured["draft_text_request"]["path"] == "SKILL.md"
     assert payload["title"] == "Updated title"
     assert payload["description"] == "Updated description"
     assert "# Real instructions" in patched_content
     assert "Updated description" in patched_content
     assert len(patched_content) > 300_000
+
+
+@pytest.mark.anyio
+async def test_upload_skill_rejects_missing_root_skill_markdown_before_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    upload_called = False
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def upload_skill(self, params):
+            del params
+            nonlocal upload_called
+            upload_called = True
+            raise AssertionError("upload_skill should not be called")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    with pytest.raises(
+        ToolError,
+        match="Uploaded skill must include a root SKILL.md when title or description is provided",
+    ):
+        await _tool(mcp_server.upload_skill)(
+            workspace_id=str(workspace_id),
+            slug="triage-skill",
+            title="Updated title",
+            files=[
+                SkillUploadFile(
+                    path="helper.py",
+                    content_base64="cHJpbnQoJ29rJykK",
+                    content_type="text/x-python; charset=utf-8",
+                )
+            ],
+        )
+
+    assert upload_called is False
+
+
+@pytest.mark.anyio
+async def test_upload_skill_rejects_non_utf8_root_skill_markdown_before_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    upload_called = False
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _SkillService:
+        async def upload_skill(self, params):
+            del params
+            nonlocal upload_called
+            upload_called = True
+            raise AssertionError("upload_skill should not be called")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    with pytest.raises(ToolError, match="Uploaded skill SKILL.md must be UTF-8 text"):
+        await _tool(mcp_server.upload_skill)(
+            workspace_id=str(workspace_id),
+            slug="triage-skill",
+            description="Updated description",
+            files=[
+                SkillUploadFile(
+                    path="SKILL.md",
+                    content_base64="//4=",
+                    content_type="text/markdown; charset=utf-8",
+                )
+            ],
+        )
+
+    assert upload_called is False
 
 
 def test_mcp_instructions_include_agent_preset_authoring_tools() -> None:
