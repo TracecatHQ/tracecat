@@ -822,17 +822,19 @@ class _WorkflowEditDocumentSource(Protocol):
 
 def _workflow_schedule_sort_key(schedule: Any) -> str:
     """Return a stable sort key for workflow schedules."""
-    schedule_id = getattr(schedule, "id", None)
-    if schedule_id is not None:
-        return str(schedule_id)
-    return json.dumps(
-        {
-            "cron": getattr(schedule, "cron", None),
-            "every": str(getattr(schedule, "every", None)),
-            "status": getattr(schedule, "status", None),
+    payload = ScheduleRead.model_validate(schedule, from_attributes=True).model_dump(
+        mode="json",
+        exclude={
+            "id",
+            "workspace_id",
+            "workflow_id",
+            "created_at",
+            "updated_at",
         },
-        sort_keys=True,
     )
+    if payload["timeout"] is None:
+        payload["timeout"] = 0
+    return json.dumps(payload, sort_keys=True)
 
 
 def _build_workflow_edit_document(

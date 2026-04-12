@@ -682,6 +682,53 @@ def test_build_workflow_edit_document_normalizes_null_schedule_timeout() -> None
     assert document.schedules[0].timeout == 0
 
 
+def test_build_workflow_edit_document_sorts_schedules_by_canonical_content() -> None:
+    schedule_a = _schedule_stub(
+        id=uuid.UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+        cron="30 * * * *",
+        status="offline",
+        timeout=30.0,
+    )
+    schedule_b = _schedule_stub(
+        id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+        cron="0 * * * *",
+        status="online",
+        timeout=0.0,
+    )
+    workflow_one = _workflow_stub(schedules=[schedule_a, schedule_b])
+    workflow_two = _workflow_stub(
+        schedules=[
+            _schedule_stub(
+                id=uuid.UUID("00000000-0000-0000-0000-000000000002"),
+                cron="30 * * * *",
+                status="offline",
+                timeout=30.0,
+            ),
+            _schedule_stub(
+                id=uuid.UUID("ffffffff-ffff-ffff-ffff-fffffffffffe"),
+                cron="0 * * * *",
+                status="online",
+                timeout=0.0,
+            ),
+        ]
+    )
+
+    document_one = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow_one)
+    )
+    document_two = mcp_server._build_workflow_edit_document(
+        cast(mcp_server._WorkflowEditDocumentSource, workflow_two)
+    )
+
+    assert [schedule.cron for schedule in document_one.schedules] == [
+        "0 * * * *",
+        "30 * * * *",
+    ]
+    assert [
+        schedule.model_dump(mode="json") for schedule in document_one.schedules
+    ] == [schedule.model_dump(mode="json") for schedule in document_two.schedules]
+
+
 @pytest.mark.anyio
 async def test_edit_workflow_updates_metadata(monkeypatch):
     async def _resolve(_workspace_id):
