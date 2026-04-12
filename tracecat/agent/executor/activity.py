@@ -550,12 +550,14 @@ class SandboxedAgentExecutor:
                 except FileExistsError:
                     shutil.rmtree(temp_dir, ignore_errors=True)
                 return cache_dir
-            semaphore = asyncio.Semaphore(
+            max_concurrent_downloads = max(
+                1,
                 min(
                     len(version_files),
                     TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
-                )
+                ),
             )
+            semaphore = asyncio.Semaphore(max_concurrent_downloads)
 
             async def download_version_file(path: str, blob_row: Any) -> None:
                 async with semaphore:
