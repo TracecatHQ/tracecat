@@ -19,6 +19,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.preset.types import SkillBindingSpec
 from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDraftPatch,
@@ -1088,7 +1089,7 @@ class TestAgentPresetService:
 
         async def instrumented_get_specs(
             preset_id: uuid.UUID,
-        ) -> list[tuple[uuid.UUID, uuid.UUID]]:
+        ) -> list[SkillBindingSpec]:
             call_order.append("read_specs")
             return await original_get_specs(preset_id)
 
