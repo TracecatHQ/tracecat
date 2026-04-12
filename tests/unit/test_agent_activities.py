@@ -732,3 +732,59 @@ class TestSandboxedAgentExecutorSkillCaching:
         assert args == (job_dir,)
         assert kwargs == {}
         assert not job_dir.exists()
+
+    @pytest.mark.anyio
+    async def test_create_job_directory_cleans_up_when_skill_staging_fails(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Failed skill staging removes the temp job directory before re-raising."""
+
+        mock_executor_input = AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Test prompt",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-jwt-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+        mock_executor = SandboxedAgentExecutor(input=mock_executor_input)
+        job_dir = tmp_path / "agent-job-test"
+        to_thread_calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+        async def fake_stage_resolved_skills(_skills_dir: Path) -> None:
+            raise RuntimeError("staging failed")
+
+        async def fake_to_thread(func, /, *args, **kwargs):
+            to_thread_calls.append((func, args, kwargs))
+            return func(*args, **kwargs)
+
+        def fake_mkdtemp(*, prefix: str, dir: Path) -> str:
+            del prefix, dir
+            job_dir.mkdir()
+            return str(job_dir)
+
+        monkeypatch.setattr(
+            mock_executor, "_stage_resolved_skills", fake_stage_resolved_skills
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.asyncio.to_thread", fake_to_thread
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.tempfile.mkdtemp", fake_mkdtemp
+        )
+
+        with pytest.raises(RuntimeError, match="staging failed"):
+            await mock_executor._create_job_directory()
+
+        assert len(to_thread_calls) == 1
+        func, args, kwargs = to_thread_calls[0]
+        assert func is shutil.rmtree
+        assert args == (job_dir, True)
+        assert kwargs == {}
+        assert not job_dir.exists()

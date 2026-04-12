@@ -483,20 +483,24 @@ class SandboxedAgentExecutor:
         base_dir.mkdir(parents=True, exist_ok=True)
 
         job_dir = Path(tempfile.mkdtemp(prefix=f"agent-job-{job_id}-", dir=base_dir))
-        socket_dir = job_dir / "sockets"
-        socket_dir.mkdir(mode=0o700)
-        home_dir = job_dir / "home"
-        (home_dir / ".claude" / "skills").mkdir(parents=True, exist_ok=True)
-        await self._stage_resolved_skills(home_dir / ".claude" / "skills")
+        try:
+            socket_dir = job_dir / "sockets"
+            socket_dir.mkdir(mode=0o700)
+            home_dir = job_dir / "home"
+            (home_dir / ".claude" / "skills").mkdir(parents=True, exist_ok=True)
+            await self._stage_resolved_skills(home_dir / ".claude" / "skills")
 
-        # Note: The MCP socket directory is mounted directly into NSJail at /mcp-sockets
-        # so we don't need to symlink it here
-        logger.debug(
-            "Created job directory",
-            job_dir=str(job_dir),
-            socket_dir=str(socket_dir),
-        )
-        return job_dir
+            # Note: The MCP socket directory is mounted directly into NSJail at /mcp-sockets
+            # so we don't need to symlink it here
+            logger.debug(
+                "Created job directory",
+                job_dir=str(job_dir),
+                socket_dir=str(socket_dir),
+            )
+            return job_dir
+        except BaseException:
+            await asyncio.to_thread(shutil.rmtree, job_dir, True)
+            raise
 
     async def _stage_resolved_skills(self, skills_dir: Path) -> None:
         """Stage resolved published skills into the per-run home directory."""
