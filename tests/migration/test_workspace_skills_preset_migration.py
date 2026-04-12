@@ -13,7 +13,7 @@ from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
 
-MIGRATION_REVISION = "1c8f0d6a4b2e"
+MIGRATION_REVISION = "0c6bb8f8e1d1"
 PREVIOUS_REVISION = "b742858f7d69"
 
 
