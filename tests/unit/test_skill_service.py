@@ -27,6 +27,7 @@ from tracecat.agent.skill.schemas import (
     SkillDraftPatch,
     SkillDraftRead,
     SkillDraftUpsertTextFileOp,
+    SkillReadMinimal,
     SkillUpload,
     SkillUploadFile,
     SkillUploadSessionCreate,
@@ -412,9 +413,9 @@ class TestSkillService:
             "invalid_skill_md_frontmatter"
         ]
         assert len(listing.items) == 1
-        assert [error.code for error in listing.items[0].draft_validation_errors] == [
-            "invalid_skill_md_frontmatter"
-        ]
+        assert isinstance(listing.items[0], SkillReadMinimal)
+        assert listing.items[0].id == created.id
+        assert listing.items[0].slug == created.slug
 
     async def test_patch_draft_enforces_revision(
         self,
@@ -956,11 +957,11 @@ class TestSkillService:
         finally:
             await concurrent_engine.dispose()
 
-    async def test_publish_snapshots_and_restore_replaces_draft(
+    async def test_restore_version_updates_current_version_without_replacing_draft(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Published versions remain immutable and restore replaces the draft."""
+        """Restoring a version should move the head pointer without rewriting draft files."""
 
         created = await skill_service.create_skill(SkillCreate(slug="snapshot-skill"))
         draft = await skill_service.get_draft(created.id)
@@ -974,7 +975,18 @@ class TestSkillService:
                     SkillDraftUpsertTextFileOp(
                         path="references/guide.md",
                         content="Version one",
-                    )
+                    ),
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\n"
+                            "title: Version One\n"
+                            "description: First published version\n"
+                            "---\n\n"
+                            "# Version One\n"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
                 ],
             ),
         )
@@ -990,25 +1002,128 @@ class TestSkillService:
                     SkillDraftUpsertTextFileOp(
                         path="references/guide.md",
                         content="Version two",
-                    )
+                    ),
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\n"
+                            "title: Version Two\n"
+                            "description: Second published version\n"
+                            "---\n\n"
+                            "# Version Two\n"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    ),
                 ],
             ),
         )
-        await skill_service.publish_skill(created.id)
+        version_two = await skill_service.publish_skill(created.id)
+        current_draft = await skill_service.get_draft(created.id)
+        assert current_draft is not None
 
         restored = await skill_service.restore_version(
             skill_id=created.id,
             version_id=version_one.id,
         )
+        restored_draft = await skill_service.get_draft(created.id)
         restored_file = await skill_service.get_draft_file(
             skill_id=created.id,
             path="references/guide.md",
         )
 
-        assert restored.draft_revision > updated_draft.draft_revision
+        assert isinstance(restored, SkillReadMinimal)
+        assert restored.current_version_id == version_one.id
+        assert restored.title == version_one.title
+        assert restored.description == version_one.description
+        assert restored_draft is not None
+        assert restored_draft.draft_revision == current_draft.draft_revision
+        assert restored_draft.title == "Version Two"
+        assert restored_draft.description == "Second published version"
         assert restored_file is not None
         assert restored_file.kind == "inline"
-        assert restored_file.text_content == "Version one"
+        assert restored_file.text_content == "Version two"
+        assert version_two.title == "Version Two"
+
+    async def test_skill_read_metadata_tracks_current_version_not_draft(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Top-level skill metadata should mirror the current version, not draft edits."""
+
+        created = await skill_service.create_skill(SkillCreate(slug="metadata-skill"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\n"
+                            "title: Published Title\n"
+                            "description: Published description\n"
+                            "---\n\n"
+                            "# Published Title\n"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        published = await skill_service.publish_skill(created.id)
+        skill_read = await skill_service.get_skill_read(created.id)
+
+        assert skill_read is not None
+        assert skill_read.current_version_id == published.id
+        assert skill_read.title == "Published Title"
+        assert skill_read.description == "Published description"
+        assert skill_read.current_version is not None
+        assert skill_read.current_version.id == published.id
+        assert skill_read.current_version.title == "Published Title"
+        assert skill_read.current_version.description == "Published description"
+
+        published_draft = await skill_service.get_draft(created.id)
+        assert published_draft is not None
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=published_draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\n"
+                            "title: Draft Title\n"
+                            "description: Draft-only description\n"
+                            "---\n\n"
+                            "# Draft Title\n"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+
+        updated_draft = await skill_service.get_draft(created.id)
+        skill_read_after_draft_edit = await skill_service.get_skill_read(created.id)
+
+        assert updated_draft is not None
+        assert updated_draft.title == "Draft Title"
+        assert updated_draft.description == "Draft-only description"
+        assert skill_read_after_draft_edit is not None
+        assert skill_read_after_draft_edit.current_version_id == published.id
+        assert skill_read_after_draft_edit.title == "Published Title"
+        assert skill_read_after_draft_edit.description == "Published description"
+        assert skill_read_after_draft_edit.current_version is not None
+        assert skill_read_after_draft_edit.current_version.id == published.id
+        assert skill_read_after_draft_edit.current_version.title == "Published Title"
+        assert (
+            skill_read_after_draft_edit.current_version.description
+            == "Published description"
+        )
 
     async def test_list_versions_returns_minimal_read_model(
         self,
@@ -1060,7 +1175,7 @@ class TestSkillService:
         skill_service: SkillService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Restoring a draft snapshot locks the mutable skill row first."""
+        """Restoring the current version pointer locks the mutable skill row first."""
 
         created = await skill_service.create_skill(SkillCreate(slug="locked-restore"))
         version = await skill_service.publish_skill(created.id)

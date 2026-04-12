@@ -4505,7 +4505,7 @@ export const agentPresetsRestoreAgentPresetVersion = (
  * @param data.limit
  * @param data.cursor
  * @param data.reverse
- * @returns CursorPaginatedResponse_SkillRead_ Successful Response
+ * @returns CursorPaginatedResponse_SkillReadMinimal_ Successful Response
  * @throws ApiError
  */
 export const agentSkillsListSkills = (
@@ -4839,12 +4839,12 @@ export const agentSkillsGetSkillVersion = (
 
 /**
  * Restore Skill Version
- * Replace the mutable draft with a published snapshot.
+ * Restore a historical version as the current selected skill version.
  * @param data The data for the request.
  * @param data.skillId
  * @param data.versionId
  * @param data.workspaceId
- * @returns SkillDraftRead Successful Response
+ * @returns SkillReadMinimal Successful Response
  * @throws ApiError
  */
 export const agentSkillsRestoreSkillVersion = (

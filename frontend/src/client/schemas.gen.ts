@@ -8555,11 +8555,11 @@ export const $CursorPaginatedResponse_InboxItemRead_ = {
   title: "CursorPaginatedResponse[InboxItemRead]",
 } as const
 
-export const $CursorPaginatedResponse_SkillRead_ = {
+export const $CursorPaginatedResponse_SkillReadMinimal_ = {
   properties: {
     items: {
       items: {
-        $ref: "#/components/schemas/SkillRead",
+        $ref: "#/components/schemas/SkillReadMinimal",
       },
       type: "array",
       title: "Items",
@@ -8615,7 +8615,7 @@ export const $CursorPaginatedResponse_SkillRead_ = {
   },
   type: "object",
   required: ["items"],
-  title: "CursorPaginatedResponse[SkillRead]",
+  title: "CursorPaginatedResponse[SkillReadMinimal]",
 } as const
 
 export const $CursorPaginatedResponse_SkillVersionReadMinimal_ = {
@@ -18450,6 +18450,85 @@ export const $SkillRead = {
   ],
   title: "SkillRead",
   description: "Full response model for a workspace skill.",
+} as const
+
+export const $SkillReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    archived_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Archived At",
+    },
+  },
+  type: "object",
+  required: ["id", "workspace_id", "slug", "created_at", "updated_at"],
+  title: "SkillReadMinimal",
+  description: "Minimal response model for listing workspace skills.",
 } as const
 
 export const $SkillUpload = {
