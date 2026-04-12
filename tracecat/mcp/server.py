@@ -3623,6 +3623,10 @@ async def edit_workflow(
                 original_document=draft_document,
                 updated_document=updated_document,
             )
+            await svc.session.refresh(
+                workflow,
+                ["actions", "schedules", "case_trigger"],
+            )
             refreshed_document = _build_workflow_edit_document(workflow)
             return WorkflowEditResponse(
                 message=f"Workflow {workflow_id} updated successfully",
