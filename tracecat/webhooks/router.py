@@ -253,9 +253,7 @@ async def incoming_webhook_post(
     ),
     unwrap: bool = Query(
         default=False,
-        description=(
-            "When waiting for completion, return inline outputs directly."
-        ),
+        description=("When waiting for completion, return inline outputs directly."),
     ),
     vendor: str | None = Query(
         default=None,
@@ -301,9 +299,7 @@ async def incoming_webhook_get(
     ),
     unwrap: bool = Query(
         default=False,
-        description=(
-            "When waiting for completion, return inline outputs directly."
-        ),
+        description=("When waiting for completion, return inline outputs directly."),
     ),
     vendor: str | None = Query(
         default=None,
@@ -404,9 +400,7 @@ async def _incoming_webhook(
 
     # Response handling
     if wait:
-        response = await _normalize_wait_result(
-            response["result"], unwrap=unwrap
-        )
+        response = await _normalize_wait_result(response["result"], unwrap=unwrap)
 
     if echo:
         if empty_echo:
@@ -443,9 +437,7 @@ async def incoming_webhook_wait(
     payload: PayloadDep,
     unwrap: bool = Query(
         default=False,
-        description=(
-            "Return inline outputs directly."
-        ),
+        description=("Return inline outputs directly."),
     ),
 ) -> WaitResultOutput:
     """Webhook endpoint to trigger a workflow.
@@ -469,9 +461,7 @@ async def incoming_webhook_wait(
         else None,
     )
 
-    return await _normalize_wait_result(
-        response["result"], unwrap=unwrap
-    )
+    return await _normalize_wait_result(response["result"], unwrap=unwrap)
 
 
 @router.post("/draft", response_model=None)
