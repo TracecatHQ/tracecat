@@ -277,6 +277,17 @@ export function CasesLayout({
 
     return new Map(fieldDefinitions.map((field) => [field.id, field.type]))
   }, [fieldDefinitions])
+  const durationNamesById = useMemo<
+    ReadonlyMap<CaseDurationDefinitionRead["id"], string> | undefined
+  >(() => {
+    if (!durationDefinitions) {
+      return undefined
+    }
+
+    return new Map(
+      durationDefinitions.map((duration) => [duration.id, duration.name])
+    )
+  }, [durationDefinitions])
 
   const handleDeleteRequest = useCallback((caseData: CaseReadMinimal) => {
     setCaseToDelete(caseData)
@@ -401,6 +412,7 @@ export function CasesLayout({
             members={members}
             dropdownDefinitions={dropdownDefinitions}
             fieldTypesById={fieldTypesById}
+            durationNamesById={durationNamesById}
             visibleColumnIds={visibleColumnIds}
             prioritySortDirection={filters.prioritySortDirection}
             severitySortDirection={filters.severitySortDirection}

@@ -16,6 +16,7 @@ import type { ComponentType } from "react"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
+  CaseDurationDefinitionRead,
   CaseFieldReadMinimal,
   CaseReadMinimal,
   CaseSearchAggregateRead,
@@ -124,6 +125,7 @@ interface CasesAccordionProps {
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
   fieldTypesById?: ReadonlyMap<string, CaseFieldReadMinimal["type"]>
+  durationNamesById?: ReadonlyMap<CaseDurationDefinitionRead["id"], string>
   visibleColumnIds?: string[]
   prioritySortDirection?: SortDirection
   severitySortDirection?: SortDirection
@@ -153,6 +155,7 @@ interface VirtualizedGroupRowsProps {
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
   fieldTypesById?: ReadonlyMap<string, CaseFieldReadMinimal["type"]>
+  durationNamesById?: ReadonlyMap<CaseDurationDefinitionRead["id"], string>
   visibleColumnIds?: string[]
 }
 
@@ -168,6 +171,7 @@ function VirtualizedGroupRows({
   members,
   dropdownDefinitions,
   fieldTypesById,
+  durationNamesById,
   visibleColumnIds,
 }: VirtualizedGroupRowsProps) {
   const groupContainerRef = useRef<HTMLDivElement | null>(null)
@@ -278,6 +282,7 @@ function VirtualizedGroupRows({
               members={members}
               dropdownDefinitions={dropdownDefinitions}
               fieldTypesById={fieldTypesById}
+              durationNamesById={durationNamesById}
               visibleColumnIds={visibleColumnIds}
             />
           </div>
@@ -298,6 +303,7 @@ export function CasesAccordion({
   members,
   dropdownDefinitions,
   fieldTypesById,
+  durationNamesById,
   visibleColumnIds,
   prioritySortDirection,
   severitySortDirection,
@@ -491,6 +497,7 @@ export function CasesAccordion({
                     members={members}
                     dropdownDefinitions={dropdownDefinitions}
                     fieldTypesById={fieldTypesById}
+                    durationNamesById={durationNamesById}
                     visibleColumnIds={visibleColumnIds}
                   />
                 </div>

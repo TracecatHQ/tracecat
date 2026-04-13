@@ -15,17 +15,20 @@ let mockDropdownDefinitions:
       ref: string
     }>
   | undefined
+let mockDropdownDefinitionsIsFetching = false
 let mockCaseFields:
   | Array<{
       id: string
       reserved: boolean
     }>
   | undefined
+let mockCaseFieldsIsFetching = false
 let mockCaseDurationDefinitions:
   | Array<{
       id: string
     }>
   | undefined
+let mockCaseDurationDefinitionsIsFetching = false
 
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
@@ -58,12 +61,15 @@ jest.mock("@/hooks/use-cases", () => ({
 jest.mock("@/lib/hooks", () => ({
   useCaseDropdownDefinitions: () => ({
     dropdownDefinitions: mockDropdownDefinitions,
+    dropdownDefinitionsIsFetching: mockDropdownDefinitionsIsFetching,
   }),
   useCaseDurationDefinitions: () => ({
     caseDurationDefinitions: mockCaseDurationDefinitions,
+    caseDurationDefinitionsIsFetching: mockCaseDurationDefinitionsIsFetching,
   }),
   useCaseFields: () => ({
     caseFields: mockCaseFields,
+    caseFieldsIsFetching: mockCaseFieldsIsFetching,
   }),
   useCaseTagCatalog: () => ({
     caseTags: [],
@@ -80,8 +86,11 @@ describe("CasesPage", () => {
     mockEntitlementsLoaded = true
     mockCaseAddonsEnabled = true
     mockDropdownDefinitions = undefined
+    mockDropdownDefinitionsIsFetching = false
     mockCaseFields = undefined
+    mockCaseFieldsIsFetching = false
     mockCaseDurationDefinitions = undefined
+    mockCaseDurationDefinitionsIsFetching = false
 
     mockUseCaseColumnVisibility.mockReturnValue({
       visibleColumnIds: [],
@@ -149,6 +158,42 @@ describe("CasesPage", () => {
         "dropdown:region",
         "field:priority_reason",
         "duration:duration-1",
+      ])
+    )
+  })
+
+  it("waits for fresh metadata before pruning cached column selections", () => {
+    mockCaseAddonsEnabled = true
+    mockEntitlementsLoaded = true
+    mockCaseFields = [{ id: "stale_field", reserved: false }]
+    mockCaseFieldsIsFetching = true
+    mockDropdownDefinitions = [{ ref: "stale-region" }]
+    mockDropdownDefinitionsIsFetching = true
+    mockCaseDurationDefinitions = [{ id: "stale-duration" }]
+    mockCaseDurationDefinitionsIsFetching = true
+
+    const { rerender } = render(<CasesPage />)
+
+    expect(mockUseCaseColumnVisibility).toHaveBeenLastCalledWith(
+      "workspace-1",
+      undefined
+    )
+
+    mockCaseFields = [{ id: "fresh_field", reserved: false }]
+    mockCaseFieldsIsFetching = false
+    mockDropdownDefinitions = [{ ref: "fresh-region" }]
+    mockDropdownDefinitionsIsFetching = false
+    mockCaseDurationDefinitions = [{ id: "fresh-duration" }]
+    mockCaseDurationDefinitionsIsFetching = false
+
+    rerender(<CasesPage />)
+
+    expect(mockUseCaseColumnVisibility).toHaveBeenLastCalledWith(
+      "workspace-1",
+      new Set([
+        "dropdown:fresh-region",
+        "field:fresh_field",
+        "duration:fresh-duration",
       ])
     )
   })

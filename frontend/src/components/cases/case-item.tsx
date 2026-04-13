@@ -16,9 +16,10 @@ import {
   UserIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
+  CaseDurationDefinitionRead,
   CaseFieldReadMinimal,
   CasePriority,
   CaseReadMinimal,
@@ -63,23 +64,25 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { User } from "@/lib/auth"
 import { formatCaseFieldDisplayLabel } from "@/lib/case-field-display"
+import { parseISODuration } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-/** Parse an ISO 8601 duration string (e.g. "PT2H15M30S") to a short label. */
-function formatIsoDuration(iso: string): string | null {
-  const match = iso.match(
-    /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/
-  )
-  if (!match) return null
-  const days = Number(match[1] || 0)
-  const hours = Number(match[2] || 0) + days * 24
-  const minutes = Number(match[3] || 0)
-  const seconds = Number(match[4] || 0)
-  const total = hours * 3600 + minutes * 60 + seconds
-  if (total < 60) return `${Math.round(total)}s`
-  if (total < 3600) return `${Math.floor(total / 60)}m`
-  return `${Math.floor(total / 3600)}h`
+function formatCompactDuration(duration: string): string | null {
+  try {
+    const parsed = parseISODuration(duration)
+    const parts: string[] = []
+    if (parsed.years) parts.push(`${parsed.years}y`)
+    if (parsed.months) parts.push(`${parsed.months}mo`)
+    if (parsed.weeks) parts.push(`${parsed.weeks}w`)
+    if (parsed.days) parts.push(`${parsed.days}d`)
+    if (parsed.hours) parts.push(`${parsed.hours}h`)
+    if (parsed.minutes) parts.push(`${parsed.minutes}m`)
+    if (parsed.seconds) parts.push(`${parsed.seconds}s`)
+    return parts.length > 0 ? parts.join("") : "0s"
+  } catch {
+    return null
+  }
 }
 
 interface CaseItemProps {
@@ -93,6 +96,7 @@ interface CaseItemProps {
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
   fieldTypesById?: ReadonlyMap<string, CaseFieldReadMinimal["type"]>
+  durationNamesById?: ReadonlyMap<CaseDurationDefinitionRead["id"], string>
   visibleColumnIds?: string[]
 }
 
@@ -107,6 +111,7 @@ export function CaseItem({
   members,
   dropdownDefinitions,
   fieldTypesById,
+  durationNamesById,
   visibleColumnIds,
 }: CaseItemProps) {
   const workspaceId = useWorkspaceId()
@@ -125,12 +130,11 @@ export function CaseItem({
     setOptimisticTags(null)
   }, [caseData.tags])
 
-  // Compute visible column badges
-  const columnBadges = useMemo(() => {
+  const summaryColumnBadges = useMemo(() => {
     if (!visibleColumnIds || visibleColumnIds.length === 0) {
       return null
     }
-    const badges: React.ReactNode[] = []
+    const badges: ReactNode[] = []
     for (const columnId of visibleColumnIds) {
       if (columnId.startsWith("dropdown:")) {
         const ref = columnId.slice("dropdown:".length)
@@ -138,7 +142,7 @@ export function CaseItem({
           (v) => v.definition_ref === ref
         )
         if (dv?.option_label) {
-          badges.push(
+          const badge = (
             <CaseColumnBadge
               key={columnId}
               label={dv.option_label}
@@ -147,6 +151,7 @@ export function CaseItem({
               className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
             />
           )
+          badges.push(badge)
         }
       } else if (columnId.startsWith("field:")) {
         const fieldId = columnId.slice("field:".length)
@@ -156,29 +161,15 @@ export function CaseItem({
             value,
             fieldTypesById?.get(fieldId)
           )
-          badges.push(
+          const badge = (
             <CaseColumnBadge
               key={columnId}
               label={label}
+              title={fieldId}
               className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
             />
           )
-        }
-      } else if (columnId.startsWith("duration:")) {
-        const defId = columnId.slice("duration:".length)
-        const dur = caseData.durations?.find((d) => d.definition_id === defId)
-        if (dur?.duration != null) {
-          const label = formatIsoDuration(dur.duration)
-          if (label) {
-            badges.push(
-              <CaseColumnBadge
-                key={columnId}
-                label={label}
-                iconName="timer"
-                className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
-              />
-            )
-          }
+          badges.push(badge)
         }
       }
     }
@@ -188,8 +179,50 @@ export function CaseItem({
     fieldTypesById,
     caseData.dropdown_values,
     caseData.field_values,
-    caseData.durations,
   ])
+
+  const durationBadges = useMemo(() => {
+    if (!visibleColumnIds || visibleColumnIds.length === 0) {
+      return null
+    }
+
+    const badges: ReactNode[] = []
+    for (const columnId of visibleColumnIds) {
+      if (!columnId.startsWith("duration:")) {
+        continue
+      }
+
+      const defId = columnId.slice("duration:".length)
+      const dur = caseData.durations?.find((d) => d.definition_id === defId)
+      if (dur?.duration == null) {
+        continue
+      }
+
+      const formattedValue = formatCompactDuration(dur.duration)
+      if (!formattedValue) {
+        continue
+      }
+
+      const durationName = durationNamesById?.get(defId) ?? "Duration"
+      const badge = (
+        <CaseColumnBadge
+          key={columnId}
+          iconName="timer"
+          title={durationName}
+          className="h-5 max-w-[172px] shrink-0 px-1.5 py-0 text-[10px]"
+          content={
+            <span className="flex min-w-0 items-center gap-0.5">
+              <span className="truncate">{durationName}</span>
+              <span className="shrink-0">: {formattedValue}</span>
+            </span>
+          }
+        />
+      )
+      badges.push(badge)
+    }
+
+    return badges.length > 0 ? badges : null
+  }, [visibleColumnIds, caseData.durations, durationNamesById])
 
   const handleCheckboxClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -474,7 +507,7 @@ export function CaseItem({
                 />
               )}
               {/* Custom column badges */}
-              {columnBadges}
+              {summaryColumnBadges}
             </div>
 
             {/* Tags - right aligned */}
@@ -504,6 +537,12 @@ export function CaseItem({
                     +{caseData.tags.length - 3}
                   </span>
                 )}
+              </div>
+            )}
+
+            {durationBadges && (
+              <div className="flex shrink-0 items-center gap-1">
+                {durationBadges}
               </div>
             )}
 

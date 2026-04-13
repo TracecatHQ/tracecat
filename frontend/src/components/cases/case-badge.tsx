@@ -1,6 +1,6 @@
 import { CircleIcon, type LucideIcon } from "lucide-react"
-import type React from "react"
 import type { PropsWithChildren } from "react"
+import * as React from "react"
 import type { CasePriority, CaseSeverity, CaseStatus } from "@/client"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { Badge } from "@/components/ui/badge"
@@ -43,19 +43,19 @@ export function CaseBadge<T extends CaseBadgeValue>({
 }
 
 export interface CaseColumnBadgeProps {
-  label: string
+  label?: string
+  content?: React.ReactNode
   iconName?: string | null
   color?: string | null
   className?: string
+  title?: string
 }
 
 /** Generic badge for custom columns (dropdowns, fields, durations). */
-export function CaseColumnBadge({
-  label,
-  iconName,
-  color,
-  className,
-}: CaseColumnBadgeProps) {
+export const CaseColumnBadge = React.forwardRef<
+  HTMLDivElement,
+  CaseColumnBadgeProps
+>(({ label, content, iconName, color, className, title }, ref) => {
   const fallbackIcon = (
     <CircleIcon className="size-[0.9em] flex-none" strokeWidth={3} />
   )
@@ -65,7 +65,9 @@ export function CaseColumnBadge({
 
   return (
     <Badge
+      ref={ref}
       variant="outline"
+      title={title}
       className={cn(
         !color && "bg-secondary text-secondary-foreground",
         "max-w-[120px] items-center gap-1 border-0 leading-tight",
@@ -83,7 +85,8 @@ export function CaseColumnBadge({
       ) : (
         fallbackIcon
       )}
-      <span className="truncate">{label}</span>
+      {content ?? <span className="truncate">{label}</span>}
     </Badge>
   )
-}
+})
+CaseColumnBadge.displayName = "CaseColumnBadge"

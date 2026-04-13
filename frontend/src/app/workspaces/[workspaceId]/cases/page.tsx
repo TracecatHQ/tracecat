@@ -21,29 +21,33 @@ export default function CasesPage() {
 
   const { members } = useWorkspaceMembers(workspaceId)
   const { caseTags } = useCaseTagCatalog(workspaceId)
-  const { dropdownDefinitions } = useCaseDropdownDefinitions(
-    workspaceId,
-    caseAddonsEnabled
-  )
-  const { caseFields } = useCaseFields(workspaceId)
-  const { caseDurationDefinitions } = useCaseDurationDefinitions(
-    workspaceId,
-    caseAddonsEnabled
-  )
+  const { dropdownDefinitions, dropdownDefinitionsIsFetching } =
+    useCaseDropdownDefinitions(workspaceId, caseAddonsEnabled)
+  const { caseFields, caseFieldsIsFetching } = useCaseFields(workspaceId)
+  const { caseDurationDefinitions, caseDurationDefinitionsIsFetching } =
+    useCaseDurationDefinitions(workspaceId, caseAddonsEnabled)
 
   // Avoid pruning persisted selections until entitlement and field metadata
-  // have both resolved; a partial Set during loading would erase stored choices.
+  // have both resolved from the current fetch; stale cached definitions during
+  // a refetch could otherwise erase still-valid stored choices.
   const knownColumnIds = useMemo<Set<string> | undefined>(() => {
     if (!hasEntitlementData) {
       return undefined
     }
-    if (caseFields === undefined) {
+    if (caseFields === undefined || caseFieldsIsFetching) {
       return undefined
     }
-    if (caseAddonsEnabled && dropdownDefinitions === undefined) {
+    if (
+      caseAddonsEnabled &&
+      (dropdownDefinitions === undefined || dropdownDefinitionsIsFetching)
+    ) {
       return undefined
     }
-    if (caseAddonsEnabled && caseDurationDefinitions === undefined) {
+    if (
+      caseAddonsEnabled &&
+      (caseDurationDefinitions === undefined ||
+        caseDurationDefinitionsIsFetching)
+    ) {
       return undefined
     }
 
@@ -63,8 +67,11 @@ export default function CasesPage() {
   }, [
     hasEntitlementData,
     dropdownDefinitions,
+    dropdownDefinitionsIsFetching,
     caseFields,
+    caseFieldsIsFetching,
     caseDurationDefinitions,
+    caseDurationDefinitionsIsFetching,
     caseAddonsEnabled,
   ])
 

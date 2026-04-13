@@ -3736,6 +3736,7 @@ export function useCaseDurationDefinitions(
   const {
     data: caseDurationDefinitions,
     isLoading: caseDurationDefinitionsIsLoading,
+    isFetching: caseDurationDefinitionsIsFetching,
     error: caseDurationDefinitionsError,
   } = useQuery<CaseDurationDefinitionRead[], Error>({
     queryKey: ["case-duration-definitions", workspaceId],
@@ -3746,6 +3747,7 @@ export function useCaseDurationDefinitions(
   return {
     caseDurationDefinitions,
     caseDurationDefinitionsIsLoading,
+    caseDurationDefinitionsIsFetching,
     caseDurationDefinitionsError,
   }
 }
@@ -3754,6 +3756,7 @@ export function useCaseFields(workspaceId: string, enabled = true) {
   const {
     data: caseFields,
     isLoading: caseFieldsIsLoading,
+    isFetching: caseFieldsIsFetching,
     error: caseFieldsError,
   } = useQuery<CaseFieldReadMinimal[], TracecatApiError>({
     queryKey: ["case-fields", workspaceId],
@@ -3764,6 +3767,7 @@ export function useCaseFields(workspaceId: string, enabled = true) {
   return {
     caseFields,
     caseFieldsIsLoading,
+    caseFieldsIsFetching,
     caseFieldsError,
   }
 }
@@ -6613,6 +6617,7 @@ export function useCaseDropdownDefinitions(
   const {
     data: dropdownDefinitions,
     isLoading: dropdownDefinitionsIsLoading,
+    isFetching: dropdownDefinitionsIsFetching,
     error: dropdownDefinitionsError,
   } = useQuery<CaseDropdownDefinitionRead[], Error>({
     queryKey: ["case-dropdown-definitions", workspaceId],
@@ -6677,6 +6682,7 @@ export function useCaseDropdownDefinitions(
   return {
     dropdownDefinitions,
     dropdownDefinitionsIsLoading,
+    dropdownDefinitionsIsFetching,
     dropdownDefinitionsError,
     createDropdownDefinition,
     deleteDropdownDefinition,
