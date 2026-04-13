@@ -27,7 +27,7 @@ def upgrade() -> None:
     op.create_table(
         "skill",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("slug", sa.String(length=160), nullable=False),
+        sa.Column("name", sa.String(length=64), nullable=False),
         sa.Column("current_version_id", sa.UUID(), nullable=True),
         sa.Column(
             "draft_revision",
@@ -35,7 +35,6 @@ def upgrade() -> None:
             server_default=sa.text("0"),
             nullable=False,
         ),
-        sa.Column("title", sa.String(length=255), nullable=True),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("archived_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("workspace_id", sa.UUID(), nullable=False),
@@ -59,10 +58,9 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("surrogate_id", name=op.f("pk_skill")),
-        sa.UniqueConstraint("workspace_id", "slug", name="uq_skill_workspace_slug"),
     )
     op.create_index(op.f("ix_skill_id"), "skill", ["id"], unique=True)
-    op.create_index(op.f("ix_skill_slug"), "skill", ["slug"], unique=False)
+    op.create_index(op.f("ix_skill_name"), "skill", ["name"], unique=False)
 
     op.create_table(
         "skill_blob",
@@ -111,7 +109,7 @@ def upgrade() -> None:
         sa.Column("manifest_sha256", sa.String(length=64), nullable=False),
         sa.Column("file_count", sa.Integer(), nullable=False),
         sa.Column("total_size_bytes", sa.Integer(), nullable=False),
-        sa.Column("title", sa.String(length=255), nullable=True),
+        sa.Column("name", sa.String(length=64), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("workspace_id", sa.UUID(), nullable=False),
         sa.Column("surrogate_id", sa.Integer(), sa.Identity(), nullable=False),

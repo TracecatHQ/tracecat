@@ -10,14 +10,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
+from typing import Never
 
 import orjson
 import sqlalchemy as sa
 import yaml
-from slugify import slugify
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
@@ -31,6 +31,7 @@ from tracecat.agent.skill.schemas import (
     SkillDraftRead,
     SkillDraftUpsertTextFileOp,
     SkillFileEntry,
+    SkillName,
     SkillRead,
     SkillReadMinimal,
     SkillUpload,
@@ -39,7 +40,6 @@ from tracecat.agent.skill.schemas import (
     SkillValidationErrorDetail,
     SkillVersionRead,
     SkillVersionReadMinimal,
-    SkillVersionSummary,
 )
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.authz.controls import require_scope
@@ -67,13 +67,14 @@ from tracecat.tiers.enums import Entitlement
 
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
+SKILL_NAME_ADAPTER = TypeAdapter(SkillName)
 
 
 @dataclass(slots=True)
 class ManifestValidationResult:
     """Result of validating a skill draft or published manifest."""
 
-    title: str | None = None
+    name: str | None = None
     description: str | None = None
     errors: list[SkillValidationErrorDetail] = field(default_factory=list)
 
@@ -189,13 +190,10 @@ class SkillService(BaseWorkspaceService):
         }
 
     @staticmethod
-    def _build_default_skill_markdown(
-        *, slug: str, title: str | None, description: str | None
-    ) -> str:
+    def _build_default_skill_markdown(*, name: str, description: str | None) -> str:
         """Create the seeded root SKILL.md for a new skill."""
 
-        resolved_title = title or slug.replace("-", " ").title()
-        metadata: dict[str, str] = {"title": resolved_title}
+        metadata: dict[str, str] = {"name": name}
         if description:
             metadata["description"] = description
         frontmatter_yaml = yaml.safe_dump(
@@ -208,42 +206,20 @@ class SkillService(BaseWorkspaceService):
                 frontmatter_yaml,
                 "---",
                 "",
-                f"# {resolved_title}",
+                f"# {name}",
                 "",
                 "Describe when this skill should be used and what it does.",
             ]
         )
 
     @staticmethod
-    def _is_skill_slug_conflict_error(exc: IntegrityError) -> bool:
-        """Return whether an integrity error came from the skill slug unique key."""
-
-        constraint_name = getattr(
-            getattr(exc.orig, "diag", None), "constraint_name", ""
-        )
-        return constraint_name == "uq_skill_workspace_slug" or (
-            "uq_skill_workspace_slug" in str(exc)
-        )
-
-    @staticmethod
-    def _raise_skill_slug_conflict(
-        slug: str, *, from_error: Exception | None = None
-    ) -> None:
-        """Raise the canonical validation error for duplicate skill slugs."""
-
-        raise TracecatValidationError(
-            f"Skill slug '{slug}' is already in use for this workspace",
-            detail={"code": "skill_slug_conflict", "slug": slug},
-        ) from from_error
-
-    @staticmethod
     def _merge_skill_markdown_metadata(
         skill_markdown: str,
         *,
-        title: str | None = None,
+        name: str | None = None,
         description: str | None = None,
     ) -> str:
-        """Merge title/description frontmatter into an existing SKILL.md body."""
+        """Merge name/description frontmatter into an existing SKILL.md body."""
 
         metadata: dict[str, object] = {}
         body = skill_markdown
@@ -260,8 +236,8 @@ class SkillService(BaseWorkspaceService):
                 if isinstance(loaded, dict):
                     metadata = dict(loaded)
 
-        if title is not None:
-            metadata["title"] = title
+        if name is not None:
+            metadata["name"] = name
         if description is not None:
             metadata["description"] = description
 
@@ -276,8 +252,29 @@ class SkillService(BaseWorkspaceService):
         return f"---\n{frontmatter_yaml}\n---\n\n{body}"
 
     @staticmethod
+    def _raise_missing_draft_name(*, operation: str) -> Never:
+        """Raise a validation error when a draft is missing a required manifest name."""
+
+        raise TracecatValidationError(
+            f"Skill draft is missing a required name during {operation}",
+            detail={"code": "missing_skill_name", "operation": operation},
+        )
+
+    @staticmethod
+    def _raise_missing_version_name(*, skill_version_id: uuid.UUID) -> Never:
+        """Raise a validation error when a published skill version is malformed."""
+
+        raise TracecatValidationError(
+            f"Skill version '{skill_version_id}' is missing a required name",
+            detail={
+                "code": "missing_skill_version_name",
+                "skill_version_id": str(skill_version_id),
+            },
+        )
+
+    @staticmethod
     def _extract_frontmatter(skill_markdown: str) -> tuple[str | None, str | None]:
-        """Extract title and description from root SKILL.md frontmatter.
+        """Extract name and description from root SKILL.md frontmatter.
 
         Raises:
             TracecatValidationError: If the frontmatter contains invalid YAML.
@@ -298,10 +295,10 @@ class SkillService(BaseWorkspaceService):
             ) from exc
         if not isinstance(loaded, dict):
             return None, None
-        title = loaded.get("title")
+        name = loaded.get("name")
         description = loaded.get("description")
         return (
-            title if isinstance(title, str) and title.strip() else None,
+            name if isinstance(name, str) and name.strip() else None,
             description
             if isinstance(description, str) and description.strip()
             else None,
@@ -569,12 +566,35 @@ class SkillService(BaseWorkspaceService):
             return result
 
         try:
-            result.title, result.description = self._extract_frontmatter(markdown)
+            result.name, result.description = self._extract_frontmatter(markdown)
         except TracecatValidationError as exc:
             result.errors.append(
                 SkillValidationErrorDetail(
                     code="invalid_skill_md_frontmatter",
                     message=str(exc),
+                    path="SKILL.md",
+                )
+            )
+            return result
+        if result.name is None:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="missing_skill_name",
+                    message="Root SKILL.md frontmatter must define a skill name",
+                    path="SKILL.md",
+                )
+            )
+            return result
+        try:
+            result.name = SKILL_NAME_ADAPTER.validate_python(result.name)
+        except ValidationError:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="invalid_skill_name",
+                    message=(
+                        "Root SKILL.md frontmatter name must be 1-64 characters "
+                        "of lowercase letters, numbers, and single hyphens"
+                    ),
                     path="SKILL.md",
                 )
             )
@@ -600,9 +620,9 @@ class SkillService(BaseWorkspaceService):
         validation = await self._validate_manifest_rows(validation_pairs)
         return SkillDraftRead(
             skill_id=skill.id,
-            skill_slug=skill.slug,
+            skill_name=skill.name,
             draft_revision=skill.draft_revision,
-            title=validation.title,
+            name=validation.name,
             description=validation.description,
             files=file_entries,
             is_publishable=not validation.errors,
@@ -618,13 +638,15 @@ class SkillService(BaseWorkspaceService):
         if skill.current_version_id is not None:
             current_version = await self.get_version(skill.current_version_id)
         if current_version is not None:
-            current_version_summary = SkillVersionSummary(
+            current_version_summary = SkillVersionReadMinimal(
                 id=current_version.id,
+                skill_id=current_version.skill_id,
+                workspace_id=current_version.workspace_id,
                 version=current_version.version,
                 manifest_sha256=current_version.manifest_sha256,
                 file_count=current_version.file_count,
                 total_size_bytes=current_version.total_size_bytes,
-                title=current_version.title,
+                name=current_version.name,
                 description=current_version.description,
                 created_at=current_version.created_at,
                 updated_at=current_version.updated_at,
@@ -632,8 +654,7 @@ class SkillService(BaseWorkspaceService):
         return SkillRead(
             id=skill.id,
             workspace_id=skill.workspace_id,
-            slug=skill.slug,
-            title=skill.title,
+            name=skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
             draft_revision=skill.draft_revision,
@@ -653,8 +674,7 @@ class SkillService(BaseWorkspaceService):
         return SkillReadMinimal(
             id=skill.id,
             workspace_id=skill.workspace_id,
-            slug=skill.slug,
-            title=skill.title,
+            name=skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
             created_at=skill.created_at,
@@ -764,27 +784,6 @@ class SkillService(BaseWorkspaceService):
             for skill in (await self.session.execute(stmt)).scalars().all()
         }
 
-    async def _normalize_and_validate_slug(
-        self, *, slug: str, exclude_id: uuid.UUID | None = None
-    ) -> str:
-        """Validate skill slug uniqueness within the workspace."""
-
-        normalized = slugify(slug, separator="-")
-        if not normalized:
-            raise TracecatValidationError(
-                "Skill slug cannot be empty",
-                detail={"code": "invalid_slug"},
-            )
-        stmt = select(Skill.id).where(
-            Skill.workspace_id == self.workspace_id,
-            Skill.slug == normalized,
-        )
-        if exclude_id is not None:
-            stmt = stmt.where(Skill.id != exclude_id)
-        if (await self.session.execute(stmt)).scalar_one_or_none() is not None:
-            self._raise_skill_slug_conflict(normalized)
-        return normalized
-
     @require_scope("agent:create")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_skill(self, params: SkillCreate) -> SkillRead:
@@ -797,19 +796,16 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        slug = await self._normalize_and_validate_slug(slug=params.slug)
-        skill = Skill(workspace_id=self.workspace_id, slug=slug, draft_revision=0)
+        skill = Skill(
+            workspace_id=self.workspace_id,
+            name=params.name,
+            draft_revision=0,
+            description=params.description,
+        )
         self.session.add(skill)
-        try:
-            await self.session.flush()
-        except IntegrityError as exc:
-            await self.session.rollback()
-            if self._is_skill_slug_conflict_error(exc):
-                self._raise_skill_slug_conflict(slug, from_error=exc)
-            raise
+        await self.session.flush()
         root_markdown = self._build_default_skill_markdown(
-            slug=slug,
-            title=params.title,
+            name=params.name,
             description=params.description,
         )
         root_blob = await self._get_or_create_blob(
@@ -840,8 +836,8 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        slug = await self._normalize_and_validate_slug(slug=params.slug)
         path_to_blob: dict[str, SkillFileBlobRef] = {}
+        validation_rows: list[tuple[str, SkillBlob]] = []
         for file_payload in params.files:
             path = self._normalize_path(file_payload.path)
             if path in path_to_blob:
@@ -863,16 +859,37 @@ class SkillService(BaseWorkspaceService):
                 blob=await self._get_or_create_blob(content=content),
                 content_type=content_type,
             )
+            validation_rows.append((path, path_to_blob[path].blob))
 
-        skill = Skill(workspace_id=self.workspace_id, slug=slug, draft_revision=0)
+        validation = await self._validate_manifest_rows(validation_rows)
+        if validation.errors:
+            raise TracecatValidationError(
+                "Uploaded skill draft failed validation",
+                detail={
+                    "code": "skill_upload_validation_failed",
+                    "errors": [
+                        error.model_dump(mode="json") for error in validation.errors
+                    ],
+                },
+            )
+        if validation.name != params.name:
+            raise TracecatValidationError(
+                "Uploaded skill name must match the root SKILL.md frontmatter name",
+                detail={
+                    "code": "skill_name_mismatch",
+                    "expected_name": params.name,
+                    "actual_name": validation.name,
+                },
+            )
+
+        skill = Skill(
+            workspace_id=self.workspace_id,
+            name=params.name,
+            draft_revision=0,
+            description=validation.description,
+        )
         self.session.add(skill)
-        try:
-            await self.session.flush()
-        except IntegrityError as exc:
-            await self.session.rollback()
-            if self._is_skill_slug_conflict_error(exc):
-                self._raise_skill_slug_conflict(slug, from_error=exc)
-            raise
+        await self.session.flush()
         await self._replace_draft_with_blob_map(skill=skill, path_to_blob=path_to_blob)
         await self.session.commit()
         await self.session.refresh(skill)
@@ -1109,6 +1126,17 @@ class SkillService(BaseWorkspaceService):
                     path_to_blob.pop(normalized_path, None)
 
         await self._replace_draft_with_blob_map(skill=skill, path_to_blob=path_to_blob)
+        validation = await self._validate_manifest_rows(
+            [(path, file_ref.blob) for path, file_ref in path_to_blob.items()]
+        )
+        if (
+            skill.current_version_id is None
+            and not validation.errors
+            and validation.name is not None
+        ):
+            skill.name = validation.name
+            skill.description = validation.description
+            self.session.add(skill)
         await self.session.commit()
         for staged_key, staged_bucket in staged_upload_objects_to_delete:
             try:
@@ -1200,6 +1228,9 @@ class SkillService(BaseWorkspaceService):
                     ],
                 },
             )
+        if validation.name is None:
+            self._raise_missing_draft_name(operation="publish")
+        manifest_name = validation.name
 
         manifest_payload = [
             {
@@ -1230,7 +1261,7 @@ class SkillService(BaseWorkspaceService):
             manifest_sha256=manifest_sha256,
             file_count=len(rows),
             total_size_bytes=sum(blob_row.size_bytes for _, blob_row in rows),
-            title=validation.title,
+            name=manifest_name,
             description=validation.description,
         )
         self.session.add(version)
@@ -1246,7 +1277,7 @@ class SkillService(BaseWorkspaceService):
                 )
             )
         skill.current_version_id = version.id
-        skill.title = validation.title
+        skill.name = manifest_name
         skill.description = validation.description
         self.session.add(skill)
         await self.session.commit()
@@ -1327,7 +1358,7 @@ class SkillService(BaseWorkspaceService):
                     manifest_sha256=version.manifest_sha256,
                     file_count=version.file_count,
                     total_size_bytes=version.total_size_bytes,
-                    title=version.title,
+                    name=version.name,
                     description=version.description,
                     created_at=version.created_at,
                     updated_at=version.updated_at,
@@ -1358,7 +1389,7 @@ class SkillService(BaseWorkspaceService):
             manifest_sha256=version.manifest_sha256,
             file_count=version.file_count,
             total_size_bytes=version.total_size_bytes,
-            title=version.title,
+            name=version.name,
             description=version.description,
             created_at=version.created_at,
             updated_at=version.updated_at,
@@ -1387,8 +1418,10 @@ class SkillService(BaseWorkspaceService):
         version = await self.get_version(version_id)
         if version is None or version.skill_id != skill.id:
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
+        if version.name is None:
+            self._raise_missing_version_name(skill_version_id=version.id)
         skill.current_version_id = version.id
-        skill.title = version.title
+        skill.name = version.name
         skill.description = version.description
         self.session.add(skill)
         await self.session.commit()
@@ -1453,7 +1486,7 @@ class SkillService(BaseWorkspaceService):
             skill = skills[binding.skill_id]
             if skill.current_version_id is None:
                 raise TracecatValidationError(
-                    f"Skill '{skill.slug}' has no published version",
+                    f"Skill '{skill.name}' has no published version",
                     detail={"code": "skill_not_published", "skill_id": str(skill.id)},
                 )
             selected_version = await self.get_version(binding.skill_version_id)
@@ -1472,11 +1505,10 @@ class SkillService(BaseWorkspaceService):
         stmt = (
             select(
                 AgentPresetVersionSkill.skill_id,
-                Skill.slug,
+                SkillVersion.name,
                 AgentPresetVersionSkill.skill_version_id,
                 SkillVersion.manifest_sha256,
             )
-            .join(Skill, AgentPresetVersionSkill.skill_id == Skill.id)
             .join(
                 SkillVersion,
                 AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
@@ -1485,17 +1517,18 @@ class SkillService(BaseWorkspaceService):
                 AgentPresetVersionSkill.workspace_id == self.workspace_id,
                 AgentPresetVersionSkill.preset_version_id == preset_version_id,
             )
-            .order_by(Skill.slug.asc())
+            .order_by(SkillVersion.name.asc(), AgentPresetVersionSkill.skill_id.asc())
         )
         rows = (await self.session.execute(stmt)).tuples().all()
         return [
             ResolvedSkillRef(
                 skill_id=skill_id,
-                skill_slug=skill_slug,
+                skill_name=skill_name,
                 skill_version_id=skill_version_id,
                 manifest_sha256=manifest_sha256,
             )
-            for skill_id, skill_slug, skill_version_id, manifest_sha256 in rows
+            for skill_id, skill_name, skill_version_id, manifest_sha256 in rows
+            if skill_name is not None
         ]
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
@@ -1504,25 +1537,29 @@ class SkillService(BaseWorkspaceService):
     ) -> ResolvedSkillRef:
         """Return one exact skill ref for a published skill version."""
 
-        stmt = (
-            select(Skill.id, Skill.slug, SkillVersion.id, SkillVersion.manifest_sha256)
-            .join(SkillVersion, SkillVersion.skill_id == Skill.id)
-            .where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id == skill_id,
-                SkillVersion.workspace_id == self.workspace_id,
-                SkillVersion.id == skill_version_id,
-            )
+        stmt = select(
+            Skill.id,
+            SkillVersion.name,
+            SkillVersion.id,
+            SkillVersion.manifest_sha256,
+        ).where(
+            Skill.workspace_id == self.workspace_id,
+            Skill.id == skill_id,
+            SkillVersion.workspace_id == self.workspace_id,
+            SkillVersion.skill_id == Skill.id,
+            SkillVersion.id == skill_version_id,
         )
         row = (await self.session.execute(stmt)).tuples().first()
         if row is None:
             raise TracecatNotFoundError(
                 f"Skill version '{skill_version_id}' not found for skill '{skill_id}'"
             )
-        resolved_skill_id, skill_slug, resolved_version_id, manifest_sha256 = row
+        resolved_skill_id, skill_name, resolved_version_id, manifest_sha256 = row
+        if skill_name is None:
+            self._raise_missing_version_name(skill_version_id=resolved_version_id)
         return ResolvedSkillRef(
             skill_id=resolved_skill_id,
-            skill_slug=skill_slug,
+            skill_name=skill_name,
             skill_version_id=resolved_version_id,
             manifest_sha256=manifest_sha256,
         )

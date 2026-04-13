@@ -6,33 +6,41 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
 
-SkillSlug = Annotated[
+
+def _validate_skill_name(value: str) -> str:
+    if value.startswith("-") or value.endswith("-"):
+        raise ValueError("Skill name must not start or end with a hyphen")
+    if "--" in value:
+        raise ValueError("Skill name must not contain consecutive hyphens")
+    return value
+
+
+SkillName = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=160),
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9-]+$",
+    ),
+    AfterValidator(_validate_skill_name),
 ]
 SkillPath = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=1024),
 ]
-
-
-class SkillVersionSummary(Schema):
-    """Compact metadata for the current published skill version."""
-
-    id: uuid.UUID
-    version: int
-    manifest_sha256: str
-    file_count: int
-    total_size_bytes: int
-    title: str | None = Field(default=None)
-    description: str | None = Field(default=None)
-    created_at: datetime
-    updated_at: datetime
 
 
 class SkillValidationErrorDetail(BaseModel):
@@ -58,15 +66,14 @@ class SkillRead(Schema):
 
     id: uuid.UUID
     workspace_id: WorkspaceID
-    slug: str
-    title: str | None = Field(default=None)
+    name: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
     draft_revision: int
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None = Field(default=None)
-    current_version: SkillVersionSummary | None = Field(default=None)
+    current_version: SkillVersionReadMinimal | None = Field(default=None)
     is_draft_publishable: bool
     draft_validation_errors: list[SkillValidationErrorDetail] = Field(
         default_factory=list
@@ -79,8 +86,7 @@ class SkillReadMinimal(Schema):
 
     id: uuid.UUID
     workspace_id: WorkspaceID
-    slug: str
-    title: str | None = Field(default=None)
+    name: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
     created_at: datetime
@@ -91,8 +97,7 @@ class SkillReadMinimal(Schema):
 class SkillCreate(Schema):
     """Payload for creating a new logical skill."""
 
-    slug: SkillSlug
-    title: str | None = Field(default=None, max_length=255)
+    name: SkillName
     description: str | None = Field(default=None, max_length=4000)
 
 
@@ -107,7 +112,7 @@ class SkillUploadFile(Schema):
 class SkillUpload(Schema):
     """Payload for importing a full skill draft in one request."""
 
-    slug: SkillSlug
+    name: SkillName
     files: list[SkillUploadFile] = Field(min_length=1)
 
 
@@ -115,9 +120,9 @@ class SkillDraftRead(Schema):
     """Current mutable draft state for a skill."""
 
     skill_id: uuid.UUID
-    skill_slug: str
+    skill_name: str
     draft_revision: int
-    title: str | None = Field(default=None)
+    name: str | None = Field(default=None)
     description: str | None = Field(default=None)
     files: list[SkillFileEntry] = Field(default_factory=list)
     is_publishable: bool
@@ -220,7 +225,7 @@ class SkillVersionRead(Schema):
     manifest_sha256: str
     file_count: int
     total_size_bytes: int
-    title: str | None = Field(default=None)
+    name: str
     description: str | None = Field(default=None)
     created_at: datetime
     updated_at: datetime
@@ -239,7 +244,7 @@ class SkillVersionReadMinimal(Schema):
     manifest_sha256: str
     file_count: int
     total_size_bytes: int
-    title: str | None = Field(default=None)
+    name: str
     description: str | None = Field(default=None)
     created_at: datetime
     updated_at: datetime

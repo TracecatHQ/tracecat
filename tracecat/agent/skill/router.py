@@ -46,7 +46,6 @@ def _raise_skill_validation_error(exc: TracecatValidationError) -> Never:
 
     status_code = status.HTTP_400_BAD_REQUEST
     if isinstance(exc.detail, dict) and exc.detail.get("code") in {
-        "skill_slug_conflict",
         "draft_revision_conflict",
         "skill_in_use",
     }:

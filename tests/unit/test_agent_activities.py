@@ -704,7 +704,7 @@ class TestSandboxedAgentExecutorSkillCaching:
         mock_agent_config.resolved_skills = [
             ResolvedSkillRef(
                 skill_id=uuid.uuid4(),
-                skill_slug="skill-a",
+                skill_name="skill-a",
                 skill_version_id=uuid.uuid4(),
                 manifest_sha256="manifest-sha",
             )

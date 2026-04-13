@@ -772,7 +772,7 @@ def _read_uploaded_skill_markdown_for_metadata_merge(
     skill_md_file = next((file for file in files if file.path == "SKILL.md"), None)
     if skill_md_file is None:
         raise ToolError(
-            "Uploaded skill must include a root SKILL.md when title or description is provided"
+            "Uploaded skill must include a root SKILL.md when description is provided"
         )
 
     try:
@@ -6142,9 +6142,8 @@ async def update_agent_preset(
 @mcp.tool()
 async def upload_skill(
     workspace_id: str,
-    slug: str,
+    name: str,
     files: list[SkillUploadFile],
-    title: str | None = None,
     description: str | None = None,
 ) -> str:
     """Upload a local skill directory into Tracecat as a workspace skill.
@@ -6157,11 +6156,11 @@ async def upload_skill(
     try:
         _, role = await _resolve_workspace_role(workspace_id)
         skill_md_for_merge = None
-        if title is not None or description is not None:
+        if description is not None:
             skill_md_for_merge = _read_uploaded_skill_markdown_for_metadata_merge(files)
         params = SkillUpload.model_validate(
             {
-                "slug": slug,
+                "name": name,
                 "files": SkillUploadFile.list_adapter().dump_python(files, mode="json"),
             }
         )
@@ -6170,7 +6169,7 @@ async def upload_skill(
             if skill_md_for_merge is not None:
                 skill_md = SkillService._merge_skill_markdown_metadata(
                     skill_md_for_merge,
-                    title=title,
+                    name=name,
                     description=description,
                 )
                 await svc.patch_draft(
@@ -6200,7 +6199,7 @@ async def upload_skill(
     except TracecatValidationError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
-        logger.error("Failed to upload skill", error=str(e), slug=slug)
+        logger.error("Failed to upload skill", error=str(e), name=name)
         raise ToolError(f"Failed to upload skill: {e}") from None
 
 

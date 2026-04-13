@@ -23,8 +23,7 @@ class AgentPresetSkillBindingBase(Schema):
 class AgentPresetSkillBindingRead(AgentPresetSkillBindingBase):
     """Resolved preset skill binding with metadata."""
 
-    skill_slug: str
-    skill_title: str | None = Field(default=None)
+    skill_name: str
     skill_version: int
 
 
@@ -32,7 +31,7 @@ class AgentPresetSkillBindingChange(BaseModel):
     """Diff entry for skill binding changes between preset versions."""
 
     skill_id: uuid.UUID
-    skill_slug: str
+    skill_name: str
     old_skill_version_id: uuid.UUID | None = None
     old_skill_version: int | None = None
     new_skill_version_id: uuid.UUID | None = None
