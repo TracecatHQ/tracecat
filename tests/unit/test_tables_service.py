@@ -1616,8 +1616,9 @@ class TestTableRows:
             {"name": "Carol", "age": 35},
         ]
 
-        # Should raise DBAPIError
-        with pytest.raises(DBAPIError):
+        # Input coercion now fails before SQL execution, but the batch should
+        # still behave atomically and leave the table unchanged.
+        with pytest.raises(ValueError, match="Invalid integer value: 'invalid'"):
             await tables_service.batch_insert_rows(table, rows)
 
         # Verify no rows were inserted (transaction rolled back)
