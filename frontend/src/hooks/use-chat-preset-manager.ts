@@ -96,6 +96,7 @@ export function useChatPresetManager({
   const {
     presetVersion: selectedPresetVersion,
     presetVersionIsLoading: selectedPresetVersionIsLoading,
+    presetVersionError: selectedPresetVersionError,
   } = useAgentPresetVersion(
     workspaceId,
     effectivePresetId,
@@ -205,7 +206,15 @@ export function useChatPresetManager({
     selectedPresetVersionIsLoading ||
     isUpdatingChat ||
     chatLoading
-  const selectedPresetConfig = selectedPresetVersion ?? selectedPreset
+  const selectedPresetConfig = effectivePresetVersionId
+    ? (selectedPresetVersion ?? null)
+    : selectedPreset
+  const selectedPresetConfigError = effectivePresetVersionId
+    ? (selectedPresetVersionError ??
+      (!selectedPresetVersionIsLoading && !selectedPresetVersion
+        ? new Error("Failed to load pinned preset version.")
+        : null))
+    : null
 
   return {
     presets: presetOptions,
@@ -213,6 +222,7 @@ export function useChatPresetManager({
     presetsError,
     selectedPreset,
     selectedPresetConfig,
+    selectedPresetConfigError,
     selectedPresetVersionIsLoading,
     selectedPresetId: effectivePresetId,
     selectedPresetVersionId: effectivePresetVersionId,
