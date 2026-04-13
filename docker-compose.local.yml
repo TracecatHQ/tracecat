@@ -424,6 +424,10 @@ services:
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
       TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
       TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+      # Blob Storage
+      TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     command: ["python", "-m", "tracecat.mcp"]
     depends_on:
       api:
@@ -431,6 +435,8 @@ services:
       migrations:
         condition: service_completed_successfully
       temporal:
+        condition: service_healthy
+      minio:
         condition: service_healthy
       redis:
         condition: service_healthy

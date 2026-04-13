@@ -10,6 +10,7 @@ import {
   ListVideoIcon,
   type LucideIcon,
   Plus,
+  Pyramid,
   Table2Icon,
   UsersIcon,
   VariableIcon,
@@ -18,7 +19,7 @@ import {
 import Link from "next/link"
 import { useParams, usePathname, useRouter } from "next/navigation"
 import type * as React from "react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { AgentPresetReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
@@ -60,6 +61,22 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
   return <AppMenu workspaceId={workspaceId} />
 }
 
+type NavItem = {
+  title: string
+  url?: string
+  icon: LucideIcon
+  isActive?: boolean
+  isLocked?: boolean
+  onSelect?: () => void
+  visible?: boolean
+  requiredScope?: string
+  items?: {
+    title: string
+    url: string
+    isActive?: boolean
+  }[]
+}
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const router = useRouter()
@@ -88,20 +105,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }, [caseId, isCasesList])
 
-  type NavItem = {
-    title: string
-    url?: string
-    icon: LucideIcon
-    isActive?: boolean
-    visible?: boolean
-    requiredScope?: string
-    items?: {
-      title: string
-      url: string
-      isActive?: boolean
-    }[]
-  }
-
   // Scope checks for sidebar items
   const canViewWorkflows = useScopeCheck("workflow:read")
   const canViewAgents = useScopeCheck("agent:read")
@@ -113,10 +116,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewInbox = useScopeCheck("inbox:read")
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewCases = useScopeCheck("case:read")
+<<<<<<< HEAD
+||||||| parent of de24ee634 (Improve skills studio and local MCP uploads)
+  const canCreateCase = useScopeCheck("case:create")
+=======
+  const canCreateCase = useScopeCheck("case:create")
+  const shouldLoadAgentEntitlements = canViewAgents === true
+>>>>>>> de24ee634 (Improve skills studio and local MCP uploads)
   const shouldLoadAgentsSection =
-    canViewAgents === true && (agentsSectionOpen || isAgentsRoute)
+    shouldLoadAgentEntitlements && (agentsSectionOpen || isAgentsRoute)
   const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
-    enabled: shouldLoadAgentsSection,
+    enabled: shouldLoadAgentEntitlements,
   })
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
@@ -133,57 +143,91 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     router.push(`${basePath}/agents/new`)
   }
 
-  const navWorkspace: NavItem[] = [
-    {
-      title: "Workflows",
-      url: `${basePath}/workflows`,
-      icon: WorkflowIcon,
-      isActive: pathname?.startsWith(`${basePath}/workflows`),
-      visible: canViewWorkflows === true,
-    },
-    {
-      title: "Cases",
-      url: `${basePath}/cases`,
-      icon: LayersIcon,
-      isActive: pathname?.startsWith(`${basePath}/cases`),
-      visible: canViewCases === true,
-    },
-    {
-      title: "Tables",
-      url: `${basePath}/tables`,
-      icon: Table2Icon,
-      isActive: pathname?.startsWith(`${basePath}/tables`),
-      visible: canViewTables === true,
-    },
-    {
-      title: "Variables",
-      url: `${basePath}/variables`,
-      icon: VariableIcon,
-      isActive: pathname?.startsWith(`${basePath}/variables`),
-      visible: canViewVariables === true,
-    },
-    {
-      title: "Credentials",
-      url: `${basePath}/credentials`,
-      icon: KeyRound,
-      isActive: pathname?.startsWith(`${basePath}/credentials`),
-      visible: canViewSecrets === true,
-    },
-    {
-      title: "Integrations",
-      url: `${basePath}/integrations`,
-      icon: BlocksIcon,
-      isActive: pathname?.startsWith(`${basePath}/integrations`),
-      visible: canViewIntegrations === true,
-    },
-    {
-      title: "Actions",
-      url: `${basePath}/actions`,
-      icon: BoxIcon,
-      isActive: pathname?.startsWith(`${basePath}/actions`),
-      visible: canViewActions === true,
-    },
-  ]
+  const navWorkspace: NavItem[] = useMemo(
+    () => [
+      {
+        title: "Workflows",
+        url: `${basePath}/workflows`,
+        icon: WorkflowIcon,
+        isActive: pathname?.startsWith(`${basePath}/workflows`),
+        visible: canViewWorkflows === true,
+      },
+      {
+        title: "Runs",
+        url: `${basePath}/runs`,
+        icon: ListVideoIcon,
+        isActive: pathname?.startsWith(`${basePath}/runs`),
+        visible: canViewWorkflows === true,
+      },
+      {
+        title: "Cases",
+        url: `${basePath}/cases`,
+        icon: LayersIcon,
+        isActive: pathname?.startsWith(`${basePath}/cases`),
+        visible: canViewCases === true,
+      },
+      {
+        title: "Tables",
+        url: `${basePath}/tables`,
+        icon: Table2Icon,
+        isActive: pathname?.startsWith(`${basePath}/tables`),
+        visible: canViewTables === true,
+      },
+      {
+        title: "Variables",
+        url: `${basePath}/variables`,
+        icon: VariableIcon,
+        isActive: pathname?.startsWith(`${basePath}/variables`),
+        visible: canViewVariables === true,
+      },
+      {
+        title: "Credentials",
+        url: `${basePath}/credentials`,
+        icon: KeyRound,
+        isActive: pathname?.startsWith(`${basePath}/credentials`),
+        visible: canViewSecrets === true,
+      },
+      {
+        title: "Integrations",
+        url: `${basePath}/integrations`,
+        icon: BlocksIcon,
+        isActive: pathname?.startsWith(`${basePath}/integrations`),
+        visible: canViewIntegrations === true,
+      },
+      {
+        title: "Skills",
+        url: `${basePath}/skills`,
+        icon: Pyramid,
+        isActive: pathname?.startsWith(`${basePath}/skills`),
+        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
+        onSelect: entitlementsIsLoading
+          ? undefined
+          : () => setLockedFeatureDialogOpen(true),
+        visible: canViewAgents === true,
+      },
+      {
+        title: "Actions",
+        url: `${basePath}/actions`,
+        icon: BoxIcon,
+        isActive: pathname?.startsWith(`${basePath}/actions`),
+        visible: canViewActions === true,
+      },
+    ],
+    [
+      basePath,
+      pathname,
+      canViewWorkflows,
+      canViewCases,
+      canViewTables,
+      canViewVariables,
+      canViewSecrets,
+      canViewIntegrations,
+      entitlementsIsLoading,
+      agentAddonsEnabled,
+      canViewAgents,
+      canViewActions,
+    ]
+  )
 
   const navMonitor: NavItem[] = [
     {
@@ -252,6 +296,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                                 ))}
                               </SidebarMenuSub>
                             </SidebarMenuItem>
+                          ) : item.isLocked ? (
+                            <SidebarMenuButton
+                              type="button"
+                              isActive={item.isActive}
+                              onClick={item.onSelect}
+                              className="text-muted-foreground"
+                            >
+                              <item.icon />
+                              <span>{item.title}</span>
+                              <LockedFeatureChip className="ml-auto shrink-0" />
+                            </SidebarMenuButton>
                           ) : (
                             <SidebarMenuButton asChild isActive={item.isActive}>
                               <Link href={item.url!}>

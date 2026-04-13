@@ -2,6 +2,8 @@
 
 import { json } from "@codemirror/lang-json"
 import { python } from "@codemirror/lang-python"
+import { yaml } from "@codemirror/lang-yaml"
+import type { Extension } from "@codemirror/state"
 import ReactCodeMirror from "@uiw/react-codemirror"
 
 import { cn } from "@/lib/utils"
@@ -13,14 +15,18 @@ interface CodeEditorProps {
   readOnly?: boolean
   className?: string
 }
-export const getLanguageExtension = (language: string) => {
+
+function getLanguageExtension(language: string): Extension | null {
   switch (language) {
     case "python":
       return python()
     case "json":
       return json()
+    case "yaml":
+      return yaml()
+    case "text":
     default:
-      return python()
+      return null
   }
 }
 
@@ -31,11 +37,13 @@ export function CodeEditor({
   readOnly = false,
   className,
 }: CodeEditorProps) {
+  const languageExtension = getLanguageExtension(language)
+
   return (
     <ReactCodeMirror
       value={value}
       onChange={onChange}
-      extensions={[getLanguageExtension(language)]}
+      extensions={languageExtension ? [languageExtension] : []}
       readOnly={readOnly}
       className={cn(
         // Ensure the editor and all its tooltips/autocomplete popups are fully rounded and do not stick out
