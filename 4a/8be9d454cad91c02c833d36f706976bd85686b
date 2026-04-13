@@ -1,0 +1,9 @@
+alembic/versions/0c6bb8f8e1d1_add_workspace_skills.py
+  e78dd32d3b4abd56 102-103,225,287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "4a8be9d454cad91c02c833d36f706976bd85686b",
+  "prompts": {}
+}
