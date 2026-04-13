@@ -36,10 +36,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-24.04
+          - runner: blacksmith-4vcpu-ubuntu-2404
             platform: linux/amd64
             platform_tag: linux-amd64
-          - runner: ubuntu-arm64-latest-4-cores
+          - runner: blacksmith-4vcpu-ubuntu-2404-arm
             platform: linux/arm64
             platform_tag: linux-arm64
     steps:
@@ -106,7 +106,7 @@ jobs:
         github.triggering_actor || github.actor
       )
     needs: build-and-push-api
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Download digests
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -166,10 +166,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-24.04
+          - runner: blacksmith-4vcpu-ubuntu-2404
             platform: linux/amd64
             platform_tag: linux-amd64
-          - runner: ubuntu-arm64-latest-4-cores
+          - runner: blacksmith-4vcpu-ubuntu-2404-arm
             platform: linux/arm64
             platform_tag: linux-arm64
     steps:
@@ -248,7 +248,7 @@ jobs:
         github.triggering_actor || github.actor
       )
     needs: build-and-push-ui
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Download digests
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4

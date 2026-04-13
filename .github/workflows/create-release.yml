@@ -24,7 +24,7 @@ jobs:
         fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
         github.triggering_actor || github.actor
       )
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
