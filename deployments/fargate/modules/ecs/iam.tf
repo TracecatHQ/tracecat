@@ -472,6 +472,55 @@ resource "aws_iam_role_policy" "mcp_task_db_access" {
   })
 }
 
+# LiteLLM execution role
+resource "aws_iam_role" "litellm_execution" {
+  name               = "TracecatLitellmExecutionRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "litellm_execution_ecs_poll" {
+  policy_arn = aws_iam_policy.ecs_poll.arn
+  role       = aws_iam_role.litellm_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "litellm_execution_secrets" {
+  policy_arn = aws_iam_policy.secrets_access.arn
+  role       = aws_iam_role.litellm_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "litellm_execution_cloudwatch_logs" {
+  policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.litellm_execution.name
+}
+
+# LiteLLM task role
+resource "aws_iam_role" "litellm_task" {
+  name               = "TracecatLitellmTaskRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy" "litellm_task_db_access" {
+  name = "TracecatLitellmDBAccessPolicy"
+  role = aws_iam_role.litellm_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "rds-db:connect",
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          "${aws_db_instance.core_database.arn}/postgres",
+          aws_db_instance.core_database.master_user_secret[0].secret_arn,
+        ]
+      }
+    ]
+  })
+}
+
 # Caddy execution role
 resource "aws_iam_role" "caddy_execution" {
   name               = "TracecatCaddyExecutionRole"

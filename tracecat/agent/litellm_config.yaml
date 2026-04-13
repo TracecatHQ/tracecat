@@ -45,3 +45,4 @@ litellm_settings:
   callbacks:
     - tracecat.agent.gateway.callback_handler
   drop_params: true
+  use_chat_completions_url_for_anthropic_messages: true

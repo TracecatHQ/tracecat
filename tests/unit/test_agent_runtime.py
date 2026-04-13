@@ -172,7 +172,6 @@ def get_hook_output(result: SyncHookJSONOutput) -> dict[str, Any]:
 def test_get_litellm_url_uses_bridge_port_when_network_isolated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TRACECAT__LLM_EXECUTION_BACKEND", "litellm")
     monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "4312")
 
     assert get_litellm_url(enable_internet_access=False) == "http://127.0.0.1:4312"
@@ -181,7 +180,6 @@ def test_get_litellm_url_uses_bridge_port_when_network_isolated(
 def test_get_litellm_url_uses_managed_service_url_when_internet_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TRACECAT__LLM_EXECUTION_BACKEND", "litellm")
     monkeypatch.setenv("TRACECAT__LITELLM_URL", "http://litellm:4000/")
 
     assert get_litellm_url(enable_internet_access=True) == "http://litellm:4000"
@@ -192,7 +190,7 @@ class TestClaudeAgentRuntimeRun:
 
     @pytest.fixture(autouse=True)
     def _mock_llm_bridge_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Set the LLM bridge port env var so get_llm_proxy_url() succeeds."""
+        """Set the LLM bridge port env var so get_litellm_url() succeeds."""
         monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "12345")
 
     @pytest.mark.anyio

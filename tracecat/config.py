@@ -340,7 +340,7 @@ SAML_VERIFY_SSL_METADATA = (
 # === CORS config === #
 # NOTE: If you are using Tracecat self-hosted, please replace with your
 # own domain by setting the comma separated TRACECAT__ALLOW_ORIGINS env var.
-TRACECAT__ALLOW_ORIGINS = os.environ.get("TRACECAT__ALLOW_ORIGINS")
+TRACECAT__ALLOW_ORIGINS = os.environ.get("TRACECAT__ALLOW_ORIGINS") or None
 
 # === Temporal config === #
 TEMPORAL__CONNECT_RETRIES = int(os.environ.get("TEMPORAL__CONNECT_RETRIES") or 10)
@@ -644,6 +644,11 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 
 TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
 """Bind port for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_NUM_WORKERS = int(
+    os.environ.get("TRACECAT__LITELLM_NUM_WORKERS") or 2
+)
+"""Number of uvicorn workers for the managed LiteLLM service."""
 
 TRACECAT__LITELLM_BASE_URL = os.environ.get(
     "TRACECAT__LITELLM_BASE_URL", f"http://127.0.0.1:{TRACECAT__LITELLM_PORT}"

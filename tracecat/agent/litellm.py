@@ -58,6 +58,8 @@ def main() -> None:
         get_bind_host(),
         "--port",
         os.environ.get("TRACECAT__LITELLM_PORT") or "4000",
+        "--num_workers",
+        os.environ.get("TRACECAT__LITELLM_NUM_WORKERS") or "2",
         "--config",
         str(runtime_config),
     ]

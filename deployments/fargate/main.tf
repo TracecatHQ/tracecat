@@ -169,6 +169,12 @@ module "ecs" {
   temporal_db_allocated_storage               = local.temporal_db_allocated_storage
   db_engine_version                           = var.db_engine_version
 
+  # LiteLLM Service
+  litellm_cpu           = var.litellm_cpu
+  litellm_memory        = var.litellm_memory
+  litellm_desired_count = var.litellm_desired_count
+  litellm_num_workers   = var.litellm_num_workers
+
   # MCP Service
   enable_mcp                      = var.enable_mcp
   mcp_cpu                         = var.mcp_cpu

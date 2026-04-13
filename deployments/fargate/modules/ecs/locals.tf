@@ -172,11 +172,26 @@ locals {
         TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS                = var.llm_gateway_healthcheck_pool_timeout_seconds
         TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD                   = var.llm_gateway_healthcheck_failure_threshold
         TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS         = var.llm_gateway_status_log_interval_seconds
+        TRACECAT__LITELLM_BASE_URL                                = "http://litellm-service:4000"
         TRACECAT__UNSAFE_DISABLE_SM_MASKING                   = "false"
         TRACECAT__DISABLE_NSJAIL                              = "true"
         TRACECAT__SANDBOX_NSJAIL_PATH                         = "/usr/local/bin/nsjail"
         TRACECAT__SANDBOX_ROOTFS_PATH                         = "/var/lib/tracecat/sandbox-rootfs"
         TRACECAT__SANDBOX_CACHE_DIR                           = "/var/lib/tracecat/sandbox-cache"
+      }
+    ) :
+    { name = k, value = tostring(v) } if v != null
+  ]
+
+  litellm_env = [
+    for k, v in merge(
+      local.tracecat_common_env,
+      local.tracecat_db_configs,
+      {
+        TRACECAT__DB_ENDPOINT          = local.core_db_hostname
+        TRACECAT__LITELLM_PORT         = "4000"
+        TRACECAT__LITELLM_NUM_WORKERS  = var.litellm_num_workers
+        TRACECAT__LITELLM_BASE_URL     = "http://litellm-service:4000"
       }
     ) :
     { name = k, value = tostring(v) } if v != null

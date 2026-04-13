@@ -321,6 +321,8 @@ locals {
 
   executor_secrets = local.tracecat_base_secrets
 
+  litellm_secrets = local.tracecat_base_secrets
+
   mcp_secrets = concat(
     local.tracecat_base_secrets,
     local.user_auth_secret_secret,

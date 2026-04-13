@@ -5,12 +5,14 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import parse_qsl, urlencode
 
+from aiocache import Cache
 from fastapi import Request
 from litellm.caching.dual_cache import DualCache
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
 from litellm.types.utils import CallTypesLiteral
 
+from tracecat import config as app_config
 from tracecat.agent.litellm_compat import apply_patch
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
@@ -65,13 +67,36 @@ def _strip_non_anthropic_beta_payload_fields(data: dict) -> None:
     data.pop("output_format", None)
 
 
+_credential_cache: Any = Cache(
+    Cache.MEMORY,
+    ttl=app_config.TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS,
+)
+
+
+def _credential_cache_key(
+    workspace_id: WorkspaceID,
+    organization_id: OrganizationID,
+    provider: str,
+    use_workspace_creds: bool,
+) -> str:
+    return f"creds:{workspace_id}:{organization_id}:{provider}:{use_workspace_creds}"
+
+
 async def get_provider_credentials(
     workspace_id: WorkspaceID,
     organization_id: OrganizationID,
     provider: str,
     use_workspace_creds: bool = False,
 ) -> dict[str, str] | None:
-    """Fetch provider credentials using AgentManagementService."""
+    """Fetch provider credentials, with a process-local TTL cache."""
+    cache_key = _credential_cache_key(
+        workspace_id, organization_id, provider, use_workspace_creds
+    )
+
+    cached = await _credential_cache.get(key=cache_key)
+    if cached is not None:
+        return cached
+
     role = Role(
         type="service",
         user_id=None,
@@ -81,10 +106,15 @@ async def get_provider_credentials(
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-llm-gateway"],
     )
     async with AgentManagementService.with_session(role=role) as service:
-        return await service.get_runtime_provider_credentials(
+        creds = await service.get_runtime_provider_credentials(
             provider,
             use_workspace_credentials=use_workspace_creds,
         )
+
+    if creds is not None:
+        await _credential_cache.set(key=cache_key, value=creds)
+
+    return creds
 
 
 async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKeyAuth:
