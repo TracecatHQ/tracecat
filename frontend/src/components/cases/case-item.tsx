@@ -61,28 +61,93 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { User } from "@/lib/auth"
 import { formatCaseFieldDisplayLabel } from "@/lib/case-field-display"
-import { parseISODuration } from "@/lib/time"
+import { durationToHumanReadable, parseISODuration } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function formatCompactDuration(duration: string): string | null {
   try {
     const parsed = parseISODuration(duration)
-    const parts: string[] = []
-    if (parsed.years) parts.push(`${parsed.years}y`)
-    if (parsed.months) parts.push(`${parsed.months}mo`)
-    if (parsed.weeks) parts.push(`${parsed.weeks}w`)
-    if (parsed.days) parts.push(`${parsed.days}d`)
-    if (parsed.hours) parts.push(`${parsed.hours}h`)
-    if (parsed.minutes) parts.push(`${parsed.minutes}m`)
-    if (parsed.seconds) parts.push(`${parsed.seconds}s`)
-    return parts.length > 0 ? parts.join("") : "0s"
+    if (parsed.years) return `${parsed.years}y`
+    if (parsed.months) return `${parsed.months}mo`
+    if (parsed.weeks) return `${parsed.weeks}w`
+    if (parsed.days) return `${parsed.days}d`
+    if (parsed.hours) return `${parsed.hours}h`
+    if (parsed.minutes) return `${parsed.minutes}m`
+    if (parsed.seconds) return `${parsed.seconds}s`
+    return "0s"
   } catch {
     return null
   }
+}
+
+function withBadgeTooltip(
+  badge: ReactNode,
+  tooltip: ReactNode,
+  key: string
+): ReactNode {
+  if (!tooltip) {
+    return badge
+  }
+
+  return (
+    <Tooltip key={key}>
+      <TooltipTrigger asChild>{badge}</TooltipTrigger>
+      <TooltipContent side="top" className="px-2 py-1">
+        {tooltip}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function formatFieldTooltipLabel(fieldId: string): string {
+  const normalized = fieldId.replace(/[_-]+/g, " ").trim()
+  if (!normalized) {
+    return fieldId
+  }
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1)
+}
+
+function formatTooltipTimestamp(timestamp?: string | null): string | null {
+  if (!timestamp) {
+    return null
+  }
+
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  return date.toLocaleString()
+}
+
+function buildDurationTooltipContent(
+  name: string,
+  duration: string,
+  startedAt?: string | null,
+  endedAt?: string | null
+): ReactNode {
+  const startedLabel = formatTooltipTimestamp(startedAt)
+  const endedLabel = formatTooltipTimestamp(endedAt)
+
+  return (
+    <div className="space-y-1">
+      <div className="font-medium">{name}</div>
+      <div>Duration: {durationToHumanReadable(duration)}</div>
+      {startedLabel && <div>Started: {startedLabel}</div>}
+      {endedLabel && <div>Ended: {endedLabel}</div>}
+    </div>
+  )
 }
 
 interface CaseItemProps {
@@ -148,10 +213,16 @@ export function CaseItem({
               label={dv.option_label}
               iconName={dv.option_icon_name}
               color={dv.option_color}
-              className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+              className="h-5 shrink-0 px-1.5 py-0 text-xs"
             />
           )
-          badges.push(badge)
+          badges.push(
+            withBadgeTooltip(
+              badge,
+              dv.definition_name || dv.definition_ref || ref,
+              columnId
+            )
+          )
         }
       } else if (columnId.startsWith("field:")) {
         const fieldId = columnId.slice("field:".length)
@@ -165,11 +236,12 @@ export function CaseItem({
             <CaseColumnBadge
               key={columnId}
               label={label}
-              title={fieldId}
-              className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+              className="h-5 shrink-0 px-1.5 py-0 text-xs"
             />
           )
-          badges.push(badge)
+          badges.push(
+            withBadgeTooltip(badge, formatFieldTooltipLabel(fieldId), columnId)
+          )
         }
       }
     }
@@ -204,12 +276,17 @@ export function CaseItem({
       }
 
       const durationName = durationNamesById?.get(defId) ?? "Duration"
+      const tooltipContent = buildDurationTooltipContent(
+        durationName,
+        dur.duration,
+        dur.started_at,
+        dur.ended_at
+      )
       const badge = (
         <CaseColumnBadge
           key={columnId}
           iconName="timer"
-          title={durationName}
-          className="h-5 max-w-[172px] shrink-0 px-1.5 py-0 text-[10px]"
+          className="h-5 max-w-[172px] shrink-0 px-1.5 py-0 text-xs"
           content={
             <span className="flex min-w-0 items-center gap-0.5">
               <span className="truncate">{durationName}</span>
@@ -218,7 +295,7 @@ export function CaseItem({
           }
         />
       )
-      badges.push(badge)
+      badges.push(withBadgeTooltip(badge, tooltipContent, columnId))
     }
 
     return badges.length > 0 ? badges : null
@@ -477,92 +554,97 @@ export function CaseItem({
           </button>
 
           {/* Case ID + Summary + Badges */}
-          <button
-            type="button"
-            onClick={onClick}
-            className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
-          >
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <span className="shrink-0 text-xs font-medium text-muted-foreground">
-                {caseData.short_id}
-              </span>
-              <span className="truncate text-xs">{caseData.summary}</span>
-              {/* Badges - right next to summary */}
-              {priorityConfig && (
-                <CaseBadge
-                  value={caseData.priority}
-                  label={priorityConfig.label}
-                  icon={priorityConfig.icon}
-                  color={priorityConfig.color}
-                  className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
-                />
-              )}
-              {severityConfig && (
-                <CaseBadge
-                  value={caseData.severity}
-                  label={severityConfig.label}
-                  icon={severityConfig.icon}
-                  color={severityConfig.color}
-                  className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
-                />
-              )}
-              {/* Custom column badges */}
-              {summaryColumnBadges}
-            </div>
-
-            {/* Tags - right aligned */}
-            {caseData.tags && caseData.tags.length > 0 && (
-              <div className="flex shrink-0 items-center gap-1">
-                {caseData.tags.slice(0, 3).map((tag) => (
-                  <span
-                    key={tag.id}
-                    className={cn(
-                      "inline-flex h-5 items-center rounded-full px-2 text-[10px] font-medium",
-                      !tag.color && "bg-muted text-muted-foreground"
-                    )}
-                    style={
-                      tag.color
-                        ? {
-                            backgroundColor: `${tag.color}20`,
-                            color: tag.color,
-                          }
-                        : undefined
-                    }
-                  >
-                    {tag.name}
-                  </span>
-                ))}
-                {caseData.tags.length > 3 && (
-                  <span className="text-[10px] text-muted-foreground">
-                    +{caseData.tags.length - 3}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {durationBadges && (
-              <div className="flex shrink-0 items-center gap-1">
-                {durationBadges}
-              </div>
-            )}
-
-            {/* Assignee */}
-            {caseData.assignee && (
-              <div className="flex shrink-0 items-center gap-1">
-                <CaseUserAvatar user={new User(caseData.assignee)} size="sm" />
-                <span className="max-w-[80px] truncate text-xs text-muted-foreground">
-                  {caseData.assignee.first_name?.split(/\s/)[0] ||
-                    caseData.assignee.email.split("@")[0]}
+          <TooltipProvider delayDuration={0} skipDelayDuration={0}>
+            <button
+              type="button"
+              onClick={onClick}
+              className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                  {caseData.short_id}
                 </span>
+                <span className="truncate text-xs">{caseData.summary}</span>
+                {/* Badges - right next to summary */}
+                {priorityConfig && (
+                  <CaseBadge
+                    value={caseData.priority}
+                    label={priorityConfig.label}
+                    icon={priorityConfig.icon}
+                    color={priorityConfig.color}
+                    className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+                  />
+                )}
+                {severityConfig && (
+                  <CaseBadge
+                    value={caseData.severity}
+                    label={severityConfig.label}
+                    icon={severityConfig.icon}
+                    color={severityConfig.color}
+                    className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
+                  />
+                )}
+                {/* Custom column badges */}
+                {summaryColumnBadges}
               </div>
-            )}
 
-            {/* Timestamps */}
-            <div className="flex shrink-0 items-center gap-2">
-              <EventCreatedAt createdAt={caseData.created_at} />
-              <EventUpdatedAt updatedAt={caseData.updated_at} />
-            </div>
-          </button>
+              {/* Tags - right aligned */}
+              {caseData.tags && caseData.tags.length > 0 && (
+                <div className="flex shrink-0 items-center gap-1">
+                  {caseData.tags.slice(0, 3).map((tag) => (
+                    <span
+                      key={tag.id}
+                      className={cn(
+                        "inline-flex h-5 items-center rounded-full px-2 text-[10px] font-medium",
+                        !tag.color && "bg-muted text-muted-foreground"
+                      )}
+                      style={
+                        tag.color
+                          ? {
+                              backgroundColor: `${tag.color}20`,
+                              color: tag.color,
+                            }
+                          : undefined
+                      }
+                    >
+                      {tag.name}
+                    </span>
+                  ))}
+                  {caseData.tags.length > 3 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      +{caseData.tags.length - 3}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {durationBadges && (
+                <div className="flex shrink-0 items-center gap-1">
+                  {durationBadges}
+                </div>
+              )}
+
+              {/* Assignee */}
+              {caseData.assignee && (
+                <div className="flex shrink-0 items-center gap-1">
+                  <CaseUserAvatar
+                    user={new User(caseData.assignee)}
+                    size="sm"
+                  />
+                  <span className="max-w-[80px] truncate text-xs text-muted-foreground">
+                    {caseData.assignee.first_name?.split(/\s/)[0] ||
+                      caseData.assignee.email.split("@")[0]}
+                  </span>
+                </div>
+              )}
+
+              {/* Timestamps */}
+              <div className="flex shrink-0 items-center gap-2">
+                <EventCreatedAt createdAt={caseData.created_at} />
+                <EventUpdatedAt updatedAt={caseData.updated_at} />
+              </div>
+            </button>
+          </TooltipProvider>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
