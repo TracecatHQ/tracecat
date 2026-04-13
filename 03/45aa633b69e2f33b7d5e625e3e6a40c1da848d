@@ -1,0 +1,72 @@
+tests/unit/test_skill_service.py
+  afa7c9e73fe4b7c6 154,180-181,183-184,189,194
+  e78dd32d3b4abd56 257,259-261,263,266-269,285,385-388,390,392-394,396-406,409,411-415,417,419,422,425-429,431-432,434-448,457,460,462-465,467,469-471,473-477,479-486,488,490-494,496-497,511,534,536-537,539,545,548,555-556,560-561,574,576,584,591,593,598,601,610,614,618,674-677,679,682,685,692-693,697-698,700,702,734,736-739,741,743,746,753-754,758-759,762,185,187-188,193,198-199,201-202,204,206,208,210,218,223-224,235
+tests/unit/test_mcp_server.py
+  f7c6d73df48c6648 26,79-89,3613,4004,4099,4196,4321,4525,4528,4549,4552,4562,4566,4586,4593,4607,4610,4619-4620
+tracecat/mcp/server.py
+  05c0b59f5e164c30 6158-6161,6164-6171,6173-6174
+tracecat/agent/skill/service.py
+  05c0b59f5e164c30 12,22,31,273,279,312-313,463-471,473,475,664,718,939,951,957,1143,323-324
+  e78dd32d3b4abd56 88,269,523-524,71,75-76,95,97,326,573,579,583,591,595,599,605,610,621,625
+  afa7c9e73fe4b7c6 185,187,224,665,719,431,438,447,454,482,980,983,988-990,1024,932,325,581
+  b0a10be1fa96527e 345,574-577,580,602-604,619
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "0345aa633b69e2f33b7d5e625e3e6a40c1da848d",
+  "prompts": {
+    "05c0b59f5e164c30": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "25a43b03-05ad-4105-8375-12fa36350f6d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "afa7c9e73fe4b7c6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d83e3-2844-7482-ab3c-3078314fc2c1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 661,
+      "total_deletions": 637,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    },
+    "e78dd32d3b4abd56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d8165-6f07-7d43-8c91-6d3bce483ab4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 104,
+      "total_deletions": 0,
+      "accepted_lines": 27,
+      "overriden_lines": 0
+    },
+    "f7c6d73df48c6648": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d73f4-f530-7a32-8209-65d854061eba",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 28,
+      "total_deletions": 5,
+      "accepted_lines": 12,
+      "overriden_lines": 0
+    }
+  }
+}

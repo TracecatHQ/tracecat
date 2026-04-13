@@ -1,0 +1,9 @@
+tracecat/mcp/server.py
+  05c0b59f5e164c30 6150-6153,6156-6163,6165-6166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "f72ffddca3945281314cde222657d34e919285a8",
+  "prompts": {}
+}

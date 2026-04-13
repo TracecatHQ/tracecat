@@ -1,0 +1,24 @@
+tracecat/agent/preset/internal_router.py
+  e2366595845a235a 14
+  920a6c1f157048fc 5,12,94,116,136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "c4d1a37e9e6bdb8efac3ca1945311bfac928b405",
+  "prompts": {
+    "920a6c1f157048fc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fd959088-0716-467c-b40c-42c464cf10ea",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 7,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}
