@@ -63,6 +63,22 @@ Use either of these:
 
 Use `unwrap=true` on either endpoint to return inline values directly.
 
+Example output schema:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
+```
+
 Default wait response shape:
 
 ```json
@@ -73,6 +89,8 @@ Default wait response shape:
   }
 }
 ```
+
+`options` is only an example field from that sample output schema.
 
 `kind` identifies the result shape. `value` is your workflow output when `kind` is `value`.
 
