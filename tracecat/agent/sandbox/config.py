@@ -223,6 +223,7 @@ def build_agent_nsjail_config(
     llm_socket_path: Path,
     *,
     enable_internet_access: bool = False,
+    skills_dir: Path | None = None,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
 
@@ -239,6 +240,7 @@ def build_agent_nsjail_config(
         enable_internet_access: If True, disables network isolation to allow
             direct internet access. Required for MCP stdio servers that need
             to call external APIs. Default is False (network isolated).
+        skills_dir: Optional host path containing staged workspace skills.
 
     Returns:
         nsjail protobuf configuration as a string.
@@ -257,6 +259,8 @@ def build_agent_nsjail_config(
     _validate_path(site_packages_dir, "site_packages_dir")
     _validate_path(tracecat_pkg_dir, "tracecat_pkg_dir")
     _validate_path(llm_socket_path, "llm_socket_path")
+    if skills_dir is not None:
+        _validate_path(skills_dir, "skills_dir")
 
     # Derive control socket path from socket_dir using well-known name
     control_socket_path = socket_dir / CONTROL_SOCKET_NAME
@@ -377,6 +381,13 @@ def build_agent_nsjail_config(
             'mount { dst: "/home/agent" fstype: "tmpfs" rw: true options: "size=128M" }',
         ]
     )
+    if skills_dir is not None:
+        lines.extend(
+            [
+                'mount { dst: "/home/agent/.claude" fstype: "tmpfs" rw: true options: "size=64M" }',
+                f'mount {{ src: "{skills_dir}" dst: "/home/agent/.claude/skills" is_bind: true rw: false }}',
+            ]
+        )
 
     # Resource limits
     lines.extend(

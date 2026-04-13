@@ -1,21 +1,37 @@
 """Tests for AgentPresetService."""
 
 import asyncio
+import os
 import uuid
 from typing import cast
 
 import pytest
+from dotenv import dotenv_values
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
-from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
+from tracecat import config
+from tracecat.agent.preset.schemas import (
+    AgentPresetCreate,
+    AgentPresetSkillBindingBase,
+    AgentPresetSkillBindingRead,
+    AgentPresetUpdate,
+)
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.preset.types import SkillBindingSpec
+from tracecat.agent.skill.schemas import (
+    SkillCreate,
+    SkillDraftPatch,
+    SkillDraftUpsertTextFileOp,
+)
+from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersion,
+    AgentPresetVersionSkill,
     RegistryAction,
     RegistryIndex,
     RegistryRepository,
@@ -29,8 +45,37 @@ from tracecat.registry.versions.schemas import (
     RegistryVersionManifest,
     RegistryVersionManifestAction,
 )
+from tracecat.storage.blob import ensure_bucket_exists
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def sync_minio_credentials(monkeysession: pytest.MonkeyPatch) -> None:
+    """Ensure MinIO-backed skill tests use the active local credentials."""
+
+    try:
+        env = dotenv_values()
+    except Exception:
+        env = {}
+
+    access_key = (
+        env.get("AWS_ACCESS_KEY_ID")
+        or env.get("MINIO_ROOT_USER")
+        or os.environ.get("AWS_ACCESS_KEY_ID")
+        or os.environ.get("MINIO_ROOT_USER")
+        or "minio"
+    )
+    secret_key = (
+        env.get("AWS_SECRET_ACCESS_KEY")
+        or env.get("MINIO_ROOT_PASSWORD")
+        or os.environ.get("AWS_SECRET_ACCESS_KEY")
+        or os.environ.get("MINIO_ROOT_PASSWORD")
+        or "password"
+    )
+
+    monkeysession.setenv("AWS_ACCESS_KEY_ID", access_key)
+    monkeysession.setenv("AWS_SECRET_ACCESS_KEY", secret_key)
 
 
 @pytest.fixture
@@ -39,6 +84,37 @@ async def agent_preset_service(
 ) -> AgentPresetService:
     """Create an agent preset service instance for testing."""
     return AgentPresetService(session=session, role=svc_role)
+
+
+@pytest.fixture
+async def configure_minio_for_skills(
+    minio_bucket: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Point skill storage at the test MinIO bucket."""
+
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__BLOB_STORAGE_ENDPOINT",
+        "http://localhost:9000",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__BLOB_STORAGE_BUCKET_SKILLS",
+        minio_bucket,
+        raising=False,
+    )
+    monkeypatch.setenv("TRACECAT__BLOB_STORAGE_BUCKET_SKILLS", minio_bucket)
+    monkeypatch.setenv(
+        "AWS_ACCESS_KEY_ID",
+        os.environ.get("AWS_ACCESS_KEY_ID", "minio"),
+    )
+    monkeypatch.setenv(
+        "AWS_SECRET_ACCESS_KEY",
+        os.environ.get("AWS_SECRET_ACCESS_KEY", "password"),
+    )
+
+    await ensure_bucket_exists(minio_bucket)
 
 
 @pytest.fixture
@@ -351,8 +427,7 @@ class TestAgentPresetService:
         assert updated_preset.current_version_id is not None
         assert updated_preset.current_version_id != version_1.id
         assert [version.version for version in versions.items] == [2, 1]
-        assert versions.items[0].instructions == "Updated instructions"
-        assert versions.items[0].retries == 7
+        assert versions.items[0].id == updated_preset.current_version_id
 
     async def test_list_versions_returns_cursor_paginated_versions(
         self,
@@ -567,6 +642,691 @@ class TestAgentPresetService:
             for change in diff.tool_approval_changes
         )
 
+    async def test_preset_version_snapshots_exact_skill_versions(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Preset versions snapshot exact skill versions at creation time."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="triage-skill")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Skill preset",
+                description="Preset with a skill",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        version_read = await agent_preset_service.build_version_read(current_version)
+
+        assert len(version_read.skills) == 1
+        assert version_read.skills[0].skill_version_id == skill_version.id
+        assert version_read.skills[0].skill_version == 1
+
+    async def test_list_versions_returns_metadata_without_skill_lookups(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Version list metadata does not resolve skill bindings."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="batched-skill")
+        )
+        skill_version_one = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Batched preset",
+                description="Preset with batched version reads",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version_one.id,
+                    )
+                ],
+            )
+        )
+
+        draft = await skill_service.get_draft(created_skill.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created_skill.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="references/upgrade.md",
+                        content="Second published version",
+                    )
+                ],
+            ),
+        )
+        skill_version_two = await skill_service.publish_skill(created_skill.id)
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(
+                instructions="Updated instructions",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version_two.id,
+                    )
+                ],
+            ),
+        )
+
+        async def fail_single_version_lookup(
+            version_id: uuid.UUID,
+        ) -> list[AgentPresetSkillBindingRead]:
+            del version_id
+            raise AssertionError("list endpoint should batch skill binding lookups")
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_list_version_skill_bindings",
+            fail_single_version_lookup,
+        )
+
+        version_reads = await agent_preset_service.list_versions(
+            created_preset.id,
+            CursorPaginationParams(limit=10),
+        )
+
+        assert [version.version for version in version_reads.items] == [2, 1]
+
+    async def test_restore_version_restores_historical_skill_versions_on_head(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Restoring a preset version copies historical skill versions onto the head."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="restore-skill")
+        )
+        skill_version_one = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Restore preset",
+                description="Preset with restorable skill bindings",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version_one.id,
+                    )
+                ],
+            )
+        )
+        preset_version_one = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        draft = await skill_service.get_draft(created_skill.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created_skill.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="references/upgrade.md",
+                        content="Second published version",
+                    )
+                ],
+            ),
+        )
+        skill_version_two = await skill_service.publish_skill(created_skill.id)
+        assert skill_version_two.id != skill_version_one.id
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(
+                instructions="Trigger a new preset version",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version_two.id,
+                    )
+                ],
+            ),
+        )
+        preset_version_two = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        diff = await agent_preset_service.compare_versions(
+            preset_version_one,
+            preset_version_two,
+        )
+        restored = await agent_preset_service.restore_version(
+            created_preset,
+            preset_version_one,
+        )
+        restored_bindings = await agent_preset_service._list_head_skill_bindings(
+            restored.id
+        )
+
+        assert len(diff.skill_changes) == 1
+        assert diff.skill_changes[0].old_skill_version_id == skill_version_one.id
+        assert diff.skill_changes[0].new_skill_version_id == skill_version_two.id
+        assert len(restored_bindings) == 1
+        assert restored_bindings[0].skill_version_id == skill_version_one.id
+
+    async def test_build_version_read_uses_pinned_skill_version_name(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Preset version reads should expose the name from the pinned skill version."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="version-one")
+        )
+        skill_version_one = await skill_service.publish_skill(created_skill.id)
+
+        draft = await skill_service.get_draft(created_skill.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created_skill.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=("---\nname: version-two\n---\n\n# version-two\n"),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        skill_version_two = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Pinned skill name preset",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version_one.id,
+                    )
+                ],
+            )
+        )
+        preset_version_one = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(
+                instructions="Bind the newer skill version",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version_two.id,
+                    )
+                ],
+            ),
+        )
+
+        version_read = await agent_preset_service.build_version_read(preset_version_one)
+        head_bindings = await agent_preset_service._list_head_skill_bindings(
+            created_preset.id
+        )
+
+        assert version_read.skills[0].skill_version_id == skill_version_one.id
+        assert version_read.skills[0].skill_name == "version-one"
+        assert head_bindings[0].skill_version_id == skill_version_two.id
+        assert head_bindings[0].skill_name == "version-two"
+
+    async def test_create_preset_rejects_duplicate_bound_skill_names(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Preset version creation rejects duplicate resolved skill names."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        skill_a = await skill_service.create_skill(SkillCreate(name="shared-name"))
+        skill_a_shared = await skill_service.publish_skill(skill_a.id)
+
+        draft_a = await skill_service.get_draft(skill_a.id)
+        assert draft_a is not None
+        await skill_service.patch_draft(
+            skill_id=skill_a.id,
+            params=SkillDraftPatch(
+                base_revision=draft_a.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: skill-a-current\n---\n\n# skill-a-current\n",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        await skill_service.publish_skill(skill_a.id)
+
+        skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
+        await skill_service.publish_skill(skill_b.id)
+
+        draft_b = await skill_service.get_draft(skill_b.id)
+        assert draft_b is not None
+        await skill_service.patch_draft(
+            skill_id=skill_b.id,
+            params=SkillDraftPatch(
+                base_revision=draft_b.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: shared-name\n---\n\n# shared-name\n",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        skill_b_shared = await skill_service.publish_skill(skill_b.id)
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="cannot include duplicate skill names",
+        ) as exc_info:
+            await agent_preset_service.create_preset(
+                AgentPresetCreate(
+                    name="Duplicate skill name preset",
+                    instructions="Use both skills",
+                    model_name="gpt-4o-mini",
+                    model_provider="openai",
+                    skills=[
+                        AgentPresetSkillBindingBase(
+                            skill_id=skill_a.id,
+                            skill_version_id=skill_a_shared.id,
+                        ),
+                        AgentPresetSkillBindingBase(
+                            skill_id=skill_b.id,
+                            skill_version_id=skill_b_shared.id,
+                        ),
+                    ],
+                )
+            )
+
+        detail = exc_info.value.detail
+        assert detail is not None
+        assert detail["code"] == "duplicate_skill_names"
+        assert detail["skill_names"] == ["shared-name"]
+        assert uuid.UUID(detail["preset_id"])
+
+    async def test_resolve_agent_preset_config_rejects_duplicate_skill_names(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Preset resolution fails before runtime if a snapshot contains duplicates."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        skill_a = await skill_service.create_skill(SkillCreate(name="shared-name"))
+        skill_a_shared = await skill_service.publish_skill(skill_a.id)
+
+        draft_a = await skill_service.get_draft(skill_a.id)
+        assert draft_a is not None
+        await skill_service.patch_draft(
+            skill_id=skill_a.id,
+            params=SkillDraftPatch(
+                base_revision=draft_a.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: skill-a-current\n---\n\n# skill-a-current\n",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        await skill_service.publish_skill(skill_a.id)
+
+        skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
+        await skill_service.publish_skill(skill_b.id)
+
+        draft_b = await skill_service.get_draft(skill_b.id)
+        assert draft_b is not None
+        await skill_service.patch_draft(
+            skill_id=skill_b.id,
+            params=SkillDraftPatch(
+                base_revision=draft_b.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: shared-name\n---\n\n# shared-name\n",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        skill_b_shared = await skill_service.publish_skill(skill_b.id)
+
+        preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Single skill preset",
+                instructions="Use one skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=skill_a.id,
+                        skill_version_id=skill_a_shared.id,
+                    )
+                ],
+            )
+        )
+        preset_version = await agent_preset_service.get_current_version_for_preset(
+            preset
+        )
+
+        session.add(
+            AgentPresetVersionSkill(
+                workspace_id=agent_preset_service.workspace_id,
+                preset_version_id=preset_version.id,
+                skill_id=skill_b.id,
+                skill_version_id=skill_b_shared.id,
+            )
+        )
+        await session.commit()
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="Resolved preset version contains duplicate skill names",
+        ) as exc_info:
+            await agent_preset_service.resolve_agent_preset_config(
+                preset_version_id=preset_version.id
+            )
+
+        assert exc_info.value.detail == {
+            "code": "duplicate_skill_names",
+            "skill_names": ["shared-name"],
+            "preset_version_id": str(preset_version.id),
+        }
+
+    async def test_create_preset_locks_skill_bindings_during_validation(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Preset creation validates bound skills under row locks."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="create-lock-skill")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+
+        captured_for_update: list[bool] = []
+        original_validate_binding_inputs = (
+            agent_preset_service.skills.validate_binding_inputs
+        )
+
+        async def instrumented_validate_binding_inputs(
+            bindings: list[AgentPresetSkillBindingBase],
+            *,
+            for_update: bool = False,
+        ) -> None:
+            captured_for_update.append(for_update)
+            await original_validate_binding_inputs(bindings, for_update=for_update)
+
+        monkeypatch.setattr(
+            agent_preset_service.skills,
+            "validate_binding_inputs",
+            instrumented_validate_binding_inputs,
+        )
+
+        await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Create lock preset",
+                description="Preset that validates skills under lock",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+
+        assert captured_for_update == [True]
+
+    async def test_update_preset_clears_all_skill_bindings_when_skills_is_null(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Explicit null skill updates clear mutable preset skill bindings."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="clear-skill-bindings")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Clear skill preset",
+                description="Preset with a removable skill binding",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(skills=None),
+        )
+        current_version = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+        current_bindings = await agent_preset_service._list_head_skill_bindings(
+            created_preset.id
+        )
+        version_read = await agent_preset_service.build_version_read(current_version)
+
+        assert current_bindings == []
+        assert version_read.skills == []
+
+    async def test_update_preset_locks_skill_bindings_during_validation(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Preset updates validate requested skill bindings under row locks."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="update-lock-skill")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Update lock preset",
+                description="Preset used to verify locking on update",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+        )
+
+        captured_for_update: list[bool] = []
+        original_validate_binding_inputs = (
+            agent_preset_service.skills.validate_binding_inputs
+        )
+
+        async def instrumented_validate_binding_inputs(
+            bindings: list[AgentPresetSkillBindingBase],
+            *,
+            for_update: bool = False,
+        ) -> None:
+            captured_for_update.append(for_update)
+            await original_validate_binding_inputs(bindings, for_update=for_update)
+
+        monkeypatch.setattr(
+            agent_preset_service.skills,
+            "validate_binding_inputs",
+            instrumented_validate_binding_inputs,
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ]
+            ),
+        )
+
+        assert captured_for_update == [True]
+
+    async def test_update_preset_locks_preset_before_replacing_skill_bindings(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Preset updates lock before reading or replacing mutable skill bindings."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="ordered-lock-skill")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Ordered lock preset",
+                description="Preset used to verify lock ordering on update",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+        )
+
+        original_lock = agent_preset_service._lock_preset_for_versioning
+        original_get_specs = agent_preset_service._get_head_skill_binding_specs
+        original_replace = agent_preset_service._replace_head_skill_bindings
+        call_order: list[str] = []
+
+        async def instrumented_lock(preset_id: uuid.UUID) -> None:
+            call_order.append("lock")
+            await original_lock(preset_id)
+
+        async def instrumented_get_specs(
+            preset_id: uuid.UUID,
+        ) -> list[SkillBindingSpec]:
+            call_order.append("read_specs")
+            return await original_get_specs(preset_id)
+
+        async def instrumented_replace(
+            preset_id: uuid.UUID,
+            bindings: list[AgentPresetSkillBindingBase],
+        ) -> None:
+            call_order.append("replace")
+            await original_replace(preset_id, bindings)
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_lock_preset_for_versioning",
+            instrumented_lock,
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_get_head_skill_binding_specs",
+            instrumented_get_specs,
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_replace_head_skill_bindings",
+            instrumented_replace,
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ]
+            ),
+        )
+
+        assert call_order[:3] == ["lock", "read_specs", "replace"]
+        assert call_order.count("lock") == 1
+
     async def test_restore_version_moves_current_pointer(
         self,
         agent_preset_service: AgentPresetService,
@@ -595,6 +1355,184 @@ class TestAgentPresetService:
         assert restored_preset.current_version_id == version_1.id
         assert restored_preset.instructions == agent_preset_create_params.instructions
         assert [version.version for version in versions.items] == [2, 1]
+
+    async def test_restore_version_locks_preset_before_replacing_skill_bindings(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Preset restore locks before replacing mutable head skill bindings."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="restore-ordered-lock-skill")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Restore ordered lock preset",
+                description="Preset used to verify lock ordering on restore",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+        version_1 = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(skills=[]),
+        )
+
+        original_lock = agent_preset_service._lock_preset_for_versioning
+        original_restore = (
+            agent_preset_service._restore_head_skill_bindings_from_version
+        )
+        call_order: list[str] = []
+
+        async def instrumented_lock(preset_id: uuid.UUID) -> None:
+            call_order.append("lock")
+            await original_lock(preset_id)
+
+        async def instrumented_restore(
+            *, preset_id: uuid.UUID, version_id: uuid.UUID
+        ) -> None:
+            call_order.append("restore_bindings")
+            await original_restore(preset_id=preset_id, version_id=version_id)
+
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_lock_preset_for_versioning",
+            instrumented_lock,
+        )
+        monkeypatch.setattr(
+            agent_preset_service,
+            "_restore_head_skill_bindings_from_version",
+            instrumented_restore,
+        )
+
+        await agent_preset_service.restore_version(created_preset, version_1)
+
+        assert call_order[:2] == ["lock", "restore_bindings"]
+        assert call_order.count("lock") == 1
+
+    async def test_restore_version_rejects_archived_skill_bindings(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Restoring a version cannot reattach archived skills onto the mutable head."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="archived-restore-skill")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Archived restore preset",
+                description="Preset that snapshots a skill before archiving",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+        version_1 = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(skills=None),
+        )
+        await skill_service.archive_skill(created_skill.id)
+
+        with pytest.raises(TracecatValidationError, match="not found"):
+            await agent_preset_service.restore_version(created_preset, version_1)
+
+    async def test_restore_version_locks_skill_bindings_during_validation(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Preset restore validates rebound skill bindings under row locks."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="restore-lock-skill")
+        )
+        skill_version = await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Restore lock preset",
+                description="Preset used to verify locking on restore",
+                instructions="Use the selected skill version",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created_skill.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+        version_1 = await agent_preset_service.get_current_version_for_preset(
+            created_preset
+        )
+
+        await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(skills=None),
+        )
+
+        captured_for_update: list[bool] = []
+        original_validate_binding_inputs = (
+            agent_preset_service.skills.validate_binding_inputs
+        )
+
+        async def instrumented_validate_binding_inputs(
+            bindings: list[AgentPresetSkillBindingBase],
+            *,
+            for_update: bool = False,
+        ) -> None:
+            captured_for_update.append(for_update)
+            await original_validate_binding_inputs(bindings, for_update=for_update)
+
+        monkeypatch.setattr(
+            agent_preset_service.skills,
+            "validate_binding_inputs",
+            instrumented_validate_binding_inputs,
+        )
+
+        await agent_preset_service.restore_version(created_preset, version_1)
+
+        assert captured_for_update == [True]
 
     async def test_update_preset_slug(
         self,
@@ -815,68 +1753,6 @@ class TestAgentPresetService:
         ):
             await agent_preset_service.create_preset(agent_preset_create_params)
 
-    async def test_get_agent_config(
-        self,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-        registry_actions: list[RegistryAction],
-    ) -> None:
-        """Test getting agent config from a preset."""
-        # Create preset with full configuration
-        agent_preset_create_params.actions = ["tools.test.test_action"]
-        agent_preset_create_params.namespaces = ["tools.test"]
-        agent_preset_create_params.tool_approvals = {"tools.test.test_action": True}
-
-        created_preset = await agent_preset_service.create_preset(
-            agent_preset_create_params
-        )
-
-        # Get agent config by ID
-        agent_config = await agent_preset_service.get_agent_config(created_preset.id)
-
-        assert isinstance(agent_config, AgentConfig)
-        assert agent_config.model_name == agent_preset_create_params.model_name
-        assert agent_config.model_provider == agent_preset_create_params.model_provider
-        assert agent_config.instructions == agent_preset_create_params.instructions
-        assert agent_config.actions == agent_preset_create_params.actions
-        assert agent_config.namespaces == agent_preset_create_params.namespaces
-        assert agent_config.tool_approvals == agent_preset_create_params.tool_approvals
-        assert agent_config.retries == agent_preset_create_params.retries
-
-    async def test_get_agent_config_by_slug(
-        self,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-    ) -> None:
-        """Test getting agent config by slug."""
-        created_preset = await agent_preset_service.create_preset(
-            agent_preset_create_params
-        )
-
-        config = await agent_preset_service.get_agent_config_by_slug(
-            created_preset.slug
-        )
-
-        assert isinstance(config, AgentConfig)
-        assert config.model_name == agent_preset_create_params.model_name
-
-    async def test_get_agent_config_not_found(
-        self, agent_preset_service: AgentPresetService
-    ) -> None:
-        """Test that getting config for non-existent preset raises error."""
-        with pytest.raises(TracecatNotFoundError, match="Agent preset '.*' not found"):
-            await agent_preset_service.get_agent_config(uuid.uuid4())
-
-    async def test_get_agent_config_by_slug_not_found(
-        self, agent_preset_service: AgentPresetService
-    ) -> None:
-        """Test that getting config by non-existent slug raises error."""
-        with pytest.raises(
-            TracecatNotFoundError,
-            match="Agent preset 'nonexistent' not found",
-        ):
-            await agent_preset_service.get_agent_config_by_slug("nonexistent")
-
     async def test_resolve_agent_preset_config_by_id(
         self,
         agent_preset_service: AgentPresetService,
@@ -910,6 +1786,25 @@ class TestAgentPresetService:
 
         assert isinstance(config, AgentConfig)
         assert config.model_name == agent_preset_create_params.model_name
+
+    async def test_resolve_agent_preset_config_by_id_not_found(
+        self, agent_preset_service: AgentPresetService
+    ) -> None:
+        """Test that resolving config for non-existent preset raises error."""
+        with pytest.raises(TracecatNotFoundError, match="Agent preset '.*' not found"):
+            await agent_preset_service.resolve_agent_preset_config(
+                preset_id=uuid.uuid4()
+            )
+
+    async def test_resolve_agent_preset_config_by_slug_not_found(
+        self, agent_preset_service: AgentPresetService
+    ) -> None:
+        """Test that resolving config by non-existent slug raises error."""
+        with pytest.raises(
+            TracecatNotFoundError,
+            match="Agent preset 'nonexistent' not found",
+        ):
+            await agent_preset_service.resolve_agent_preset_config(slug="nonexistent")
 
     async def test_resolve_agent_preset_config_no_params_raises_error(
         self, agent_preset_service: AgentPresetService

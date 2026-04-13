@@ -29,6 +29,7 @@ from tracecat.agent.preset.internal_router import (
 from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.router import router as agent_router
 from tracecat.agent.session.router import router as agent_session_router
+from tracecat.agent.skill.router import router as agent_skill_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
     bootstrap_role,
@@ -169,6 +170,7 @@ async def lifespan(app: FastAPI):
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY)
+    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS)
 
     # Workflow bucket with lifecycle expiration
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW)
@@ -442,6 +444,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_router)
     app.include_router(agent_channels_management_router)
     app.include_router(agent_preset_router)
+    app.include_router(agent_skill_router)
     app.include_router(agent_session_router)
     app.include_router(approvals_router)
     app.include_router(watchtower_router)

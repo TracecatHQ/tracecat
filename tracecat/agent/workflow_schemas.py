@@ -6,6 +6,7 @@ across Temporal workflow/activity boundaries predictably.
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
@@ -59,6 +60,17 @@ type MCPServerConfigPayload = Annotated[
 ]
 
 
+class ResolvedSkillRefPayload(BaseModel):
+    """Workflow-safe resolved skill version reference."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    skill_id: uuid.UUID
+    skill_name: str
+    skill_version_id: uuid.UUID
+    manifest_sha256: str
+
+
 class AgentConfigPayload(BaseModel):
     """Workflow-safe agent config payload.
 
@@ -98,3 +110,4 @@ class AgentConfigPayload(BaseModel):
     mcp_servers: list[MCPServerConfigPayload] | None = Field(default=None)
     retries: int
     enable_internet_access: bool = Field(default=False)
+    resolved_skills: list[ResolvedSkillRefPayload] | None = Field(default=None)
