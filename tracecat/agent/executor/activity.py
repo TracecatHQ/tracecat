@@ -408,16 +408,16 @@ class SandboxedAgentExecutor:
         resolved_skills = self.input.config.resolved_skills or []
         if not resolved_skills:
             return
-        duplicate_slugs = sorted(
-            slug
-            for slug, count in Counter(
-                resolved_skill.skill_slug for resolved_skill in resolved_skills
+        duplicate_names = sorted(
+            name
+            for name, count in Counter(
+                resolved_skill.skill_name for resolved_skill in resolved_skills
             ).items()
             if count > 1
         )
-        if duplicate_slugs:
+        if duplicate_names:
             raise ValueError(
-                f"Resolved preset contains duplicate skill slugs: {duplicate_slugs}"
+                f"Resolved preset contains duplicate skill names: {duplicate_names}"
             )
 
         async with SkillService.with_session(role=self.input.role) as service:
@@ -430,7 +430,7 @@ class SandboxedAgentExecutor:
                 await asyncio.to_thread(
                     shutil.copytree,
                     cached_dir,
-                    skills_dir / resolved_skill.skill_slug,
+                    skills_dir / resolved_skill.skill_name,
                     dirs_exist_ok=True,
                 )
 

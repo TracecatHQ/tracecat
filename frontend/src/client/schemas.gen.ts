@@ -1602,9 +1602,9 @@ export const $AgentPresetSkillBindingChange = {
       format: "uuid",
       title: "Skill Id",
     },
-    skill_slug: {
+    skill_name: {
       type: "string",
-      title: "Skill Slug",
+      title: "Skill Name",
     },
     old_skill_version_id: {
       anyOf: [
@@ -1654,7 +1654,7 @@ export const $AgentPresetSkillBindingChange = {
     },
   },
   type: "object",
-  required: ["skill_id", "skill_slug"],
+  required: ["skill_id", "skill_name"],
   title: "AgentPresetSkillBindingChange",
   description: "Diff entry for skill binding changes between preset versions.",
 } as const
@@ -1671,20 +1671,9 @@ export const $AgentPresetSkillBindingRead = {
       format: "uuid",
       title: "Skill Version Id",
     },
-    skill_slug: {
+    skill_name: {
       type: "string",
-      title: "Skill Slug",
-    },
-    skill_title: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Skill Title",
+      title: "Skill Name",
     },
     skill_version: {
       type: "integer",
@@ -1692,7 +1681,7 @@ export const $AgentPresetSkillBindingRead = {
     },
   },
   type: "object",
-  required: ["skill_id", "skill_version_id", "skill_slug", "skill_version"],
+  required: ["skill_id", "skill_version_id", "skill_name", "skill_version"],
   title: "AgentPresetSkillBindingRead",
   description: "Resolved preset skill binding with metadata.",
 } as const
@@ -18030,23 +18019,12 @@ export const $SeverityChangedEventRead = {
 
 export const $SkillCreate = {
   properties: {
-    slug: {
+    name: {
       type: "string",
-      maxLength: 160,
+      maxLength: 64,
       minLength: 1,
-      title: "Slug",
-    },
-    title: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 255,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Title",
+      pattern: "^[a-z0-9-]+$",
+      title: "Name",
     },
     description: {
       anyOf: [
@@ -18062,7 +18040,7 @@ export const $SkillCreate = {
     },
   },
   type: "object",
-  required: ["slug"],
+  required: ["name"],
   title: "SkillCreate",
   description: "Payload for creating a new logical skill.",
 } as const
@@ -18218,15 +18196,15 @@ export const $SkillDraftRead = {
       format: "uuid",
       title: "Skill Id",
     },
-    skill_slug: {
+    skill_name: {
       type: "string",
-      title: "Skill Slug",
+      title: "Skill Name",
     },
     draft_revision: {
       type: "integer",
       title: "Draft Revision",
     },
-    title: {
+    name: {
       anyOf: [
         {
           type: "string",
@@ -18235,7 +18213,7 @@ export const $SkillDraftRead = {
           type: "null",
         },
       ],
-      title: "Title",
+      title: "Name",
     },
     description: {
       anyOf: [
@@ -18268,7 +18246,7 @@ export const $SkillDraftRead = {
     },
   },
   type: "object",
-  required: ["skill_id", "skill_slug", "draft_revision", "is_publishable"],
+  required: ["skill_id", "skill_name", "draft_revision", "is_publishable"],
   title: "SkillDraftRead",
   description: "Current mutable draft state for a skill.",
 } as const
@@ -18347,20 +18325,9 @@ export const $SkillRead = {
       format: "uuid",
       title: "Workspace Id",
     },
-    slug: {
+    name: {
       type: "string",
-      title: "Slug",
-    },
-    title: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Title",
+      title: "Name",
     },
     description: {
       anyOf: [
@@ -18414,7 +18381,7 @@ export const $SkillRead = {
     current_version: {
       anyOf: [
         {
-          $ref: "#/components/schemas/SkillVersionSummary",
+          $ref: "#/components/schemas/SkillVersionReadMinimal",
         },
         {
           type: "null",
@@ -18441,7 +18408,7 @@ export const $SkillRead = {
   required: [
     "id",
     "workspace_id",
-    "slug",
+    "name",
     "draft_revision",
     "created_at",
     "updated_at",
@@ -18464,20 +18431,9 @@ export const $SkillReadMinimal = {
       format: "uuid",
       title: "Workspace Id",
     },
-    slug: {
+    name: {
       type: "string",
-      title: "Slug",
-    },
-    title: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Title",
+      title: "Name",
     },
     description: {
       anyOf: [
@@ -18526,18 +18482,19 @@ export const $SkillReadMinimal = {
     },
   },
   type: "object",
-  required: ["id", "workspace_id", "slug", "created_at", "updated_at"],
+  required: ["id", "workspace_id", "name", "created_at", "updated_at"],
   title: "SkillReadMinimal",
   description: "Minimal response model for listing workspace skills.",
 } as const
 
 export const $SkillUpload = {
   properties: {
-    slug: {
+    name: {
       type: "string",
-      maxLength: 160,
+      maxLength: 64,
       minLength: 1,
-      title: "Slug",
+      pattern: "^[a-z0-9-]+$",
+      title: "Name",
     },
     files: {
       items: {
@@ -18549,7 +18506,7 @@ export const $SkillUpload = {
     },
   },
   type: "object",
-  required: ["slug", "files"],
+  required: ["name", "files"],
   title: "SkillUpload",
   description: "Payload for importing a full skill draft in one request.",
 } as const
@@ -18717,16 +18674,9 @@ export const $SkillVersionRead = {
       type: "integer",
       title: "Total Size Bytes",
     },
-    title: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Title",
+    name: {
+      type: "string",
+      title: "Name",
     },
     description: {
       anyOf: [
@@ -18766,6 +18716,7 @@ export const $SkillVersionRead = {
     "manifest_sha256",
     "file_count",
     "total_size_bytes",
+    "name",
     "created_at",
     "updated_at",
   ],
@@ -18806,16 +18757,9 @@ export const $SkillVersionReadMinimal = {
       type: "integer",
       title: "Total Size Bytes",
     },
-    title: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Title",
+    name: {
+      type: "string",
+      title: "Name",
     },
     description: {
       anyOf: [
@@ -18848,82 +18792,13 @@ export const $SkillVersionReadMinimal = {
     "manifest_sha256",
     "file_count",
     "total_size_bytes",
+    "name",
     "created_at",
     "updated_at",
   ],
   title: "SkillVersionReadMinimal",
   description:
     "Summary response model for published skill versions in list endpoints.",
-} as const
-
-export const $SkillVersionSummary = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    version: {
-      type: "integer",
-      title: "Version",
-    },
-    manifest_sha256: {
-      type: "string",
-      title: "Manifest Sha256",
-    },
-    file_count: {
-      type: "integer",
-      title: "File Count",
-    },
-    total_size_bytes: {
-      type: "integer",
-      title: "Total Size Bytes",
-    },
-    title: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Title",
-    },
-    description: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Description",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "version",
-    "manifest_sha256",
-    "file_count",
-    "total_size_bytes",
-    "created_at",
-    "updated_at",
-  ],
-  title: "SkillVersionSummary",
-  description: "Compact metadata for the current published skill version.",
 } as const
 
 export const $SlackChannelTokenConfig = {

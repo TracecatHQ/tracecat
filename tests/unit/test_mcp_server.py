@@ -4637,8 +4637,7 @@ async def test_upload_skill_uses_workspace_skill_service(
             return SkillRead(
                 id=uuid.uuid4(),
                 workspace_id=workspace_id,
-                slug=params.slug,
-                title=None,
+                name=params.name,
                 description=None,
                 current_version_id=None,
                 draft_revision=1,
@@ -4660,11 +4659,13 @@ async def test_upload_skill_uses_workspace_skill_service(
 
     result = await _tool(mcp_server.upload_skill)(
         workspace_id=str(workspace_id),
-        slug="triage-skill",
+        name="triage-skill",
         files=[
             SkillUploadFile(
                 path="SKILL.md",
-                content_base64="IyBUcmlhZ2U=",
+                content_base64=base64.b64encode(
+                    b"---\nname: triage-skill\n---\n\n# Triage\n"
+                ).decode("ascii"),
                 content_type="text/markdown; charset=utf-8",
             )
         ],
@@ -4672,10 +4673,10 @@ async def test_upload_skill_uses_workspace_skill_service(
 
     payload = _payload(result)
     params = captured["params"]
-    assert params.slug == "triage-skill"
+    assert params.name == "triage-skill"
     assert len(params.files) == 1
     assert params.files[0].path == "SKILL.md"
-    assert payload["slug"] == "triage-skill"
+    assert payload["name"] == "triage-skill"
     assert payload["draft_file_count"] == 1
 
 
@@ -4688,7 +4689,7 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
     captured: dict[str, Any] = {}
     existing_skill_md = (
         "---\n"
-        "title: Existing title\n"
+        "name: triage-skill\n"
         "description: Existing description\n"
         "tags:\n"
         "  - keep\n"
@@ -4709,8 +4710,7 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
             return SkillRead(
                 id=uuid.uuid4(),
                 workspace_id=workspace_id,
-                slug=params.slug,
-                title="Existing title",
+                name=params.name,
                 description="Existing description",
                 current_version_id=None,
                 draft_revision=2,
@@ -4736,8 +4736,7 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
             return SkillRead(
                 id=skill_id,
                 workspace_id=workspace_id,
-                slug="triage-skill",
-                title="Updated title",
+                name="triage-skill",
                 description="Updated description",
                 current_version_id=None,
                 draft_revision=3,
@@ -4759,8 +4758,7 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
 
     await _tool(mcp_server.upload_skill)(
         workspace_id=str(workspace_id),
-        slug="triage-skill",
-        title="Updated title",
+        name="triage-skill",
         description="Updated description",
         files=[
             SkillUploadFile(
@@ -4775,7 +4773,7 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
 
     patched_content = captured["patch_params"].operations[0].content
 
-    assert "title: Updated title" in patched_content
+    assert "name: triage-skill" in patched_content
     assert "description: Updated description" in patched_content
     assert "tags:" in patched_content
     assert "# Real instructions" in patched_content
@@ -4789,7 +4787,7 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
     role = SimpleNamespace(workspace_id=workspace_id)
     captured: dict[str, Any] = {}
     malformed_skill_md = (
-        "---\ntitle: [broken\n---\n\n# Real instructions\n\nKeep this body.\n"
+        "---\nname: [broken\n---\n\n# Real instructions\n\nKeep this body.\n"
     )
 
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
@@ -4801,8 +4799,7 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
             return SkillRead(
                 id=uuid.uuid4(),
                 workspace_id=workspace_id,
-                slug=params.slug,
-                title=None,
+                name=params.name,
                 description=None,
                 current_version_id=None,
                 draft_revision=2,
@@ -4827,8 +4824,7 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
             return SkillRead(
                 id=skill_id,
                 workspace_id=workspace_id,
-                slug="triage-skill",
-                title="Recovered title",
+                name="triage-skill",
                 description="Recovered description",
                 current_version_id=None,
                 draft_revision=3,
@@ -4850,8 +4846,7 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
 
     result = await _tool(mcp_server.upload_skill)(
         workspace_id=str(workspace_id),
-        slug="triage-skill",
-        title="Recovered title",
+        name="triage-skill",
         description="Recovered description",
         files=[
             SkillUploadFile(
@@ -4869,11 +4864,11 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
     _, _, remainder = patched_content.partition("---\n")
     frontmatter, separator, body = remainder.partition("\n---\n")
 
-    assert payload["title"] == "Recovered title"
+    assert payload["name"] == "triage-skill"
     assert payload["description"] == "Recovered description"
     assert separator == "\n---\n"
     assert yaml.safe_load(frontmatter) == {
-        "title": "Recovered title",
+        "name": "triage-skill",
         "description": "Recovered description",
     }
     assert "# Real instructions" in body
@@ -4888,7 +4883,7 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
     workspace_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
     captured: dict[str, Any] = {}
-    large_skill_md = "---\ntitle: Existing title\n---\n\n# Real instructions\n\n" + (
+    large_skill_md = "---\nname: triage-skill\n---\n\n# Real instructions\n\n" + (
         "A" * 300_000
     )
 
@@ -4901,8 +4896,7 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
             return SkillRead(
                 id=uuid.uuid4(),
                 workspace_id=workspace_id,
-                slug=params.slug,
-                title=None,
+                name=params.name,
                 description=None,
                 current_version_id=None,
                 draft_revision=2,
@@ -4927,8 +4921,7 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
             return SkillRead(
                 id=skill_id,
                 workspace_id=workspace_id,
-                slug="triage-skill",
-                title="Updated title",
+                name="triage-skill",
                 description="Updated description",
                 current_version_id=None,
                 draft_revision=3,
@@ -4950,8 +4943,7 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
 
     result = await _tool(mcp_server.upload_skill)(
         workspace_id=str(workspace_id),
-        slug="triage-skill",
-        title="Updated title",
+        name="triage-skill",
         description="Updated description",
         files=[
             SkillUploadFile(
@@ -4967,7 +4959,7 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
     payload = _payload(result)
     patched_content = captured["patch_params"].operations[0].content
 
-    assert payload["title"] == "Updated title"
+    assert payload["name"] == "triage-skill"
     assert payload["description"] == "Updated description"
     assert "# Real instructions" in patched_content
     assert "Updated description" in patched_content
@@ -5001,12 +4993,12 @@ async def test_upload_skill_rejects_missing_root_skill_markdown_before_upload(
 
     with pytest.raises(
         ToolError,
-        match="Uploaded skill must include a root SKILL.md when title or description is provided",
+        match="Uploaded skill must include a root SKILL.md when description is provided",
     ):
         await _tool(mcp_server.upload_skill)(
             workspace_id=str(workspace_id),
-            slug="triage-skill",
-            title="Updated title",
+            name="triage-skill",
+            description="Updated description",
             files=[
                 SkillUploadFile(
                     path="helper.py",
@@ -5047,7 +5039,7 @@ async def test_upload_skill_rejects_non_utf8_root_skill_markdown_before_upload(
     with pytest.raises(ToolError, match="Uploaded skill SKILL.md must be UTF-8 text"):
         await _tool(mcp_server.upload_skill)(
             workspace_id=str(workspace_id),
-            slug="triage-skill",
+            name="triage-skill",
             description="Updated description",
             files=[
                 SkillUploadFile(

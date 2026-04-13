@@ -395,7 +395,7 @@ export type AgentPresetSkillBindingBase = {
  */
 export type AgentPresetSkillBindingChange = {
   skill_id: string
-  skill_slug: string
+  skill_name: string
   old_skill_version_id?: string | null
   old_skill_version?: number | null
   new_skill_version_id?: string | null
@@ -408,8 +408,7 @@ export type AgentPresetSkillBindingChange = {
 export type AgentPresetSkillBindingRead = {
   skill_id: string
   skill_version_id: string
-  skill_slug: string
-  skill_title?: string | null
+  skill_name: string
   skill_version: number
 }
 
@@ -5580,8 +5579,7 @@ export type SeverityChangedEventRead = {
  * Payload for creating a new logical skill.
  */
 export type SkillCreate = {
-  slug: string
-  title?: string | null
+  name: string
   description?: string | null
 }
 
@@ -5635,9 +5633,9 @@ export type SkillDraftPatch = {
  */
 export type SkillDraftRead = {
   skill_id: string
-  skill_slug: string
+  skill_name: string
   draft_revision: number
-  title?: string | null
+  name?: string | null
   description?: string | null
   files?: Array<SkillFileEntry>
   is_publishable: boolean
@@ -5671,15 +5669,14 @@ export type SkillFileEntry = {
 export type SkillRead = {
   id: string
   workspace_id: string
-  slug: string
-  title?: string | null
+  name: string
   description?: string | null
   current_version_id?: string | null
   draft_revision: number
   created_at: string
   updated_at: string
   archived_at?: string | null
-  current_version?: SkillVersionSummary | null
+  current_version?: SkillVersionReadMinimal | null
   is_draft_publishable: boolean
   draft_validation_errors?: Array<SkillValidationErrorDetail>
   draft_file_count: number
@@ -5691,8 +5688,7 @@ export type SkillRead = {
 export type SkillReadMinimal = {
   id: string
   workspace_id: string
-  slug: string
-  title?: string | null
+  name: string
   description?: string | null
   current_version_id?: string | null
   created_at: string
@@ -5704,7 +5700,7 @@ export type SkillReadMinimal = {
  * Payload for importing a full skill draft in one request.
  */
 export type SkillUpload = {
-  slug: string
+  name: string
   files: Array<SkillUploadFile>
 }
 
@@ -5761,7 +5757,7 @@ export type SkillVersionRead = {
   manifest_sha256: string
   file_count: number
   total_size_bytes: number
-  title?: string | null
+  name: string
   description?: string | null
   created_at: string
   updated_at: string
@@ -5779,22 +5775,7 @@ export type SkillVersionReadMinimal = {
   manifest_sha256: string
   file_count: number
   total_size_bytes: number
-  title?: string | null
-  description?: string | null
-  created_at: string
-  updated_at: string
-}
-
-/**
- * Compact metadata for the current published skill version.
- */
-export type SkillVersionSummary = {
-  id: string
-  version: number
-  manifest_sha256: string
-  file_count: number
-  total_size_bytes: number
-  title?: string | null
+  name: string
   description?: string | null
   created_at: string
   updated_at: string

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections import Counter
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy as sa
 from slugify import slugify
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.agent.preset.schemas import (
@@ -42,7 +43,6 @@ from tracecat.db.models import (
     AgentPresetVersion,
     AgentPresetVersionSkill,
     OAuthIntegration,
-    Skill,
     SkillVersion,
 )
 from tracecat.dsl.common import create_default_execution_context
@@ -120,29 +120,27 @@ class AgentPresetService(BaseWorkspaceService):
         stmt = (
             select(
                 binding_model.skill_id,
-                Skill.slug,
-                SkillVersion.title,
+                SkillVersion.name,
                 binding_model.skill_version_id,
                 SkillVersion.version,
             )
-            .join(Skill, binding_model.skill_id == Skill.id)
             .join(SkillVersion, binding_model.skill_version_id == SkillVersion.id)
             .where(
                 binding_model.workspace_id == self.workspace_id,
                 owner_column == owner_id,
             )
-            .order_by(Skill.slug.asc())
+            .order_by(SkillVersion.name.asc(), binding_model.skill_id.asc())
         )
         rows = (await self.session.execute(stmt)).tuples().all()
         return [
             AgentPresetSkillBindingRead(
                 skill_id=skill_id,
-                skill_slug=skill_slug,
-                skill_title=skill_title,
+                skill_name=skill_name,
                 skill_version_id=skill_version_id,
                 skill_version=skill_version,
             )
-            for skill_id, skill_slug, skill_title, skill_version_id, skill_version in rows
+            for skill_id, skill_name, skill_version_id, skill_version in rows
+            if skill_name is not None
         ]
 
     async def _list_head_skill_bindings(
@@ -1168,17 +1166,17 @@ class AgentPresetService(BaseWorkspaceService):
                 and base_binding.skill_version_id == compare_binding.skill_version_id
             ):
                 continue
-            skill_slug = (
-                base_binding.skill_slug
+            skill_name = (
+                base_binding.skill_name
                 if base_binding is not None
-                else compare_binding.skill_slug
+                else compare_binding.skill_name
                 if compare_binding is not None
                 else str(skill_id)
             )
             skill_changes.append(
                 AgentPresetSkillBindingChange(
                     skill_id=skill_id,
-                    skill_slug=skill_slug,
+                    skill_name=skill_name,
                     old_skill_version_id=(
                         base_binding.skill_version_id if base_binding else None
                     ),
@@ -1359,6 +1357,22 @@ class AgentPresetService(BaseWorkspaceService):
         resolved_skills = await self.skills.get_resolved_skill_refs_for_preset_version(
             version.id
         )
+        duplicate_skill_names = sorted(
+            name
+            for name, count in Counter(
+                resolved_skill.skill_name for resolved_skill in resolved_skills
+            ).items()
+            if count > 1
+        )
+        if duplicate_skill_names:
+            raise TracecatValidationError(
+                "Resolved preset version contains duplicate skill names",
+                detail={
+                    "code": "duplicate_skill_names",
+                    "skill_names": duplicate_skill_names,
+                    "preset_version_id": str(version.id),
+                },
+            )
         # Only disable parallel tool calls if tools will be present
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
@@ -1385,6 +1399,35 @@ class AgentPresetService(BaseWorkspaceService):
         """Create and flush a new immutable version from the preset head."""
         if not preset_locked:
             await self._lock_preset_for_versioning(preset.id)
+        duplicate_name_stmt = (
+            select(
+                SkillVersion.name,
+                func.count(AgentPresetSkill.id).label("binding_count"),
+            )
+            .join(SkillVersion, AgentPresetSkill.skill_version_id == SkillVersion.id)
+            .where(
+                AgentPresetSkill.workspace_id == self.workspace_id,
+                AgentPresetSkill.preset_id == preset.id,
+            )
+            .group_by(SkillVersion.name)
+            .having(func.count(AgentPresetSkill.id) > 1)
+        )
+        duplicate_names = sorted(
+            name
+            for name, _count in (await self.session.execute(duplicate_name_stmt))
+            .tuples()
+            .all()
+            if name is not None
+        )
+        if duplicate_names:
+            raise TracecatValidationError(
+                "Agent preset version cannot include duplicate skill names",
+                detail={
+                    "code": "duplicate_skill_names",
+                    "skill_names": duplicate_names,
+                    "preset_id": str(preset.id),
+                },
+            )
         stmt = (
             select(AgentPresetVersion.version)
             .where(

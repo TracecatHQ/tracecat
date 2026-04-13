@@ -31,6 +31,7 @@ from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentPreset,
     AgentPresetVersion,
+    AgentPresetVersionSkill,
     RegistryAction,
     RegistryIndex,
     RegistryRepository,
@@ -693,7 +694,7 @@ class TestAgentPresetService:
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(slug="triage-skill")
+            SkillCreate(name="triage-skill")
         )
         skill_version = await skill_service.publish_skill(created_skill.id)
 
@@ -733,7 +734,7 @@ class TestAgentPresetService:
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(slug="batched-skill")
+            SkillCreate(name="batched-skill")
         )
         skill_version_one = await skill_service.publish_skill(created_skill.id)
 
@@ -812,7 +813,7 @@ class TestAgentPresetService:
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(slug="restore-skill")
+            SkillCreate(name="restore-skill")
         )
         skill_version_one = await skill_service.publish_skill(created_skill.id)
 
@@ -886,18 +887,18 @@ class TestAgentPresetService:
         assert len(restored_bindings) == 1
         assert restored_bindings[0].skill_version_id == skill_version_one.id
 
-    async def test_build_version_read_uses_pinned_skill_version_title(
+    async def test_build_version_read_uses_pinned_skill_version_name(
         self,
         configure_minio_for_skills,
         session: AsyncSession,
         svc_role: Role,
         agent_preset_service: AgentPresetService,
     ) -> None:
-        """Preset version reads should expose the title from the pinned skill version."""
+        """Preset version reads should expose the name from the pinned skill version."""
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(slug="title-history-skill", title="Version One")
+            SkillCreate(name="version-one")
         )
         skill_version_one = await skill_service.publish_skill(created_skill.id)
 
@@ -910,7 +911,7 @@ class TestAgentPresetService:
                 operations=[
                     SkillDraftUpsertTextFileOp(
                         path="SKILL.md",
-                        content=("---\ntitle: Version Two\n---\n\n# Version Two\n"),
+                        content=("---\nname: version-two\n---\n\n# version-two\n"),
                         content_type="text/markdown; charset=utf-8",
                     )
                 ],
@@ -920,7 +921,7 @@ class TestAgentPresetService:
 
         created_preset = await agent_preset_service.create_preset(
             AgentPresetCreate(
-                name="Pinned title preset",
+                name="Pinned skill name preset",
                 instructions="Use the selected skill version",
                 model_name="gpt-4o-mini",
                 model_provider="openai",
@@ -955,9 +956,180 @@ class TestAgentPresetService:
         )
 
         assert version_read.skills[0].skill_version_id == skill_version_one.id
-        assert version_read.skills[0].skill_title == "Version One"
+        assert version_read.skills[0].skill_name == "version-one"
         assert head_bindings[0].skill_version_id == skill_version_two.id
-        assert head_bindings[0].skill_title == "Version Two"
+        assert head_bindings[0].skill_name == "version-two"
+
+    async def test_create_preset_rejects_duplicate_bound_skill_names(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Preset version creation rejects duplicate resolved skill names."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        skill_a = await skill_service.create_skill(SkillCreate(name="shared-name"))
+        skill_a_shared = await skill_service.publish_skill(skill_a.id)
+
+        draft_a = await skill_service.get_draft(skill_a.id)
+        assert draft_a is not None
+        await skill_service.patch_draft(
+            skill_id=skill_a.id,
+            params=SkillDraftPatch(
+                base_revision=draft_a.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: skill-a-current\n---\n\n# skill-a-current\n",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        await skill_service.publish_skill(skill_a.id)
+
+        skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
+        await skill_service.publish_skill(skill_b.id)
+
+        draft_b = await skill_service.get_draft(skill_b.id)
+        assert draft_b is not None
+        await skill_service.patch_draft(
+            skill_id=skill_b.id,
+            params=SkillDraftPatch(
+                base_revision=draft_b.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: shared-name\n---\n\n# shared-name\n",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        skill_b_shared = await skill_service.publish_skill(skill_b.id)
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="cannot include duplicate skill names",
+        ) as exc_info:
+            await agent_preset_service.create_preset(
+                AgentPresetCreate(
+                    name="Duplicate skill name preset",
+                    instructions="Use both skills",
+                    model_name="gpt-4o-mini",
+                    model_provider="openai",
+                    skills=[
+                        AgentPresetSkillBindingBase(
+                            skill_id=skill_a.id,
+                            skill_version_id=skill_a_shared.id,
+                        ),
+                        AgentPresetSkillBindingBase(
+                            skill_id=skill_b.id,
+                            skill_version_id=skill_b_shared.id,
+                        ),
+                    ],
+                )
+            )
+
+        detail = exc_info.value.detail
+        assert detail is not None
+        assert detail["code"] == "duplicate_skill_names"
+        assert detail["skill_names"] == ["shared-name"]
+        assert uuid.UUID(detail["preset_id"])
+
+    async def test_resolve_agent_preset_config_rejects_duplicate_skill_names(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Preset resolution fails before runtime if a snapshot contains duplicates."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        skill_a = await skill_service.create_skill(SkillCreate(name="shared-name"))
+        skill_a_shared = await skill_service.publish_skill(skill_a.id)
+
+        draft_a = await skill_service.get_draft(skill_a.id)
+        assert draft_a is not None
+        await skill_service.patch_draft(
+            skill_id=skill_a.id,
+            params=SkillDraftPatch(
+                base_revision=draft_a.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: skill-a-current\n---\n\n# skill-a-current\n",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        await skill_service.publish_skill(skill_a.id)
+
+        skill_b = await skill_service.create_skill(SkillCreate(name="skill-b-current"))
+        await skill_service.publish_skill(skill_b.id)
+
+        draft_b = await skill_service.get_draft(skill_b.id)
+        assert draft_b is not None
+        await skill_service.patch_draft(
+            skill_id=skill_b.id,
+            params=SkillDraftPatch(
+                base_revision=draft_b.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: shared-name\n---\n\n# shared-name\n",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        skill_b_shared = await skill_service.publish_skill(skill_b.id)
+
+        preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Single skill preset",
+                instructions="Use one skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=skill_a.id,
+                        skill_version_id=skill_a_shared.id,
+                    )
+                ],
+            )
+        )
+        preset_version = await agent_preset_service.get_current_version_for_preset(
+            preset
+        )
+
+        session.add(
+            AgentPresetVersionSkill(
+                workspace_id=agent_preset_service.workspace_id,
+                preset_version_id=preset_version.id,
+                skill_id=skill_b.id,
+                skill_version_id=skill_b_shared.id,
+            )
+        )
+        await session.commit()
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="Resolved preset version contains duplicate skill names",
+        ) as exc_info:
+            await agent_preset_service.resolve_agent_preset_config(
+                preset_version_id=preset_version.id
+            )
+
+        assert exc_info.value.detail == {
+            "code": "duplicate_skill_names",
+            "skill_names": ["shared-name"],
+            "preset_version_id": str(preset_version.id),
+        }
 
     async def test_create_preset_locks_skill_bindings_during_validation(
         self,
@@ -971,7 +1143,7 @@ class TestAgentPresetService:
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(slug="create-lock-skill")
+            SkillCreate(name="create-lock-skill")
         )
         skill_version = await skill_service.publish_skill(created_skill.id)
 
@@ -1023,7 +1195,7 @@ class TestAgentPresetService:
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(slug="clear-skill-bindings")
+            SkillCreate(name="clear-skill-bindings")
         )
         skill_version = await skill_service.publish_skill(created_skill.id)
 
@@ -1070,7 +1242,7 @@ class TestAgentPresetService:
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(slug="update-lock-skill")
+            SkillCreate(name="update-lock-skill")
         )
         skill_version = await skill_service.publish_skill(created_skill.id)
 
@@ -1129,7 +1301,7 @@ class TestAgentPresetService:
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(slug="ordered-lock-skill")
+            SkillCreate(name="ordered-lock-skill")
         )
         skill_version = await skill_service.publish_skill(created_skill.id)
 
@@ -1237,7 +1409,7 @@ class TestAgentPresetService:
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(slug="restore-ordered-lock-skill")
+            SkillCreate(name="restore-ordered-lock-skill")
         )
         skill_version = await skill_service.publish_skill(created_skill.id)
 
@@ -1308,7 +1480,7 @@ class TestAgentPresetService:
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(slug="archived-restore-skill")
+            SkillCreate(name="archived-restore-skill")
         )
         skill_version = await skill_service.publish_skill(created_skill.id)
 
@@ -1352,7 +1524,7 @@ class TestAgentPresetService:
 
         skill_service = SkillService(session=session, role=svc_role)
         created_skill = await skill_service.create_skill(
-            SkillCreate(slug="restore-lock-skill")
+            SkillCreate(name="restore-lock-skill")
         )
         skill_version = await skill_service.publish_skill(created_skill.id)
 

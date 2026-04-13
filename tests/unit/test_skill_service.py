@@ -9,8 +9,8 @@ from contextlib import asynccontextmanager
 
 import pytest
 from dotenv import dotenv_values
+from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
@@ -114,19 +114,6 @@ async def configure_minio_for_skills(
 
 @pytest.mark.anyio
 class TestSkillService:
-    @staticmethod
-    def _skill_slug_integrity_error() -> IntegrityError:
-        class FakeDiag:
-            constraint_name = "uq_skill_workspace_slug"
-
-        class FakeUniqueViolationError(Exception):
-            diag: FakeDiag
-            pass
-
-        error = FakeUniqueViolationError("duplicate skill slug")
-        error.diag = FakeDiag()
-        return IntegrityError("INSERT INTO skill ...", {}, error)
-
     async def test_insert_blob_row_reuses_existing_blob_identity(
         self,
         skill_service: SkillService,
@@ -173,24 +160,23 @@ class TestSkillService:
 
         created = await skill_service.create_skill(
             SkillCreate(
-                slug="triage-skill",
-                title="Triage skill",
+                name="triage-skill",
                 description="Handle security triage",
             )
         )
 
-        assert created.slug == "triage-skill"
+        assert created.name == "triage-skill"
         assert created.draft_revision == 1
         assert created.is_draft_publishable is True
         assert created.draft_file_count == 1
 
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
-        assert draft.title == "Triage skill"
+        assert draft.name == "triage-skill"
         assert draft.description == "Handle security triage"
         assert [file.path for file in draft.files] == ["SKILL.md"]
 
-    async def test_create_skill_escapes_frontmatter_values(
+    async def test_create_skill_preserves_multiline_description(
         self,
         skill_service: SkillService,
     ) -> None:
@@ -198,8 +184,7 @@ class TestSkillService:
 
         created = await skill_service.create_skill(
             SkillCreate(
-                slug="yaml-skill",
-                title="SOC: Triage",
+                name="yaml-skill",
                 description="Line one\nLine two",
             )
         )
@@ -208,42 +193,40 @@ class TestSkillService:
 
         assert draft is not None
         assert draft.is_publishable is True
-        assert draft.title == "SOC: Triage"
+        assert draft.name == "yaml-skill"
         assert draft.description == "Line one\nLine two"
 
-    async def test_create_skill_slugifies_to_kebab_case(
+    def test_create_skill_rejects_non_spec_name(self) -> None:
+        """Skill names must already satisfy the spec format."""
+
+        with pytest.raises(ValidationError, match="string_pattern_mismatch"):
+            SkillCreate(name="  Triage Skill 2026  ")
+
+    async def test_upload_skill_allows_duplicate_active_name(
         self,
         skill_service: SkillService,
     ) -> None:
-        """Creating a skill stores the slug in canonical kebab-case."""
+        """Uploading a second logical skill with the same current name is allowed."""
 
-        created = await skill_service.create_skill(
-            SkillCreate(slug="  Triage Skill 2026  ")
+        await skill_service.create_skill(SkillCreate(name="duplicate-skill"))
+
+        created = await skill_service.upload_skill(
+            SkillUpload(
+                name="duplicate-skill",
+                files=[
+                    SkillUploadFile(
+                        path="SKILL.md",
+                        content_base64=base64.b64encode(
+                            b"---\nname: duplicate-skill\n---\n\n# Duplicate\n"
+                        ).decode(),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            )
         )
 
-        assert created.slug == "triage-skill-2026"
-
-    async def test_upload_skill_conflict_raises_validation_error(
-        self,
-        skill_service: SkillService,
-    ) -> None:
-        """Uploading a duplicate slug fails with a conflict-style validation error."""
-
-        await skill_service.create_skill(SkillCreate(slug="duplicate-skill"))
-
-        with pytest.raises(TracecatValidationError, match="already in use"):
-            await skill_service.upload_skill(
-                SkillUpload(
-                    slug="duplicate-skill",
-                    files=[
-                        SkillUploadFile(
-                            path="SKILL.md",
-                            content_base64=base64.b64encode(b"# Duplicate").decode(),
-                            content_type="text/markdown; charset=utf-8",
-                        )
-                    ],
-                )
-            )
+        assert created.name == "duplicate-skill"
+        assert created.id is not None
 
     async def test_upload_skill_reuses_blob_across_distinct_file_content_types(
         self,
@@ -256,11 +239,13 @@ class TestSkillService:
 
         created = await skill_service.upload_skill(
             SkillUpload(
-                slug="content-type-skill",
+                name="content-type-skill",
                 files=[
                     SkillUploadFile(
                         path="SKILL.md",
-                        content_base64=base64.b64encode(b"# Skill").decode(),
+                        content_base64=base64.b64encode(
+                            b"---\nname: content-type-skill\n---\n\n# Skill\n"
+                        ).decode(),
                         content_type="text/markdown; charset=utf-8",
                     ),
                     SkillUploadFile(
@@ -308,71 +293,6 @@ class TestSkillService:
         assert len(blob_rows) == 1
         assert blob_rows[0].key == skill_service._storage_key_for(sha256)
 
-    async def test_create_skill_translates_slug_integrity_error(
-        self,
-        skill_service: SkillService,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Create should map DB uniqueness races to the standard validation error."""
-
-        async def fail_flush() -> None:
-            raise self._skill_slug_integrity_error()
-
-        monkeypatch.setattr(skill_service.session, "flush", fail_flush)
-
-        with pytest.raises(TracecatValidationError, match="already in use") as exc_info:
-            await skill_service.create_skill(SkillCreate(slug="duplicate-skill"))
-
-        assert exc_info.value.detail == {
-            "code": "skill_slug_conflict",
-            "slug": "duplicate-skill",
-        }
-
-    async def test_upload_skill_translates_slug_integrity_error(
-        self,
-        skill_service: SkillService,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Upload should map DB uniqueness races to the standard validation error."""
-
-        seed = await skill_service.create_skill(SkillCreate(slug="seed-skill"))
-        seed_draft = await skill_service.get_draft(seed.id)
-        assert seed_draft is not None
-        seed_blob_id = seed_draft.files[0].blob_id
-        seed_blob = await skill_service.get_blob(seed_blob_id)
-        assert seed_blob is not None
-
-        async def fake_get_or_create_blob(*, content: bytes) -> SkillBlob:
-            del content
-            return seed_blob
-
-        async def fail_flush() -> None:
-            raise self._skill_slug_integrity_error()
-
-        monkeypatch.setattr(
-            skill_service, "_get_or_create_blob", fake_get_or_create_blob
-        )
-        monkeypatch.setattr(skill_service.session, "flush", fail_flush)
-
-        with pytest.raises(TracecatValidationError, match="already in use") as exc_info:
-            await skill_service.upload_skill(
-                SkillUpload(
-                    slug="duplicate-skill",
-                    files=[
-                        SkillUploadFile(
-                            path="SKILL.md",
-                            content_base64=base64.b64encode(b"# Duplicate").decode(),
-                            content_type="text/markdown; charset=utf-8",
-                        )
-                    ],
-                )
-            )
-
-        assert exc_info.value.detail == {
-            "code": "skill_slug_conflict",
-            "slug": "duplicate-skill",
-        }
-
     async def test_invalid_skill_md_frontmatter_stays_in_validation_channel(
         self,
         skill_service: SkillService,
@@ -380,7 +300,7 @@ class TestSkillService:
         """Malformed frontmatter should not break draft, read, or list responses."""
 
         created = await skill_service.create_skill(
-            SkillCreate(slug="broken-frontmatter")
+            SkillCreate(name="broken-frontmatter")
         )
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
@@ -392,7 +312,7 @@ class TestSkillService:
                 operations=[
                     SkillDraftUpsertTextFileOp(
                         path="SKILL.md",
-                        content="---\ntitle: [broken\n---\n# Broken skill\n",
+                        content="---\nname: [broken\n---\n# Broken skill\n",
                         content_type="text/markdown; charset=utf-8",
                     )
                 ],
@@ -415,7 +335,7 @@ class TestSkillService:
         assert len(listing.items) == 1
         assert isinstance(listing.items[0], SkillReadMinimal)
         assert listing.items[0].id == created.id
-        assert listing.items[0].slug == created.slug
+        assert listing.items[0].name == created.name
 
     async def test_patch_draft_enforces_revision(
         self,
@@ -423,7 +343,7 @@ class TestSkillService:
     ) -> None:
         """Draft mutations require the current draft revision."""
 
-        created = await skill_service.create_skill(SkillCreate(slug="revision-skill"))
+        created = await skill_service.create_skill(SkillCreate(name="revision-skill"))
 
         with pytest.raises(TracecatValidationError, match="Draft revision conflict"):
             await skill_service.patch_draft(
@@ -446,7 +366,7 @@ class TestSkillService:
         """Draft mutations reject any path segment equal to '..'."""
 
         created = await skill_service.create_skill(
-            SkillCreate(slug="invalid-path-skill")
+            SkillCreate(name="invalid-path-skill")
         )
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
@@ -500,7 +420,7 @@ class TestSkillService:
                     role=role.model_copy(deep=True),
                 )
                 created = await seed_service.create_skill(
-                    SkillCreate(slug="concurrent-draft-skill")
+                    SkillCreate(name="concurrent-draft-skill")
                 )
                 draft = await seed_service.get_draft(created.id)
                 assert draft is not None
@@ -572,7 +492,7 @@ class TestSkillService:
     ) -> None:
         """Uppercase upload digests normalize before staged-key promotion."""
 
-        created = await skill_service.create_skill(SkillCreate(slug="staged-upload"))
+        created = await skill_service.create_skill(SkillCreate(name="staged-upload"))
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
 
@@ -667,7 +587,7 @@ class TestSkillService:
     ) -> None:
         """Uploaded blob finalization validates the actual object length."""
 
-        created = await skill_service.create_skill(SkillCreate(slug="size-mismatch"))
+        created = await skill_service.create_skill(SkillCreate(name="size-mismatch"))
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
 
@@ -728,7 +648,7 @@ class TestSkillService:
     ) -> None:
         """Successful materialization should clean up the staged upload object."""
 
-        created = await skill_service.create_skill(SkillCreate(slug="cleanup-upload"))
+        created = await skill_service.create_skill(SkillCreate(name="cleanup-upload"))
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
 
@@ -815,7 +735,7 @@ class TestSkillService:
     ) -> None:
         """Publishing fails when the draft no longer contains root SKILL.md."""
 
-        created = await skill_service.create_skill(SkillCreate(slug="invalid-skill"))
+        created = await skill_service.create_skill(SkillCreate(name="invalid-skill"))
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
 
@@ -836,7 +756,7 @@ class TestSkillService:
     ) -> None:
         """Publishing fails when one manifest path is a parent of another."""
 
-        created = await skill_service.create_skill(SkillCreate(slug="path-collision"))
+        created = await skill_service.create_skill(SkillCreate(name="path-collision"))
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
 
@@ -920,7 +840,7 @@ class TestSkillService:
                     role=role.model_copy(deep=True),
                 )
                 created = await seed_service.create_skill(
-                    SkillCreate(slug="concurrent-publish-skill")
+                    SkillCreate(name="concurrent-publish-skill")
                 )
 
             async def publish_once(index: int):
@@ -963,7 +883,7 @@ class TestSkillService:
     ) -> None:
         """Restoring a version should move the head pointer without rewriting draft files."""
 
-        created = await skill_service.create_skill(SkillCreate(slug="snapshot-skill"))
+        created = await skill_service.create_skill(SkillCreate(name="snapshot-skill"))
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
 
@@ -980,10 +900,10 @@ class TestSkillService:
                         path="SKILL.md",
                         content=(
                             "---\n"
-                            "title: Version One\n"
+                            "name: version-one\n"
                             "description: First published version\n"
                             "---\n\n"
-                            "# Version One\n"
+                            "# version-one\n"
                         ),
                         content_type="text/markdown; charset=utf-8",
                     ),
@@ -1007,10 +927,10 @@ class TestSkillService:
                         path="SKILL.md",
                         content=(
                             "---\n"
-                            "title: Version Two\n"
+                            "name: version-two\n"
                             "description: Second published version\n"
                             "---\n\n"
-                            "# Version Two\n"
+                            "# version-two\n"
                         ),
                         content_type="text/markdown; charset=utf-8",
                     ),
@@ -1033,16 +953,16 @@ class TestSkillService:
 
         assert isinstance(restored, SkillReadMinimal)
         assert restored.current_version_id == version_one.id
-        assert restored.title == version_one.title
+        assert restored.name == version_one.name
         assert restored.description == version_one.description
         assert restored_draft is not None
         assert restored_draft.draft_revision == current_draft.draft_revision
-        assert restored_draft.title == "Version Two"
+        assert restored_draft.name == "version-two"
         assert restored_draft.description == "Second published version"
         assert restored_file is not None
         assert restored_file.kind == "inline"
         assert restored_file.text_content == "Version two"
-        assert version_two.title == "Version Two"
+        assert version_two.name == "version-two"
 
     async def test_skill_read_metadata_tracks_current_version_not_draft(
         self,
@@ -1050,7 +970,7 @@ class TestSkillService:
     ) -> None:
         """Top-level skill metadata should mirror the current version, not draft edits."""
 
-        created = await skill_service.create_skill(SkillCreate(slug="metadata-skill"))
+        created = await skill_service.create_skill(SkillCreate(name="metadata-skill"))
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
 
@@ -1063,10 +983,10 @@ class TestSkillService:
                         path="SKILL.md",
                         content=(
                             "---\n"
-                            "title: Published Title\n"
+                            "name: published-title\n"
                             "description: Published description\n"
                             "---\n\n"
-                            "# Published Title\n"
+                            "# published-title\n"
                         ),
                         content_type="text/markdown; charset=utf-8",
                     )
@@ -1078,11 +998,11 @@ class TestSkillService:
 
         assert skill_read is not None
         assert skill_read.current_version_id == published.id
-        assert skill_read.title == "Published Title"
+        assert skill_read.name == "published-title"
         assert skill_read.description == "Published description"
         assert skill_read.current_version is not None
         assert skill_read.current_version.id == published.id
-        assert skill_read.current_version.title == "Published Title"
+        assert skill_read.current_version.name == "published-title"
         assert skill_read.current_version.description == "Published description"
 
         published_draft = await skill_service.get_draft(created.id)
@@ -1096,10 +1016,10 @@ class TestSkillService:
                         path="SKILL.md",
                         content=(
                             "---\n"
-                            "title: Draft Title\n"
+                            "name: draft-title\n"
                             "description: Draft-only description\n"
                             "---\n\n"
-                            "# Draft Title\n"
+                            "# draft-title\n"
                         ),
                         content_type="text/markdown; charset=utf-8",
                     )
@@ -1111,15 +1031,15 @@ class TestSkillService:
         skill_read_after_draft_edit = await skill_service.get_skill_read(created.id)
 
         assert updated_draft is not None
-        assert updated_draft.title == "Draft Title"
+        assert updated_draft.name == "draft-title"
         assert updated_draft.description == "Draft-only description"
         assert skill_read_after_draft_edit is not None
         assert skill_read_after_draft_edit.current_version_id == published.id
-        assert skill_read_after_draft_edit.title == "Published Title"
+        assert skill_read_after_draft_edit.name == "published-title"
         assert skill_read_after_draft_edit.description == "Published description"
         assert skill_read_after_draft_edit.current_version is not None
         assert skill_read_after_draft_edit.current_version.id == published.id
-        assert skill_read_after_draft_edit.current_version.title == "Published Title"
+        assert skill_read_after_draft_edit.current_version.name == "published-title"
         assert (
             skill_read_after_draft_edit.current_version.description
             == "Published description"
@@ -1131,7 +1051,7 @@ class TestSkillService:
     ) -> None:
         """Version listings should exclude per-file manifests."""
 
-        created = await skill_service.create_skill(SkillCreate(slug="minimal-versions"))
+        created = await skill_service.create_skill(SkillCreate(name="minimal-versions"))
         draft = await skill_service.get_draft(created.id)
         assert draft is not None
 
@@ -1177,7 +1097,7 @@ class TestSkillService:
     ) -> None:
         """Restoring the current version pointer locks the mutable skill row first."""
 
-        created = await skill_service.create_skill(SkillCreate(slug="locked-restore"))
+        created = await skill_service.create_skill(SkillCreate(name="locked-restore"))
         version = await skill_service.publish_skill(created.id)
 
         original_get_skill_for_update = SkillService._get_skill_for_update
@@ -1208,7 +1128,7 @@ class TestSkillService:
     ) -> None:
         """Archiving is blocked while a preset head still binds the skill."""
 
-        created = await skill_service.create_skill(SkillCreate(slug="bound-skill"))
+        created = await skill_service.create_skill(SkillCreate(name="bound-skill"))
         skill_version = await skill_service.publish_skill(created.id)
 
         preset_service = AgentPresetService(session=session, role=svc_role)
@@ -1239,7 +1159,7 @@ class TestSkillService:
     ) -> None:
         """Archiving a skill locks the row before checking preset bindings."""
 
-        created = await skill_service.create_skill(SkillCreate(slug="locked-archive"))
+        created = await skill_service.create_skill(SkillCreate(name="locked-archive"))
 
         original_get_skill_for_update = SkillService._get_skill_for_update
         lock_calls = 0

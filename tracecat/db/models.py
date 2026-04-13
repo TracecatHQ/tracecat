@@ -3214,9 +3214,6 @@ class Skill(WorkspaceModel):
     """Workspace-scoped logical skill with mutable draft and immutable versions."""
 
     __tablename__ = "skill"
-    __table_args__ = (
-        UniqueConstraint("workspace_id", "slug", name="uq_skill_workspace_slug"),
-    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -3226,11 +3223,11 @@ class Skill(WorkspaceModel):
         index=True,
         doc="Unique skill identifier",
     )
-    slug: Mapped[str] = mapped_column(
-        String(160),
+    name: Mapped[str] = mapped_column(
+        String(64),
         nullable=False,
         index=True,
-        doc="Stable slug identifier and on-disk directory name",
+        doc="Current active skill name and on-disk directory name",
     )
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
@@ -3244,11 +3241,6 @@ class Skill(WorkspaceModel):
         default=0,
         server_default=text("0"),
         doc="Optimistic concurrency revision for draft mutations",
-    )
-    title: Mapped[str | None] = mapped_column(
-        String(255),
-        nullable=True,
-        doc="Cached title parsed from root SKILL.md frontmatter",
     )
     description: Mapped[str | None] = mapped_column(
         Text,
@@ -3512,10 +3504,10 @@ class SkillVersion(WorkspaceModel):
         nullable=False,
         doc="Total published skill size in bytes",
     )
-    title: Mapped[str | None] = mapped_column(
-        String(255),
-        nullable=True,
-        doc="Cached title parsed from root SKILL.md frontmatter",
+    name: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Published skill name parsed from root SKILL.md frontmatter",
     )
     description: Mapped[str | None] = mapped_column(
         Text,
