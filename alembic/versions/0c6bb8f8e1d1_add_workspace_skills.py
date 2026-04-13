@@ -591,6 +591,6 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_skill_blob_id"), table_name="skill_blob")
     op.drop_table("skill_blob")
 
-    op.drop_index(op.f("ix_skill_slug"), table_name="skill")
+    op.drop_index(op.f("ix_skill_name"), table_name="skill")
     op.drop_index(op.f("ix_skill_id"), table_name="skill")
     op.drop_table("skill")
