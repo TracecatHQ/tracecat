@@ -1,0 +1,26 @@
+frontend/src/components/skills/use-skills-studio.ts
+  7a57ed7b18619e83 149,214,219,237-246,277,300-304,309-310,326-328,344-345,399-400,417-418,538-539,542,548-551,555,559,565-568,593-594,611,613,628-629,632,638-641
+  0654838314e74edc 211-213,216-218,274-276
+frontend/src/components/skills/skills-studio.tsx
+  7a57ed7b18619e83 110-119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "8d42e4dbe6c0db0848ea5926ced5df9d7b084d22",
+  "prompts": {
+    "7a57ed7b18619e83": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c715e816-8e48-4375-b308-ce4cc5bb2897",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 975,
+      "total_deletions": 351,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
