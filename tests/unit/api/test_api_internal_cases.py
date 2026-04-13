@@ -157,6 +157,59 @@ async def test_internal_update_case_include_rows_hydrates_rows(
 
 
 @pytest.mark.anyio
+async def test_internal_create_case_simple_invalid_numeric_fields_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.create_case.side_effect = ValueError(
+            "Invalid numeric value: 'abc'"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            "/internal/cases/simple",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "summary": "Internal case summary",
+                "description": "Internal case description",
+                "priority": "medium",
+                "severity": "low",
+                "status": "new",
+                "fields": {"score": "abc"},
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid numeric value: 'abc'"
+
+
+@pytest.mark.anyio
+async def test_internal_update_case_simple_invalid_integer_fields_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_internal_case: Case,
+) -> None:
+    with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_internal_case
+        mock_service.update_case.side_effect = ValueError(
+            "Invalid integer value: '1.5'"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.patch(
+            f"/internal/cases/{mock_internal_case.id}/simple",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"fields": {"attempts": "1.5"}},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid integer value: '1.5'"
+
+
+@pytest.mark.anyio
 async def test_internal_list_comment_threads_success(
     client: TestClient,
     test_admin_role: Role,

@@ -2001,7 +2001,7 @@ class TestTableDataTypes:
             # Test invalid integer
             pytest.param(
                 {"int_col": "not a number"},
-                "('str' object cannot be interpreted as an integer)",
+                "Invalid integer value: 'not a number'",
                 id="invalid_integer",
             ),
             # Test invalid boolean
@@ -2035,7 +2035,9 @@ class TestTableDataTypes:
         """Test that invalid type conversions are handled appropriately."""
         try:
             # Don't start a new transaction, just use the existing one
-            with pytest.raises((DBAPIError, TypeError, StatementError)) as exc_info:
+            with pytest.raises(
+                (DBAPIError, TypeError, ValueError, StatementError)
+            ) as exc_info:
                 row_insert = TableRowInsert(data=invalid_data)
                 await tables_service.insert_row(complex_table, row_insert)
 

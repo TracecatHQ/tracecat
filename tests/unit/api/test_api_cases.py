@@ -290,6 +290,34 @@ async def test_create_case_success(
 
 
 @pytest.mark.anyio
+async def test_create_case_invalid_numeric_fields_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Invalid custom-field numeric input should be surfaced as a client error."""
+    with patch.object(cases_router, "CasesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_case.side_effect = ValueError("Invalid numeric value: 'abc'")
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/cases",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "summary": "Test Case Summary",
+                "description": "Test case description with details",
+                "priority": "medium",
+                "severity": "medium",
+                "status": "new",
+                "fields": {"score": "abc"},
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid numeric value: 'abc'"
+
+
+@pytest.mark.anyio
 async def test_create_case_with_dropdown_values(
     client: TestClient,
     test_admin_role: Role,
@@ -679,6 +707,29 @@ async def test_update_case_success(
 
         # Verify service was called
         mock_svc.update_case.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_update_case_invalid_integer_fields_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Invalid custom-field integer input should be surfaced as a client error."""
+    with patch.object(cases_router, "CasesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_case.return_value = mock_case
+        mock_svc.update_case.side_effect = ValueError("Invalid integer value: '1.5'")
+        MockService.return_value = mock_svc
+
+        response = client.patch(
+            f"/cases/{mock_case.id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"fields": {"attempts": "1.5"}},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid integer value: '1.5'"
 
 
 @pytest.mark.anyio

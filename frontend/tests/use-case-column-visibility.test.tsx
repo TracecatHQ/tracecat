@@ -106,27 +106,46 @@ describe("useCaseColumnVisibility", () => {
       "field:gamma",
       "field:delta",
     ])
+    const setItemSpy = jest.spyOn(Storage.prototype, "setItem")
 
-    const { result, rerender } = renderHook(
-      ({ workspaceId }: { workspaceId: string }) =>
-        useCaseColumnVisibility(workspaceId, knownColumnIds),
-      {
-        initialProps: { workspaceId: "workspace-1" },
-      }
-    )
+    try {
+      const { result, rerender } = renderHook(
+        ({ workspaceId }: { workspaceId: string }) =>
+          useCaseColumnVisibility(workspaceId, knownColumnIds),
+        {
+          initialProps: { workspaceId: "workspace-1" },
+        }
+      )
 
-    expect(result.current.visibleColumnIds).toEqual([
-      "field:alpha",
-      "field:beta",
-    ])
+      expect(result.current.visibleColumnIds).toEqual([
+        "field:alpha",
+        "field:beta",
+      ])
 
-    rerender({ workspaceId: "workspace-2" })
+      rerender({ workspaceId: "workspace-2" })
 
-    await waitFor(() => {
       expect(result.current.visibleColumnIds).toEqual([
         "field:gamma",
         "field:delta",
       ])
-    })
+      expect(
+        JSON.parse(
+          window.localStorage.getItem(getStorageKey("workspace-2")) ?? "[]"
+        )
+      ).toEqual(["field:gamma", "field:delta"])
+      expect(setItemSpy).not.toHaveBeenCalledWith(
+        getStorageKey("workspace-2"),
+        JSON.stringify(["field:alpha", "field:beta"])
+      )
+
+      await waitFor(() => {
+        expect(result.current.visibleColumnIds).toEqual([
+          "field:gamma",
+          "field:delta",
+        ])
+      })
+    } finally {
+      setItemSpy.mockRestore()
+    }
   })
 })

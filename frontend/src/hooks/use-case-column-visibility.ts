@@ -71,6 +71,11 @@ export interface UseCaseColumnVisibilityResult {
   toggleColumn: (columnId: string) => void
 }
 
+interface VisibleColumnsState {
+  workspaceId: string
+  visibleColumnIds: string[]
+}
+
 /**
  * @param knownColumnIds - Set of currently valid column IDs from loaded
  *   definitions. When provided, stale persisted IDs are pruned and the final
@@ -80,54 +85,92 @@ export function useCaseColumnVisibility(
   workspaceId: string,
   knownColumnIds?: Set<string>
 ): UseCaseColumnVisibilityResult {
-  const [visibleColumnIds, setVisibleColumnIds] = useState<string[]>(() =>
-    normalizeVisibleColumnIds(loadPersistedColumns(workspaceId), knownColumnIds)
+  const loadColumnsForWorkspace = useCallback(
+    (targetWorkspaceId: string) =>
+      normalizeVisibleColumnIds(
+        loadPersistedColumns(targetWorkspaceId),
+        knownColumnIds
+      ),
+    [knownColumnIds]
   )
+  const [state, setState] = useState<VisibleColumnsState>(() => ({
+    workspaceId,
+    visibleColumnIds: loadColumnsForWorkspace(workspaceId),
+  }))
 
-  // Reload from localStorage when workspace changes
-  const prevWorkspaceId = useRef(workspaceId)
+  // Keep the rendered selection scoped to the active workspace so a route-level
+  // workspace switch never exposes or persists the previous workspace's columns.
+  const visibleColumnIds =
+    state.workspaceId === workspaceId
+      ? state.visibleColumnIds
+      : loadColumnsForWorkspace(workspaceId)
+
   useEffect(() => {
-    if (prevWorkspaceId.current !== workspaceId) {
-      prevWorkspaceId.current = workspaceId
-      setVisibleColumnIds(
-        normalizeVisibleColumnIds(
-          loadPersistedColumns(workspaceId),
-          knownColumnIds
-        )
-      )
+    if (state.workspaceId !== workspaceId) {
+      setState({
+        workspaceId,
+        visibleColumnIds: loadColumnsForWorkspace(workspaceId),
+      })
     }
+  }, [loadColumnsForWorkspace, state.workspaceId, workspaceId])
+
+  useEffect(() => {
+    setState((prev) => {
+      if (prev.workspaceId !== workspaceId) {
+        return prev
+      }
+      const normalized = normalizeVisibleColumnIds(
+        prev.visibleColumnIds,
+        knownColumnIds
+      )
+      return prev.visibleColumnIds.length === normalized.length &&
+        prev.visibleColumnIds.every(
+          (columnId, index) => columnId === normalized[index]
+        )
+        ? prev
+        : { workspaceId, visibleColumnIds: normalized }
+    })
   }, [knownColumnIds, workspaceId])
 
   useEffect(() => {
-    setVisibleColumnIds((prev) => {
-      const normalized = normalizeVisibleColumnIds(prev, knownColumnIds)
-      return prev.length === normalized.length &&
-        prev.every((columnId, index) => columnId === normalized[index])
-        ? prev
-        : normalized
-    })
-  }, [knownColumnIds])
-
-  useEffect(() => {
-    persistColumns(workspaceId, visibleColumnIds)
-  }, [workspaceId, visibleColumnIds])
+    if (state.workspaceId !== workspaceId) {
+      return
+    }
+    persistColumns(workspaceId, state.visibleColumnIds)
+  }, [state, workspaceId])
 
   // Ref so toggleColumn always sees the latest set without re-creating
   const knownRef = useRef(knownColumnIds)
   knownRef.current = knownColumnIds
 
-  const toggleColumn = useCallback((columnId: string) => {
-    setVisibleColumnIds((prev) => {
-      const normalizedPrev = normalizeVisibleColumnIds(prev, knownRef.current)
-      if (normalizedPrev.includes(columnId)) {
-        return normalizedPrev.filter((id) => id !== columnId)
-      }
-      return normalizeVisibleColumnIds(
-        [...normalizedPrev, columnId],
-        knownRef.current
-      )
-    })
-  }, [])
+  const toggleColumn = useCallback(
+    (columnId: string) => {
+      setState((prev) => {
+        const baseColumns =
+          prev.workspaceId === workspaceId
+            ? prev.visibleColumnIds
+            : loadColumnsForWorkspace(workspaceId)
+        const normalizedPrev = normalizeVisibleColumnIds(
+          baseColumns,
+          knownRef.current
+        )
+        if (normalizedPrev.includes(columnId)) {
+          return {
+            workspaceId,
+            visibleColumnIds: normalizedPrev.filter((id) => id !== columnId),
+          }
+        }
+        return {
+          workspaceId,
+          visibleColumnIds: normalizeVisibleColumnIds(
+            [...normalizedPrev, columnId],
+            knownRef.current
+          ),
+        }
+      })
+    },
+    [loadColumnsForWorkspace, workspaceId]
+  )
 
   return {
     visibleColumnIds,

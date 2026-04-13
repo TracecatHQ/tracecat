@@ -96,14 +96,14 @@ def coerce_integer_value(value: Any) -> int:
     try:
         decimal_value = Decimal(str(value).strip())
     except (InvalidOperation, TypeError, ValueError, AttributeError) as exc:
-        raise TypeError(f"Invalid integer value: {value!r}") from exc
+        raise ValueError(f"Invalid integer value: {value!r}") from exc
 
     if not decimal_value.is_finite():
-        raise TypeError(f"Invalid integer value: {value!r}")
+        raise ValueError(f"Invalid integer value: {value!r}")
     if decimal_value != decimal_value.to_integral_value():
-        raise TypeError(f"Invalid integer value: {value!r}")
+        raise ValueError(f"Invalid integer value: {value!r}")
     if decimal_value < POSTGRES_BIGINT_MIN or decimal_value > POSTGRES_BIGINT_MAX:
-        raise TypeError(f"Invalid integer value: {value!r}")
+        raise ValueError(f"Invalid integer value: {value!r}")
     return int(decimal_value)
 
 
@@ -112,10 +112,10 @@ def coerce_numeric_value(value: Any) -> Decimal:
     try:
         decimal_value = Decimal(str(value).strip())
     except (InvalidOperation, TypeError, ValueError, AttributeError) as exc:
-        raise TypeError(f"Invalid numeric value: {value!r}") from exc
+        raise ValueError(f"Invalid numeric value: {value!r}") from exc
 
     if not decimal_value.is_finite():
-        raise TypeError(f"Invalid numeric value: {value!r}")
+        raise ValueError(f"Invalid numeric value: {value!r}")
     return decimal_value
 
 
