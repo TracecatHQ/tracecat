@@ -1,0 +1,68 @@
+tracecat/agent/preset/schemas.py
+  afa7c9e73fe4b7c6 26,34
+tracecat/agent/workflow_config.py
+  afa7c9e73fe4b7c6 89,100
+frontend/src/client/types.gen.ts
+  afa7c9e73fe4b7c6 396,409,5573,5627,5629,5663,5670,5682,5694,5751,5769
+tests/unit/test_agent_preset_service.py
+  afa7c9e73fe4b7c6 34,656,696,775,849,856,860,873,883,918,920-1091,1105,1157,1204,1263,1371,1442,1486
+alembic/versions/0c6bb8f8e1d1_add_workspace_skills.py
+  afa7c9e73fe4b7c6 30,63,112
+tests/unit/test_skill_service.py
+  afa7c9e73fe4b7c6 12,163,168,175,179,187,196,199-200,202-203,205,209,211,213-224,226-229,242,246-248,303,315,338,346,369,423,495,590,651,738,759,843,886,903,906,930,933,956,960,965,973,986,989,1001,1005,1019,1022,1034,1038,1042,1054,1100,1131,1162
+tracecat/agent/skill/schemas.py
+  afa7c9e73fe4b7c6 9-16,21-30,32-38,69,76,89,100,115,123,125,228,247
+frontend/src/client/schemas.gen.ts
+  afa7c9e73fe4b7c6 1595,1597,1647,1664,1666,1674,17967,17969,17971-17972,17988,18144,18146,18152,18161,18194,18273,18275,18329,18356,18379,18381,18430,18437,18439,18441-18442,18454,18622-18624,18664,18705-18707,18740
+tracecat/agent/executor/activity.py
+  afa7c9e73fe4b7c6 10,512-522,534
+tracecat/agent/preset/service.py
+  afa7c9e73fe4b7c6 7,13,122,131,137,141-142,1167-1168,1170,1177,1357-1372,1398-1426
+tests/unit/test_agent_activities.py
+  afa7c9e73fe4b7c6 707
+tests/unit/test_mcp_server.py
+  afa7c9e73fe4b7c6 4465,4487,4491-4493,4501,4504,4517,4538,4564,4586,4601,4615,4627,4652,4674,4692,4696,4711,4724,4749,4771,4787,4821,4825-4826,4867
+tracecat/agent/skill/service.py
+  afa7c9e73fe4b7c6 13,18,34,70,77,193,196,209,219,222,239-240,254-273,277,298,301,569,578-583,587-600,623,625,641,643-644,649,657,677,799-804,806,808,840,862,864-873,875-883,885-890,892,1129-1139,1231-1233,1264,1280,1361,1392,1421-1422,1424,1489,1508,1520,1526,1530-1531,1540-1550,1557-1559,1562
+tracecat/agent/workflow_schemas.py
+  afa7c9e73fe4b7c6 69
+tracecat/db/models.py
+  afa7c9e73fe4b7c6 3212-3213,3216,3493-3496
+tracecat/agent/skill/types.py
+  afa7c9e73fe4b7c6 14
+tracecat/mcp/server.py
+  afa7c9e73fe4b7c6 775,6145,6159,6163,6172,6202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "704ba99dbf61fca47863f4c96a1b1d2f6abf90e2",
+  "prompts": {
+    "40ea4f14a0ae4f84": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c49d8d3-a978-449a-939c-095be212f8b8",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 219,
+      "overriden_lines": 0
+    },
+    "afa7c9e73fe4b7c6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d83e3-2844-7482-ab3c-3078314fc2c1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 661,
+      "total_deletions": 637,
+      "accepted_lines": 605,
+      "overriden_lines": 0
+    }
+  }
+}
