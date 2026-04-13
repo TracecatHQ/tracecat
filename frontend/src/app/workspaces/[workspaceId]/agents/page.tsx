@@ -1,9 +1,11 @@
-import { redirect } from "next/navigation"
+import { Suspense } from "react"
+import { AgentsDashboard } from "@/components/agents/agents-dashboard"
+import { CenteredSpinner } from "@/components/loading/spinner"
 
-export default function AgentsPage({
-  params,
-}: {
-  params: { workspaceId: string }
-}) {
-  redirect(`/workspaces/${params.workspaceId}/agents/new`)
+export default function AgentsPage() {
+  return (
+    <Suspense fallback={<CenteredSpinner />}>
+      <AgentsDashboard />
+    </Suspense>
+  )
 }

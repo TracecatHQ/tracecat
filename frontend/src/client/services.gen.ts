@@ -97,6 +97,20 @@ import type {
   AgentCreateProviderCredentialsResponse,
   AgentDeleteProviderCredentialsData,
   AgentDeleteProviderCredentialsResponse,
+  AgentFoldersCreateFolderData,
+  AgentFoldersCreateFolderResponse,
+  AgentFoldersDeleteFolderData,
+  AgentFoldersDeleteFolderResponse,
+  AgentFoldersGetDirectoryData,
+  AgentFoldersGetDirectoryResponse,
+  AgentFoldersGetFolderData,
+  AgentFoldersGetFolderResponse,
+  AgentFoldersListFoldersData,
+  AgentFoldersListFoldersResponse,
+  AgentFoldersMoveFolderData,
+  AgentFoldersMoveFolderResponse,
+  AgentFoldersUpdateFolderData,
+  AgentFoldersUpdateFolderResponse,
   AgentGetDefaultModelResponse,
   AgentGetProviderCredentialConfigData,
   AgentGetProviderCredentialConfigResponse,
@@ -106,6 +120,8 @@ import type {
   AgentListModelsResponse,
   AgentListProviderCredentialConfigsResponse,
   AgentListProvidersResponse,
+  AgentPresetsAddPresetTagData,
+  AgentPresetsAddPresetTagResponse,
   AgentPresetsCompareAgentPresetVersionsData,
   AgentPresetsCompareAgentPresetVersionsResponse,
   AgentPresetsCreateAgentPresetData,
@@ -122,6 +138,12 @@ import type {
   AgentPresetsListAgentPresetsResponse,
   AgentPresetsListAgentPresetVersionsData,
   AgentPresetsListAgentPresetVersionsResponse,
+  AgentPresetsListPresetTagsData,
+  AgentPresetsListPresetTagsResponse,
+  AgentPresetsMoveAgentPresetToFolderData,
+  AgentPresetsMoveAgentPresetToFolderResponse,
+  AgentPresetsRemovePresetTagData,
+  AgentPresetsRemovePresetTagResponse,
   AgentPresetsRestoreAgentPresetVersionData,
   AgentPresetsRestoreAgentPresetVersionResponse,
   AgentPresetsUpdateAgentPresetData,
@@ -146,6 +168,16 @@ import type {
   AgentSessionsUpdateSessionResponse,
   AgentSetDefaultModelData,
   AgentSetDefaultModelResponse,
+  AgentTagsCreateAgentTagData,
+  AgentTagsCreateAgentTagResponse,
+  AgentTagsDeleteAgentTagData,
+  AgentTagsDeleteAgentTagResponse,
+  AgentTagsGetAgentTagData,
+  AgentTagsGetAgentTagResponse,
+  AgentTagsListAgentTagsData,
+  AgentTagsListAgentTagsResponse,
+  AgentTagsUpdateAgentTagData,
+  AgentTagsUpdateAgentTagResponse,
   AgentUpdateProviderCredentialsData,
   AgentUpdateProviderCredentialsResponse,
   ApprovalsSubmitApprovalsData,
@@ -4456,6 +4488,448 @@ export const agentPresetsRestoreAgentPresetVersion = (
     path: {
       preset_id: data.presetId,
       version_id: data.versionId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Move Agent Preset To Folder
+ * Move an agent preset to a folder.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsMoveAgentPresetToFolder = (
+  data: AgentPresetsMoveAgentPresetToFolderData
+): CancelablePromise<AgentPresetsMoveAgentPresetToFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/presets/{preset_id}/move",
+    path: {
+      preset_id: data.presetId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Preset Tags
+ * List all tags for an agent preset.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @returns AgentTagRead Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsListPresetTags = (
+  data: AgentPresetsListPresetTagsData
+): CancelablePromise<AgentPresetsListPresetTagsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/presets/{preset_id}/tags",
+    path: {
+      preset_id: data.presetId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Add Preset Tag
+ * Add a tag to an agent preset.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsAddPresetTag = (
+  data: AgentPresetsAddPresetTagData
+): CancelablePromise<AgentPresetsAddPresetTagResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/presets/{preset_id}/tags",
+    path: {
+      preset_id: data.presetId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Remove Preset Tag
+ * Remove a tag from an agent preset.
+ * @param data The data for the request.
+ * @param data.presetId
+ * @param data.tagId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentPresetsRemovePresetTag = (
+  data: AgentPresetsRemovePresetTagData
+): CancelablePromise<AgentPresetsRemovePresetTagResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/presets/{preset_id}/tags/{tag_id}",
+    path: {
+      preset_id: data.presetId,
+      tag_id: data.tagId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Directory
+ * Get directory items (presets and folders) in the given path.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.path Folder path
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentFoldersGetDirectory = (
+  data: AgentFoldersGetDirectoryData
+): CancelablePromise<AgentFoldersGetDirectoryResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent-folders/directory",
+    query: {
+      path: data.path,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Folders
+ * List folders under the specified parent path.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.parentPath Parent folder path
+ * @returns AgentFolderRead Successful Response
+ * @throws ApiError
+ */
+export const agentFoldersListFolders = (
+  data: AgentFoldersListFoldersData
+): CancelablePromise<AgentFoldersListFoldersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent-folders",
+    query: {
+      parent_path: data.parentPath,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Folder
+ * Create a new agent folder.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentFolderRead Successful Response
+ * @throws ApiError
+ */
+export const agentFoldersCreateFolder = (
+  data: AgentFoldersCreateFolderData
+): CancelablePromise<AgentFoldersCreateFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent-folders",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Folder
+ * Get folder details by ID.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @returns AgentFolderRead Successful Response
+ * @throws ApiError
+ */
+export const agentFoldersGetFolder = (
+  data: AgentFoldersGetFolderData
+): CancelablePromise<AgentFoldersGetFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent-folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Folder
+ * Update a folder (rename).
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentFolderRead Successful Response
+ * @throws ApiError
+ */
+export const agentFoldersUpdateFolder = (
+  data: AgentFoldersUpdateFolderData
+): CancelablePromise<AgentFoldersUpdateFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/agent-folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Folder
+ * Delete an agent folder.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentFoldersDeleteFolder = (
+  data: AgentFoldersDeleteFolderData
+): CancelablePromise<AgentFoldersDeleteFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent-folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Move Folder
+ * Move a folder to a new parent folder.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentFolderRead Successful Response
+ * @throws ApiError
+ */
+export const agentFoldersMoveFolder = (
+  data: AgentFoldersMoveFolderData
+): CancelablePromise<AgentFoldersMoveFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent-folders/{folder_id}/move",
+    path: {
+      folder_id: data.folderId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Tags
+ * List all agent tags in the workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns AgentTagRead Successful Response
+ * @throws ApiError
+ */
+export const agentTagsListAgentTags = (
+  data: AgentTagsListAgentTagsData
+): CancelablePromise<AgentTagsListAgentTagsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent-tags",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Agent Tag
+ * Create a new agent tag definition.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentTagRead Successful Response
+ * @throws ApiError
+ */
+export const agentTagsCreateAgentTag = (
+  data: AgentTagsCreateAgentTagData
+): CancelablePromise<AgentTagsCreateAgentTagResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent-tags",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Agent Tag
+ * Get an agent tag by ID.
+ * @param data The data for the request.
+ * @param data.tagId
+ * @param data.workspaceId
+ * @returns AgentTagRead Successful Response
+ * @throws ApiError
+ */
+export const agentTagsGetAgentTag = (
+  data: AgentTagsGetAgentTagData
+): CancelablePromise<AgentTagsGetAgentTagResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent-tags/{tag_id}",
+    path: {
+      tag_id: data.tagId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Agent Tag
+ * Update an agent tag definition.
+ * @param data The data for the request.
+ * @param data.tagId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns AgentTagRead Successful Response
+ * @throws ApiError
+ */
+export const agentTagsUpdateAgentTag = (
+  data: AgentTagsUpdateAgentTagData
+): CancelablePromise<AgentTagsUpdateAgentTagResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/agent-tags/{tag_id}",
+    path: {
+      tag_id: data.tagId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Agent Tag
+ * Delete an agent tag definition.
+ * @param data The data for the request.
+ * @param data.tagId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentTagsDeleteAgentTag = (
+  data: AgentTagsDeleteAgentTagData
+): CancelablePromise<AgentTagsDeleteAgentTagResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent-tags/{tag_id}",
+    path: {
+      tag_id: data.tagId,
     },
     query: {
       workspace_id: data.workspaceId,

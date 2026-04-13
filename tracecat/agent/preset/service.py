@@ -10,6 +10,7 @@ from typing import Any, cast
 import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.agent.preset.schemas import (
@@ -82,6 +83,7 @@ class AgentPresetService(BaseWorkspaceService):
             select(AgentPreset)
             .where(AgentPreset.workspace_id == self.workspace_id)
             .order_by(AgentPreset.created_at.desc())
+            .options(selectinload(AgentPreset.tags))
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()
