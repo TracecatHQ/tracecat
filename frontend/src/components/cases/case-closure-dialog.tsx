@@ -308,19 +308,28 @@ function ClosureFieldInput({
         <div className="space-y-1.5">
           <Label className="text-sm">{field.id}</Label>
           <Input
-            type="number"
+            type="text"
+            inputMode={field.type === "INTEGER" ? "numeric" : "decimal"}
             value={value != null ? String(value) : ""}
             onChange={(e) => {
-              const v = e.target.value
-              if (v === "") {
+              const raw = e.target.value
+              const trimmed = raw.trim()
+              if (!trimmed) {
+                onValidationChange?.(false)
                 onChange(null)
-              } else {
-                onChange(
-                  field.type === "INTEGER"
-                    ? Number.parseInt(v)
-                    : Number.parseFloat(v)
-                )
+                return
               }
+
+              if (field.type === "INTEGER") {
+                const isValid = /^-?\d+$/.test(trimmed)
+                onValidationChange?.(!isValid)
+                onChange(trimmed)
+                return
+              }
+
+              const isValid = Number.isFinite(Number(trimmed))
+              onValidationChange?.(!isValid)
+              onChange(trimmed)
             }}
             placeholder={`Enter ${field.id}...`}
           />

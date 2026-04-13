@@ -19,6 +19,7 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
+  CaseFieldReadMinimal,
   CasePriority,
   CaseReadMinimal,
   CaseSeverity,
@@ -61,6 +62,7 @@ import {
 } from "@/components/ui/context-menu"
 import { toast } from "@/components/ui/use-toast"
 import { User } from "@/lib/auth"
+import { formatCaseFieldDisplayLabel } from "@/lib/case-field-display"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -90,6 +92,7 @@ interface CaseItemProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  fieldTypesById?: ReadonlyMap<string, CaseFieldReadMinimal["type"]>
   visibleColumnIds?: string[]
 }
 
@@ -103,6 +106,7 @@ export function CaseItem({
   tags,
   members,
   dropdownDefinitions,
+  fieldTypesById,
   visibleColumnIds,
 }: CaseItemProps) {
   const workspaceId = useWorkspaceId()
@@ -148,19 +152,10 @@ export function CaseItem({
         const fieldId = columnId.slice("field:".length)
         const value = caseData.field_values?.[fieldId]
         if (value != null) {
-          let label: string
-          if (typeof value === "boolean") {
-            label = value ? "Yes" : "No"
-          } else if (typeof value === "number") {
-            label = String(parseFloat(value.toFixed(2)))
-          } else if (typeof value === "object") {
-            // URL-kind fields store {url, label}; JSONB stores arbitrary objects
-            const obj = value as Record<string, unknown>
-            label =
-              typeof obj.label === "string" ? obj.label : JSON.stringify(value)
-          } else {
-            label = String(value)
-          }
+          const label = formatCaseFieldDisplayLabel(
+            value,
+            fieldTypesById?.get(fieldId)
+          )
           badges.push(
             <CaseColumnBadge
               key={columnId}
@@ -190,6 +185,7 @@ export function CaseItem({
     return badges.length > 0 ? badges : null
   }, [
     visibleColumnIds,
+    fieldTypesById,
     caseData.dropdown_values,
     caseData.field_values,
     caseData.durations,

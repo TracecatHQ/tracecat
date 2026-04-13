@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Iterator
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -462,6 +463,9 @@ class TestCaseFieldsService:
             patch.object(
                 case_fields_service, "ensure_workspace_row"
             ) as mock_ensure_row,
+            patch.object(
+                case_fields_service, "normalize_field_values", return_value=fields_data
+            ) as mock_normalize_fields,
             patch.object(case_fields_service.editor, "update_row") as mock_update_row,
         ):
             mock_ensure_row.return_value = uuid.uuid4()
@@ -475,6 +479,7 @@ class TestCaseFieldsService:
             # Verify the result matches the full mock_result
             assert result == mock_result
             mock_ensure_row.assert_called_once_with(test_case.id)
+            mock_normalize_fields.assert_called_once_with(fields_data)
             mock_update_row.assert_called_once()
 
             # Verify the call arguments
@@ -482,6 +487,66 @@ class TestCaseFieldsService:
             assert "row_id" in call_kwargs
             assert "data" in call_kwargs
             assert call_kwargs["data"] == fields_data
+
+    async def test_upsert_field_values_preserves_numeric_strings(
+        self, case_fields_service: CaseFieldsService, test_case: Case
+    ) -> None:
+        """Numeric strings should be normalized to Decimal before persistence."""
+        fields_data = {"numeric_field": "1.30"}
+        mock_result = {
+            "id": uuid.uuid4(),
+            "case_id": test_case.id,
+            "numeric_field": Decimal("1.30"),
+        }
+
+        with (
+            patch.object(
+                case_fields_service, "ensure_workspace_row"
+            ) as mock_ensure_row,
+            patch.object(
+                case_fields_service,
+                "get_field_schema",
+                return_value={"numeric_field": {"type": "NUMERIC"}},
+            ),
+            patch.object(
+                case_fields_service.editor,
+                "get_columns",
+                return_value=[{"name": "numeric_field", "type": "NUMERIC"}],
+            ),
+            patch.object(case_fields_service.editor, "update_row") as mock_update_row,
+        ):
+            mock_ensure_row.return_value = uuid.uuid4()
+            mock_update_row.return_value = mock_result
+
+            result = await case_fields_service.upsert_field_values(
+                test_case, fields_data
+            )
+
+            assert result == mock_result
+            call_kwargs = mock_update_row.call_args.kwargs
+            assert call_kwargs["data"] == {"numeric_field": Decimal("1.30")}
+
+    async def test_normalize_field_values_reflection_overrides_stale_schema(
+        self, case_fields_service: CaseFieldsService
+    ) -> None:
+        """Physical column types should win when schema metadata is stale."""
+        with (
+            patch.object(
+                case_fields_service,
+                "get_field_schema",
+                return_value={"numeric_field": {"type": "TEXT"}},
+            ),
+            patch.object(
+                case_fields_service.editor,
+                "get_columns",
+                return_value=[{"name": "numeric_field", "type": "NUMERIC"}],
+            ),
+        ):
+            normalized = await case_fields_service.normalize_field_values(
+                {"numeric_field": "1.30"}
+            )
+
+        assert normalized == {"numeric_field": Decimal("1.30")}
 
     async def test_upsert_field_values_empty_fields(
         self, case_fields_service: CaseFieldsService, test_case: Case

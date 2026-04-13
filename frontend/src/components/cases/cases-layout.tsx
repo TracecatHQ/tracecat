@@ -268,6 +268,15 @@ export function CasesLayout({
   useEffect(() => () => resetSelection(), [resetSelection])
 
   const selectedCaseIdsSet = useMemo(() => selectedCaseIds, [selectedCaseIds])
+  const fieldTypesById = useMemo<
+    ReadonlyMap<string, CaseFieldReadMinimal["type"]> | undefined
+  >(() => {
+    if (!fieldDefinitions) {
+      return undefined
+    }
+
+    return new Map(fieldDefinitions.map((field) => [field.id, field.type]))
+  }, [fieldDefinitions])
 
   const handleDeleteRequest = useCallback((caseData: CaseReadMinimal) => {
     setCaseToDelete(caseData)
@@ -391,6 +400,7 @@ export function CasesLayout({
             tags={tags}
             members={members}
             dropdownDefinitions={dropdownDefinitions}
+            fieldTypesById={fieldTypesById}
             visibleColumnIds={visibleColumnIds}
             prioritySortDirection={filters.prioritySortDirection}
             severitySortDirection={filters.severitySortDirection}

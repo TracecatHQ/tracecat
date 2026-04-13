@@ -1909,6 +1909,23 @@ class TestTableDataTypes:
         assert retrieved_timestamptz == expected_timestamp
         assert retrieved_timestamptz.tzinfo == UTC
 
+    async def test_numeric_string_preserves_scale(
+        self, tables_service: TablesService, complex_table: Table
+    ) -> None:
+        """String inputs for NUMERIC columns should round-trip as exact Decimal values."""
+        inserted = await tables_service.insert_row(
+            complex_table, TableRowInsert(data={"numeric_col": "1.30"})
+        )
+
+        assert inserted["numeric_col"] == Decimal("1.30")
+
+        row_id = inserted["id"]
+        updated = await tables_service.update_row(
+            complex_table, row_id, {"numeric_col": "1.230"}
+        )
+
+        assert updated["numeric_col"] == Decimal("1.230")
+
     async def test_timestamptz_normalisation(
         self, tables_service: TablesService, complex_table: Table
     ) -> None:

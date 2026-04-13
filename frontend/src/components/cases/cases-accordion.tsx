@@ -16,6 +16,7 @@ import type { ComponentType } from "react"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type {
   CaseDropdownDefinitionRead,
+  CaseFieldReadMinimal,
   CaseReadMinimal,
   CaseSearchAggregateRead,
   CaseStatus,
@@ -122,6 +123,7 @@ interface CasesAccordionProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  fieldTypesById?: ReadonlyMap<string, CaseFieldReadMinimal["type"]>
   visibleColumnIds?: string[]
   prioritySortDirection?: SortDirection
   severitySortDirection?: SortDirection
@@ -150,6 +152,7 @@ interface VirtualizedGroupRowsProps {
   tags?: CaseTagRead[]
   members?: WorkspaceMember[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  fieldTypesById?: ReadonlyMap<string, CaseFieldReadMinimal["type"]>
   visibleColumnIds?: string[]
 }
 
@@ -164,6 +167,7 @@ function VirtualizedGroupRows({
   tags,
   members,
   dropdownDefinitions,
+  fieldTypesById,
   visibleColumnIds,
 }: VirtualizedGroupRowsProps) {
   const groupContainerRef = useRef<HTMLDivElement | null>(null)
@@ -273,6 +277,7 @@ function VirtualizedGroupRows({
               tags={tags}
               members={members}
               dropdownDefinitions={dropdownDefinitions}
+              fieldTypesById={fieldTypesById}
               visibleColumnIds={visibleColumnIds}
             />
           </div>
@@ -292,6 +297,7 @@ export function CasesAccordion({
   tags,
   members,
   dropdownDefinitions,
+  fieldTypesById,
   visibleColumnIds,
   prioritySortDirection,
   severitySortDirection,
@@ -484,6 +490,7 @@ export function CasesAccordion({
                     tags={tags}
                     members={members}
                     dropdownDefinitions={dropdownDefinitions}
+                    fieldTypesById={fieldTypesById}
                     visibleColumnIds={visibleColumnIds}
                   />
                 </div>
