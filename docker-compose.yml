@@ -314,13 +314,7 @@ services:
       migrations:
         condition: service_completed_successfully
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import os, urllib.request; port=os.environ.get('TRACECAT__LITELLM_PORT', '4000'); urllib.request.urlopen(f'http://127.0.0.1:{port}/health/readiness', timeout=5).read()",
-        ]
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health/readiness"]
       interval: 5s
       timeout: 5s
       retries: 30

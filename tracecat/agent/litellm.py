@@ -23,10 +23,12 @@ def prepare_runtime_config() -> Path:
         temp_symlink.symlink_to(source_config)
         temp_symlink.replace(runtime_config)
     except FileExistsError:
-        pass
+        # Stale temp symlink from a previous run — remove and retry.
+        temp_symlink.unlink(missing_ok=True)
+        temp_symlink.symlink_to(source_config)
+        temp_symlink.replace(runtime_config)
     finally:
-        if temp_symlink.exists() or temp_symlink.is_symlink():
-            temp_symlink.unlink()
+        temp_symlink.unlink(missing_ok=True)
 
     return runtime_config
 

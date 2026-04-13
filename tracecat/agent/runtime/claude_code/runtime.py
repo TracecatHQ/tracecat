@@ -37,7 +37,10 @@ from claude_agent_sdk.types import (
     UserMessage,
 )
 
-from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
+from tracecat.agent.common.config import (
+    TRACECAT__DISABLE_NSJAIL,
+    TRACECAT__LITELLM_BASE_URL,
+)
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -67,13 +70,9 @@ def get_litellm_url(*, enable_internet_access: bool) -> str:
     """
     if enable_internet_access:
         if litellm_url := (
-            os.environ.get("TRACECAT__LITELLM_URL")
-            or os.environ.get("TRACECAT__LITELLM_BASE_URL")
+            os.environ.get("TRACECAT__LITELLM_BASE_URL") or TRACECAT__LITELLM_BASE_URL
         ):
             return litellm_url.rstrip("/")
-        raise RuntimeError(
-            "TRACECAT__LITELLM_URL or TRACECAT__LITELLM_BASE_URL is not set"
-        )
 
     port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT")
     if not port:

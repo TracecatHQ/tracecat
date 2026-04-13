@@ -620,13 +620,13 @@ variable "litellm_memory" {
 variable "litellm_desired_count" {
   type        = number
   description = "Desired number of LiteLLM service instances to run"
-  default     = 2
+  default     = 1
 }
 
 variable "litellm_num_workers" {
   type        = string
   description = "Number of uvicorn workers for the LiteLLM service"
-  default     = "8"
+  default     = "4"
 }
 
 ### MCP Service

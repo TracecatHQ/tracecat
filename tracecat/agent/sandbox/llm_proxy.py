@@ -73,11 +73,6 @@ def _get_or_create_trace_request_id(headers: dict[str, str]) -> str:
     return str(uuid4())
 
 
-def get_default_litellm_url() -> str:
-    """Return the configured managed LiteLLM service URL."""
-    return app_config.TRACECAT__LITELLM_URL.rstrip("/")
-
-
 class LLMSocketProxy:
     """Unix socket proxy that forwards HTTP traffic to the LLM gateway.
 
@@ -102,7 +97,7 @@ class LLMSocketProxy:
         self.litellm_url = (
             litellm_url.rstrip("/")
             if litellm_url is not None
-            else get_default_litellm_url()
+            else app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
         )
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
@@ -124,10 +119,10 @@ class LLMSocketProxy:
 
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(
-                connect=20.0,
+                connect=app_config.TRACECAT__LLM_GATEWAY_CONNECT_TIMEOUT_SECONDS,
                 read=app_config.TRACECAT__LLM_PROXY_READ_TIMEOUT,
-                write=30.0,
-                pool=10.0,
+                write=app_config.TRACECAT__LLM_GATEWAY_WRITE_TIMEOUT_SECONDS,
+                pool=app_config.TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS,
             )
         )
 
@@ -424,7 +419,7 @@ class LLMSocketProxy:
                 trace_request_id=trace_request_id,
             )
             if path.split("?", 1)[0] not in _NON_CRITICAL_PATHS:
-                self._emit_error(f"Gateway timeout: {exc}")
+                self._emit_error(f"Gateway timeout ({type(exc).__name__}): {exc}")
 
     async def _write_response(
         self,

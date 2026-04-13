@@ -86,11 +86,6 @@ async def test_executor_skips_llm_socket_proxy_for_direct_litellm_runs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(
-        executor_activity.app_config,
-        "TRACECAT__LLM_EXECUTION_BACKEND",
-        executor_activity.app_config.LLMExecutionBackend.LITELLM,
-    )
     monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
 
     async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
@@ -150,11 +145,6 @@ async def test_executor_starts_llm_socket_proxy_for_isolated_litellm_runs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(
-        executor_activity.app_config,
-        "TRACECAT__LLM_EXECUTION_BACKEND",
-        executor_activity.app_config.LLMExecutionBackend.LITELLM,
-    )
     monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
 
     created_socket_paths: list[Path] = []
@@ -244,6 +234,23 @@ class _DummySocketStreamWriter:
         return None
 
 
+class _RecordingSocketStreamWriter:
+    last_error: str | None = None
+    done_sent: bool = False
+
+    def __init__(self, writer: object) -> None:
+        self.writer = writer
+
+    async def send_error(self, error: str) -> None:
+        type(self).last_error = error
+
+    async def send_done(self) -> None:
+        type(self).done_sent = True
+
+    async def close(self) -> None:
+        return None
+
+
 class _DummyRuntime:
     last_payload: RuntimeInitPayload | None = None
 
@@ -291,7 +298,7 @@ def _runtime_init_payload_bytes(*, enable_internet_access: bool) -> bytes:
 async def test_sandbox_entrypoint_skips_bridge_for_direct_litellm_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TRACECAT__LLM_EXECUTION_BACKEND", "litellm")
+    monkeypatch.setenv("TRACECAT__LITELLM_BASE_URL", "http://litellm:4000")
     monkeypatch.delenv("TRACECAT__LLM_BRIDGE_PORT", raising=False)
     _DummyBridge.instances.clear()
     _DummyRuntime.last_payload = None
@@ -332,10 +339,58 @@ async def test_sandbox_entrypoint_skips_bridge_for_direct_litellm_runs(
 
 
 @pytest.mark.anyio
+async def test_sandbox_entrypoint_defaults_direct_litellm_url_for_internet_enabled_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TRACECAT__LITELLM_BASE_URL", raising=False)
+    monkeypatch.delenv("TRACECAT__LLM_BRIDGE_PORT", raising=False)
+    _DummyBridge.instances.clear()
+    _DummyRuntime.last_payload = None
+    monkeypatch.setattr(
+        sandbox_entrypoint, "TRACECAT__LITELLM_BASE_URL", "http://127.0.0.1:4000"
+    )
+
+    async def fake_open_unix_connection(path: Path) -> tuple[object, object]:
+        assert path == sandbox_entrypoint.TRACECAT__AGENT_CONTROL_SOCKET_PATH
+        return object(), object()
+
+    async def fake_read_message(
+        reader: object,
+        *,
+        expected_type: MessageType,
+    ) -> tuple[MessageType, bytes]:
+        del reader
+        assert expected_type is MessageType.INIT
+        return expected_type, _runtime_init_payload_bytes(enable_internet_access=True)
+
+    monkeypatch.setattr(
+        sandbox_entrypoint.asyncio,
+        "open_unix_connection",
+        fake_open_unix_connection,
+    )
+    monkeypatch.setattr(
+        sandbox_entrypoint, "SocketStreamWriter", _DummySocketStreamWriter
+    )
+    monkeypatch.setattr(sandbox_entrypoint, "read_message", fake_read_message)
+    monkeypatch.setattr(sandbox_entrypoint, "LLMBridge", _DummyBridge)
+    monkeypatch.setattr(sandbox_entrypoint, "_load_runtime", lambda _: _DummyRuntime)
+
+    await sandbox_entrypoint.run_sandboxed_runtime()
+
+    assert _DummyBridge.instances == []
+    assert (
+        sandbox_entrypoint.os.environ["TRACECAT__LITELLM_BASE_URL"]
+        == "http://127.0.0.1:4000"
+    )
+    assert _DummyRuntime.last_payload is not None
+    assert _DummyRuntime.last_payload.config.enable_internet_access is True
+
+
+@pytest.mark.anyio
 async def test_sandbox_entrypoint_starts_bridge_for_isolated_litellm_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TRACECAT__LLM_EXECUTION_BACKEND", "litellm")
+    monkeypatch.setenv("TRACECAT__LITELLM_BASE_URL", "http://litellm:4000")
     monkeypatch.delenv("TRACECAT__LLM_BRIDGE_PORT", raising=False)
     _DummyBridge.instances.clear()
 

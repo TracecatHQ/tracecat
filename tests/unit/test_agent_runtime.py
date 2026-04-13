@@ -20,6 +20,7 @@ from claude_agent_sdk.types import (
     SyncHookJSONOutput,
 )
 
+import tracecat.agent.runtime.claude_code.runtime as claude_runtime
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
@@ -180,9 +181,20 @@ def test_get_litellm_url_uses_bridge_port_when_network_isolated(
 def test_get_litellm_url_uses_managed_service_url_when_internet_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TRACECAT__LITELLM_URL", "http://litellm:4000/")
+    monkeypatch.setenv("TRACECAT__LITELLM_BASE_URL", "http://litellm:4000/")
 
     assert get_litellm_url(enable_internet_access=True) == "http://litellm:4000"
+
+
+def test_get_litellm_url_falls_back_to_default_managed_service_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TRACECAT__LITELLM_BASE_URL", raising=False)
+    monkeypatch.setattr(
+        claude_runtime, "TRACECAT__LITELLM_BASE_URL", "http://127.0.0.1:4000"
+    )
+
+    assert get_litellm_url(enable_internet_access=True) == "http://127.0.0.1:4000"
 
 
 class TestClaudeAgentRuntimeRun:

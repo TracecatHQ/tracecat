@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import importlib
-
 import pytest
 
-import tracecat.config as config_module
 from tracecat.config import bound_env
 
 
@@ -64,40 +61,3 @@ def test_bound_env_rejects_invalid_bounds() -> None:
         ValueError, match="lower \\(10\\) cannot be greater than upper \\(8\\)"
     ):
         bound_env("TEST_BOUND_ENV", 16, lower=10, upper=8)
-
-
-def test_llm_execution_backend_defaults_to_litellm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    with monkeypatch.context() as patch:
-        patch.delenv("TRACECAT__LLM_EXECUTION_BACKEND", raising=False)
-        module = importlib.reload(config_module)
-        assert (
-            module.TRACECAT__LLM_EXECUTION_BACKEND is module.LLMExecutionBackend.LITELLM
-        )
-
-    importlib.reload(config_module)
-
-
-def test_llm_execution_backend_rejects_deprecated_tracecat_proxy_env(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    with monkeypatch.context() as patch:
-        patch.setenv("TRACECAT__LLM_EXECUTION_BACKEND", "tracecat_proxy")
-        with pytest.raises(ValueError, match="Invalid TRACECAT__LLM_EXECUTION_BACKEND"):
-            importlib.reload(config_module)
-
-    importlib.reload(config_module)
-
-
-def test_llm_execution_backend_reads_litellm_env(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    with monkeypatch.context() as patch:
-        patch.setenv("TRACECAT__LLM_EXECUTION_BACKEND", "litellm")
-        module = importlib.reload(config_module)
-        assert module.TRACECAT__LLM_EXECUTION_BACKEND is (
-            module.LLMExecutionBackend.LITELLM
-        )
-
-    importlib.reload(config_module)

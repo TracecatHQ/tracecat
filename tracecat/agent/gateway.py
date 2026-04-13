@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from urllib.parse import parse_qsl, urlencode
 
+import boto3
 from aiocache import Cache
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import Request
 from litellm.caching.dual_cache import DualCache
 from litellm.integrations.custom_logger import CustomLogger
@@ -72,6 +75,9 @@ _credential_cache: Any = Cache(
     ttl=app_config.TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS,
 )
 
+_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
+_DEFAULT_AWS_ROLE_SESSION_NAME = "tracecat-session"
+
 
 def _credential_cache_key(
     workspace_id: WorkspaceID,
@@ -80,6 +86,95 @@ def _credential_cache_key(
     use_workspace_creds: bool,
 ) -> str:
     return f"creds:{workspace_id}:{organization_id}:{provider}:{use_workspace_creds}"
+
+
+def _get_aws_role_session_name(credentials: dict[str, str]) -> str:
+    """Get the AWS role session name, falling back to a stable default."""
+    if session_name := credentials.get("AWS_ROLE_SESSION_NAME"):
+        if session_name := session_name.strip():
+            return session_name
+    return _DEFAULT_AWS_ROLE_SESSION_NAME
+
+
+def _assume_bedrock_role(
+    role_arn: str,
+    *,
+    external_id: str,
+    session_name: str,
+) -> dict[str, str]:
+    """Assume the configured AWS role and return temporary Bedrock credentials."""
+    sts_client = boto3.Session().client("sts")
+    response = sts_client.assume_role(
+        RoleArn=role_arn,
+        RoleSessionName=session_name,
+        ExternalId=external_id,
+    )
+    session_credentials = response["Credentials"]
+    return {
+        "AWS_ACCESS_KEY_ID": session_credentials["AccessKeyId"],
+        "AWS_SECRET_ACCESS_KEY": session_credentials["SecretAccessKey"],
+        "AWS_SESSION_TOKEN": session_credentials["SessionToken"],
+    }
+
+
+async def _resolve_bedrock_runtime_credentials(
+    credentials: dict[str, str],
+) -> dict[str, str]:
+    """Resolve Bedrock credentials into an explicit LiteLLM-compatible auth shape.
+
+    This mirrors the precedence used by the direct boto3 Bedrock path:
+    ``AWS_ROLE_ARN`` first, then static credentials, then bearer token.
+    """
+    if role_arn := credentials.get("AWS_ROLE_ARN"):
+        if not (
+            external_id := credentials.get(_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY)
+        ):
+            raise ProxyException(
+                message="Bedrock role credentials require a Tracecat-provided workspace External ID.",
+                type="config_error",
+                param=None,
+                code=400,
+            )
+
+        try:
+            assumed_credentials = await asyncio.to_thread(
+                _assume_bedrock_role,
+                role_arn,
+                external_id=external_id,
+                session_name=_get_aws_role_session_name(credentials),
+            )
+        except (BotoCoreError, ClientError, KeyError) as exc:
+            raise ProxyException(
+                message="Failed to assume configured AWS role for Bedrock.",
+                type="auth_error",
+                param=None,
+                code=401,
+            ) from exc
+
+        return credentials | assumed_credentials
+
+    access_key = credentials.get("AWS_ACCESS_KEY_ID")
+    secret_key = credentials.get("AWS_SECRET_ACCESS_KEY")
+    session_token = credentials.get("AWS_SESSION_TOKEN")
+    if access_key and secret_key:
+        return credentials
+    if access_key or secret_key or session_token:
+        raise ProxyException(
+            message="Bedrock static credentials require AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.",
+            type="auth_error",
+            param=None,
+            code=401,
+        )
+
+    if credentials.get("AWS_BEARER_TOKEN_BEDROCK"):
+        return credentials
+
+    raise ProxyException(
+        message="Bedrock requires one of AWS_ROLE_ARN, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or AWS_BEARER_TOKEN_BEDROCK.",
+        type="auth_error",
+        param=None,
+        code=401,
+    )
 
 
 async def get_provider_credentials(
@@ -106,10 +201,21 @@ async def get_provider_credentials(
         scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-llm-gateway"],
     )
     async with AgentManagementService.with_session(role=role) as service:
-        creds = await service.get_runtime_provider_credentials(
-            provider,
-            use_workspace_credentials=use_workspace_creds,
-        )
+        try:
+            creds = await service.get_runtime_provider_credentials(
+                provider,
+                use_workspace_credentials=use_workspace_creds,
+            )
+        except ValueError as exc:
+            raise ProxyException(
+                message=str(exc),
+                type="config_error",
+                param=None,
+                code=400,
+            ) from exc
+
+    if creds is not None and provider == "bedrock":
+        creds = await _resolve_bedrock_runtime_credentials(creds)
 
     if creds is not None:
         await _credential_cache.set(key=cache_key, value=creds)
@@ -173,7 +279,7 @@ class TracecatCallbackHandler(CustomLogger):
             user_api_key_dict.metadata.get("organization_id", "")
         )
         use_workspace_creds = bool(
-            user_api_key_dict.metadata.get("use_workspace_credentials", True)
+            user_api_key_dict.metadata.get("use_workspace_credentials", False)
         )
         model = user_api_key_dict.metadata.get("model")
         provider = user_api_key_dict.metadata.get("provider")
@@ -380,24 +486,23 @@ def _inject_provider_credentials(
                 data["vertex_location"] = location
 
         case "bedrock":
-            if bearer_token := creds.get("AWS_BEARER_TOKEN_BEDROCK"):
+            access_key = creds.get("AWS_ACCESS_KEY_ID")
+            secret_key = creds.get("AWS_SECRET_ACCESS_KEY")
+            session_token = creds.get("AWS_SESSION_TOKEN")
+            if access_key and secret_key:
+                data["aws_access_key_id"] = access_key
+                data["aws_secret_access_key"] = secret_key
+                if session_token:
+                    data["aws_session_token"] = session_token
+            elif bearer_token := creds.get("AWS_BEARER_TOKEN_BEDROCK"):
                 data["api_key"] = bearer_token
             else:
-                access_key = creds.get("AWS_ACCESS_KEY_ID")
-                secret_key = creds.get("AWS_SECRET_ACCESS_KEY")
-                session_token = creds.get("AWS_SESSION_TOKEN")
-                if access_key and secret_key:
-                    data["aws_access_key_id"] = access_key
-                    data["aws_secret_access_key"] = secret_key
-                    if session_token:
-                        data["aws_session_token"] = session_token
-                elif access_key or secret_key or session_token:
-                    raise ProxyException(
-                        message="Provider credentials incomplete",
-                        type="auth_error",
-                        param=None,
-                        code=401,
-                    )
+                raise ProxyException(
+                    message="Bedrock credentials must be resolved before request dispatch.",
+                    type="auth_error",
+                    param=None,
+                    code=401,
+                )
             if region := creds.get("AWS_REGION"):
                 data["aws_region_name"] = region
             if inference_profile_id := creds.get("AWS_INFERENCE_PROFILE_ID"):
@@ -413,7 +518,8 @@ def _inject_provider_credentials(
                 )
 
         case "custom-model-provider":
-            data["api_key"] = creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or "not-needed"
+            if api_key := creds.get("CUSTOM_MODEL_PROVIDER_API_KEY"):
+                data["api_key"] = api_key
             if base_url := creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL"):
                 data["api_base"] = base_url
             if model_name := creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"):
@@ -436,7 +542,7 @@ def _inject_provider_credentials(
                 data["azure_ad_token"] = ad_token
             else:
                 raise ProxyException(
-                    message="Azure OpenAI requires either AZURE_API_KEY or AZURE_AD_TOKEN",
+                    message="Azure OpenAI requires AZURE_API_KEY, AZURE_AD_TOKEN, or Azure Entra client credentials (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET).",
                     type="auth_error",
                     param=None,
                     code=401,
@@ -449,9 +555,9 @@ def _inject_provider_credentials(
             base = creds.get("AZURE_API_BASE")
             version = creds.get("AZURE_API_VERSION")
             model_name = creds.get("AZURE_AI_MODEL_NAME")
-            if not base or not version or not model_name:
+            if not base or not model_name:
                 raise ProxyException(
-                    message="Azure AI requires AZURE_API_BASE, AZURE_API_VERSION, and AZURE_AI_MODEL_NAME",
+                    message="Azure AI requires AZURE_API_BASE and AZURE_AI_MODEL_NAME",
                     type="config_error",
                     param=None,
                     code=400,
@@ -462,13 +568,14 @@ def _inject_provider_credentials(
                 data["azure_ad_token"] = ad_token
             else:
                 raise ProxyException(
-                    message="Azure AI requires either AZURE_API_KEY or AZURE_AD_TOKEN",
+                    message="Azure AI requires AZURE_API_KEY, AZURE_AD_TOKEN, or Azure Entra client credentials (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET).",
                     type="auth_error",
                     param=None,
                     code=401,
                 )
             data["api_base"] = base
-            data["api_version"] = version
+            if version:
+                data["api_version"] = version
             data["model"] = f"azure_ai/{model_name}"
 
         case _:

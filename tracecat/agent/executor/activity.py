@@ -150,7 +150,7 @@ class SandboxedAgentExecutor:
 
         return LLMSocketProxy(
             socket_path=socket_path,
-            litellm_url=app_config.TRACECAT__LITELLM_URL,
+            litellm_url=app_config.TRACECAT__LITELLM_BASE_URL,
             on_error=on_error,
         )
 
@@ -242,7 +242,6 @@ class SandboxedAgentExecutor:
                 logger.info(
                     "Started LLM socket proxy",
                     socket_path=str(llm_socket_path),
-                    backend=app_config.TRACECAT__LLM_EXECUTION_BACKEND.value,
                 )
 
             # Set umask before socket creation to ensure 0o600 permissions from the start

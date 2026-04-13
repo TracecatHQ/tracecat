@@ -252,11 +252,7 @@ async def _spawn_direct_runtime(
         # If the runtime uses LLMBridge (internet access disabled), it must connect
         # to the orchestrator-side LLM socket.
         env["TRACECAT__AGENT_LLM_SOCKET_PATH"] = str(llm_socket_path)
-    for key in (
-        "TRACECAT__LLM_EXECUTION_BACKEND",
-        "TRACECAT__LITELLM_BASE_URL",
-        "TRACECAT__LITELLM_URL",
-    ):
+    for key in ("TRACECAT__LITELLM_BASE_URL",):
         if value := os.environ.get(key):
             env[key] = value
 

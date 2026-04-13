@@ -426,13 +426,8 @@ def build_agent_env_map(config: AgentSandboxConfig) -> dict[str, str]:
         AgentSandboxValidationError: If any env var key or value is invalid.
     """
     env_map: dict[str, str] = {**AGENT_SANDBOX_BASE_ENV}
-    for key in (
-        "TRACECAT__LLM_EXECUTION_BACKEND",
-        "TRACECAT__LITELLM_BASE_URL",
-        "TRACECAT__LITELLM_URL",
-    ):
-        if value := os.environ.get(key):
-            env_map[key] = value
+    if value := os.environ.get("TRACECAT__LITELLM_BASE_URL"):
+        env_map["TRACECAT__LITELLM_BASE_URL"] = value
 
     for key, value in config.env_vars.items():
         _validate_env_key(key)

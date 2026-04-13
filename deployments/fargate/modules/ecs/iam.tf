@@ -521,6 +521,26 @@ resource "aws_iam_role_policy" "litellm_task_db_access" {
   })
 }
 
+resource "aws_iam_role_policy" "litellm_task_assume_role" {
+  name = "TracecatLitellmAssumeRolePolicy"
+  role = aws_iam_role.litellm_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sts:AssumeRole"
+        ]
+        Resource = [
+          aws_iam_role.executor_task.arn
+        ]
+      }
+    ]
+  })
+}
+
 # Caddy execution role
 resource "aws_iam_role" "caddy_execution" {
   name               = "TracecatCaddyExecutionRole"

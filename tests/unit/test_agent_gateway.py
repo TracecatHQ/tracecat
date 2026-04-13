@@ -12,6 +12,7 @@ from starlette.requests import Request
 from tracecat.agent.gateway import (
     TracecatCallbackHandler,
     _inject_provider_credentials,
+    _resolve_bedrock_runtime_credentials,
     user_api_key_auth,
 )
 from tracecat.agent.tokens import verify_llm_token
@@ -40,6 +41,37 @@ def test_openai_injects_optional_base_url() -> None:
     assert data["api_base"] == "https://api.openai.example/v1"
 
 
+def test_azure_ai_does_not_require_api_version() -> None:
+    data = {"model": "azure_ai"}
+    creds = {
+        "AZURE_API_BASE": "https://example.services.ai.azure.com/anthropic",
+        "AZURE_API_KEY": "test-azure-ai-key",
+        "AZURE_AI_MODEL_NAME": "claude-sonnet-4-5",
+    }
+
+    _inject_provider_credentials(data, "azure_ai", creds)
+
+    assert data["api_key"] == "test-azure-ai-key"
+    assert data["api_base"] == "https://example.services.ai.azure.com/anthropic"
+    assert "api_version" not in data
+    assert data["model"] == "azure_ai/claude-sonnet-4-5"
+
+
+def test_azure_ai_injects_api_version_when_present() -> None:
+    data = {"model": "azure_ai"}
+    creds = {
+        "AZURE_API_BASE": "https://example.services.ai.azure.com/anthropic",
+        "AZURE_API_KEY": "test-azure-ai-key",
+        "AZURE_API_VERSION": "2024-05-01-preview",
+        "AZURE_AI_MODEL_NAME": "claude-sonnet-4-5",
+    }
+
+    _inject_provider_credentials(data, "azure_ai", creds)
+
+    assert data["api_version"] == "2024-05-01-preview"
+    assert data["model"] == "azure_ai/claude-sonnet-4-5"
+
+
 def test_bedrock_uses_static_keys_when_configured() -> None:
     data = {"model": "bedrock"}
     creds = {
@@ -57,6 +89,83 @@ def test_bedrock_uses_static_keys_when_configured() -> None:
     assert data["aws_session_token"] == "session-token"
     assert data["aws_region_name"] == "us-west-2"
     assert data["model"] == "bedrock/anthropic.claude-3-haiku-20240307-v1:0"
+
+
+@pytest.mark.anyio
+async def test_bedrock_resolves_assumed_role_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, str] = {}
+
+    def mock_assume_bedrock_role(
+        role_arn: str,
+        *,
+        external_id: str,
+        session_name: str,
+    ) -> dict[str, str]:
+        captured["role_arn"] = role_arn
+        captured["external_id"] = external_id
+        captured["session_name"] = session_name
+        return {
+            "AWS_ACCESS_KEY_ID": "ASIA456",
+            "AWS_SECRET_ACCESS_KEY": "assumed-secret",
+            "AWS_SESSION_TOKEN": "assumed-session-token",
+        }
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway._assume_bedrock_role",
+        mock_assume_bedrock_role,
+    )
+
+    resolved = await _resolve_bedrock_runtime_credentials(
+        {
+            "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+            "AWS_ROLE_SESSION_NAME": "custom-audit-session",
+            "TRACECAT_AWS_EXTERNAL_ID": "ws-external-id",
+            "AWS_REGION": "us-west-2",
+            "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
+            "AWS_BEARER_TOKEN_BEDROCK": "ignored-bearer-token",
+        }
+    )
+
+    assert captured == {
+        "role_arn": "arn:aws:iam::123456789012:role/customer-role",
+        "external_id": "ws-external-id",
+        "session_name": "custom-audit-session",
+    }
+    assert resolved["AWS_ACCESS_KEY_ID"] == "ASIA456"
+    assert resolved["AWS_SECRET_ACCESS_KEY"] == "assumed-secret"
+    assert resolved["AWS_SESSION_TOKEN"] == "assumed-session-token"
+    assert resolved["AWS_BEARER_TOKEN_BEDROCK"] == "ignored-bearer-token"
+
+
+@pytest.mark.anyio
+async def test_bedrock_role_credentials_require_external_id() -> None:
+    with pytest.raises(ProxyException) as exc_info:
+        await _resolve_bedrock_runtime_credentials(
+            {
+                "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
+                "AWS_REGION": "us-west-2",
+                "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
+            }
+        )
+
+    assert exc_info.value.code == "400"
+    assert "workspace External ID" in exc_info.value.message
+
+
+def test_bedrock_rejects_ambient_credential_fallback() -> None:
+    data = {"model": "bedrock"}
+    creds = {
+        "AWS_REGION": "us-west-2",
+        "AWS_MODEL_ID": "anthropic.claude-3-haiku-20240307-v1:0",
+    }
+
+    with pytest.raises(ProxyException) as exc_info:
+        _inject_provider_credentials(data, "bedrock", creds)
+
+    assert exc_info.value.code == "401"
+    assert "resolved before request dispatch" in exc_info.value.message
 
 
 def test_litellm_config_routes_provider_placeholders_before_openai_catch_all() -> None:
@@ -78,10 +187,12 @@ def test_litellm_config_routes_provider_placeholders_before_openai_catch_all() -
         assert model is not None
         return model
 
-    assert resolved_model("bedrock") == "bedrock/*"
-    assert resolved_model("vertex_ai") == "vertex_ai/*"
-    assert resolved_model("azure_openai") == "azure/*"
-    assert resolved_model("azure_ai") == "azure_ai/*"
+    # Provider wildcard routes resolve before the OpenAI catch-all
+    assert resolved_model("bedrock/*") == "bedrock/*"
+    assert resolved_model("vertex_ai/*") == "vertex_ai/*"
+    assert resolved_model("azure/*") == "azure/*"
+    assert resolved_model("azure_ai/*") == "azure_ai/*"
+    # Unqualified names fall through to the OpenAI catch-all
     assert resolved_model("custom") == "openai/custom"
 
 

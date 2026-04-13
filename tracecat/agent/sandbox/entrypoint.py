@@ -22,6 +22,7 @@ import orjson
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_CONTROL_SOCKET_PATH,
     TRACECAT__AGENT_LLM_SOCKET_PATH,
+    TRACECAT__LITELLM_BASE_URL,
 )
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import (
@@ -94,18 +95,18 @@ async def run_sandboxed_runtime() -> None:
         # Parse with orjson + dataclass (lightweight, no Pydantic TypeAdapter)
         payload = RuntimeInitPayload.from_dict(orjson.loads(init_data))
 
-        backend = os.environ.get("TRACECAT__LLM_EXECUTION_BACKEND", "litellm")
-        uses_direct_litellm_url = (
-            backend.strip() == "litellm" and payload.config.enable_internet_access
-        )
-        if not uses_direct_litellm_url:
+        if payload.config.enable_internet_access:
+            os.environ.setdefault(
+                "TRACECAT__LITELLM_BASE_URL", TRACECAT__LITELLM_BASE_URL
+            )
+        else:
             llm_bridge = LLMBridge(
                 socket_path=TRACECAT__AGENT_LLM_SOCKET_PATH,
                 port=0,
             )
             bridge_port = await llm_bridge.start()
             os.environ["TRACECAT__LLM_BRIDGE_PORT"] = str(bridge_port)
-            logger.info("LLM bridge started", port=bridge_port, backend=backend)
+            logger.info("LLM bridge started", port=bridge_port)
         logger.info(
             "Received init payload",
             session_id=str(payload.session_id),
