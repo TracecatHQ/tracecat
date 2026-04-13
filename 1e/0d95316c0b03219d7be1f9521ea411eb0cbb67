@@ -1,0 +1,28 @@
+tracecat/agent/skill/service.py
+  05c0b59f5e164c30 12,22,31,231,237,269-270,403-411,413,415,549,603,823,835,841,1027
+  e78dd32d3b4abd56 88,227,463-464,71,75-76
+  afa7c9e73fe4b7c6 180,182-183,550,604,371,378,387,394,422,864,867,872-874,908
+tests/unit/test_skill_service.py
+  afa7c9e73fe4b7c6 145
+  e78dd32d3b4abd56 183,185-187,189,192-195,211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "1e0d95316c0b03219d7be1f9521ea411eb0cbb67",
+  "prompts": {
+    "e78dd32d3b4abd56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d8165-6f07-7d43-8c91-6d3bce483ab4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 104,
+      "total_deletions": 0,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    }
+  }
+}

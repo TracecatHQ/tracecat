@@ -1,0 +1,25 @@
+tracecat/agent/preset/service.py
+  05c0b59f5e164c30 18-20,158,232,315,430,147
+  40ea4f14a0ae4f84 510,1303
+  afa7c9e73fe4b7c6 154,191,217,1307
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "305722f2edba85cbcc2f9fdfca6967b80d94de9c",
+  "prompts": {
+    "afa7c9e73fe4b7c6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d83e3-2844-7482-ab3c-3078314fc2c1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 661,
+      "total_deletions": 637,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

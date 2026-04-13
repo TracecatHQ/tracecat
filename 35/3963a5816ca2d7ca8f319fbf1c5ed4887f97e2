@@ -1,0 +1,39 @@
+tests/unit/test_mcp_server.py
+  f7c6d73df48c6648 27,80-90,3614,4005,4100,4197,4322,4526,4529,4550,4553,4557,4577,4584,4600,4602,4707-4708,4719,4722,4742,4745,4749,4768,4775,4791,4794,4800-4801,4809,4812,4819,4826,4843,4845-4846,4854,4857,4864,4871,4885,4887-4888
+  afa7c9e73fe4b7c6 4593,4595,4684,4686,4876
+tracecat/mcp/server.py
+  05c0b59f5e164c30 6175-6178,6181-6188,6190-6191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "353963a5816ca2d7ca8f319fbf1c5ed4887f97e2",
+  "prompts": {
+    "afa7c9e73fe4b7c6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d83e3-2844-7482-ab3c-3078314fc2c1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 661,
+      "total_deletions": 637,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    },
+    "f7c6d73df48c6648": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d73f4-f530-7a32-8209-65d854061eba",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 28,
+      "total_deletions": 5,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    }
+  }
+}
