@@ -102,7 +102,7 @@ function withBadgeTooltip(
   return (
     <Tooltip key={key}>
       <TooltipTrigger asChild>{badge}</TooltipTrigger>
-      <TooltipContent side="top" className="px-2 py-1">
+      <TooltipContent side="top" className="px-2 py-1 text-xs">
         {tooltip}
       </TooltipContent>
     </Tooltip>
@@ -213,7 +213,7 @@ export function CaseItem({
               label={dv.option_label}
               iconName={dv.option_icon_name}
               color={dv.option_color}
-              className="h-5 shrink-0 px-1.5 py-0 text-xs"
+              className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
             />
           )
           badges.push(
@@ -236,7 +236,7 @@ export function CaseItem({
             <CaseColumnBadge
               key={columnId}
               label={label}
-              className="h-5 shrink-0 px-1.5 py-0 text-xs"
+              className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
             />
           )
           badges.push(
@@ -286,7 +286,7 @@ export function CaseItem({
         <CaseColumnBadge
           key={columnId}
           iconName="timer"
-          className="h-5 max-w-[172px] shrink-0 px-1.5 py-0 text-xs"
+          className="h-5 max-w-[172px] shrink-0 px-1.5 py-0 text-[10px]"
           content={
             <span className="flex min-w-0 items-center gap-0.5">
               <span className="truncate">{durationName}</span>
