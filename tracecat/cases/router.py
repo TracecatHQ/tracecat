@@ -238,17 +238,20 @@ async def list_cases(
                 status_code=HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to hydrate linked rows",
             ) from e
-    if field_ids and cases.items:
+    if field_ids:
         try:
             fields_service = CaseFieldsService(session, role)
             fields_by_case = await fields_service.batch_get_fields(
                 case_ids=[item.id for item in cases.items],
                 field_ids=field_ids,
             )
-            cases.items = [
-                item.model_copy(update={"field_values": fields_by_case.get(item.id)})
-                for item in cases.items
-            ]
+            if cases.items:
+                cases.items = [
+                    item.model_copy(
+                        update={"field_values": fields_by_case.get(item.id)}
+                    )
+                    for item in cases.items
+                ]
         except ValueError as e:
             logger.warning(f"Invalid request for case field hydration: {e}")
             raise HTTPException(
@@ -398,17 +401,20 @@ async def search_cases(
                 status_code=HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to hydrate linked rows",
             ) from e
-    if field_ids and cases.items:
+    if field_ids:
         try:
             fields_service = CaseFieldsService(session, role)
             fields_by_case = await fields_service.batch_get_fields(
                 case_ids=[item.id for item in cases.items],
                 field_ids=field_ids,
             )
-            cases.items = [
-                item.model_copy(update={"field_values": fields_by_case.get(item.id)})
-                for item in cases.items
-            ]
+            if cases.items:
+                cases.items = [
+                    item.model_copy(
+                        update={"field_values": fields_by_case.get(item.id)}
+                    )
+                    for item in cases.items
+                ]
         except ValueError as e:
             logger.warning(f"Invalid request for case field hydration: {e}")
             raise HTTPException(

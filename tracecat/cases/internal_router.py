@@ -181,17 +181,20 @@ async def list_cases(
             item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
             for item in cases.items
         ]
-    if field_ids and cases.items:
+    if field_ids:
         try:
             fields_service = CaseFieldsService(session, role)
             fields_by_case = await fields_service.batch_get_fields(
                 case_ids=[item.id for item in cases.items],
                 field_ids=field_ids,
             )
-            cases.items = [
-                item.model_copy(update={"field_values": fields_by_case.get(item.id)})
-                for item in cases.items
-            ]
+            if cases.items:
+                cases.items = [
+                    item.model_copy(
+                        update={"field_values": fields_by_case.get(item.id)}
+                    )
+                    for item in cases.items
+                ]
         except ValueError as e:
             raise HTTPException(
                 status_code=HTTP_400_BAD_REQUEST,
@@ -323,19 +326,20 @@ async def search_cases(
                 item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
                 for item in cases.items
             ]
-        if field_ids and cases.items:
+        if field_ids:
             try:
                 fields_service = CaseFieldsService(session, role)
                 fields_by_case = await fields_service.batch_get_fields(
                     case_ids=[item.id for item in cases.items],
                     field_ids=field_ids,
                 )
-                cases.items = [
-                    item.model_copy(
-                        update={"field_values": fields_by_case.get(item.id)}
-                    )
-                    for item in cases.items
-                ]
+                if cases.items:
+                    cases.items = [
+                        item.model_copy(
+                            update={"field_values": fields_by_case.get(item.id)}
+                        )
+                        for item in cases.items
+                    ]
             except ValueError as e:
                 raise HTTPException(
                     status_code=HTTP_400_BAD_REQUEST,

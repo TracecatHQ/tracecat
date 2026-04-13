@@ -155,39 +155,18 @@ def coerce_default_value(type: SqlType, default: Any) -> Any:
                     )
         case SqlType.INTEGER:
             try:
-                decimal_value = Decimal(str(default))
-            except (InvalidOperation, TypeError, ValueError) as exc:
+                return coerce_integer_value(default)
+            except ValueError as exc:
                 raise InvalidDefaultValueError(
                     f"Invalid integer default value: {default!r}"
                 ) from exc
-            if not decimal_value.is_finite():
-                raise InvalidDefaultValueError(
-                    f"Invalid integer default value: {default!r}"
-                )
-            if decimal_value != decimal_value.to_integral_value():
-                raise InvalidDefaultValueError(
-                    f"Invalid integer default value: {default!r}"
-                )
-            if (
-                decimal_value < POSTGRES_BIGINT_MIN
-                or decimal_value > POSTGRES_BIGINT_MAX
-            ):
-                raise InvalidDefaultValueError(
-                    f"Invalid integer default value: {default!r}"
-                )
-            return int(decimal_value)
         case SqlType.NUMERIC:
             try:
-                decimal_value = Decimal(str(default))
-            except (InvalidOperation, TypeError, ValueError) as exc:
+                return coerce_numeric_value(default)
+            except ValueError as exc:
                 raise InvalidDefaultValueError(
                     f"Invalid numeric default value: {default!r}"
                 ) from exc
-            if not decimal_value.is_finite():
-                raise InvalidDefaultValueError(
-                    f"Invalid numeric default value: {default!r}"
-                )
-            return decimal_value
         case _:
             raise InvalidDefaultValueError(
                 f"Unsupported SQL type for default value: {type}"

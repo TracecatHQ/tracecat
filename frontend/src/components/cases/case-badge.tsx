@@ -71,7 +71,7 @@ export const CaseColumnBadge = React.forwardRef<
       // Radix TooltipTrigger(asChild) can attach their hover/focus handlers.
       className={cn(
         !color && "bg-secondary text-secondary-foreground",
-        "max-w-[120px] items-center gap-1 border-0 leading-tight transition-opacity hover:opacity-80",
+        "min-w-0 max-w-[120px] items-center gap-1 border-0 leading-tight transition-opacity hover:opacity-80",
         className
       )}
       style={mergedStyle}
@@ -87,7 +87,7 @@ export const CaseColumnBadge = React.forwardRef<
       ) : (
         fallbackIcon
       )}
-      {content ?? <span className="truncate">{label}</span>}
+      {content ?? <span className="min-w-0 flex-1 truncate">{label}</span>}
     </Badge>
   )
 })

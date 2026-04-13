@@ -24,4 +24,14 @@ describe("CaseColumnBadge", () => {
     fireEvent.pointerMove(badge)
     expect(onPointerMove).toHaveBeenCalled()
   })
+
+  it("applies flex truncation classes to long labels", () => {
+    render(<CaseColumnBadge label="A very long custom field label" />)
+
+    const label = screen.getByText("A very long custom field label")
+    const badge = label.parentElement
+
+    expect(label).toHaveClass("min-w-0", "flex-1", "truncate")
+    expect(badge).toHaveClass("min-w-0", "max-w-[120px]")
+  })
 })

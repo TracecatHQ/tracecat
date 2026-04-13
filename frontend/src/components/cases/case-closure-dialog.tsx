@@ -48,6 +48,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  isValidSqlIntegerInput,
+  isValidSqlNumericInput,
+} from "@/lib/sql-value-validation"
 import { cn } from "@/lib/utils"
 
 interface CaseClosureDialogProps {
@@ -321,13 +325,13 @@ function ClosureFieldInput({
               }
 
               if (field.type === "INTEGER") {
-                const isValid = /^-?\d+$/.test(trimmed)
+                const isValid = isValidSqlIntegerInput(trimmed)
                 onValidationChange?.(!isValid)
                 onChange(trimmed)
                 return
               }
 
-              const isValid = Number.isFinite(Number(trimmed))
+              const isValid = isValidSqlNumericInput(trimmed)
               onValidationChange?.(!isValid)
               onChange(trimmed)
             }}

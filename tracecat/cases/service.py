@@ -1430,7 +1430,7 @@ class CaseFieldsService(CustomFieldsService):
         Only selects requested custom-field columns to keep case list hydration
         proportional to the visible field badges.
         """
-        if not case_ids or not field_ids:
+        if not field_ids:
             return {}
         await self._ensure_schema_ready()
 
@@ -1451,7 +1451,7 @@ class CaseFieldsService(CustomFieldsService):
             if normalized_field_id in available_fields:
                 requested_field_ids.append(normalized_field_id)
 
-        if not requested_field_ids:
+        if not case_ids or not requested_field_ids:
             return {}
 
         conn = await self.session.connection()

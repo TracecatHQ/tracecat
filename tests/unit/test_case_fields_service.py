@@ -437,6 +437,14 @@ class TestCaseFieldsService:
         with pytest.raises(ValueError, match="reserved field"):
             await case_fields_service.batch_get_fields([test_case.id], ["CASE_ID"])
 
+    async def test_batch_get_fields_rejects_reserved_field_ids_with_no_cases(
+        self,
+        case_fields_service: CaseFieldsService,
+    ) -> None:
+        """Requested field IDs should be validated even for empty result pages."""
+        with pytest.raises(ValueError, match="reserved field"):
+            await case_fields_service.batch_get_fields([], ["case_id"])
+
     async def test_batch_get_fields_rejects_internal_field_ids(
         self,
         case_fields_service: CaseFieldsService,
@@ -447,6 +455,14 @@ class TestCaseFieldsService:
             await case_fields_service.batch_get_fields(
                 [test_case.id], ["__tc_workspace_id"]
             )
+
+    async def test_batch_get_fields_rejects_internal_field_ids_with_no_cases(
+        self,
+        case_fields_service: CaseFieldsService,
+    ) -> None:
+        """Internal field IDs should be rejected before empty-case short-circuits."""
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await case_fields_service.batch_get_fields([], ["__tc_workspace_id"])
 
     async def test_upsert_field_values(
         self, case_fields_service: CaseFieldsService, test_case: Case
