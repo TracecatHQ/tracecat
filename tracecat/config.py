@@ -57,12 +57,6 @@ class RLSMode(StrEnum):
     ENFORCE = "enforce"
 
 
-class LLMExecutionBackend(StrEnum):
-    """Execution backend for the agent LLM runtime path."""
-
-    TRACECAT_PROXY = "tracecat_proxy"
-
-
 # === Internal Services === #
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = cast(
     Literal["development", "staging", "production"],
@@ -340,7 +334,7 @@ SAML_VERIFY_SSL_METADATA = (
 # === CORS config === #
 # NOTE: If you are using Tracecat self-hosted, please replace with your
 # own domain by setting the comma separated TRACECAT__ALLOW_ORIGINS env var.
-TRACECAT__ALLOW_ORIGINS = os.environ.get("TRACECAT__ALLOW_ORIGINS")
+TRACECAT__ALLOW_ORIGINS = os.environ.get("TRACECAT__ALLOW_ORIGINS") or None
 
 # === Temporal config === #
 TEMPORAL__CONNECT_RETRIES = int(os.environ.get("TEMPORAL__CONNECT_RETRIES") or 10)
@@ -642,21 +636,23 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
+TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
+"""Bind port for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_NUM_WORKERS = int(
+    os.environ.get("TRACECAT__LITELLM_NUM_WORKERS") or 2
+)
+"""Number of uvicorn workers for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_BASE_URL = os.environ.get(
+    "TRACECAT__LITELLM_BASE_URL", f"http://127.0.0.1:{TRACECAT__LITELLM_PORT}"
+)
+"""Internal base URL for the managed LiteLLM service."""
+
 TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
     os.environ.get("TRACECAT__LLM_PROXY_READ_TIMEOUT") or 300.0
 )
 """Read timeout for the LLM socket proxy in seconds (default: 5 minutes)."""
-
-try:
-    TRACECAT__LLM_EXECUTION_BACKEND = LLMExecutionBackend(
-        (os.environ.get("TRACECAT__LLM_EXECUTION_BACKEND") or "tracecat_proxy").strip()
-    )
-except ValueError:
-    valid = ", ".join(f"'{backend.value}'" for backend in LLMExecutionBackend)
-    raise ValueError(
-        f"Invalid TRACECAT__LLM_EXECUTION_BACKEND. Valid values: {valid}"
-    ) from None
-"""Execution backend for the agent LLM runtime path."""
 
 
 TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS = float(

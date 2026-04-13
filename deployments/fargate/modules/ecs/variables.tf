@@ -659,6 +659,28 @@ variable "caddy_memory" {
 
 ### MCP Service
 
+variable "litellm_cpu" {
+  type    = string
+  default = "4096"
+}
+
+variable "litellm_memory" {
+  type    = string
+  default = "8192"
+}
+
+variable "litellm_desired_count" {
+  type        = number
+  description = "Desired number of LiteLLM service instances to run"
+  default     = 2
+}
+
+variable "litellm_num_workers" {
+  type        = string
+  description = "Number of uvicorn workers for the LiteLLM service"
+  default     = "8"
+}
+
 variable "enable_mcp" {
   type        = bool
   description = "Whether to enable the MCP server service in the deployment"

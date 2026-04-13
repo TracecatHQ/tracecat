@@ -37,7 +37,10 @@ from claude_agent_sdk.types import (
     UserMessage,
 )
 
-from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
+from tracecat.agent.common.config import (
+    TRACECAT__DISABLE_NSJAIL,
+    TRACECAT__LITELLM_BASE_URL,
+)
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -58,8 +61,19 @@ from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
 
-def get_llm_proxy_url() -> str:
-    """Get the LLM proxy URL from the dynamic port assigned by the LLM bridge."""
+def get_litellm_url(*, enable_internet_access: bool) -> str:
+    """Get the LiteLLM base URL for the Claude SDK.
+
+    When internet access is enabled the runtime talks directly to the managed
+    LiteLLM service.  Otherwise it goes through the local LLM bridge that
+    forwards requests over the Unix socket.
+    """
+    if enable_internet_access:
+        if litellm_url := (
+            os.environ.get("TRACECAT__LITELLM_BASE_URL") or TRACECAT__LITELLM_BASE_URL
+        ):
+            return litellm_url.rstrip("/")
+
     port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT")
     if not port:
         raise RuntimeError(
@@ -646,7 +660,9 @@ class ClaudeAgentRuntime:
                 fork_session=fork_session,  # If True, creates new session from parent's history
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
-                    "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
+                    "ANTHROPIC_BASE_URL": get_litellm_url(
+                        enable_internet_access=payload.config.enable_internet_access
+                    ),
                     **(
                         {
                             "CLAUDE_CODE_AUTO_COMPACT_WINDOW": CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW

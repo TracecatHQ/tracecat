@@ -81,18 +81,13 @@ async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failu
 
 
 @pytest.mark.anyio
-async def test_agent_executor_worker_runs_tracecat_proxy_without_worker_global_backend(
+async def test_agent_executor_worker_runs_litellm_service_hooks_on_startup_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tracecat.agent import executor_worker
 
     start_backend = AsyncMock()
     stop_backend = AsyncMock()
-    monkeypatch.setattr(
-        executor_worker.config,
-        "TRACECAT__LLM_EXECUTION_BACKEND",
-        executor_worker.config.LLMExecutionBackend.TRACECAT_PROXY,
-    )
     monkeypatch.setattr(executor_worker, "start_configured_llm_proxy", start_backend)
     monkeypatch.setattr(executor_worker, "start_mcp_server", AsyncMock())
     monkeypatch.setattr(

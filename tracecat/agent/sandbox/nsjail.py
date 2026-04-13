@@ -136,8 +136,8 @@ async def spawn_jailed_runtime(
 
     Args:
         socket_dir: Directory containing the per-job control socket (control.sock).
-        llm_socket_path: Path to the LLM socket for proxied LLM gateway access.
-            Required in production mode (NSJail), optional in direct mode.
+        llm_socket_path: Optional path to the LLM socket for proxied LLM gateway
+            access.
         config: Optional sandbox configuration. Defaults to standard agent config.
         nsjail_path: Path to the nsjail binary.
         rootfs_path: Path to the sandbox rootfs (same rootfs as action sandbox).
@@ -186,10 +186,10 @@ async def spawn_jailed_runtime(
             llm_socket_path=llm_socket_path,
         )
 
-    # NSJail mode for production - llm_socket_path is required
-    if llm_socket_path is None:
+    # NSJail mode for production - isolated runs require the per-job LLM socket.
+    if llm_socket_path is None and not enable_internet_access:
         raise AgentSandboxExecutionError(
-            "llm_socket_path is required in production mode (NSJail)"
+            "llm_socket_path is required in production mode (NSJail) when network isolation is enabled"
         )
 
     # NSJail mode for production
@@ -252,6 +252,9 @@ async def _spawn_direct_runtime(
         # If the runtime uses LLMBridge (internet access disabled), it must connect
         # to the orchestrator-side LLM socket.
         env["TRACECAT__AGENT_LLM_SOCKET_PATH"] = str(llm_socket_path)
+    for key in ("TRACECAT__LITELLM_BASE_URL",):
+        if value := os.environ.get(key):
+            env[key] = value
 
     process = await asyncio.create_subprocess_exec(
         *cmd,
@@ -265,7 +268,7 @@ async def _spawn_direct_runtime(
 
 async def _spawn_nsjail_runtime(
     socket_dir: Path,
-    llm_socket_path: Path,
+    llm_socket_path: Path | None,
     config: AgentSandboxConfig,
     nsjail_path: str,
     rootfs_path: str,
@@ -286,7 +289,7 @@ async def _spawn_nsjail_runtime(
         raise AgentSandboxExecutionError(f"Rootfs not found: {rootfs}")
     if not nsjail.exists():
         raise AgentSandboxExecutionError(f"nsjail binary not found: {nsjail}")
-    if not llm_socket_path.exists():
+    if llm_socket_path is not None and not llm_socket_path.exists():
         raise AgentSandboxExecutionError(f"LLM socket not found: {llm_socket_path}")
 
     # Get site-packages and tracecat package directories

@@ -6,6 +6,7 @@ import uuid
 from collections.abc import AsyncIterator, Iterator
 
 import orjson
+from azure.identity.aio import ClientSecretCredential
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import service_account
 from pydantic import SecretStr
@@ -40,6 +41,7 @@ from tracecat.settings.service import SettingsService
 _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 _VERTEX_BEARER_TOKEN_KEY = "VERTEX_AI_BEARER_TOKEN"
 _GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+_AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
 
 
 def _refresh_vertex_token(credentials_blob: str) -> str:
@@ -68,6 +70,50 @@ async def _resolve_vertex_bearer_token(
     token = await asyncio.to_thread(_refresh_vertex_token, blob)
     augmented = credentials.copy()
     augmented[_VERTEX_BEARER_TOKEN_KEY] = token
+    return augmented
+
+
+async def _resolve_azure_ad_token(
+    credentials: dict[str, str],
+) -> dict[str, str]:
+    """Resolve an Azure Entra bearer token from client credentials."""
+    tenant_id = credentials.get("AZURE_TENANT_ID")
+    client_id = credentials.get("AZURE_CLIENT_ID")
+    client_secret = credentials.get("AZURE_CLIENT_SECRET")
+    configured = {
+        "AZURE_TENANT_ID": tenant_id,
+        "AZURE_CLIENT_ID": client_id,
+        "AZURE_CLIENT_SECRET": client_secret,
+    }
+    present_keys = [key for key, value in configured.items() if value]
+    if not present_keys:
+        return credentials
+    if len(present_keys) != len(configured):
+        raise ValueError(
+            "Azure Entra client credentials require AZURE_TENANT_ID, "
+            "AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET."
+        )
+    assert tenant_id is not None
+    assert client_id is not None
+    assert client_secret is not None
+
+    credential = ClientSecretCredential(
+        tenant_id=tenant_id,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    try:
+        token = await credential.get_token(_AZURE_COGNITIVE_SCOPE)
+    except Exception as exc:
+        raise ValueError(
+            "Failed to acquire Azure Entra token from client credentials."
+        ) from exc
+    finally:
+        with contextlib.suppress(Exception):
+            await credential.close()
+
+    augmented = credentials.copy()
+    augmented["AZURE_AD_TOKEN"] = token.token
     return augmented
 
 
@@ -222,6 +268,10 @@ class AgentManagementService(BaseOrgService):
                 return runtime_credentials
             case "vertex_ai" if "GOOGLE_API_CREDENTIALS" in credentials:
                 return await _resolve_vertex_bearer_token(credentials)
+            case "azure_openai" | "azure_ai" if not credentials.get(
+                "AZURE_API_KEY"
+            ) and not credentials.get("AZURE_AD_TOKEN"):
+                return await _resolve_azure_ad_token(credentials)
             case _:
                 return credentials
 
