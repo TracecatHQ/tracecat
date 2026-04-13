@@ -38,7 +38,7 @@ Requests can be restricted to specific IPs or CIDR ranges. The allowlist is IPv4
 
 ## Response
 
-Default response:
+Default response (`POST /webhooks/{workflow_id}/{secret}`):
 
 ```json
 {
@@ -48,7 +48,51 @@ Default response:
 }
 ```
 
-`echo=true` adds `payload`. `echo=true&empty_echo=true` returns an empty `200` response instead of the default JSON body.
+Query params on the base webhook endpoint:
+
+- `echo=true`: Add `payload` to the response body.
+- `empty_echo=true`: Return an empty `200` response. Use this with `echo=true`.
+- `wait=true`: Wait for workflow completion and return the workflow result.
+
+## Output schema and webhook response
+
+Use either of these:
+
+- `POST /webhooks/{workflow_id}/{secret}?wait=true`
+- `POST /webhooks/{workflow_id}/{secret}/wait`
+
+Use `unwrap=true` on either endpoint to return inline values directly.
+
+Default wait response shape:
+
+```json
+{
+  "kind": "value",
+  "value": {
+    "options": []
+  }
+}
+```
+
+`kind` identifies the result shape. `value` is your workflow output when `kind` is `value`.
+
+Wait responses can be:
+
+- Inline value (default): `{ "kind": "value", "value": <result> }`
+- File download: `{ "kind": "download_file", "download_url": "...", ... }`
+- Collection export: `{ "kind": "download_export", "download_url": "...", ... }`
+
+`unwrap=true` response for inline outputs:
+
+```json
+{
+  "options": []
+}
+```
+
+If you want to return the data defined in your workflow output schema directly, use `unwrap=true`.
+
+Tracecat uses download responses for large or file-backed outputs so response payloads stay small and reliable.
 
 ## Slack event subscriptions
 

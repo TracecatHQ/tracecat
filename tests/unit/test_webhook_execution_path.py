@@ -18,7 +18,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import Request
+from fastapi import HTTPException, Request
 from temporalio.client import Client
 from temporalio.common import TypedSearchAttributes, WorkflowIDReusePolicy
 
@@ -490,6 +490,8 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
                 echo=False,
                 empty_echo=False,
+                wait=False,
+                unwrap=False,
                 vendor=None,
                 request=request,
                 content_type="application/json",
@@ -528,6 +530,8 @@ class TestWebhookRouterExecutionPath:
                 payload={"x": 1},
                 echo=False,
                 empty_echo=False,
+                wait=False,
+                unwrap=False,
                 vendor=None,
                 request=request,
                 content_type="application/json",
@@ -582,6 +586,8 @@ class TestWebhookRouterExecutionPath:
                 payload={"x": 1},
                 echo=False,
                 empty_echo=False,
+                wait=False,
+                unwrap=False,
                 vendor=None,
                 request=request,
                 content_type="application/json",
@@ -621,6 +627,8 @@ class TestWebhookRouterExecutionPath:
                 payload={"x": 1},
                 echo=False,
                 empty_echo=False,
+                wait=False,
+                unwrap=False,
                 vendor=None,
                 request=request,
                 content_type="application/json",
@@ -655,13 +663,118 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
             )
 
-        assert response["kind"] == "value"
         response_obj = cast(dict[str, Any], response)
-        assert response_obj["value"] == {"_": "result-ref"}
+        assert response_obj == {"kind": "value", "value": {"_": "result-ref"}}
         mock_service.create_workflow_execution.assert_awaited_once()
         call_kwargs = mock_service.create_workflow_execution.call_args.kwargs
         assert call_kwargs["trigger_type"] == TriggerType.WEBHOOK
         assert call_kwargs["payload"] == payload
+
+    @pytest.mark.anyio
+    async def test_wait_query_uses_workflow_as_api_without_wait_suffix(self):
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        inline_result = InlineObject(type="inline", data={"ok": True})
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution = AsyncMock(
+            return_value={
+                "wf_id": workflow_id,
+                "result": inline_result,
+            }
+        )
+
+        request = MagicMock(spec=Request)
+        request.headers = {}
+        request.json = AsyncMock(return_value=payload)
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            response = await _incoming_webhook(
+                workflow_id=workflow_id,
+                defn=_definition(),
+                payload=payload,
+                echo=True,
+                empty_echo=False,
+                wait=True,
+                unwrap=False,
+                vendor=None,
+                request=request,
+                content_type="application/json",
+            )
+
+        response_obj = cast(dict[str, Any], response)
+        assert response_obj["kind"] == "value"
+        assert response_obj["value"] == {"ok": True}
+        assert response_obj["payload"] == payload
+        mock_service.create_workflow_execution.assert_awaited_once()
+        mock_service.create_workflow_execution_wait_for_start.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_wait_query_unwrap_returns_inline_value(self):
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        inline_result = InlineObject(type="inline", data={"ok": True})
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution = AsyncMock(
+            return_value={
+                "wf_id": workflow_id,
+                "result": inline_result,
+            }
+        )
+
+        request = MagicMock(spec=Request)
+        request.headers = {}
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            response = await _incoming_webhook(
+                workflow_id=workflow_id,
+                defn=_definition(),
+                payload=payload,
+                echo=False,
+                empty_echo=False,
+                wait=True,
+                unwrap=True,
+                vendor=None,
+                request=request,
+                content_type="application/json",
+            )
+
+        assert response == {"ok": True}
+
+    @pytest.mark.anyio
+    async def test_wait_query_rejects_ndjson_payloads(self):
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = [{"event": 1}]
+        mock_service = AsyncMock()
+
+        request = MagicMock(spec=Request)
+        request.headers = {}
+        request.json = AsyncMock(return_value=payload)
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            with pytest.raises(HTTPException, match="wait=true"):
+                await _incoming_webhook(
+                    workflow_id=workflow_id,
+                    defn=_definition(),
+                    payload=payload,
+                    echo=False,
+                    empty_echo=False,
+                    wait=True,
+                    unwrap=False,
+                    vendor=None,
+                    request=request,
+                    content_type="application/x-ndjson",
+                )
+
+        mock_service.create_workflow_execution.assert_not_called()
 
     @pytest.mark.anyio
     async def test_wait_webhook_returns_download_url_for_external_object(self):

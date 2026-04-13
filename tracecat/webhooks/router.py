@@ -81,7 +81,7 @@ class WebhookStoredObjectDownloadResponse(TypedDict):
 
 
 type WaitResultOutput = (
-    WebhookStoredObjectInlineResponse | WebhookStoredObjectDownloadResponse
+    WebhookStoredObjectInlineResponse | WebhookStoredObjectDownloadResponse | Any
 )
 
 
@@ -207,15 +207,20 @@ async def _materialize_collection_values_for_wait(
     return values
 
 
-async def _normalize_wait_result(value: StoredObject) -> WaitResultOutput:
+async def _normalize_wait_result(
+    value: StoredObject, *, unwrap: bool = False
+) -> WaitResultOutput:
     """Normalize /wait response values for StoredObject variants.
 
-    - InlineObject: returns value envelope
+    - InlineObject: returns wrapped value envelope by default
+      or the inline value directly when `unwrap=True`
     - ExternalObject: returns download envelope
     - CollectionObject: materializes and returns download envelope
     """
     match value:
         case InlineObject(data=data):
+            if unwrap:
+                return data
             return WebhookStoredObjectInlineResponse(
                 kind="value",
                 value=data,
@@ -242,6 +247,16 @@ async def incoming_webhook_post(
         default=False,
         description="Return an empty response. Assumes `echo` to be `True`.",
     ),
+    wait: bool = Query(
+        default=False,
+        description="Wait for workflow completion and return the workflow result.",
+    ),
+    unwrap: bool = Query(
+        default=False,
+        description=(
+            "When waiting for completion, return inline outputs directly."
+        ),
+    ),
     vendor: str | None = Query(
         default=None,
         description="Vendor specific webhook verification. Supported vendors: `okta`.",
@@ -260,6 +275,8 @@ async def incoming_webhook_post(
         payload=payload,
         echo=echo,
         empty_echo=empty_echo,
+        wait=wait,
+        unwrap=unwrap,
         vendor=vendor,
         request=request,
         content_type=content_type,
@@ -278,6 +295,16 @@ async def incoming_webhook_get(
         default=False,
         description="Return an empty response. Assumes `echo` to be `True`.",
     ),
+    wait: bool = Query(
+        default=False,
+        description="Wait for workflow completion and return the workflow result.",
+    ),
+    unwrap: bool = Query(
+        default=False,
+        description=(
+            "When waiting for completion, return inline outputs directly."
+        ),
+    ),
     vendor: str | None = Query(
         default=None,
         description="Vendor specific webhook verification. Supported vendors: `okta`.",
@@ -296,6 +323,8 @@ async def incoming_webhook_get(
         payload=payload,
         echo=echo,
         empty_echo=empty_echo,
+        wait=wait,
+        unwrap=unwrap,
         vendor=vendor,
         request=request,
         content_type=content_type,
@@ -309,6 +338,8 @@ async def _incoming_webhook(
     payload: PayloadDep,
     echo: bool,
     empty_echo: bool,
+    wait: bool,
+    unwrap: bool,
     vendor: str | None,
     request: Request,
     content_type: str | None,
@@ -323,7 +354,22 @@ async def _incoming_webhook(
     # This is a workaround for the fact that Temporal doesn't support batching
     # of webhook requests
     mime_type = parse_content_type(content_type)[0] if content_type else ""
-    if mime_type in NDJSON_CONTENT_TYPES and isinstance(payload, list):
+    if wait:
+        if mime_type in NDJSON_CONTENT_TYPES and isinstance(payload, list):
+            raise HTTPException(
+                status_code=400,
+                detail="`wait=true` is not supported with NDJSON payloads.",
+            )
+        response = await service.create_workflow_execution(
+            dsl=dsl_input,
+            wf_id=workflow_id,
+            payload=payload,
+            trigger_type=TriggerType.WEBHOOK,
+            registry_lock=RegistryLock.model_validate(defn.registry_lock)
+            if defn.registry_lock
+            else None,
+        )
+    elif mime_type in NDJSON_CONTENT_TYPES and isinstance(payload, list):
         one_response = None
         # Slow release to avoid overwhelming the system
         async for p in cooperative(batched(payload, 8), delay=2):
@@ -357,9 +403,16 @@ async def _incoming_webhook(
         )
 
     # Response handling
+    if wait:
+        response = await _normalize_wait_result(
+            response["result"], unwrap=unwrap
+        )
+
     if echo:
         if empty_echo:
             return Response(status_code=200)
+        if not isinstance(response, dict):
+            response = {"result": response}
         try:
             response["payload"] = await request.json()
         except Exception as e:
@@ -388,6 +441,12 @@ async def incoming_webhook_wait(
     workflow_id: AnyWorkflowIDPath,
     defn: ValidWorkflowDefinitionDep,
     payload: PayloadDep,
+    unwrap: bool = Query(
+        default=False,
+        description=(
+            "Return inline outputs directly."
+        ),
+    ),
 ) -> WaitResultOutput:
     """Webhook endpoint to trigger a workflow.
 
@@ -410,7 +469,9 @@ async def incoming_webhook_wait(
         else None,
     )
 
-    return await _normalize_wait_result(response["result"])
+    return await _normalize_wait_result(
+        response["result"], unwrap=unwrap
+    )
 
 
 @router.post("/draft", response_model=None)
