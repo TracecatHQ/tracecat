@@ -1715,6 +1715,10 @@ export type CaseReadMinimal = {
   tags?: Array<CaseTagRead>
   dropdown_values: Array<CaseDropdownValueRead>
   rows?: Array<CaseTableRowRead>
+  durations?: Array<CaseDurationRead> | null
+  field_values?: {
+    [key: string]: unknown
+  } | null
   num_tasks_completed?: number
   num_tasks_total?: number
 }
@@ -9801,6 +9805,14 @@ export type CasesListCasesData = {
    */
   cursor?: string | null
   /**
+   * Include only the requested custom field IDs
+   */
+  fieldIds?: Array<string> | null
+  /**
+   * Include case duration values
+   */
+  includeDurations?: boolean
+  /**
    * Include linked table rows
    */
   includeRows?: boolean
@@ -9856,6 +9868,14 @@ export type CasesSearchCasesData = {
    * Return cases created at or before this timestamp
    */
   endTime?: string | null
+  /**
+   * Include only the requested custom field IDs
+   */
+  fieldIds?: Array<string> | null
+  /**
+   * Include case duration values
+   */
+  includeDurations?: boolean
   /**
    * Include linked table rows
    */

@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Iterator
+from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
@@ -353,6 +354,116 @@ class TestCaseFieldsService:
             assert fields == mock_fields_data
             mock_get_row.assert_called_once_with(row_id)
 
+    async def test_batch_get_fields_selects_only_requested_columns(
+        self,
+        case_fields_service: CaseFieldsService,
+        test_case: Case,
+    ) -> None:
+        """Batch hydration should return only explicitly requested field IDs."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_field1", type=SqlType.TEXT)
+        )
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_field2", type=SqlType.INTEGER)
+        )
+        await case_fields_service.upsert_field_values(
+            test_case,
+            {"custom_field1": "alpha", "custom_field2": 123},
+        )
+
+        fields_by_case = await case_fields_service.batch_get_fields(
+            [test_case.id], ["custom_field2"]
+        )
+
+        assert fields_by_case == {test_case.id: {"custom_field2": 123}}
+
+    async def test_batch_get_fields_uses_reflected_columns_when_schema_missing(
+        self,
+        case_fields_service: CaseFieldsService,
+        test_case: Case,
+    ) -> None:
+        """Reflected columns should keep hydration working when schema metadata is stale."""
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_field1", type=SqlType.TEXT)
+        )
+        await case_fields_service.create_field(
+            CaseFieldCreate(name="custom_field2", type=SqlType.INTEGER)
+        )
+        await case_fields_service.upsert_field_values(
+            test_case,
+            {"custom_field1": "alpha", "custom_field2": 123},
+        )
+
+        reflected_columns = [
+            {
+                "name": "custom_field1",
+                "type": sa.types.String(),
+                "nullable": True,
+                "default": None,
+                "comment": None,
+            },
+            {
+                "name": "custom_field2",
+                "type": sa.types.Integer(),
+                "nullable": True,
+                "default": None,
+                "comment": None,
+            },
+        ]
+
+        with (
+            patch.object(case_fields_service, "get_field_schema", return_value={}),
+            patch.object(
+                case_fields_service.editor,
+                "get_columns",
+                return_value=reflected_columns,
+            ),
+        ):
+            fields_by_case = await case_fields_service.batch_get_fields(
+                [test_case.id], ["custom_field2"]
+            )
+
+        assert fields_by_case == {test_case.id: {"custom_field2": 123}}
+
+    async def test_batch_get_fields_rejects_reserved_field_ids(
+        self,
+        case_fields_service: CaseFieldsService,
+        test_case: Case,
+    ) -> None:
+        """Reserved case-field columns should not be selectable for hydration."""
+        with pytest.raises(ValueError, match="reserved field"):
+            await case_fields_service.batch_get_fields([test_case.id], ["case_id"])
+
+        with pytest.raises(ValueError, match="reserved field"):
+            await case_fields_service.batch_get_fields([test_case.id], ["CASE_ID"])
+
+    async def test_batch_get_fields_rejects_reserved_field_ids_with_no_cases(
+        self,
+        case_fields_service: CaseFieldsService,
+    ) -> None:
+        """Requested field IDs should be validated even for empty result pages."""
+        with pytest.raises(ValueError, match="reserved field"):
+            await case_fields_service.batch_get_fields([], ["case_id"])
+
+    async def test_batch_get_fields_rejects_internal_field_ids(
+        self,
+        case_fields_service: CaseFieldsService,
+        test_case: Case,
+    ) -> None:
+        """Internal/system-managed field IDs should be rejected."""
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await case_fields_service.batch_get_fields(
+                [test_case.id], ["__tc_workspace_id"]
+            )
+
+    async def test_batch_get_fields_rejects_internal_field_ids_with_no_cases(
+        self,
+        case_fields_service: CaseFieldsService,
+    ) -> None:
+        """Internal field IDs should be rejected before empty-case short-circuits."""
+        with pytest.raises(ValueError, match="reserved for internal use"):
+            await case_fields_service.batch_get_fields([], ["__tc_workspace_id"])
+
     async def test_upsert_field_values(
         self, case_fields_service: CaseFieldsService, test_case: Case
     ) -> None:
@@ -368,6 +479,9 @@ class TestCaseFieldsService:
             patch.object(
                 case_fields_service, "ensure_workspace_row"
             ) as mock_ensure_row,
+            patch.object(
+                case_fields_service, "normalize_field_values", return_value=fields_data
+            ) as mock_normalize_fields,
             patch.object(case_fields_service.editor, "update_row") as mock_update_row,
         ):
             mock_ensure_row.return_value = uuid.uuid4()
@@ -381,6 +495,7 @@ class TestCaseFieldsService:
             # Verify the result matches the full mock_result
             assert result == mock_result
             mock_ensure_row.assert_called_once_with(test_case.id)
+            mock_normalize_fields.assert_called_once_with(fields_data)
             mock_update_row.assert_called_once()
 
             # Verify the call arguments
@@ -388,6 +503,66 @@ class TestCaseFieldsService:
             assert "row_id" in call_kwargs
             assert "data" in call_kwargs
             assert call_kwargs["data"] == fields_data
+
+    async def test_upsert_field_values_preserves_numeric_strings(
+        self, case_fields_service: CaseFieldsService, test_case: Case
+    ) -> None:
+        """Numeric strings should be normalized to Decimal before persistence."""
+        fields_data = {"numeric_field": "1.30"}
+        mock_result = {
+            "id": uuid.uuid4(),
+            "case_id": test_case.id,
+            "numeric_field": Decimal("1.30"),
+        }
+
+        with (
+            patch.object(
+                case_fields_service, "ensure_workspace_row"
+            ) as mock_ensure_row,
+            patch.object(
+                case_fields_service,
+                "get_field_schema",
+                return_value={"numeric_field": {"type": "NUMERIC"}},
+            ),
+            patch.object(
+                case_fields_service.editor,
+                "get_columns",
+                return_value=[{"name": "numeric_field", "type": "NUMERIC"}],
+            ),
+            patch.object(case_fields_service.editor, "update_row") as mock_update_row,
+        ):
+            mock_ensure_row.return_value = uuid.uuid4()
+            mock_update_row.return_value = mock_result
+
+            result = await case_fields_service.upsert_field_values(
+                test_case, fields_data
+            )
+
+            assert result == mock_result
+            call_kwargs = mock_update_row.call_args.kwargs
+            assert call_kwargs["data"] == {"numeric_field": Decimal("1.30")}
+
+    async def test_normalize_field_values_reflection_overrides_stale_schema(
+        self, case_fields_service: CaseFieldsService
+    ) -> None:
+        """Physical column types should win when schema metadata is stale."""
+        with (
+            patch.object(
+                case_fields_service,
+                "get_field_schema",
+                return_value={"numeric_field": {"type": "TEXT"}},
+            ),
+            patch.object(
+                case_fields_service.editor,
+                "get_columns",
+                return_value=[{"name": "numeric_field", "type": "NUMERIC"}],
+            ),
+        ):
+            normalized = await case_fields_service.normalize_field_values(
+                {"numeric_field": "1.30"}
+            )
+
+        assert normalized == {"numeric_field": Decimal("1.30")}
 
     async def test_upsert_field_values_empty_fields(
         self, case_fields_service: CaseFieldsService, test_case: Case

@@ -6315,6 +6315,32 @@ export const $CaseReadMinimal = {
       type: "array",
       title: "Rows",
     },
+    durations: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseDurationRead",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Durations",
+    },
+    field_values: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Field Values",
+    },
     num_tasks_completed: {
       type: "integer",
       title: "Num Tasks Completed",

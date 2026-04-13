@@ -91,6 +91,34 @@ class InvalidDefaultValueError(ValueError):
     """Raised when a user-provided table default cannot be coerced safely."""
 
 
+def coerce_integer_value(value: Any) -> int:
+    """Coerce a user value to a safe PostgreSQL BIGINT."""
+    try:
+        decimal_value = Decimal(str(value).strip())
+    except (InvalidOperation, TypeError, ValueError, AttributeError) as exc:
+        raise ValueError(f"Invalid integer value: {value!r}") from exc
+
+    if not decimal_value.is_finite():
+        raise ValueError(f"Invalid integer value: {value!r}")
+    if decimal_value != decimal_value.to_integral_value():
+        raise ValueError(f"Invalid integer value: {value!r}")
+    if decimal_value < POSTGRES_BIGINT_MIN or decimal_value > POSTGRES_BIGINT_MAX:
+        raise ValueError(f"Invalid integer value: {value!r}")
+    return int(decimal_value)
+
+
+def coerce_numeric_value(value: Any) -> Decimal:
+    """Coerce a user value to a finite Decimal without float precision loss."""
+    try:
+        decimal_value = Decimal(str(value).strip())
+    except (InvalidOperation, TypeError, ValueError, AttributeError) as exc:
+        raise ValueError(f"Invalid numeric value: {value!r}") from exc
+
+    if not decimal_value.is_finite():
+        raise ValueError(f"Invalid numeric value: {value!r}")
+    return decimal_value
+
+
 def _compile_sql_literal(value: Any, sql_type: sa.types.TypeEngine) -> str:
     expr = sa.literal(value, type_=sql_type)
     compiled = expr.compile(
@@ -127,39 +155,18 @@ def coerce_default_value(type: SqlType, default: Any) -> Any:
                     )
         case SqlType.INTEGER:
             try:
-                decimal_value = Decimal(str(default))
-            except (InvalidOperation, TypeError, ValueError) as exc:
+                return coerce_integer_value(default)
+            except ValueError as exc:
                 raise InvalidDefaultValueError(
                     f"Invalid integer default value: {default!r}"
                 ) from exc
-            if not decimal_value.is_finite():
-                raise InvalidDefaultValueError(
-                    f"Invalid integer default value: {default!r}"
-                )
-            if decimal_value != decimal_value.to_integral_value():
-                raise InvalidDefaultValueError(
-                    f"Invalid integer default value: {default!r}"
-                )
-            if (
-                decimal_value < POSTGRES_BIGINT_MIN
-                or decimal_value > POSTGRES_BIGINT_MAX
-            ):
-                raise InvalidDefaultValueError(
-                    f"Invalid integer default value: {default!r}"
-                )
-            return int(decimal_value)
         case SqlType.NUMERIC:
             try:
-                decimal_value = Decimal(str(default))
-            except (InvalidOperation, TypeError, ValueError) as exc:
+                return coerce_numeric_value(default)
+            except ValueError as exc:
                 raise InvalidDefaultValueError(
                     f"Invalid numeric default value: {default!r}"
                 ) from exc
-            if not decimal_value.is_finite():
-                raise InvalidDefaultValueError(
-                    f"Invalid numeric default value: {default!r}"
-                )
-            return decimal_value
         case _:
             raise InvalidDefaultValueError(
                 f"Unsupported SQL type for default value: {type}"
@@ -275,9 +282,11 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
                     )
             return sa.bindparam(key=name, value=bool_value, type_=sa.Boolean)
         case SqlType.INTEGER:
-            return sa.bindparam(key=name, value=value, type_=sa.BigInteger)
+            coerced = None if value is None else coerce_integer_value(value)
+            return sa.bindparam(key=name, value=coerced, type_=sa.BigInteger)
         case SqlType.NUMERIC:
-            return sa.bindparam(key=name, value=value, type_=sa.Numeric)
+            coerced = None if value is None else coerce_numeric_value(value)
+            return sa.bindparam(key=name, value=coerced, type_=sa.Numeric)
         case _:
             raise TypeError(f"Unsupported SQL type for value conversion: {type}")
 
@@ -321,9 +330,9 @@ def convert_value(value: str | None, type: SqlType) -> Any:
     try:
         match type:
             case SqlType.INTEGER:
-                return int(value)
+                return coerce_integer_value(value)
             case SqlType.NUMERIC:
-                return float(value)
+                return coerce_numeric_value(value)
             case SqlType.BOOLEAN:
                 match value.lower():
                     case "true" | "1":

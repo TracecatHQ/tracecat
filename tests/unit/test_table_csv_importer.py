@@ -1,6 +1,7 @@
 """Unit tests for the CSVImporter class."""
 
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import cast
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
@@ -101,8 +102,12 @@ class TestCSVImporter:
 
     def test_convert_value_numeric(self, csv_importer: CSVImporter) -> None:
         """Test convert_value with numeric values."""
-        assert csv_importer.convert_value("123.45", SqlType.NUMERIC) == 123.45
-        assert csv_importer.convert_value("-456.78", SqlType.NUMERIC) == -456.78
+        assert csv_importer.convert_value("123.45", SqlType.NUMERIC) == Decimal(
+            "123.45"
+        )
+        assert csv_importer.convert_value("-456.78", SqlType.NUMERIC) == Decimal(
+            "-456.78"
+        )
         with pytest.raises(
             TypeError, match="Cannot convert value 'abc' to SqlType NUMERIC"
         ):

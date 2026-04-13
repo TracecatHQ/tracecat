@@ -50,6 +50,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { getCaseFieldEditorValue } from "@/lib/case-field-display"
 import { cn, linearStyles } from "@/lib/utils"
 
 const customFieldFormSchema = z.object({
@@ -120,7 +121,10 @@ function InlineCustomField({
   const form = useForm<CustomFieldFormSchema>({
     defaultValues: {
       id: customField.id,
-      value: customField.value,
+      value:
+        customField.type === "NUMERIC" || customField.type === "INTEGER"
+          ? getCaseFieldEditorValue(customField.value, customField.type)
+          : customField.value,
     },
   })
 
@@ -470,7 +474,12 @@ export function CustomFieldInner({
                     if (customField.type === "INTEGER") {
                       if (!/^-?\d+$/.test(raw)) {
                         // Silently revert to saved value
-                        field.onChange(customField.value)
+                        field.onChange(
+                          getCaseFieldEditorValue(
+                            customField.value,
+                            customField.type
+                          )
+                        )
                         return
                       }
                       const parsed = Number.parseInt(raw, 10)
@@ -481,10 +490,15 @@ export function CustomFieldInner({
                     const parsed = Number(raw)
                     if (!Number.isFinite(parsed)) {
                       // Silently revert to saved value
-                      field.onChange(customField.value)
+                      field.onChange(
+                        getCaseFieldEditorValue(
+                          customField.value,
+                          customField.type
+                        )
+                      )
                       return
                     }
-                    onBlur?.(customField.id, parsed)
+                    onBlur?.(customField.id, raw)
                   }}
                 />
               </FormControl>

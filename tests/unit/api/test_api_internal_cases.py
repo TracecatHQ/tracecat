@@ -10,9 +10,14 @@ from tracecat.auth.types import Role
 from tracecat.cases import internal_router as internal_cases_router
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.rows.schemas import CaseTableRowRead
-from tracecat.cases.schemas import CaseCommentRead, CaseCommentThreadRead
+from tracecat.cases.schemas import (
+    CaseCommentRead,
+    CaseCommentThreadRead,
+    CaseReadMinimal,
+)
 from tracecat.db.models import Case, Workspace
 from tracecat.exceptions import EntitlementRequired, TracecatValidationError
+from tracecat.pagination import CursorPaginatedResponse
 
 
 @pytest.fixture
@@ -154,6 +159,145 @@ async def test_internal_update_case_include_rows_hydrates_rows(
     assert len(data["rows"]) == 1
     assert data["rows"][0]["id"] == str(row.id)
     assert mock_list_rows.await_count == 1
+
+
+@pytest.mark.anyio
+async def test_internal_create_case_simple_invalid_numeric_fields_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.create_case.side_effect = ValueError(
+            "Invalid numeric value: 'abc'"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            "/internal/cases/simple",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "summary": "Internal case summary",
+                "description": "Internal case description",
+                "priority": "medium",
+                "severity": "low",
+                "status": "new",
+                "fields": {"score": "abc"},
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid numeric value: 'abc'"
+
+
+@pytest.mark.anyio
+async def test_internal_update_case_simple_invalid_integer_fields_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_internal_case: Case,
+) -> None:
+    with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_internal_case
+        mock_service.update_case.side_effect = ValueError(
+            "Invalid integer value: '1.5'"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.patch(
+            f"/internal/cases/{mock_internal_case.id}/simple",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"fields": {"attempts": "1.5"}},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid integer value: '1.5'"
+
+
+@pytest.mark.anyio
+async def test_internal_list_cases_validates_field_ids_even_when_page_is_empty(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(internal_cases_router, "CasesService") as mock_service_cls,
+        patch.object(
+            internal_cases_router, "CaseFieldsService"
+        ) as mock_fields_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.list_cases.return_value = CursorPaginatedResponse[CaseReadMinimal](
+            items=[],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        mock_fields_service = AsyncMock()
+        mock_fields_service.batch_get_fields.side_effect = ValueError(
+            "Field case_id is a reserved field"
+        )
+        mock_service_cls.return_value = mock_service
+        mock_fields_service_cls.return_value = mock_fields_service
+
+        response = client.get(
+            "/internal/cases",
+            params=[
+                ("workspace_id", str(test_admin_role.workspace_id)),
+                ("field_ids", "case_id"),
+            ],
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid request for case field hydration"
+    mock_fields_service.batch_get_fields.assert_awaited_once_with(
+        case_ids=[],
+        field_ids=["case_id"],
+    )
+
+
+@pytest.mark.anyio
+async def test_internal_search_cases_validates_field_ids_even_when_page_is_empty(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(internal_cases_router, "CasesService") as mock_service_cls,
+        patch.object(
+            internal_cases_router, "CaseFieldsService"
+        ) as mock_fields_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = CursorPaginatedResponse[
+            CaseReadMinimal
+        ](
+            items=[],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        mock_fields_service = AsyncMock()
+        mock_fields_service.batch_get_fields.side_effect = ValueError(
+            "Field case_id is a reserved field"
+        )
+        mock_service_cls.return_value = mock_service
+        mock_fields_service_cls.return_value = mock_fields_service
+
+        response = client.get(
+            "/internal/cases/search",
+            params=[
+                ("workspace_id", str(test_admin_role.workspace_id)),
+                ("field_ids", "case_id"),
+            ],
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid request for case field hydration"
+    mock_fields_service.batch_get_fields.assert_awaited_once_with(
+        case_ids=[],
+        field_ids=["case_id"],
+    )
 
 
 @pytest.mark.anyio

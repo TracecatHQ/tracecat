@@ -23,6 +23,8 @@ import { type ComponentType, useEffect, useMemo, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import type {
   CaseDropdownDefinitionRead,
+  CaseDurationDefinitionRead,
+  CaseFieldReadMinimal,
   CasePriority,
   CaseSeverity,
   CaseStatus,
@@ -34,6 +36,7 @@ import {
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
+import { CaseColumnPicker } from "@/components/cases/case-column-picker"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import {
   type CaseSortField,
@@ -386,6 +389,10 @@ interface CasesHeaderProps {
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
+  fieldDefinitions?: CaseFieldReadMinimal[]
+  durationDefinitions?: CaseDurationDefinitionRead[]
+  visibleColumnIds?: string[]
+  onToggleColumn?: (columnId: string) => void
   dropdownFilters: Record<string, DropdownFilterState>
   onDropdownFilterChange: (ref: string, values: string[]) => void
   onDropdownModeChange: (ref: string, mode: FilterMode) => void
@@ -438,6 +445,10 @@ export function CasesHeader({
   members,
   tags,
   dropdownDefinitions,
+  fieldDefinitions,
+  durationDefinitions,
+  visibleColumnIds,
+  onToggleColumn,
   dropdownFilters,
   onDropdownFilterChange,
   onDropdownModeChange,
@@ -596,13 +607,22 @@ export function CasesHeader({
           />
         </div>
 
-        {(displayCaseCount ?? totalCaseCount) > 0 && (
-          <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2">
+          {onToggleColumn && visibleColumnIds && (
+            <CaseColumnPicker
+              dropdownDefinitions={dropdownDefinitions}
+              fieldDefinitions={fieldDefinitions}
+              durationDefinitions={durationDefinitions}
+              visibleColumnIds={visibleColumnIds}
+              onToggle={onToggleColumn}
+            />
+          )}
+          {(displayCaseCount ?? totalCaseCount) > 0 && (
             <span className="text-xs text-muted-foreground">
               {displayCaseCount ?? totalCaseCount} cases
             </span>
-          </div>
-        )}
+          )}
+        </div>
       </header>
 
       {/* Row 2: Filter dropdowns */}
