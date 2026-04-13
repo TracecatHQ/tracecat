@@ -1,0 +1,41 @@
+frontend/src/components/skills/skills-studio.tsx
+  7a57ed7b18619e83 111-112,124-129,134,154,160,164,168
+frontend/tests/skills-studio.test.ts
+  4f6102d2a606520a 5-8,10,18,44,63,67,131,170,175,183,187,191,195,198,202,211,222,229,233,237,243,245,250,255,257,261
+frontend/src/components/skills/use-skills-studio.ts
+  7a57ed7b18619e83 154,223,246-250,322-323,340-341,573-574,577,586-589,620-621,630
+  0654838314e74edc 220-222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "11d45f4fd69e78edfb94c63e097ce95855e2e297",
+  "prompts": {
+    "4f6102d2a606520a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d73f0-7451-7541-a0c3-b01b259809e9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 31,
+      "total_deletions": 2,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    },
+    "7a57ed7b18619e83": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c715e816-8e48-4375-b308-ce4cc5bb2897",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 975,
+      "total_deletions": 351,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

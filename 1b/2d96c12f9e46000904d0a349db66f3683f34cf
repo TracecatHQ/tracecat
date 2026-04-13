@@ -1,0 +1,27 @@
+frontend/tests/markdown-with-frontmatter.test.tsx
+  128ffc0ae9b9690c 1-62,95-108,110-135,154-157,159-168,196,176,179-180,182,185,188,191-192,195,86,88,90-91,93-94
+  318c690ff2e049cc 63-81,136-139,141-153,174-175,177-178,186-187,189-190,84-85,89
+frontend/src/lib/markdown-frontmatter.ts
+  128ffc0ae9b9690c 1-10,52,56-61,64-66,68-78,80-138,144-145,148-158,160,162-170
+  318c690ff2e049cc 11-51,53-55,62-63,67,79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "1b2d96c12f9e46000904d0a349db66f3683f34cf",
+  "prompts": {
+    "318c690ff2e049cc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d6a15-d806-7811-8c3c-26d009b49e8b",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}
