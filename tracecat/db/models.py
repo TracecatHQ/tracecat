@@ -3023,7 +3023,8 @@ class AgentFolder(WorkspaceModel):
 
     workspace: Mapped[Workspace] = relationship(back_populates="agent_folders")
     presets: Mapped[list[AgentPreset]] = relationship(
-        "AgentPreset", back_populates="folder", cascade="all, delete-orphan"
+        "AgentPreset",
+        back_populates="folder",
     )
 
     @property

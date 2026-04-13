@@ -1,5 +1,6 @@
 "use client"
 
+import { useQueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
 import {
   AlertTriangleIcon,
@@ -34,7 +35,12 @@ import type {
   AgentTagRead,
   ApprovalRead,
 } from "@/client"
-import { agentPresetsAddPresetTag, agentPresetsRemovePresetTag } from "@/client"
+import {
+  agentPresetsAddPresetTag,
+  agentPresetsGetAgentPreset,
+  agentPresetsListAgentPresets,
+  agentPresetsRemovePresetTag,
+} from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
 import { CollapsibleSection } from "@/components/collapsible-section"
 import { CopyButton } from "@/components/copy-button"
@@ -1385,6 +1391,7 @@ function AgentPresetContextActions({
   duplicateDisabled?: boolean
 }) {
   const workspaceId = useWorkspaceId()
+  const queryClient = useQueryClient()
   return (
     <ContextMenuGroup>
       <ContextMenuItem
@@ -1455,6 +1462,17 @@ function AgentPresetContextActions({
                             description: `Added tag "${tag.name}" to agent`,
                           })
                         }
+                        await Promise.all([
+                          queryClient.invalidateQueries({
+                            queryKey: ["agent-presets", workspaceId],
+                          }),
+                          queryClient.invalidateQueries({
+                            queryKey: ["agent-directory-items", workspaceId],
+                          }),
+                          queryClient.invalidateQueries({
+                            queryKey: ["agent-preset", workspaceId, item.id],
+                          }),
+                        ])
                       } catch (error) {
                         console.error("Failed to modify tag:", error)
                         toast({
@@ -1834,6 +1852,7 @@ function AgentsCatalogHeader({
 /** Self-contained agents catalog view used by the agents page. */
 export function AgentsDashboard() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
 
@@ -1867,18 +1886,44 @@ export function AgentsDashboard() {
 
   const handleDuplicatePreset = useCallback(
     async (item: AgentPresetDirectoryItem | AgentPresetReadMinimal) => {
-      const existingSlugs =
-        presets
-          ?.map((p) => p.slug)
-          .filter((s): s is string => typeof s === "string") ?? []
-      const payload = buildDuplicateAgentPresetPayload(
-        item as AgentPresetReadMinimal,
-        existingSlugs
-      )
-      const created = await createAgentPreset(payload)
-      router.push(`/workspaces/${workspaceId}/agents/${created.id}`)
+      try {
+        const [fullPreset, allPresets] = await Promise.all([
+          queryClient.fetchQuery({
+            queryKey: ["agent-preset", workspaceId, item.id],
+            queryFn: async () =>
+              await agentPresetsGetAgentPreset({
+                workspaceId,
+                presetId: item.id,
+              }),
+          }),
+          presets
+            ? Promise.resolve(presets)
+            : queryClient.fetchQuery({
+                queryKey: ["agent-presets", workspaceId],
+                queryFn: async () =>
+                  await agentPresetsListAgentPresets({ workspaceId }),
+              }),
+        ])
+
+        const existingSlugs = allPresets
+          .map((preset) => preset.slug)
+          .filter((slug): slug is string => typeof slug === "string")
+        const payload = buildDuplicateAgentPresetPayload(
+          fullPreset,
+          existingSlugs
+        )
+        const created = await createAgentPreset(payload)
+        router.push(`/workspaces/${workspaceId}/agents/${created.id}`)
+      } catch (error) {
+        console.error("Failed to duplicate agent preset:", error)
+        toast({
+          title: "Error",
+          description: "Could not duplicate agent. Please try again.",
+          variant: "destructive",
+        })
+      }
     },
-    [createAgentPreset, presets, router, workspaceId]
+    [createAgentPreset, presets, queryClient, router, workspaceId]
   )
 
   const baseRoute = `/workspaces/${workspaceId}/agents`

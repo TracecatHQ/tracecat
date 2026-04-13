@@ -6,7 +6,8 @@ import uuid
 from collections.abc import Sequence
 from typing import Literal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat.agent.folders.schemas import (
@@ -20,6 +21,11 @@ from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.service import BaseWorkspaceService
 from tracecat.tags.schemas import TagRead
 
+AGENT_FOLDER_CONFLICT_CODE = "agent_folder_conflict"
+AGENT_FOLDER_NOT_FOUND_CODE = "agent_folder_not_found"
+AGENT_FOLDER_PARENT_NOT_FOUND_CODE = "agent_folder_parent_not_found"
+AGENT_FOLDER_INVALID_CODE = "agent_folder_invalid"
+
 
 class AgentFolderService(BaseWorkspaceService):
     """Service for managing agent preset folders using materialized path pattern."""
@@ -29,9 +35,50 @@ class AgentFolderService(BaseWorkspaceService):
     @staticmethod
     def _normalize_folder_path(path: str) -> str:
         """Normalize folder paths to materialized-path format."""
-        if path == "/":
-            return path
+        if not path or path == "/":
+            return "/"
         return path if path.endswith("/") else f"{path}/"
+
+    @staticmethod
+    def _folder_validation_error(
+        message: str,
+        *,
+        code: str,
+    ) -> TracecatValidationError:
+        return TracecatValidationError(message, detail={"code": code})
+
+    @classmethod
+    def _get_direct_child_path(cls, parent_path: str, descendant_path: str) -> str:
+        """Return the direct child path under `parent_path` for a descendant path."""
+        parent_path = cls._normalize_folder_path(parent_path)
+        descendant_path = cls._normalize_folder_path(descendant_path)
+        if parent_path == "/":
+            suffix = descendant_path.lstrip("/")
+            child_name = suffix.split("/", 1)[0]
+            return f"/{child_name}/"
+
+        suffix = descendant_path.removeprefix(parent_path)
+        child_name = suffix.split("/", 1)[0]
+        return f"{parent_path}{child_name}/"
+
+    async def _write_folder_change(
+        self,
+        *,
+        conflict_path: str,
+        commit: bool,
+    ) -> None:
+        """Persist a folder write and translate unique conflicts cleanly."""
+        try:
+            if commit:
+                await self.session.commit()
+            else:
+                await self.session.flush()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise self._folder_validation_error(
+                f"Folder {conflict_path} already exists",
+                code=AGENT_FOLDER_CONFLICT_CODE,
+            ) from exc
 
     @require_scope("agent:create")
     async def create_folder(
@@ -39,20 +86,29 @@ class AgentFolderService(BaseWorkspaceService):
     ) -> AgentFolder:
         """Create a new agent folder."""
         if "/" in name:
-            raise TracecatValidationError("Folder name cannot contain slashes")
+            raise self._folder_validation_error(
+                "Folder name cannot contain slashes",
+                code=AGENT_FOLDER_INVALID_CODE,
+            )
 
         parent_path = self._normalize_folder_path(parent_path)
 
         if parent_path != "/":
             parent_exists = await self._folder_path_exists(parent_path)
             if not parent_exists:
-                raise TracecatValidationError(f"Parent path {parent_path} not found")
+                raise self._folder_validation_error(
+                    f"Parent path {parent_path} not found",
+                    code=AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
+                )
 
         full_path = f"{parent_path}{name}/" if parent_path != "/" else f"/{name}/"
 
         path_exists = await self._folder_path_exists(full_path)
         if path_exists:
-            raise TracecatValidationError(f"Folder {full_path} already exists")
+            raise self._folder_validation_error(
+                f"Folder {full_path} already exists",
+                code=AGENT_FOLDER_CONFLICT_CODE,
+            )
 
         folder = AgentFolder(
             name=name,
@@ -60,10 +116,7 @@ class AgentFolderService(BaseWorkspaceService):
             workspace_id=self.workspace_id,
         )
         self.session.add(folder)
-        if commit:
-            await self.session.commit()
-        else:
-            await self.session.flush()
+        await self._write_folder_change(conflict_path=full_path, commit=commit)
         await self.session.refresh(folder)
         return folder
 
@@ -78,8 +131,7 @@ class AgentFolderService(BaseWorkspaceService):
 
     async def get_folder_by_path(self, path: str) -> AgentFolder | None:
         """Get a folder by its path."""
-        if not path.endswith("/") and path != "/":
-            path += "/"
+        path = self._normalize_folder_path(path)
 
         statement = select(AgentFolder).where(
             AgentFolder.workspace_id == self.workspace_id,
@@ -90,9 +142,10 @@ class AgentFolderService(BaseWorkspaceService):
 
     async def list_folders(self, parent_path: str = "/") -> Sequence[AgentFolder]:
         """List all folders within the specified parent path subtree."""
+        parent_path = self._normalize_folder_path(parent_path)
         statement = select(AgentFolder).where(
             AgentFolder.workspace_id == self.workspace_id,
-            AgentFolder.path.like(f"{parent_path}%"),
+            AgentFolder.path.startswith(parent_path, autoescape=True),
         )
         result = await self.session.execute(statement)
         return result.scalars().all()
@@ -121,11 +174,17 @@ class AgentFolderService(BaseWorkspaceService):
     async def rename_folder(self, folder_id: uuid.UUID, new_name: str) -> AgentFolder:
         """Rename a folder. Updates the folder name and path."""
         if "/" in new_name:
-            raise TracecatValidationError("Folder name cannot contain slashes")
+            raise self._folder_validation_error(
+                "Folder name cannot contain slashes",
+                code=AGENT_FOLDER_INVALID_CODE,
+            )
 
         folder = await self.get_folder(folder_id)
         if not folder:
-            raise TracecatValidationError(f"Folder {folder_id} not found")
+            raise self._folder_validation_error(
+                f"Folder {folder_id} not found",
+                code=AGENT_FOLDER_NOT_FOUND_CODE,
+            )
 
         old_path = folder.path
         parent_path = folder.parent_path
@@ -136,7 +195,10 @@ class AgentFolderService(BaseWorkspaceService):
         if new_path != old_path:
             path_exists = await self._folder_path_exists(new_path)
             if path_exists:
-                raise TracecatValidationError(f"Folder {new_path} already exists")
+                raise self._folder_validation_error(
+                    f"Folder {new_path} already exists",
+                    code=AGENT_FOLDER_CONFLICT_CODE,
+                )
 
         descendants = await self._get_descendants(old_path)
 
@@ -148,7 +210,7 @@ class AgentFolderService(BaseWorkspaceService):
             descendant.path = descendant.path.replace(old_path, new_path, 1)
             self.session.add(descendant)
 
-        await self.session.commit()
+        await self._write_folder_change(conflict_path=new_path, commit=True)
         await self.session.refresh(folder)
         return folder
 
@@ -159,21 +221,31 @@ class AgentFolderService(BaseWorkspaceService):
         """Move a folder to a different parent."""
         folder = await self.get_folder(folder_id)
         if not folder:
-            raise TracecatValidationError(f"Folder {folder_id} not found")
+            raise self._folder_validation_error(
+                f"Folder {folder_id} not found",
+                code=AGENT_FOLDER_NOT_FOUND_CODE,
+            )
 
         new_parent_path = "/"
         if new_parent_id is not None:
             new_parent = await self.get_folder(new_parent_id)
             if not new_parent:
-                raise TracecatValidationError(
-                    f"Parent folder {new_parent_id} not found"
+                raise self._folder_validation_error(
+                    f"Parent folder {new_parent_id} not found",
+                    code=AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
                 )
             new_parent_path = new_parent.path
 
             if folder.path == new_parent_path:
-                raise TracecatValidationError("Cannot make a folder its own child")
+                raise self._folder_validation_error(
+                    "Cannot make a folder its own child",
+                    code=AGENT_FOLDER_INVALID_CODE,
+                )
             if new_parent.path.startswith(folder.path):
-                raise TracecatValidationError("Cannot create cyclic folder structure")
+                raise self._folder_validation_error(
+                    "Cannot create cyclic folder structure",
+                    code=AGENT_FOLDER_INVALID_CODE,
+                )
 
         old_path = folder.path
         old_name = folder.name
@@ -186,7 +258,10 @@ class AgentFolderService(BaseWorkspaceService):
         if new_path != old_path:
             path_exists = await self._folder_path_exists(new_path)
             if path_exists:
-                raise TracecatValidationError(f"Folder {new_path} already exists")
+                raise self._folder_validation_error(
+                    f"Folder {new_path} already exists",
+                    code=AGENT_FOLDER_CONFLICT_CODE,
+                )
 
         descendants = await self._get_descendants(old_path)
 
@@ -197,7 +272,7 @@ class AgentFolderService(BaseWorkspaceService):
             descendant.path = descendant.path.replace(old_path, new_path, 1)
             self.session.add(descendant)
 
-        await self.session.commit()
+        await self._write_folder_change(conflict_path=new_path, commit=True)
         await self.session.refresh(folder)
         return folder
 
@@ -208,17 +283,24 @@ class AgentFolderService(BaseWorkspaceService):
         """Delete a folder."""
         folder = await self.get_folder(folder_id)
         if not folder:
-            raise TracecatValidationError(f"Folder {folder_id} not found")
+            raise self._folder_validation_error(
+                f"Folder {folder_id} not found",
+                code=AGENT_FOLDER_NOT_FOUND_CODE,
+            )
 
         if folder.path == "/":
-            raise TracecatValidationError("Cannot delete root folder")
+            raise self._folder_validation_error(
+                "Cannot delete root folder",
+                code=AGENT_FOLDER_INVALID_CODE,
+            )
 
         if not recursive:
             has_children = await self._has_children(folder.path)
             has_presets = await self._has_presets(folder_id)
             if has_children or has_presets:
-                raise TracecatValidationError(
-                    "Folder is not empty. Please move or delete its contents first."
+                raise self._folder_validation_error(
+                    "Folder is not empty. Please move or delete its contents first.",
+                    code=AGENT_FOLDER_INVALID_CODE,
                 )
         else:
             descendants = await self._get_descendants(folder.path)
@@ -251,8 +333,7 @@ class AgentFolderService(BaseWorkspaceService):
         self, path: str = "/", *, order_by: Literal["asc", "desc"] = "desc"
     ) -> Sequence[DirectoryItem]:
         """Get all directory items (presets and folders) in the given path."""
-        if not path.endswith("/") and path != "/":
-            path += "/"
+        path = self._normalize_folder_path(path)
 
         if path != "/":
             folder = await self.get_folder_by_path(path)
@@ -279,30 +360,57 @@ class AgentFolderService(BaseWorkspaceService):
         preset_result = await self.session.execute(preset_statement)
         presets = preset_result.scalars().all()
 
-        # Fetch child folders
-        if path == "/":
-            folder_statement = select(AgentFolder).where(
-                AgentFolder.workspace_id == self.workspace_id,
-                func.length(AgentFolder.path)
-                - func.length(func.replace(AgentFolder.path, "/", ""))
-                == 2,
-            )
-        else:
-            folder_statement = select(AgentFolder).where(
-                AgentFolder.workspace_id == self.workspace_id,
-                AgentFolder.path.startswith(path),
-                AgentFolder.path != path,
-                ~AgentFolder.path.like(f"{path}%/%/"),
-            )
-
+        path_depth = path.count("/") + 1
+        folder_statement = select(AgentFolder).where(
+            AgentFolder.workspace_id == self.workspace_id,
+            AgentFolder.path.startswith(path, autoescape=True),
+            AgentFolder.path != path,
+            func.length(AgentFolder.path)
+            - func.length(func.replace(AgentFolder.path, "/", ""))
+            == path_depth,
+        )
         folder_result = await self.session.execute(folder_statement)
         folders = folder_result.scalars().all()
 
         directory_items: list[DirectoryItem] = []
+        folder_ids = [folder.id for folder in folders]
+        folder_paths = {folder.path for folder in folders}
+        folder_ids_with_presets: set[uuid.UUID] = set()
+        folder_paths_with_children: set[str] = set()
+
+        if folder_ids:
+            preset_folder_result = await self.session.execute(
+                select(AgentPreset.folder_id)
+                .where(
+                    AgentPreset.workspace_id == self.workspace_id,
+                    AgentPreset.folder_id.in_(folder_ids),
+                )
+                .distinct()
+            )
+            folder_ids_with_presets = {
+                folder_id
+                for folder_id in preset_folder_result.scalars().all()
+                if folder_id is not None
+            }
+
+            descendant_path_result = await self.session.execute(
+                select(AgentFolder.path).where(
+                    AgentFolder.workspace_id == self.workspace_id,
+                    AgentFolder.path.startswith(path, autoescape=True),
+                    AgentFolder.path != path,
+                )
+            )
+            for descendant_path in descendant_path_result.scalars().all():
+                direct_child_path = self._get_direct_child_path(path, descendant_path)
+                if (
+                    direct_child_path in folder_paths
+                    and descendant_path != direct_child_path
+                ):
+                    folder_paths_with_children.add(direct_child_path)
 
         for f in folders:
-            has_children = await self._has_children(f.path)
-            has_presets = await self._has_presets(f.id)
+            has_children = f.path in folder_paths_with_children
+            has_presets = f.id in folder_ids_with_presets
             num_items = (1 if has_children else 0) + (1 if has_presets else 0)
             directory_items.append(
                 AgentFolderDirectoryItem(
@@ -341,17 +449,13 @@ class AgentFolderService(BaseWorkspaceService):
 
     async def get_folder_tree(self, root_path: str = "/") -> Sequence[AgentFolder]:
         """Get the full folder tree starting from the given root path."""
-        if not root_path.endswith("/") and root_path != "/":
-            root_path += "/"
+        root_path = self._normalize_folder_path(root_path)
 
         statement = (
             select(AgentFolder)
             .where(
                 AgentFolder.workspace_id == self.workspace_id,
-                or_(
-                    AgentFolder.path.startswith(root_path),
-                    AgentFolder.path == root_path,
-                ),
+                AgentFolder.path.startswith(root_path, autoescape=True),
             )
             .order_by(AgentFolder.path)
         )
@@ -374,14 +478,13 @@ class AgentFolderService(BaseWorkspaceService):
         return result.scalar_one() > 0
 
     async def _has_children(self, path: str) -> bool:
-        if not path.endswith("/") and path != "/":
-            path += "/"
+        path = self._normalize_folder_path(path)
         statement = (
             select(func.count())
             .select_from(AgentFolder)
             .where(
                 AgentFolder.workspace_id == self.workspace_id,
-                AgentFolder.path.startswith(path),
+                AgentFolder.path.startswith(path, autoescape=True),
                 AgentFolder.path != path,
             )
         )
@@ -401,11 +504,10 @@ class AgentFolderService(BaseWorkspaceService):
         return result.scalar_one() > 0
 
     async def _get_descendants(self, path: str) -> Sequence[AgentFolder]:
-        if not path.endswith("/") and path != "/":
-            path += "/"
+        path = self._normalize_folder_path(path)
         statement = select(AgentFolder).where(
             AgentFolder.workspace_id == self.workspace_id,
-            AgentFolder.path.startswith(path),
+            AgentFolder.path.startswith(path, autoescape=True),
             AgentFolder.path != path,
         )
         result = await self.session.execute(statement)

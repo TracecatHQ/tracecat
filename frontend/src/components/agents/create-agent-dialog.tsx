@@ -38,9 +38,9 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 const createAgentSchema = z.object({
   name: z
     .string()
+    .trim()
     .min(1, "Name is required")
-    .max(120, "Name cannot be longer than 120 characters")
-    .trim(),
+    .max(120, "Name cannot be longer than 120 characters"),
   model_provider: z.string().min(1, "Provider is required"),
   model_name: z.string().min(1, "Model is required"),
   description: z.string().max(1000).optional(),

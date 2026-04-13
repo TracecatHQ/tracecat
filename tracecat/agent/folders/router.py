@@ -3,7 +3,6 @@
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.agent.folders.schemas import (
     AgentFolderCreate,
@@ -13,13 +12,29 @@ from tracecat.agent.folders.schemas import (
     AgentFolderUpdate,
     DirectoryItem,
 )
-from tracecat.agent.folders.service import AgentFolderService
+from tracecat.agent.folders.service import (
+    AGENT_FOLDER_CONFLICT_CODE,
+    AGENT_FOLDER_NOT_FOUND_CODE,
+    AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
+    AgentFolderService,
+)
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 router = APIRouter(prefix="/agent-folders", tags=["agent-folders"])
+
+
+def _folder_http_exception(err: TracecatValidationError) -> HTTPException:
+    detail = err.detail if isinstance(err.detail, dict) else {}
+    code = detail.get("code") if isinstance(detail, dict) else None
+
+    if code in {AGENT_FOLDER_NOT_FOUND_CODE, AGENT_FOLDER_PARENT_NOT_FOUND_CODE}:
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err))
+    if code == AGENT_FOLDER_CONFLICT_CODE:
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(err))
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
 
 
 @router.get("/directory")
@@ -47,8 +62,9 @@ async def list_folders(
 ) -> list[AgentFolderRead]:
     """List folders under the specified parent path."""
     service = AgentFolderService(session, role=role)
+    normalized_parent_path = service._normalize_folder_path(parent_path)
     folders = await service.list_folders(parent_path=parent_path)
-    folders = [f for f in folders if f.path != parent_path]
+    folders = [f for f in folders if f.path != normalized_parent_path]
     return [
         AgentFolderRead.model_validate(folder, from_attributes=True)
         for folder in folders
@@ -70,10 +86,7 @@ async def create_folder(
         )
         return AgentFolderRead.model_validate(folder, from_attributes=True)
     except TracecatValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A folder with this name already exists at this location",
-        ) from e
+        raise _folder_http_exception(e) from e
 
 
 @router.get("/{folder_id}")
@@ -103,23 +116,20 @@ async def update_folder(
 ) -> AgentFolderRead:
     """Update a folder (rename)."""
     service = AgentFolderService(session, role=role)
-    try:
-        if params.name is None:
-            folder = await service.get_folder(folder_id)
-            if not folder:
-                raise NoResultFound()
-        else:
-            folder = await service.rename_folder(folder_id, params.name)
+    if params.name is None:
+        folder = await service.get_folder(folder_id)
+        if not folder:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found"
+            )
         return AgentFolderRead.model_validate(folder, from_attributes=True)
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found"
-        ) from e
-    except IntegrityError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A folder with this name already exists at this location",
-        ) from e
+
+    try:
+        folder = await service.rename_folder(folder_id, params.name)
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
+    else:
+        return AgentFolderRead.model_validate(folder, from_attributes=True)
 
 
 @router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -134,14 +144,8 @@ async def delete_folder(
     service = AgentFolderService(session, role=role)
     try:
         await service.delete_folder(folder_id, recursive=params.recursive)
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found"
-        ) from e
     except TracecatValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
+        raise _folder_http_exception(e) from e
 
 
 @router.post("/{folder_id}/move")
@@ -154,24 +158,20 @@ async def move_folder(
 ) -> AgentFolderRead:
     """Move a folder to a new parent folder."""
     service = AgentFolderService(session, role=role)
+    new_parent_id: UUID | None = None
+
+    if params.new_parent_path and params.new_parent_path != "/":
+        parent_folder = await service.get_folder_by_path(params.new_parent_path)
+        if not parent_folder:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Parent folder with path {params.new_parent_path} not found",
+            )
+        new_parent_id = parent_folder.id
+
     try:
-        new_parent_id = None
-        if params.new_parent_path:
-            if params.new_parent_path != "/":
-                parent_folder = await service.get_folder_by_path(params.new_parent_path)
-                if not parent_folder:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"Parent folder with path {params.new_parent_path} not found",
-                    )
-                new_parent_id = parent_folder.id
         folder = await service.move_folder(folder_id, new_parent_id)
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
+    else:
         return AgentFolderRead.model_validate(folder, from_attributes=True)
-    except NoResultFound as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found"
-        ) from e
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e

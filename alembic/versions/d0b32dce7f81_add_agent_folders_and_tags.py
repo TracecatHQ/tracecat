@@ -11,6 +11,10 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
+from tracecat.db.tenant_rls import (
+    disable_workspace_table_rls,
+    enable_workspace_table_rls,
+)
 
 # revision identifiers, used by Alembic.
 revision: str = "d0b32dce7f81"
@@ -117,9 +121,13 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
+    op.execute(enable_workspace_table_rls("agent_folder"))
+    op.execute(enable_workspace_table_rls("agent_tag"))
 
 
 def downgrade() -> None:
+    op.execute(disable_workspace_table_rls("agent_tag"))
+    op.execute(disable_workspace_table_rls("agent_folder"))
     op.drop_constraint(
         op.f("fk_agent_preset_folder_id_agent_folder"),
         "agent_preset",

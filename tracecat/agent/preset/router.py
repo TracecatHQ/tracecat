@@ -282,7 +282,7 @@ async def move_agent_preset_to_folder(
 ) -> None:
     """Move an agent preset to a folder."""
     folder_service = AgentFolderService(session, role=role)
-    if params.folder_path:
+    if params.folder_path and params.folder_path != "/":
         folder = await folder_service.get_folder_by_path(params.folder_path)
         if not folder:
             raise HTTPException(
