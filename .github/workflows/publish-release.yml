@@ -22,7 +22,7 @@ jobs:
         fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
         github.triggering_actor || github.actor
       )
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
@@ -168,7 +168,7 @@ jobs:
     needs: publish-release
     if: ${{ needs.publish-release.result == 'success' }}
     continue-on-error: true
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     environment: release
     permissions:
       contents: read
