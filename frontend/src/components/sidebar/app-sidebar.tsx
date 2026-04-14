@@ -8,6 +8,7 @@ import {
   LayersIcon,
   ListChecksIcon,
   ListVideoIcon,
+  LockIcon,
   type LucideIcon,
   MousePointerClickIcon,
   Table2Icon,
@@ -37,6 +38,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -45,6 +47,7 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
@@ -82,6 +85,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     icon: LucideIcon
     isActive?: boolean
     visible?: boolean
+    locked?: boolean
     requiredScope?: string
     items?: {
       title: string
@@ -89,6 +93,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive?: boolean
     }[]
   }
+
+  // Entitlement checks for sidebar items
+  const { hasEntitlement } = useEntitlements()
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
 
   // Scope checks for sidebar items
   const canViewWorkflows = useScopeCheck("workflow:read")
@@ -123,6 +131,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: MousePointerClickIcon,
       isActive: pathname?.startsWith(`${basePath}/agents`),
       visible: canViewAgents === true,
+      locked: !agentAddonsEnabled,
     },
     {
       title: "Tables",
@@ -236,6 +245,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                               </Link>
                             </SidebarMenuButton>
                           )}
+                          {item.locked ? (
+                            <SidebarMenuBadge>
+                              <LockIcon
+                                aria-hidden="true"
+                                className="size-3.5"
+                              />
+                              <span className="sr-only">Requires upgrade</span>
+                            </SidebarMenuBadge>
+                          ) : null}
                         </SidebarMenuItem>
                       ))}
                   </SidebarMenu>
