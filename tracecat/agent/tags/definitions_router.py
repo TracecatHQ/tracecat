@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from tracecat.agent.tags.schemas import AgentTagRead
 from tracecat.agent.tags.service import AgentTagsService
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers import AgentTagID
 from tracecat.tags.schemas import TagCreate, TagUpdate
@@ -14,6 +15,7 @@ router = APIRouter(prefix="/agent-tags", tags=["agent-tags"])
 
 
 @router.get("", response_model=list[AgentTagRead])
+@require_scope("agent:read")
 async def list_agent_tags(
     *,
     role: WorkspaceUserRole,
@@ -26,6 +28,7 @@ async def list_agent_tags(
 
 
 @router.get("/{tag_id}", response_model=AgentTagRead)
+@require_scope("agent:read")
 async def get_agent_tag(
     *,
     role: WorkspaceUserRole,

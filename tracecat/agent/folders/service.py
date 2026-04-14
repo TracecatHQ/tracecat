@@ -18,8 +18,9 @@ from tracecat.agent.folders.schemas import (
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentFolder, AgentPreset
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.service import BaseWorkspaceService
+from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tags.schemas import TagRead
+from tracecat.tiers.enums import Entitlement
 
 AGENT_FOLDER_CONFLICT_CODE = "agent_folder_conflict"
 AGENT_FOLDER_NOT_FOUND_CODE = "agent_folder_not_found"
@@ -329,6 +330,7 @@ class AgentFolderService(BaseWorkspaceService):
         await self.session.delete(folder)
         await self.session.commit()
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_directory_items(
         self, path: str = "/", *, order_by: Literal["asc", "desc"] = "desc"
     ) -> Sequence[DirectoryItem]:

@@ -22,12 +22,14 @@ class AgentTagsService(BaseWorkspaceService):
 
     # --- Tag definitions ---
 
+    @require_scope("agent:read")
     async def list_tags(self) -> Sequence[AgentTag]:
         """List all agent tags in the workspace."""
         statement = select(AgentTag).where(AgentTag.workspace_id == self.workspace_id)
         result = await self.session.execute(statement)
         return result.scalars().all()
 
+    @require_scope("agent:read")
     async def get_tag(self, tag_id: AgentTagID) -> AgentTag:
         """Get an agent tag by ID."""
         statement = select(AgentTag).where(
