@@ -1,0 +1,21 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "4c67ea75a5efb342db467a1cac04b6122cae4945",
+  "prompts": {
+    "152fa925f029d278": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb7e5395-0b07-4112-b2e0-dd084c0b974d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 236,
+      "total_deletions": 0,
+      "accepted_lines": 236,
+      "overriden_lines": 0
+    }
+  }
+}
