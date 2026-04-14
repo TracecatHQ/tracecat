@@ -11,6 +11,7 @@ from starlette.requests import Request
 
 from tracecat.agent.gateway import (
     TracecatCallbackHandler,
+    _filter_allowed_model_settings,
     _inject_provider_credentials,
     _resolve_bedrock_runtime_credentials,
     user_api_key_auth,
@@ -26,6 +27,34 @@ def test_gemini_injects_api_key_and_prefixes_model() -> None:
 
     assert data["api_key"] == "test-gemini-key"
     assert data["model"] == "gemini/gemini-2.5-flash"
+
+
+def test_filter_allowed_model_settings_keeps_thinking_for_gemini() -> None:
+    filtered = _filter_allowed_model_settings(
+        {
+            "thinking": {"type": "enabled", "budget_tokens": 1024},
+            "temperature": 0.2,
+            "metadata": {"unsafe": True},
+        },
+        provider="gemini",
+    )
+
+    assert filtered["thinking"] == {"type": "enabled", "budget_tokens": 1024}
+    assert filtered["temperature"] == 0.2
+    assert "metadata" not in filtered
+
+
+def test_filter_allowed_model_settings_still_drops_thinking_for_openai() -> None:
+    filtered = _filter_allowed_model_settings(
+        {
+            "thinking": {"type": "enabled", "budget_tokens": 1024},
+            "temperature": 0.2,
+        },
+        provider="openai",
+    )
+
+    assert filtered["temperature"] == 0.2
+    assert "thinking" not in filtered
 
 
 def test_openai_injects_optional_base_url() -> None:

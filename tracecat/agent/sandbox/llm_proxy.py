@@ -80,11 +80,17 @@ class LLMSocketProxy:
     mounted into the NSJail sandbox where the LLMBridge connects to it.
     """
 
+    # Providers that bypass the managed LiteLLM gateway and talk directly
+    # to a user-supplied endpoint.  For these we strip the internal auth
+    # header and Anthropic-specific reasoning fields from the request.
+    _BYPASS_PROVIDERS = frozenset({"litellm"})
+
     def __init__(
         self,
         socket_path: Path,
         litellm_url: str | None = None,
         on_error: Callable[[str], None] | None = None,
+        model_provider: str | None = None,
     ):
         """Initialize the LLM socket proxy.
 
@@ -92,6 +98,10 @@ class LLMSocketProxy:
             socket_path: Path where the Unix socket will be created.
             litellm_url: Managed LiteLLM service URL for shared-service runs.
             on_error: Callback invoked when an error (e.g., auth failure) is detected.
+            model_provider: The agent's model provider name.  When the
+                provider is a bypass provider (e.g. ``"litellm"``), the proxy
+                automatically strips the Authorization header and
+                Anthropic-specific reasoning fields before forwarding.
         """
         self.socket_path = socket_path
         self.litellm_url = (
@@ -103,6 +113,7 @@ class LLMSocketProxy:
         self._client: httpx.AsyncClient | None = None
         self._on_error = on_error
         self._error_emitted = False  # Only call callback once
+        self._is_bypass = model_provider in self._BYPASS_PROVIDERS
 
     async def start(self) -> None:
         """Start the Unix socket server.
@@ -179,6 +190,38 @@ class LLMSocketProxy:
             logger.error("LLM proxy error", error=message, **_load_fields())
             if self._on_error:
                 self._on_error(message)
+
+    _REASONING_FIELDS = ("thinking", "reasoning_effort")
+
+    @staticmethod
+    def _strip_reasoning_fields_from_request(
+        body: bytes, headers: dict[str, str]
+    ) -> tuple[bytes, dict[str, str]]:
+        """Remove adaptive thinking / reasoning fields from a JSON request body.
+
+        Strips ``thinking`` and ``reasoning_effort`` top-level keys and returns
+        the updated body with a corrected ``Content-Length`` header.
+        """
+        try:
+            data = orjson.loads(body)
+        except orjson.JSONDecodeError:
+            return body, headers
+
+        changed = False
+        for field in LLMSocketProxy._REASONING_FIELDS:
+            if field in data:
+                del data[field]
+                changed = True
+
+        if not changed:
+            return body, headers
+
+        new_body = orjson.dumps(data)
+        headers = {
+            key: (str(len(new_body)) if key.lower() == "content-length" else value)
+            for key, value in headers.items()
+        }
+        return new_body, headers
 
     @staticmethod
     def _is_client_disconnect_error(exc: Exception) -> bool:
@@ -374,11 +417,18 @@ class LLMSocketProxy:
         method = str(request["method"])
         headers = cast(dict[str, str], request["headers"])
         body = cast(bytes, request["body"])
+
+        if self._is_bypass and body:
+            body, headers = self._strip_reasoning_fields_from_request(body, headers)
+
         url = f"{self.litellm_url}{path}"
+        excluded_headers = {"host", "connection", "transfer-encoding"}
+        if self._is_bypass:
+            excluded_headers.add("authorization")
         forward_headers = {
             key: value
             for key, value in headers.items()
-            if key.lower() not in ("host", "connection", "transfer-encoding")
+            if key.lower() not in excluded_headers
         }
 
         try:

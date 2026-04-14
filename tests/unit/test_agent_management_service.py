@@ -81,6 +81,55 @@ async def test_with_preset_config_sets_registry_and_env_context(role: Role) -> N
 
 
 @pytest.mark.anyio
+async def test_with_preset_config_loads_litellm_base_url_from_workspace_secret(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.presets = cast(
+        AgentPresetService,
+        SimpleNamespace(
+            resolve_agent_preset_config=AsyncMock(
+                return_value=AgentConfig(
+                    model_name="customer-alias",
+                    model_provider="litellm",
+                    base_url=None,
+                )
+            )
+        ),
+    )
+    service.get_workspace_provider_credentials = AsyncMock(
+        return_value={"LITELLM_BASE_URL": "https://litellm.customer.example"}
+    )
+
+    async with service.with_preset_config(
+        preset_id=uuid.uuid4(),
+        use_workspace_credentials=True,
+    ) as config:
+        assert config.model_provider == "litellm"
+        assert config.base_url == "https://litellm.customer.example"
+
+    service.get_workspace_provider_credentials.assert_awaited_once_with("litellm")
+
+
+@pytest.mark.anyio
+async def test_list_providers_includes_virtual_litellm_provider(role: Role) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+
+    providers = await service.list_providers()
+
+    assert "litellm" in providers
+
+
+@pytest.mark.anyio
+async def test_check_provider_credentials_treats_litellm_as_available(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+
+    assert await service.check_provider_credentials("litellm") is True
+
+
+@pytest.mark.anyio
 async def test_get_runtime_provider_credentials_injects_bedrock_external_id(
     role: Role,
 ) -> None:

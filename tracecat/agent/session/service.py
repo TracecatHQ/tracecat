@@ -1307,11 +1307,13 @@ class AgentSessionService(BaseWorkspaceService):
                 async with agent_svc.with_model_config(
                     use_workspace_credentials=True
                 ) as model_config:
+                    self.logger.warning("HERE 2", cfg=model_config)
                     yield AgentConfig(
                         instructions=instructions,
                         model_name=model_config.name,
                         model_provider=model_config.provider,
                         actions=None,
+                        base_url=model_config.base_url,
                     )
             except TracecatNotFoundError as exc:
                 raise ValueError(

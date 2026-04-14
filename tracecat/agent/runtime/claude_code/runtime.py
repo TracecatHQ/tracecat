@@ -37,10 +37,7 @@ from claude_agent_sdk.types import (
     UserMessage,
 )
 
-from tracecat.agent.common.config import (
-    TRACECAT__DISABLE_NSJAIL,
-    TRACECAT__LITELLM_BASE_URL,
-)
+from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -61,18 +58,8 @@ from tracecat.agent.runtime.claude_code.adapter import ClaudeSDKAdapter
 from tracecat.logger import logger
 
 
-def get_litellm_url(*, enable_internet_access: bool) -> str:
-    """Get the LiteLLM base URL for the Claude SDK.
-
-    When internet access is enabled the runtime talks directly to the managed
-    LiteLLM service.  Otherwise it goes through the local LLM bridge that
-    forwards requests over the Unix socket.
-    """
-    if enable_internet_access:
-        if litellm_url := (
-            os.environ.get("TRACECAT__LITELLM_BASE_URL") or TRACECAT__LITELLM_BASE_URL
-        ):
-            return litellm_url.rstrip("/")
+def get_llm_proxy_url() -> str:
+    """Get the LLM proxy base URL for the Claude SDK."""
 
     port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT")
     if not port:
@@ -80,6 +67,44 @@ def get_litellm_url(*, enable_internet_access: bool) -> str:
             "TRACECAT__LLM_BRIDGE_PORT is not set — LLM bridge was not started"
         )
     return f"http://127.0.0.1:{port}"
+
+
+_LITELLM_ROUTE_PREFIXES: dict[str, str] = {
+    "openai": "openai",
+    "anthropic": "anthropic",
+    "gemini": "gemini",
+    "vertex_ai": "vertex_ai",
+    "bedrock": "bedrock",
+    "azure_openai": "azure",
+    "azure_ai": "azure_ai",
+    "custom-model-provider": "openai",
+}
+
+
+def get_litellm_route_model(*, model_provider: str, model_name: str) -> str:
+    """Prefix model names so LiteLLM enters the intended provider route.
+
+    Claude Code speaks to LiteLLM through the Anthropic-compatible
+    ``/v1/messages`` surface. LiteLLM chooses the provider route from the
+    incoming ``model`` string before Tracecat's credential hook rewrites the
+    final provider-specific model ID, so unqualified model names can fall
+    through to the OpenAI catch-all route.
+    """
+    if model_provider == "litellm":
+        # Hitting tenant's LiteLLM proxy, pass through
+        return model_name
+
+    # Tracecat specific LiteLLM logic
+    if any(
+        model_name.startswith(f"{prefix}/")
+        for prefix in set(_LITELLM_ROUTE_PREFIXES.values())
+    ):
+        return model_name
+
+    if prefix := _LITELLM_ROUTE_PREFIXES.get(model_provider):
+        return f"{prefix}/{model_name}"
+
+    return model_name
 
 
 def _configure_claude_sdk_process_env() -> None:
@@ -660,9 +685,7 @@ class ClaudeAgentRuntime:
                 fork_session=fork_session,  # If True, creates new session from parent's history
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
-                    "ANTHROPIC_BASE_URL": get_litellm_url(
-                        enable_internet_access=payload.config.enable_internet_access
-                    ),
+                    "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
                     **(
                         {
                             "CLAUDE_CODE_AUTO_COMPACT_WINDOW": CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
@@ -670,8 +693,16 @@ class ClaudeAgentRuntime:
                         if payload.config.model_provider == "custom-model-provider"
                         else {}
                     ),
+                    **(
+                        {"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1"}
+                        if payload.config.model_provider == "litellm"
+                        else {}
+                    ),
                 },
-                model=payload.config.model_name,
+                model=get_litellm_route_model(
+                    model_provider=payload.config.model_provider,
+                    model_name=payload.config.model_name,
+                ),
                 system_prompt=self._build_system_prompt(
                     payload.config.instructions, payload.config.output_type
                 ),

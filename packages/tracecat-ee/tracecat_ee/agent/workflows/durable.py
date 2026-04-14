@@ -32,6 +32,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
         resolve_agent_preset_config_activity,
+        resolve_litellm_config_activity,
     )
     from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage, ToolFilters
     from tracecat.agent.session.activities import (
@@ -278,6 +279,21 @@ class DurableAgentWorkflow:
                     non_retryable=True,
                 )
             cfg = args.agent_args.config
+
+        # Resolve litellm base url, model name etc
+        if cfg.model_provider == "litellm":
+            result = await workflow.execute_activity(
+                resolve_litellm_config_activity,
+                args=(
+                    self.role,
+                    args.agent_args.use_workspace_credentials,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            cfg.base_url = result.base_url
+            if result.model_name:
+                cfg.model_name = result.model_name
         return cfg
 
     @workflow.run

@@ -38,6 +38,25 @@ def _make_executor_input(*, enable_internet_access: bool) -> AgentExecutorInput:
     )
 
 
+def _make_litellm_executor_input(
+    *, enable_internet_access: bool, base_url: str = "https://customer-litellm.example"
+) -> AgentExecutorInput:
+    return AgentExecutorInput(
+        session_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        user_prompt="hello",
+        config=AgentConfig(
+            model_name="customer-alias",
+            model_provider="litellm",
+            base_url=base_url,
+            enable_internet_access=enable_internet_access,
+        ),
+        role=Role(type="service", service_id="tracecat-agent-executor"),
+        mcp_auth_token="mcp-token",
+        llm_gateway_auth_token="llm-token",
+    )
+
+
 class _FakeLoopbackHandler:
     def __init__(self, input: object) -> None:
         self.input = input
@@ -82,11 +101,26 @@ class _FakeProcess:
 
 
 @pytest.mark.anyio
-async def test_executor_skips_llm_socket_proxy_for_direct_litellm_runs(
+async def test_executor_always_starts_llm_socket_proxy(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """The executor always creates the LLM socket proxy, even with internet access enabled."""
     monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
+
+    created_socket_paths: list[Path] = []
+
+    class _FakeProxy:
+        started = False
+        stopped = False
+
+        async def start(self) -> None:
+            self.started = True
+
+        async def stop(self) -> None:
+            self.stopped = True
+
+    fake_proxy = _FakeProxy()
 
     async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
         socket_dir = tmp_path / "sockets"
@@ -102,11 +136,18 @@ async def test_executor_skips_llm_socket_proxy_for_direct_litellm_runs(
         return _FakeServer()
 
     async def fake_spawn_jailed_runtime(**kwargs: object) -> SpawnedRuntime:
-        assert kwargs["llm_socket_path"] is None
+        assert kwargs["llm_socket_path"] == tmp_path / "sockets" / LLM_SOCKET_NAME
         return SpawnedRuntime(
             process=cast(asyncio.subprocess.Process, _FakeProcess()),
             job_dir=None,
         )
+
+    def fake_create_llm_socket_proxy(
+        self: SandboxedAgentExecutor,
+        socket_path: Path,
+    ) -> _FakeProxy:
+        created_socket_paths.append(socket_path)
+        return fake_proxy
 
     monkeypatch.setattr(
         SandboxedAgentExecutor,
@@ -126,9 +167,7 @@ async def test_executor_skips_llm_socket_proxy_for_direct_litellm_runs(
     monkeypatch.setattr(
         SandboxedAgentExecutor,
         "_create_llm_socket_proxy",
-        lambda self, socket_path: (_ for _ in ()).throw(
-            AssertionError(f"unexpected LLM socket proxy for {socket_path}")
-        ),
+        fake_create_llm_socket_proxy,
     )
 
     executor = SandboxedAgentExecutor(
@@ -137,7 +176,9 @@ async def test_executor_skips_llm_socket_proxy_for_direct_litellm_runs(
     result = await executor.run()
 
     assert result.success is True
-    assert executor._llm_proxy is None
+    assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
+    assert fake_proxy.started is True
+    assert fake_proxy.stopped is True
 
 
 @pytest.mark.anyio
@@ -211,6 +252,86 @@ async def test_executor_starts_llm_socket_proxy_for_isolated_litellm_runs(
 
     executor = SandboxedAgentExecutor(
         input=_make_executor_input(enable_internet_access=False),
+    )
+    result = await executor.run()
+
+    assert result.success is True
+    assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
+    assert fake_proxy.started is True
+    assert fake_proxy.stopped is True
+
+
+@pytest.mark.anyio
+async def test_executor_starts_llm_socket_proxy_for_litellm_provider_with_internet_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
+
+    created_socket_paths: list[Path] = []
+
+    class _FakeProxy:
+        started = False
+        stopped = False
+
+        async def start(self) -> None:
+            self.started = True
+
+        async def stop(self) -> None:
+            self.stopped = True
+
+    fake_proxy = _FakeProxy()
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        socket_dir = tmp_path / "sockets"
+        socket_dir.mkdir(parents=True)
+        return tmp_path
+
+    async def fake_start_unix_server(
+        callback: Callable[[object, object], Awaitable[None]],
+        path: str,
+    ) -> _FakeServer:
+        del path
+        await callback(object(), object())
+        return _FakeServer()
+
+    async def fake_spawn_jailed_runtime(**kwargs: object) -> SpawnedRuntime:
+        assert kwargs["llm_socket_path"] == tmp_path / "sockets" / LLM_SOCKET_NAME
+        return SpawnedRuntime(
+            process=cast(asyncio.subprocess.Process, _FakeProcess()),
+            job_dir=None,
+        )
+
+    def fake_create_llm_socket_proxy(
+        self: SandboxedAgentExecutor,
+        socket_path: Path,
+    ) -> _FakeProxy:
+        created_socket_paths.append(socket_path)
+        return fake_proxy
+
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        executor_activity.asyncio,
+        "start_unix_server",
+        fake_start_unix_server,
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "spawn_jailed_runtime",
+        fake_spawn_jailed_runtime,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_llm_socket_proxy",
+        fake_create_llm_socket_proxy,
+    )
+
+    executor = SandboxedAgentExecutor(
+        input=_make_litellm_executor_input(enable_internet_access=True),
     )
     result = await executor.run()
 
@@ -406,6 +527,62 @@ async def test_sandbox_entrypoint_starts_bridge_for_isolated_litellm_runs(
         del reader
         assert expected_type is MessageType.INIT
         return expected_type, _runtime_init_payload_bytes(enable_internet_access=False)
+
+    monkeypatch.setattr(
+        sandbox_entrypoint.asyncio,
+        "open_unix_connection",
+        fake_open_unix_connection,
+    )
+    monkeypatch.setattr(
+        sandbox_entrypoint,
+        "SocketStreamWriter",
+        _DummySocketStreamWriter,
+    )
+    monkeypatch.setattr(sandbox_entrypoint, "read_message", fake_read_message)
+    monkeypatch.setattr(sandbox_entrypoint, "LLMBridge", _DummyBridge)
+    monkeypatch.setattr(sandbox_entrypoint, "_load_runtime", lambda _: _DummyRuntime)
+
+    await sandbox_entrypoint.run_sandboxed_runtime()
+
+    assert len(_DummyBridge.instances) == 1
+    assert _DummyBridge.instances[0].started is True
+    assert _DummyBridge.instances[0].stopped is True
+    assert sandbox_entrypoint.os.environ["TRACECAT__LLM_BRIDGE_PORT"] == "4312"
+
+
+@pytest.mark.anyio
+async def test_sandbox_entrypoint_starts_bridge_for_litellm_provider_with_internet_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TRACECAT__LITELLM_BASE_URL", "http://litellm:4000")
+    monkeypatch.delenv("TRACECAT__LLM_BRIDGE_PORT", raising=False)
+    _DummyBridge.instances.clear()
+
+    payload = RuntimeInitPayload(
+        session_id=uuid.uuid4(),
+        mcp_auth_token="mcp-token",
+        llm_gateway_auth_token="llm-token",
+        user_prompt="hello",
+        config=SandboxAgentConfig(
+            model_name="customer-alias",
+            model_provider="litellm",
+            base_url="https://customer-litellm.example",
+            enable_internet_access=True,
+        ),
+    )
+
+    async def fake_open_unix_connection(path: Path) -> tuple[object, object]:
+        assert path == sandbox_entrypoint.TRACECAT__AGENT_CONTROL_SOCKET_PATH
+        return object(), object()
+
+    async def fake_read_message(
+        reader: object,
+        *,
+        expected_type: MessageType,
+    ) -> tuple[MessageType, bytes]:
+        del reader
+        assert expected_type is MessageType.INIT
+        return expected_type, orjson.dumps(payload.to_dict())
 
     monkeypatch.setattr(
         sandbox_entrypoint.asyncio,

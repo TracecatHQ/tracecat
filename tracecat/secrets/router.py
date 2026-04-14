@@ -45,6 +45,18 @@ WorkspaceUser = Annotated[
     ),
 ]
 
+_AGENT_WORKSPACE_SECRET_DEFINITIONS = (
+    SecretDefinition(
+        name="litellm",
+        keys=["LITELLM_BASE_URL"],
+        optional_keys=None,
+        optional=False,
+        secret_type=SecretType.CUSTOM,
+        actions=["agent.presets"],
+        action_count=1,
+    ),
+)
+
 
 def _serialize_secret_read_minimal(
     *,
@@ -135,9 +147,16 @@ async def list_secret_definitions(
     role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> list[SecretDefinition]:
-    """List registry secret definitions."""
+    """List registry secret definitions plus built-in agent credential templates."""
     service = RegistryActionsService(session, role=role)
-    return await service.get_aggregated_secrets()
+    definitions = await service.get_aggregated_secrets()
+    by_name = {definition.name: definition for definition in definitions}
+    for definition in _AGENT_WORKSPACE_SECRET_DEFINITIONS:
+        by_name.setdefault(definition.name, definition)
+    return sorted(
+        by_name.values(),
+        key=lambda definition: (-definition.action_count, definition.name),
+    )
 
 
 @router.get("/aws-assume-role", response_model=AwsAssumeRoleAccessRead)

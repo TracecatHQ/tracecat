@@ -4023,6 +4023,10 @@ export type ModelConfig = {
    * The secrets to use for this model. This is used to determine which organization secret to use for this model.
    */
   secrets: ModelSecretConfig
+  /**
+   * The base URL for the model. This is used to determine which organization secret to use for this model.
+   */
+  base_url?: string | null
 }
 
 /**
