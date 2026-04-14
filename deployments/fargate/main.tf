@@ -168,6 +168,7 @@ module "ecs" {
   tracecat_db_allocated_storage               = local.tracecat_db_allocated_storage
   temporal_db_allocated_storage               = local.temporal_db_allocated_storage
   db_engine_version                           = var.db_engine_version
+  redis_node_type                             = var.redis_node_type
 
   # LiteLLM Service
   litellm_cpu           = var.litellm_cpu

@@ -1,0 +1,508 @@
+---
+title: Kubernetes
+description: Deploy Tracecat to Kubernetes using the OCI Helm chart.
+---
+
+<Info>
+  The Tracecat Helm chart is distributed as an OCI artifact hosted in AWS ECR.
+  Contact the Tracecat team at [founders@tracecat.com](mailto:founders@tracecat.com) or via [Discord](https://discord.gg/H4XZwsYzY4) for access to the registry for evaluations and internal use.
+</Info>
+
+## Prerequisites
+
+- Kubernetes 1.27+
+- Helm 3.12+ (with OCI support)
+- `kubectl` configured for your target cluster
+- Access to the Tracecat OCI Helm chart (see above)
+- External PostgreSQL instance (e.g., Amazon RDS, Cloud SQL)
+- External Redis instance (e.g., Amazon ElastiCache, Memorystore)
+- S3-compatible object storage (e.g., Amazon S3, MinIO)
+- `openssl` (for generating secrets)
+
+## Core secrets
+
+Tracecat requires four cryptographic secrets.
+
+<Snippet file="generate-secrets.mdx" />
+
+## Secrets management
+
+The Helm chart supports three strategies for providing secrets to Tracecat pods.
+
+<Tabs>
+  <Tab title="External Secrets Operator (recommended)">
+    The chart creates `ExternalSecret` resources that sync from AWS Secrets Manager into Kubernetes secrets via a `ClusterSecretStore`.
+    You need [External Secrets Operator](https://external-secrets.io) installed and a `ClusterSecretStore` configured with IRSA.
+
+    ```yaml
+    externalSecrets:
+      enabled: true
+      clusterSecretStoreRef: "my-cluster-secret-store"
+
+      coreSecrets:
+        enabled: true
+        secretArn: "arn:aws:secretsmanager:us-west-2:123456789012:secret:tracecat/core"
+
+      postgres:
+        enabled: true
+        secretArn: "arn:aws:secretsmanager:us-west-2:123456789012:secret:tracecat/postgres"
+
+      redis:
+        enabled: true
+        secretArn: "arn:aws:secretsmanager:us-west-2:123456789012:secret:tracecat/redis"
+    ```
+
+    Expected secret formats in AWS Secrets Manager:
+
+    | Secret | Format |
+    | :----- | :----- |
+    | Core | JSON: `{ "dbEncryptionKey": "...", "serviceKey": "...", "signingSecret": "...", "userAuthSecret": "..." }` |
+    | PostgreSQL | JSON: `{ "username": "...", "password": "..." }` |
+    | Redis | Raw URL string, e.g. `rediss://:password@host:6379` |
+    | Temporal | Raw API key string |
+
+    The chart refreshes secrets every `1m` by default. Override with `externalSecrets.refreshInterval`.
+  </Tab>
+
+  <Tab title="Existing Kubernetes secret">
+    Reference a secret you created with `kubectl` or your GitOps pipeline.
+
+    ```bash
+    kubectl create secret generic tracecat-secrets \
+      --namespace tracecat \
+      --from-literal=dbEncryptionKey="$(openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_')" \
+      --from-literal=serviceKey="$(openssl rand -hex 32)" \
+      --from-literal=signingSecret="$(openssl rand -hex 32)" \
+      --from-literal=userAuthSecret="$(openssl rand -hex 32)"
+    ```
+
+    Then set `secrets.existingSecret` in your values:
+
+    ```yaml
+    secrets:
+      existingSecret: "tracecat-secrets"
+    ```
+
+    You also need separate secrets for PostgreSQL and Redis, referenced by `externalPostgres.auth.existingSecret` and `externalRedis.auth.existingSecret`.
+  </Tab>
+
+  <Tab title="Chart-managed secret templates">
+    <Info>
+      Only use this approach if secret values are encrypted in your repository and injected at deploy time through a pipeline like ArgoCD with sealed secrets or SOPS.
+      Storing plaintext secrets in version control is not safe.
+    </Info>
+
+    ```yaml
+    secrets:
+      create:
+        tracecat:
+          enabled: true
+          dbEncryptionKey: "${DB_ENCRYPTION_KEY}"
+          serviceKey: "${SERVICE_KEY}"
+          signingSecret: "${SIGNING_SECRET}"
+          userAuthSecret: "${USER_AUTH_SECRET}"
+
+        postgres:
+          enabled: true
+          username: "${DB_USERNAME}"
+          password: "${DB_PASSWORD}"
+
+        redis:
+          enabled: true
+          url: "${REDIS_URL}"
+    ```
+
+    The chart renders these as Helm pre-install hooks so they exist before the migrations job runs.
+  </Tab>
+</Tabs>
+
+## External services
+
+The Helm chart does not bundle databases. You must provide connection details for PostgreSQL, Redis, S3, and Temporal.
+
+### PostgreSQL
+
+```yaml
+externalPostgres:
+  host: "your-rds-instance.us-west-2.rds.amazonaws.com"
+  port: 5432
+  database: tracecat
+  sslMode: "require"
+  auth:
+    existingSecret: "tracecat-postgres-credentials"  # keys: username, password
+  tls:
+    verifyCA: true
+    caCert: |
+      -----BEGIN CERTIFICATE-----
+      ...RDS CA bundle...
+      -----END CERTIFICATE-----
+```
+
+For Amazon RDS, download the global CA bundle from the [AWS trust store](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem).
+
+### Redis
+
+```yaml
+externalRedis:
+  auth:
+    existingSecret: "tracecat-redis-credentials"  # key: url
+```
+
+The `url` key should be a full Redis connection string, e.g. `rediss://:password@host:6379`. Use `rediss://` (double s) for TLS.
+
+### S3
+
+```yaml
+externalS3:
+  endpoint: ""        # leave empty for AWS S3
+  region: "us-west-2"
+  auth:
+    existingSecret: "tracecat-s3-credentials"  # keys: accessKeyId, secretAccessKey
+```
+
+When using IRSA for S3 access, omit `auth.existingSecret` and annotate the service account instead (see [Service accounts](#service-accounts)).
+
+### Temporal
+
+<Tabs>
+  <Tab title="Self-hosted (bundled)">
+    The chart includes a Temporal subchart. Point it at your external PostgreSQL instance for persistence.
+
+    ```yaml
+    temporal:
+      enabled: true
+      server:
+        config:
+          persistence:
+            datastores:
+              default:
+                sql:
+                  connectAddr: "your-rds-host:5432"
+                  user: "temporal"
+                  existingSecret: "tracecat-postgres-credentials"
+              visibility:
+                sql:
+                  connectAddr: "your-rds-host:5432"
+                  user: "temporal"
+                  existingSecret: "tracecat-postgres-credentials"
+    ```
+
+    The Temporal schema setup job runs automatically and creates the `temporal` and `temporal_visibility` databases if they do not exist.
+  </Tab>
+
+  <Tab title="Temporal Cloud">
+    Disable the bundled subchart and point to your Temporal Cloud namespace.
+
+    ```yaml
+    temporal:
+      enabled: false
+
+    externalTemporal:
+      enabled: true
+      clusterUrl: "your-namespace.tmprl.cloud:7233"
+      clusterNamespace: "your-namespace"
+      auth:
+        existingSecret: "tracecat-temporal-credentials"  # key: apiKey
+    ```
+  </Tab>
+</Tabs>
+
+## Service accounts
+
+The chart creates a shared `tracecat-app` service account for most workloads (API, worker, migrations). Optionally create dedicated service accounts for executor, agent-executor, and litellm.
+
+### IRSA (EKS)
+
+Annotate service accounts with an IAM role ARN for AWS API access (S3, Secrets Manager, Bedrock).
+
+```yaml
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/tracecat-app"
+
+executor:
+  serviceAccount:
+    create: true
+    name: "tracecat-executor"
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/tracecat-executor"
+```
+
+Dedicated executor service accounts let you scope S3 and secret permissions separately from the main application role.
+
+<Info>
+  Cross-account role assumption is supported.
+  Set `tracecat.aws.assumeRoleAccountId` and `tracecat.aws.assumeRolePrincipalArn` to assume roles in other AWS accounts from the executor.
+</Info>
+
+## Networking
+
+The chart supports Kubernetes Ingress and Istio VirtualService for external traffic routing.
+
+<Tabs>
+  <Tab title="Ingress">
+    The chart creates a single Ingress resource with path-based routing. Set `ingress.split: true` to generate separate Ingress resources per service (useful when the API requires different annotations than the UI, such as longer timeouts).
+
+    ```yaml
+    ingress:
+      enabled: true
+      className: "alb"  # or nginx, traefik, etc.
+      host: "tracecat.example.com"
+      annotations:
+        alb.ingress.kubernetes.io/scheme: internet-facing
+      tls:
+        - hosts:
+            - tracecat.example.com
+          secretName: tracecat-tls
+    ```
+
+    Default path routing:
+
+    | Path | Service | Port |
+    | :--- | :------ | :--- |
+    | `/api` | api | 8000 |
+    | `/mcp` | mcp | 8099 |
+    | `/` | ui | 3000 |
+
+    MCP routes (`/mcp`, `/.well-known/oauth-*`, `/authorize`, `/token`, `/register`, `/consent`, `/auth/callback`) are included automatically when `mcp.enabled: true`.
+  </Tab>
+
+  <Tab title="Istio VirtualService">
+    Disable `ingress.enabled` when using VirtualServices to avoid conflicting resources.
+
+    ```yaml
+    ingress:
+      enabled: false
+
+    virtualService:
+      enabled: true
+      tracecat:
+        enabled: true
+        configs:
+          - name: tracecat
+            hosts:
+              - "tracecat.example.com"
+            gateways:
+              - "istio-system/my-gateway"
+    ```
+
+    Optional webhook and Temporal Web UI VirtualServices are available via `virtualService.webhooks` and `virtualService.temporal`.
+  </Tab>
+</Tabs>
+
+## Installation
+
+<Steps>
+  <Step title="Add the OCI registry">
+    ```bash
+    helm registry login <ecr-registry-url>
+    ```
+
+    Use the credentials provided by the Tracecat team.
+  </Step>
+
+  <Step title="Create your values file">
+    Combine secrets, external services, networking, and URL configuration from the sections above into a single `values.yaml`.
+
+    ```yaml
+    secrets:
+      existingSecret: "tracecat-secrets"
+
+    urls:
+      publicApp: "https://tracecat.example.com"
+      publicApi: "https://tracecat.example.com/api"
+
+    tracecat:
+      auth:
+        types: "oidc"
+        superadminEmail: "admin@example.com"
+
+    ingress:
+      enabled: true
+      className: "alb"
+      host: "tracecat.example.com"
+
+    externalPostgres:
+      host: "your-db-host"
+      auth:
+        existingSecret: "tracecat-postgres-credentials"
+
+    externalRedis:
+      auth:
+        existingSecret: "tracecat-redis-credentials"
+
+    externalS3:
+      region: "us-west-2"
+    ```
+  </Step>
+
+  <Step title="Install the chart">
+    ```bash
+    helm install tracecat oci://<ecr-registry-url>/tracecat \
+      --version <chart-version> \
+      --namespace tracecat --create-namespace \
+      -f values.yaml \
+      --wait --timeout 10m
+    ```
+
+    Replace `<chart-version>` with the version provided by the Tracecat team (e.g. `0.4.5`).
+    The `--wait` flag blocks until all pods are ready. Initial provisioning takes a few minutes depending on Temporal schema setup.
+  </Step>
+</Steps>
+
+## Access Tracecat
+
+Once deployed, access your instance at:
+
+- UI: `https://<your-domain>`
+- API docs: `https://<your-domain>/api/docs`
+- MCP: `https://<your-domain>/mcp`
+
+## Upgrading
+
+```bash
+helm upgrade tracecat oci://<ecr-registry-url>/tracecat \
+  --version <chart-version> \
+  --namespace tracecat \
+  -f values.yaml \
+  --wait --timeout 10m
+```
+
+<Warning>
+  Do not change or lose your `dbEncryptionKey`, `serviceKey`, `signingSecret`, or `userAuthSecret` values between upgrades.
+  Losing these secrets makes encrypted credentials unrecoverable and invalidates existing webhook URLs.
+</Warning>
+
+## Security
+
+### Execution sandboxing
+
+The chart enables nsjail by default (`tracecat.sandbox.disableNsjail: false`). nsjail isolates user-defined Python scripts and custom actions inside the executor.
+
+```yaml
+tracecat:
+  sandbox:
+    disableNsjail: false  # default
+```
+
+nsjail requires privileged pods with `SYS_ADMIN` capability and an `Unconfined` seccomp profile. The chart sets these automatically on executor and agent-executor containers.
+
+See [Security](/self-hosting/security) for backend choices (`pool`, `ephemeral`, `direct`) and isolation tradeoffs.
+
+### Authentication
+
+Set `tracecat.auth.types` to `oidc` or `saml` for production deployments. See [OIDC](/authentication/oidc) and [SAML](/authentication/saml) for configuration details.
+
+## Autoscaling
+
+The chart uses KEDA with a Temporal queue-based scaler to auto-scale worker, executor, and agent-executor deployments.
+
+Prerequisites:
+- `keda.enabled: true` (installs the KEDA subchart)
+- `metricsserver.enabled: true` (or an existing metrics-server in the cluster)
+
+```yaml
+keda:
+  enabled: true
+
+metricsserver:
+  enabled: true
+
+worker:
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 8
+    targetQueueSize: 5
+    cooldownPeriod: 120
+
+executor:
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 8
+```
+
+When autoscaling is enabled, the static `replicas` value is ignored. KEDA polls the Temporal task queue and scales based on queue depth.
+
+## Minimum resources
+
+These are the default resource requests and limits from the chart.
+
+| Component | CPU request | Memory request | CPU limit | Memory limit | Default replicas |
+| :-------- | :---------- | :------------- | :-------- | :----------- | :--------------- |
+| UI | 500m | 512Mi | 500m | 1024Mi | 1 |
+| API | 2000m | 4096Mi | 2000m | 4096Mi | 2 |
+| Worker | 2000m | 2048Mi | 2000m | 2048Mi | 4 |
+| Executor | 4000m | 8192Mi | 4000m | 8192Mi | 4 |
+| Agent executor | 2000m | 4096Mi | 4000m | 16384Mi | 2 |
+| Agent worker | 2000m | 2048Mi | 2000m | 2048Mi | 2 |
+| LiteLLM | 4000m | 8192Mi | 4000m | 8192Mi | 2 |
+| MCP | 1000m | 1024Mi | 1000m | 1024Mi | 2 |
+
+<Info>
+  The agent executor uses burstable limits (requests 2000m/4096Mi, limits 4000m/16384Mi) to handle variable LLM response sizes.
+  All other services use guaranteed QoS where requests equal limits.
+</Info>
+
+## Observability
+
+The chart bundles optional subcharts for Prometheus, Grafana, and Grafana Alloy (k8s-monitoring).
+
+```yaml
+tracecat:
+  temporal:
+    metrics:
+      enabled: true
+
+monitoring:
+  enabled: true
+
+prometheus:
+  enabled: true
+
+grafana:
+  enabled: true
+  adminPassword: "change-me"
+```
+
+For Grafana Cloud or other external providers, enable only `tracecat.temporal.metrics.enabled` and configure your own scraping. See `values-eks-grafana-cloud.yaml` in the chart examples directory.
+
+<Info>
+  For production observability with custom dashboards, OpenTelemetry export, and alerting, contact the Tracecat team for enterprise support.
+</Info>
+
+## FAQ
+
+<AccordionGroup>
+  <Accordion title="Can executors assume cross-account AWS roles?">
+    Yes. Set `tracecat.aws.assumeRoleAccountId` and `tracecat.aws.assumeRolePrincipalArn` in your values.
+    The executor uses STS `AssumeRole` to access resources in other AWS accounts.
+    Ensure the target account's trust policy allows the executor's IRSA role.
+  </Accordion>
+
+  <Accordion title="I'm seeing 'No hosts available' errors from Temporal">
+    Undersized Temporal clusters cause this error. Ensure the Temporal server pods have at least 4 CPU cores and 8 GB of memory.
+
+    If using self-hosted Temporal with an external PostgreSQL, verify the database can handle the query throughput.
+    Managed services like Amazon Aurora Serverless are recommended for production workloads.
+  </Accordion>
+
+  <Accordion title="Does the chart support autoscaling?">
+    Yes. The chart includes KEDA `ScaledObject` resources for worker, executor, and agent-executor.
+    Set `keda.enabled: true` and `<component>.autoscaling.enabled: true`.
+    Scaling is driven by Temporal task queue depth, not CPU or memory utilization.
+  </Accordion>
+
+  <Accordion title="Can I use non-AWS infrastructure?">
+    Yes. The chart requires PostgreSQL, Redis, and S3-compatible storage but does not require AWS.
+    Use any provider for these services.
+    For secrets management without AWS Secrets Manager, use the existing Kubernetes secret or chart-managed secret template strategies instead of External Secrets Operator.
+  </Accordion>
+
+  <Accordion title="How do I pin workloads to a specific CPU architecture?">
+    Set `scheduling.architecture` to `arm64` or `amd64`. The chart adds a `kubernetes.io/arch` node selector to all pods.
+    Set it to an empty string to disable architecture pinning.
+  </Accordion>
+</AccordionGroup>

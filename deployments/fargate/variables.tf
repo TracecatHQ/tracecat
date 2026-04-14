@@ -382,12 +382,12 @@ variable "ui_memory" {
 
 variable "api_cpu" {
   type    = string
-  default = "1024"
+  default = "2048"
 }
 
 variable "api_memory" {
   type    = string
-  default = "2048"
+  default = "4096"
 }
 
 variable "api_desired_count" {
@@ -767,6 +767,14 @@ variable "temporal_db_snapshot_name" {
   type        = string
   description = "(Optional) Exact snapshot identifier to use when restoring the temporal database"
   default     = null
+}
+
+### Redis
+
+variable "redis_node_type" {
+  type        = string
+  description = "ElastiCache Redis node type"
+  default     = "cache.t4g.small"
 }
 
 variable "sentry_dsn" {

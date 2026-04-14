@@ -141,11 +141,11 @@ Docker Swarm lets you scale individual services with resource limits and replica
 | ui | 0.5 | 1 Gi | 2 |
 | mcp | 1 | 1 Gi | 1 |
 | postgres_db | 2 | 4 Gi | 1 |
-| temporal | 2 | 4 Gi | 1 |
-| temporal_postgres_db | 1 | 2 Gi | 1 |
+| temporal | 4 | 8 Gi | 1 |
+| temporal_postgres_db | 2 | 4 Gi | 1 |
 | redis | 0.5 | 1 Gi | 1 |
 | minio | 0.5 | 1 Gi | 1 |
-| Total | ~22 | ~46 Gi | 23 |
+| Total | ~25 | ~52 Gi | 23 |
 
 <Info>
   Stateful services (`postgres_db`, `temporal_postgres_db`, `minio`, `redis`) must remain at 1 replica.
@@ -252,6 +252,15 @@ For an overview of all services and networking, see [Architecture](/self-hosting
     - Verify that `PUBLIC_API_URL` is the same origin plus `/api`.
     - Run `docker compose ps` and check that `api`, `worker`, and `temporal` are healthy.
     - Review `docker compose logs api` for startup, auth, or CORS errors.
+  </Accordion>
+
+  <Accordion title="I'm seeing 'No hosts available' errors from Temporal">
+    Undersized Temporal clusters cause `No hosts available` errors and workflow execution failures.
+    Ensure the Temporal server has at least 4 CPU cores and 8 GB of memory.
+
+    Temporal also requires a well-provisioned PostgreSQL backend for adequate query throughput.
+    The bundled `temporal_postgres_db` container is suitable for development and small deployments only.
+    For production workloads, use a managed PostgreSQL instance (e.g., Amazon Aurora Serverless) for better QPS and reliability.
   </Accordion>
 
   <Accordion title="How do I configure SSL for production?">
