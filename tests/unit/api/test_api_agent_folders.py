@@ -66,6 +66,29 @@ async def test_create_folder_missing_parent_returns_404(
 
 
 @pytest.mark.anyio
+async def test_create_folder_blank_name_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Blank folder names should be rejected before path construction."""
+    with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.create_folder.side_effect = TracecatValidationError(
+            "Folder name cannot be empty",
+            detail={"code": AGENT_FOLDER_INVALID_CODE},
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            "/agent-folders",
+            json={"name": "   ", "parent_path": "/"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Folder name cannot be empty"
+
+
+@pytest.mark.anyio
 async def test_update_folder_validation_returns_400(
     client: TestClient,
     test_admin_role: Role,
@@ -86,6 +109,29 @@ async def test_update_folder_validation_returns_400(
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Folder name cannot contain slashes"
+
+
+@pytest.mark.anyio
+async def test_update_folder_blank_name_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Blank folder renames should stay in the 4xx range."""
+    with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.rename_folder.side_effect = TracecatValidationError(
+            "Folder name cannot be empty",
+            detail={"code": AGENT_FOLDER_INVALID_CODE},
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.patch(
+            f"/agent-folders/{uuid.uuid4()}",
+            json={"name": "   "},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Folder name cannot be empty"
 
 
 @pytest.mark.anyio

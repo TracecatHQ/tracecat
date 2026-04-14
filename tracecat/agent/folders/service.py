@@ -48,6 +48,22 @@ class AgentFolderService(BaseWorkspaceService):
     ) -> TracecatValidationError:
         return TracecatValidationError(message, detail={"code": code})
 
+    @staticmethod
+    def _normalize_folder_name(name: str) -> str:
+        """Trim folder names and reject blank values."""
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise AgentFolderService._folder_validation_error(
+                "Folder name cannot be empty",
+                code=AGENT_FOLDER_INVALID_CODE,
+            )
+        if "/" in normalized_name:
+            raise AgentFolderService._folder_validation_error(
+                "Folder name cannot contain slashes",
+                code=AGENT_FOLDER_INVALID_CODE,
+            )
+        return normalized_name
+
     @classmethod
     def _get_parent_path(cls, path: str) -> str:
         """Return the immediate parent path for a normalized folder path."""
@@ -82,11 +98,7 @@ class AgentFolderService(BaseWorkspaceService):
         self, name: str, parent_path: str = "/", commit: bool = True
     ) -> AgentFolder:
         """Create a new agent folder."""
-        if "/" in name:
-            raise self._folder_validation_error(
-                "Folder name cannot contain slashes",
-                code=AGENT_FOLDER_INVALID_CODE,
-            )
+        normalized_name = self._normalize_folder_name(name)
 
         parent_path = self._normalize_folder_path(parent_path)
 
@@ -98,7 +110,11 @@ class AgentFolderService(BaseWorkspaceService):
                     code=AGENT_FOLDER_PARENT_NOT_FOUND_CODE,
                 )
 
-        full_path = f"{parent_path}{name}/" if parent_path != "/" else f"/{name}/"
+        full_path = (
+            f"{parent_path}{normalized_name}/"
+            if parent_path != "/"
+            else f"/{normalized_name}/"
+        )
 
         path_exists = await self._folder_path_exists(full_path)
         if path_exists:
@@ -108,7 +124,7 @@ class AgentFolderService(BaseWorkspaceService):
             )
 
         folder = AgentFolder(
-            name=name,
+            name=normalized_name,
             path=full_path,
             workspace_id=self.workspace_id,
         )
@@ -171,11 +187,7 @@ class AgentFolderService(BaseWorkspaceService):
     @require_scope("agent:update")
     async def rename_folder(self, folder_id: uuid.UUID, new_name: str) -> AgentFolder:
         """Rename a folder. Updates the folder name and path."""
-        if "/" in new_name:
-            raise self._folder_validation_error(
-                "Folder name cannot contain slashes",
-                code=AGENT_FOLDER_INVALID_CODE,
-            )
+        normalized_name = self._normalize_folder_name(new_name)
 
         folder = await self.get_folder(folder_id)
         if not folder:
@@ -187,7 +199,9 @@ class AgentFolderService(BaseWorkspaceService):
         old_path = folder.path
         parent_path = self._get_parent_path(folder.path)
         new_path = (
-            f"{parent_path}{new_name}/" if parent_path != "/" else f"/{new_name}/"
+            f"{parent_path}{normalized_name}/"
+            if parent_path != "/"
+            else f"/{normalized_name}/"
         )
 
         if new_path != old_path:
@@ -200,7 +214,7 @@ class AgentFolderService(BaseWorkspaceService):
 
         descendants = await self._get_descendants(old_path)
 
-        folder.name = new_name
+        folder.name = normalized_name
         folder.path = new_path
         self.session.add(folder)
 

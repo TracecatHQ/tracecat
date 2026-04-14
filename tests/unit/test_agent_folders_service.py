@@ -9,7 +9,7 @@ from tracecat.agent.folders.schemas import AgentFolderDirectoryItem
 from tracecat.agent.folders.service import AgentFolderService
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentPreset
-from tracecat.exceptions import EntitlementRequired
+from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 from tracecat.tiers.enums import Entitlement
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -138,3 +138,34 @@ async def test_get_directory_items_returns_real_direct_item_counts(
     )
 
     assert parent_item.num_items == 4
+
+
+@pytest.mark.anyio
+async def test_create_folder_rejects_blank_name(
+    folder_service: AgentFolderService,
+) -> None:
+    """Folder creation should reject empty or whitespace-only names."""
+    with pytest.raises(TracecatValidationError, match="Folder name cannot be empty"):
+        await folder_service.create_folder(name="   ", parent_path="/")
+
+
+@pytest.mark.anyio
+async def test_create_folder_trims_name_before_persisting(
+    folder_service: AgentFolderService,
+) -> None:
+    """Folder creation should store trimmed names and normalized paths."""
+    folder = await folder_service.create_folder(name="  parent  ", parent_path="/")
+
+    assert folder.name == "parent"
+    assert folder.path == "/parent/"
+
+
+@pytest.mark.anyio
+async def test_rename_folder_rejects_blank_name(
+    folder_service: AgentFolderService,
+) -> None:
+    """Folder renames should reject empty or whitespace-only names."""
+    folder = await folder_service.create_folder(name="parent", parent_path="/")
+
+    with pytest.raises(TracecatValidationError, match="Folder name cannot be empty"):
+        await folder_service.rename_folder(folder.id, "  ")
