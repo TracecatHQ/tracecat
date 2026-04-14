@@ -86,11 +86,6 @@ class ModelConfig(BaseModel):
         description="The secrets to use for this model. This is used to determine "
         "which organization secret to use for this model.",
     )
-    base_url: str | None = Field(
-        default=None,
-        description="The base URL for the model. This is used to determine which "
-        "organization secret to use for this model.",
-    )
 
 
 class ModelSecretConfig(TypedDict):

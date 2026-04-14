@@ -12792,19 +12792,6 @@ export const $ModelConfig = {
       description:
         "The secrets to use for this model. This is used to determine which organization secret to use for this model.",
     },
-    base_url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Base Url",
-      description:
-        "The base URL for the model. This is used to determine which organization secret to use for this model.",
-    },
   },
   type: "object",
   required: ["name", "provider", "org_secret_name", "secrets"],

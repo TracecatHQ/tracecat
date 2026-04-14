@@ -1312,7 +1312,6 @@ class AgentSessionService(BaseWorkspaceService):
                         model_name=model_config.name,
                         model_provider=model_config.provider,
                         actions=None,
-                        base_url=model_config.base_url,
                     )
             except TracecatNotFoundError as exc:
                 raise ValueError(
