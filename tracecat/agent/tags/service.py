@@ -24,6 +24,7 @@ class AgentTagsService(BaseWorkspaceService):
     # --- Tag definitions ---
 
     @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_tags(self) -> Sequence[AgentTag]:
         """List all agent tags in the workspace."""
         statement = select(AgentTag).where(AgentTag.workspace_id == self.workspace_id)
@@ -31,6 +32,7 @@ class AgentTagsService(BaseWorkspaceService):
         return result.scalars().all()
 
     @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_tag(self, tag_id: AgentTagID) -> AgentTag:
         """Get an agent tag by ID."""
         statement = select(AgentTag).where(
@@ -50,6 +52,7 @@ class AgentTagsService(BaseWorkspaceService):
         return result.scalar_one()
 
     @require_scope("agent:create")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_tag(self, tag: TagCreate) -> AgentTag:
         """Create a new agent tag."""
         ref = slugify(tag.name)
@@ -75,6 +78,7 @@ class AgentTagsService(BaseWorkspaceService):
         return db_tag
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def update_tag(self, tag: AgentTag, params: TagUpdate) -> AgentTag:
         """Update an agent tag and regenerate ref if name changed."""
         if params.name and params.name != tag.name:
@@ -99,6 +103,7 @@ class AgentTagsService(BaseWorkspaceService):
         return tag
 
     @require_scope("agent:delete")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_tag(self, tag: AgentTag) -> None:
         """Delete an agent tag definition."""
         await self.session.delete(tag)

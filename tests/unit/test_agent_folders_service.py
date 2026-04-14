@@ -26,8 +26,10 @@ async def folder_service(
 @pytest.mark.anyio
 async def test_list_folders_escapes_like_wildcards(
     folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Listing a subtree should treat percent signs in folder names literally."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
     await folder_service.create_folder(name="foo%", parent_path="/")
     await folder_service.create_folder(name="child", parent_path="/foo%/")
     await folder_service.create_folder(name="fooz", parent_path="/")
@@ -90,6 +92,32 @@ async def test_move_preset_requires_agent_addons_entitlement(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "invoker",
+    [
+        lambda service: service.get_folder(uuid4()),
+        lambda service: service.get_folder_by_path("/parent/"),
+        lambda service: service.list_folders("/"),
+        lambda service: service.create_folder(name="parent", parent_path="/"),
+        lambda service: service.get_folder_tree("/"),
+    ],
+)
+async def test_folder_management_methods_require_agent_addons_entitlement(
+    folder_service: AgentFolderService,
+    invoker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Folder management methods should preserve the AGENT_ADDONS gate."""
+    mock_has_entitlement = AsyncMock(return_value=False)
+    monkeypatch.setattr(folder_service, "has_entitlement", mock_has_entitlement)
+
+    with pytest.raises(EntitlementRequired, match=Entitlement.AGENT_ADDONS.value):
+        await invoker(folder_service)
+
+    mock_has_entitlement.assert_awaited_once_with(Entitlement.AGENT_ADDONS)
+
+
+@pytest.mark.anyio
 async def test_get_directory_items_returns_real_direct_item_counts(
     folder_service: AgentFolderService,
     monkeypatch: pytest.MonkeyPatch,
@@ -143,8 +171,10 @@ async def test_get_directory_items_returns_real_direct_item_counts(
 @pytest.mark.anyio
 async def test_create_folder_rejects_blank_name(
     folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Folder creation should reject empty or whitespace-only names."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
     with pytest.raises(TracecatValidationError, match="Folder name cannot be empty"):
         await folder_service.create_folder(name="   ", parent_path="/")
 
@@ -152,8 +182,10 @@ async def test_create_folder_rejects_blank_name(
 @pytest.mark.anyio
 async def test_create_folder_trims_name_before_persisting(
     folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Folder creation should store trimmed names and normalized paths."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
     folder = await folder_service.create_folder(name="  parent  ", parent_path="/")
 
     assert folder.name == "parent"
@@ -163,8 +195,10 @@ async def test_create_folder_trims_name_before_persisting(
 @pytest.mark.anyio
 async def test_rename_folder_rejects_blank_name(
     folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Folder renames should reject empty or whitespace-only names."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
     folder = await folder_service.create_folder(name="parent", parent_path="/")
 
     with pytest.raises(TracecatValidationError, match="Folder name cannot be empty"):

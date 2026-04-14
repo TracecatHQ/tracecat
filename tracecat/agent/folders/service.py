@@ -94,6 +94,7 @@ class AgentFolderService(BaseWorkspaceService):
             ) from exc
 
     @require_scope("agent:create")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_folder(
         self, name: str, parent_path: str = "/", commit: bool = True
     ) -> AgentFolder:
@@ -133,6 +134,7 @@ class AgentFolderService(BaseWorkspaceService):
         await self.session.refresh(folder)
         return folder
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_folder(self, folder_id: uuid.UUID) -> AgentFolder | None:
         """Get a folder by ID."""
         statement = select(AgentFolder).where(
@@ -142,6 +144,7 @@ class AgentFolderService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_folder_by_path(self, path: str) -> AgentFolder | None:
         """Get a folder by its path."""
         path = self._normalize_folder_path(path)
@@ -153,6 +156,7 @@ class AgentFolderService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_folders(self, parent_path: str = "/") -> Sequence[AgentFolder]:
         """List all folders within the specified parent path subtree."""
         parent_path = self._normalize_folder_path(parent_path)
@@ -459,6 +463,7 @@ class AgentFolderService(BaseWorkspaceService):
 
         return directory_items
 
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_folder_tree(self, root_path: str = "/") -> Sequence[AgentFolder]:
         """Get the full folder tree starting from the given root path."""
         root_path = self._normalize_folder_path(root_path)
