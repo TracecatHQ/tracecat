@@ -80,40 +80,33 @@ class LLMSocketProxy:
     mounted into the NSJail sandbox where the LLMBridge connects to it.
     """
 
-    # Providers that bypass the managed LiteLLM gateway and talk directly
-    # to a user-supplied endpoint.  For these we strip the internal auth
-    # header and Anthropic-specific reasoning fields from the request.
-    _BYPASS_PROVIDERS = frozenset({"litellm"})
-
     def __init__(
         self,
         socket_path: Path,
-        litellm_url: str | None = None,
+        upstream_url: str | None = None,
         on_error: Callable[[str], None] | None = None,
-        model_provider: str | None = None,
+        passthrough: bool = False,
     ):
         """Initialize the LLM socket proxy.
 
         Args:
             socket_path: Path where the Unix socket will be created.
-            litellm_url: Managed LiteLLM service URL for shared-service runs.
+            upstream_url: Selected upstream base URL. Defaults to the managed gateway.
             on_error: Callback invoked when an error (e.g., auth failure) is detected.
-            model_provider: The agent's model provider name.  When the
-                provider is a bypass provider (e.g. ``"litellm"``), the proxy
-                automatically strips the Authorization header and
-                Anthropic-specific reasoning fields before forwarding.
+            passthrough: When True, strip managed auth headers and provider-specific
+                reasoning fields before forwarding directly to the configured upstream.
         """
         self.socket_path = socket_path
-        self.litellm_url = (
-            litellm_url.rstrip("/")
-            if litellm_url is not None
+        self.upstream_url = (
+            upstream_url.rstrip("/")
+            if upstream_url is not None
             else app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
         )
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
         self._on_error = on_error
         self._error_emitted = False  # Only call callback once
-        self._is_bypass = model_provider in self._BYPASS_PROVIDERS
+        self._is_passthrough = passthrough
 
     async def start(self) -> None:
         """Start the Unix socket server.
@@ -418,12 +411,12 @@ class LLMSocketProxy:
         headers = cast(dict[str, str], request["headers"])
         body = cast(bytes, request["body"])
 
-        if self._is_bypass and body:
+        if self._is_passthrough and body:
             body, headers = self._strip_reasoning_fields_from_request(body, headers)
 
-        url = f"{self.litellm_url}{path}"
+        url = f"{self.upstream_url}{path}"
         excluded_headers = {"host", "connection", "transfer-encoding"}
-        if self._is_bypass:
+        if self._is_passthrough:
             excluded_headers.add("authorization")
         forward_headers = {
             key: value

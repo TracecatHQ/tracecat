@@ -1307,7 +1307,6 @@ class AgentSessionService(BaseWorkspaceService):
                 async with agent_svc.with_model_config(
                     use_workspace_credentials=True
                 ) as model_config:
-                    self.logger.warning("HERE 2", cfg=model_config)
                     yield AgentConfig(
                         instructions=instructions,
                         model_name=model_config.name,

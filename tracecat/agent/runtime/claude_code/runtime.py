@@ -81,7 +81,12 @@ _LITELLM_ROUTE_PREFIXES: dict[str, str] = {
 }
 
 
-def get_litellm_route_model(*, model_provider: str, model_name: str) -> str:
+def get_litellm_route_model(
+    *,
+    model_provider: str,
+    model_name: str,
+    passthrough: bool = False,
+) -> str:
     """Prefix model names so LiteLLM enters the intended provider route.
 
     Claude Code speaks to LiteLLM through the Anthropic-compatible
@@ -90,8 +95,8 @@ def get_litellm_route_model(*, model_provider: str, model_name: str) -> str:
     final provider-specific model ID, so unqualified model names can fall
     through to the OpenAI catch-all route.
     """
-    if model_provider == "litellm":
-        # Hitting tenant's LiteLLM proxy, pass through
+    if passthrough:
+        # Direct upstream passthrough should preserve the configured model ID.
         return model_name
 
     # Tracecat specific LiteLLM logic
@@ -695,13 +700,14 @@ class ClaudeAgentRuntime:
                     ),
                     **(
                         {"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1"}
-                        if payload.config.model_provider == "litellm"
+                        if payload.config.passthrough
                         else {}
                     ),
                 },
                 model=get_litellm_route_model(
                     model_provider=payload.config.model_provider,
                     model_name=payload.config.model_name,
+                    passthrough=payload.config.passthrough,
                 ),
                 system_prompt=self._build_system_prompt(
                     payload.config.instructions, payload.config.output_type

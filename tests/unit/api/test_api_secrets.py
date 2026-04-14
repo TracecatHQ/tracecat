@@ -162,11 +162,11 @@ async def test_list_secret_definitions_success(
 
 
 @pytest.mark.anyio
-async def test_list_secret_definitions_includes_litellm_workspace_template(
+async def test_list_secret_definitions_returns_registry_definitions_without_builtins(
     client: TestClient,
     test_admin_role: Role,
 ) -> None:
-    """Test GET /secrets/definitions includes built-in LiteLLM workspace credentials."""
+    """Test GET /secrets/definitions reflects registry definitions only."""
     with patch.object(secrets_router, "RegistryActionsService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_aggregated_secrets.return_value = []
@@ -178,17 +178,7 @@ async def test_list_secret_definitions_includes_litellm_workspace_template(
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == [
-            {
-                "name": "litellm",
-                "keys": ["LITELLM_BASE_URL"],
-                "optional_keys": None,
-                "optional": False,
-                "secret_type": "custom",
-                "actions": ["agent.presets"],
-                "action_count": 1,
-            }
-        ]
+        assert response.json() == []
 
 
 @pytest.mark.anyio

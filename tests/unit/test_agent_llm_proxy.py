@@ -57,7 +57,7 @@ async def test_forward_request_streams_litellm_response(
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        litellm_url="http://litellm:4000",
+        upstream_url="http://litellm:4000",
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -118,7 +118,7 @@ async def test_forward_request_returns_upstream_error_response(
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        litellm_url="http://litellm:4000",
+        upstream_url="http://litellm:4000",
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -147,7 +147,7 @@ async def test_forward_request_returns_upstream_error_response(
 
 
 @pytest.mark.anyio
-async def test_forward_request_strips_authorization_for_external_litellm(
+async def test_forward_request_strips_authorization_for_passthrough_upstream(
     tmp_path: Path,
 ) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -161,8 +161,8 @@ async def test_forward_request_strips_authorization_for_external_litellm(
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        litellm_url="https://customer-litellm.example",
-        model_provider="litellm",
+        upstream_url="https://customer-litellm.example",
+        passthrough=True,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -189,7 +189,7 @@ async def test_forward_request_strips_authorization_for_external_litellm(
 
 
 @pytest.mark.anyio
-async def test_forward_request_strips_reasoning_fields_for_external_litellm(
+async def test_forward_request_strips_reasoning_fields_for_passthrough_upstream(
     tmp_path: Path,
 ) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -206,8 +206,8 @@ async def test_forward_request_strips_reasoning_fields_for_external_litellm(
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        litellm_url="https://customer-litellm.example",
-        model_provider="litellm",
+        upstream_url="https://customer-litellm.example",
+        passthrough=True,
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -245,7 +245,7 @@ async def test_forward_request_short_circuits_event_logging_batch(
 ) -> None:
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        litellm_url="http://litellm:4000",
+        upstream_url="http://litellm:4000",
     )
     writer = _FakeWriter()
 
@@ -269,7 +269,7 @@ async def test_stop_closes_http_client_and_removes_socket(tmp_path: Path) -> Non
     socket_path.touch()
     socket_proxy = LLMSocketProxy(
         socket_path=socket_path,
-        litellm_url="http://litellm:4000",
+        upstream_url="http://litellm:4000",
     )
     socket_proxy._client = httpx.AsyncClient(
         transport=httpx.MockTransport(

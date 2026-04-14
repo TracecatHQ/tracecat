@@ -4392,7 +4392,7 @@ async def test_create_agent_preset_validates_explicit_model_provider_pair(
 
 
 @pytest.mark.anyio
-async def test_create_agent_preset_allows_virtual_litellm_provider(
+async def test_create_agent_preset_allows_custom_model_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_id = uuid.uuid4()
@@ -4402,8 +4402,16 @@ async def test_create_agent_preset_allows_virtual_litellm_provider(
     async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
         return workspace_id, role
 
-    async def _unexpected_resolve_model(*args: Any, **kwargs: Any) -> tuple[str, str]:
-        raise AssertionError("catalog model resolution should be skipped for litellm")
+    async def _resolve_model(
+        role: object,
+        *,
+        model_name: str | None,
+        model_provider: str | None,
+    ) -> tuple[str, str]:
+        assert role is not None
+        assert model_name == "customer-alias"
+        assert model_provider == "custom-model-provider"
+        return "customer-alias", "custom-model-provider"
 
     class _PresetService:
         async def create_preset(self, params: Any) -> SimpleNamespace:
@@ -4432,9 +4440,7 @@ async def test_create_agent_preset_allows_virtual_litellm_provider(
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
-    monkeypatch.setattr(
-        mcp_server, "_resolve_agent_preset_model", _unexpected_resolve_model
-    )
+    monkeypatch.setattr(mcp_server, "_resolve_agent_preset_model", _resolve_model)
     monkeypatch.setattr(
         mcp_server.AgentPresetService,
         "with_session",
@@ -4445,15 +4451,15 @@ async def test_create_agent_preset_allows_virtual_litellm_provider(
         workspace_id=str(workspace_id),
         name="Security triage",
         model_name="customer-alias",
-        model_provider="litellm",
+        model_provider="custom-model-provider",
     )
 
     payload = _payload(result)
     params = created["params"]
     assert params.model_name == "customer-alias"
-    assert params.model_provider == "litellm"
+    assert params.model_provider == "custom-model-provider"
     assert params.base_url is None
-    assert payload["model_provider"] == "litellm"
+    assert payload["model_provider"] == "custom-model-provider"
 
 
 @pytest.mark.anyio

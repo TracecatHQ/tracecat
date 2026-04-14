@@ -188,30 +188,39 @@ def test_get_litellm_url_requires_bridge_port(
 
 
 @pytest.mark.parametrize(
-    ("provider", "model_name", "expected"),
+    ("provider", "model_name", "passthrough", "expected"),
     [
         (
             "anthropic",
             "claude-sonnet-4-5-20250929",
+            False,
             "anthropic/claude-sonnet-4-5-20250929",
         ),
-        ("bedrock", "bedrock", "bedrock/bedrock"),
+        ("bedrock", "bedrock", False, "bedrock/bedrock"),
         (
             "bedrock",
             "us.anthropic.claude-sonnet-4-20250514-v1:0",
+            False,
             "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
         ),
-        ("azure_openai", "my-deployment", "azure/my-deployment"),
-        ("custom-model-provider", "custom", "openai/custom"),
-        ("litellm", "customer-alias", "customer-alias"),
-        ("openai", "openai/gpt-5", "openai/gpt-5"),
+        ("azure_openai", "my-deployment", False, "azure/my-deployment"),
+        ("custom-model-provider", "custom", False, "openai/custom"),
+        ("custom-model-provider", "customer-alias", True, "customer-alias"),
+        ("openai", "openai/gpt-5", False, "openai/gpt-5"),
     ],
 )
 def test_get_litellm_route_model_prefixes_provider_route(
-    provider: str, model_name: str, expected: str
+    provider: str,
+    model_name: str,
+    passthrough: bool,
+    expected: str,
 ) -> None:
     assert (
-        get_litellm_route_model(model_provider=provider, model_name=model_name)
+        get_litellm_route_model(
+            model_provider=provider,
+            model_name=model_name,
+            passthrough=passthrough,
+        )
         == expected
     )
 
@@ -221,7 +230,7 @@ class TestClaudeAgentRuntimeRun:
 
     @pytest.fixture(autouse=True)
     def _mock_llm_bridge_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Set the LLM bridge port env var so get_litellm_url() succeeds."""
+        """Set the LLM bridge port env var so get_llm_proxy_url() succeeds."""
         monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "12345")
 
     @pytest.mark.anyio

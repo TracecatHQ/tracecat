@@ -38,7 +38,7 @@ def _make_executor_input(*, enable_internet_access: bool) -> AgentExecutorInput:
     )
 
 
-def _make_litellm_executor_input(
+def _make_passthrough_executor_input(
     *, enable_internet_access: bool, base_url: str = "https://customer-litellm.example"
 ) -> AgentExecutorInput:
     return AgentExecutorInput(
@@ -47,8 +47,9 @@ def _make_litellm_executor_input(
         user_prompt="hello",
         config=AgentConfig(
             model_name="customer-alias",
-            model_provider="litellm",
+            model_provider="custom-model-provider",
             base_url=base_url,
+            passthrough=True,
             enable_internet_access=enable_internet_access,
         ),
         role=Role(type="service", service_id="tracecat-agent-executor"),
@@ -182,7 +183,7 @@ async def test_executor_always_starts_llm_socket_proxy(
 
 
 @pytest.mark.anyio
-async def test_executor_starts_llm_socket_proxy_for_isolated_litellm_runs(
+async def test_executor_starts_llm_socket_proxy_for_isolated_passthrough_runs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -262,7 +263,7 @@ async def test_executor_starts_llm_socket_proxy_for_isolated_litellm_runs(
 
 
 @pytest.mark.anyio
-async def test_executor_starts_llm_socket_proxy_for_litellm_provider_with_internet_enabled(
+async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_internet_enabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -331,7 +332,7 @@ async def test_executor_starts_llm_socket_proxy_for_litellm_provider_with_intern
     )
 
     executor = SandboxedAgentExecutor(
-        input=_make_litellm_executor_input(enable_internet_access=True),
+        input=_make_passthrough_executor_input(enable_internet_access=True),
     )
     result = await executor.run()
 
@@ -551,7 +552,7 @@ async def test_sandbox_entrypoint_starts_bridge_for_isolated_litellm_runs(
 
 
 @pytest.mark.anyio
-async def test_sandbox_entrypoint_starts_bridge_for_litellm_provider_with_internet_enabled(
+async def test_sandbox_entrypoint_starts_bridge_for_passthrough_provider_with_internet_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TRACECAT__LITELLM_BASE_URL", "http://litellm:4000")
@@ -565,8 +566,9 @@ async def test_sandbox_entrypoint_starts_bridge_for_litellm_provider_with_intern
         user_prompt="hello",
         config=SandboxAgentConfig(
             model_name="customer-alias",
-            model_provider="litellm",
+            model_provider="custom-model-provider",
             base_url="https://customer-litellm.example",
+            passthrough=True,
             enable_internet_access=True,
         ),
     )

@@ -13,4 +13,4 @@ def test_llm_socket_proxy_uses_configured_default_url(
 
     proxy = LLMSocketProxy(socket_path=Path("/tmp/test-llm.sock"))
 
-    assert proxy.litellm_url == "http://litellm:4000"
+    assert proxy.upstream_url == "http://litellm:4000"

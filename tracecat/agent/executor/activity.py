@@ -148,16 +148,26 @@ class SandboxedAgentExecutor:
             self._fatal_error = error_msg
             self._fatal_error_event.set()
 
-        if self.input.config.model_provider == "litellm" and self.input.config.base_url:
+        if self.input.config.passthrough:
+            if self.input.config.base_url is None:
+                raise AgentSandboxExecutionError(
+                    "Custom model provider passthrough requires a resolved base_url."
+                )
             upstream_url = self.input.config.base_url
         else:
             upstream_url = app_config.TRACECAT__LITELLM_BASE_URL
 
+        logger.info(
+            "Creating LLM socket proxy",
+            upstream_url=upstream_url,
+            passthrough=self.input.config.passthrough,
+        )
+
         return LLMSocketProxy(
             socket_path=socket_path,
-            litellm_url=upstream_url,
+            upstream_url=upstream_url,
             on_error=on_error,
-            model_provider=self.input.config.model_provider,
+            passthrough=self.input.config.passthrough,
         )
 
     async def run(self) -> AgentExecutorResult:

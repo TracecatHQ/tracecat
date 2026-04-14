@@ -130,3 +130,57 @@ def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields
 
     assert payload.model_name == "   "
     assert payload.model_provider == "   "
+
+
+def test_agent_preset_read_schema_normalizes_legacy_litellm_provider() -> None:
+    payload = AgentPresetRead.model_validate(
+        {
+            "id": "522b4d28-ae2b-4705-bb53-c3aa9071fe16",
+            "workspace_id": "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2",
+            "name": "Legacy preset",
+            "slug": "legacy-preset",
+            "description": None,
+            "instructions": None,
+            "model_name": "customer-model",
+            "model_provider": "litellm",
+            "base_url": None,
+            "output_type": None,
+            "actions": None,
+            "namespaces": None,
+            "tool_approvals": None,
+            "mcp_integrations": None,
+            "retries": 3,
+            "enable_internet_access": False,
+            "current_version_id": None,
+            "created_at": "2026-03-09T00:00:00Z",
+            "updated_at": "2026-03-09T00:00:00Z",
+        }
+    )
+
+    assert payload.model_provider == "custom-model-provider"
+
+
+def test_agent_preset_version_read_schema_normalizes_legacy_litellm_provider() -> None:
+    payload = AgentPresetVersionReadMinimal.model_validate(
+        {
+            "id": "522b4d28-ae2b-4705-bb53-c3aa9071fe16",
+            "preset_id": "f3af894f-3d0e-484d-8a2c-36931ca68cc0",
+            "workspace_id": "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2",
+            "version": 1,
+            "instructions": None,
+            "model_name": "customer-model",
+            "model_provider": "litellm",
+            "base_url": None,
+            "output_type": None,
+            "actions": None,
+            "namespaces": None,
+            "tool_approvals": None,
+            "mcp_integrations": None,
+            "retries": 3,
+            "enable_internet_access": False,
+            "created_at": "2026-03-09T00:00:00Z",
+            "updated_at": "2026-03-09T00:00:00Z",
+        }
+    )
+
+    assert payload.model_provider == "custom-model-provider"

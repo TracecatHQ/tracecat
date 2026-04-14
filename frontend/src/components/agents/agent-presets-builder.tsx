@@ -692,38 +692,20 @@ function AgentPresetChatPane({
         <div className="flex h-full flex-col items-center justify-center px-4">
           <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
             <AlertCircle className="size-5 text-amber-500" />
-            {activeProvider === "litellm" ? (
-              <p className="text-pretty">
-                This agent needs a workspace{" "}
-                <span className="font-medium">litellm</span> credential with{" "}
-                <span className="font-mono">LITELLM_BASE_URL</span>. Configure
-                it on the{" "}
-                <Link
-                  href={`/workspaces/${workspaceId}/credentials`}
-                  className="font-medium text-primary hover:underline"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  credentials page
-                </Link>{" "}
-                to enable chat.
-              </p>
-            ) : (
-              <p className="text-pretty">
-                This agent uses workspace credentials for{" "}
-                <span className="font-medium">{activeProvider}</span>. Configure
-                them on the{" "}
-                <Link
-                  href={`/workspaces/${workspaceId}/credentials`}
-                  className="font-medium text-primary hover:underline"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  credentials page
-                </Link>{" "}
-                to enable chat.
-              </p>
-            )}
+            <p className="text-pretty">
+              This agent uses workspace credentials for{" "}
+              <span className="font-medium">{activeProvider}</span>. Configure
+              them on the{" "}
+              <Link
+                href={`/workspaces/${workspaceId}/credentials`}
+                className="font-medium text-primary hover:underline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                credentials page
+              </Link>{" "}
+              to enable chat.
+            </p>
           </div>
         </div>
       )
@@ -1013,7 +995,6 @@ function AgentPresetForm({
 
   useEffect(() => {
     if (
-      providerValue !== "litellm" &&
       modelOptions.length > 0 &&
       !modelOptions.some(
         (option) => option.value === form.getValues("model_name")
@@ -1557,7 +1538,7 @@ function AgentPresetConfigurationPanel({
                 <FormItem>
                   <FormLabel>Model name</FormLabel>
                   <FormControl>
-                    {modelOptions.length > 0 && providerValue !== "litellm" ? (
+                    {modelOptions.length > 0 ? (
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
@@ -1590,25 +1571,23 @@ function AgentPresetConfigurationPanel({
             />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            {providerValue !== "litellm" ? (
-              <FormField
-                control={form.control}
-                name="base_url"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Custom model base URL</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="https://api.openai.com/v1"
-                        value={field.value ?? ""}
-                        onChange={field.onChange}
-                        disabled={isSaving}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-            ) : null}
+            <FormField
+              control={form.control}
+              name="base_url"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Custom model base URL</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="https://api.openai.com/v1"
+                      value={field.value ?? ""}
+                      onChange={field.onChange}
+                      disabled={isSaving}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="retries"
@@ -2252,10 +2231,7 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
         : null,
     model_name: values.model_name.trim(),
     model_provider: values.model_provider.trim(),
-    base_url:
-      values.model_provider.trim() === "litellm"
-        ? null
-        : normalizeOptional(values.base_url),
+    base_url: normalizeOptional(values.base_url),
     output_type: outputType ?? null,
     actions: values.actions.length > 0 ? values.actions : null,
     namespaces: values.namespaces.length > 0 ? values.namespaces : null,

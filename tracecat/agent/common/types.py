@@ -105,6 +105,7 @@ class SandboxAgentConfig:
     model_name: str
     model_provider: str
     base_url: str | None = None
+    passthrough: bool = False
 
     # Agent
     instructions: str | None = None
@@ -132,6 +133,7 @@ class SandboxAgentConfig:
             model_name=data["model_name"],
             model_provider=data["model_provider"],
             base_url=data.get("base_url"),
+            passthrough=data.get("passthrough", False),
             instructions=data.get("instructions"),
             tool_approvals=data.get("tool_approvals"),
             mcp_servers=data.get("mcp_servers"),
@@ -152,6 +154,7 @@ class SandboxAgentConfig:
             model_name=config.model_name,
             model_provider=config.model_provider,
             base_url=config.base_url,
+            passthrough=getattr(config, "passthrough", False),
             instructions=config.instructions,
             tool_approvals=config.tool_approvals,
             mcp_servers=config.mcp_servers,
@@ -167,6 +170,7 @@ class SandboxAgentConfig:
         }
         if self.base_url is not None:
             result["base_url"] = self.base_url
+        result["passthrough"] = self.passthrough
         if self.instructions is not None:
             result["instructions"] = self.instructions
         if self.tool_approvals is not None:

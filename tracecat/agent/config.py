@@ -143,14 +143,6 @@ MODEL_CONFIGS = {
             "required": ["custom-model-provider"],
         },
     ),
-    "litellm": ModelConfig(
-        name="litellm",  # Placeholder; model name comes from the agent preset
-        provider="litellm",
-        org_secret_name="agent-litellm-credentials",
-        secrets={
-            "required": ["litellm"],
-        },
-    ),
 }
 
 PROVIDER_CREDENTIAL_CONFIGS = {
@@ -305,6 +297,13 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 type="text",
                 description="The name of the model to use from your custom model provider.",
             ),
+            ProviderCredentialField(
+                key="CUSTOM_MODEL_PROVIDER_PASSTHROUGH",
+                label="Passthrough",
+                type="text",
+                description="Optional boolean flag. When true, Tracecat bypasses the managed LLM gateway and forwards requests directly to the custom provider base URL.",
+                required=False,
+            ),
         ],
     ),
     "azure_openai": ProviderCredentialConfig(
@@ -363,26 +362,6 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 type="password",
                 description="Azure Entra application client secret used for client-credential token acquisition.",
                 required=False,
-            ),
-        ],
-    ),
-    "litellm": ProviderCredentialConfig(
-        provider="litellm",
-        label="LiteLLM",
-        fields=[
-            ProviderCredentialField(
-                key="LITELLM_BASE_URL",
-                label="Base URL",
-                type="text",
-                description="The base URL for your LiteLLM proxy (e.g., https://litellm.example.com).",
-                required=True,
-            ),
-            ProviderCredentialField(
-                key="LITELLM_MODEL_NAME",
-                label="Default Model Name",
-                type="text",
-                description="The default model name to use (e.g., openai/gpt-4o-mini). For presets this can be overridden by the preset model name.",
-                required=True,
             ),
         ],
     ),

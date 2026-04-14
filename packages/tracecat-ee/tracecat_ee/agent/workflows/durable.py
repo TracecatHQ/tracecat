@@ -32,7 +32,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
         resolve_agent_preset_config_activity,
-        resolve_litellm_config_activity,
+        resolve_custom_model_provider_config_activity,
     )
     from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage, ToolFilters
     from tracecat.agent.session.activities import (
@@ -280,10 +280,9 @@ class DurableAgentWorkflow:
                 )
             cfg = args.agent_args.config
 
-        # Resolve litellm base url, model name etc
-        if cfg.model_provider == "litellm":
+        if cfg.model_provider == "custom-model-provider":
             result = await workflow.execute_activity(
-                resolve_litellm_config_activity,
+                resolve_custom_model_provider_config_activity,
                 args=(
                     self.role,
                     args.agent_args.use_workspace_credentials,
@@ -292,8 +291,16 @@ class DurableAgentWorkflow:
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
             )
             cfg.base_url = result.base_url
+            cfg.passthrough = result.passthrough
             if result.model_name:
                 cfg.model_name = result.model_name
+            logger.info(
+                "Applied custom model provider runtime config",
+                passthrough=cfg.passthrough,
+                has_model_name_override=result.model_name is not None,
+                base_url=cfg.base_url,
+                use_workspace_credentials=args.agent_args.use_workspace_credentials,
+            )
         return cfg
 
     @workflow.run
