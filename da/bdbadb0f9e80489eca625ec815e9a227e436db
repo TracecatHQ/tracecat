@@ -1,0 +1,34 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8",
+  "base_commit_sha": "dabdbadb0f9e80489eca625ec815e9a227e436db",
+  "prompts": {
+    "152fa925f029d278": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fb7e5395-0b07-4112-b2e0-dd084c0b974d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 236,
+      "overriden_lines": 0
+    },
+    "9cdba2d919788b9a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "923ab23a-3271-47a0-a76f-43debfd7b95a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 243,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}
