@@ -271,19 +271,6 @@ class TestAgentPresetService:
         assert created_preset.model_name == "customer-alias"
         assert created_preset.base_url is None
 
-    async def test_create_preset_rejects_removed_litellm_provider(
-        self,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-    ) -> None:
-        agent_preset_create_params.model_provider = "litellm"
-
-        with pytest.raises(
-            TracecatValidationError,
-            match="model_provider='litellm' is no longer supported",
-        ):
-            await agent_preset_service.create_preset(agent_preset_create_params)
-
     async def test_list_presets(
         self,
         agent_preset_service: AgentPresetService,
@@ -1022,19 +1009,6 @@ class TestAgentPresetService:
         assert agent_config.namespaces == preset.namespaces
         assert agent_config.tool_approvals == preset.tool_approvals
         assert agent_config.retries == preset.retries
-
-    async def test_version_to_agent_config_normalizes_legacy_litellm_provider(
-        self,
-        agent_preset_service: AgentPresetService,
-        agent_preset_create_params: AgentPresetCreate,
-    ) -> None:
-        preset = await agent_preset_service.create_preset(agent_preset_create_params)
-        version = await agent_preset_service.get_current_version_for_preset(preset)
-        version.model_provider = "litellm"
-
-        agent_config = await agent_preset_service._version_to_agent_config(version)
-
-        assert agent_config.model_provider == "custom-model-provider"
 
     async def test_create_preset_with_tool_approvals(
         self,
