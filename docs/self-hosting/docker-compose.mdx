@@ -152,13 +152,6 @@ Docker Swarm lets you scale individual services with resource limits and replica
   Scaling these requires external managed services (e.g., RDS, ElastiCache) or specialized clustering.
 </Info>
 
-<Warning>
-  Undersized Temporal clusters cause `No hosts available` errors and workflow execution failures.
-  Temporal also requires a well-provisioned PostgreSQL backend for adequate query throughput.
-  The bundled `temporal_postgres_db` container is suitable for development and small deployments only.
-  For production workloads, use a managed PostgreSQL instance (e.g., Amazon Aurora Serverless) for better QPS and reliability.
-</Warning>
-
 ### Deploy with Docker Swarm
 
 1. Initialize Swarm:
@@ -259,6 +252,15 @@ For an overview of all services and networking, see [Architecture](/self-hosting
     - Verify that `PUBLIC_API_URL` is the same origin plus `/api`.
     - Run `docker compose ps` and check that `api`, `worker`, and `temporal` are healthy.
     - Review `docker compose logs api` for startup, auth, or CORS errors.
+  </Accordion>
+
+  <Accordion title="I'm seeing 'No hosts available' errors from Temporal">
+    Undersized Temporal clusters cause `No hosts available` errors and workflow execution failures.
+    Ensure the Temporal server has at least 4 CPU cores and 8 GB of memory.
+
+    Temporal also requires a well-provisioned PostgreSQL backend for adequate query throughput.
+    The bundled `temporal_postgres_db` container is suitable for development and small deployments only.
+    For production workloads, use a managed PostgreSQL instance (e.g., Amazon Aurora Serverless) for better QPS and reliability.
   </Accordion>
 
   <Accordion title="How do I configure SSL for production?">
