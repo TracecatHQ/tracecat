@@ -35,6 +35,8 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 
 ## Default sizing
 
+- `api_cpu=2048`
+- `api_memory=4096`
 - `worker_desired_count=2`
 - `executor_desired_count=2`
 - `agent_executor_desired_count=1`
@@ -46,6 +48,7 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 - `temporal_db_allocated_storage=50`
 - `temporal_cpu=8192`
 - `temporal_memory=16384`
+- `redis_node_type=cache.t4g.small`
 
 For the bundled Fargate `temporalio/auto-setup` deployment, `temporal_db_force_ssl` now defaults to `false`. This disables `rds.force_ssl` only on the Temporal RDS instance, requires a DB reboot when changed, and permits non-TLS connections for the bundled Temporal service.
 

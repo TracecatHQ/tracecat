@@ -141,16 +141,23 @@ Docker Swarm lets you scale individual services with resource limits and replica
 | ui | 0.5 | 1 Gi | 2 |
 | mcp | 1 | 1 Gi | 1 |
 | postgres_db | 2 | 4 Gi | 1 |
-| temporal | 2 | 4 Gi | 1 |
-| temporal_postgres_db | 1 | 2 Gi | 1 |
+| temporal | 4 | 8 Gi | 1 |
+| temporal_postgres_db | 2 | 4 Gi | 1 |
 | redis | 0.5 | 1 Gi | 1 |
 | minio | 0.5 | 1 Gi | 1 |
-| Total | ~22 | ~46 Gi | 23 |
+| Total | ~25 | ~52 Gi | 23 |
 
 <Info>
   Stateful services (`postgres_db`, `temporal_postgres_db`, `minio`, `redis`) must remain at 1 replica.
   Scaling these requires external managed services (e.g., RDS, ElastiCache) or specialized clustering.
 </Info>
+
+<Warning>
+  Undersized Temporal clusters cause `No hosts available` errors and workflow execution failures.
+  Temporal also requires a well-provisioned PostgreSQL backend for adequate query throughput.
+  The bundled `temporal_postgres_db` container is suitable for development and small deployments only.
+  For production workloads, use a managed PostgreSQL instance (e.g., Amazon Aurora Serverless) for better QPS and reliability.
+</Warning>
 
 ### Deploy with Docker Swarm
 

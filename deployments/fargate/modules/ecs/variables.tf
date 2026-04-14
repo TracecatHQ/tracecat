@@ -849,5 +849,5 @@ variable "sentry_dsn" {
 variable "redis_node_type" {
   type        = string
   description = "ElastiCache Redis node type"
-  default     = "cache.t4g.micro"
+  default     = "cache.t4g.small"
 }
