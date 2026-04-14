@@ -7,6 +7,9 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
+from tracecat.agent.preset.router import (
+    WorkspaceEditorRole as AgentPresetWorkspaceEditorRole,
+)
 from tracecat.agent.router import (
     OrganizationAdminUserRole,
     OrganizationUserRole,
@@ -55,6 +58,7 @@ def client() -> Generator[TestClient, None, None]:
     # List of Annotated role dependencies to override
     role_dependencies = [
         WorkspaceUserRole,
+        AgentPresetWorkspaceEditorRole,
         ExecutorWorkspaceRole,
         WorkspaceUser,
         SuperuserRole,

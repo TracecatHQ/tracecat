@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.agent.folders.schemas import AgentFolderDirectoryItem
 from tracecat.agent.folders.service import AgentFolderService
 from tracecat.auth.types import Role
+from tracecat.db.models import AgentPreset
 from tracecat.exceptions import EntitlementRequired
 from tracecat.tiers.enums import Entitlement
 
@@ -70,3 +72,69 @@ async def test_get_directory_items_requires_agent_addons_entitlement(
         await folder_service.get_directory_items("/")
 
     mock_has_entitlement.assert_awaited_once_with(Entitlement.AGENT_ADDONS)
+
+
+@pytest.mark.anyio
+async def test_move_preset_requires_agent_addons_entitlement(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preset folder moves should preserve the AGENT_ADDONS entitlement gate."""
+    mock_has_entitlement = AsyncMock(return_value=False)
+    monkeypatch.setattr(folder_service, "has_entitlement", mock_has_entitlement)
+
+    with pytest.raises(EntitlementRequired, match=Entitlement.AGENT_ADDONS.value):
+        await folder_service.move_preset(uuid4(), None)
+
+    mock_has_entitlement.assert_awaited_once_with(Entitlement.AGENT_ADDONS)
+
+
+@pytest.mark.anyio
+async def test_get_directory_items_returns_real_direct_item_counts(
+    folder_service: AgentFolderService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Folder rows should report direct child counts, not just boolean presence."""
+    monkeypatch.setattr(folder_service, "has_entitlement", AsyncMock(return_value=True))
+
+    parent = await folder_service.create_folder(name="parent", parent_path="/")
+    await folder_service.create_folder(name="child-a", parent_path="/parent/")
+    await folder_service.create_folder(name="child-b", parent_path="/parent/")
+    await folder_service.create_folder(
+        name="grandchild", parent_path="/parent/child-a/"
+    )
+
+    folder_service.session.add_all(
+        [
+            AgentPreset(
+                workspace_id=folder_service.workspace_id,
+                name="alpha",
+                slug="alpha",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                retries=3,
+                enable_internet_access=False,
+                folder_id=parent.id,
+            ),
+            AgentPreset(
+                workspace_id=folder_service.workspace_id,
+                name="beta",
+                slug="beta",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                retries=3,
+                enable_internet_access=False,
+                folder_id=parent.id,
+            ),
+        ]
+    )
+    await folder_service.session.commit()
+
+    directory_items = await folder_service.get_directory_items("/")
+    parent_item = next(
+        item
+        for item in directory_items
+        if isinstance(item, AgentFolderDirectoryItem) and item.id == parent.id
+    )
+
+    assert parent_item.num_items == 4

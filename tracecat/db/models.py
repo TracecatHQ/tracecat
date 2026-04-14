@@ -3027,21 +3027,6 @@ class AgentFolder(WorkspaceModel):
         back_populates="folder",
     )
 
-    @property
-    def parent_path(self) -> str:
-        """Get the parent path of this folder."""
-        if self.path == "/":
-            return "/"
-        path_parts = self.path.rstrip("/").split("/")
-        if len(path_parts) <= 2:
-            return "/"
-        return "/".join(path_parts[:-1]) + "/"
-
-    @property
-    def is_root(self) -> bool:
-        """Check if this is a root-level folder."""
-        return self.path.count("/") <= 2
-
 
 class AgentTagLink(Base):
     """Link table for agent presets and agent tags."""

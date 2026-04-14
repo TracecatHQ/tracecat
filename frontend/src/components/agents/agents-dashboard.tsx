@@ -1587,6 +1587,8 @@ function AgentCatalogRow({
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
 
   if (item.type === "folder") {
+    const itemCountLabel = item.num_items === 1 ? "item" : "items"
+
     return (
       <ContextMenu onOpenChange={setIsContextMenuOpen}>
         <ContextMenuTrigger asChild>
@@ -1623,8 +1625,8 @@ function AgentCatalogRow({
                     variant="secondary"
                     className="h-5 px-2 text-[10px] font-normal"
                   >
-                    <MousePointerClickIcon className="mr-1 size-3" />
-                    {item.num_items} agents
+                    <BoxIcon className="mr-1 size-3" />
+                    {item.num_items} {itemCountLabel}
                   </Badge>
                 </div>
               </div>

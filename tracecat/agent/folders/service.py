@@ -49,18 +49,14 @@ class AgentFolderService(BaseWorkspaceService):
         return TracecatValidationError(message, detail={"code": code})
 
     @classmethod
-    def _get_direct_child_path(cls, parent_path: str, descendant_path: str) -> str:
-        """Return the direct child path under `parent_path` for a descendant path."""
-        parent_path = cls._normalize_folder_path(parent_path)
-        descendant_path = cls._normalize_folder_path(descendant_path)
-        if parent_path == "/":
-            suffix = descendant_path.lstrip("/")
-            child_name = suffix.split("/", 1)[0]
-            return f"/{child_name}/"
+    def _get_parent_path(cls, path: str) -> str:
+        """Return the immediate parent path for a normalized folder path."""
+        path = cls._normalize_folder_path(path)
+        if path == "/":
+            return "/"
 
-        suffix = descendant_path.removeprefix(parent_path)
-        child_name = suffix.split("/", 1)[0]
-        return f"{parent_path}{child_name}/"
+        parent_path, _, _ = path.rstrip("/").rpartition("/")
+        return f"{parent_path}/" if parent_path else "/"
 
     async def _write_folder_change(
         self,
@@ -152,6 +148,7 @@ class AgentFolderService(BaseWorkspaceService):
         return result.scalars().all()
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def move_preset(
         self, preset_id: uuid.UUID, folder: AgentFolder | None = None
     ) -> AgentPreset:
@@ -188,7 +185,7 @@ class AgentFolderService(BaseWorkspaceService):
             )
 
         old_path = folder.path
-        parent_path = folder.parent_path
+        parent_path = self._get_parent_path(folder.path)
         new_path = (
             f"{parent_path}{new_name}/" if parent_path != "/" else f"/{new_name}/"
         )
@@ -377,21 +374,21 @@ class AgentFolderService(BaseWorkspaceService):
         directory_items: list[DirectoryItem] = []
         folder_ids = [folder.id for folder in folders]
         folder_paths = {folder.path for folder in folders}
-        folder_ids_with_presets: set[uuid.UUID] = set()
-        folder_paths_with_children: set[str] = set()
+        preset_counts_by_folder_id: dict[uuid.UUID, int] = {}
+        child_folder_counts_by_path: dict[str, int] = {}
 
         if folder_ids:
             preset_folder_result = await self.session.execute(
-                select(AgentPreset.folder_id)
+                select(AgentPreset.folder_id, func.count(AgentPreset.id))
                 .where(
                     AgentPreset.workspace_id == self.workspace_id,
                     AgentPreset.folder_id.in_(folder_ids),
                 )
-                .distinct()
+                .group_by(AgentPreset.folder_id)
             )
-            folder_ids_with_presets = {
-                folder_id
-                for folder_id in preset_folder_result.scalars().all()
+            preset_counts_by_folder_id = {
+                folder_id: preset_count
+                for folder_id, preset_count in preset_folder_result.tuples().all()
                 if folder_id is not None
             }
 
@@ -403,17 +400,16 @@ class AgentFolderService(BaseWorkspaceService):
                 )
             )
             for descendant_path in descendant_path_result.scalars().all():
-                direct_child_path = self._get_direct_child_path(path, descendant_path)
-                if (
-                    direct_child_path in folder_paths
-                    and descendant_path != direct_child_path
-                ):
-                    folder_paths_with_children.add(direct_child_path)
+                parent_path = self._get_parent_path(descendant_path)
+                if parent_path in folder_paths:
+                    child_folder_counts_by_path[parent_path] = (
+                        child_folder_counts_by_path.get(parent_path, 0) + 1
+                    )
 
         for f in folders:
-            has_children = f.path in folder_paths_with_children
-            has_presets = f.id in folder_ids_with_presets
-            num_items = (1 if has_children else 0) + (1 if has_presets else 0)
+            num_items = child_folder_counts_by_path.get(
+                f.path, 0
+            ) + preset_counts_by_folder_id.get(f.id, 0)
             directory_items.append(
                 AgentFolderDirectoryItem(
                     type="folder",

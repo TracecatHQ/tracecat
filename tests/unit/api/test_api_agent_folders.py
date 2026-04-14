@@ -16,7 +16,7 @@ from tracecat.agent.folders.service import (
 from tracecat.agent.preset import router as agent_preset_router
 from tracecat.agent.preset.schemas import AgentPresetMoveToFolder
 from tracecat.auth.types import Role
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 
 
 @pytest.mark.anyio
@@ -133,3 +133,49 @@ async def test_move_agent_preset_to_root_skips_folder_lookup(
 
         mock_service.get_folder_by_path.assert_not_called()
         mock_service.move_preset.assert_awaited_once_with(preset_id, None)
+
+
+@pytest.mark.anyio
+async def test_move_agent_preset_requires_agent_addons_entitlement(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Preset moves should surface AGENT_ADDONS entitlement failures as 403s."""
+    preset_id = uuid.uuid4()
+
+    with patch.object(agent_preset_router, "AgentFolderService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.move_preset.side_effect = EntitlementRequired("agent_addons")
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            f"/agent/presets/{preset_id}/move",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"folder_path": "/"},
+        )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    payload = response.json()
+    assert payload["type"] == "EntitlementRequired"
+    assert payload["detail"]["entitlement"] == "agent_addons"
+
+
+@pytest.mark.anyio
+async def test_get_directory_requires_agent_addons_entitlement(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Folder directory reads should preserve the AGENT_ADDONS gate at HTTP level."""
+    with patch.object(agent_folder_router, "AgentFolderService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_directory_items.side_effect = EntitlementRequired(
+            "agent_addons"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.get("/agent-folders/directory", params={"path": "/"})
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    payload = response.json()
+    assert payload["type"] == "EntitlementRequired"
+    assert payload["detail"]["entitlement"] == "agent_addons"

@@ -11,8 +11,9 @@ from sqlalchemy.exc import NoResultFound
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentPreset, AgentTag, AgentTagLink
 from tracecat.identifiers import AgentTagID
-from tracecat.service import BaseWorkspaceService
+from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tags.schemas import TagCreate, TagUpdate
+from tracecat.tiers.enums import Entitlement
 
 
 class AgentTagsService(BaseWorkspaceService):
@@ -126,6 +127,8 @@ class AgentTagsService(BaseWorkspaceService):
         if not is_allowed:
             raise NoResultFound("Agent preset or tag not found")
 
+    @require_scope("agent:read")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_tags_for_preset(self, preset_id: uuid.UUID) -> Sequence[AgentTag]:
         """List all tags on a preset."""
         stmt = (
@@ -141,6 +144,8 @@ class AgentTagsService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
+    @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_preset_tag(
         self, preset_id: uuid.UUID, tag_id: AgentTagID
     ) -> AgentTagLink:
@@ -160,6 +165,7 @@ class AgentTagsService(BaseWorkspaceService):
         return result.scalar_one()
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def add_preset_tag(
         self, preset_id: uuid.UUID, tag_id: AgentTagID
     ) -> AgentTagLink:
@@ -179,6 +185,7 @@ class AgentTagsService(BaseWorkspaceService):
         return link
 
     @require_scope("agent:update")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def remove_preset_tag(self, link: AgentTagLink) -> None:
         """Remove a tag from an agent preset."""
         await self.session.delete(link)
