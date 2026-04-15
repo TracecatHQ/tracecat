@@ -204,7 +204,7 @@ def test_get_litellm_url_requires_bridge_port(
             "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
         ),
         ("azure_openai", "my-deployment", False, "azure/my-deployment"),
-        ("custom-model-provider", "custom", False, "openai/custom"),
+        ("custom-model-provider", "custom", False, "custom"),
         ("custom-model-provider", "customer-alias", True, "customer-alias"),
         ("openai", "openai/gpt-5", False, "openai/gpt-5"),
     ],
