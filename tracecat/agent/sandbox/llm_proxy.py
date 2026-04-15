@@ -132,9 +132,17 @@ class LLMSocketProxy:
                 use_workspace_credentials=self._use_workspace_credentials,
             )
         if creds is None:
-            logger.warning("Passthrough credentials not found")
+            logger.warning(
+                "Passthrough credentials not found",
+                use_workspace_credentials=self._use_workspace_credentials,
+            )
             return
         self._upstream_api_key = creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or None
+        logger.info(
+            "Resolved passthrough upstream credentials",
+            has_upstream_api_key=bool(self._upstream_api_key),
+            use_workspace_credentials=self._use_workspace_credentials,
+        )
 
     async def start(self) -> None:
         """Start the Unix socket server.
