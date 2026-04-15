@@ -4,8 +4,10 @@ import uuid
 
 from pydantic import BaseModel, model_validator
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.service import AgentManagementService
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
@@ -69,3 +71,66 @@ async def resolve_agent_preset_version_ref_activity(
             preset_id=version.preset_id,
             preset_version_id=version.id,
         )
+
+
+class CustomModelProviderConfigResult(BaseModel):
+    model_name: str | None = None
+    base_url: str
+    passthrough: bool = False
+
+
+@activity.defn
+async def resolve_custom_model_provider_config_activity(
+    role: Role,
+    use_workspace_credentials: bool,
+) -> CustomModelProviderConfigResult:
+    activity.logger.info(
+        "Resolving custom model provider config",
+        extra={"use_workspace_credentials": use_workspace_credentials},
+    )
+    async with AgentManagementService.with_session(role) as svc:
+        creds = await svc.get_runtime_provider_credentials(
+            "custom-model-provider",
+            use_workspace_credentials=use_workspace_credentials,
+        )
+    if creds is None:
+        activity.logger.error(
+            "Custom model provider credentials not found",
+            extra={"use_workspace_credentials": use_workspace_credentials},
+        )
+        raise ApplicationError("Invalid custom model provider credentials")
+    if not (base_url := creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL")):
+        activity.logger.error(
+            "Custom model provider base URL missing",
+            extra={
+                "use_workspace_credentials": use_workspace_credentials,
+                "has_model_name_override": bool(
+                    creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")
+                ),
+                "has_api_key": bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
+            },
+        )
+        raise ApplicationError("Custom model provider base URL is required")
+    passthrough = creds.get("CUSTOM_MODEL_PROVIDER_PASSTHROUGH", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    activity.logger.info(
+        "Resolved custom model provider config",
+        extra={
+            "use_workspace_credentials": use_workspace_credentials,
+            "passthrough": passthrough,
+            "has_model_name_override": bool(
+                creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")
+            ),
+            "has_api_key": bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
+            "has_base_url": bool(base_url),
+        },
+    )
+    return CustomModelProviderConfigResult(
+        base_url=base_url,
+        model_name=creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"),
+        passthrough=passthrough,
+    )

@@ -4392,6 +4392,77 @@ async def test_create_agent_preset_validates_explicit_model_provider_pair(
 
 
 @pytest.mark.anyio
+async def test_create_agent_preset_allows_custom_model_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    async def _resolve_model(
+        role: object,
+        *,
+        model_name: str | None,
+        model_provider: str | None,
+    ) -> tuple[str, str]:
+        assert role is not None
+        assert model_name == "customer-alias"
+        assert model_provider == "custom-model-provider"
+        return "customer-alias", "custom-model-provider"
+
+    class _PresetService:
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            now = datetime.now(UTC)
+            return SimpleNamespace(
+                id=uuid.uuid4(),
+                workspace_id=workspace_id,
+                name=params.name,
+                slug=params.slug or "security-triage",
+                description=params.description,
+                instructions=params.instructions,
+                model_name=params.model_name,
+                model_provider=params.model_provider,
+                base_url=params.base_url,
+                output_type=params.output_type,
+                actions=params.actions,
+                namespaces=params.namespaces,
+                tool_approvals=params.tool_approvals,
+                mcp_integrations=params.mcp_integrations,
+                retries=params.retries,
+                enable_internet_access=params.enable_internet_access,
+                current_version_id=None,
+                created_at=now,
+                updated_at=now,
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(mcp_server, "_resolve_agent_preset_model", _resolve_model)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    result = await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+        model_name="customer-alias",
+        model_provider="custom-model-provider",
+    )
+
+    payload = _payload(result)
+    params = created["params"]
+    assert params.model_name == "customer-alias"
+    assert params.model_provider == "custom-model-provider"
+    assert params.base_url is None
+    assert payload["model_provider"] == "custom-model-provider"
+
+
+@pytest.mark.anyio
 async def test_create_agent_preset_requires_workspace_credentials_for_default_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

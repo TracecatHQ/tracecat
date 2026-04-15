@@ -686,16 +686,16 @@ function AgentPresetChatPane({
     }
 
     if (!providerReady) {
+      const activeProvider =
+        activeVersion?.model_provider ?? preset.model_provider ?? ""
       return (
         <div className="flex h-full flex-col items-center justify-center px-4">
           <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
             <AlertCircle className="size-5 text-amber-500" />
             <p className="text-pretty">
               This agent uses workspace credentials for{" "}
-              <span className="font-medium">
-                {activeVersion?.model_provider ?? preset.model_provider}
-              </span>
-              . Configure them on the{" "}
+              <span className="font-medium">{activeProvider}</span>. Configure
+              them on the{" "}
               <Link
                 href={`/workspaces/${workspaceId}/credentials`}
                 className="font-medium text-primary hover:underline"
@@ -1004,7 +1004,7 @@ function AgentPresetForm({
         shouldDirty: false,
       })
     }
-  }, [form, modelOptions])
+  }, [form, modelOptions, providerValue])
 
   useEffect(() => {
     if (!channelsEnabled && activeTab === "channels") {

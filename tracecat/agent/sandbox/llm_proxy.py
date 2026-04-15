@@ -22,6 +22,8 @@ from fastapi import HTTPException
 
 from tracecat import config as app_config
 from tracecat.agent.observability import get_load_tracker
+from tracecat.agent.service import AgentManagementService
+from tracecat.auth.types import Role
 from tracecat.logger import logger
 
 # Socket filename (created in job's socket directory)
@@ -83,26 +85,64 @@ class LLMSocketProxy:
     def __init__(
         self,
         socket_path: Path,
-        litellm_url: str | None = None,
+        upstream_url: str | None = None,
         on_error: Callable[[str], None] | None = None,
+        passthrough: bool = False,
+        role: Role | None = None,
+        use_workspace_credentials: bool = False,
     ):
         """Initialize the LLM socket proxy.
 
         Args:
             socket_path: Path where the Unix socket will be created.
-            litellm_url: Managed LiteLLM service URL for shared-service runs.
+            upstream_url: Selected upstream base URL. Defaults to the managed gateway.
             on_error: Callback invoked when an error (e.g., auth failure) is detected.
+            passthrough: When True, strip managed auth headers and provider-specific
+                reasoning fields before forwarding directly to the configured upstream.
+            role: Role used to fetch the custom provider API key in passthrough mode.
+            use_workspace_credentials: Credential scope for the passthrough key fetch.
         """
         self.socket_path = socket_path
-        self.litellm_url = (
-            litellm_url.rstrip("/")
-            if litellm_url is not None
+        self.upstream_url = (
+            upstream_url.rstrip("/")
+            if upstream_url is not None
             else app_config.TRACECAT__LITELLM_BASE_URL.rstrip("/")
         )
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
         self._on_error = on_error
         self._error_emitted = False  # Only call callback once
+        self._is_passthrough = passthrough
+        self._role = role
+        self._use_workspace_credentials = use_workspace_credentials
+        self._upstream_api_key: str | None = None
+
+    async def _resolve_passthrough_api_key(self) -> None:
+        """Fetch the custom provider API key for passthrough mode.
+
+        The key is cached on the instance and never logged. If credentials or
+        the key are missing, the proxy forwards without an Authorization header
+        and the upstream will respond with its normal auth error.
+        """
+        if not self._is_passthrough or self._role is None:
+            return
+        async with AgentManagementService.with_session(self._role) as svc:
+            creds = await svc.get_runtime_provider_credentials(
+                "custom-model-provider",
+                use_workspace_credentials=self._use_workspace_credentials,
+            )
+        if creds is None:
+            logger.warning(
+                "Passthrough credentials not found",
+                use_workspace_credentials=self._use_workspace_credentials,
+            )
+            return
+        self._upstream_api_key = creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or None
+        logger.info(
+            "Resolved passthrough upstream credentials",
+            has_upstream_api_key=bool(self._upstream_api_key),
+            use_workspace_credentials=self._use_workspace_credentials,
+        )
 
     async def start(self) -> None:
         """Start the Unix socket server.
@@ -110,6 +150,8 @@ class LLMSocketProxy:
         Creates the socket file and begins accepting connections.
         The socket permissions are set to 0o600 for security.
         """
+        await self._resolve_passthrough_api_key()
+
         # Ensure parent directory exists
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -179,6 +221,47 @@ class LLMSocketProxy:
             logger.error("LLM proxy error", error=message, **_load_fields())
             if self._on_error:
                 self._on_error(message)
+
+    _ANTHROPIC_ONLY_FIELDS = (
+        "thinking",
+        "reasoning_effort",
+        "anthropic_beta",
+        "context_management",
+        "output_config",
+        "output_format",
+    )
+
+    @staticmethod
+    def _strip_anthropic_only_fields_from_request(
+        body: bytes, headers: dict[str, str]
+    ) -> tuple[bytes, dict[str, str]]:
+        """Remove Anthropic-only fields from a JSON request body.
+
+        Strips ``thinking``, ``reasoning_effort``, ``anthropic_beta``,
+        ``context_management``, ``output_config``, and ``output_format``
+        top-level keys and returns the updated body with a corrected
+        ``Content-Length`` header.
+        """
+        try:
+            data = orjson.loads(body)
+        except orjson.JSONDecodeError:
+            return body, headers
+
+        changed = False
+        for field in LLMSocketProxy._ANTHROPIC_ONLY_FIELDS:
+            if field in data:
+                del data[field]
+                changed = True
+
+        if not changed:
+            return body, headers
+
+        new_body = orjson.dumps(data)
+        headers = {
+            key: (str(len(new_body)) if key.lower() == "content-length" else value)
+            for key, value in headers.items()
+        }
+        return new_body, headers
 
     @staticmethod
     def _is_client_disconnect_error(exc: Exception) -> bool:
@@ -374,12 +457,23 @@ class LLMSocketProxy:
         method = str(request["method"])
         headers = cast(dict[str, str], request["headers"])
         body = cast(bytes, request["body"])
-        url = f"{self.litellm_url}{path}"
+
+        if self._is_passthrough and body:
+            body, headers = self._strip_anthropic_only_fields_from_request(
+                body, headers
+            )
+
+        url = f"{self.upstream_url}{path}"
+        excluded_headers = {"host", "connection", "transfer-encoding"}
+        if self._is_passthrough:
+            excluded_headers.add("authorization")
         forward_headers = {
             key: value
             for key, value in headers.items()
-            if key.lower() not in ("host", "connection", "transfer-encoding")
+            if key.lower() not in excluded_headers
         }
+        if self._is_passthrough and self._upstream_api_key:
+            forward_headers["Authorization"] = f"Bearer {self._upstream_api_key}"
 
         try:
             async with self._client.stream(

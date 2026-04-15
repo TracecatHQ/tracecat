@@ -81,6 +81,54 @@ async def test_with_preset_config_sets_registry_and_env_context(role: Role) -> N
 
 
 @pytest.mark.anyio
+async def test_with_preset_config_loads_custom_passthrough_base_url_from_workspace_secret(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.presets = cast(
+        AgentPresetService,
+        SimpleNamespace(
+            resolve_agent_preset_config=AsyncMock(
+                return_value=AgentConfig(
+                    model_name="customer-alias",
+                    model_provider="custom-model-provider",
+                    base_url=None,
+                )
+            )
+        ),
+    )
+    service.get_workspace_provider_credentials = AsyncMock(
+        return_value={
+            "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://litellm.customer.example",
+            "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "customer-routed-model",
+            "CUSTOM_MODEL_PROVIDER_PASSTHROUGH": "true",
+        }
+    )
+
+    async with service.with_preset_config(
+        preset_id=uuid.uuid4(),
+        use_workspace_credentials=True,
+    ) as config:
+        assert config.model_provider == "custom-model-provider"
+        assert config.base_url == "https://litellm.customer.example"
+        assert config.model_name == "customer-routed-model"
+        assert config.passthrough is True
+
+    service.get_workspace_provider_credentials.assert_awaited_once_with(
+        "custom-model-provider"
+    )
+
+
+@pytest.mark.anyio
+async def test_list_providers_excludes_removed_litellm_provider(role: Role) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+
+    providers = await service.list_providers()
+
+    assert "litellm" not in providers
+
+
+@pytest.mark.anyio
 async def test_get_runtime_provider_credentials_injects_bedrock_external_id(
     role: Role,
 ) -> None:

@@ -297,6 +297,13 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 type="text",
                 description="The name of the model to use from your custom model provider.",
             ),
+            ProviderCredentialField(
+                key="CUSTOM_MODEL_PROVIDER_PASSTHROUGH",
+                label="Passthrough",
+                type="text",
+                description="Optional boolean flag. When true, Tracecat bypasses the managed LLM gateway and forwards requests directly to the custom provider base URL.",
+                required=False,
+            ),
         ],
     ),
     "azure_openai": ProviderCredentialConfig(

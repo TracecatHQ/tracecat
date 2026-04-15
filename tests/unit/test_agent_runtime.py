@@ -20,7 +20,6 @@ from claude_agent_sdk.types import (
     SyncHookJSONOutput,
 )
 
-import tracecat.agent.runtime.claude_code.runtime as claude_runtime
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
@@ -38,7 +37,8 @@ from tracecat.agent.mcp.proxy_server import (
 from tracecat.agent.runtime.claude_code.runtime import (
     CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES,
     ClaudeAgentRuntime,
-    get_litellm_url,
+    get_litellm_route_model,
+    get_llm_proxy_url,
 )
 from tracecat.agent.types import AgentConfig
 
@@ -175,26 +175,54 @@ def test_get_litellm_url_uses_bridge_port_when_network_isolated(
 ) -> None:
     monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "4312")
 
-    assert get_litellm_url(enable_internet_access=False) == "http://127.0.0.1:4312"
+    assert get_llm_proxy_url() == "http://127.0.0.1:4312"
 
 
-def test_get_litellm_url_uses_managed_service_url_when_internet_enabled(
+def test_get_litellm_url_requires_bridge_port(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TRACECAT__LITELLM_BASE_URL", "http://litellm:4000/")
+    monkeypatch.delenv("TRACECAT__LLM_BRIDGE_PORT", raising=False)
 
-    assert get_litellm_url(enable_internet_access=True) == "http://litellm:4000"
+    with pytest.raises(RuntimeError, match="TRACECAT__LLM_BRIDGE_PORT is not set"):
+        get_llm_proxy_url()
 
 
-def test_get_litellm_url_falls_back_to_default_managed_service_url(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("provider", "model_name", "passthrough", "expected"),
+    [
+        (
+            "anthropic",
+            "claude-sonnet-4-5-20250929",
+            False,
+            "anthropic/claude-sonnet-4-5-20250929",
+        ),
+        ("bedrock", "bedrock", False, "bedrock/bedrock"),
+        (
+            "bedrock",
+            "us.anthropic.claude-sonnet-4-20250514-v1:0",
+            False,
+            "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0",
+        ),
+        ("azure_openai", "my-deployment", False, "azure/my-deployment"),
+        ("custom-model-provider", "custom", False, "openai/custom"),
+        ("custom-model-provider", "customer-alias", True, "customer-alias"),
+        ("openai", "openai/gpt-5", False, "openai/gpt-5"),
+    ],
+)
+def test_get_litellm_route_model_prefixes_provider_route(
+    provider: str,
+    model_name: str,
+    passthrough: bool,
+    expected: str,
 ) -> None:
-    monkeypatch.delenv("TRACECAT__LITELLM_BASE_URL", raising=False)
-    monkeypatch.setattr(
-        claude_runtime, "TRACECAT__LITELLM_BASE_URL", "http://127.0.0.1:4000"
+    assert (
+        get_litellm_route_model(
+            model_provider=provider,
+            model_name=model_name,
+            passthrough=passthrough,
+        )
+        == expected
     )
-
-    assert get_litellm_url(enable_internet_access=True) == "http://127.0.0.1:4000"
 
 
 class TestClaudeAgentRuntimeRun:
@@ -202,7 +230,7 @@ class TestClaudeAgentRuntimeRun:
 
     @pytest.fixture(autouse=True)
     def _mock_llm_bridge_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Set the LLM bridge port env var so get_litellm_url() succeeds."""
+        """Set the LLM bridge port env var so get_llm_proxy_url() succeeds."""
         monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "12345")
 
     @pytest.mark.anyio

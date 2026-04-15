@@ -69,6 +69,9 @@ class AgentExecutorInput(BaseModel):
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False
+    # Credential scope used by the LLM proxy in passthrough mode to fetch the
+    # customer's upstream API key. Not a secret.
+    use_workspace_credentials: bool = False
 
 
 class AgentExecutorResult(BaseModel):
@@ -148,10 +151,28 @@ class SandboxedAgentExecutor:
             self._fatal_error = error_msg
             self._fatal_error_event.set()
 
+        if self.input.config.passthrough:
+            if self.input.config.base_url is None:
+                raise AgentSandboxExecutionError(
+                    "Custom model provider passthrough requires a resolved base_url."
+                )
+            upstream_url = self.input.config.base_url
+        else:
+            upstream_url = app_config.TRACECAT__LITELLM_BASE_URL
+
+        logger.info(
+            "Creating LLM socket proxy",
+            has_upstream_url=bool(upstream_url),
+            passthrough=self.input.config.passthrough,
+        )
+
         return LLMSocketProxy(
             socket_path=socket_path,
-            litellm_url=app_config.TRACECAT__LITELLM_BASE_URL,
+            upstream_url=upstream_url,
             on_error=on_error,
+            passthrough=self.input.config.passthrough,
+            role=self.input.role,
+            use_workspace_credentials=self.input.use_workspace_credentials,
         )
 
     async def run(self) -> AgentExecutorResult:
@@ -233,16 +254,14 @@ class SandboxedAgentExecutor:
                 socket_path=str(control_socket_path),
             )
 
-            llm_socket_path: Path | None = socket_dir / LLM_SOCKET_NAME
-            if self.input.config.enable_internet_access:
-                llm_socket_path = None
-            else:
-                self._llm_proxy = self._create_llm_socket_proxy(llm_socket_path)
-                await self._llm_proxy.start()
-                logger.info(
-                    "Started LLM socket proxy",
-                    socket_path=str(llm_socket_path),
-                )
+            llm_socket_path = socket_dir / LLM_SOCKET_NAME
+
+            self._llm_proxy = self._create_llm_socket_proxy(llm_socket_path)
+            await self._llm_proxy.start()
+            logger.info(
+                "Started LLM socket proxy",
+                socket_path=str(llm_socket_path),
+            )
 
             # Set umask before socket creation to ensure 0o600 permissions from the start
             old_umask = os.umask(0o177)

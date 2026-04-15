@@ -135,9 +135,13 @@ async def list_secret_definitions(
     role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> list[SecretDefinition]:
-    """List registry secret definitions."""
+    """List aggregated secret definitions from the registry."""
     service = RegistryActionsService(session, role=role)
-    return await service.get_aggregated_secrets()
+    definitions = await service.get_aggregated_secrets()
+    return sorted(
+        definitions,
+        key=lambda definition: (-definition.action_count, definition.name),
+    )
 
 
 @router.get("/aws-assume-role", response_model=AwsAssumeRoleAccessRead)

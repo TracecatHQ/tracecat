@@ -254,6 +254,23 @@ class TestAgentPresetService:
         ):
             await agent_preset_service.create_preset(agent_preset_create_params)
 
+    async def test_create_preset_allows_custom_provider_without_base_url(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        agent_preset_create_params.model_provider = "custom-model-provider"
+        agent_preset_create_params.model_name = "customer-alias"
+        agent_preset_create_params.base_url = None
+
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+
+        assert created_preset.model_provider == "custom-model-provider"
+        assert created_preset.model_name == "customer-alias"
+        assert created_preset.base_url is None
+
     async def test_list_presets(
         self,
         agent_preset_service: AgentPresetService,

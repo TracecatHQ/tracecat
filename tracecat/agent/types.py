@@ -116,6 +116,7 @@ class AgentConfig:
     model_name: str
     model_provider: str
     base_url: str | None = None
+    passthrough: bool = False
     # Agent
     instructions: str | None = None
     output_type: str | dict[str, Any] | None = None

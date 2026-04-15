@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import cast
 
 import httpx
+import orjson
 import pytest
 
 from tracecat.agent.observability import LLMGatewayLoadTracker
@@ -56,7 +57,7 @@ async def test_forward_request_streams_litellm_response(
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        litellm_url="http://litellm:4000",
+        upstream_url="http://litellm:4000",
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -117,7 +118,7 @@ async def test_forward_request_returns_upstream_error_response(
 
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        litellm_url="http://litellm:4000",
+        upstream_url="http://litellm:4000",
     )
     socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     writer = _FakeWriter()
@@ -146,12 +147,155 @@ async def test_forward_request_returns_upstream_error_response(
 
 
 @pytest.mark.anyio
+async def test_forward_request_strips_authorization_for_passthrough_upstream(
+    tmp_path: Path,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://customer-litellm.example/v1/messages"
+        assert "authorization" not in request.headers
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"ok": True},
+        )
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        upstream_url="https://customer-litellm.example",
+        passthrough=True,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer llm-token",
+                },
+                "body": b'{"messages":[{"role":"user","content":"hello"}]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 200 OK")
+
+
+@pytest.mark.anyio
+async def test_forward_request_strips_anthropic_only_fields_for_passthrough_upstream(
+    tmp_path: Path,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://customer-litellm.example/v1/messages"
+        payload = orjson.loads(request.content)
+        assert payload["messages"] == [{"role": "user", "content": "hello"}]
+        assert "thinking" not in payload
+        assert "reasoning_effort" not in payload
+        assert "anthropic_beta" not in payload
+        assert "context_management" not in payload
+        assert "output_config" not in payload
+        assert "output_format" not in payload
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"ok": True},
+        )
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        upstream_url="https://customer-litellm.example",
+        passthrough=True,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Content-Length": "112",
+                },
+                "body": orjson.dumps(
+                    {
+                        "messages": [{"role": "user", "content": "hello"}],
+                        "thinking": {"type": "enabled", "budget_tokens": 1024},
+                        "reasoning_effort": "high",
+                        "anthropic_beta": ["prompt-caching-2024-07-31"],
+                        "context_management": {"strategy": "summarize"},
+                        "output_config": {"task_budget": 2048},
+                        "output_format": {"type": "json_schema"},
+                    }
+                ),
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 200 OK")
+
+
+@pytest.mark.anyio
+async def test_forward_request_injects_passthrough_api_key_as_bearer_authorization(
+    tmp_path: Path,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer sk-customer"
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"ok": True},
+        )
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        upstream_url="https://customer-litellm.example",
+        passthrough=True,
+    )
+    socket_proxy._upstream_api_key = "sk-customer"
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer llm-token",
+                },
+                "body": b'{"messages":[{"role":"user","content":"hello"}]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 200 OK")
+
+
+@pytest.mark.anyio
 async def test_forward_request_short_circuits_event_logging_batch(
     tmp_path: Path,
 ) -> None:
     socket_proxy = LLMSocketProxy(
         socket_path=tmp_path / "llm.sock",
-        litellm_url="http://litellm:4000",
+        upstream_url="http://litellm:4000",
     )
     writer = _FakeWriter()
 
@@ -175,7 +319,7 @@ async def test_stop_closes_http_client_and_removes_socket(tmp_path: Path) -> Non
     socket_path.touch()
     socket_proxy = LLMSocketProxy(
         socket_path=socket_path,
-        litellm_url="http://litellm:4000",
+        upstream_url="http://litellm:4000",
     )
     socket_proxy._client = httpx.AsyncClient(
         transport=httpx.MockTransport(

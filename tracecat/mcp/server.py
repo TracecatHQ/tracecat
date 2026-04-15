@@ -497,6 +497,13 @@ async def _resolve_agent_preset_model(
                 raise ToolError(
                     "model_name and model_provider must both be provided when setting an explicit model"
                 )
+            if model_provider == "custom-model-provider":
+                if not await svc.check_workspace_provider_credentials(model_provider):
+                    raise ToolError(
+                        "Workspace credentials for provider "
+                        f"'{model_provider}' are not configured"
+                    )
+                return model_name, model_provider
             try:
                 model_config = await svc.get_model_config(model_name)
             except TracecatNotFoundError as exc:

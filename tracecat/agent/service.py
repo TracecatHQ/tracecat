@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import replace
 
 import orjson
 from azure.identity.aio import ClientSecretCredential
@@ -288,6 +289,34 @@ class AgentManagementService(BaseOrgService):
             return None
         return await self._augment_runtime_provider_credentials(provider, credentials)
 
+    @staticmethod
+    def _resolve_custom_provider_config(
+        config: AgentConfig,
+        credentials: dict[str, str],
+    ) -> AgentConfig:
+        """Populate derived runtime settings for the custom model provider."""
+        if config.model_provider != "custom-model-provider":
+            return config
+        passthrough = credentials.get(
+            "CUSTOM_MODEL_PROVIDER_PASSTHROUGH", ""
+        ).lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        if not passthrough:
+            return replace(config, passthrough=False)
+        if not (base_url := credentials.get("CUSTOM_MODEL_PROVIDER_BASE_URL")):
+            raise TracecatNotFoundError(
+                "Custom model provider passthrough requires "
+                "CUSTOM_MODEL_PROVIDER_BASE_URL in provider credentials."
+            )
+        updates: dict[str, str | bool] = {"base_url": base_url, "passthrough": True}
+        if model_name := credentials.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"):
+            updates["model_name"] = model_name
+        return replace(config, **updates)
+
     @require_scope("agent:update")
     async def delete_provider_credentials(self, provider: str) -> None:
         """Delete credentials for an AI provider."""
@@ -528,6 +557,11 @@ class AgentManagementService(BaseOrgService):
                 f"No credentials found for provider '{preset_config.model_provider}'. "
                 "Please configure credentials for this provider first."
             )
+
+        preset_config = self._resolve_custom_provider_config(
+            preset_config,
+            credentials,
+        )
 
         with self._credentials_sandbox(credentials):
             yield preset_config

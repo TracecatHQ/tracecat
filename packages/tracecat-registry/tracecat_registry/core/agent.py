@@ -177,6 +177,18 @@ azure_ai_secret = RegistrySecret(
     - `AZURE_AI_MODEL_NAME`: Model name to use (e.g., claude-sonnet-4-5).
 """
 
+litellm_secret = RegistrySecret(
+    name="litellm",
+    keys=["LITELLM_BASE_URL"],
+    optional=True,
+)
+"""LiteLLM credentials.
+
+- name: `litellm`
+- keys:
+    - `LITELLM_BASE_URL`: LiteLLM base URL.
+"""
+
 PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
     anthropic_secret,
     openai_secret,
@@ -185,6 +197,7 @@ PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
     custom_model_provider_secret,
     azure_openai_secret,
     azure_ai_secret,
+    litellm_secret,
 ]
 
 

@@ -89,6 +89,7 @@ class AgentConfigPayload(BaseModel):
     model_name: str
     model_provider: str
     base_url: str | None = Field(default=None)
+    passthrough: bool = Field(default=False)
     instructions: str | None = Field(default=None)
     output_type: str | dict[str, Any] | None = Field(default=None)
     actions: list[str] | None = Field(default=None)

@@ -2868,7 +2868,7 @@ export const secretsCreateSecret = (
 
 /**
  * List Secret Definitions
- * List registry secret definitions.
+ * List aggregated secret definitions from the registry.
  * @param data The data for the request.
  * @param data.workspaceId
  * @returns SecretDefinition Successful Response
