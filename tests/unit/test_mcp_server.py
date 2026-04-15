@@ -2480,6 +2480,1308 @@ async def test_delete_case_field(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Case CRUD tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_list_cases(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    now = datetime.now(UTC)
+
+    from tracecat.pagination import CursorPaginatedResponse
+
+    list_result = CursorPaginatedResponse(
+        items=[
+            {
+                "id": str(case_id),
+                "short_id": "CASE-0001",
+                "created_at": str(now),
+                "updated_at": str(now),
+                "summary": "Suspicious login",
+                "status": "new",
+                "priority": "high",
+                "severity": "medium",
+                "assignee": None,
+                "tags": [],
+                "dropdown_values": [],
+                "num_tasks_completed": 0,
+                "num_tasks_total": 2,
+            }
+        ],
+        next_cursor=None,
+        prev_cursor=None,
+        has_more=False,
+        has_previous=False,
+    )
+
+    async def _list_cases(**kwargs):
+        return list_result
+
+    cases_service = SimpleNamespace(list_cases=_list_cases)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    result = await _tool(mcp_server.list_cases)(workspace_id=str(uuid.uuid4()))
+    payload = _payload(result)
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["summary"] == "Suspicious login"
+    assert payload["has_more"] is False
+
+
+@pytest.mark.anyio
+async def test_search_cases(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    now = datetime.now(UTC)
+
+    from tracecat.pagination import CursorPaginatedResponse
+
+    search_result = CursorPaginatedResponse(
+        items=[
+            {
+                "id": str(case_id),
+                "short_id": "CASE-0042",
+                "created_at": str(now),
+                "updated_at": str(now),
+                "summary": "Phishing alert",
+                "status": "in_progress",
+                "priority": "critical",
+                "severity": "high",
+                "assignee": None,
+                "tags": [],
+                "dropdown_values": [],
+                "num_tasks_completed": 1,
+                "num_tasks_total": 3,
+            }
+        ],
+        next_cursor=None,
+        prev_cursor=None,
+        has_more=False,
+        has_previous=False,
+    )
+    captured: dict[str, Any] = {}
+
+    async def _search_cases(params, **kwargs):
+        captured.update(kwargs)
+        return search_result
+
+    cases_service = SimpleNamespace(search_cases=_search_cases)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    result = await _tool(mcp_server.search_cases)(
+        workspace_id=str(uuid.uuid4()),
+        status="new,in_progress",
+        priority="critical",
+        search_term="phishing",
+    )
+    payload = _payload(result)
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["summary"] == "Phishing alert"
+    assert captured["search_term"] == "phishing"
+    # Verify enum parsing for comma-separated values
+    assert len(captured["status"]) == 2
+    assert len(captured["priority"]) == 1
+
+
+@pytest.mark.anyio
+async def test_get_case(monkeypatch):
+    ws_id = uuid.uuid4()
+
+    async def _resolve(_workspace_id):
+        return ws_id, SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    case = SimpleNamespace(
+        id=case_id,
+        short_id="CASE-0001",
+        created_at=now,
+        updated_at=now,
+        summary="Suspicious login",
+        status=SimpleNamespace(value="new"),
+        priority=SimpleNamespace(value="high"),
+        severity=SimpleNamespace(value="medium"),
+        description="Detailed description",
+        assignee=None,
+        payload={"key": "value"},
+        tags=[],
+    )
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _get_fields(c):
+        return {"my_field": "hello"}
+
+    async def _list_fields():
+        return [
+            {
+                "name": "my_field",
+                "type": "TEXT",
+                "nullable": True,
+                "default": None,
+                "comment": None,
+            }
+        ]
+
+    async def _get_field_schema():
+        return {"my_field": {"type": "TEXT"}}
+
+    fields_svc = SimpleNamespace(
+        get_fields=_get_fields,
+        list_fields=_list_fields,
+        get_field_schema=_get_field_schema,
+    )
+
+    async def _has_entitlement(_ent):
+        return False
+
+    cases_service = SimpleNamespace(
+        get_case=_get_case,
+        fields=fields_svc,
+        session=SimpleNamespace(),
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseDropdownValuesService",
+        lambda session, role: SimpleNamespace(has_entitlement=_has_entitlement),
+    )
+
+    result = await _tool(mcp_server.get_case)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+    )
+    payload = _payload(result)
+    assert payload["id"] == str(case_id)
+    assert payload["summary"] == "Suspicious login"
+    assert payload["description"] == "Detailed description"
+    assert payload["payload"] == {"key": "value"}
+    assert len(payload["fields"]) == 1
+    assert payload["fields"][0]["id"] == "my_field"
+    assert payload["fields"][0]["value"] == "hello"
+
+
+@pytest.mark.anyio
+async def test_get_case_not_found(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _get_case(parsed_id, **kwargs):
+        return None
+
+    cases_service = SimpleNamespace(get_case=_get_case)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    with pytest.raises(ToolError, match="not found"):
+        await _tool(mcp_server.get_case)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(uuid.uuid4()),
+        )
+
+
+@pytest.mark.anyio
+async def test_create_case(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    captured: dict[str, Any] = {}
+
+    async def _create_case(params):
+        captured["summary"] = params.summary
+        captured["status"] = params.status
+        captured["priority"] = params.priority
+        captured["severity"] = params.severity
+        captured["description"] = params.description
+        captured["fields"] = params.fields
+        return SimpleNamespace(id=case_id, short_id="CASE-0005")
+
+    cases_service = SimpleNamespace(create_case=_create_case)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    result = await _tool(mcp_server.create_case)(
+        workspace_id=str(uuid.uuid4()),
+        summary="New incident",
+        description="Something happened",
+        status="new",
+        priority="high",
+        severity="medium",
+        fields='{"my_field": "val"}',
+    )
+    payload = _payload(result)
+    assert payload["id"] == str(case_id)
+    assert payload["short_id"] == "CASE-0005"
+    assert "created successfully" in payload["message"]
+    assert captured["summary"] == "New incident"
+    assert captured["fields"] == {"my_field": "val"}
+
+
+@pytest.mark.anyio
+async def test_update_case(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    case = SimpleNamespace(id=case_id)
+    captured: dict[str, Any] = {}
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _update_case(c, params):
+        captured["summary"] = params.summary
+        captured["status"] = params.status
+        return c
+
+    cases_service = SimpleNamespace(get_case=_get_case, update_case=_update_case)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    result = await _tool(mcp_server.update_case)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        summary="Updated summary",
+        status="in_progress",
+    )
+    payload = _payload(result)
+    assert "updated successfully" in payload["message"]
+    assert captured["summary"] == "Updated summary"
+    assert str(captured["status"]) == "in_progress"
+
+
+@pytest.mark.anyio
+async def test_update_case_not_found(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _get_case(parsed_id, **kwargs):
+        return None
+
+    cases_service = SimpleNamespace(get_case=_get_case)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    with pytest.raises(ToolError, match="not found"):
+        await _tool(mcp_server.update_case)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(uuid.uuid4()),
+            summary="Won't work",
+        )
+
+
+@pytest.mark.anyio
+async def test_delete_case(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    case = SimpleNamespace(id=case_id)
+    deleted = []
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _delete_case(c):
+        deleted.append(c.id)
+
+    cases_service = SimpleNamespace(get_case=_get_case, delete_case=_delete_case)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    result = await _tool(mcp_server.delete_case)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+    )
+    payload = _payload(result)
+    assert "deleted successfully" in payload["message"]
+    assert deleted == [case_id]
+
+
+@pytest.mark.anyio
+async def test_delete_case_not_found(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _get_case(parsed_id, **kwargs):
+        return None
+
+    cases_service = SimpleNamespace(get_case=_get_case)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    with pytest.raises(ToolError, match="not found"):
+        await _tool(mcp_server.delete_case)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(uuid.uuid4()),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Case comments tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_list_case_comments(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    comment_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    case = SimpleNamespace(id=case_id)
+
+    from tracecat.cases.schemas import CaseCommentRead
+
+    comments = [
+        CaseCommentRead(
+            id=comment_id,
+            created_at=now,
+            updated_at=now,
+            content="This looks suspicious",
+            parent_id=None,
+            workflow=None,
+            user=None,
+            last_edited_at=None,
+            deleted_at=None,
+            is_deleted=False,
+        )
+    ]
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _list_comments(c):
+        return comments
+
+    cases_service = SimpleNamespace(
+        get_case=_get_case,
+        session=SimpleNamespace(),
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseCommentsService",
+        lambda session, role: SimpleNamespace(list_comments=_list_comments),
+    )
+
+    result = await _tool(mcp_server.list_case_comments)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+    )
+    payload = _payload(result)
+    assert len(payload) == 1
+    assert payload[0]["content"] == "This looks suspicious"
+    assert payload[0]["id"] == str(comment_id)
+
+
+@pytest.mark.anyio
+async def test_list_case_comment_threads(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    comment_id = uuid.uuid4()
+    reply_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    case = SimpleNamespace(id=case_id)
+
+    from tracecat.cases.schemas import CaseCommentRead, CaseCommentThreadRead
+
+    root_comment = CaseCommentRead(
+        id=comment_id,
+        created_at=now,
+        updated_at=now,
+        content="Root comment",
+        parent_id=None,
+        workflow=None,
+        user=None,
+    )
+    reply = CaseCommentRead(
+        id=reply_id,
+        created_at=now,
+        updated_at=now,
+        content="Reply",
+        parent_id=comment_id,
+        workflow=None,
+        user=None,
+    )
+    threads = [
+        CaseCommentThreadRead(
+            comment=root_comment,
+            replies=[reply],
+            reply_count=1,
+            last_activity_at=now,
+        )
+    ]
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _list_comment_threads(c):
+        return threads
+
+    cases_service = SimpleNamespace(
+        get_case=_get_case,
+        session=SimpleNamespace(),
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseCommentsService",
+        lambda session, role: SimpleNamespace(
+            list_comment_threads=_list_comment_threads
+        ),
+    )
+
+    result = await _tool(mcp_server.list_case_comment_threads)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+    )
+    payload = _payload(result)
+    assert len(payload) == 1
+    assert payload[0]["comment"]["content"] == "Root comment"
+    assert payload[0]["reply_count"] == 1
+    assert len(payload[0]["replies"]) == 1
+
+
+@pytest.mark.anyio
+async def test_create_case_comment(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    case = SimpleNamespace(id=case_id)
+    captured: dict[str, Any] = {}
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _create_comment(c, params):
+        captured["content"] = params.content
+        captured["parent_id"] = params.parent_id
+
+    cases_service = SimpleNamespace(
+        get_case=_get_case,
+        session=SimpleNamespace(),
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseCommentsService",
+        lambda session, role: SimpleNamespace(create_comment=_create_comment),
+    )
+
+    result = await _tool(mcp_server.create_case_comment)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        content="Needs escalation",
+    )
+    payload = _payload(result)
+    assert "created successfully" in payload["message"]
+    assert captured["content"] == "Needs escalation"
+    assert captured["parent_id"] is None
+
+
+@pytest.mark.anyio
+async def test_create_case_comment_reply(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    parent_id = uuid.uuid4()
+    case = SimpleNamespace(id=case_id)
+    captured: dict[str, Any] = {}
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _create_comment(c, params):
+        captured["content"] = params.content
+        captured["parent_id"] = params.parent_id
+
+    cases_service = SimpleNamespace(
+        get_case=_get_case,
+        session=SimpleNamespace(),
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseCommentsService",
+        lambda session, role: SimpleNamespace(create_comment=_create_comment),
+    )
+
+    result = await _tool(mcp_server.create_case_comment)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        content="Replying here",
+        parent_id=str(parent_id),
+    )
+    payload = _payload(result)
+    assert "created successfully" in payload["message"]
+    assert captured["parent_id"] == parent_id
+
+
+@pytest.mark.anyio
+async def test_update_case_comment(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    comment_id = uuid.uuid4()
+    case = SimpleNamespace(id=case_id)
+    comment = SimpleNamespace(id=comment_id)
+    captured: dict[str, Any] = {}
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _get_comment_in_case(cid, comid):
+        return comment
+
+    async def _update_comment(c, params):
+        captured["content"] = params.content
+
+    cases_service = SimpleNamespace(
+        get_case=_get_case,
+        session=SimpleNamespace(),
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseCommentsService",
+        lambda session, role: SimpleNamespace(
+            get_comment_in_case=_get_comment_in_case,
+            update_comment=_update_comment,
+        ),
+    )
+
+    result = await _tool(mcp_server.update_case_comment)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        comment_id=str(comment_id),
+        content="Updated text",
+    )
+    payload = _payload(result)
+    assert "updated successfully" in payload["message"]
+    assert captured["content"] == "Updated text"
+
+
+@pytest.mark.anyio
+async def test_update_case_comment_not_found(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    case = SimpleNamespace(id=case_id)
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _get_comment_in_case(cid, comid):
+        return None
+
+    cases_service = SimpleNamespace(
+        get_case=_get_case,
+        session=SimpleNamespace(),
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseCommentsService",
+        lambda session, role: SimpleNamespace(
+            get_comment_in_case=_get_comment_in_case,
+        ),
+    )
+
+    with pytest.raises(ToolError, match="not found"):
+        await _tool(mcp_server.update_case_comment)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(case_id),
+            comment_id=str(uuid.uuid4()),
+            content="Won't work",
+        )
+
+
+@pytest.mark.anyio
+async def test_delete_case_comment(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    comment_id = uuid.uuid4()
+    case = SimpleNamespace(id=case_id)
+    comment = SimpleNamespace(id=comment_id)
+    deleted = []
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _get_comment_in_case(cid, comid):
+        return comment
+
+    async def _delete_comment(c):
+        deleted.append(c.id)
+
+    cases_service = SimpleNamespace(
+        get_case=_get_case,
+        session=SimpleNamespace(),
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseCommentsService",
+        lambda session, role: SimpleNamespace(
+            get_comment_in_case=_get_comment_in_case,
+            delete_comment=_delete_comment,
+        ),
+    )
+
+    result = await _tool(mcp_server.delete_case_comment)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        comment_id=str(comment_id),
+    )
+    payload = _payload(result)
+    assert "deleted successfully" in payload["message"]
+    assert deleted == [comment_id]
+
+
+# ---------------------------------------------------------------------------
+# Case tasks tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_list_case_tasks(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    now = datetime.now(UTC)
+
+    tasks = [
+        SimpleNamespace(
+            id=task_id,
+            created_at=now,
+            updated_at=now,
+            case_id=case_id,
+            title="Investigate source IP",
+            description="Check threat intel",
+            priority=SimpleNamespace(value="high"),
+            status=SimpleNamespace(value="todo"),
+            assignee=None,
+            workflow_id=None,
+            default_trigger_values=None,
+        )
+    ]
+
+    async def _list_tasks(parsed_case_id):
+        return tasks
+
+    task_service = SimpleNamespace(list_tasks=_list_tasks)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTasksService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(task_service)),
+    )
+
+    result = await _tool(mcp_server.list_case_tasks)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+    )
+    payload = _payload(result)
+    assert len(payload) == 1
+    assert payload[0]["title"] == "Investigate source IP"
+    assert payload[0]["status"] == "todo"
+    assert payload[0]["priority"] == "high"
+
+
+@pytest.mark.anyio
+async def test_get_case_task(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    now = datetime.now(UTC)
+
+    task = SimpleNamespace(
+        id=task_id,
+        created_at=now,
+        updated_at=now,
+        case_id=case_id,
+        title="Block IP",
+        description=None,
+        priority=SimpleNamespace(value="critical"),
+        status=SimpleNamespace(value="in_progress"),
+        assignee=None,
+        workflow_id=None,
+        default_trigger_values=None,
+    )
+
+    async def _get_task(parsed_task_id):
+        return task
+
+    task_service = SimpleNamespace(get_task=_get_task)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTasksService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(task_service)),
+    )
+
+    result = await _tool(mcp_server.get_case_task)(
+        workspace_id=str(uuid.uuid4()),
+        task_id=str(task_id),
+    )
+    payload = _payload(result)
+    assert payload["id"] == str(task_id)
+    assert payload["title"] == "Block IP"
+    assert payload["status"] == "in_progress"
+
+
+@pytest.mark.anyio
+async def test_create_case_task(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    captured: dict[str, Any] = {}
+
+    async def _create_task(parsed_case_id, params):
+        captured["case_id"] = parsed_case_id
+        captured["title"] = params.title
+        captured["priority"] = params.priority
+        captured["status"] = params.status
+        return SimpleNamespace(
+            id=task_id,
+            created_at=now,
+            updated_at=now,
+            case_id=case_id,
+            title=params.title,
+            description=params.description,
+            priority=params.priority,
+            status=params.status,
+            assignee=None,
+            workflow_id=None,
+            default_trigger_values=None,
+        )
+
+    task_service = SimpleNamespace(create_task=_create_task)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTasksService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(task_service)),
+    )
+
+    result = await _tool(mcp_server.create_case_task)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        title="Isolate host",
+        priority="high",
+        status="todo",
+    )
+    payload = _payload(result)
+    assert payload["id"] == str(task_id)
+    assert payload["title"] == "Isolate host"
+    assert captured["case_id"] == case_id
+    assert str(captured["priority"]) == "high"
+    assert str(captured["status"]) == "todo"
+
+
+@pytest.mark.anyio
+async def test_update_case_task(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    captured: dict[str, Any] = {}
+
+    existing_task = SimpleNamespace(
+        id=task_id,
+        case_id=case_id,
+    )
+
+    async def _get_task(parsed_task_id):
+        return existing_task
+
+    async def _update_task(parsed_task_id, params):
+        captured["task_id"] = parsed_task_id
+        captured["status"] = params.status
+        captured["title"] = params.title
+        return SimpleNamespace(
+            id=task_id,
+            created_at=now,
+            updated_at=now,
+            case_id=case_id,
+            title=params.title or "Isolate host",
+            description=None,
+            priority=SimpleNamespace(value="high"),
+            status=params.status or SimpleNamespace(value="todo"),
+            assignee=None,
+            workflow_id=None,
+            default_trigger_values=None,
+        )
+
+    task_service = SimpleNamespace(get_task=_get_task, update_task=_update_task)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTasksService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(task_service)),
+    )
+
+    result = await _tool(mcp_server.update_case_task)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        task_id=str(task_id),
+        status="completed",
+        title="Host isolated",
+    )
+    payload = _payload(result)
+    assert payload["id"] == str(task_id)
+    assert captured["task_id"] == task_id
+    assert str(captured["status"]) == "completed"
+
+
+@pytest.mark.anyio
+async def test_update_case_task_wrong_case(monkeypatch):
+    """Updating a task that belongs to a different case should fail."""
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    task_id = uuid.uuid4()
+
+    existing_task = SimpleNamespace(
+        id=task_id,
+        case_id=uuid.uuid4(),  # Different case
+    )
+
+    async def _get_task(parsed_task_id):
+        return existing_task
+
+    task_service = SimpleNamespace(get_task=_get_task)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTasksService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(task_service)),
+    )
+
+    with pytest.raises(ToolError, match="Task not found in the specified case"):
+        await _tool(mcp_server.update_case_task)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(uuid.uuid4()),
+            task_id=str(task_id),
+            status="completed",
+        )
+
+
+@pytest.mark.anyio
+async def test_delete_case_task(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    deleted = []
+
+    existing_task = SimpleNamespace(id=task_id, case_id=case_id)
+
+    async def _get_task(parsed_task_id):
+        return existing_task
+
+    async def _delete_task(parsed_task_id):
+        deleted.append(parsed_task_id)
+
+    task_service = SimpleNamespace(get_task=_get_task, delete_task=_delete_task)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTasksService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(task_service)),
+    )
+
+    result = await _tool(mcp_server.delete_case_task)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        task_id=str(task_id),
+    )
+    payload = _payload(result)
+    assert "deleted successfully" in payload["message"]
+    assert deleted == [task_id]
+
+
+@pytest.mark.anyio
+async def test_run_case_task(monkeypatch):
+    ws_id = uuid.uuid4()
+
+    async def _resolve(_workspace_id):
+        return ws_id, SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    wf_id = uuid.uuid4()
+
+    existing_task = SimpleNamespace(
+        id=task_id,
+        case_id=case_id,
+        workflow_id=wf_id,
+        default_trigger_values={"env": "prod"},
+    )
+
+    async def _get_task(parsed_task_id):
+        return existing_task
+
+    task_service = SimpleNamespace(get_task=_get_task)
+
+    # Mock the workflow definition fetch
+    defn = SimpleNamespace(
+        content={
+            "title": "Test Workflow",
+            "description": "A test workflow",
+            "entrypoint": {"expects": None, "ref": "start"},
+            "actions": [
+                {
+                    "ref": "start",
+                    "action": "core.transform.reshape",
+                    "args": {"value": "hello"},
+                }
+            ],
+            "config": {"scheduler": "static"},
+        },
+        registry_lock=None,
+    )
+
+    class _FakeSession:
+        async def execute(self, stmt):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: defn))
+
+    exec_response = {
+        "wf_id": wf_id,
+        "wf_exec_id": "exec-123",
+        "message": "Workflow started",
+    }
+
+    async def _create_exec(**kwargs):
+        return exec_response
+
+    class _ExecService:
+        async def create_workflow_execution_wait_for_start(self, **kwargs):
+            return exec_response
+
+    async def _connect(*, role):
+        return _ExecService()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTasksService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(task_service)),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "get_async_session_context_manager",
+        lambda: _AsyncContext(_FakeSession()),
+    )
+    monkeypatch.setattr(mcp_server.WorkflowExecutionsService, "connect", _connect)
+
+    result = await _tool(mcp_server.run_case_task)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        task_id=str(task_id),
+        inputs='{"override_key": "override_val"}',
+    )
+    payload = _payload(result)
+    assert payload["execution_id"] == "exec-123"
+    assert payload["task_id"] == str(task_id)
+    assert payload["workflow_id"] == str(wf_id)
+
+
+@pytest.mark.anyio
+async def test_run_case_task_no_workflow(monkeypatch):
+    """Running a task without a workflow_id should fail."""
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+
+    existing_task = SimpleNamespace(
+        id=task_id,
+        case_id=case_id,
+        workflow_id=None,
+        default_trigger_values=None,
+    )
+
+    async def _get_task(parsed_task_id):
+        return existing_task
+
+    task_service = SimpleNamespace(get_task=_get_task)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTasksService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(task_service)),
+    )
+
+    with pytest.raises(ToolError, match="no associated workflow"):
+        await _tool(mcp_server.run_case_task)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(case_id),
+            task_id=str(task_id),
+        )
+
+
+@pytest.mark.anyio
+async def test_run_case_task_wrong_case(monkeypatch):
+    """Running a task belonging to a different case should fail."""
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    task_id = uuid.uuid4()
+
+    existing_task = SimpleNamespace(
+        id=task_id,
+        case_id=uuid.uuid4(),  # Different case
+        workflow_id=uuid.uuid4(),
+        default_trigger_values=None,
+    )
+
+    async def _get_task(parsed_task_id):
+        return existing_task
+
+    task_service = SimpleNamespace(get_task=_get_task)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTasksService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(task_service)),
+    )
+
+    with pytest.raises(ToolError, match="Task not found in the specified case"):
+        await _tool(mcp_server.run_case_task)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(uuid.uuid4()),
+            task_id=str(task_id),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Case events tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_list_case_events(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    case = SimpleNamespace(id=case_id)
+
+    db_events = [
+        SimpleNamespace(
+            type="case_created",
+            user_id=user_id,
+            created_at=now,
+            data={"type": "case_created"},
+        ),
+    ]
+
+    fake_users = [
+        SimpleNamespace(
+            id=user_id,
+            email="analyst@example.com",
+            first_name="Test",
+            last_name="User",
+            role="basic",
+            settings={},
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        ),
+    ]
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _list_events(c):
+        return db_events
+
+    async def _search_users(*, session, user_ids):
+        return fake_users
+
+    events_svc = SimpleNamespace(list_events=_list_events)
+    cases_service = SimpleNamespace(
+        get_case=_get_case,
+        events=events_svc,
+        session=SimpleNamespace(),
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+    monkeypatch.setattr(mcp_server, "search_users", _search_users)
+
+    result = await _tool(mcp_server.list_case_events)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+    )
+    payload = _payload(result)
+    assert len(payload["events"]) == 1
+    assert len(payload["users"]) == 1
+    assert payload["users"][0]["email"] == "analyst@example.com"
+
+
+@pytest.mark.anyio
+async def test_list_case_events_not_found(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    async def _get_case(parsed_id, **kwargs):
+        return None
+
+    cases_service = SimpleNamespace(get_case=_get_case)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    with pytest.raises(ToolError, match="not found"):
+        await _tool(mcp_server.list_case_events)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(uuid.uuid4()),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Middleware tests
 # ---------------------------------------------------------------------------
 
