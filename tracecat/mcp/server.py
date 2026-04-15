@@ -61,13 +61,40 @@ from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
 from tracecat.agent.tools import create_tool_from_registry
 from tracecat.agent.types import OutputType
-from tracecat.cases.enums import CaseEventType, CaseFieldKind
+from tracecat.auth.schemas import UserRead
+from tracecat.auth.users import search_users
+from tracecat.cases.dropdowns.service import CaseDropdownValuesService
+from tracecat.cases.enums import (
+    CaseEventType,
+    CaseFieldKind,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+    CaseTaskStatus,
+)
 from tracecat.cases.schemas import (
+    AssigneeChangedEventRead,
+    CaseCommentCreate,
+    CaseCommentRead,
+    CaseCommentThreadRead,
+    CaseCommentUpdate,
+    CaseCreate,
+    CaseEventRead,
     CaseFieldCreate,
+    CaseFieldRead,
     CaseFieldReadMinimal,
     CaseFieldUpdate,
+    CaseTaskCreate,
+    CaseTaskUpdate,
+    CaseUpdate,
+    TaskAssigneeChangedEventRead,
 )
-from tracecat.cases.service import CaseFieldsService
+from tracecat.cases.service import (
+    CaseCommentsService,
+    CaseFieldsService,
+    CasesService,
+    CaseTasksService,
+)
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.chat.schemas import BasicChatRequest, ChatRequest
@@ -132,6 +159,7 @@ from tracecat.tables.schemas import TableCreate, TableRowInsert, TableUpdate
 from tracecat.tables.service import TablesService
 from tracecat.tags.schemas import TagCreate, TagRead, TagUpdate
 from tracecat.tags.service import TagsService
+from tracecat.tiers.enums import Entitlement
 from tracecat.validation.schemas import ValidationDetail
 from tracecat.validation.service import validate_dsl
 from tracecat.variables.service import VariablesService
@@ -1753,7 +1781,8 @@ All MCP tools are namespaced by resource type and exposed as \
 `<namespace>_<tool_name>`:
 - `workspaces_*` (e.g. `workspaces_list_workspaces`)
 - `workflows_*` (workflow lifecycle, execution, tags, webhook/case-trigger config)
-- `cases_*`, `tables_*`, `variables_*`, `secrets_*`, `integrations_*`, `agents_*`
+- `cases_*` (case CRUD, search, comments, tasks, events, tags, custom fields)
+- `tables_*`, `variables_*`, `secrets_*`, `integrations_*`, `agents_*`
 
 Use `workspaces_list_workspaces` to discover available workspaces, then pass \
 `workspace_id` to all other tools.
@@ -2531,6 +2560,82 @@ def _case_tag_payload(tag: Any) -> dict[str, Any]:
     return CaseTagRead.model_validate(tag, from_attributes=True).model_dump(mode="json")
 
 
+def _case_full_payload(
+    case: Any,
+    *,
+    fields: list[dict[str, Any]] | None = None,
+    tags: list[dict[str, Any]] | None = None,
+    dropdown_values: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Serialize a case to a full MCP-friendly dict."""
+    assignee = None
+    if case.assignee:
+        assignee = UserRead.model_validate(
+            case.assignee, from_attributes=True
+        ).model_dump(mode="json")
+    return {
+        "id": str(case.id),
+        "short_id": case.short_id,
+        "created_at": str(case.created_at),
+        "updated_at": str(case.updated_at),
+        "summary": case.summary,
+        "status": case.status.value
+        if hasattr(case.status, "value")
+        else str(case.status),
+        "priority": case.priority.value
+        if hasattr(case.priority, "value")
+        else str(case.priority),
+        "severity": case.severity.value
+        if hasattr(case.severity, "value")
+        else str(case.severity),
+        "description": case.description,
+        "assignee": assignee,
+        "payload": case.payload,
+        "fields": fields or [],
+        "tags": tags or [],
+        "dropdown_values": dropdown_values or [],
+    }
+
+
+def _case_task_payload(task: Any) -> dict[str, Any]:
+    """Serialize a case task to an MCP-friendly dict."""
+    assignee = None
+    if task.assignee:
+        assignee = UserRead.model_validate(
+            task.assignee, from_attributes=True
+        ).model_dump(mode="json")
+    workflow_id = None
+    if task.workflow_id:
+        workflow_id = WorkflowUUID.new(task.workflow_id).short()
+    return {
+        "id": str(task.id),
+        "created_at": str(task.created_at),
+        "updated_at": str(task.updated_at),
+        "case_id": str(task.case_id),
+        "title": task.title,
+        "description": task.description,
+        "priority": task.priority.value
+        if hasattr(task.priority, "value")
+        else str(task.priority),
+        "status": task.status.value
+        if hasattr(task.status, "value")
+        else str(task.status),
+        "assignee": assignee,
+        "workflow_id": workflow_id,
+        "default_trigger_values": task.default_trigger_values,
+    }
+
+
+def _case_comment_payload(comment: CaseCommentRead) -> dict[str, Any]:
+    """Serialize a case comment read model to an MCP-friendly dict."""
+    return comment.model_dump(mode="json")
+
+
+def _case_comment_thread_payload(thread: CaseCommentThreadRead) -> dict[str, Any]:
+    """Serialize a case comment thread read model to an MCP-friendly dict."""
+    return thread.model_dump(mode="json")
+
+
 def _case_field_payload(
     column: sa.engine.interfaces.ReflectedColumn,
     *,
@@ -2730,6 +2835,24 @@ _TOOL_NAMESPACE_BY_NAME: dict[str, str] = {
     "list_tags_for_workflow": "workflows",
     "add_workflow_tag": "workflows",
     "remove_workflow_tag": "workflows",
+    "list_cases": "cases",
+    "search_cases": "cases",
+    "get_case": "cases",
+    "create_case": "cases",
+    "update_case": "cases",
+    "delete_case": "cases",
+    "list_case_comments": "cases",
+    "list_case_comment_threads": "cases",
+    "create_case_comment": "cases",
+    "update_case_comment": "cases",
+    "delete_case_comment": "cases",
+    "list_case_tasks": "cases",
+    "get_case_task": "cases",
+    "create_case_task": "cases",
+    "update_case_task": "cases",
+    "delete_case_task": "cases",
+    "run_case_task": "cases",
+    "list_case_events": "cases",
     "list_case_tags": "cases",
     "create_case_tag": "cases",
     "update_case_tag": "cases",
@@ -4983,6 +5106,1020 @@ async def remove_workflow_tag(
     except Exception as e:
         logger.error("Failed to remove workflow tag", error=str(e))
         raise ToolError(f"Failed to remove workflow tag: {e}") from None
+
+
+# ---------------------------------------------------------------------------
+# Case CRUD
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_cases(
+    workspace_id: str,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+    order_by: str | None = None,
+    sort: str | None = None,
+) -> str:
+    """List cases in a workspace with default sorting.
+
+    Args:
+        workspace_id: The workspace ID.
+        limit: Maximum items per page.
+        cursor: Cursor for pagination.
+        order_by: Column to order by. One of: created_at, updated_at,
+            priority, severity, status, tasks.
+        sort: Sort direction. One of: asc, desc.
+
+    Returns a paginated JSON array of case objects.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        async with CasesService.with_session(role=role) as svc:
+            result = await svc.list_cases(
+                limit=_normalize_limit(
+                    limit,
+                    default=config.TRACECAT__LIMIT_DEFAULT,
+                    max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                ),
+                cursor=cursor,
+                order_by=cast(Any, order_by),
+                sort=cast(Any, sort),
+            )
+            return _json(_serialize_paginated_response(result))
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list cases", error=str(e))
+        raise ToolError(f"Failed to list cases: {e}") from None
+
+
+@mcp.tool()
+async def search_cases(
+    workspace_id: str,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+    search_term: str | None = None,
+    short_id: str | None = None,
+    status: str | None = None,
+    priority: str | None = None,
+    severity: str | None = None,
+    order_by: str | None = None,
+    sort: str | None = None,
+) -> str:
+    """Search cases with filtering and sorting.
+
+    Args:
+        workspace_id: The workspace ID.
+        limit: Maximum items per page.
+        cursor: Cursor for pagination.
+        search_term: Text to search for in case summary, description, or
+            short ID.
+        short_id: Search by exact case short ID (e.g. ``42`` or
+            ``CASE-0042``).
+        status: Comma-separated case statuses to filter by. Values: new,
+            in_progress, on_hold, resolved, closed, unknown, other.
+        priority: Comma-separated case priorities to filter by. Values:
+            unknown, low, medium, high, critical, other.
+        severity: Comma-separated case severities to filter by. Values:
+            unknown, informational, low, medium, high, critical, fatal, other.
+        order_by: Column to order by. One of: created_at, updated_at,
+            priority, severity, status, tasks.
+        sort: Sort direction. One of: asc, desc.
+
+    Returns a paginated JSON array of case objects.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+
+        parsed_status: list[CaseStatus] | None = None
+        if status:
+            parsed_status = [CaseStatus(s.strip()) for s in status.split(",")]
+        parsed_priority: list[CasePriority] | None = None
+        if priority:
+            parsed_priority = [CasePriority(p.strip()) for p in priority.split(",")]
+        parsed_severity: list[CaseSeverity] | None = None
+        if severity:
+            parsed_severity = [CaseSeverity(s.strip()) for s in severity.split(",")]
+
+        async with CasesService.with_session(role=role) as svc:
+            result = await svc.search_cases(
+                params=CursorPaginationParams(
+                    limit=_normalize_limit(
+                        limit,
+                        default=config.TRACECAT__LIMIT_DEFAULT,
+                        max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+                    ),
+                    cursor=cursor,
+                ),
+                search_term=search_term,
+                short_id=short_id,
+                status=parsed_status,
+                priority=parsed_priority,
+                severity=parsed_severity,
+                order_by=cast(Any, order_by),
+                sort=cast(Any, sort),
+            )
+            return _json(_serialize_paginated_response(result))
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to search cases", error=str(e))
+        raise ToolError(f"Failed to search cases: {e}") from None
+
+
+@mcp.tool()
+async def get_case(
+    workspace_id: str,
+    case_id: str,
+) -> str:
+    """Get a specific case with full details including fields, tags, and
+    description.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+
+    Returns JSON with full case details.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        async with CasesService.with_session(role=role) as svc:
+            case = await svc.get_case(parsed_case_id)
+            if case is None:
+                raise ToolError(f"Case {case_id!r} not found")
+
+            # Get custom field values and definitions
+            fields_data = await svc.fields.get_fields(case) or {}
+            field_definitions = await svc.fields.list_fields()
+            field_schema = await svc.fields.get_field_schema()
+            final_fields = []
+            for defn in field_definitions:
+                f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
+                final_fields.append(
+                    CaseFieldRead(
+                        **f.model_dump(),
+                        value=fields_data.get(f.id),
+                    ).model_dump(mode="json")
+                )
+
+            # Tags
+            tag_reads = [
+                CaseTagRead.model_validate(tag, from_attributes=True).model_dump(
+                    mode="json"
+                )
+                for tag in case.tags
+            ]
+
+            # Dropdown values (if entitlement active)
+            dropdown_reads: list[dict[str, Any]] = []
+            dropdown_service = CaseDropdownValuesService(session=svc.session, role=role)
+            if await dropdown_service.has_entitlement(Entitlement.CASE_ADDONS):
+                dropdown_values = await dropdown_service.list_values_for_case(
+                    parsed_case_id
+                )
+                dropdown_reads = [dv.model_dump(mode="json") for dv in dropdown_values]
+
+            return _json(
+                _case_full_payload(
+                    case,
+                    fields=final_fields,
+                    tags=tag_reads,
+                    dropdown_values=dropdown_reads,
+                )
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to get case", error=str(e))
+        raise ToolError(f"Failed to get case: {e}") from None
+
+
+@mcp.tool()
+async def create_case(
+    workspace_id: str,
+    summary: str,
+    description: str,
+    status: str,
+    priority: str,
+    severity: str,
+    assignee_id: str | None = None,
+    fields: str | None = None,
+    payload: str | None = None,
+) -> str:
+    """Create a new case.
+
+    Args:
+        workspace_id: The workspace ID.
+        summary: Case title / summary.
+        description: Case description text.
+        status: Case status. Values: new, in_progress, on_hold, resolved,
+            closed, unknown, other.
+        priority: Case priority. Values: unknown, low, medium, high,
+            critical, other.
+        severity: Case severity. Values: unknown, informational, low,
+            medium, high, critical, fatal, other.
+        assignee_id: Optional user UUID to assign the case to.
+        fields: Optional JSON object string of custom field values, e.g.
+            ``'{"my_field": "value"}'``. Field names must match existing
+            case field definitions from ``list_case_fields``.
+        payload: Optional JSON object string of arbitrary case payload data.
+
+    Returns JSON with a confirmation message and the created case ID.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_fields = _parse_json_arg(fields, "fields")
+        parsed_payload = _parse_json_arg(payload, "payload")
+        parsed_assignee = uuid.UUID(assignee_id) if assignee_id else None
+
+        params = CaseCreate(
+            summary=summary,
+            description=description,
+            status=CaseStatus(status),
+            priority=CasePriority(priority),
+            severity=CaseSeverity(severity),
+            assignee_id=parsed_assignee,
+            fields=parsed_fields,
+            payload=parsed_payload,
+        )
+
+        async with CasesService.with_session(role=role) as svc:
+            case = await svc.create_case(params)
+            return _json(
+                {
+                    "message": "Case created successfully",
+                    "id": str(case.id),
+                    "short_id": case.short_id,
+                }
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create case", error=str(e))
+        raise ToolError(f"Failed to create case: {e}") from None
+
+
+@mcp.tool()
+async def update_case(
+    workspace_id: str,
+    case_id: str,
+    summary: str | None = None,
+    description: str | None = None,
+    status: str | None = None,
+    priority: str | None = None,
+    severity: str | None = None,
+    assignee_id: str | None = None,
+    fields: str | None = None,
+    payload: str | None = None,
+) -> str:
+    """Update a case. Only provided fields are changed.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+        summary: New case summary.
+        description: New case description.
+        status: New case status. Values: new, in_progress, on_hold,
+            resolved, closed, unknown, other.
+        priority: New case priority. Values: unknown, low, medium, high,
+            critical, other.
+        severity: New case severity. Values: unknown, informational, low,
+            medium, high, critical, fatal, other.
+        assignee_id: User UUID to assign the case to.
+        fields: JSON object string of custom field values to update, e.g.
+            ``'{"my_field": "new_value"}'``.
+        payload: JSON object string of arbitrary payload data.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        parsed_fields = _parse_json_arg(fields, "fields")
+        parsed_payload = _parse_json_arg(payload, "payload")
+
+        update_kwargs: dict[str, Any] = {}
+        if summary is not None:
+            update_kwargs["summary"] = summary
+        if description is not None:
+            update_kwargs["description"] = description
+        if status is not None:
+            update_kwargs["status"] = CaseStatus(status)
+        if priority is not None:
+            update_kwargs["priority"] = CasePriority(priority)
+        if severity is not None:
+            update_kwargs["severity"] = CaseSeverity(severity)
+        if assignee_id is not None:
+            update_kwargs["assignee_id"] = uuid.UUID(assignee_id)
+        if parsed_fields is not None:
+            update_kwargs["fields"] = parsed_fields
+        if parsed_payload is not None:
+            update_kwargs["payload"] = parsed_payload
+
+        params = CaseUpdate(**update_kwargs)
+
+        async with CasesService.with_session(role=role) as svc:
+            case = await svc.get_case(parsed_case_id, for_update=True)
+            if case is None:
+                raise ToolError(f"Case {case_id!r} not found")
+            await svc.update_case(case, params)
+            return _json({"message": f"Case {case_id} updated successfully"})
+    except ToolError:
+        raise
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update case", error=str(e))
+        raise ToolError(f"Failed to update case: {e}") from None
+
+
+@mcp.tool()
+async def delete_case(workspace_id: str, case_id: str) -> str:
+    """Delete a case.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        async with CasesService.with_session(role=role) as svc:
+            case = await svc.get_case(parsed_case_id)
+            if case is None:
+                raise ToolError(f"Case {case_id!r} not found")
+            await svc.delete_case(case)
+            return _json({"message": f"Case {case_id} deleted successfully"})
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete case", error=str(e))
+        raise ToolError(f"Failed to delete case: {e}") from None
+
+
+# ---------------------------------------------------------------------------
+# Case Comments
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_case_comments(
+    workspace_id: str,
+    case_id: str,
+) -> str:
+    """List all comments for a case.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+
+    Returns a JSON array of comment objects with ``id``, ``content``,
+    ``user``, ``parent_id``, ``created_at``, ``updated_at``, and optional
+    ``workflow`` info.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        async with CasesService.with_session(role=role) as svc:
+            case = await svc.get_case(parsed_case_id)
+            if case is None:
+                raise ToolError(f"Case {case_id!r} not found")
+            comments_svc = CaseCommentsService(session=svc.session, role=role)
+            comments = await comments_svc.list_comments(case)
+            return _json([_case_comment_payload(c) for c in comments])
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list case comments", error=str(e))
+        raise ToolError(f"Failed to list case comments: {e}") from None
+
+
+@mcp.tool()
+async def list_case_comment_threads(
+    workspace_id: str,
+    case_id: str,
+) -> str:
+    """List comment threads for a case. Each thread contains the root comment
+    and its replies.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+
+    Returns a JSON array of thread objects, each with ``comment``,
+    ``replies``, ``reply_count``, and ``last_activity_at``.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        async with CasesService.with_session(role=role) as svc:
+            case = await svc.get_case(parsed_case_id)
+            if case is None:
+                raise ToolError(f"Case {case_id!r} not found")
+            comments_svc = CaseCommentsService(session=svc.session, role=role)
+            threads = await comments_svc.list_comment_threads(case)
+            return _json([_case_comment_thread_payload(t) for t in threads])
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list case comment threads", error=str(e))
+        raise ToolError(f"Failed to list case comment threads: {e}") from None
+
+
+@mcp.tool()
+async def create_case_comment(
+    workspace_id: str,
+    case_id: str,
+    content: str,
+    parent_id: str | None = None,
+) -> str:
+    """Create a new comment on a case. Provide ``parent_id`` to reply to an
+    existing comment.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+        content: Comment text (1–25 000 characters).
+        parent_id: Optional parent comment UUID for creating a reply.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        parsed_parent = uuid.UUID(parent_id) if parent_id else None
+
+        async with CasesService.with_session(role=role) as svc:
+            case = await svc.get_case(parsed_case_id)
+            if case is None:
+                raise ToolError(f"Case {case_id!r} not found")
+            comments_svc = CaseCommentsService(session=svc.session, role=role)
+            await comments_svc.create_comment(
+                case,
+                CaseCommentCreate(content=content, parent_id=parsed_parent),
+            )
+            return _json({"message": "Comment created successfully"})
+    except ToolError:
+        raise
+    except (TracecatValidationError, TracecatNotFoundError) as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create case comment", error=str(e))
+        raise ToolError(f"Failed to create case comment: {e}") from None
+
+
+@mcp.tool()
+async def update_case_comment(
+    workspace_id: str,
+    case_id: str,
+    comment_id: str,
+    content: str,
+) -> str:
+    """Update an existing comment on a case.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+        comment_id: Comment UUID.
+        content: New comment text (1–25 000 characters).
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        parsed_comment_id = uuid.UUID(comment_id)
+
+        async with CasesService.with_session(role=role) as svc:
+            case = await svc.get_case(parsed_case_id)
+            if case is None:
+                raise ToolError(f"Case {case_id!r} not found")
+            comments_svc = CaseCommentsService(session=svc.session, role=role)
+            comment = await comments_svc.get_comment_in_case(case.id, parsed_comment_id)
+            if comment is None:
+                raise ToolError(f"Comment {comment_id!r} not found")
+            await comments_svc.update_comment(
+                comment, CaseCommentUpdate(content=content)
+            )
+            return _json({"message": f"Comment {comment_id} updated successfully"})
+    except ToolError:
+        raise
+    except (TracecatValidationError, TracecatNotFoundError) as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update case comment", error=str(e))
+        raise ToolError(f"Failed to update case comment: {e}") from None
+
+
+@mcp.tool()
+async def delete_case_comment(
+    workspace_id: str,
+    case_id: str,
+    comment_id: str,
+) -> str:
+    """Delete a comment from a case.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+        comment_id: Comment UUID.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        parsed_comment_id = uuid.UUID(comment_id)
+
+        async with CasesService.with_session(role=role) as svc:
+            case = await svc.get_case(parsed_case_id)
+            if case is None:
+                raise ToolError(f"Case {case_id!r} not found")
+            comments_svc = CaseCommentsService(session=svc.session, role=role)
+            comment = await comments_svc.get_comment_in_case(case.id, parsed_comment_id)
+            if comment is None:
+                raise ToolError(f"Comment {comment_id!r} not found")
+            await comments_svc.delete_comment(comment)
+            return _json({"message": f"Comment {comment_id} deleted successfully"})
+    except ToolError:
+        raise
+    except (TracecatValidationError, TracecatNotFoundError) as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete case comment", error=str(e))
+        raise ToolError(f"Failed to delete case comment: {e}") from None
+
+
+# ---------------------------------------------------------------------------
+# Case Tasks
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_case_tasks(
+    workspace_id: str,
+    case_id: str,
+) -> str:
+    """List all tasks for a case.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+
+    Returns a JSON array of task objects with ``id``, ``title``,
+    ``description``, ``priority``, ``status``, ``assignee``,
+    ``workflow_id``, and ``default_trigger_values``.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        async with CaseTasksService.with_session(role=role) as svc:
+            tasks = await svc.list_tasks(parsed_case_id)
+            return _json([_case_task_payload(t) for t in tasks])
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list case tasks", error=str(e))
+        raise ToolError(f"Failed to list case tasks: {e}") from None
+
+
+@mcp.tool()
+async def get_case_task(
+    workspace_id: str,
+    task_id: str,
+) -> str:
+    """Get a specific case task by ID.
+
+    Args:
+        workspace_id: The workspace ID.
+        task_id: Task UUID.
+
+    Returns JSON with the task details.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_task_id = uuid.UUID(task_id)
+        async with CaseTasksService.with_session(role=role) as svc:
+            task = await svc.get_task(parsed_task_id)
+            return _json(_case_task_payload(task))
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to get case task", error=str(e))
+        raise ToolError(f"Failed to get case task: {e}") from None
+
+
+@mcp.tool()
+async def create_case_task(
+    workspace_id: str,
+    case_id: str,
+    title: str,
+    description: str | None = None,
+    priority: str = "unknown",
+    status: str = "todo",
+    assignee_id: str | None = None,
+    workflow_id: str | None = None,
+    default_trigger_values: str | None = None,
+) -> str:
+    """Create a new task on a case.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+        title: Task title (1–255 characters).
+        description: Optional task description (max 1000 characters).
+        priority: Task priority. Values: unknown, low, medium, high,
+            critical, other. Default: unknown.
+        status: Task status. Values: todo, in_progress, completed, blocked.
+            Default: todo.
+        assignee_id: Optional user UUID to assign the task to.
+        workflow_id: Optional workflow ID to associate with the task. Can be
+            a full UUID or short ID.
+        default_trigger_values: Optional JSON object string of default
+            trigger values for the associated workflow, e.g.
+            ``'{"key": "value"}'``. Only valid when ``workflow_id`` is set.
+
+    Returns JSON with the created task details.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        parsed_assignee = uuid.UUID(assignee_id) if assignee_id else None
+        parsed_trigger_values = _parse_json_arg(
+            default_trigger_values, "default_trigger_values"
+        )
+
+        params = CaseTaskCreate(
+            title=title,
+            description=description,
+            priority=CasePriority(priority),
+            status=CaseTaskStatus(status),
+            assignee_id=parsed_assignee,
+            workflow_id=workflow_id,
+            default_trigger_values=parsed_trigger_values,
+        )
+
+        async with CaseTasksService.with_session(role=role) as svc:
+            task = await svc.create_task(parsed_case_id, params)
+            return _json(_case_task_payload(task))
+    except ToolError:
+        raise
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create case task", error=str(e))
+        raise ToolError(f"Failed to create case task: {e}") from None
+
+
+@mcp.tool()
+async def update_case_task(
+    workspace_id: str,
+    case_id: str,
+    task_id: str,
+    title: str | None = None,
+    description: str | None = None,
+    priority: str | None = None,
+    status: str | None = None,
+    assignee_id: str | None = None,
+    workflow_id: str | None = None,
+    default_trigger_values: str | None = None,
+) -> str:
+    """Update a case task. Only provided fields are changed.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID (must match the task's parent case).
+        task_id: Task UUID.
+        title: New task title (1–255 characters).
+        description: New task description (max 1000 characters).
+        priority: New task priority. Values: unknown, low, medium, high,
+            critical, other.
+        status: New task status. Values: todo, in_progress, completed,
+            blocked.
+        assignee_id: User UUID to assign the task to.
+        workflow_id: Workflow ID to associate with the task.
+        default_trigger_values: JSON object string of default trigger values.
+
+    Returns JSON with the updated task details.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        parsed_task_id = uuid.UUID(task_id)
+        parsed_trigger_values = _parse_json_arg(
+            default_trigger_values, "default_trigger_values"
+        )
+
+        update_kwargs: dict[str, Any] = {}
+        if title is not None:
+            update_kwargs["title"] = title
+        if description is not None:
+            update_kwargs["description"] = description
+        if priority is not None:
+            update_kwargs["priority"] = CasePriority(priority)
+        if status is not None:
+            update_kwargs["status"] = CaseTaskStatus(status)
+        if assignee_id is not None:
+            update_kwargs["assignee_id"] = uuid.UUID(assignee_id)
+        if workflow_id is not None:
+            update_kwargs["workflow_id"] = workflow_id
+        if parsed_trigger_values is not None:
+            update_kwargs["default_trigger_values"] = parsed_trigger_values
+
+        params = CaseTaskUpdate(**update_kwargs)
+
+        async with CaseTasksService.with_session(role=role) as svc:
+            existing = await svc.get_task(parsed_task_id)
+            if existing.case_id != parsed_case_id:
+                raise ToolError("Task not found in the specified case")
+            task = await svc.update_task(parsed_task_id, params)
+            return _json(_case_task_payload(task))
+    except ToolError:
+        raise
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except TracecatValidationError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to update case task", error=str(e))
+        raise ToolError(f"Failed to update case task: {e}") from None
+
+
+@mcp.tool()
+async def delete_case_task(
+    workspace_id: str,
+    case_id: str,
+    task_id: str,
+) -> str:
+    """Delete a case task.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID (must match the task's parent case).
+        task_id: Task UUID.
+
+    Returns a confirmation message.
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        parsed_task_id = uuid.UUID(task_id)
+
+        async with CaseTasksService.with_session(role=role) as svc:
+            existing = await svc.get_task(parsed_task_id)
+            if existing.case_id != parsed_case_id:
+                raise ToolError("Task not found in the specified case")
+            await svc.delete_task(parsed_task_id)
+            return _json({"message": f"Task {task_id} deleted successfully"})
+    except ToolError:
+        raise
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete case task", error=str(e))
+        raise ToolError(f"Failed to delete case task: {e}") from None
+
+
+@mcp.tool()
+async def run_case_task(
+    workspace_id: str,
+    case_id: str,
+    task_id: str,
+    inputs: str | None = None,
+) -> str:
+    """Run the workflow associated with a case task.
+
+    Fetches the task's ``workflow_id`` and ``default_trigger_values``,
+    merges them with ``case_id`` and ``task_id`` context (plus any
+    caller-supplied overrides), then executes the latest published version
+    of the workflow.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID (must match the task's parent case).
+        task_id: Task UUID. The task must have an associated
+            ``workflow_id``.
+        inputs: Optional JSON object string of additional trigger inputs
+            that override the task's ``default_trigger_values``, e.g.
+            ``'{"key": "value"}'``.
+
+    Returns JSON with ``workflow_id``, ``execution_id``, and a message.
+    """
+
+    try:
+        ws_id, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        parsed_task_id = uuid.UUID(task_id)
+
+        # Fetch the task and validate it belongs to the case
+        async with CaseTasksService.with_session(role=role) as svc:
+            task = await svc.get_task(parsed_task_id)
+            if task.case_id != parsed_case_id:
+                raise ToolError("Task not found in the specified case")
+            if not task.workflow_id:
+                raise ToolError(
+                    "Task has no associated workflow. Set a workflow_id on "
+                    "the task first using update_case_task."
+                )
+            wf_id = WorkflowUUID.new(task.workflow_id)
+
+        # Build merged inputs: default_trigger_values + caller overrides + context
+        merged: dict[str, Any] = {}
+        if task.default_trigger_values:
+            merged.update(task.default_trigger_values)
+        caller_overrides = _parse_json_arg(inputs, "inputs")
+        if caller_overrides:
+            merged.update(caller_overrides)
+        # Always inject case/task context
+        merged["case_id"] = str(parsed_case_id)
+        merged["task_id"] = str(parsed_task_id)
+
+        # Fetch the latest published workflow definition
+        async with get_async_session_context_manager() as session:
+            result = await session.execute(
+                select(WorkflowDefinition)
+                .where(
+                    WorkflowDefinition.workflow_id == wf_id,
+                    WorkflowDefinition.workspace_id == ws_id,
+                )
+                .order_by(WorkflowDefinition.version.desc())
+            )
+            defn = result.scalars().first()
+            if not defn:
+                raise ToolError(
+                    f"No published definition found for workflow {wf_id.short()}. "
+                    "Publish the workflow first using publish_workflow."
+                )
+
+            dsl_input = DSLInput(**defn.content)
+            registry_lock = (
+                RegistryLock.model_validate(defn.registry_lock)
+                if defn.registry_lock
+                else None
+            )
+
+        # Validate inputs against the workflow's expects schema
+        payload = _validate_and_parse_trigger_inputs(
+            dsl_input, _json(merged) if merged else None
+        )
+
+        exec_service = await WorkflowExecutionsService.connect(role=role)
+        response = await exec_service.create_workflow_execution_wait_for_start(
+            dsl=dsl_input,
+            wf_id=wf_id,
+            payload=payload,
+            registry_lock=registry_lock,
+        )
+        return _json(
+            {
+                "workflow_id": str(response["wf_id"]),
+                "execution_id": str(response["wf_exec_id"]),
+                "message": response["message"],
+                "task_id": str(parsed_task_id),
+            }
+        )
+    except ToolError:
+        raise
+    except TracecatNotFoundError as e:
+        raise ToolError(str(e)) from e
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except BaseException as e:
+        msg = str(e)
+        if isinstance(e, BaseExceptionGroup):
+            msgs = [str(exc) for exc in e.exceptions]
+            msg = "; ".join(msgs)
+        logger.error("Failed to run case task", error=msg)
+        raise ToolError(f"Failed to run case task: {msg}") from None
+
+
+# ---------------------------------------------------------------------------
+# Case Events (read-only)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def list_case_events(
+    workspace_id: str,
+    case_id: str,
+) -> str:
+    """List activity events for a case. Events are system-generated audit
+    entries that track every change to a case — status changes, priority
+    changes, assignee changes, comments, tasks, tags, field changes, etc.
+
+    Args:
+        workspace_id: The workspace ID.
+        case_id: Case UUID.
+
+    Returns JSON with ``events`` (array of event objects) and ``users``
+    (array of user objects referenced by events).
+    """
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        parsed_case_id = uuid.UUID(case_id)
+        async with CasesService.with_session(role=role) as svc:
+            case = await svc.get_case(parsed_case_id)
+            if case is None:
+                raise ToolError(f"Case {case_id!r} not found")
+            db_events = await svc.events.list_events(case)
+            user_ids: set[uuid.UUID] = set()
+            events: list[dict[str, Any]] = []
+            for db_evt in db_events:
+                evt = CaseEventRead.model_validate(
+                    {
+                        "type": db_evt.type,
+                        "user_id": db_evt.user_id,
+                        "created_at": db_evt.created_at,
+                        **db_evt.data,
+                    }
+                )
+                root_evt = evt.root
+                if isinstance(root_evt, AssigneeChangedEventRead):
+                    if root_evt.old is not None:
+                        user_ids.add(root_evt.old)
+                    if root_evt.new is not None:
+                        user_ids.add(root_evt.new)
+                if isinstance(root_evt, TaskAssigneeChangedEventRead):
+                    if root_evt.old is not None:
+                        user_ids.add(root_evt.old)
+                    if root_evt.new is not None:
+                        user_ids.add(root_evt.new)
+                if root_evt.user_id is not None:
+                    user_ids.add(root_evt.user_id)
+                events.append(evt.model_dump(mode="json"))
+
+            users: list[dict[str, Any]] = []
+            if user_ids:
+                user_models = await search_users(session=svc.session, user_ids=user_ids)
+                users = [
+                    UserRead.model_validate(u, from_attributes=True).model_dump(
+                        mode="json"
+                    )
+                    for u in user_models
+                ]
+
+            return _json({"events": events, "users": users})
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list case events", error=str(e))
+        raise ToolError(f"Failed to list case events: {e}") from None
+
+
+# ---------------------------------------------------------------------------
+# Case Tags & Fields (existing tools follow)
+# ---------------------------------------------------------------------------
 
 
 @mcp.tool()
