@@ -126,7 +126,7 @@ async def resolve_custom_model_provider_config_activity(
                 creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")
             ),
             "has_api_key": bool(creds.get("CUSTOM_MODEL_PROVIDER_API_KEY")),
-            "base_url": base_url,
+            "has_base_url": bool(base_url),
         },
     )
     return CustomModelProviderConfigResult(
