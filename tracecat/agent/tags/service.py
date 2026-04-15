@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Sequence
 
 from slugify import slugify
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import NoResultFound
 
@@ -114,8 +114,6 @@ class AgentTagsService(BaseWorkspaceService):
     async def _require_preset_and_tag_in_workspace(
         self, preset_id: uuid.UUID, tag_id: AgentTagID
     ) -> None:
-        from sqlalchemy import exists
-
         preset_exists = exists(
             select(AgentPreset.id).where(
                 AgentPreset.id == preset_id,

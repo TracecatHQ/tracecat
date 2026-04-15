@@ -13,6 +13,10 @@ from tracecat.agent.tags import router as agent_tags_router
 from tracecat.auth.types import Role
 from tracecat.exceptions import EntitlementRequired
 
+# Fixed UUID for parametrized test IDs — uuid.uuid4() at module level causes
+# pytest-xdist collection mismatches because each worker generates a different value.
+_FIXED_TAG_ID = "00000000-0000-4000-8000-000000000002"
+
 
 def _mock_service_with_async_method(
     method_name: str,
@@ -106,7 +110,7 @@ async def test_remove_preset_tag_requires_agent_addons_entitlement(
     ("method", "path", "kwargs", "service_method"),
     [
         ("get", "/agent-tags", {}, "list_tags"),
-        ("get", f"/agent-tags/{uuid.uuid4()}", {}, "get_tag"),
+        ("get", f"/agent-tags/{_FIXED_TAG_ID}", {}, "get_tag"),
         (
             "post",
             "/agent-tags",
@@ -115,11 +119,11 @@ async def test_remove_preset_tag_requires_agent_addons_entitlement(
         ),
         (
             "patch",
-            f"/agent-tags/{uuid.uuid4()}",
+            f"/agent-tags/{_FIXED_TAG_ID}",
             {"json": {"name": "Updated"}},
             "get_tag",
         ),
-        ("delete", f"/agent-tags/{uuid.uuid4()}", {}, "get_tag"),
+        ("delete", f"/agent-tags/{_FIXED_TAG_ID}", {}, "get_tag"),
     ],
 )
 async def test_agent_tag_definition_routes_require_agent_addons_entitlement(

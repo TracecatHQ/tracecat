@@ -19,6 +19,10 @@ from tracecat.agent.preset.schemas import AgentPresetMoveToFolder
 from tracecat.auth.types import Role
 from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 
+# Fixed UUID for parametrized test IDs — uuid.uuid4() at module level causes
+# pytest-xdist collection mismatches because each worker generates a different value.
+_FIXED_FOLDER_ID = "00000000-0000-4000-8000-000000000001"
+
 
 def _mock_service_with_async_method(
     method_name: str,
@@ -270,22 +274,22 @@ async def test_get_directory_requires_agent_addons_entitlement(
             {"json": {"name": "agents", "parent_path": "/"}},
             "create_folder",
         ),
-        ("get", f"/agent-folders/{uuid.uuid4()}", {}, "get_folder"),
+        ("get", f"/agent-folders/{_FIXED_FOLDER_ID}", {}, "get_folder"),
         (
             "patch",
-            f"/agent-folders/{uuid.uuid4()}",
+            f"/agent-folders/{_FIXED_FOLDER_ID}",
             {"json": {"name": "renamed"}},
             "rename_folder",
         ),
         (
             "delete",
-            f"/agent-folders/{uuid.uuid4()}",
+            f"/agent-folders/{_FIXED_FOLDER_ID}",
             {"json": {"recursive": False}},
             "delete_folder",
         ),
         (
             "post",
-            f"/agent-folders/{uuid.uuid4()}/move",
+            f"/agent-folders/{_FIXED_FOLDER_ID}/move",
             {"json": {"new_parent_path": "/"}},
             "move_folder",
         ),
