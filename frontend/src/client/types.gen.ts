@@ -252,6 +252,28 @@ export type AdminUserRead = {
 }
 
 /**
+ * List catalog entries with pagination.
+ */
+export type AgentCatalogListResponse = {
+  items: Array<AgentCatalogRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Single catalog model entry.
+ */
+export type AgentCatalogRead = {
+  id: string
+  custom_provider_id: string | null
+  organization_id: string | null
+  model_provider: string
+  model_name: string
+  model_metadata: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
  * Request schema for creating an external channel token.
  */
 export type AgentChannelTokenCreate = {
@@ -301,6 +323,82 @@ export type AgentChannelTokenUpdate = {
    * Activation state
    */
   is_active?: boolean | null
+}
+
+/**
+ * Create custom LLM provider.
+ */
+export type AgentCustomProviderCreate = {
+  display_name: string
+  base_url?: string | null
+  passthrough?: boolean
+  api_key_header?: string | null
+  api_key?: string | null
+  custom_headers?: {
+    [key: string]: string
+  } | null
+}
+
+/**
+ * List response with pagination.
+ */
+export type AgentCustomProviderListResponse = {
+  items: Array<AgentCustomProviderRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Read custom provider.
+ */
+export type AgentCustomProviderRead = {
+  id: string
+  organization_id: string
+  display_name: string
+  base_url: string | null
+  passthrough: boolean
+  api_key_header: string | null
+  discovery_status: string
+  last_refreshed_at: string | null
+}
+
+/**
+ * Update custom provider.
+ */
+export type AgentCustomProviderUpdate = {
+  display_name?: string | null
+  base_url?: string | null
+  passthrough?: boolean | null
+  api_key_header?: string | null
+  api_key?: string | null
+  custom_headers?: {
+    [key: string]: string
+  } | null
+}
+
+/**
+ * Enable a model for org or workspace.
+ */
+export type AgentModelAccessCreate = {
+  catalog_id: string
+  workspace_id?: string | null
+}
+
+/**
+ * List accessible models with pagination.
+ */
+export type AgentModelAccessListResponse = {
+  items: Array<AgentModelAccessRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Model access entry.
+ */
+export type AgentModelAccessRead = {
+  id: string
+  organization_id: string
+  workspace_id: string | null
+  catalog_id: string
 }
 
 export type AgentOutput = {
@@ -2707,6 +2805,23 @@ export type DataUIPart = {
   type: string
   id?: string
   data: unknown
+}
+
+/**
+ * Canonical default-model selection for an organization.
+ */
+export type DefaultModelSelection = {
+  catalog_id: string
+  model_name: string
+  model_provider: string
+  custom_provider_id?: string | null
+}
+
+/**
+ * Payload for updating the organization's default model selection.
+ */
+export type DefaultModelSelectionUpdate = {
+  catalog_id: string
 }
 
 /**
@@ -8903,6 +9018,14 @@ export type AgentSetDefaultModelResponse = {
   [key: string]: string
 }
 
+export type AgentGetDefaultModelSelectionResponse = DefaultModelSelection | null
+
+export type AgentSetDefaultModelSelectionData = {
+  requestBody: DefaultModelSelectionUpdate
+}
+
+export type AgentSetDefaultModelSelectionResponse = DefaultModelSelection
+
 export type AgentGetWorkspaceProvidersStatusData = {
   workspaceId: string
 }
@@ -9043,6 +9166,95 @@ export type AgentPresetsRestoreAgentPresetVersionData = {
 }
 
 export type AgentPresetsRestoreAgentPresetVersionResponse = AgentPresetRead
+
+export type CreateProviderData = {
+  requestBody: AgentCustomProviderCreate
+}
+
+export type CreateProviderResponse = AgentCustomProviderRead
+
+export type ListProvidersData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type ListProvidersResponse = AgentCustomProviderListResponse
+
+export type GetProviderData = {
+  providerId: string
+}
+
+export type GetProviderResponse = AgentCustomProviderRead
+
+export type UpdateProviderData = {
+  providerId: string
+  requestBody: AgentCustomProviderUpdate
+}
+
+export type UpdateProviderResponse = AgentCustomProviderRead
+
+export type DeleteProviderData = {
+  providerId: string
+}
+
+export type DeleteProviderResponse = void
+
+export type RefreshProviderCatalogData = {
+  providerId: string
+}
+
+export type RefreshProviderCatalogResponse = unknown
+
+export type ValidateProviderConnectionData = {
+  requestBody: AgentCustomProviderCreate
+}
+
+export type ValidateProviderConnectionResponse = {
+  [key: string]: boolean
+}
+
+export type ListCatalogData = {
+  cursor?: string | null
+  limit?: number
+  modelName?: string | null
+  provider?: string | null
+}
+
+export type ListCatalogResponse = AgentCatalogListResponse
+
+export type GetCatalogEntryData = {
+  catalogId: string
+}
+
+export type GetCatalogEntryResponse = AgentCatalogRead
+
+export type GetWorkspaceModelsData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type GetWorkspaceModelsResponse = AgentCatalogListResponse
+
+export type EnableModelData = {
+  requestBody: AgentModelAccessCreate
+}
+
+export type EnableModelResponse = AgentModelAccessRead
+
+export type ListEnabledModelsData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId?: string | null
+}
+
+export type ListEnabledModelsResponse = AgentModelAccessListResponse
+
+export type DisableModelData = {
+  accessId: string
+}
+
+export type DisableModelResponse = void
 
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
@@ -12662,6 +12874,29 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/default-model-selection": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: DefaultModelSelection | null
+      }
+    }
+    put: {
+      req: AgentSetDefaultModelSelectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: DefaultModelSelection
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/agent/workspace/providers/status": {
     get: {
       req: AgentGetWorkspaceProvidersStatusData
@@ -12902,6 +13137,195 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentPresetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-custom-providers": {
+    post: {
+      req: CreateProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCustomProviderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: ListProvidersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCustomProviderListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-custom-providers/{provider_id}": {
+    get: {
+      req: GetProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCustomProviderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: UpdateProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCustomProviderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: DeleteProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-custom-providers/{provider_id}/refresh": {
+    post: {
+      req: RefreshProviderCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-custom-providers/validate": {
+    post: {
+      req: ValidateProviderConnectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: boolean
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-catalog": {
+    get: {
+      req: ListCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-catalog/{catalog_id}": {
+    get: {
+      req: GetCatalogEntryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent-models": {
+    get: {
+      req: GetWorkspaceModelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentCatalogListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-model-access": {
+    post: {
+      req: EnableModelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentModelAccessRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: ListEnabledModelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentModelAccessListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-model-access/{access_id}": {
+    delete: {
+      req: DisableModelData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

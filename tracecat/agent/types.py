@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from enum import StrEnum
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -31,15 +30,6 @@ else:
     # Runtime fallbacks for types only used in annotations
     ModelMessage = Any
     CustomToolList = list[Any]
-
-
-class AgentCustomProviderDiscoveryStatus(StrEnum):
-    """Discovery lifecycle states for custom provider catalog refreshes."""
-
-    NEVER = "never"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
 
 
 class StreamKey(str):
