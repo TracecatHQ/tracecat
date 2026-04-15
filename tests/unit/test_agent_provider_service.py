@@ -63,6 +63,16 @@ def _workspace_role(org: Organization, workspace: Workspace) -> Role:
     )
 
 
+def _workspace_role(org: Organization, workspace: Workspace) -> Role:
+    return Role(
+        type="user",
+        user_id=uuid.uuid4(),
+        organization_id=org.id,
+        workspace_id=workspace.id,
+        service_id="tracecat-api",
+    )
+
+
 @pytest.mark.anyio
 async def test_create_provider_minimal(
     session: AsyncSession,
