@@ -298,7 +298,7 @@ class DurableAgentWorkflow:
                 "Applied custom model provider runtime config",
                 passthrough=cfg.passthrough,
                 has_model_name_override=result.model_name is not None,
-                base_url=cfg.base_url,
+                has_base_url=bool(cfg.base_url),
                 use_workspace_credentials=args.agent_args.use_workspace_credentials,
             )
         return cfg
