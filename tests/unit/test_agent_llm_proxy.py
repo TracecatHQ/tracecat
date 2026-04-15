@@ -189,7 +189,7 @@ async def test_forward_request_strips_authorization_for_passthrough_upstream(
 
 
 @pytest.mark.anyio
-async def test_forward_request_strips_reasoning_fields_for_passthrough_upstream(
+async def test_forward_request_strips_anthropic_only_fields_for_passthrough_upstream(
     tmp_path: Path,
 ) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -198,6 +198,8 @@ async def test_forward_request_strips_reasoning_fields_for_passthrough_upstream(
         assert payload["messages"] == [{"role": "user", "content": "hello"}]
         assert "thinking" not in payload
         assert "reasoning_effort" not in payload
+        assert "anthropic_beta" not in payload
+        assert "context_management" not in payload
         return httpx.Response(
             200,
             headers={"Content-Type": "application/json"},
@@ -226,6 +228,8 @@ async def test_forward_request_strips_reasoning_fields_for_passthrough_upstream(
                         "messages": [{"role": "user", "content": "hello"}],
                         "thinking": {"type": "enabled", "budget_tokens": 1024},
                         "reasoning_effort": "high",
+                        "anthropic_beta": ["prompt-caching-2024-07-31"],
+                        "context_management": {"strategy": "summarize"},
                     }
                 ),
             },

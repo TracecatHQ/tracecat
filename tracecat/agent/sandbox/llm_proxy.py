@@ -184,16 +184,22 @@ class LLMSocketProxy:
             if self._on_error:
                 self._on_error(message)
 
-    _REASONING_FIELDS = ("thinking", "reasoning_effort")
+    _ANTHROPIC_ONLY_FIELDS = (
+        "thinking",
+        "reasoning_effort",
+        "anthropic_beta",
+        "context_management",
+    )
 
     @staticmethod
-    def _strip_reasoning_fields_from_request(
+    def _strip_anthropic_only_fields_from_request(
         body: bytes, headers: dict[str, str]
     ) -> tuple[bytes, dict[str, str]]:
-        """Remove adaptive thinking / reasoning fields from a JSON request body.
+        """Remove Anthropic-only fields from a JSON request body.
 
-        Strips ``thinking`` and ``reasoning_effort`` top-level keys and returns
-        the updated body with a corrected ``Content-Length`` header.
+        Strips ``thinking``, ``reasoning_effort``, ``anthropic_beta``, and
+        ``context_management`` top-level keys and returns the updated body with
+        a corrected ``Content-Length`` header.
         """
         try:
             data = orjson.loads(body)
@@ -201,7 +207,7 @@ class LLMSocketProxy:
             return body, headers
 
         changed = False
-        for field in LLMSocketProxy._REASONING_FIELDS:
+        for field in LLMSocketProxy._ANTHROPIC_ONLY_FIELDS:
             if field in data:
                 del data[field]
                 changed = True
@@ -412,7 +418,9 @@ class LLMSocketProxy:
         body = cast(bytes, request["body"])
 
         if self._is_passthrough and body:
-            body, headers = self._strip_reasoning_fields_from_request(body, headers)
+            body, headers = self._strip_anthropic_only_fields_from_request(
+                body, headers
+            )
 
         url = f"{self.upstream_url}{path}"
         excluded_headers = {"host", "connection", "transfer-encoding"}
