@@ -159,7 +159,7 @@ class SandboxedAgentExecutor:
 
         logger.info(
             "Creating LLM socket proxy",
-            upstream_url=upstream_url,
+            has_upstream_url=bool(upstream_url),
             passthrough=self.input.config.passthrough,
         )
 
