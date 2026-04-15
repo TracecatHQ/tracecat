@@ -1160,12 +1160,14 @@ class CaseCreateWithTags(CaseCreate):
     """Extended case create request with tags support for UDFs."""
 
     tags: list[str] | None = None
+    create_missing_tags: bool = False
 
 
 class CaseUpdateWithTags(CaseUpdate):
     """Extended case update request with tags and append support for UDFs."""
 
     tags: list[str] | None = None
+    create_missing_tags: bool = False
     append_description: bool = False
 
 
@@ -1213,7 +1215,9 @@ async def create_case_simple(
         # Add tags if provided
         if params.tags:
             for tag in params.tags:
-                await service.tags.add_case_tag(case.id, tag)
+                await service.tags.add_case_tag(
+                    case.id, tag, create_if_missing=params.create_missing_tags
+                )
             await session.refresh(case)
 
     except NoResultFound as e:
@@ -1285,7 +1289,9 @@ async def update_case_simple(
             for existing_tag in existing_tags:
                 await service.tags.remove_case_tag(case.id, existing_tag.ref)
             for tag in params.tags:
-                await service.tags.add_case_tag(case.id, tag)
+                await service.tags.add_case_tag(
+                    case.id, tag, create_if_missing=params.create_missing_tags
+                )
             await session.refresh(updated_case)
 
     except NoResultFound as e:
