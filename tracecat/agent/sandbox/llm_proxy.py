@@ -22,6 +22,8 @@ from fastapi import HTTPException
 
 from tracecat import config as app_config
 from tracecat.agent.observability import get_load_tracker
+from tracecat.agent.service import AgentManagementService
+from tracecat.auth.types import Role
 from tracecat.logger import logger
 
 # Socket filename (created in job's socket directory)
@@ -86,6 +88,8 @@ class LLMSocketProxy:
         upstream_url: str | None = None,
         on_error: Callable[[str], None] | None = None,
         passthrough: bool = False,
+        role: Role | None = None,
+        use_workspace_credentials: bool = False,
     ):
         """Initialize the LLM socket proxy.
 
@@ -95,6 +99,8 @@ class LLMSocketProxy:
             on_error: Callback invoked when an error (e.g., auth failure) is detected.
             passthrough: When True, strip managed auth headers and provider-specific
                 reasoning fields before forwarding directly to the configured upstream.
+            role: Role used to fetch the custom provider API key in passthrough mode.
+            use_workspace_credentials: Credential scope for the passthrough key fetch.
         """
         self.socket_path = socket_path
         self.upstream_url = (
@@ -107,6 +113,28 @@ class LLMSocketProxy:
         self._on_error = on_error
         self._error_emitted = False  # Only call callback once
         self._is_passthrough = passthrough
+        self._role = role
+        self._use_workspace_credentials = use_workspace_credentials
+        self._upstream_api_key: str | None = None
+
+    async def _resolve_passthrough_api_key(self) -> None:
+        """Fetch the custom provider API key for passthrough mode.
+
+        The key is cached on the instance and never logged. If credentials or
+        the key are missing, the proxy forwards without an Authorization header
+        and the upstream will respond with its normal auth error.
+        """
+        if not self._is_passthrough or self._role is None:
+            return
+        async with AgentManagementService.with_session(self._role) as svc:
+            creds = await svc.get_runtime_provider_credentials(
+                "custom-model-provider",
+                use_workspace_credentials=self._use_workspace_credentials,
+            )
+        if creds is None:
+            logger.warning("Passthrough credentials not found")
+            return
+        self._upstream_api_key = creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or None
 
     async def start(self) -> None:
         """Start the Unix socket server.
@@ -114,6 +142,8 @@ class LLMSocketProxy:
         Creates the socket file and begins accepting connections.
         The socket permissions are set to 0o600 for security.
         """
+        await self._resolve_passthrough_api_key()
+
         # Ensure parent directory exists
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -434,6 +464,8 @@ class LLMSocketProxy:
             for key, value in headers.items()
             if key.lower() not in excluded_headers
         }
+        if self._is_passthrough and self._upstream_api_key:
+            forward_headers["Authorization"] = f"Bearer {self._upstream_api_key}"
 
         try:
             async with self._client.stream(

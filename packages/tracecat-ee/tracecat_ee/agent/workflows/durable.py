@@ -500,6 +500,7 @@ class DurableAgentWorkflow:
             sdk_session_id=self._sdk_session_id,
             sdk_session_data=self._sdk_session_data,
             is_fork=is_fork,
+            use_workspace_credentials=args.agent_args.use_workspace_credentials,
         )
 
         info = workflow.info()
@@ -589,6 +590,7 @@ class DurableAgentWorkflow:
                     sdk_session_id=self._sdk_session_id,
                     sdk_session_data=self._sdk_session_data,
                     is_approval_continuation=True,
+                    use_workspace_credentials=args.agent_args.use_workspace_credentials,
                 )
                 self._turn += 1
                 continue

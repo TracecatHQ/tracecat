@@ -248,6 +248,48 @@ async def test_forward_request_strips_anthropic_only_fields_for_passthrough_upst
 
 
 @pytest.mark.anyio
+async def test_forward_request_injects_passthrough_api_key_as_bearer_authorization(
+    tmp_path: Path,
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer sk-customer"
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"ok": True},
+        )
+
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        upstream_url="https://customer-litellm.example",
+        passthrough=True,
+    )
+    socket_proxy._upstream_api_key = "sk-customer"
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    writer = _FakeWriter()
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer llm-token",
+                },
+                "body": b'{"messages":[{"role":"user","content":"hello"}]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        if socket_proxy._client is not None:
+            await socket_proxy._client.aclose()
+
+    response_text = writer.buffer.decode("utf-8")
+    assert response_text.startswith("HTTP/1.1 200 OK")
+
+
+@pytest.mark.anyio
 async def test_forward_request_short_circuits_event_logging_batch(
     tmp_path: Path,
 ) -> None:

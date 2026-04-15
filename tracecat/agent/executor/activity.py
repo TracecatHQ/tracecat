@@ -69,6 +69,9 @@ class AgentExecutorInput(BaseModel):
     is_approval_continuation: bool = False
     # True when forking from parent session (SDK should use fork_session=True)
     is_fork: bool = False
+    # Credential scope used by the LLM proxy in passthrough mode to fetch the
+    # customer's upstream API key. Not a secret.
+    use_workspace_credentials: bool = False
 
 
 class AgentExecutorResult(BaseModel):
@@ -168,6 +171,8 @@ class SandboxedAgentExecutor:
             upstream_url=upstream_url,
             on_error=on_error,
             passthrough=self.input.config.passthrough,
+            role=self.input.role,
+            use_workspace_credentials=self.input.use_workspace_credentials,
         )
 
     async def run(self) -> AgentExecutorResult:
