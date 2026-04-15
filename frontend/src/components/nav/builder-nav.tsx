@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useQuery } from "@tanstack/react-query"
+import { format } from "date-fns"
 import {
   AlertTriangleIcon,
   ChevronDownIcon,
@@ -943,7 +944,7 @@ function BuilderNavOptions({
     workflowDefinitions
       ?.filter((definition) => definition.version > 0)
       .sort((left, right) => right.version - left.version)
-      .slice(1, 11) ?? []
+      .slice(1) ?? []
 
   const handleDelete = async () => {
     await deleteWorkflow(workflowId)
@@ -981,33 +982,37 @@ function BuilderNavOptions({
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <DownloadIcon className="mr-2 size-3.5" />
-              Export older version
+              Export version
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              <DropdownMenuLabel>Select version</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {definitionsLoading ? (
-                <DropdownMenuItem disabled>
-                  Loading versions...
-                </DropdownMenuItem>
-              ) : olderWorkflowDefinitions.length > 0 ? (
-                olderWorkflowDefinitions.map((definition) => (
-                  <ExportMenuItem
-                    key={definition.id}
-                    enabledExport={enabledExport}
-                    format="yaml"
-                    workspaceId={workspaceId}
-                    workflowId={workflowId}
-                    version={definition.version}
-                    label={`Download v${definition.version}`}
-                    icon={<DownloadIcon className="mr-2 size-3.5" />}
-                  />
-                ))
-              ) : (
-                <DropdownMenuItem disabled>
-                  No older versions found
-                </DropdownMenuItem>
-              )}
+            <DropdownMenuSubContent className="max-h-80 overflow-y-auto overscroll-none p-0">
+              <div className="sticky top-0 z-10 bg-popover pt-1">
+                <DropdownMenuLabel>Select version</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+              </div>
+              <div className="p-1 pt-0">
+                {definitionsLoading ? (
+                  <DropdownMenuItem disabled>
+                    Loading versions...
+                  </DropdownMenuItem>
+                ) : olderWorkflowDefinitions.length > 0 ? (
+                  olderWorkflowDefinitions.map((definition) => (
+                    <ExportMenuItem
+                      key={definition.id}
+                      enabledExport={enabledExport}
+                      format="yaml"
+                      workspaceId={workspaceId}
+                      workflowId={workflowId}
+                      version={definition.version}
+                      label={`v${definition.version} · ${format(new Date(definition.created_at), "MMM d, yyyy h:mm a")}`}
+                      icon={<DownloadIcon className="mr-2 size-3.5" />}
+                    />
+                  ))
+                ) : (
+                  <DropdownMenuItem disabled>
+                    No older versions found
+                  </DropdownMenuItem>
+                )}
+              </div>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuItem
