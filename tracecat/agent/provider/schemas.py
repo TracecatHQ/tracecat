@@ -11,6 +11,7 @@ class AgentCustomProviderCreate(BaseModel):
 
     display_name: str = Field(..., max_length=200)
     base_url: str | None = Field(default=None, max_length=500)
+    passthrough: bool = Field(default=False)
     api_key_header: str | None = Field(default=None, max_length=120)
     api_key: str | None = Field(default=None)
     custom_headers: dict[str, str] | None = Field(default=None)
@@ -25,6 +26,7 @@ class AgentCustomProviderRead(BaseModel):
     organization_id: UUID
     display_name: str
     base_url: str | None
+    passthrough: bool
     api_key_header: str | None
     discovery_status: str
     last_refreshed_at: datetime | None
@@ -35,6 +37,7 @@ class AgentCustomProviderUpdate(BaseModel):
 
     display_name: str | None = None
     base_url: str | None = None
+    passthrough: bool | None = None
     api_key_header: str | None = None
     api_key: str | None = None
     custom_headers: dict[str, str] | None = None

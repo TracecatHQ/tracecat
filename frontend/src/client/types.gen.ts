@@ -331,6 +331,7 @@ export type AgentChannelTokenUpdate = {
 export type AgentCustomProviderCreate = {
   display_name: string
   base_url?: string | null
+  passthrough?: boolean
   api_key_header?: string | null
   api_key?: string | null
   custom_headers?: {
@@ -354,6 +355,7 @@ export type AgentCustomProviderRead = {
   organization_id: string
   display_name: string
   base_url: string | null
+  passthrough: boolean
   api_key_header: string | null
   discovery_status: string
   last_refreshed_at: string | null
@@ -365,6 +367,7 @@ export type AgentCustomProviderRead = {
 export type AgentCustomProviderUpdate = {
   display_name?: string | null
   base_url?: string | null
+  passthrough?: boolean | null
   api_key_header?: string | null
   api_key?: string | null
   custom_headers?: {

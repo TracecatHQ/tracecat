@@ -17,9 +17,13 @@ from tracecat.agent.provider.schemas import (
     AgentCustomProviderRead,
     AgentCustomProviderUpdate,
 )
-from tracecat.agent.provider.types import AgentCustomProviderDiscoveryStatus
-from tracecat.db.models import AgentCatalog, AgentCustomProvider
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.agent.provider.types import (
+    AgentCustomProviderDiscoveryStatus,
+    ResolvedCatalogConfig,
+    ResolvedCustomProviderCredentials,
+)
+from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
@@ -58,6 +62,7 @@ class AgentCustomProviderService(BaseOrgService):
             organization_id=self.organization_id,
             display_name=provider.display_name,
             base_url=provider.base_url,
+            passthrough=provider.passthrough,
             api_key_header=provider.api_key_header,
             encrypted_config=encrypted_config,
         )
@@ -132,6 +137,129 @@ class AgentCustomProviderService(BaseOrgService):
             items=[AgentCustomProviderRead.model_validate(m) for m in items],
             next_cursor=next_cursor,
             has_more=has_more,
+        )
+
+    def _decrypt_custom_provider_credentials(
+        self,
+        provider: AgentCustomProvider,
+    ) -> ResolvedCustomProviderCredentials | None:
+        """Decrypt the provider's stored execution credentials, if any."""
+        if provider.encrypted_config is None:
+            return None
+
+        decrypted = decrypt_value(
+            provider.encrypted_config,
+            key=config.TRACECAT__DB_ENCRYPTION_KEY or "",
+        )
+        raw_config = orjson.loads(decrypted)
+        if not isinstance(raw_config, dict):
+            return None
+
+        api_key = raw_config.get("api_key")
+        custom_headers = raw_config.get("custom_headers")
+        resolved_headers: dict[str, str] | None = None
+        if isinstance(custom_headers, dict):
+            resolved_headers = {
+                key: value
+                for key, value in custom_headers.items()
+                if isinstance(key, str) and isinstance(value, str)
+            }
+
+        return ResolvedCustomProviderCredentials(
+            api_key=api_key if isinstance(api_key, str) else None,
+            custom_headers=resolved_headers,
+        )
+
+    async def resolve_catalog_config(
+        self,
+        *,
+        catalog_id: UUID,
+        workspace_id: UUID | None = None,
+    ) -> ResolvedCatalogConfig:
+        """Resolve a catalog selection into an access-validated config."""
+        org_access_exists = (
+            sa.select(sa.literal(1))
+            .select_from(AgentModelAccess)
+            .where(
+                AgentModelAccess.organization_id == self.organization_id,
+                AgentModelAccess.workspace_id.is_(None),
+                AgentModelAccess.catalog_id == AgentCatalog.id,
+            )
+            .exists()
+        )
+
+        effective_enabled_expr: sa.ColumnElement[bool]
+        if workspace_id is None:
+            effective_enabled_expr = org_access_exists
+        else:
+            workspace_override_exists = (
+                sa.select(sa.literal(1))
+                .select_from(AgentModelAccess)
+                .where(
+                    AgentModelAccess.organization_id == self.organization_id,
+                    AgentModelAccess.workspace_id == workspace_id,
+                )
+                .exists()
+            )
+            workspace_access_exists = (
+                sa.select(sa.literal(1))
+                .select_from(AgentModelAccess)
+                .where(
+                    AgentModelAccess.organization_id == self.organization_id,
+                    AgentModelAccess.workspace_id == workspace_id,
+                    AgentModelAccess.catalog_id == AgentCatalog.id,
+                )
+                .exists()
+            )
+            effective_enabled_expr = sa.case(
+                (workspace_override_exists, workspace_access_exists),
+                else_=org_access_exists,
+            )
+
+        stmt = (
+            sa.select(
+                AgentCatalog,
+                AgentCustomProvider,
+                effective_enabled_expr.label("is_enabled"),
+            )
+            .outerjoin(
+                AgentCustomProvider,
+                sa.and_(
+                    AgentCustomProvider.organization_id == AgentCatalog.organization_id,
+                    AgentCustomProvider.id == AgentCatalog.custom_provider_id,
+                ),
+            )
+            .where(AgentCatalog.id == catalog_id)
+        )
+        row = (await self.session.execute(stmt)).one_or_none()
+        if row is None:
+            raise TracecatNotFoundError(f"Catalog entry {catalog_id} not found")
+
+        catalog, provider, is_enabled = row
+        if not is_enabled:
+            scope = (
+                f"workspace {workspace_id}"
+                if workspace_id is not None
+                else "organization"
+            )
+            raise TracecatValidationError(
+                f"Catalog entry {catalog_id} is not enabled for {scope}"
+            )
+
+        return ResolvedCatalogConfig(
+            catalog_id=catalog.id,
+            organization_id=catalog.organization_id,
+            model_provider=catalog.model_provider,
+            model_name=catalog.model_name,
+            custom_provider_id=catalog.custom_provider_id,
+            base_url=provider.base_url if provider is not None else None,
+            passthrough=provider.passthrough if provider is not None else False,
+            api_key_header=provider.api_key_header if provider is not None else None,
+            custom_provider_credentials=(
+                self._decrypt_custom_provider_credentials(provider)
+                if provider is not None
+                else None
+            ),
         )
 
     async def update_provider(

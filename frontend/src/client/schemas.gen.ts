@@ -1199,6 +1199,11 @@ export const $AgentCustomProviderCreate = {
       ],
       title: "Base Url",
     },
+    passthrough: {
+      type: "boolean",
+      title: "Passthrough",
+      default: false,
+    },
     api_key_header: {
       anyOf: [
         {
@@ -1297,6 +1302,10 @@ export const $AgentCustomProviderRead = {
       ],
       title: "Base Url",
     },
+    passthrough: {
+      type: "boolean",
+      title: "Passthrough",
+    },
     api_key_header: {
       anyOf: [
         {
@@ -1331,6 +1340,7 @@ export const $AgentCustomProviderRead = {
     "organization_id",
     "display_name",
     "base_url",
+    "passthrough",
     "api_key_header",
     "discovery_status",
     "last_refreshed_at",
@@ -1362,6 +1372,17 @@ export const $AgentCustomProviderUpdate = {
         },
       ],
       title: "Base Url",
+    },
+    passthrough: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Passthrough",
     },
     api_key_header: {
       anyOf: [
