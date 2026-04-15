@@ -77,7 +77,6 @@ _LITELLM_ROUTE_PREFIXES: dict[str, str] = {
     "bedrock": "bedrock",
     "azure_openai": "azure",
     "azure_ai": "azure_ai",
-    "custom-model-provider": "openai",
 }
 
 

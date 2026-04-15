@@ -523,7 +523,7 @@ def _inject_provider_credentials(
             if base_url := creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL"):
                 data["api_base"] = base_url
             if model_name := creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"):
-                data["model"] = f"openai/{model_name}"
+                data["model"] = model_name
 
         case "azure_openai":
             base = creds.get("AZURE_API_BASE")
