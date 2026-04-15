@@ -25,7 +25,7 @@ import type {
   GitBranchInfo,
   ValidationDetail,
   ValidationResult,
-  WorkflowDefinitionRead,
+  WorkflowDefinitionReadMinimal,
   WorkflowDslPublish,
 } from "@/client"
 import {
@@ -929,16 +929,19 @@ function BuilderNavOptions({
     listEnabled: false,
   })
   const enabledExport = appSettings?.app_workflow_export_enabled
-  const { data: workflowDefinitions, isLoading: definitionsLoading } = useQuery<
-    WorkflowDefinitionRead[]
-  >({
+  const [versionSubMenuOpen, setVersionSubMenuOpen] = React.useState(false)
+  const {
+    data: workflowDefinitions,
+    isLoading: definitionsLoading,
+    isError: definitionsError,
+  } = useQuery<WorkflowDefinitionReadMinimal[]>({
     queryKey: ["workflow-definitions", workflowId],
     queryFn: async () =>
       workflowsListWorkflowDefinitions({
         workspaceId,
         workflowId,
       }),
-    enabled: Boolean(enabledExport),
+    enabled: Boolean(enabledExport) && versionSubMenuOpen,
   })
   const olderWorkflowDefinitions =
     workflowDefinitions
@@ -979,8 +982,11 @@ function BuilderNavOptions({
             label="Export saved"
             icon={<DownloadIcon className="mr-2 size-3.5" />}
           />
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
+          <DropdownMenuSub
+            open={versionSubMenuOpen}
+            onOpenChange={setVersionSubMenuOpen}
+          >
+            <DropdownMenuSubTrigger disabled={!enabledExport}>
               <DownloadIcon className="mr-2 size-3.5" />
               Export version
             </DropdownMenuSubTrigger>
@@ -993,6 +999,10 @@ function BuilderNavOptions({
                 {definitionsLoading ? (
                   <DropdownMenuItem disabled>
                     Loading versions...
+                  </DropdownMenuItem>
+                ) : definitionsError ? (
+                  <DropdownMenuItem disabled>
+                    Failed to load versions
                   </DropdownMenuItem>
                 ) : olderWorkflowDefinitions.length > 0 ? (
                   olderWorkflowDefinitions.map((definition) => (
