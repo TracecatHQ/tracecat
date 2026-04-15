@@ -60,12 +60,12 @@ async def create_agent_tag(
         tag = await service.create_tag(params)
     except ValueError as err:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(err),
         ) from err
     except IntegrityError as err:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_409_CONFLICT,
             detail="Agent tag already exists",
         ) from err
     return AgentTagRead.model_validate(tag, from_attributes=True)
@@ -92,12 +92,12 @@ async def update_agent_tag(
         updated = await service.update_tag(tag, params)
     except ValueError as err:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_409_CONFLICT,
             detail=str(err),
         ) from err
     except IntegrityError as err:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_409_CONFLICT,
             detail="Agent tag already exists",
         ) from err
     return AgentTagRead.model_validate(updated, from_attributes=True)

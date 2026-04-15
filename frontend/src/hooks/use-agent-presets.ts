@@ -707,6 +707,9 @@ export function useAgentTagCatalog(
       queryClient.invalidateQueries({
         queryKey: ["agent-presets", workspaceId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-directory-items", workspaceId],
+      })
       toast({
         title: "Created agent tag",
         description: "Agent tag created successfully.",
@@ -714,7 +717,7 @@ export function useAgentTagCatalog(
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
-        case 400:
+        case 409:
           toast({
             title: "Error creating agent tag",
             description: String(error.body.detail),
@@ -753,6 +756,9 @@ export function useAgentTagCatalog(
       queryClient.invalidateQueries({
         queryKey: ["agent-presets", workspaceId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-directory-items", workspaceId],
+      })
       toast({
         title: "Updated agent tag",
         description: "Agent tag updated successfully.",
@@ -760,7 +766,7 @@ export function useAgentTagCatalog(
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
-        case 400:
+        case 409:
           toast({
             title: "Error updating agent tag",
             description: String(error.body.detail),
@@ -789,6 +795,9 @@ export function useAgentTagCatalog(
       })
       queryClient.invalidateQueries({
         queryKey: ["agent-presets", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-directory-items", workspaceId],
       })
       toast({
         title: "Deleted agent tag",
