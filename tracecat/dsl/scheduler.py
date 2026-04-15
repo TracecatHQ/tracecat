@@ -919,18 +919,6 @@ class DSLScheduler:
         if run_if is not None:
             context = self.build_stream_aware_context(stmt, task.stream_id)
             self.logger.debug("`run_if` condition", run_if=run_if)
-            run_if_expr_ctxs = extract_expressions({"run_if": run_if})
-            unresolved_action_refs = sorted(
-                run_if_expr_ctxs[ExprContext.ACTIONS] - set(context.get("ACTIONS", {}))
-            )
-            if unresolved_action_refs:
-                missing_refs = ", ".join(repr(ref) for ref in unresolved_action_refs)
-                raise ApplicationError(
-                    "Error evaluating `run_if` condition: unresolved action "
-                    f"reference(s) {missing_refs}. Add them to `depends_on` or "
-                    "rewrite the guard to only use reachable action results.",
-                    non_retryable=True,
-                )
             try:
                 expr_result = await self.resolve_expression(run_if, context)
             except Exception as e:
