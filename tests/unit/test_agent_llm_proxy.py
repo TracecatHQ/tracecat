@@ -200,6 +200,8 @@ async def test_forward_request_strips_anthropic_only_fields_for_passthrough_upst
         assert "reasoning_effort" not in payload
         assert "anthropic_beta" not in payload
         assert "context_management" not in payload
+        assert "output_config" not in payload
+        assert "output_format" not in payload
         return httpx.Response(
             200,
             headers={"Content-Type": "application/json"},
@@ -230,6 +232,8 @@ async def test_forward_request_strips_anthropic_only_fields_for_passthrough_upst
                         "reasoning_effort": "high",
                         "anthropic_beta": ["prompt-caching-2024-07-31"],
                         "context_management": {"strategy": "summarize"},
+                        "output_config": {"task_budget": 2048},
+                        "output_format": {"type": "json_schema"},
                     }
                 ),
             },

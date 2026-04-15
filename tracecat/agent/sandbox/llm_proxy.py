@@ -189,6 +189,8 @@ class LLMSocketProxy:
         "reasoning_effort",
         "anthropic_beta",
         "context_management",
+        "output_config",
+        "output_format",
     )
 
     @staticmethod
@@ -197,9 +199,10 @@ class LLMSocketProxy:
     ) -> tuple[bytes, dict[str, str]]:
         """Remove Anthropic-only fields from a JSON request body.
 
-        Strips ``thinking``, ``reasoning_effort``, ``anthropic_beta``, and
-        ``context_management`` top-level keys and returns the updated body with
-        a corrected ``Content-Length`` header.
+        Strips ``thinking``, ``reasoning_effort``, ``anthropic_beta``,
+        ``context_management``, ``output_config``, and ``output_format``
+        top-level keys and returns the updated body with a corrected
+        ``Content-Length`` header.
         """
         try:
             data = orjson.loads(body)
