@@ -13,7 +13,7 @@ import os
 import time
 from collections.abc import AsyncIterable, Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypedDict
 from uuid import uuid4
 
 import httpx
@@ -55,6 +55,13 @@ _ERROR_MESSAGES = {
 }
 _proxy_load_tracker = get_load_tracker("llm_socket_proxy")
 _TRACE_REQUEST_ID_HEADER = "x-request-id"
+
+
+class ParsedRequest(TypedDict):
+    method: str
+    path: str
+    headers: dict[str, str]
+    body: bytes
 
 
 def _load_fields() -> dict[str, int]:
@@ -223,8 +230,6 @@ class LLMSocketProxy:
                 self._on_error(message)
 
     _ANTHROPIC_ONLY_FIELDS = (
-        "thinking",
-        "reasoning_effort",
         "anthropic_beta",
         "context_management",
         "output_config",
@@ -233,35 +238,18 @@ class LLMSocketProxy:
 
     @staticmethod
     def _strip_anthropic_only_fields_from_request(
-        body: bytes, headers: dict[str, str]
-    ) -> tuple[bytes, dict[str, str]]:
+        data: dict[str, Any], headers: dict[str, str]
+    ) -> tuple[dict[str, Any], dict[str, str]]:
         """Remove Anthropic-only fields from a JSON request body.
 
-        Strips ``thinking``, ``reasoning_effort``, ``anthropic_beta``,
-        ``context_management``, ``output_config``, and ``output_format``
-        top-level keys and returns the updated body with a corrected
-        ``Content-Length`` header.
+        Strips ``anthropic_beta``, ``context_management``, ``output_config``,
+        and ``output_format`` top-level keys and returns the updated body.
+        The caller is responsible for re-serializing the body and setting
+        ``Content-Length`` accordingly.
         """
-        try:
-            data = orjson.loads(body)
-        except orjson.JSONDecodeError:
-            return body, headers
-
-        changed = False
         for field in LLMSocketProxy._ANTHROPIC_ONLY_FIELDS:
-            if field in data:
-                del data[field]
-                changed = True
-
-        if not changed:
-            return body, headers
-
-        new_body = orjson.dumps(data)
-        headers = {
-            key: (str(len(new_body)) if key.lower() == "content-length" else value)
-            for key, value in headers.items()
-        }
-        return new_body, headers
+            data.pop(field, None)
+        return data, headers
 
     @staticmethod
     def _is_client_disconnect_error(exc: Exception) -> bool:
@@ -320,7 +308,7 @@ class LLMSocketProxy:
     async def _parse_http_request(
         self,
         reader: asyncio.StreamReader,
-    ) -> dict | None:
+    ) -> ParsedRequest | None:
         """Parse an HTTP request from the socket.
 
         Returns:
@@ -386,7 +374,7 @@ class LLMSocketProxy:
 
     async def _forward_request(
         self,
-        request: dict,
+        request: ParsedRequest,
         writer: asyncio.StreamWriter,
     ) -> None:
         """Forward an HTTP request to the LLM gateway and stream the response back."""
@@ -437,7 +425,7 @@ class LLMSocketProxy:
         self,
         *,
         writer: asyncio.StreamWriter,
-        request: dict[str, Any],
+        request: ParsedRequest,
         trace_request_id: str,
         request_counter: int,
         started_at: float,
@@ -453,15 +441,29 @@ class LLMSocketProxy:
             self._emit_error("LiteLLM proxy not initialized")
             return
 
-        path = str(request["path"])
-        method = str(request["method"])
-        headers = cast(dict[str, str], request["headers"])
-        body = cast(bytes, request["body"])
+        path = request["path"]
+        method = request["method"]
+        headers = request["headers"]
+        body = request["body"]
 
-        if self._is_passthrough and body:
-            body, headers = self._strip_anthropic_only_fields_from_request(
-                body, headers
-            )
+        data: dict[str, Any] | None = None
+        if body:
+            try:
+                parsed = orjson.loads(body)
+            except orjson.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict):
+                data = parsed
+
+        if data is not None:
+            if self._is_passthrough:
+                data, headers = self._strip_anthropic_only_fields_from_request(
+                    data, headers
+                )
+            # Always attach reasoning_effort to the request body
+            data["reasoning_effort"] = "high"
+            body = orjson.dumps(data)
+            headers["Content-Length"] = str(len(body))
 
         url = f"{self.upstream_url}{path}"
         excluded_headers = {"host", "connection", "transfer-encoding"}
