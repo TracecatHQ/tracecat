@@ -218,15 +218,24 @@ async def prefetch_lock(lock: RegistryLock, organization_id: OrganizationID) -> 
     """
     await _require_custom_registry_entitlement_if_needed(lock, organization_id)
 
+    prefetch_origins = lock.origins
+    if lock.actions:
+        prefetch_origins = {
+            origin: lock.origins[origin]
+            for origin in set(lock.actions.values())
+            if origin in lock.origins
+        }
+
     tasks = [
         _get_manifest_entry(origin, version, organization_id)
-        for origin, version in lock.origins.items()
+        for origin, version in prefetch_origins.items()
     ]
-    await asyncio.gather(*tasks)
+    if tasks:
+        await asyncio.gather(*tasks)
 
     logger.debug(
         "Prefetched registry lock",
-        num_origins=len(lock.origins),
+        num_origins=len(prefetch_origins),
         num_actions=len(lock.actions),
     )
 

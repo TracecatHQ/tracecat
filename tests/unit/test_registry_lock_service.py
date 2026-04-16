@@ -571,17 +571,17 @@ async def test_resolve_lock_always_includes_builtin_registry(
 
 
 @pytest.mark.anyio
-async def test_resolve_lock_skips_builtin_origin_when_platform_not_synced(
+async def test_resolve_lock_falls_back_to_installed_version_when_platform_not_synced(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
-    """If the platform builtin has never been synced, skip builtin lock origin.
+    """If the platform builtin has never been synced, use installed package version.
 
-    Prefetching lock manifests loads every lock origin from DB before dispatch.
-    In the unsynced bootstrap scenario there is no platform version row for the
-    builtin registry, so adding a fallback version would fail prefetch and block
-    workflow dispatch.
+    Even when current_version_id is unset for the platform builtin repository,
+    the lock should still include tracecat_registry as a runtime dependency.
     """
+    from tracecat_registry import __version__ as installed_version
+
     # Simulate an unsynced platform by clearing any seeded builtin version.
     seeded_platform_repo = await session.scalar(
         select(PlatformRegistryRepository).where(
@@ -618,7 +618,7 @@ async def test_resolve_lock_skips_builtin_origin_when_platform_not_synced(
         {"integrations.greetings.say_hello"}
     )
 
-    assert "tracecat_registry" not in lock.origins
+    assert lock.origins["tracecat_registry"] == installed_version
     assert "tracecat_registry" not in lock.actions.values()
 
 

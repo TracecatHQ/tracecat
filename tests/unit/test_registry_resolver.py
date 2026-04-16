@@ -228,6 +228,42 @@ class TestPrefetchLock:
         mock_get_manifest_entry.assert_awaited_once()
 
     @pytest.mark.anyio
+    async def test_prefetch_lock_only_fetches_action_bound_origins(self):
+        custom_origin = "git+ssh://git@github.com/acme/custom.git"
+        lock = RegistryLock(
+            origins={
+                "tracecat_registry": "2024.12.10",
+                custom_origin: "v1",
+            },
+            actions={"tools.custom.only_action": custom_origin},
+        )
+        manifest = _make_manifest({})
+        organization_id = uuid.uuid4()
+
+        with (
+            patch.object(
+                registry_resolver,
+                "_has_custom_registry_entitlement",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_has_entitlement,
+            patch.object(
+                registry_resolver,
+                "_get_manifest_entry",
+                new_callable=AsyncMock,
+                return_value=(manifest, {}),
+            ) as mock_get_manifest_entry,
+        ):
+            await registry_resolver.prefetch_lock(lock, organization_id=organization_id)
+
+        mock_has_entitlement.assert_awaited_once()
+        mock_get_manifest_entry.assert_awaited_once_with(
+            custom_origin,
+            "v1",
+            organization_id,
+        )
+
+    @pytest.mark.anyio
     async def test_prefetch_lock_custom_origin_requires_entitlement(self):
         custom_origin = "git+ssh://git@github.com/acme/custom.git"
         lock = RegistryLock(
