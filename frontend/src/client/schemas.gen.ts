@@ -21872,6 +21872,17 @@ distinguish multiple files.`,
   description: "A URL to a video.",
 } as const
 
+export const $WaitResultOutput = {
+  anyOf: [
+    {
+      $ref: "#/components/schemas/WebhookStoredObjectInlineResponse",
+    },
+    {
+      $ref: "#/components/schemas/WebhookStoredObjectDownloadResponse",
+    },
+  ],
+} as const
+
 export const $WaitStrategy = {
   type: "string",
   enum: ["wait", "detach"],
@@ -22689,6 +22700,57 @@ export const $WebhookRead = {
 export const $WebhookStatus = {
   type: "string",
   enum: ["online", "offline"],
+} as const
+
+export const $WebhookStoredObjectDownloadResponse = {
+  properties: {
+    kind: {
+      type: "string",
+      enum: ["download_file", "download_export"],
+      title: "Kind",
+    },
+    download_url: {
+      type: "string",
+      title: "Download Url",
+    },
+    expires_in_seconds: {
+      type: "integer",
+      title: "Expires In Seconds",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+    size_bytes: {
+      type: "integer",
+      title: "Size Bytes",
+    },
+  },
+  type: "object",
+  required: [
+    "kind",
+    "download_url",
+    "expires_in_seconds",
+    "content_type",
+    "size_bytes",
+  ],
+  title: "WebhookStoredObjectDownloadResponse",
+} as const
+
+export const $WebhookStoredObjectInlineResponse = {
+  properties: {
+    kind: {
+      type: "string",
+      const: "value",
+      title: "Kind",
+    },
+    value: {
+      title: "Value",
+    },
+  },
+  type: "object",
+  required: ["kind", "value"],
+  title: "WebhookStoredObjectInlineResponse",
 } as const
 
 export const $WebhookUpdate = {

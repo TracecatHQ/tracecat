@@ -817,7 +817,7 @@ export const publicIncomingWebhookGet = (
  * @param data.workflowId
  * @param data.unwrap Return the workflow result directly as the response body, without the `{kind, value}` envelope. Requires the result to fit inline. If the result was externalized, returns 413 with the download envelope in `detail`.
  * @param data.contentType
- * @returns unknown Successful Response
+ * @returns WaitResultOutput Successful Response
  * @throws ApiError
  */
 export const publicIncomingWebhookWait = (

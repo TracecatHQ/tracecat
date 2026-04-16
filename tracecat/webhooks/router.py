@@ -385,7 +385,7 @@ async def _incoming_webhook(
     return response
 
 
-@router.post("/wait", response_model=None)
+@router.post("/wait", response_model=WaitResultOutput)
 async def incoming_webhook_wait(
     workflow_id: AnyWorkflowIDPath,
     defn: ValidWorkflowDefinitionDep,
