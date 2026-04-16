@@ -199,15 +199,14 @@ class RegistryLockService(BaseOrgService):
         used_origins = set(actions.values())
         origins = {o: v for o, v in origins.items() if o in used_origins}
         if DEFAULT_REGISTRY_ORIGIN not in origins:
-            builtin_version = next(
+            if builtin_version := next(
                 (
                     str(version)
                     for origin, version, _ in platform_rows
                     if origin == DEFAULT_REGISTRY_ORIGIN
                 ),
                 None,
-            )
-            if builtin_version is not None:
+            ):
                 origins[DEFAULT_REGISTRY_ORIGIN] = builtin_version
             else:
                 self.logger.warning(
@@ -215,7 +214,6 @@ class RegistryLockService(BaseOrgService):
                     origin=DEFAULT_REGISTRY_ORIGIN,
                     fallback_version=TRACECAT_REGISTRY_VERSION,
                 )
-                origins[DEFAULT_REGISTRY_ORIGIN] = TRACECAT_REGISTRY_VERSION
 
         self.logger.debug(
             "Resolved lock with bindings",
