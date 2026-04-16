@@ -97,8 +97,9 @@ export function mergeHydratedNodes(
   hydratedNodes: Node[]
 ): Node[] {
   const currentNodesById = new Map(currentNodes.map((node) => [node.id, node]))
+  const hydratedNodeIds = new Set(hydratedNodes.map((node) => node.id))
 
-  return hydratedNodes.map((node) => {
+  const mergedNodes = hydratedNodes.map((node) => {
     const currentNode = currentNodesById.get(node.id)
     if (!currentNode) {
       return node
@@ -112,4 +113,10 @@ export function mergeHydratedNodes(
       height: currentNode.height ?? node.height,
     }
   })
+
+  const unhydratedEphemeralNodes = currentNodes.filter(
+    (node) => node.type === "selector" && !hydratedNodeIds.has(node.id)
+  )
+
+  return [...mergedNodes, ...unhydratedEphemeralNodes]
 }
