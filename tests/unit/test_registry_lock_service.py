@@ -507,10 +507,16 @@ async def test_resolve_lock_always_includes_builtin_registry(
     so the ephemeral nsjail sandbox must always mount the builtin tarball —
     even when no workflow action directly resolves to it.
     """
-    # Platform registry with builtin origin
-    platform_repo = PlatformRegistryRepository(origin="tracecat_registry")
-    session.add(platform_repo)
-    await session.flush()
+    # Reuse the seeded builtin platform repo when present; otherwise create one.
+    platform_repo = await session.scalar(
+        select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.origin == "tracecat_registry",
+        )
+    )
+    if platform_repo is None:
+        platform_repo = PlatformRegistryRepository(origin="tracecat_registry")
+        session.add(platform_repo)
+        await session.flush()
 
     platform_version = PlatformRegistryVersion(
         repository_id=platform_repo.id,
@@ -576,6 +582,16 @@ async def test_resolve_lock_skips_builtin_origin_when_platform_not_synced(
     builtin registry, so adding a fallback version would fail prefetch and block
     workflow dispatch.
     """
+    # Simulate an unsynced platform by clearing any seeded builtin version.
+    seeded_platform_repo = await session.scalar(
+        select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.origin == "tracecat_registry",
+        )
+    )
+    if seeded_platform_repo is not None:
+        seeded_platform_repo.current_version_id = None
+        session.add(seeded_platform_repo)
+        await session.flush()
 
     org_repo = RegistryRepository(
         organization_id=svc_role.organization_id,
