@@ -72,6 +72,8 @@ class AgentExecutorInput(BaseModel):
     # Credential scope used by the LLM proxy in passthrough mode to fetch the
     # customer's upstream API key. Not a secret.
     use_workspace_credentials: bool = False
+    # Maximum number of LLM requests (turns) per execution
+    max_requests: int | None = None
 
 
 class AgentExecutorResult(BaseModel):
@@ -202,6 +204,7 @@ class SandboxedAgentExecutor:
                 sdk_session_data=self.input.sdk_session_data,
                 is_approval_continuation=self.input.is_approval_continuation,
                 is_fork=self.input.is_fork,
+                max_requests=self.input.max_requests,
             )
             handler = LoopbackHandler(input=loopback_input)
 

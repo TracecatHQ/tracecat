@@ -687,6 +687,7 @@ class ClaudeAgentRuntime:
                 include_partial_messages=True,
                 resume=resume_session_id,
                 fork_session=fork_session,  # If True, creates new session from parent's history
+                max_turns=payload.max_requests,
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
                     "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
