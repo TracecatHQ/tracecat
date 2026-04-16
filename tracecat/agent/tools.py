@@ -335,7 +335,10 @@ async def build_agent_tools(
         )
 
     if max_tools > 0 and len(tools) > max_tools:
-        raise ValueError(f"Cannot request more than {max_tools} tools")
+        raise ValueError(
+            f"An agent can reference at most {max_tools} actions, "
+            f"got {len(tools)}. Reduce the number of tools attached to the agent."
+        )
 
     return BuildToolsResult(tools=tools, collected_secrets=collected_secrets)
 
