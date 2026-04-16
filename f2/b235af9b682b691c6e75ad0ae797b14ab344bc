@@ -1,0 +1,14 @@
+tracecat/registry/lock/service.py
+  h_a05ba93e776158 202,209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "f2b235af9b682b691c6e75ad0ae797b14ab344bc",
+  "prompts": {},
+  "humans": {
+    "h_a05ba93e776158": {
+      "author": "Daryl Lim"
+    }
+  }
+}
