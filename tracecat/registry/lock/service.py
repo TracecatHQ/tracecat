@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 
 from sqlalchemy import select
+from tracecat_registry import __version__ as TRACECAT_REGISTRY_VERSION
 
 from tracecat.db.models import (
     PlatformRegistryRepository,
@@ -15,6 +16,7 @@ from tracecat.db.models import (
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import EntitlementRequired, RegistryError
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.service import BaseOrgService
@@ -188,13 +190,26 @@ class RegistryLockService(BaseOrgService):
                         if step.action not in actions:
                             queue.append(step.action)
 
-        # Only keep origins that are actually needed for the resolved actions.
+        # Only keep origins needed for resolved actions. Always include the
+        # builtin platform registry — tracecat_registry is a runtime dependency
+        # for every action (decorators, secrets, context, SDK helpers imported
+        # from it), so its tarball must always be mounted in the ephemeral
+        # nsjail sandbox. Use the platform version because artifact lookup
+        # treats tracecat_registry as platform-scoped; an org override would miss.
         used_origins = set(actions.values())
-        origins = {
-            origin: version
-            for origin, version in origins.items()
-            if origin in used_origins
-        }
+        origins = {o: v for o, v in origins.items() if o in used_origins}
+        if DEFAULT_REGISTRY_ORIGIN not in origins:
+            builtin_version = next(
+                (v for o, v, _ in platform_rows if o == DEFAULT_REGISTRY_ORIGIN), None
+            )
+            if builtin_version is None:
+                self.logger.warning(
+                    "Platform registry has no selected version; falling back to installed package version",
+                    origin=DEFAULT_REGISTRY_ORIGIN,
+                    fallback_version=TRACECAT_REGISTRY_VERSION,
+                )
+                builtin_version = TRACECAT_REGISTRY_VERSION
+            origins[DEFAULT_REGISTRY_ORIGIN] = builtin_version
 
         self.logger.debug(
             "Resolved lock with bindings",

@@ -497,6 +497,116 @@ async def test_resolve_lock_allows_template_step_with_run_python(
 
 
 @pytest.mark.anyio
+async def test_resolve_lock_always_includes_builtin_registry(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    """Builtin tracecat_registry must be in the lock as a runtime dependency.
+
+    Custom actions import decorators/secrets/context from tracecat_registry,
+    so the ephemeral nsjail sandbox must always mount the builtin tarball —
+    even when no workflow action directly resolves to it.
+    """
+    # Platform registry with builtin origin
+    platform_repo = PlatformRegistryRepository(origin="tracecat_registry")
+    session.add(platform_repo)
+    await session.flush()
+
+    platform_version = PlatformRegistryVersion(
+        repository_id=platform_repo.id,
+        version="1.0.0-beta.39",
+        manifest=_make_manifest(["core.transform"]),
+        tarball_uri="s3://platform/builtin.tar.gz",
+    )
+    session.add(platform_version)
+    await session.flush()
+    platform_repo.current_version_id = platform_version.id
+    session.add(platform_repo)
+
+    # Org registry with a custom action that the workflow uses
+    org_repo = RegistryRepository(
+        organization_id=svc_role.organization_id,
+        origin="git+ssh://git@github.com/acme/internal.git",
+    )
+    session.add(org_repo)
+    await session.flush()
+
+    org_version = RegistryVersion(
+        organization_id=svc_role.organization_id,
+        repository_id=org_repo.id,
+        version="abc123",
+        manifest=_make_manifest(["integrations.greetings.say_hello"]),
+        tarball_uri="s3://org/custom.tar.gz",
+    )
+    session.add(org_version)
+    await session.flush()
+    org_repo.current_version_id = org_version.id
+    session.add(org_repo)
+    await session.commit()
+
+    # Workflow uses only the custom action — does NOT map to tracecat_registry
+    service = RegistryLockService(session, role=svc_role)
+    lock = await service.resolve_lock_with_bindings(
+        {"integrations.greetings.say_hello"}
+    )
+
+    # Custom origin is present because its action is used
+    assert "git+ssh://git@github.com/acme/internal.git" in lock.origins
+    assert lock.actions["integrations.greetings.say_hello"] == (
+        "git+ssh://git@github.com/acme/internal.git"
+    )
+
+    # Builtin registry is present as a runtime dependency, even though no
+    # workflow action resolves to it.
+    assert "tracecat_registry" in lock.origins
+    assert lock.origins["tracecat_registry"] == "1.0.0-beta.39"
+    # But no action is bound to it
+    assert "tracecat_registry" not in lock.actions.values()
+
+
+@pytest.mark.anyio
+async def test_resolve_lock_falls_back_to_installed_version_when_platform_not_synced(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    """If the platform builtin has never been synced, fall back to installed version.
+
+    Without a current_version_id on the platform repo, the lock falls back to
+    the installed tracecat_registry package version so workflows can still
+    start (the in-image package remains importable even without a tarball).
+    """
+    from tracecat_registry import __version__ as installed_version
+
+    org_repo = RegistryRepository(
+        organization_id=svc_role.organization_id,
+        origin="git+ssh://git@github.com/acme/internal.git",
+    )
+    session.add(org_repo)
+    await session.flush()
+
+    org_version = RegistryVersion(
+        organization_id=svc_role.organization_id,
+        repository_id=org_repo.id,
+        version="abc123",
+        manifest=_make_manifest(["integrations.greetings.say_hello"]),
+        tarball_uri="s3://org/custom.tar.gz",
+    )
+    session.add(org_version)
+    await session.flush()
+    org_repo.current_version_id = org_version.id
+    session.add(org_repo)
+    await session.commit()
+
+    service = RegistryLockService(session, role=svc_role)
+    lock = await service.resolve_lock_with_bindings(
+        {"integrations.greetings.say_hello"}
+    )
+
+    assert lock.origins["tracecat_registry"] == installed_version
+    assert "tracecat_registry" not in lock.actions.values()
+
+
+@pytest.mark.anyio
 async def test_resolve_lock_rejects_template_step_with_other_platform_action(
     svc_role: Role,
     session: AsyncSession,
