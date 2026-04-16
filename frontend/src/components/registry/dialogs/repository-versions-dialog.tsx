@@ -31,6 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -54,6 +55,11 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { getRelativeTime } from "@/lib/event-history"
+
+/** Shorten a version string if it looks like a full commit SHA. */
+function shortVersion(version: string): string {
+  return /^[0-9a-f]{40}$/i.test(version) ? version.substring(0, 12) : version
+}
 
 interface RepositoryVersionsDialogProps {
   open: boolean
@@ -224,8 +230,8 @@ export function RepositoryVersionsDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="max-w-3xl max-h-[80vh] p-0 overflow-hidden flex flex-col gap-0">
+        <DialogHeader className="p-6 pb-4">
           <DialogTitle className="flex items-center gap-2">
             {view === "diff" && (
               <Button
@@ -246,34 +252,36 @@ export function RepositoryVersionsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {view === "versions" && (
-          <VersionsView
-            versions={versions ?? []}
-            versionsLoading={versionsLoading}
-            currentVersionId={selectedRepo?.current_version_id ?? null}
-            previousVersion={
-              previousVersion as tracecat__registry__repositories__schemas__RegistryVersionRead | null
-            }
-            onPromote={promoteVersion}
-            onDelete={deleteVersion}
-            onCompare={handleCompare}
-            onQuickRollback={handleQuickRollback}
-            promotePending={promotePending}
-            deletePending={deletePending}
-          />
-        )}
+        <ScrollArea className="flex-1 px-6 pb-6">
+          {view === "versions" && (
+            <VersionsView
+              versions={versions ?? []}
+              versionsLoading={versionsLoading}
+              currentVersionId={selectedRepo?.current_version_id ?? null}
+              previousVersion={
+                previousVersion as tracecat__registry__repositories__schemas__RegistryVersionRead | null
+              }
+              onPromote={promoteVersion}
+              onDelete={deleteVersion}
+              onCompare={handleCompare}
+              onQuickRollback={handleQuickRollback}
+              promotePending={promotePending}
+              deletePending={deletePending}
+            />
+          )}
 
-        {view === "diff" && (
-          <DiffView
-            diff={diff ?? null}
-            diffLoading={diffLoading}
-            versions={versions ?? []}
-            compareBaseId={compareBaseId}
-            compareToId={compareToId}
-            onBaseChange={setCompareBaseId}
-            onCompareChange={setCompareToId}
-          />
-        )}
+          {view === "diff" && (
+            <DiffView
+              diff={diff ?? null}
+              diffLoading={diffLoading}
+              versions={versions ?? []}
+              compareBaseId={compareBaseId}
+              compareToId={compareToId}
+              onBaseChange={setCompareBaseId}
+              onCompareChange={setCompareToId}
+            />
+          )}
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   )
@@ -331,7 +339,9 @@ function VersionsView({
         <div className="flex items-center justify-between rounded-md border bg-muted/50 p-3">
           <div className="text-sm">
             <span className="text-muted-foreground">Quick rollback to: </span>
-            <span className="font-mono">{previousVersion.version}</span>
+            <span className="font-mono">
+              {shortVersion(previousVersion.version)}
+            </span>
           </div>
           <Button
             variant="outline"
@@ -361,7 +371,7 @@ function VersionsView({
             return (
               <TableRow key={version.id}>
                 <TableCell className="font-mono text-sm">
-                  {version.version}
+                  {shortVersion(version.version)}
                 </TableCell>
                 <TableCell>
                   {version.commit_sha ? (
@@ -486,7 +496,7 @@ function DiffView({
             <SelectContent>
               {versions.map((v) => (
                 <SelectItem key={v.id} value={v.id}>
-                  {v.version}
+                  {shortVersion(v.version)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -506,7 +516,7 @@ function DiffView({
             <SelectContent>
               {versions.map((v) => (
                 <SelectItem key={v.id} value={v.id}>
-                  {v.version}
+                  {shortVersion(v.version)}
                 </SelectItem>
               ))}
             </SelectContent>
