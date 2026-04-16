@@ -10,11 +10,40 @@ The wrapper script is executed inside the nsjail sandbox and handles:
 # The wrapper script content is embedded as a string constant
 # to be written to the job directory before execution
 WRAPPER_SCRIPT = '''
+import dataclasses
+import datetime
+import decimal
+import enum
 import inspect
 import json
 import sys
 import traceback
+import uuid
 from pathlib import Path
+
+def to_json_safe(value):
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, set | frozenset):
+        try:
+            return sorted(value)
+        except TypeError:
+            return list(value)
+    if dataclasses.is_dataclass(value):
+        return dataclasses.asdict(value)
+    if isinstance(value, datetime.datetime | datetime.date | datetime.time):
+        return value.isoformat()
+    if isinstance(value, datetime.timedelta):
+        return value.total_seconds()
+    if isinstance(value, decimal.Decimal):
+        return str(value)
+    if isinstance(value, enum.Enum):
+        return to_json_safe(value.value)
+    if isinstance(value, uuid.UUID | Path):
+        return str(value)
+    if isinstance(value, bytes | bytearray):
+        return value.decode("utf-8", errors="replace")
+    return repr(value)
 
 def main():
     """Execute user script and capture results."""
@@ -86,13 +115,11 @@ def main():
     # Write result to file
     result_path = Path("/work/result.json")
     try:
-        result_path.write_text(json.dumps(result))
+        result_path.write_text(json.dumps(result, default=to_json_safe))
     except (TypeError, ValueError) as e:
-        # Handle non-JSON-serializable outputs (datetime, bytes, custom classes, etc.)
-        # Convert output to string representation so we don't lose the result
-        result["output"] = repr(result["output"])
         result["error"] = f"Output not JSON-serializable: {type(e).__name__}: {e}"
         result["success"] = False
+        result["output"] = repr(result["output"])
         result_path.write_text(json.dumps(result))
 
     # Exit with appropriate code
