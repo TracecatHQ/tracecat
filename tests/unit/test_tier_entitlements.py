@@ -9,7 +9,8 @@ from tracecat import config
 from tracecat.db.models import Organization, OrganizationTier, Tier
 from tracecat.exceptions import EntitlementRequired
 from tracecat.tiers import defaults as tier_defaults
-from tracecat.tiers.entitlements import Entitlement, EntitlementService
+from tracecat.tiers.entitlements import EntitlementService
+from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.service import TierService
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -19,6 +20,7 @@ pytestmark = pytest.mark.usefixtures("db")
 def enable_multi_tenant(monkeypatch: pytest.MonkeyPatch) -> None:
     """Run this suite in multi-tenant mode unless explicitly overridden."""
     monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(config, "TRACECAT__APP_ENV", "development")
 
 
 @pytest.fixture
@@ -159,6 +161,71 @@ async def test_entitlement_without_org_tier_uses_default_tier(
     entitlement_service = EntitlementService(TierService(session))
 
     await entitlement_service.check_entitlement(test_org.id, Entitlement.CASE_ADDONS)
+
+
+@pytest.mark.anyio
+async def test_apply_configured_default_tier_entitlements_enables_requested_values(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Configured bootstrap entitlements should update the DB default tier."""
+    default_tier = await _create_default_tier(
+        session,
+        entitlements={"custom_registry": True, "agent_addons": False},
+    )
+    monkeypatch.setenv(
+        "TRACECAT__DEV_DEFAULT_TIER_ENTITLEMENTS",
+        "agent_addons,rbac_addons",
+    )
+
+    changed = await TierService(session).apply_configured_default_tier_entitlements()
+
+    assert changed is True
+    await session.refresh(default_tier)
+    assert default_tier.entitlements == {
+        "custom_registry": True,
+        "agent_addons": True,
+        "rbac_addons": True,
+    }
+
+
+@pytest.mark.anyio
+async def test_apply_configured_default_tier_entitlements_is_noop_without_env(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default tier bootstrap should skip when no env override is configured."""
+    default_tier = await _create_default_tier(
+        session,
+        entitlements={"custom_registry": True},
+    )
+    monkeypatch.delenv("TRACECAT__DEV_DEFAULT_TIER_ENTITLEMENTS", raising=False)
+
+    changed = await TierService(session).apply_configured_default_tier_entitlements()
+
+    assert changed is False
+    await session.refresh(default_tier)
+    assert default_tier.entitlements == {"custom_registry": True}
+
+
+@pytest.mark.anyio
+async def test_apply_configured_default_tier_entitlements_is_noop_outside_dev_mode(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default tier bootstrap should be ignored outside development mode."""
+    default_tier = await _create_default_tier(
+        session,
+        entitlements={"custom_registry": True, "agent_addons": False},
+    )
+    monkeypatch.setenv("TRACECAT__DEV_DEFAULT_TIER_ENTITLEMENTS", "agent_addons")
+    monkeypatch.setattr(config, "TRACECAT__APP_ENV", "production")
+
+    changed = await TierService(session).apply_configured_default_tier_entitlements()
+
+    assert changed is False
+    await session.refresh(default_tier)
+    assert default_tier.entitlements == {
+        "custom_registry": True,
+        "agent_addons": False,
+    }
 
 
 @pytest.mark.anyio

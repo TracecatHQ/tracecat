@@ -132,6 +132,8 @@ from tracecat.storage.blob import configure_bucket_lifecycle, ensure_bucket_exis
 from tracecat.tables.internal_router import router as internal_tables_router
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
+from tracecat.tiers.exceptions import DefaultTierNotConfiguredError
+from tracecat.tiers.service import TierService
 from tracecat.variables.internal_router import router as internal_variables_router
 from tracecat.variables.router import router as variables_router
 from tracecat.vcs.router import org_router as vcs_router
@@ -182,6 +184,11 @@ async def lifespan(app: FastAPI):
 
     async with get_async_session_bypass_rls_context_manager() as session:
         await setup_rbac_defaults(session)
+        tier_service = TierService(session)
+        try:
+            await tier_service.apply_configured_default_tier_entitlements()
+        except DefaultTierNotConfiguredError:
+            logger.debug("No default tier configured, skipping entitlement bootstrap")
 
     # Spawn platform registry sync as background task (non-blocking)
     # Uses leader election to prevent race conditions across multiple API processes

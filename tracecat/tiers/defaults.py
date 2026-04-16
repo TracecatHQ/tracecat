@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 
+from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.schemas import EffectiveEntitlements, EffectiveLimits
 
 DEFAULT_TIER_DISPLAY_NAME = "Default"
+DEV_DEFAULT_TIER_ENTITLEMENTS_ENV_VAR = "TRACECAT__DEV_DEFAULT_TIER_ENTITLEMENTS"
 
 # Default limits for self-hosted deployments (None = unlimited)
 DEFAULT_LIMITS = EffectiveLimits(
@@ -21,11 +23,31 @@ DEFAULT_LIMITS = EffectiveLimits(
 _AGENT_ADDON_FLAGS = ("agent-approvals", "agent-presets")
 _CASE_ADDON_FLAGS = ("case-dropdowns", "case-durations", "case-tasks", "case-triggers")
 _RBAC_FLAGS = ("rbac",)
+_DEFAULT_TIER_TOKEN_TO_ENTITLEMENT = {
+    "custom-registry": Entitlement.CUSTOM_REGISTRY.value,
+    "git-sync": Entitlement.GIT_SYNC.value,
+    "agent-addons": Entitlement.AGENT_ADDONS.value,
+    "case-addons": Entitlement.CASE_ADDONS.value,
+    "rbac-addons": Entitlement.RBAC_ADDONS.value,
+    "watchtower": Entitlement.WATCHTOWER.value,
+    "agent-approvals": Entitlement.AGENT_ADDONS.value,
+    "agent-presets": Entitlement.AGENT_ADDONS.value,
+    "case-dropdowns": Entitlement.CASE_ADDONS.value,
+    "case-durations": Entitlement.CASE_ADDONS.value,
+    "case-tasks": Entitlement.CASE_ADDONS.value,
+    "case-triggers": Entitlement.CASE_ADDONS.value,
+    "rbac": Entitlement.RBAC_ADDONS.value,
+}
 
 
 def get_legacy_feature_flags_env() -> str | None:
     """Get legacy feature flags from TRACECAT__FEATURE_FLAGS."""
     return os.environ.get("TRACECAT__FEATURE_FLAGS")
+
+
+def get_default_tier_entitlements_env() -> str | None:
+    """Get default tier entitlement bootstrap values from the environment."""
+    return os.environ.get(DEV_DEFAULT_TIER_ENTITLEMENTS_ENV_VAR)
 
 
 def _parse_feature_flags(feature_flags_env: str) -> set[str]:
@@ -34,6 +56,27 @@ def _parse_feature_flags(feature_flags_env: str) -> set[str]:
         for raw_flag in feature_flags_env.split(",")
         if raw_flag.strip()
     }
+
+
+def resolve_default_tier_entitlement_enables(
+    entitlements_env: str | None,
+) -> dict[str, bool]:
+    """Resolve default-tier entitlements that should be enabled from env.
+
+    Supports comma-separated entitlement keys and the special value ``all``.
+    """
+    if not entitlements_env:
+        return {}
+
+    normalized_tokens = _parse_feature_flags(entitlements_env)
+    if "all" in normalized_tokens:
+        return {entitlement.value: True for entitlement in Entitlement}
+
+    updates: dict[str, bool] = {}
+    for token in normalized_tokens:
+        if entitlement_key := _DEFAULT_TIER_TOKEN_TO_ENTITLEMENT.get(token):
+            updates[entitlement_key] = True
+    return updates
 
 
 # Default entitlements for OSS/single-tenant deployments.

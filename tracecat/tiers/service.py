@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
 from tracecat.db.models import Organization, OrganizationTier, Tier
+from tracecat.logger import logger
 from tracecat.service import BaseService
 from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.access import get_org_tier_and_resolved_tier
@@ -18,6 +19,7 @@ from tracecat.tiers.exceptions import (
     OrganizationNotFoundError,
 )
 from tracecat.tiers.schemas import EffectiveEntitlements, EffectiveLimits
+from tracecat.tiers.types import EntitlementsDict
 
 if TYPE_CHECKING:
     from tracecat.identifiers import OrganizationID
@@ -87,6 +89,46 @@ class TierService(BaseService):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one()
+
+    async def apply_configured_default_tier_entitlements(self) -> bool:
+        """Enable configured entitlements on the active default tier.
+
+        Returns ``True`` when the default tier was updated.
+        """
+        if config.TRACECAT__APP_ENV != "development":
+            return False
+
+        if not config.TRACECAT__EE_MULTI_TENANT:
+            return False
+
+        updates = tier_defaults.resolve_default_tier_entitlement_enables(
+            tier_defaults.get_default_tier_entitlements_env()
+        )
+        if not updates:
+            return False
+
+        default_tier = await self.get_default_tier()
+        if default_tier is None:
+            raise DefaultTierNotConfiguredError
+
+        entitlements = cast(EntitlementsDict, dict(default_tier.entitlements or {}))
+        changed = False
+        for key, value in updates.items():
+            if value and entitlements.get(key) is not True:
+                entitlements[key] = True
+                changed = True
+
+        if not changed:
+            return False
+
+        default_tier.entitlements = entitlements
+        await self.session.commit()
+        logger.info(
+            "Enabled configured entitlements on default tier",
+            entitlements=sorted(updates),
+            tier_id=str(default_tier.id),
+        )
+        return True
 
     async def get_effective_limits(self, org_id: OrganizationID) -> EffectiveLimits:
         """Get effective limits (org override or tier default).
