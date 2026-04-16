@@ -12,6 +12,8 @@ from fastapi import (
     Response,
     status,
 )
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from temporalio.service import RPCError
 
 from tracecat import config
@@ -383,12 +385,23 @@ async def _incoming_webhook(
     return response
 
 
-@router.post("/wait")
+@router.post("/wait", response_model=None)
 async def incoming_webhook_wait(
     workflow_id: AnyWorkflowIDPath,
     defn: ValidWorkflowDefinitionDep,
     payload: PayloadDep,
-) -> WaitResultOutput:
+    unwrap: Annotated[
+        bool,
+        Query(
+            description=(
+                "Return the workflow result directly as the response body, without the "
+                "`{kind, value}` envelope. Requires the result to fit inline. If the "
+                "result was externalized, returns 413 with the download envelope in "
+                "`detail`."
+            ),
+        ),
+    ] = False,
+) -> WaitResultOutput | Response:
     """Webhook endpoint to trigger a workflow.
 
     This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
@@ -410,7 +423,16 @@ async def incoming_webhook_wait(
         else None,
     )
 
-    return await _normalize_wait_result(response["result"])
+    result = response["result"]
+    if unwrap:
+        if isinstance(result, InlineObject):
+            return JSONResponse(content=jsonable_encoder(result.data))
+        envelope = await _normalize_wait_result(result)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=envelope,
+        )
+    return await _normalize_wait_result(result)
 
 
 @router.post("/draft", response_model=None)

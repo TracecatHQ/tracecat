@@ -6754,10 +6754,6 @@ export type VideoUrl = {
   readonly identifier: string
 }
 
-export type WaitResultOutput =
-  | WebhookStoredObjectInlineResponse
-  | WebhookStoredObjectDownloadResponse
-
 export type WaitStrategy = "wait" | "detach"
 
 /**
@@ -6948,21 +6944,6 @@ export type WebhookRead = {
 }
 
 export type WebhookStatus = "online" | "offline"
-
-export type WebhookStoredObjectDownloadResponse = {
-  kind: "download_file" | "download_export"
-  download_url: string
-  expires_in_seconds: number
-  content_type: string
-  size_bytes: number
-}
-
-export type kind = "download_file" | "download_export"
-
-export type WebhookStoredObjectInlineResponse = {
-  kind: "value"
-  value: unknown
-}
 
 export type WebhookUpdate = {
   status?: WebhookStatus | null
@@ -7983,10 +7964,14 @@ export type PublicIncomingWebhookGetResponse = unknown
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
   secret: string
+  /**
+   * Return the workflow result directly as the response body, without the `{kind, value}` envelope. Requires the result to fit inline. If the result was externalized, returns 413 with the download envelope in `detail`.
+   */
+  unwrap?: boolean
   workflowId: string
 }
 
-export type PublicIncomingWebhookWaitResponse = WaitResultOutput
+export type PublicIncomingWebhookWaitResponse = unknown
 
 export type PublicIncomingWebhookDraftData = {
   contentType?: string | null
@@ -10960,7 +10945,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WaitResultOutput
+        200: unknown
         /**
          * Validation Error
          */

@@ -11,6 +11,7 @@ WorkflowExecutionsService and the webhook router.
 from __future__ import annotations
 
 import datetime
+import json
 import uuid
 from hashlib import sha256
 from types import SimpleNamespace
@@ -18,7 +19,8 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import Request
+from fastapi import HTTPException, Request
+from fastapi.responses import JSONResponse
 from temporalio.client import Client
 from temporalio.common import TypedSearchAttributes, WorkflowIDReusePolicy
 
@@ -655,8 +657,8 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
             )
 
-        assert response["kind"] == "value"
         response_obj = cast(dict[str, Any], response)
+        assert response_obj["kind"] == "value"
         assert response_obj["value"] == {"_": "result-ref"}
         mock_service.create_workflow_execution.assert_awaited_once()
         call_kwargs = mock_service.create_workflow_execution.call_args.kwargs
@@ -703,8 +705,8 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
             )
 
-        assert response["kind"] == "download_file"
         response_obj = cast(dict[str, Any], response)
+        assert response_obj["kind"] == "download_file"
         assert response_obj["download_url"] == "https://example.com/presigned/external"
 
     @pytest.mark.anyio
@@ -762,8 +764,8 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
             )
 
-        assert response["kind"] == "download_export"
         response_obj = cast(dict[str, Any], response)
+        assert response_obj["kind"] == "download_export"
         assert (
             response_obj["download_url"] == "https://example.com/presigned/collection"
         )
@@ -822,7 +824,8 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
             )
 
-        assert response["kind"] == "download_export"
+        response_obj = cast(dict[str, Any], response)
+        assert response_obj["kind"] == "download_export"
         get_page_mock.assert_awaited_once_with(collection_result, offset=1, limit=1)
 
         await_args = upload_file_mock.await_args
@@ -903,13 +906,150 @@ class TestWebhookRouterExecutionPath:
                 payload=payload,
             )
 
-        assert response["kind"] == "download_export"
         response_obj = cast(dict[str, Any], response)
+        assert response_obj["kind"] == "download_export"
         assert (
             response_obj["download_url"] == "https://example.com/presigned/collection"
         )
         cached_download_mock.assert_awaited_once()
         upload_file_mock.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_wait_webhook_unwrap_returns_raw_value_for_inline_object(self):
+        """unwrap=True returns the workflow result directly for inline objects."""
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        inline_result = InlineObject(type="inline", data={"_": "result-ref"})
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution = AsyncMock(
+            return_value={
+                "wf_id": workflow_id,
+                "result": inline_result,
+            }
+        )
+
+        with patch(
+            "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+            AsyncMock(return_value=mock_service),
+        ):
+            response = await incoming_webhook_wait(
+                workflow_id=workflow_id,
+                defn=_definition(),
+                payload=payload,
+                unwrap=True,
+            )
+
+        assert isinstance(response, JSONResponse)
+        assert isinstance(response.body, bytes)
+        body = json.loads(response.body)
+        assert body == {"_": "result-ref"}
+
+    @pytest.mark.anyio
+    async def test_wait_webhook_unwrap_returns_413_for_external_object(self):
+        """unwrap=True raises 413 with the download envelope for externalized results."""
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        external_result = ExternalObject(
+            type="external",
+            ref=ObjectRef(
+                backend="s3",
+                bucket="tracecat-workflow",
+                key="wf/test/return.json",
+                size_bytes=42,
+                sha256="abc123",
+                content_type="application/json",
+                encoding="json",
+            ),
+        )
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution = AsyncMock(
+            return_value={
+                "wf_id": workflow_id,
+                "result": external_result,
+            }
+        )
+
+        with (
+            patch(
+                "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+                AsyncMock(return_value=mock_service),
+            ),
+            patch(
+                "tracecat.webhooks.router.blob.generate_presigned_download_url",
+                AsyncMock(return_value="https://example.com/presigned/external"),
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await incoming_webhook_wait(
+                    workflow_id=workflow_id,
+                    defn=_definition(),
+                    payload=payload,
+                    unwrap=True,
+                )
+
+        assert exc_info.value.status_code == 413
+        detail = cast(dict[str, Any], exc_info.value.detail)
+        assert detail["kind"] == "download_file"
+        assert detail["download_url"] == "https://example.com/presigned/external"
+
+    @pytest.mark.anyio
+    async def test_wait_webhook_unwrap_returns_413_for_collection_object(self):
+        """unwrap=True raises 413 with the download envelope for collection results."""
+        workflow_id = WorkflowUUID.new_uuid4()
+        payload = {"event": "test"}
+        collection_result = CollectionObject(
+            type="collection",
+            manifest_ref=ObjectRef(
+                backend="s3",
+                bucket="tracecat-workflow",
+                key="wf/test/return/manifest.json",
+                size_bytes=128,
+                sha256="manifest-sha",
+                content_type="application/json",
+                encoding="json",
+            ),
+            count=3,
+            chunk_size=2,
+            element_kind="value",
+        )
+        mock_service = AsyncMock()
+        mock_service.create_workflow_execution = AsyncMock(
+            return_value={
+                "wf_id": workflow_id,
+                "result": collection_result,
+            }
+        )
+
+        with (
+            patch(
+                "tracecat.webhooks.router.WorkflowExecutionsService.connect",
+                AsyncMock(return_value=mock_service),
+            ),
+            patch(
+                "tracecat.webhooks.router.get_collection_page",
+                AsyncMock(return_value=[{"id": 1}, {"id": 2}, {"id": 3}]),
+            ),
+            patch(
+                "tracecat.webhooks.router.blob.upload_file",
+                AsyncMock(),
+            ),
+            patch(
+                "tracecat.webhooks.router.blob.generate_presigned_download_url",
+                AsyncMock(return_value="https://example.com/presigned/collection"),
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await incoming_webhook_wait(
+                    workflow_id=workflow_id,
+                    defn=_definition(),
+                    payload=payload,
+                    unwrap=True,
+                )
+
+        assert exc_info.value.status_code == 413
+        detail = cast(dict[str, Any], exc_info.value.detail)
+        assert detail["kind"] == "download_export"
+        assert detail["download_url"] == "https://example.com/presigned/collection"
 
 
 # ---------------------------------------------------------------------------
