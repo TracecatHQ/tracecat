@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import deque
 
 from sqlalchemy import select
-from tracecat_registry import __version__ as TRACECAT_REGISTRY_VERSION
 
 from tracecat.db.models import (
     PlatformRegistryRepository,
@@ -200,16 +199,20 @@ class RegistryLockService(BaseOrgService):
         origins = {o: v for o, v in origins.items() if o in used_origins}
         if DEFAULT_REGISTRY_ORIGIN not in origins:
             builtin_version = next(
-                (v for o, v, _ in platform_rows if o == DEFAULT_REGISTRY_ORIGIN), None
+                (
+                    str(version)
+                    for origin, version, _ in platform_rows
+                    if origin == DEFAULT_REGISTRY_ORIGIN
+                ),
+                None,
             )
-            if builtin_version is None:
+            if builtin_version is not None:
+                origins[DEFAULT_REGISTRY_ORIGIN] = builtin_version
+            else:
                 self.logger.warning(
-                    "Platform registry has no selected version; falling back to installed package version",
+                    "Platform registry has no selected version; skipping builtin origin in lock",
                     origin=DEFAULT_REGISTRY_ORIGIN,
-                    fallback_version=TRACECAT_REGISTRY_VERSION,
                 )
-                builtin_version = TRACECAT_REGISTRY_VERSION
-            origins[DEFAULT_REGISTRY_ORIGIN] = builtin_version
 
         self.logger.debug(
             "Resolved lock with bindings",
