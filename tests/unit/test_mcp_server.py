@@ -2753,6 +2753,48 @@ async def test_create_case(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_create_case_with_tags(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    added_tags: list[tuple[str, bool]] = []
+
+    async def _create_case(params):
+        return SimpleNamespace(id=case_id, short_id="CASE-0006")
+
+    async def _add_case_tag(cid, tag, *, create_if_missing=False):
+        added_tags.append((tag, create_if_missing))
+
+    tags_svc = SimpleNamespace(add_case_tag=_add_case_tag)
+    cases_service = SimpleNamespace(create_case=_create_case, tags=tags_svc)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    result = await _tool(mcp_server.create_case)(
+        workspace_id=str(uuid.uuid4()),
+        summary="Tagged incident",
+        description="With tags",
+        status="new",
+        priority="high",
+        severity="medium",
+        tags="malware,phishing",
+        create_missing_tags=True,
+    )
+    payload = _payload(result)
+    assert payload["id"] == str(case_id)
+    assert "created successfully" in payload["message"]
+    assert len(added_tags) == 2
+    assert added_tags[0] == ("malware", True)
+    assert added_tags[1] == ("phishing", True)
+
+
+@pytest.mark.anyio
 async def test_update_case(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
@@ -2789,6 +2831,61 @@ async def test_update_case(monkeypatch):
     assert "updated successfully" in payload["message"]
     assert captured["summary"] == "Updated summary"
     assert str(captured["status"]) == "in_progress"
+
+
+@pytest.mark.anyio
+async def test_update_case_with_tags(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    case_id = uuid.uuid4()
+    case = SimpleNamespace(id=case_id)
+    removed_tags: list[str] = []
+    added_tags: list[tuple[str, bool]] = []
+
+    async def _get_case(parsed_id, **kwargs):
+        return case
+
+    async def _update_case(c, params):
+        return c
+
+    async def _list_tags_for_case(cid):
+        return [SimpleNamespace(ref="old-tag")]
+
+    async def _remove_case_tag(cid, ref):
+        removed_tags.append(ref)
+
+    async def _add_case_tag(cid, tag, *, create_if_missing=False):
+        added_tags.append((tag, create_if_missing))
+
+    tags_svc = SimpleNamespace(
+        list_tags_for_case=_list_tags_for_case,
+        remove_case_tag=_remove_case_tag,
+        add_case_tag=_add_case_tag,
+    )
+    cases_service = SimpleNamespace(
+        get_case=_get_case, update_case=_update_case, tags=tags_svc
+    )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server,
+        "CasesService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(cases_service)),
+    )
+
+    result = await _tool(mcp_server.update_case)(
+        workspace_id=str(uuid.uuid4()),
+        case_id=str(case_id),
+        tags="new-tag-1,new-tag-2",
+        create_missing_tags=True,
+    )
+    payload = _payload(result)
+    assert "updated successfully" in payload["message"]
+    assert removed_tags == ["old-tag"]
+    assert len(added_tags) == 2
+    assert added_tags[0] == ("new-tag-1", True)
+    assert added_tags[1] == ("new-tag-2", True)
 
 
 @pytest.mark.anyio

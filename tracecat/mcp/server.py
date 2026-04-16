@@ -5312,6 +5312,8 @@ async def create_case(
     assignee_id: str | None = None,
     fields: str | None = None,
     payload: str | None = None,
+    tags: str | None = None,
+    create_missing_tags: bool = False,
 ) -> str:
     """Create a new case.
 
@@ -5330,6 +5332,10 @@ async def create_case(
             ``'{"my_field": "value"}'``. Field names must match existing
             case field definitions from ``list_case_fields``.
         payload: Optional JSON object string of arbitrary case payload data.
+        tags: Optional comma-separated tag identifiers (IDs or refs) to add
+            to the case, e.g. ``"malware,phishing"``.
+        create_missing_tags: If true, automatically create any tags that do
+            not already exist. Defaults to false.
 
     Returns JSON with a confirmation message and the created case ID.
     """
@@ -5339,6 +5345,9 @@ async def create_case(
         parsed_fields = _parse_json_arg(fields, "fields")
         parsed_payload = _parse_json_arg(payload, "payload")
         parsed_assignee = uuid.UUID(assignee_id) if assignee_id else None
+        parsed_tags = (
+            [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+        )
 
         params = CaseCreate(
             summary=summary,
@@ -5353,6 +5362,13 @@ async def create_case(
 
         async with CasesService.with_session(role=role) as svc:
             case = await svc.create_case(params)
+
+            if parsed_tags:
+                for tag in parsed_tags:
+                    await svc.tags.add_case_tag(
+                        case.id, tag, create_if_missing=create_missing_tags
+                    )
+
             return _json(
                 {
                     "message": "Case created successfully",
@@ -5381,6 +5397,8 @@ async def update_case(
     assignee_id: str | None = None,
     fields: str | None = None,
     payload: str | None = None,
+    tags: str | None = None,
+    create_missing_tags: bool = False,
 ) -> str:
     """Update a case. Only provided fields are changed.
 
@@ -5399,6 +5417,11 @@ async def update_case(
         fields: JSON object string of custom field values to update, e.g.
             ``'{"my_field": "new_value"}'``.
         payload: JSON object string of arbitrary payload data.
+        tags: Optional comma-separated tag identifiers (IDs or refs) to set
+            on the case, e.g. ``"malware,phishing"``. Replaces all existing
+            tags.
+        create_missing_tags: If true, automatically create any tags that do
+            not already exist. Defaults to false.
 
     Returns a confirmation message.
     """
@@ -5408,6 +5431,9 @@ async def update_case(
         parsed_case_id = uuid.UUID(case_id)
         parsed_fields = _parse_json_arg(fields, "fields")
         parsed_payload = _parse_json_arg(payload, "payload")
+        parsed_tags = (
+            [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+        )
 
         update_kwargs: dict[str, Any] = {}
         if summary is not None:
@@ -5434,6 +5460,16 @@ async def update_case(
             if case is None:
                 raise ToolError(f"Case {case_id!r} not found")
             await svc.update_case(case, params)
+
+            if parsed_tags is not None:
+                existing_tags = await svc.tags.list_tags_for_case(parsed_case_id)
+                for existing_tag in existing_tags:
+                    await svc.tags.remove_case_tag(parsed_case_id, existing_tag.ref)
+                for tag in parsed_tags:
+                    await svc.tags.add_case_tag(
+                        parsed_case_id, tag, create_if_missing=create_missing_tags
+                    )
+
             return _json({"message": f"Case {case_id} updated successfully"})
     except ToolError:
         raise
