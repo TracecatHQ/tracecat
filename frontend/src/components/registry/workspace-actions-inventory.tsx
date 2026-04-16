@@ -80,14 +80,6 @@ type TracecatVersionState =
   | { status: "error" }
 
 const PLATFORM_VERSION_FETCH_LIMIT = 200
-const FORCE_LOCKED_ACTIONS = new Set([
-  "ai.agent.create_preset",
-  "ai.agent.delete_preset",
-  "ai.agent.get_preset",
-  "ai.agent.list_presets",
-  "ai.agent.update_preset",
-])
-
 type RegistryActionGroup = {
   origin: string
   label: string
@@ -115,10 +107,7 @@ function getActionDisplayName(action: RegistryActionReadMinimal): string {
 }
 
 function isLockedAction(action: RegistryActionReadMinimal): boolean {
-  return (
-    FORCE_LOCKED_ACTIONS.has(action.action) ||
-    (action.availability?.locked ?? false)
-  )
+  return action.availability?.locked ?? false
 }
 
 function getActionSortValue(
