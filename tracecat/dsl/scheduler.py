@@ -677,7 +677,6 @@ class DSLScheduler:
         if original_delay > 0:
             task = replace(task, delay=0.0)
         try:
-            run_if_error: ApplicationError | None = None
             # 1) Skip propagation (force-skip) takes highest precedence over everything else
             if self._skip_should_propagate(task, stmt):
                 self.logger.debug(
@@ -687,6 +686,7 @@ class DSLScheduler:
 
             # 2) Evaluate `run_if` early when possible so branch-local guards can
             # self-skip before mixed visited/skipped parents are treated as unreachable.
+            run_if_error: ApplicationError | None = None
             if stmt.run_if is not None:
                 try:
                     if await self._task_should_skip(task, stmt):
