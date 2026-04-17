@@ -24,6 +24,7 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.expressions.common import ExprType
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.tables.service import TablesService
@@ -783,6 +784,33 @@ async def test_create_workflow_rejects_oversized_inline_definition_yaml(monkeypa
 
 
 @pytest.mark.anyio
+async def test_create_workflow_surfaces_builtin_registry_sync_pending(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    class _WorkflowService:
+        async def create_workflow_from_external_definition(self, *_args, **_kwargs):
+            raise BuiltinRegistryHasNoSelectionError(
+                "Builtin registry sync is still in progress. Please retry shortly.",
+                detail={"origin": "tracecat_registry"},
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    with pytest.raises(ToolError, match="retry shortly"):
+        await _tool(mcp_server.create_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            title="Example",
+            definition_yaml="definition:\n  title: Example\n",
+        )
+
+
+@pytest.mark.anyio
 async def test_update_workflow_rejects_oversized_inline_definition_yaml(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
@@ -795,6 +823,67 @@ async def test_update_workflow_rejects_oversized_inline_definition_yaml(monkeypa
             workflow_id=str(uuid.uuid4()),
             definition_yaml="x" * (mcp_server._inline_workflow_yaml_max_bytes() + 1),
         )
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_builtin_registry_not_ready_returns_validation_failure(
+    monkeypatch,
+):
+    workspace_id = uuid.uuid4()
+    workflow_id = uuid.uuid4()
+    role = SimpleNamespace()
+    workflow = SimpleNamespace(id=workflow_id, alias=None, registry_lock=None)
+    dsl = SimpleNamespace(actions=[SimpleNamespace(action="core.transform.reshape")])
+
+    class _WorkflowService:
+        def __init__(self):
+            self.session = object()
+
+        async def get_workflow(self, wf_id):
+            assert wf_id == mcp_server.WorkflowUUID.new(workflow_id)
+            return workflow
+
+        async def build_dsl_from_workflow(self, workflow_obj):
+            assert workflow_obj is workflow
+            return dsl
+
+    class _LockService:
+        def __init__(self, *_args):
+            pass
+
+        async def resolve_lock_with_bindings(self, _action_names):
+            raise BuiltinRegistryHasNoSelectionError(
+                "Builtin registry sync is still in progress. Please retry shortly.",
+                detail={"origin": "tracecat_registry"},
+            )
+
+    async def _resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+    monkeypatch.setattr(
+        mcp_server, "validate_dsl", lambda **_kwargs: asyncio.sleep(0, result=[])
+    )
+    monkeypatch.setattr(mcp_server, "RegistryLockService", _LockService)
+
+    result = await _tool(mcp_server.publish_workflow)(
+        workspace_id=str(workspace_id),
+        workflow_id=str(workflow_id),
+    )
+
+    payload = _payload(result)
+    assert payload["workflow_id"] == str(workflow_id)
+    assert payload["status"] == "failure"
+    assert payload["message"] == "1 validation error(s)"
+    error = payload["errors"][0]
+    assert error["type"] == "dsl"
+    assert "retry shortly" in error["message"]
+    assert error["details"][0]["type"] == "registry.builtin_sync_pending"
 
 
 @pytest.mark.anyio

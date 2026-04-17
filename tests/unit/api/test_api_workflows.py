@@ -271,6 +271,46 @@ async def test_commit_workflow_builtin_registry_not_ready_returns_validation_fai
 
 
 @pytest.mark.anyio
+async def test_create_workflow_import_builtin_registry_not_ready_returns_validation_failure(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Workflow import should return a validation-style failure while builtin sync is pending."""
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
+    ) as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_workflow_from_external_definition.side_effect = (
+            BuiltinRegistryHasNoSelectionError(
+                "Builtin registry sync is still in progress. Please retry shortly.",
+                detail={"origin": "tracecat_registry"},
+            )
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/workflows",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            files={
+                "file": (
+                    "workflow.yaml",
+                    b"definition:\n  title: Imported workflow\n",
+                    "application/yaml",
+                )
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    payload = response.json()["detail"]
+    assert payload["status"] == "failure"
+    assert payload["message"] == "1 validation error(s)"
+    error = payload["errors"][0]
+    assert error["type"] == "dsl"
+    assert "retry shortly" in error["msg"]
+    assert error["detail"][0]["type"] == "registry.builtin_sync_pending"
+
+
+@pytest.mark.anyio
 async def test_list_workflows_includes_trigger_summary(
     client: TestClient,
     test_admin_role: Role,
