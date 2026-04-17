@@ -486,6 +486,40 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options[0].max_buffer_size == CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("max_requests", [None, 10])
+    async def test_passes_max_requests_as_max_turns(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        max_requests: int | None,
+    ) -> None:
+        """Test that payload.max_requests is forwarded as max_turns to ClaudeAgentOptions."""
+        captured_options: list[Any] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        payload = replace(sample_init_payload, max_requests=max_requests)
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            await runtime.run(payload)
+
+        assert captured_options
+        assert captured_options[0].max_turns == max_requests
+
+    @pytest.mark.anyio
     async def test_sets_auto_compact_window_for_custom_model_provider(
         self,
         mock_socket_writer: MagicMock,
