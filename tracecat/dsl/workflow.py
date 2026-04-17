@@ -947,6 +947,7 @@ class DSLWorkflow:
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
+                                enable_thinking=action_args.enable_thinking,
                                 base_url=action_args.base_url,
                                 actions=action_args.actions,
                                 tool_approvals=action_args.tool_approvals,
@@ -1009,6 +1010,7 @@ class DSLWorkflow:
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
+                                enable_thinking=action_args.enable_thinking,
                                 base_url=action_args.base_url,
                                 # AI action has no tools
                                 actions=None,

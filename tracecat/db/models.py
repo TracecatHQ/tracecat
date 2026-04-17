@@ -3063,6 +3063,13 @@ class AgentPreset(WorkspaceModel):
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
+    enable_thinking: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=text("true"),
+        nullable=False,
+        doc="Whether to enable high thinking for agent runs",
+    )
     enable_internet_access: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -3160,6 +3167,13 @@ class AgentPresetVersion(WorkspaceModel):
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
+    )
+    enable_thinking: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=text("true"),
+        nullable=False,
+        doc="Whether to enable high thinking for agent runs",
     )
     enable_internet_access: Mapped[bool] = mapped_column(
         Boolean,

@@ -216,6 +216,7 @@ function toDuplicateSourcePreset(
     tool_approvals: preset.tool_approvals ?? null,
     mcp_integrations: preset.mcp_integrations ?? null,
     retries: preset.retries,
+    enable_thinking: preset.enable_thinking,
     enable_internet_access: preset.enable_internet_access,
   }
 }

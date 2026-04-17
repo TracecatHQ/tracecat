@@ -1254,6 +1254,11 @@ export const $AgentPresetCreate = {
       title: "Retries",
       default: 3,
     },
+    enable_thinking: {
+      type: "boolean",
+      title: "Enable Thinking",
+      default: true,
+    },
     enable_internet_access: {
       type: "boolean",
       title: "Enable Internet Access",
@@ -1403,6 +1408,11 @@ export const $AgentPresetRead = {
       minimum: 0,
       title: "Retries",
       default: 3,
+    },
+    enable_thinking: {
+      type: "boolean",
+      title: "Enable Thinking",
+      default: true,
     },
     enable_internet_access: {
       type: "boolean",
@@ -1712,6 +1722,17 @@ export const $AgentPresetUpdate = {
       ],
       title: "Retries",
     },
+    enable_thinking: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enable Thinking",
+    },
     enable_internet_access: {
       anyOf: [
         {
@@ -1921,6 +1942,11 @@ export const $AgentPresetVersionRead = {
       title: "Retries",
       default: 3,
     },
+    enable_thinking: {
+      type: "boolean",
+      title: "Enable Thinking",
+      default: true,
+    },
     enable_internet_access: {
       type: "boolean",
       title: "Enable Internet Access",
@@ -2077,6 +2103,11 @@ export const $AgentPresetVersionReadMinimal = {
       minimum: 0,
       title: "Retries",
       default: 3,
+    },
+    enable_thinking: {
+      type: "boolean",
+      title: "Enable Thinking",
+      default: true,
     },
     enable_internet_access: {
       type: "boolean",

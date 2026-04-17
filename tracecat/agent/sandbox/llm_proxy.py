@@ -97,6 +97,7 @@ class LLMSocketProxy:
         passthrough: bool = False,
         role: Role | None = None,
         use_workspace_credentials: bool = False,
+        model_provider: str | None = None,
     ):
         """Initialize the LLM socket proxy.
 
@@ -104,10 +105,12 @@ class LLMSocketProxy:
             socket_path: Path where the Unix socket will be created.
             upstream_url: Selected upstream base URL. Defaults to the managed gateway.
             on_error: Callback invoked when an error (e.g., auth failure) is detected.
-            passthrough: When True, strip managed auth headers and provider-specific
-                reasoning fields before forwarding directly to the configured upstream.
+            passthrough: When True, strip managed auth headers before forwarding
+                directly to the configured upstream.
             role: Role used to fetch the custom provider API key in passthrough mode.
             use_workspace_credentials: Credential scope for the passthrough key fetch.
+            model_provider: Selected model provider. Used to decide whether to strip
+                Anthropic-only request fields from outbound payloads.
         """
         self.socket_path = socket_path
         self.upstream_url = (
@@ -123,6 +126,7 @@ class LLMSocketProxy:
         self._role = role
         self._use_workspace_credentials = use_workspace_credentials
         self._upstream_api_key: str | None = None
+        self._model_provider = model_provider
 
     async def _resolve_passthrough_api_key(self) -> None:
         """Fetch the custom provider API key for passthrough mode.
@@ -240,12 +244,12 @@ class LLMSocketProxy:
     def _strip_anthropic_only_fields_from_request(
         data: dict[str, Any], headers: dict[str, str]
     ) -> tuple[dict[str, Any], dict[str, str]]:
-        """Remove Anthropic-only fields from a JSON request body.
+        """Remove Anthropic-only request fields for non-Anthropic upstreams.
 
-        Strips ``anthropic_beta``, ``context_management``, ``output_config``,
-        and ``output_format`` top-level keys and returns the updated body.
-        The caller is responsible for re-serializing the body and setting
-        ``Content-Length`` accordingly.
+        Strips ``thinking`` and Anthropic-only top-level keys
+        (``anthropic_beta``, ``context_management``, ``output_config``,
+        ``output_format``). The caller is responsible for re-serializing the
+        body and setting ``Content-Length`` accordingly.
         """
         for field in LLMSocketProxy._ANTHROPIC_ONLY_FIELDS:
             data.pop(field, None)
@@ -455,13 +459,10 @@ class LLMSocketProxy:
             if isinstance(parsed, dict):
                 data = parsed
 
-        if data is not None:
-            if self._is_passthrough:
-                data, headers = self._strip_anthropic_only_fields_from_request(
-                    data, headers
-                )
-            # Always attach reasoning_effort to the request body
-            data["reasoning_effort"] = "high"
+        if data is not None and self._model_provider != "anthropic":
+            data, headers = self._strip_anthropic_only_fields_from_request(
+                data, headers
+            )
             body = orjson.dumps(data)
             headers["Content-Length"] = str(len(body))
 

@@ -174,6 +174,7 @@ def agent_preset_create_params() -> AgentPresetCreate:
         tool_approvals=None,
         mcp_integrations=None,
         retries=3,
+        enable_thinking=True,
     )
 
 
@@ -196,6 +197,7 @@ class TestAgentPresetService:
         assert (
             created_preset.model_provider == agent_preset_create_params.model_provider
         )
+        assert created_preset.enable_thinking is True
         assert created_preset.workspace_id == agent_preset_service.workspace_id
 
         # Retrieve by ID
@@ -319,6 +321,28 @@ class TestAgentPresetService:
             CursorPaginationParams(limit=10),
         )
         assert [version.version for version in versions.items] == [1]
+
+    async def test_update_preset_enable_thinking_creates_new_version(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params
+        )
+
+        updated_preset = await agent_preset_service.update_preset(
+            created_preset,
+            AgentPresetUpdate(enable_thinking=False),
+        )
+
+        assert updated_preset.enable_thinking is False
+        versions = await agent_preset_service.list_versions(
+            created_preset.id,
+            CursorPaginationParams(limit=10),
+        )
+        assert [version.version for version in versions.items] == [2, 1]
+        assert versions.items[0].enable_thinking is False
 
     async def test_create_preset_creates_initial_version(
         self,
@@ -1009,6 +1033,7 @@ class TestAgentPresetService:
         assert agent_config.namespaces == preset.namespaces
         assert agent_config.tool_approvals == preset.tool_approvals
         assert agent_config.retries == preset.retries
+        assert agent_config.model_settings == {"parallel_tool_calls": False}
 
     async def test_create_preset_with_tool_approvals(
         self,
