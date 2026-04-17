@@ -79,17 +79,19 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
 POST_RLS_ORG_SCOPED_TABLES = (
     "watchtower_agent",
     "mcp_refresh_token",
+    "agent_custom_provider",
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "watchtower_agent_session",
     "watchtower_agent_tool_call",
+    "agent_model_access",
 )
 
-# Workspace and oauth_state carry custom policy SQL, and scope allows shared
-# platform-owned rows.
+# Workspace and oauth_state carry custom policy SQL. scope and agent_catalog
+# both have nullable organization_id and allow shared platform-owned rows.
 SPECIAL_WORKSPACE_POLICY_TABLES = frozenset({"oauth_state"})
-SPECIAL_ORG_POLICY_TABLES = frozenset({"workspace", "scope"})
+SPECIAL_ORG_POLICY_TABLES = frozenset({"workspace", "scope", "agent_catalog"})
 
 CURRENT_WORKSPACE_SCOPED_TABLES = (
     *INITIAL_WORKSPACE_SCOPED_TABLES,
@@ -255,6 +257,31 @@ def disable_scope_table_rls() -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name("scope")} ON "scope";
         ALTER TABLE "scope" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def enable_agent_catalog_table_rls() -> str:
+    return f"""
+        ALTER TABLE "agent_catalog" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {policy_name("agent_catalog")} ON "agent_catalog"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR organization_id IS NULL
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            );
+    """
+
+
+def disable_agent_catalog_table_rls() -> str:
+    return f"""
+        DROP POLICY IF EXISTS {policy_name("agent_catalog")} ON "agent_catalog";
+        ALTER TABLE "agent_catalog" DISABLE ROW LEVEL SECURITY;
     """
 
 
