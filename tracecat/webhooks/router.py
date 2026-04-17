@@ -87,6 +87,15 @@ type WaitResultOutput = (
 )
 
 
+type WaitResultUnwrappedOutput = (
+    dict[str, Any] | list[Any] | str | int | float | bool | None
+)
+
+
+class WaitResultUnwrapOverflowResponse(TypedDict):
+    detail: WebhookStoredObjectDownloadResponse
+
+
 type WebhookResponse = (
     WorkflowExecutionCreateResponse | OktaVerificationResponse | Response
 )
@@ -385,7 +394,19 @@ async def _incoming_webhook(
     return response
 
 
-@router.post("/wait", response_model=WaitResultOutput)
+@router.post(
+    "/wait",
+    response_model=WaitResultOutput | WaitResultUnwrappedOutput,
+    responses={
+        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: {
+            "model": WaitResultUnwrapOverflowResponse,
+            "description": (
+                "Unwrapped workflow result exceeded inline response limits. "
+                "Use `detail.download_url` to fetch the externalized result."
+            ),
+        }
+    },
+)
 async def incoming_webhook_wait(
     workflow_id: AnyWorkflowIDPath,
     defn: ValidWorkflowDefinitionDep,
