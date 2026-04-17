@@ -1,0 +1,40 @@
+tracecat/workflow/management/definitions.py
+  h_a05ba93e776158 11,146-151
+tracecat/registry/lock/service.py
+  h_a05ba93e776158 16-17,19-20,204,212-219,221-222
+tests/unit/api/test_api_workflows.py
+  7a14838b147c27c8 24,221-270
+tracecat/exceptions.py
+  h_a05ba93e776158 126-129
+tests/unit/test_registry_lock_service.py
+  7a14838b147c27c8 26-31,126-153,607,611-620,622-672,706-707
+tracecat/workflow/management/router.py
+  h_a05ba93e776158 33-34,36-37,505-525
+tests/unit/test_workflow_definitions_activities.py
+  7a14838b147c27c8 11,57-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "0e885aecc72be8815f28628da6dd7dcf7f875c75",
+  "prompts": {
+    "7a14838b147c27c8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d9799-111f-7012-be31-24ae4329c031",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 186,
+      "total_deletions": 14,
+      "accepted_lines": 186,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_a05ba93e776158": {
+      "author": "Daryl Lim"
+    }
+  }
+}
