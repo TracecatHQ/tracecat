@@ -6758,6 +6758,20 @@ export type WaitResultOutput =
   | WebhookStoredObjectInlineResponse
   | WebhookStoredObjectDownloadResponse
 
+export type WaitResultUnwrapOverflowResponse = {
+  detail: WebhookStoredObjectDownloadResponse
+}
+
+export type WaitResultUnwrappedOutput =
+  | {
+      [key: string]: unknown
+    }
+  | Array<unknown>
+  | string
+  | number
+  | boolean
+  | null
+
 export type WaitStrategy = "wait" | "detach"
 
 /**
@@ -7983,10 +7997,16 @@ export type PublicIncomingWebhookGetResponse = unknown
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
   secret: string
+  /**
+   * Return the workflow result directly as the response body, without the `{kind, value}` envelope. Requires the result to fit inline. If the result was externalized, returns 413 with the download envelope in `detail`.
+   */
+  unwrap?: boolean
   workflowId: string
 }
 
-export type PublicIncomingWebhookWaitResponse = WaitResultOutput
+export type PublicIncomingWebhookWaitResponse =
+  | WaitResultOutput
+  | WaitResultUnwrappedOutput
 
 export type PublicIncomingWebhookDraftData = {
   contentType?: string | null
@@ -10960,7 +10980,11 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WaitResultOutput
+        200: WaitResultOutput | WaitResultUnwrappedOutput
+        /**
+         * Unwrapped workflow result exceeded inline response limits. Use `detail.download_url` to fetch the externalized result.
+         */
+        413: WaitResultUnwrapOverflowResponse
         /**
          * Validation Error
          */
