@@ -22,6 +22,7 @@ from tracecat.agent.channels.management_router import (
     router as agent_channels_management_router,
 )
 from tracecat.agent.channels.router import router as agent_channels_router
+from tracecat.agent.folders.router import router as agent_folders_router
 from tracecat.agent.internal_router import router as internal_agent_router
 from tracecat.agent.preset.internal_router import (
     router as internal_agent_preset_router,
@@ -29,6 +30,10 @@ from tracecat.agent.preset.internal_router import (
 from tracecat.agent.preset.router import router as agent_preset_router
 from tracecat.agent.router import router as agent_router
 from tracecat.agent.session.router import router as agent_session_router
+from tracecat.agent.tags.definitions_router import (
+    router as agent_tag_definitions_router,
+)
+from tracecat.agent.tags.router import router as agent_preset_tags_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
     bootstrap_role,
@@ -442,6 +447,9 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_router)
     app.include_router(agent_channels_management_router)
     app.include_router(agent_preset_router)
+    app.include_router(agent_preset_tags_router)
+    app.include_router(agent_folders_router)
+    app.include_router(agent_tag_definitions_router)
     app.include_router(agent_session_router)
     app.include_router(approvals_router)
     app.include_router(watchtower_router)

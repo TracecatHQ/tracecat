@@ -139,7 +139,6 @@ const DATA_TYPE_OUTPUT_TYPES = [
   { label: "List of strings", value: "list[str]", icon: List },
 ] as const
 
-const NEW_PRESET_ID = "new"
 const DEFAULT_RETRIES = 3
 
 /**
@@ -294,7 +293,7 @@ export function AgentPresetsBuilder({
   const workspaceId = useWorkspaceId()
   const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const agentAddonsEnabled = hasEntitlement("agent_addons")
-  const activePresetId = presetId ?? NEW_PRESET_ID
+  const activePresetId = presetId
 
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
@@ -334,7 +333,10 @@ export function AgentPresetsBuilder({
       if (!workspaceId) {
         return
       }
-      const normalizedId = nextId?.trim() ? nextId : NEW_PRESET_ID
+      const normalizedId = nextId?.trim() || activePresetId
+      if (!normalizedId) {
+        return
+      }
       if (normalizedId === activePresetId) {
         return
       }
@@ -344,9 +346,7 @@ export function AgentPresetsBuilder({
     [activePresetId, router, workspaceId]
   )
 
-  // Fetch full preset data when a preset is selected (not in create mode)
-  const selectedPresetId =
-    activePresetId === NEW_PRESET_ID ? null : activePresetId
+  const selectedPresetId = activePresetId
   const { preset: selectedPreset } = useAgentPreset(
     workspaceId,
     selectedPresetId,
@@ -356,12 +356,7 @@ export function AgentPresetsBuilder({
   )
 
   useEffect(() => {
-    if (
-      !presetId ||
-      presetId === NEW_PRESET_ID ||
-      presetsIsLoading ||
-      !presets
-    ) {
+    if (!presetId || presetsIsLoading || !presets) {
       return
     }
     const presetExists = presets.some((preset) => preset.id === presetId)
@@ -371,9 +366,16 @@ export function AgentPresetsBuilder({
     if (presets.length > 0) {
       handleSetSelectedPresetId(presets[0].id)
     } else {
-      handleSetSelectedPresetId(NEW_PRESET_ID)
+      router.replace(`/workspaces/${workspaceId}/agents`)
     }
-  }, [presets, handleSetSelectedPresetId, presetId, presetsIsLoading])
+  }, [
+    presets,
+    handleSetSelectedPresetId,
+    presetId,
+    presetsIsLoading,
+    router,
+    workspaceId,
+  ])
 
   const actionSuggestions: Suggestion[] = useMemo(() => {
     if (!registryActions) {
@@ -462,9 +464,9 @@ export function AgentPresetsBuilder({
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       <AgentPresetForm
-        key={selectedPreset?.id ?? NEW_PRESET_ID}
+        key={selectedPreset?.id ?? activePresetId}
         preset={selectedPreset ?? null}
-        mode={selectedPreset ? "edit" : "create"}
+        mode="edit"
         workspaceId={workspaceId}
         actionSuggestions={actionSuggestions}
         namespaceSuggestions={namespaceSuggestions}
@@ -524,7 +526,7 @@ export function AgentPresetsBuilder({
                 if (remaining.length > 0) {
                   handleSetSelectedPresetId(remaining[0].id)
                 } else {
-                  handleSetSelectedPresetId(NEW_PRESET_ID)
+                  router.replace(`/workspaces/${workspaceId}/agents`)
                 }
               }
             : undefined

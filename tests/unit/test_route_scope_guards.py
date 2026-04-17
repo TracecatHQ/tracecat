@@ -4,7 +4,9 @@ from collections.abc import Awaitable, Callable, Sequence
 
 import pytest
 
+from tracecat.agent.folders import router as agent_folder_router
 from tracecat.agent.preset import router as agent_preset_router
+from tracecat.agent.tags import definitions_router as agent_tag_definitions_router
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
@@ -109,6 +111,33 @@ async def test_registry_action_scope_guards(
     ],
 )
 async def test_agent_preset_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (agent_folder_router.get_directory, "agent:read"),
+    ],
+)
+async def test_agent_folder_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (agent_tag_definitions_router.list_agent_tags, "agent:read"),
+        (agent_tag_definitions_router.get_agent_tag, "agent:read"),
+    ],
+)
+async def test_agent_tag_definition_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)

@@ -74,6 +74,8 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "case_table_row",
     "agent_channel_token",
     "agent_preset_version",
+    "agent_folder",
+    "agent_tag",
 )
 
 POST_RLS_ORG_SCOPED_TABLES = (

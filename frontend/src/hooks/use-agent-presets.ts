@@ -1,19 +1,38 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  type AgentFolderCreate,
+  type AgentFolderDirectoryItem,
+  type AgentFolderRead,
   type AgentPresetCreate,
+  type AgentPresetDirectoryItem,
+  type AgentPresetMoveToFolder,
   type AgentPresetRead,
   type AgentPresetReadMinimal,
   type AgentPresetUpdate,
   type AgentPresetVersionDiff,
   type AgentPresetVersionReadMinimal,
+  type AgentTagRead,
+  agentFoldersCreateFolder,
+  agentFoldersDeleteFolder,
+  agentFoldersGetDirectory,
+  agentFoldersListFolders,
+  agentFoldersMoveFolder,
+  agentFoldersUpdateFolder,
   agentPresetsCompareAgentPresetVersions,
   agentPresetsCreateAgentPreset,
   agentPresetsDeleteAgentPreset,
   agentPresetsGetAgentPreset,
   agentPresetsListAgentPresets,
   agentPresetsListAgentPresetVersions,
+  agentPresetsMoveAgentPresetToFolder,
   agentPresetsRestoreAgentPresetVersion,
   agentPresetsUpdateAgentPreset,
+  agentTagsCreateAgentTag,
+  agentTagsDeleteAgentTag,
+  agentTagsListAgentTags,
+  agentTagsUpdateAgentTag,
+  type TagCreate,
+  type TagUpdate,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
@@ -371,5 +390,493 @@ export function useRestoreAgentPresetVersion(workspaceId: string) {
     restoreAgentPresetVersion,
     restoreAgentPresetVersionIsPending,
     restoreAgentPresetVersionError,
+  }
+}
+
+export type AgentDirectoryItem =
+  | AgentFolderDirectoryItem
+  | AgentPresetDirectoryItem
+
+/** CRUD hook for agent folders. Mirrors `useFolders` from hooks.tsx. */
+export function useAgentFolders(
+  workspaceId: string,
+  options: { enabled: boolean } = { enabled: true }
+) {
+  const queryClient = useQueryClient()
+
+  // List folders
+  const {
+    data: folders,
+    isLoading: foldersIsLoading,
+    error: foldersError,
+  } = useQuery<AgentFolderRead[]>({
+    queryKey: ["agent-folders", workspaceId],
+    queryFn: async () => await agentFoldersListFolders({ workspaceId }),
+    enabled: options.enabled,
+  })
+
+  // List subfolders under root
+  const {
+    data: subFolders,
+    isLoading: subFoldersIsLoading,
+    error: subFoldersError,
+    refetch: refetchSubFolders,
+  } = useQuery<AgentFolderRead[]>({
+    queryKey: ["agent-folders", workspaceId, "parent"],
+    queryFn: async () =>
+      await agentFoldersListFolders({
+        workspaceId,
+        parentPath: "/",
+      }),
+    enabled: options.enabled && !!workspaceId,
+  })
+
+  // Create folder
+  const {
+    mutateAsync: createFolder,
+    isPending: createFolderIsPending,
+    error: createFolderError,
+  } = useMutation({
+    mutationFn: async (params: AgentFolderCreate) =>
+      await agentFoldersCreateFolder({
+        workspaceId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-folders", workspaceId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["agent-directory-items"] })
+      toast({
+        title: "Created folder",
+        description: "Folder created successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 409:
+          console.error("Error creating folder", error)
+          return toast({
+            title: "Error creating folder",
+            description:
+              "A folder with this name already exists at this location.",
+          })
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+        default:
+          console.error("Failed to create folder", error)
+          return toast({
+            title: "Failed to create folder",
+            description: `An error occurred while creating the folder: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  // Update folder (rename)
+  const {
+    mutateAsync: updateFolder,
+    isPending: updateFolderIsPending,
+    error: updateFolderError,
+  } = useMutation({
+    mutationFn: async ({
+      folderId,
+      name,
+    }: {
+      folderId: string
+      name: string
+    }) =>
+      await agentFoldersUpdateFolder({
+        folderId,
+        workspaceId,
+        requestBody: { name },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-folders", workspaceId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["agent-directory-items"] })
+      toast({
+        title: "Updated folder",
+        description: "Folder updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 409:
+          console.error("Error updating folder", error)
+          toast({
+            title: "Error updating folder",
+            description:
+              "A folder with this name already exists at this location.",
+          })
+          break
+        default:
+          console.error("Error updating folder", error)
+          toast({
+            title: "Error updating folder",
+            description: `An error occurred while updating the folder: ${error.body.detail}`,
+          })
+          break
+      }
+    },
+  })
+
+  // Move folder
+  const {
+    mutateAsync: moveFolder,
+    isPending: moveFolderIsPending,
+    error: moveFolderError,
+  } = useMutation({
+    mutationFn: async ({
+      folderId,
+      newParentPath,
+    }: {
+      folderId: string
+      newParentPath: string | null
+    }) =>
+      await agentFoldersMoveFolder({
+        folderId,
+        workspaceId,
+        requestBody: { new_parent_path: newParentPath },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-folders", workspaceId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["agent-directory-items"] })
+      toast({
+        title: "Moved folder",
+        description: "Folder moved successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Error moving folder", error)
+      toast({
+        title: "Error moving folder",
+        description: `An error occurred while moving the folder: ${error.body.detail}`,
+      })
+    },
+  })
+
+  // Delete folder
+  const {
+    mutateAsync: deleteFolder,
+    isPending: deleteFolderIsPending,
+    error: deleteFolderError,
+  } = useMutation({
+    mutationFn: async ({
+      folderId,
+      recursive = false,
+    }: {
+      folderId: string
+      recursive?: boolean
+    }) =>
+      await agentFoldersDeleteFolder({
+        folderId,
+        workspaceId,
+        requestBody: { recursive },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-folders", workspaceId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["agent-directory-items"] })
+      toast({
+        title: "Deleted folder",
+        description: "Folder deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Cannot delete folder",
+            description: String(error.body.detail),
+          })
+          break
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Error deleting folder", error)
+          toast({
+            title: "Failed to delete folder",
+            description: `An error occurred while deleting the folder: ${error.body.detail}`,
+          })
+          break
+      }
+    },
+  })
+
+  return {
+    // List
+    folders,
+    foldersIsLoading,
+    foldersError,
+    // List subfolders
+    subFolders,
+    subFoldersIsLoading,
+    subFoldersError,
+    refetchSubFolders,
+    // Create
+    createFolder,
+    createFolderIsPending,
+    createFolderError,
+    // Update
+    updateFolder,
+    updateFolderIsPending,
+    updateFolderError,
+    // Move
+    moveFolder,
+    moveFolderIsPending,
+    moveFolderError,
+    // Delete
+    deleteFolder,
+    deleteFolderIsPending,
+    deleteFolderError,
+  }
+}
+
+/** Fetch the directory listing for agent folders and presets at a given path. */
+export function useAgentDirectoryItems(
+  path: string,
+  workspaceId?: string,
+  options: { enabled?: boolean } = {}
+) {
+  const enabled = options.enabled ?? true
+  const {
+    data: directoryItems,
+    isLoading: directoryItemsIsLoading,
+    error: directoryItemsError,
+  } = useQuery<AgentDirectoryItem[], TracecatApiError>({
+    enabled: enabled && !!workspaceId,
+    queryKey: ["agent-directory-items", workspaceId, path],
+    queryFn: async () =>
+      await agentFoldersGetDirectory({
+        path,
+        workspaceId: workspaceId ?? "",
+      }),
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  return {
+    directoryItems,
+    directoryItemsIsLoading,
+    directoryItemsError,
+  }
+}
+
+/** CRUD hook for the agent tag catalog. Mirrors `useCaseTagCatalog`. */
+export function useAgentTagCatalog(
+  workspaceId: string,
+  options: { enabled: boolean } = { enabled: true }
+) {
+  const queryClient = useQueryClient()
+
+  const {
+    data: agentTags,
+    isLoading: agentTagsIsLoading,
+    error: agentTagsError,
+  } = useQuery<AgentTagRead[]>({
+    queryKey: ["agent-tags", workspaceId],
+    queryFn: async () => await agentTagsListAgentTags({ workspaceId }),
+    enabled: options.enabled,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  const {
+    mutateAsync: createAgentTag,
+    isPending: createAgentTagIsPending,
+    error: createAgentTagError,
+  } = useMutation({
+    mutationFn: async (params: TagCreate) =>
+      await agentTagsCreateAgentTag({ workspaceId, requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-tags", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-presets", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-directory-items", workspaceId],
+      })
+      toast({
+        title: "Created agent tag",
+        description: "Agent tag created successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 409:
+          toast({
+            title: "Error creating agent tag",
+            description: String(error.body.detail),
+          })
+          break
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to create agent tag", error)
+          toast({
+            title: "Failed to create agent tag",
+            description: `An error occurred while creating the agent tag: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  const {
+    mutateAsync: updateAgentTag,
+    isPending: updateAgentTagIsPending,
+    error: updateAgentTagError,
+  } = useMutation({
+    mutationFn: async ({
+      tagId,
+      ...requestBody
+    }: TagUpdate & { tagId: string }) =>
+      await agentTagsUpdateAgentTag({ tagId, workspaceId, requestBody }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-tags", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-presets", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-directory-items", workspaceId],
+      })
+      toast({
+        title: "Updated agent tag",
+        description: "Agent tag updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 409:
+          toast({
+            title: "Error updating agent tag",
+            description: String(error.body.detail),
+          })
+          break
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+      }
+    },
+  })
+
+  const {
+    mutateAsync: deleteAgentTag,
+    isPending: deleteAgentTagIsPending,
+    error: deleteAgentTagError,
+  } = useMutation({
+    mutationFn: async ({ tagId }: { tagId: string }) =>
+      await agentTagsDeleteAgentTag({ tagId, workspaceId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-tags", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-presets", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["agent-directory-items", workspaceId],
+      })
+      toast({
+        title: "Deleted agent tag",
+        description: "Agent tag deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+      }
+    },
+  })
+
+  return {
+    agentTags,
+    agentTagsIsLoading,
+    agentTagsError,
+    createAgentTag,
+    createAgentTagIsPending,
+    createAgentTagError,
+    updateAgentTag,
+    updateAgentTagIsPending,
+    updateAgentTagError,
+    deleteAgentTag,
+    deleteAgentTagIsPending,
+    deleteAgentTagError,
+  }
+}
+
+/** Move an agent preset into a folder. */
+export function useMoveAgentPreset(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: moveAgentPreset,
+    isPending: moveAgentPresetIsPending,
+    error: moveAgentPresetError,
+  } = useMutation<
+    void,
+    TracecatApiError,
+    { presetId: string } & AgentPresetMoveToFolder
+  >({
+    mutationFn: async ({ presetId, ...requestBody }) =>
+      await agentPresetsMoveAgentPresetToFolder({
+        presetId,
+        workspaceId,
+        requestBody,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["agent-presets", workspaceId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["agent-directory-items"] })
+      toast({
+        title: "Moved agent preset",
+        description: "Agent preset moved successfully.",
+      })
+    },
+    onError: (error) => {
+      const detail =
+        typeof error.body?.detail === "string"
+          ? error.body.detail
+          : "Failed to move agent preset."
+      toast({
+        title: "Move failed",
+        description: detail,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    moveAgentPreset,
+    moveAgentPresetIsPending,
+    moveAgentPresetError,
   }
 }
