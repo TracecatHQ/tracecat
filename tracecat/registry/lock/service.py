@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import deque
 
 from sqlalchemy import select
-from tracecat_registry import __version__ as TRACECAT_REGISTRY_VERSION
 
 from tracecat.db.models import (
     PlatformRegistryRepository,
@@ -14,7 +13,11 @@ from tracecat.db.models import (
     RegistryVersion,
 )
 from tracecat.dsl.enums import PlatformAction
-from tracecat.exceptions import EntitlementRequired, RegistryError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    EntitlementRequired,
+    RegistryError,
+)
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.types import RegistryLock
@@ -198,22 +201,25 @@ class RegistryLockService(BaseOrgService):
         # treats tracecat_registry as platform-scoped; an org override would miss.
         used_origins = set(actions.values())
         origins = {o: v for o, v in origins.items() if o in used_origins}
-        if DEFAULT_REGISTRY_ORIGIN not in origins:
-            if builtin_version := next(
-                (
-                    str(version)
-                    for origin, version, _ in platform_rows
-                    if origin == DEFAULT_REGISTRY_ORIGIN
-                ),
-                None,
-            ):
-                origins[DEFAULT_REGISTRY_ORIGIN] = builtin_version
-            else:
-                self.logger.warning(
-                    "Platform registry has no selected version; falling back to installed package version",
-                    origin=DEFAULT_REGISTRY_ORIGIN,
-                    fallback_version=TRACECAT_REGISTRY_VERSION,
-                )
+        builtin_version = next(
+            (
+                str(version)
+                for origin, version, _ in platform_rows
+                if origin == DEFAULT_REGISTRY_ORIGIN
+            ),
+            None,
+        )
+        if builtin_version is None:
+            self.logger.info(
+                "Platform registry has no selected version; builtin lock resolution is pending sync",
+                origin=DEFAULT_REGISTRY_ORIGIN,
+            )
+            raise BuiltinRegistryHasNoSelectionError(
+                "Builtin registry sync is still in progress. Please retry shortly.",
+                detail={"origin": DEFAULT_REGISTRY_ORIGIN},
+            )
+
+        origins[DEFAULT_REGISTRY_ORIGIN] = builtin_version
 
         self.logger.debug(
             "Resolved lock with bindings",

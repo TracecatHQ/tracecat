@@ -23,7 +23,12 @@ from tracecat.db.models import (
     RegistryVersion,
 )
 from tracecat.dsl.enums import PlatformAction
-from tracecat.exceptions import EntitlementRequired, RegistryError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    EntitlementRequired,
+    RegistryError,
+)
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.service import RegistryLockService
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -116,6 +121,34 @@ def _make_template_manifest(
         "version": "1.0",
         "actions": actions,
     }
+
+
+@pytest.fixture(autouse=True)
+async def seed_builtin_platform_registry(session: AsyncSession) -> None:
+    """Seed the builtin platform registry unless a test explicitly clears it."""
+    platform_repo = await session.scalar(
+        select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.origin == DEFAULT_REGISTRY_ORIGIN,
+        )
+    )
+    if platform_repo is None:
+        platform_repo = PlatformRegistryRepository(origin=DEFAULT_REGISTRY_ORIGIN)
+        session.add(platform_repo)
+        await session.flush()
+
+    if platform_repo.current_version_id is None:
+        platform_version = PlatformRegistryVersion(
+            repository_id=platform_repo.id,
+            version="seeded-builtin-1",
+            manifest=_make_manifest(["core.transform.reshape"]),
+            tarball_uri="s3://platform/seeded-builtin.tar.gz",
+        )
+        session.add(platform_version)
+        await session.flush()
+        platform_repo.current_version_id = platform_version.id
+        session.add(platform_repo)
+
+    await session.commit()
 
 
 @pytest.mark.anyio
@@ -571,16 +604,72 @@ async def test_resolve_lock_always_includes_builtin_registry(
 
 
 @pytest.mark.anyio
-async def test_resolve_lock_falls_back_to_installed_version_when_platform_not_synced(
+async def test_resolve_lock_overwrites_builtin_origin_with_platform_version(
     svc_role: Role,
     session: AsyncSession,
 ) -> None:
-    """If the platform builtin has never been synced, use installed package version.
+    """Builtin lock origin should always resolve to the platform selected version."""
+    platform_repo = await session.scalar(
+        select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.origin == "tracecat_registry",
+        )
+    )
+    if platform_repo is None:
+        platform_repo = PlatformRegistryRepository(origin="tracecat_registry")
+        session.add(platform_repo)
+        await session.flush()
 
-    Even when current_version_id is unset for the platform builtin repository,
-    the lock should still include tracecat_registry as a runtime dependency.
-    """
-    from tracecat_registry import __version__ as installed_version
+    platform_version = PlatformRegistryVersion(
+        repository_id=platform_repo.id,
+        version="2.0.0-beta.1",
+        manifest=_make_manifest(["core.transform"]),
+        tarball_uri="s3://platform/builtin-v2.tar.gz",
+    )
+    session.add(platform_version)
+    await session.flush()
+    platform_repo.current_version_id = platform_version.id
+    session.add(platform_repo)
+
+    org_repo = await session.scalar(
+        select(RegistryRepository).where(
+            RegistryRepository.organization_id == svc_role.organization_id,
+            RegistryRepository.origin == "tracecat_registry",
+        )
+    )
+    if org_repo is None:
+        org_repo = RegistryRepository(
+            organization_id=svc_role.organization_id,
+            origin="tracecat_registry",
+        )
+        session.add(org_repo)
+        await session.flush()
+
+    org_version = RegistryVersion(
+        organization_id=svc_role.organization_id,
+        repository_id=org_repo.id,
+        version="org-override-1",
+        manifest=_make_manifest(["tools.custom.same_origin"]),
+        tarball_uri="s3://org/override.tar.gz",
+    )
+    session.add(org_version)
+    await session.flush()
+    org_repo.current_version_id = org_version.id
+    session.add(org_repo)
+    await session.commit()
+
+    service = RegistryLockService(session, role=svc_role)
+    lock = await service.resolve_lock_with_bindings({"tools.custom.same_origin"})
+
+    assert lock.actions["tools.custom.same_origin"] == "tracecat_registry"
+    assert lock.origins["tracecat_registry"] == "2.0.0-beta.1"
+
+
+@pytest.mark.anyio
+async def test_resolve_lock_raises_when_platform_builtin_not_synced(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    """Unsynced builtin registry should block lock freezing until sync completes."""
 
     # Simulate an unsynced platform by clearing any seeded builtin version.
     seeded_platform_repo = await session.scalar(
@@ -614,12 +703,8 @@ async def test_resolve_lock_falls_back_to_installed_version_when_platform_not_sy
     await session.commit()
 
     service = RegistryLockService(session, role=svc_role)
-    lock = await service.resolve_lock_with_bindings(
-        {"integrations.greetings.say_hello"}
-    )
-
-    assert lock.origins["tracecat_registry"] == installed_version
-    assert "tracecat_registry" not in lock.actions.values()
+    with pytest.raises(BuiltinRegistryHasNoSelectionError, match="retry shortly"):
+        await service.resolve_lock_with_bindings({"integrations.greetings.say_hello"})
 
 
 @pytest.mark.anyio

@@ -30,7 +30,11 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Webhook, WebhookApiKey, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.schemas import DSLConfig
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -498,7 +502,28 @@ async def commit_workflow(
     # This ensures the lock reflects the actual actions in the workflow, not stale data
     lock_service = RegistryLockService(session, role)
     action_names = {action.action for action in dsl.actions}
-    registry_lock = await lock_service.resolve_lock_with_bindings(action_names)
+    try:
+        registry_lock = await lock_service.resolve_lock_with_bindings(action_names)
+    except BuiltinRegistryHasNoSelectionError as e:
+        return WorkflowCommitResponse(
+            workflow_id=workflow_id.short(),
+            status="failure",
+            message="1 validation error(s)",
+            errors=[
+                ValidationResult.new(
+                    type=ValidationResultType.DSL,
+                    status="error",
+                    msg=str(e),
+                    detail=[
+                        ValidationDetail(
+                            type="registry.builtin_sync_pending",
+                            msg=str(e),
+                            loc=("registry_lock",),
+                        )
+                    ],
+                )
+            ],
+        )
     # Update the workflow with the newly computed lock
     workflow.registry_lock = registry_lock.model_dump()
 
