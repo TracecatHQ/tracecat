@@ -45,6 +45,7 @@ class RuntimeInitPayload:
     sdk_session_data: str | None = None  # JSONL content for resume
     is_approval_continuation: bool = False  # True when resuming after approval decision
     is_fork: bool = False
+    max_requests: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeInitPayload:
@@ -77,6 +78,7 @@ class RuntimeInitPayload:
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
             is_fork=data.get("is_fork", False),
+            max_requests=data.get("max_requests"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -91,6 +93,8 @@ class RuntimeInitPayload:
             "is_approval_continuation": self.is_approval_continuation,
             "is_fork": self.is_fork,
         }
+        if self.max_requests is not None:
+            result["max_requests"] = self.max_requests
         if self.allowed_actions is not None:
             result["allowed_actions"] = {
                 k: v.to_dict() for k, v in self.allowed_actions.items()
