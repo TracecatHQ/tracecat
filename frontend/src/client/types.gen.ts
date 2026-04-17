@@ -331,6 +331,7 @@ export type AgentPresetCreate = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_thinking?: boolean
   enable_internet_access?: boolean
   description?: string | null
   name: string
@@ -353,6 +354,7 @@ export type AgentPresetRead = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_thinking?: boolean
   enable_internet_access?: boolean
   id: string
   workspace_id: string
@@ -397,6 +399,7 @@ export type AgentPresetUpdate = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number | null
+  enable_thinking?: boolean | null
   enable_internet_access?: boolean | null
 }
 
@@ -433,6 +436,7 @@ export type AgentPresetVersionRead = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_thinking?: boolean
   enable_internet_access?: boolean
   id: string
   preset_id: string
@@ -458,6 +462,7 @@ export type AgentPresetVersionReadMinimal = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_thinking?: boolean
   enable_internet_access?: boolean
   id: string
   preset_id: string

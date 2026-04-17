@@ -363,6 +363,41 @@ async def test_pre_call_hook_filters_model_settings(
 
 
 @pytest.mark.anyio
+async def test_pre_call_hook_does_not_inject_reasoning_effort_without_model_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def mock_get_provider_credentials(**_: object) -> dict[str, str]:
+        return {"OPENAI_API_KEY": "test-openai-key"}
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.get_provider_credentials",
+        mock_get_provider_credentials,
+    )
+
+    user_api_key_dict = UserAPIKeyAuth(
+        api_key="llm-token",
+        metadata={
+            "workspace_id": "00000000-0000-0000-0000-000000000001",
+            "organization_id": "00000000-0000-0000-0000-000000000002",
+            "model": "gpt-5",
+            "provider": "openai",
+            "model_settings": {},
+            "use_workspace_credentials": True,
+        },
+    )
+
+    handler = TracecatCallbackHandler()
+    result = await handler.async_pre_call_hook(
+        user_api_key_dict=user_api_key_dict,
+        cache=cast(DualCache, object()),
+        data={},
+        call_type="completion",
+    )
+
+    assert "reasoning_effort" not in result
+
+
+@pytest.mark.anyio
 async def test_pre_call_hook_strips_anthropic_beta_payload_fields_for_non_anthropic_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

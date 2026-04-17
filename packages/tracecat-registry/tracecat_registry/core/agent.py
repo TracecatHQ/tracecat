@@ -245,6 +245,10 @@ async def agent(
     ] = 15,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
+    enable_thinking: Annotated[
+        bool,
+        Doc("Whether to enable high thinking for agent runs."),
+    ] = True,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
     # Paid feature
     tool_approvals: Annotated[
@@ -338,6 +342,10 @@ async def action(
     ] = None,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
+    enable_thinking: Annotated[
+        bool,
+        Doc("Whether to enable high thinking for agent runs."),
+    ] = True,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> dict[str, Any]:
     """Call an LLM with a given prompt and model (no tools)."""

@@ -257,6 +257,49 @@ class TestBuildAgentArgsActivity:
 
         mock_get_vars.assert_not_called()
 
+    @pytest.mark.anyio
+    async def test_preserves_enable_thinking_flag(self, role: Role):
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "enable_thinking": False,
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.enable_thinking is False
+
+    @pytest.mark.anyio
+    async def test_preserves_explicit_reasoning_effort_in_model_settings(
+        self, role: Role
+    ):
+        args = {
+            "user_prompt": "Hello",
+            "model_name": "claude-sonnet-4-5-20250929",
+            "model_provider": "anthropic",
+            "enable_thinking": True,
+            "model_settings": {"reasoning_effort": "medium"},
+        }
+        input = BuildAgentArgsActivityInput(
+            args=args,
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        result = await DSLActivities.build_agent_args_activity(input)
+
+        assert result.model_settings == {"reasoning_effort": "medium"}
+
 
 class TestBuildPresetAgentArgsActivity:
     """Tests for DSLActivities.build_preset_agent_args_activity."""

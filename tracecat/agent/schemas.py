@@ -257,6 +257,7 @@ class AgentConfigSchema(BaseModel):
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfigSchema] | None = None
     retries: int = Field(default=20)
+    enable_thinking: bool = Field(default=True)
 
 
 class RankableItemSchema(TypedDict):

@@ -52,6 +52,8 @@ class PresetCreateRequest(BaseModel):
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
+    enable_thinking: bool = Field(default=True)
+    enable_internet_access: bool = Field(default=False)
 
 
 class PresetUpdateRequest(BaseModel):
@@ -66,6 +68,8 @@ class PresetUpdateRequest(BaseModel):
     base_url: str | None = Field(default=None, max_length=500)
     output_type: OutputType | None = Field(default=None)
     actions: list[str] | None = Field(default=None)
+    enable_thinking: bool | None = Field(default=None)
+    enable_internet_access: bool | None = Field(default=None)
 
 
 @router.get("", response_model=list[AgentPresetReadMinimal])

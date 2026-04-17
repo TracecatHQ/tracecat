@@ -173,6 +173,7 @@ class SandboxedAgentExecutor:
             passthrough=self.input.config.passthrough,
             role=self.input.role,
             use_workspace_credentials=self.input.use_workspace_credentials,
+            model_provider=self.input.config.model_provider,
         )
 
     async def run(self) -> AgentExecutorResult:

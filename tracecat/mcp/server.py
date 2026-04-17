@@ -5984,6 +5984,7 @@ async def create_agent_preset(
     tool_approvals: dict[str, bool] | None = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
+    enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
 ) -> str:
     """Create an agent preset in the selected workspace."""
@@ -6014,6 +6015,7 @@ async def create_agent_preset(
             "tool_approvals": tool_approvals,
             "mcp_integrations": mcp_integration_ids,
             "retries": retries,
+            "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
         }
         create_data.update(
@@ -6055,6 +6057,7 @@ async def update_agent_preset(
     tool_approvals: dict[str, bool] | None = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
+    enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
 ) -> str:
     """Update an existing agent preset in the selected workspace."""
@@ -6074,6 +6077,7 @@ async def update_agent_preset(
             "tool_approvals": tool_approvals,
             "mcp_integrations": mcp_integration_ids,
             "retries": retries,
+            "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
         }
         update_data.update(

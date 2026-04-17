@@ -98,4 +98,5 @@ class AgentConfigPayload(BaseModel):
     model_settings: dict[str, Any] | None = Field(default=None)
     mcp_servers: list[MCPServerConfigPayload] | None = Field(default=None)
     retries: int
+    enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
