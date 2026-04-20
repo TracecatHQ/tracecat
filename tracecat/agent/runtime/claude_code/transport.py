@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -183,8 +182,8 @@ class SandboxedCLITransport(Transport):
                     )
 
                 try:
-                    data = json.loads(json_buffer)
-                except json.JSONDecodeError:
+                    data = orjson.loads(json_buffer)
+                except orjson.JSONDecodeError:
                     continue
 
                 json_buffer = ""
