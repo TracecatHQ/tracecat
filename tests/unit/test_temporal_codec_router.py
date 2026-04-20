@@ -13,6 +13,7 @@ from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.temporal.codec import (
     get_payload_codec,
+    reset_temporal_payload_codec_cache,
     reset_temporal_payload_secret_cache,
 )
 from tracecat.temporal.router import router
@@ -27,6 +28,7 @@ def reset_temporal_router_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN", None)
     monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_SHARED_SECRET", None)
     monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
+    reset_temporal_payload_codec_cache()
     reset_temporal_payload_secret_cache()
 
 

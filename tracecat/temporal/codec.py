@@ -4,6 +4,7 @@ import asyncio
 import base64
 import os
 from collections.abc import Iterable, Sequence
+from functools import cache
 from threading import Lock
 from typing import Final
 
@@ -65,7 +66,7 @@ class CompressionPayloadCodec(PayloadCodec):
         )
         self.algorithm = algorithm or config.TRACECAT__CONTEXT_COMPRESSION_ALGORITHM
 
-        logger.info(
+        logger.debug(
             "Compression codec initialized",
             enabled=self.enabled,
             threshold=self.threshold,
@@ -437,6 +438,7 @@ class CompositePayloadCodec(PayloadCodec):
         return current
 
 
+@cache
 def get_payload_codec(*, compression_enabled: bool = False) -> PayloadCodec:
     """Build the payload codec chain.
 
@@ -451,6 +453,11 @@ def get_payload_codec(*, compression_enabled: bool = False) -> PayloadCodec:
             EncryptionPayloadCodec(),
         ]
     )
+
+
+def reset_temporal_payload_codec_cache() -> None:
+    """Clear the memoized Temporal payload codec chain."""
+    get_payload_codec.cache_clear()
 
 
 async def decode_payloads(payloads: Sequence[Payload]) -> list[Payload]:

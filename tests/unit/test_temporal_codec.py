@@ -25,6 +25,7 @@ from tracecat.temporal.codec import (
     TemporalPayloadCodecError,
     decode_payloads,
     get_payload_codec,
+    reset_temporal_payload_codec_cache,
     reset_temporal_payload_secret_cache,
 )
 
@@ -43,6 +44,7 @@ def reset_temporal_crypto_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
     monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ALGORITHM", "zstd")
     monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 16)
+    reset_temporal_payload_codec_cache()
     reset_temporal_payload_secret_cache()
 
 
@@ -521,6 +523,20 @@ async def test_decode_payloads_decrypts_when_encryption_disabled(
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", False)
 
     result = await decode_payloads(encrypted)
+    assert result[0].data == payload.data
+    assert result[0].metadata["encoding"] == b"json/plain"
+
+
+@pytest.mark.anyio
+async def test_decode_payloads_passes_through_unencrypted_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Historical unencrypted payloads remain readable when encryption is enabled."""
+    _enable_encryption(monkeypatch)
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=b'{"plain":true}')
+
+    result = await decode_payloads([payload])
+
     assert result[0].data == payload.data
     assert result[0].metadata["encoding"] == b"json/plain"
 
