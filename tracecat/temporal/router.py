@@ -15,6 +15,11 @@ router = APIRouter(prefix="/codec", tags=["public"], include_in_schema=False)
 
 
 def _verify_codec_auth(authorization: str | None = Header(default=None)) -> None:
+    if not config.TEMPORAL__CODEC_SERVER_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Temporal codec server is disabled",
+        )
     if not config.TEMPORAL__CODEC_SERVER_SHARED_SECRET:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -445,7 +445,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(agent_channels_management_router)
     app.include_router(agent_preset_router)
     app.include_router(agent_session_router)
-    app.include_router(temporal_codec_router)
+    if config.TEMPORAL__CODEC_SERVER_ENABLED:
+        app.include_router(temporal_codec_router)
     app.include_router(approvals_router)
     app.include_router(watchtower_router)
     app.include_router(admin_router)

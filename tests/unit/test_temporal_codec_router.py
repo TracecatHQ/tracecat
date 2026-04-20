@@ -26,6 +26,7 @@ def reset_temporal_router_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", False)
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", None)
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN", None)
+    monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_ENABLED", False)
     monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_SHARED_SECRET", None)
     monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
     reset_temporal_payload_codec_cache()
@@ -40,6 +41,7 @@ async def test_codec_router_decodes_encrypted_payloads(
     monkeypatch.setattr(
         config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", "unit-test-root-key"
     )
+    monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_ENABLED", True)
     monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_SHARED_SECRET", "codec-secret")
 
     codec = get_payload_codec(compression_enabled=False)
@@ -89,6 +91,7 @@ async def test_codec_router_decodes_encrypted_payloads(
 def test_codec_router_rejects_missing_authorization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_ENABLED", True)
     monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_SHARED_SECRET", "codec-secret")
 
     app = FastAPI()
@@ -104,6 +107,7 @@ def test_codec_router_rejects_missing_authorization(
 def test_codec_router_rejects_wrong_bearer_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_ENABLED", True)
     monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_SHARED_SECRET", "codec-secret")
 
     app = FastAPI()
@@ -120,7 +124,21 @@ def test_codec_router_rejects_wrong_bearer_token(
     assert response.json()["detail"] == "Unauthorized codec request"
 
 
-def test_codec_router_requires_shared_secret_configuration() -> None:
+def test_codec_router_rejects_when_disabled() -> None:
+    app = FastAPI()
+    app.include_router(router)
+
+    with TestClient(app) as client:
+        response = client.post("/codec/decode", json={"payloads": []})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Temporal codec server is disabled"
+
+
+def test_codec_router_requires_shared_secret_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_ENABLED", True)
     app = FastAPI()
     app.include_router(router)
 
@@ -141,6 +159,7 @@ async def test_codec_router_decodes_when_encryption_disabled(
     monkeypatch.setattr(
         config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEY", "unit-test-root-key"
     )
+    monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_ENABLED", True)
     monkeypatch.setattr(config, "TEMPORAL__CODEC_SERVER_SHARED_SECRET", "codec-secret")
 
     codec = get_payload_codec(compression_enabled=False)
