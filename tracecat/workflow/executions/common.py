@@ -18,7 +18,7 @@ from tracecat.storage.object import (
     InlineObject,
     StoredObject,
 )
-from tracecat.temporal.codec import decode_payloads
+from tracecat.temporal.codec import TemporalPayloadCodecError, decode_payloads
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -248,11 +248,26 @@ async def extract_payload(
     payload: temporalio.api.common.v1.Payloads, index: int = 0
 ) -> Any:
     """Extract the first payload from a workflow history event."""
-    decoded_payloads = await decode_payloads(payload.payloads)
-    payload_obj = decoded_payloads[index]
-    encoding = payload_obj.metadata.get("encoding", b"").decode()
+    payload_obj = payload.payloads[index]
+    decode_failed = False
+    try:
+        payload_obj = (await decode_payloads([payload_obj]))[0]
+    except TemporalPayloadCodecError as e:
+        decode_failed = True
+        logger.warning(
+            "Failed to decode Temporal payload; falling back to raw payload",
+            error=type(e).__name__,
+            encoding=payload_obj.metadata.get("encoding", b"").decode(
+                "utf-8", errors="replace"
+            ),
+            payload_size_bytes=len(payload_obj.data),
+        )
+
+    encoding = payload_obj.metadata.get("encoding", b"").decode(
+        "utf-8", errors="replace"
+    )
     # Temporal's NullPayloadConverter encodes `None` as binary/null with no data.
-    if encoding == "binary/null":
+    if encoding == "binary/null" and not decode_failed:
         logger.debug("Decoded binary/null payload; returning None")
         return None
 
