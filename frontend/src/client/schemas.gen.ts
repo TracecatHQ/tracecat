@@ -21894,34 +21894,6 @@ export const $WaitResultUnwrapOverflowResponse = {
   title: "WaitResultUnwrapOverflowResponse",
 } as const
 
-export const $WaitResultUnwrappedOutput = {
-  anyOf: [
-    {
-      additionalProperties: true,
-      type: "object",
-    },
-    {
-      items: {},
-      type: "array",
-    },
-    {
-      type: "string",
-    },
-    {
-      type: "integer",
-    },
-    {
-      type: "number",
-    },
-    {
-      type: "boolean",
-    },
-    {
-      type: "null",
-    },
-  ],
-} as const
-
 export const $WaitStrategy = {
   type: "string",
   enum: ["wait", "detach"],

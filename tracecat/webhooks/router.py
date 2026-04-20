@@ -396,7 +396,7 @@ async def _incoming_webhook(
 
 @router.post(
     "/wait",
-    response_model=WaitResultOutput | WaitResultUnwrappedOutput,
+    response_model=WaitResultOutput,
     responses={
         status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: {
             "model": WaitResultUnwrapOverflowResponse,

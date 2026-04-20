@@ -19,7 +19,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from temporalio.client import Client
 from temporalio.common import TypedSearchAttributes, WorkflowIDReusePolicy
@@ -37,6 +37,7 @@ from tracecat.storage.object import (
 )
 from tracecat.storage.utils import deserialize_object
 from tracecat.webhooks.router import _incoming_webhook, incoming_webhook_wait
+from tracecat.webhooks.router import router as webhook_router
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -1050,6 +1051,22 @@ class TestWebhookRouterExecutionPath:
         detail = cast(dict[str, Any], exc_info.value.detail)
         assert detail["kind"] == "download_export"
         assert detail["download_url"] == "https://example.com/presigned/collection"
+
+    def test_wait_webhook_openapi_keeps_default_200_schema_enveloped(self):
+        """The default /wait 200 schema should stay discriminated for generated clients."""
+        app = FastAPI()
+        app.include_router(webhook_router)
+
+        responses = app.openapi()["paths"]["/webhooks/{workflow_id}/{secret}/wait"][
+            "post"
+        ]["responses"]
+        success_schema = responses["200"]["content"]["application/json"]["schema"]
+        overflow_schema = responses["413"]["content"]["application/json"]["schema"]
+
+        assert success_schema == {"$ref": "#/components/schemas/WaitResultOutput"}
+        assert overflow_schema == {
+            "$ref": "#/components/schemas/WaitResultUnwrapOverflowResponse"
+        }
 
 
 # ---------------------------------------------------------------------------

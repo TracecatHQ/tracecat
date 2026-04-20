@@ -6762,16 +6762,6 @@ export type WaitResultUnwrapOverflowResponse = {
   detail: WebhookStoredObjectDownloadResponse
 }
 
-export type WaitResultUnwrappedOutput =
-  | {
-      [key: string]: unknown
-    }
-  | Array<unknown>
-  | string
-  | number
-  | boolean
-  | null
-
 export type WaitStrategy = "wait" | "detach"
 
 /**
@@ -8004,9 +7994,7 @@ export type PublicIncomingWebhookWaitData = {
   workflowId: string
 }
 
-export type PublicIncomingWebhookWaitResponse =
-  | WaitResultOutput
-  | WaitResultUnwrappedOutput
+export type PublicIncomingWebhookWaitResponse = WaitResultOutput
 
 export type PublicIncomingWebhookDraftData = {
   contentType?: string | null
@@ -10980,7 +10968,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WaitResultOutput | WaitResultUnwrappedOutput
+        200: WaitResultOutput
         /**
          * Unwrapped workflow result exceeded inline response limits. Use `detail.download_url` to fetch the externalized result.
          */
