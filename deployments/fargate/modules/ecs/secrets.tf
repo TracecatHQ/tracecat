@@ -13,7 +13,6 @@
 # Optional secrets:
 # 1. OAUTH_CLIENT_ID (legacy OIDC alias)
 # 2. OAUTH_CLIENT_SECRET (legacy OIDC alias)
-# 3. TEMPORAL__PAYLOAD_ENCRYPTION_KEY
 
 ### Required secrets
 data "aws_secretsmanager_secret" "tracecat_db_encryption_key" {
@@ -54,11 +53,6 @@ data "aws_secretsmanager_secret" "oidc_client_id" {
 data "aws_secretsmanager_secret" "oidc_client_secret" {
   count = var.oidc_client_secret_arn != null ? 1 : 0
   arn   = var.oidc_client_secret_arn
-}
-
-data "aws_secretsmanager_secret" "temporal_payload_encryption_key" {
-  count = var.temporal_payload_encryption_key_arn != null ? 1 : 0
-  arn   = var.temporal_payload_encryption_key_arn
 }
 
 data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
@@ -127,11 +121,6 @@ data "aws_secretsmanager_secret_version" "oidc_client_id" {
 data "aws_secretsmanager_secret_version" "oidc_client_secret" {
   count     = var.oidc_client_secret_arn != null ? 1 : 0
   secret_id = data.aws_secretsmanager_secret.oidc_client_secret[0].id
-}
-
-data "aws_secretsmanager_secret_version" "temporal_payload_encryption_key" {
-  count     = var.temporal_payload_encryption_key_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.temporal_payload_encryption_key[0].id
 }
 
 data "aws_secretsmanager_secret_version" "user_auth_secret" {
@@ -219,21 +208,11 @@ locals {
     }
   ] : []
 
-  temporal_payload_encryption_secret = var.temporal_payload_encryption_key_arn != null ? [
-    {
-      name      = "TEMPORAL__PAYLOAD_ENCRYPTION_KEY"
-      valueFrom = data.aws_secretsmanager_secret_version.temporal_payload_encryption_key[0].arn
-    }
-  ] : []
-
-  tracecat_base_secrets = concat(
-    local.required_tracecat_base_secrets,
-    local.temporal_api_key_secret
-  )
+  tracecat_base_secrets = local.required_tracecat_base_secrets
 
   tracecat_temporal_secrets = concat(
     local.tracecat_base_secrets,
-    local.temporal_payload_encryption_secret
+    local.temporal_api_key_secret,
   )
 
   oauth_client_id_secret = var.oauth_client_id_arn != null ? [

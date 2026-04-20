@@ -234,12 +234,6 @@ variable "temporal_payload_encryption_enabled" {
   default     = false
 }
 
-variable "temporal_payload_encryption_key_version" {
-  type        = string
-  description = "Current Temporal payload encryption key version"
-  default     = "1"
-}
-
 variable "temporal_payload_encryption_cache_ttl_seconds" {
   type        = number
   description = "In-memory cache TTL in seconds for resolved Temporal encryption keys"
@@ -269,9 +263,9 @@ variable "tracecat_signing_secret_arn" {
   description = "The ARN of the secret containing the Tracecat signing secret"
 }
 
-variable "temporal_payload_encryption_key_arn" {
+variable "temporal_payload_encryption_keyring_arn" {
   type        = string
-  description = "The ARN of the secret containing the Temporal payload encryption root key"
+  description = "The ARN of the secret containing the Temporal payload encryption keyring"
   default     = null
 }
 

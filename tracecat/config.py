@@ -368,18 +368,15 @@ TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED = os.environ.get(
 ).lower() in ("true", "1")
 """Enable application-layer encryption for Temporal payloads."""
 
-TEMPORAL__PAYLOAD_ENCRYPTION_KEY = os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_KEY")
-"""Root secret used to derive workspace-scoped Temporal payload keys."""
-
-TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN = os.environ.get(
-    "TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN"
+TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING"
 )
-"""AWS Secrets Manager ARN containing the Temporal payload encryption root key."""
+"""JSON keyring used to derive workspace-scoped Temporal payload keys."""
 
-TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION = (
-    os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION") or "1"
+TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN"
 )
-"""Current key version used when encrypting new Temporal payloads."""
+"""AWS Secrets Manager ARN containing the Temporal payload encryption keyring."""
 
 TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS = int(
     os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS") or 3600

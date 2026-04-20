@@ -174,10 +174,10 @@ resource "aws_iam_policy" "api_only_secrets_access" {
   })
 }
 
-resource "aws_iam_policy" "temporal_payload_encryption_secrets_access" {
-  count       = var.temporal_payload_encryption_key_arn != null ? 1 : 0
-  name        = "TracecatTemporalPayloadEncryptionSecretsAccessPolicy"
-  description = "Policy for accessing the Temporal payload encryption root key"
+resource "aws_iam_policy" "temporal_payload_encryption_keyring_access" {
+  count       = var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
+  name        = "TracecatTemporalPayloadEncryptionKeyringAccessPolicy"
+  description = "Policy for accessing the Temporal payload encryption keyring"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -185,7 +185,7 @@ resource "aws_iam_policy" "temporal_payload_encryption_secrets_access" {
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.temporal_payload_encryption_key_arn]
+        Resource = [var.temporal_payload_encryption_keyring_arn]
       }
     ]
   })
@@ -251,12 +251,6 @@ resource "aws_iam_role_policy_attachment" "api_execution_api_only_secrets" {
   role       = aws_iam_role.api_execution.name
 }
 
-resource "aws_iam_role_policy_attachment" "api_execution_temporal_payload_encryption_secrets" {
-  count      = var.temporal_payload_encryption_key_arn != null ? 1 : 0
-  policy_arn = aws_iam_policy.temporal_payload_encryption_secrets_access[0].arn
-  role       = aws_iam_role.api_execution.name
-}
-
 # Worker execution role
 resource "aws_iam_role" "worker_execution" {
   name               = "TracecatWorkerExecutionRole"
@@ -270,12 +264,6 @@ resource "aws_iam_role_policy_attachment" "worker_execution_ecs_poll" {
 
 resource "aws_iam_role_policy_attachment" "worker_execution_secrets" {
   policy_arn = aws_iam_policy.secrets_access.arn
-  role       = aws_iam_role.worker_execution.name
-}
-
-resource "aws_iam_role_policy_attachment" "worker_execution_temporal_payload_encryption_secrets" {
-  count      = var.temporal_payload_encryption_key_arn != null ? 1 : 0
-  policy_arn = aws_iam_policy.temporal_payload_encryption_secrets_access[0].arn
   role       = aws_iam_role.worker_execution.name
 }
 
@@ -316,6 +304,12 @@ resource "aws_iam_role_policy_attachment" "api_worker_task_s3" {
 # Attach Redis IAM policy to API/Worker task role
 resource "aws_iam_role_policy_attachment" "api_worker_task_redis" {
   policy_arn = aws_iam_policy.redis_iam_access.arn
+  role       = aws_iam_role.api_worker_task.name
+}
+
+resource "aws_iam_role_policy_attachment" "api_worker_task_temporal_payload_encryption_keyring" {
+  count      = var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.temporal_payload_encryption_keyring_access[0].arn
   role       = aws_iam_role.api_worker_task.name
 }
 
@@ -373,6 +367,12 @@ resource "aws_iam_role_policy_attachment" "executor_task_s3" {
 
 resource "aws_iam_role_policy_attachment" "executor_task_redis" {
   policy_arn = aws_iam_policy.redis_iam_access.arn
+  role       = aws_iam_role.executor_task.name
+}
+
+resource "aws_iam_role_policy_attachment" "executor_task_temporal_payload_encryption_keyring" {
+  count      = var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.temporal_payload_encryption_keyring_access[0].arn
   role       = aws_iam_role.executor_task.name
 }
 
@@ -465,12 +465,6 @@ resource "aws_iam_role_policy_attachment" "mcp_execution_api_only_secrets" {
   role       = aws_iam_role.mcp_execution[0].name
 }
 
-resource "aws_iam_role_policy_attachment" "mcp_execution_temporal_payload_encryption_secrets" {
-  count      = var.enable_mcp && var.temporal_payload_encryption_key_arn != null ? 1 : 0
-  policy_arn = aws_iam_policy.temporal_payload_encryption_secrets_access[0].arn
-  role       = aws_iam_role.mcp_execution[0].name
-}
-
 resource "aws_iam_role_policy_attachment" "mcp_execution_cloudwatch_logs" {
   count      = var.enable_mcp ? 1 : 0
   policy_arn = aws_iam_policy.cloudwatch_logs.arn
@@ -505,6 +499,12 @@ resource "aws_iam_role_policy" "mcp_task_db_access" {
       }
     ]
   })
+}
+
+resource "aws_iam_role_policy_attachment" "mcp_task_temporal_payload_encryption_keyring" {
+  count      = var.enable_mcp && var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.temporal_payload_encryption_keyring_access[0].arn
+  role       = aws_iam_role.mcp_task[0].name
 }
 
 # LiteLLM execution role

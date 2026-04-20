@@ -6,7 +6,7 @@ import os
 from collections.abc import Iterable, Sequence
 from functools import cache
 from threading import Lock
-from typing import Final
+from typing import Final, Self
 
 import boto3
 from botocore.exceptions import ClientError
@@ -15,6 +15,14 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from loguru import logger
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from temporalio.api.common.v1 import Payload
 from temporalio.converter import PayloadCodec
 
@@ -24,12 +32,60 @@ from tracecat.contexts import ctx_role
 
 TRACECAT_TEMPORAL_ENCODING: Final[bytes] = b"binary/tracecat-aes256gcm"
 TRACECAT_TEMPORAL_GLOBAL_SCOPE: Final[str] = "__global__"
-_ROOT_SECRET_LOCK = Lock()
-_ROOT_SECRET_CACHE: bytes | None = None
 
 
 class TemporalPayloadCodecError(RuntimeError):
     """Raised when Temporal payload encryption/decryption fails."""
+
+
+class TemporalPayloadKeyring(BaseModel):
+    """Versioned Temporal payload encryption keyring."""
+
+    model_config = ConfigDict(frozen=True)
+
+    current_key_id: str
+    keys: dict[str, SecretStr]
+
+    @field_validator("current_key_id")
+    @classmethod
+    def validate_current_key_id(cls, value: str) -> str:
+        """Validate the current key id is usable."""
+        if not value:
+            raise ValueError("current_key_id cannot be empty")
+        return value
+
+    @field_validator("keys")
+    @classmethod
+    def validate_keys(cls, value: dict[str, SecretStr]) -> dict[str, SecretStr]:
+        """Validate keyring entries are usable."""
+        if not value:
+            raise ValueError("keys cannot be empty")
+
+        for key_id, root_secret in value.items():
+            if not key_id:
+                raise ValueError("key ids cannot be empty")
+            if not root_secret.get_secret_value():
+                raise ValueError("root secrets cannot be empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_current_key_is_present(self) -> Self:
+        """Validate the current key id exists in the keyring."""
+        if self.current_key_id not in self.keys:
+            raise ValueError("current_key_id must be present in keys")
+        return self
+
+    def root_secret_for_key_id(self, key_id: str) -> bytes:
+        """Return the root secret bytes for a key id."""
+        if (root_secret := self.keys.get(key_id)) is None:
+            raise TemporalPayloadCodecError(
+                "Temporal payload encryption keyring does not contain the requested key id"
+            )
+        return root_secret.get_secret_value().encode("utf-8")
+
+
+_KEYRING_LOCK = Lock()
+_KEYRING_CACHE: TemporalPayloadKeyring | None = None
 
 
 class CompressionPayloadCodec(PayloadCodec):
@@ -198,58 +254,68 @@ class TemporalEncryptionKeyring:
         )
         self._lock = Lock()
 
-    def _coerce_root_secret(self, secret: str) -> bytes:
-        return secret.encode("utf-8")
+    def _parse_keyring(self, secret: str) -> TemporalPayloadKeyring:
+        """Parse and validate a Temporal payload encryption keyring."""
+        try:
+            return TemporalPayloadKeyring.model_validate_json(secret)
+        except ValidationError as e:
+            raise TemporalPayloadCodecError(
+                "Temporal payload encryption keyring is invalid"
+            ) from e
 
-    def _retrieve_root_secret_from_aws(self, arn: str) -> bytes:
-        """Retrieve the Temporal payload root secret from AWS Secrets Manager."""
+    def _retrieve_keyring_from_aws(self, arn: str) -> TemporalPayloadKeyring:
+        """Retrieve the Temporal payload keyring from AWS Secrets Manager."""
         try:
             session = boto3.session.Session()
             client = session.client(service_name="secretsmanager")
             response = client.get_secret_value(SecretId=arn)
         except ClientError as e:
             raise TemporalPayloadCodecError(
-                "Failed to retrieve Temporal payload encryption root key"
+                "Failed to retrieve Temporal payload encryption keyring"
             ) from e
 
         match response:
             case {"SecretString": str(secret_string)} if secret_string:
-                return self._coerce_root_secret(secret_string)
+                return self._parse_keyring(secret_string)
             case {"SecretBinary": bytes(secret_binary)}:
                 if secret_string := base64.b64decode(secret_binary).decode("utf-8"):
-                    return self._coerce_root_secret(secret_string)
+                    return self._parse_keyring(secret_string)
 
         raise TemporalPayloadCodecError(
-            "Temporal payload encryption root key secret is empty"
+            "Temporal payload encryption keyring secret is empty"
         )
 
-    async def _retrieve_root_secret(self) -> bytes:
-        global _ROOT_SECRET_CACHE
-        with _ROOT_SECRET_LOCK:
-            if _ROOT_SECRET_CACHE is not None:
-                return _ROOT_SECRET_CACHE
+    async def _retrieve_keyring(self) -> TemporalPayloadKeyring:
+        global _KEYRING_CACHE
+        with _KEYRING_LOCK:
+            if _KEYRING_CACHE is not None:
+                return _KEYRING_CACHE
 
-        if secret := config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY:
-            secret_bytes = self._coerce_root_secret(secret)
-            with _ROOT_SECRET_LOCK:
-                if _ROOT_SECRET_CACHE is None:
-                    _ROOT_SECRET_CACHE = secret_bytes
-                return _ROOT_SECRET_CACHE
+        if arn := config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN:
+            keyring = await asyncio.to_thread(self._retrieve_keyring_from_aws, arn)
+            with _KEYRING_LOCK:
+                if _KEYRING_CACHE is None:
+                    _KEYRING_CACHE = keyring
+                return _KEYRING_CACHE
 
-        if not (arn := config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY__ARN):
-            raise TemporalPayloadCodecError(
-                "Temporal payload encryption is enabled but no root key is configured"
-            )
+        if keyring_json := config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING:
+            keyring = self._parse_keyring(keyring_json)
+            with _KEYRING_LOCK:
+                if _KEYRING_CACHE is None:
+                    _KEYRING_CACHE = keyring
+                return _KEYRING_CACHE
 
-        secret_bytes = await asyncio.to_thread(self._retrieve_root_secret_from_aws, arn)
-        with _ROOT_SECRET_LOCK:
-            if _ROOT_SECRET_CACHE is None:
-                _ROOT_SECRET_CACHE = secret_bytes
-            return _ROOT_SECRET_CACHE
+        raise TemporalPayloadCodecError(
+            "Temporal payload encryption is enabled but no keyring is configured"
+        )
 
-    async def _derive_key(self, workspace_id: str, key_version: str) -> bytes:
-        root_secret = await self._retrieve_root_secret()
-        salt = f"tracecat-temporal-payload:{key_version}".encode()
+    async def _root_secret_for_key_id(self, key_id: str) -> bytes:
+        keyring = await self._retrieve_keyring()
+        return keyring.root_secret_for_key_id(key_id)
+
+    async def _derive_key(self, workspace_id: str, key_id: str) -> bytes:
+        root_secret = await self._root_secret_for_key_id(key_id)
+        salt = f"tracecat-temporal-payload:{key_id}".encode()
         info = workspace_id.encode("utf-8")
         hkdf = HKDF(
             algorithm=hashes.SHA256(),
@@ -259,13 +325,18 @@ class TemporalEncryptionKeyring:
         )
         return hkdf.derive(root_secret)
 
-    async def get_key(self, workspace_id: str, key_version: str) -> bytes:
-        cache_key = (workspace_id, key_version)
+    async def get_current_key_id(self) -> str:
+        """Return the current Temporal payload key id for new encryptions."""
+        return (await self._retrieve_keyring()).current_key_id
+
+    async def get_key(self, workspace_id: str, key_id: str) -> bytes:
+        """Return the derived encryption key for a workspace and key id."""
+        cache_key = (workspace_id, key_id)
         with self._lock:
             if (key := self._cache.get(cache_key)) is not None:
                 return key
 
-        key = await self._derive_key(workspace_id, key_version)
+        key = await self._derive_key(workspace_id, key_id)
         with self._lock:
             if (cached := self._cache.get(cache_key)) is not None:
                 return cached
@@ -273,6 +344,7 @@ class TemporalEncryptionKeyring:
             return key
 
     def clear(self) -> None:
+        """Clear the derived key cache."""
         with self._lock:
             self._cache.clear()
 
@@ -306,20 +378,13 @@ class EncryptionPayloadCodec(PayloadCodec):
         return TRACECAT_TEMPORAL_GLOBAL_SCOPE
 
     async def encode(self, payloads: Iterable[Payload]) -> list[Payload]:
-        """Encrypt payloads. Fail-open: passes through unencrypted on error."""
+        """Encrypt payloads."""
         if not self.enabled:
             return list(payloads)
 
-        try:
-            workspace_id = self._resolve_workspace_scope()
-            key_version = config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION
-            aesgcm = AESGCM(await self.keyring.get_key(workspace_id, key_version))
-        except Exception as e:
-            logger.error(
-                "Encryption key initialization failed, passing payloads through unencrypted",
-                error=type(e).__name__,
-            )
-            return list(payloads)
+        workspace_id = self._resolve_workspace_scope()
+        key_id = await self.keyring.get_current_key_id()
+        aesgcm = AESGCM(await self.keyring.get_key(workspace_id, key_id))
 
         result: list[Payload] = []
         async for payload in cooperative(payloads):
@@ -330,9 +395,7 @@ class EncryptionPayloadCodec(PayloadCodec):
 
             try:
                 nonce = os.urandom(12)
-                aad = b"|".join(
-                    (workspace_id.encode("utf-8"), key_version.encode("utf-8"))
-                )
+                aad = b"|".join((workspace_id.encode("utf-8"), key_id.encode("utf-8")))
                 ciphertext = aesgcm.encrypt(nonce, payload.data, aad)
                 metadata = dict(payload.metadata)
                 metadata.update(
@@ -340,23 +403,25 @@ class EncryptionPayloadCodec(PayloadCodec):
                         "encoding": TRACECAT_TEMPORAL_ENCODING,
                         "tracecat_original_encoding": encoding,
                         "tracecat_workspace_id": workspace_id.encode("utf-8"),
-                        "tracecat_key_version": key_version.encode("utf-8"),
+                        "tracecat_key_id": key_id.encode("utf-8"),
                         "tracecat_nonce": base64.urlsafe_b64encode(nonce),
                     }
                 )
                 result.append(Payload(metadata=metadata, data=ciphertext))
             except Exception as e:
                 logger.error(
-                    "Failed to encrypt payload, passing through unencrypted",
+                    "Failed to encrypt Temporal payload",
                     error=type(e).__name__,
                     payload_size=len(payload.data),
                 )
-                result.append(payload)
+                raise TemporalPayloadCodecError(
+                    "Failed to encrypt Temporal payload"
+                ) from e
 
         return result
 
     async def decode(self, payloads: Iterable[Payload]) -> list[Payload]:
-        """Decrypt payloads. Fail-open: passes through as-is on error."""
+        """Decrypt payloads."""
         result: list[Payload] = []
         async for payload in cooperative(payloads):
             if payload.metadata.get("encoding", b"") != TRACECAT_TEMPORAL_ENCODING:
@@ -371,20 +436,19 @@ class EncryptionPayloadCodec(PayloadCodec):
                     raise TemporalPayloadCodecError(
                         "Encrypted Temporal payload is missing its workspace scope"
                     )
-                key_version = (
-                    payload.metadata.get("tracecat_key_version", b"").decode("utf-8")
-                    or config.TEMPORAL__PAYLOAD_ENCRYPTION_KEY_VERSION
-                )
+                key_id = payload.metadata.get("tracecat_key_id", b"").decode("utf-8")
+                if not key_id:
+                    raise TemporalPayloadCodecError(
+                        "Encrypted Temporal payload is missing its key id"
+                    )
                 nonce_b64 = payload.metadata.get("tracecat_nonce")
                 if nonce_b64 is None:
                     raise TemporalPayloadCodecError(
                         "Encrypted Temporal payload is missing its nonce"
                     )
 
-                aesgcm = AESGCM(await self.keyring.get_key(workspace_id, key_version))
-                aad = b"|".join(
-                    (workspace_id.encode("utf-8"), key_version.encode("utf-8"))
-                )
+                aesgcm = AESGCM(await self.keyring.get_key(workspace_id, key_id))
+                aad = b"|".join((workspace_id.encode("utf-8"), key_id.encode("utf-8")))
                 plaintext = aesgcm.decrypt(
                     base64.urlsafe_b64decode(nonce_b64),
                     payload.data,
@@ -399,7 +463,7 @@ class EncryptionPayloadCodec(PayloadCodec):
                         "encoding",
                         "tracecat_original_encoding",
                         "tracecat_workspace_id",
-                        "tracecat_key_version",
+                        "tracecat_key_id",
                         "tracecat_nonce",
                     }
                 }
@@ -411,11 +475,13 @@ class EncryptionPayloadCodec(PayloadCodec):
                 result.append(Payload(metadata=metadata, data=plaintext))
             except Exception as e:
                 logger.error(
-                    "Failed to decrypt payload, passing through as-is",
+                    "Failed to decrypt Temporal payload",
                     error=type(e).__name__,
                     payload_size=len(payload.data),
                 )
-                result.append(payload)
+                raise TemporalPayloadCodecError(
+                    "Failed to decrypt Temporal payload"
+                ) from e
         return result
 
 
@@ -467,6 +533,6 @@ async def decode_payloads(payloads: Sequence[Payload]) -> list[Payload]:
 
 
 def reset_temporal_payload_secret_cache() -> None:
-    global _ROOT_SECRET_CACHE
-    with _ROOT_SECRET_LOCK:
-        _ROOT_SECRET_CACHE = None
+    global _KEYRING_CACHE
+    with _KEYRING_LOCK:
+        _KEYRING_CACHE = None

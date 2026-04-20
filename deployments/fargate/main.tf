@@ -62,7 +62,6 @@ module "ecs" {
   context_compression_enabled                   = var.context_compression_enabled
   context_compression_threshold_kb              = var.context_compression_threshold_kb
   temporal_payload_encryption_enabled           = var.temporal_payload_encryption_enabled
-  temporal_payload_encryption_key_version       = var.temporal_payload_encryption_key_version
   temporal_payload_encryption_cache_ttl_seconds = var.temporal_payload_encryption_cache_ttl_seconds
   temporal_payload_encryption_cache_max_items   = var.temporal_payload_encryption_cache_max_items
   result_externalization_enabled                = var.result_externalization_enabled
@@ -87,10 +86,10 @@ module "ecs" {
   temporal_db_snapshot_name        = var.temporal_db_snapshot_name
 
   # Secrets from AWS Secrets Manager
-  tracecat_db_encryption_key_arn      = var.tracecat_db_encryption_key_arn
-  tracecat_service_key_arn            = var.tracecat_service_key_arn
-  tracecat_signing_secret_arn         = var.tracecat_signing_secret_arn
-  temporal_payload_encryption_key_arn = var.temporal_payload_encryption_key_arn
+  tracecat_db_encryption_key_arn          = var.tracecat_db_encryption_key_arn
+  tracecat_service_key_arn                = var.tracecat_service_key_arn
+  tracecat_signing_secret_arn             = var.tracecat_signing_secret_arn
+  temporal_payload_encryption_keyring_arn = var.temporal_payload_encryption_keyring_arn
 
   # Authentication
   auth_types               = var.auth_types
