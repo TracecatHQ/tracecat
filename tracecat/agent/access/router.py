@@ -12,7 +12,9 @@ from tracecat.agent.access.schemas import (
 )
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.auth.dependencies import OrgUserRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.engine import get_async_session
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
 
 router = APIRouter()
@@ -22,6 +24,7 @@ router = APIRouter()
     "/organization/agent-model-access",
     response_model=AgentModelAccessRead,
 )
+@require_scope("agent:create")
 async def enable_model(
     access: AgentModelAccessCreate,
     role: OrgUserRole,
@@ -29,16 +32,23 @@ async def enable_model(
 ) -> AgentModelAccessRead:
     """Enable a model for org or workspace."""
     service = AgentModelAccessService(session=session, role=role)
-    return await service.enable_model(
-        catalog_id=access.catalog_id,
-        workspace_id=access.workspace_id,
-    )
+    try:
+        return await service.enable_model(
+            catalog_id=access.catalog_id,
+            workspace_id=access.workspace_id,
+        )
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
 
 
 @router.get(
     "/organization/agent-model-access",
     response_model=AgentModelAccessListResponse,
 )
+@require_scope("agent:read")
 async def list_enabled_models(
     role: OrgUserRole,
     session: AsyncSession = Depends(get_async_session),
@@ -69,6 +79,7 @@ async def list_enabled_models(
     "/organization/agent-model-access/{access_id}",
     status_code=204,
 )
+@require_scope("agent:delete")
 async def disable_model(
     access_id: UUID,
     role: OrgUserRole,
@@ -76,4 +87,10 @@ async def disable_model(
 ) -> None:
     """Disable a model."""
     service = AgentModelAccessService(session=session, role=role)
-    await service.disable_model(access_id)
+    try:
+        await service.disable_model(access_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e

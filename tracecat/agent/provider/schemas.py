@@ -1,9 +1,10 @@
 """Schemas for custom LLM provider management."""
 
 from datetime import datetime
+from urllib.parse import urlparse
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AgentCustomProviderCreate(BaseModel):
@@ -15,6 +16,18 @@ class AgentCustomProviderCreate(BaseModel):
     api_key_header: str | None = Field(default=None, max_length=120)
     api_key: str | None = Field(default=None)
     custom_headers: dict[str, str] | None = Field(default=None)
+
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = urlparse(value)
+        if not parsed.netloc:
+            raise ValueError("base_url must include a hostname")
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise ValueError("base_url must use HTTP or HTTPS")
+        return value
 
 
 class AgentCustomProviderRead(BaseModel):
@@ -28,19 +41,30 @@ class AgentCustomProviderRead(BaseModel):
     base_url: str | None
     passthrough: bool
     api_key_header: str | None
-    discovery_status: str
     last_refreshed_at: datetime | None
 
 
 class AgentCustomProviderUpdate(BaseModel):
     """Update custom provider."""
 
-    display_name: str | None = None
-    base_url: str | None = None
+    display_name: str | None = Field(default=None, max_length=200)
+    base_url: str | None = Field(default=None, max_length=500)
     passthrough: bool | None = None
-    api_key_header: str | None = None
+    api_key_header: str | None = Field(default=None, max_length=120)
     api_key: str | None = None
     custom_headers: dict[str, str] | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = urlparse(value)
+        if not parsed.netloc:
+            raise ValueError("base_url must include a hostname")
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise ValueError("base_url must use HTTP or HTTPS")
+        return value
 
 
 class AgentCustomProviderListResponse(BaseModel):

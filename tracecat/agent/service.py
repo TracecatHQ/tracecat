@@ -156,17 +156,21 @@ class AgentManagementService(BaseOrgService):
         }
         return provider_to_secret.get(provider, provider)
 
-    async def _set_org_setting_value(self, *, key: str, value: str) -> None:
-        """Create or update an organization setting with a JSON string value."""
+    async def _stage_org_setting_value(self, *, key: str, value: str) -> None:
+        """Stage a create-or-update for an org setting without committing.
+
+        The caller is responsible for the ``session.commit()`` that flushes
+        all staged changes atomically.
+        """
         setting = await self.settings_service.get_org_setting(key)
         if setting:
-            await self.settings_service.update_org_setting(
+            await self.settings_service._update_setting(
                 setting, SettingUpdate(value=value)
             )
             return
 
         logger.warning("Organization setting not found, creating it", key=key)
-        await self.settings_service.create_org_setting(
+        await self.settings_service._create_org_setting(
             SettingCreate(
                 key=key,
                 value=value,
@@ -174,6 +178,11 @@ class AgentManagementService(BaseOrgService):
                 is_sensitive=False,
             )
         )
+
+    async def _set_org_setting_value(self, *, key: str, value: str) -> None:
+        """Create or update an organization setting with a JSON string value."""
+        await self._stage_org_setting_value(key=key, value=value)
+        await self.session.commit()
 
     async def _get_default_model_name_setting(self) -> str | None:
         """Return the stored legacy default model name, if present."""
@@ -508,14 +517,15 @@ class AgentManagementService(BaseOrgService):
                 f"Catalog entry {params.catalog_id} is not enabled for this organization"
             )
 
-        await self._set_org_setting_value(
+        await self._stage_org_setting_value(
             key=_DEFAULT_MODEL_SETTING_KEY,
             value=catalog_entry.model_name,
         )
-        await self._set_org_setting_value(
+        await self._stage_org_setting_value(
             key=_DEFAULT_MODEL_CATALOG_ID_SETTING_KEY,
             value=str(catalog_entry.id),
         )
+        await self.session.commit()
         return self._to_default_model_selection(catalog_entry)
 
     async def get_default_model(self) -> str | None:

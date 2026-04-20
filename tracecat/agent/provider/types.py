@@ -1,17 +1,7 @@
 """Domain types for LLM provider management."""
 
 from dataclasses import dataclass
-from enum import StrEnum
 from uuid import UUID
-
-
-class AgentCustomProviderDiscoveryStatus(StrEnum):
-    """Discovery lifecycle states for custom provider catalog refreshes."""
-
-    NEVER = "never"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
 
 
 @dataclass(kw_only=True, slots=True)

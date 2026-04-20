@@ -5,11 +5,13 @@ from __future__ import annotations
 import uuid
 from unittest.mock import patch
 
+import orjson
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config as tracecat_config
 from tracecat.agent.provider import service as provider_service_module
 from tracecat.agent.provider.schemas import (
     AgentCustomProviderCreate,
@@ -17,9 +19,16 @@ from tracecat.agent.provider.schemas import (
 )
 from tracecat.agent.provider.service import AgentCustomProviderService
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentCatalog, AgentModelAccess, Organization, Workspace
+from tracecat.db.models import (
+    AgentCatalog,
+    AgentCustomProvider,
+    AgentModelAccess,
+    Organization,
+    Workspace,
+)
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
+from tracecat.secrets.encryption import decrypt_value
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -27,7 +36,7 @@ pytestmark = pytest.mark.usefixtures("db")
 @pytest.fixture(autouse=True)
 def set_db_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        provider_service_module.config,
+        tracecat_config,
         "TRACECAT__DB_ENCRYPTION_KEY",
         Fernet.generate_key().decode(),
     )
@@ -39,6 +48,7 @@ def _role(org: Organization) -> Role:
         user_id=uuid.uuid4(),
         organization_id=org.id,
         service_id="tracecat-api",
+        scopes=frozenset({"*"}),
     )
 
 
@@ -49,6 +59,7 @@ def _workspace_role(org: Organization, workspace: Workspace) -> Role:
         organization_id=org.id,
         workspace_id=workspace.id,
         service_id="tracecat-api",
+        scopes=frozenset({"*"}),
     )
 
 
@@ -65,7 +76,6 @@ async def test_create_provider_minimal(
     assert result.id is not None
     assert result.display_name == "Test Provider"
     assert result.passthrough is False
-    assert result.discovery_status == "never"
 
 
 @pytest.mark.anyio
@@ -341,3 +351,96 @@ async def test_resolve_catalog_config_uses_effective_workspace_access(
     )
     assert target.catalog_id == workspace_catalog.id
     assert target.model_provider == "anthropic"
+
+
+async def _load_raw_provider(
+    session: AsyncSession, provider_id: uuid.UUID
+) -> AgentCustomProvider:
+    row = (
+        await session.execute(
+            select(AgentCustomProvider).where(AgentCustomProvider.id == provider_id)
+        )
+    ).scalar_one()
+    return row
+
+
+def _decrypted_secrets(raw: AgentCustomProvider) -> dict[str, object]:
+    assert raw.encrypted_config is not None
+    decrypted = decrypt_value(
+        raw.encrypted_config,
+        key=tracecat_config.TRACECAT__DB_ENCRYPTION_KEY or "",
+    )
+    return orjson.loads(decrypted)
+
+
+@pytest.mark.anyio
+async def test_update_provider_clears_api_key_on_null(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
+    created = await service.create_provider(
+        AgentCustomProviderCreate(
+            display_name="ClearApiKey",
+            api_key="secret",
+            custom_headers={"x-trace": "abc"},
+        )
+    )
+
+    await service.update_provider(
+        created.id,
+        AgentCustomProviderUpdate(api_key=None),
+    )
+
+    raw = await _load_raw_provider(session, created.id)
+    secrets = _decrypted_secrets(raw)
+    assert "api_key" not in secrets
+    assert secrets.get("custom_headers") == {"x-trace": "abc"}
+
+
+@pytest.mark.anyio
+async def test_update_provider_clears_custom_headers_on_empty_dict(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
+    created = await service.create_provider(
+        AgentCustomProviderCreate(
+            display_name="ClearHeaders",
+            api_key="secret",
+            custom_headers={"x-trace": "abc"},
+        )
+    )
+
+    await service.update_provider(
+        created.id,
+        AgentCustomProviderUpdate(custom_headers={}),
+    )
+
+    raw = await _load_raw_provider(session, created.id)
+    secrets = _decrypted_secrets(raw)
+    assert "custom_headers" not in secrets
+    assert secrets.get("api_key") == "secret"
+
+
+@pytest.mark.anyio
+async def test_update_provider_clears_all_secrets_sets_encrypted_config_null(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCustomProviderService(session=session, role=_role(svc_organization))
+    created = await service.create_provider(
+        AgentCustomProviderCreate(
+            display_name="ClearAll",
+            api_key="secret",
+            custom_headers={"x-trace": "abc"},
+        )
+    )
+
+    await service.update_provider(
+        created.id,
+        AgentCustomProviderUpdate(api_key=None, custom_headers={}),
+    )
+
+    raw = await _load_raw_provider(session, created.id)
+    assert raw.encrypted_config is None

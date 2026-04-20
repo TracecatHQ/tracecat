@@ -13,6 +13,7 @@ from tracecat.agent.provider.schemas import (
 )
 from tracecat.agent.provider.service import AgentCustomProviderService
 from tracecat.auth.dependencies import OrgUserRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.engine import get_async_session
 from tracecat.pagination import CursorPaginationParams
 
@@ -23,6 +24,7 @@ router = APIRouter()
     "/organization/agent-custom-providers",
     response_model=AgentCustomProviderRead,
 )
+@require_scope("agent:create")
 async def create_provider(
     provider: AgentCustomProviderCreate,
     role: OrgUserRole,
@@ -37,6 +39,7 @@ async def create_provider(
     "/organization/agent-custom-providers",
     response_model=AgentCustomProviderListResponse,
 )
+@require_scope("agent:read")
 async def list_providers(
     role: OrgUserRole,
     session: AsyncSession = Depends(get_async_session),
@@ -46,7 +49,13 @@ async def list_providers(
     """List organization custom providers with pagination."""
     service = AgentCustomProviderService(session=session, role=role)
     params = CursorPaginationParams(cursor=cursor, limit=limit)
-    result = await service.list_providers(params)
+    try:
+        result = await service.list_providers(params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     return AgentCustomProviderListResponse(
         items=result.items,
         next_cursor=result.next_cursor,
@@ -57,6 +66,7 @@ async def list_providers(
     "/organization/agent-custom-providers/{provider_id}",
     response_model=AgentCustomProviderRead,
 )
+@require_scope("agent:read")
 async def get_provider(
     provider_id: UUID,
     role: OrgUserRole,
@@ -71,6 +81,7 @@ async def get_provider(
     "/organization/agent-custom-providers/{provider_id}",
     response_model=AgentCustomProviderRead,
 )
+@require_scope("agent:update")
 async def update_provider(
     provider_id: UUID,
     updates: AgentCustomProviderUpdate,
@@ -86,6 +97,7 @@ async def update_provider(
     "/organization/agent-custom-providers/{provider_id}",
     status_code=204,
 )
+@require_scope("agent:delete")
 async def delete_provider(
     provider_id: UUID,
     role: OrgUserRole,
@@ -100,6 +112,7 @@ async def delete_provider(
     "/organization/agent-custom-providers/{provider_id}/refresh",
     status_code=202,
 )
+@require_scope("agent:update")
 async def refresh_provider_catalog(
     provider_id: UUID,
     role: OrgUserRole,
@@ -120,6 +133,7 @@ async def refresh_provider_catalog(
     "/organization/agent-custom-providers/validate",
     status_code=200,
 )
+@require_scope("agent:create")
 async def validate_provider_connection(
     provider: AgentCustomProviderCreate,
     role: OrgUserRole,

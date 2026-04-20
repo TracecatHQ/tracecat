@@ -9,19 +9,20 @@ import httpx
 import orjson
 import sqlalchemy as sa
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
 
-from tracecat import config
+from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.provider.schemas import (
     AgentCustomProviderCreate,
     AgentCustomProviderRead,
     AgentCustomProviderUpdate,
 )
 from tracecat.agent.provider.types import (
-    AgentCustomProviderDiscoveryStatus,
     ResolvedCatalogConfig,
     ResolvedCustomProviderCredentials,
 )
+from tracecat.audit.logger import audit_log
+from tracecat.auth.secrets import get_db_encryption_key
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog, AgentCustomProvider, AgentModelAccess
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import (
@@ -40,6 +41,8 @@ class AgentCustomProviderService(BaseOrgService):
 
     service_name = "agent_custom_provider"
 
+    @require_scope("agent:create")
+    @audit_log(resource_type="agent_custom_provider", action="create")
     async def create_provider(
         self,
         provider: AgentCustomProviderCreate,
@@ -55,7 +58,7 @@ class AgentCustomProviderService(BaseOrgService):
         if secrets_dict:
             encrypted_config = encrypt_value(
                 orjson.dumps(secrets_dict),
-                key=config.TRACECAT__DB_ENCRYPTION_KEY or "",
+                key=get_db_encryption_key(),
             )
 
         model = AgentCustomProvider(
@@ -70,6 +73,7 @@ class AgentCustomProviderService(BaseOrgService):
         await self.session.commit()
         return AgentCustomProviderRead.model_validate(model)
 
+    @require_scope("agent:read")
     async def get_provider(self, provider_id: UUID) -> AgentCustomProviderRead:
         """Get a specific provider by id scoped to this organization."""
         stmt = select(AgentCustomProvider).where(
@@ -85,6 +89,7 @@ class AgentCustomProviderService(BaseOrgService):
             )
         return AgentCustomProviderRead.model_validate(model)
 
+    @require_scope("agent:read")
     async def list_providers(
         self,
         params: CursorPaginationParams,
@@ -149,7 +154,7 @@ class AgentCustomProviderService(BaseOrgService):
 
         decrypted = decrypt_value(
             provider.encrypted_config,
-            key=config.TRACECAT__DB_ENCRYPTION_KEY or "",
+            key=get_db_encryption_key(),
         )
         raw_config = orjson.loads(decrypted)
         if not isinstance(raw_config, dict):
@@ -262,6 +267,12 @@ class AgentCustomProviderService(BaseOrgService):
             ),
         )
 
+    @require_scope("agent:update")
+    @audit_log(
+        resource_type="agent_custom_provider",
+        action="update",
+        resource_id_attr="provider_id",
+    )
     async def update_provider(
         self,
         provider_id: UUID,
@@ -281,23 +292,50 @@ class AgentCustomProviderService(BaseOrgService):
             )
 
         update_data = updates.model_dump(exclude_unset=True)
-        secrets_dict: dict[str, object] = {}
-        if "api_key" in update_data and update_data["api_key"]:
-            secrets_dict["api_key"] = update_data.pop("api_key")
-        if "custom_headers" in update_data and update_data["custom_headers"]:
-            secrets_dict["custom_headers"] = update_data.pop("custom_headers")
+        incoming_secrets: dict[str, object] = {}
+        if "api_key" in update_data:
+            incoming_secrets["api_key"] = update_data.pop("api_key")
+        if "custom_headers" in update_data:
+            incoming_secrets["custom_headers"] = update_data.pop("custom_headers")
 
-        if secrets_dict:
-            model.encrypted_config = encrypt_value(
-                orjson.dumps(secrets_dict),
-                key=config.TRACECAT__DB_ENCRYPTION_KEY or "",
-            )
+        if incoming_secrets:
+            existing_secrets: dict[str, object] = {}
+            if model.encrypted_config is not None:
+                decrypted = decrypt_value(
+                    model.encrypted_config,
+                    key=get_db_encryption_key(),
+                )
+                raw = orjson.loads(decrypted)
+                if isinstance(raw, dict):
+                    existing_secrets = raw
+
+            merged_secrets = {**existing_secrets}
+            for key, value in incoming_secrets.items():
+                if value:
+                    merged_secrets[key] = value
+                else:
+                    merged_secrets.pop(key, None)
+
+            if merged_secrets:
+                model.encrypted_config = encrypt_value(
+                    orjson.dumps(merged_secrets),
+                    key=get_db_encryption_key(),
+                )
+            else:
+                model.encrypted_config = None
 
         for key, value in update_data.items():
             setattr(model, key, value)
         await self.session.commit()
+        await self.session.refresh(model)
         return AgentCustomProviderRead.model_validate(model)
 
+    @require_scope("agent:delete")
+    @audit_log(
+        resource_type="agent_custom_provider",
+        action="delete",
+        resource_id_attr="provider_id",
+    )
     async def delete_provider(self, provider_id: UUID) -> None:
         """Delete a custom provider and cascade its catalog rows."""
         stmt = select(AgentCustomProvider).where(
@@ -314,6 +352,12 @@ class AgentCustomProviderService(BaseOrgService):
         await self.session.delete(model)
         await self.session.commit()
 
+    @require_scope("agent:update")
+    @audit_log(
+        resource_type="agent_custom_provider",
+        action="update",
+        resource_id_attr="provider_id",
+    )
     async def refresh_provider_catalog(self, provider_id: UUID) -> None:
         """Discover models from the provider endpoint and upsert catalog rows."""
         provider_stmt = select(AgentCustomProvider).where(
@@ -331,92 +375,36 @@ class AgentCustomProviderService(BaseOrgService):
         if not provider.base_url:
             raise ValueError("Provider base_url not configured")
 
-        provider.discovery_status = AgentCustomProviderDiscoveryStatus.RUNNING
-        await self.session.commit()
-
-        try:
-            secrets_dict: dict[str, object] = {}
-            if provider.encrypted_config:
-                decrypted = decrypt_value(
-                    provider.encrypted_config,
-                    key=config.TRACECAT__DB_ENCRYPTION_KEY or "",
-                )
-                secrets_dict = orjson.loads(decrypted)
-
-            api_key = secrets_dict.get("api_key")
-            custom_headers = secrets_dict.get("custom_headers", {})
-
-            models = await self._discover_models(
-                provider.base_url,
-                api_key=api_key if isinstance(api_key, str) else None,
-                custom_headers=(
-                    custom_headers if isinstance(custom_headers, dict) else None
-                ),
-                api_key_header=provider.api_key_header,
+        secrets_dict: dict[str, object] = {}
+        if provider.encrypted_config:
+            decrypted = decrypt_value(
+                provider.encrypted_config,
+                key=get_db_encryption_key(),
             )
+            secrets_dict = orjson.loads(decrypted)
 
-            await self.upsert_discovered_models(
-                provider_id=provider_id,
-                models=models,
-            )
+        api_key = secrets_dict.get("api_key")
+        custom_headers = secrets_dict.get("custom_headers", {})
 
-            provider.discovery_status = AgentCustomProviderDiscoveryStatus.SUCCEEDED
-            provider.last_refreshed_at = datetime.now(UTC)
-            await self.session.commit()
-        except Exception as err:
-            await self.session.rollback()
-            provider = (await self.session.execute(provider_stmt)).scalar_one_or_none()
-            if provider is None:
-                raise TracecatNotFoundError(
-                    f"Custom provider {provider_id} not found in organization"
-                ) from err
-            provider.discovery_status = AgentCustomProviderDiscoveryStatus.FAILED
-            await self.session.commit()
-            raise
-
-    async def upsert_discovered_models(
-        self,
-        *,
-        provider_id: UUID,
-        models: list[dict[str, object]],
-    ) -> int:
-        """Bulk upsert discovered models for one custom provider."""
-        now = datetime.now(UTC)
-        values: list[dict[str, object]] = []
-        for model_data in models:
-            model_name = model_data.get("id")
-            if not isinstance(model_name, str):
-                continue
-            values.append(
-                {
-                    "organization_id": self.organization_id,
-                    "custom_provider_id": provider_id,
-                    "model_provider": CUSTOM_MODEL_PROVIDER_SLUG,
-                    "model_name": model_name,
-                    "model_metadata": model_data,
-                    "last_refreshed_at": now,
-                }
-            )
-
-        if not values:
-            return 0
-
-        stmt = insert(AgentCatalog).values(values)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[
-                "organization_id",
-                "custom_provider_id",
-                "model_provider",
-                "model_name",
-            ],
-            set_={
-                "model_metadata": stmt.excluded.model_metadata,
-                "last_refreshed_at": stmt.excluded.last_refreshed_at,
-            },
+        models = await self._discover_models(
+            provider.base_url,
+            api_key=api_key if isinstance(api_key, str) else None,
+            custom_headers=(
+                custom_headers if isinstance(custom_headers, dict) else None
+            ),
+            api_key_header=provider.api_key_header,
         )
-        await self.session.execute(stmt)
+
+        catalog_service = AgentCatalogService(session=self.session)
+        await catalog_service.upsert_discovered_models(
+            org_id=self.organization_id,
+            custom_provider_id=provider_id,
+            model_provider=CUSTOM_MODEL_PROVIDER_SLUG,
+            models=models,
+        )
+
+        provider.last_refreshed_at = datetime.now(UTC)
         await self.session.commit()
-        return len(values)
 
     async def validate_provider(
         self,

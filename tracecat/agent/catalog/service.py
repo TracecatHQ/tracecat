@@ -2,18 +2,40 @@
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy import and_, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 
 from tracecat.agent.catalog.schemas import AgentCatalogRead
+from tracecat.audit.logger import audit_log
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import AgentCatalog
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseService
+
+
+class _CatalogRowValues(TypedDict):
+    """Row shape passed to ``insert(AgentCatalog).values(...)``."""
+
+    organization_id: UUID | None
+    custom_provider_id: UUID | None
+    model_provider: str
+    model_name: str
+    model_metadata: dict[str, Any]
+    last_refreshed_at: datetime
+
+
+class PlatformCatalogEntry(TypedDict):
+    """Input row for bulk platform-catalog seeding."""
+
+    model_provider: str
+    model_name: str
+    metadata: NotRequired[dict[str, Any]]
 
 
 class AgentCatalogService(BaseService):
@@ -23,14 +45,14 @@ class AgentCatalogService(BaseService):
 
     async def upsert_platform_catalog(
         self,
-        entries: Sequence[Mapping[str, Any]],
+        entries: Sequence[PlatformCatalogEntry],
     ) -> int:
         """Bulk upsert platform catalog rows."""
         if not entries:
             return 0
 
         now = datetime.now(UTC)
-        values: list[dict[str, Any]] = []
+        values: list[_CatalogRowValues] = []
         for entry in entries:
             model_provider = entry.get("model_provider")
             model_name = entry.get("model_name")
@@ -69,16 +91,31 @@ class AgentCatalogService(BaseService):
 
     async def get_catalog_entry(
         self,
-        org_id: UUID | None,
+        *,
+        org_id: UUID,
         catalog_id: UUID,
-    ) -> AgentCatalogRead:
-        """Get a specific catalog entry."""
-        del org_id
-        stmt = select(AgentCatalog).where(AgentCatalog.id == catalog_id)
+    ) -> AgentCatalog:
+        """Get a catalog entry visible to the caller's org.
+
+        Matches platform rows (``organization_id IS NULL``) and rows owned by
+        ``org_id``; all other rows surface as not found.
+
+        Raises:
+            TracecatNotFoundError: No matching row.
+        """
+        stmt = select(AgentCatalog).where(
+            and_(
+                AgentCatalog.id == catalog_id,
+                sa.or_(
+                    AgentCatalog.organization_id == org_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
+            )
+        )
         row = (await self.session.execute(stmt)).scalar_one_or_none()
         if row is None:
             raise TracecatNotFoundError(f"Catalog entry {catalog_id} not found")
-        return AgentCatalogRead.model_validate(row)
+        return row
 
     async def list_catalog(
         self,
@@ -116,7 +153,15 @@ class AgentCatalogService(BaseService):
                 cursor_data = paginator.decode_cursor(params.cursor)
             except (ValueError, AttributeError) as err:
                 raise ValueError("Invalid cursor") from err
-            stmt = stmt.where(AgentCatalog.created_at < cursor_data.sort_value)
+            stmt = stmt.where(
+                sa.or_(
+                    AgentCatalog.created_at < cursor_data.sort_value,
+                    sa.and_(
+                        AgentCatalog.created_at == cursor_data.sort_value,
+                        AgentCatalog.id < UUID(cursor_data.id),
+                    ),
+                )
+            )
 
         rows = (
             (await self.session.execute(stmt.limit(params.limit + 1))).scalars().all()
@@ -171,6 +216,91 @@ class AgentCatalogService(BaseService):
         await self.session.commit()
         return AgentCatalogRead.model_validate(row)
 
+    @require_scope("agent:create")
+    @audit_log(resource_type="agent_catalog", action="create")
+    async def create_catalog_entry(
+        self,
+        *,
+        org_id: UUID,
+        model_provider: str,
+        model_name: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> AgentCatalog:
+        """Create a new org-scoped catalog entry.
+
+        Raises:
+            TracecatValidationError: A row already exists for
+                ``(org_id, model_provider, model_name)``.
+        """
+        now = datetime.now(UTC)
+        row = AgentCatalog(
+            organization_id=org_id,
+            custom_provider_id=None,
+            model_provider=model_provider,
+            model_name=model_name,
+            model_metadata=metadata or {},
+            last_refreshed_at=now,
+        )
+        self.session.add(row)
+        try:
+            await self.session.commit()
+        except IntegrityError as err:
+            await self.session.rollback()
+            raise TracecatValidationError(
+                f"Catalog entry for provider {model_provider!r} and model "
+                f"{model_name!r} already exists"
+            ) from err
+        await self.session.refresh(row)
+        return row
+
+    @require_scope("agent:update")
+    @audit_log(resource_type="agent_catalog", action="update")
+    async def update_catalog_entry(
+        self,
+        row: AgentCatalog,
+        *,
+        org_id: UUID,
+        expected_provider: str,
+        metadata: dict[str, Any] | None,
+    ) -> AgentCatalog:
+        """Update metadata on a pre-fetched org-scoped catalog row.
+
+        The ``expected_provider`` must match the stored row; model_provider is
+        immutable and the request body's discriminator is used purely to pick
+        the correct metadata schema. Platform rows (``organization_id IS NULL``)
+        and rows from other orgs are rejected.
+        """
+        if row.organization_id is None or row.organization_id != org_id:
+            raise TracecatNotFoundError(f"Catalog entry {row.id} not found")
+        if row.model_provider != expected_provider:
+            raise TracecatValidationError(
+                f"model_provider mismatch: expected {row.model_provider!r}, "
+                f"got {expected_provider!r}"
+            )
+        row.model_metadata = metadata or {}
+        row.last_refreshed_at = datetime.now(UTC)
+        await self.session.commit()
+        await self.session.refresh(row)
+        return row
+
+    @require_scope("agent:delete")
+    @audit_log(resource_type="agent_catalog", action="delete")
+    async def delete_catalog_entry(
+        self,
+        row: AgentCatalog,
+        *,
+        org_id: UUID,
+    ) -> None:
+        """Delete a pre-fetched org-scoped catalog row. Access rows cascade.
+
+        Platform rows (``organization_id IS NULL``) and rows from other orgs
+        are rejected.
+        """
+        if row.organization_id is None or row.organization_id != org_id:
+            raise TracecatNotFoundError(f"Catalog entry {row.id} not found")
+        await self.session.delete(row)
+        await self.session.commit()
+
     async def upsert_discovered_models(
         self,
         *,
@@ -180,10 +310,10 @@ class AgentCatalogService(BaseService):
         model_provider: str,
     ) -> int:
         """Bulk upsert discovered models for a custom provider."""
-        values: list[dict[str, Any]] = []
+        values: list[_CatalogRowValues] = []
         now = datetime.now(UTC)
-        for model in models:
-            model_name = model.get("id") or model.get("model_name")
+        for raw in models:
+            model_name = raw.get("id") or raw.get("model_name")
             if not isinstance(model_name, str):
                 continue
             values.append(
@@ -192,7 +322,7 @@ class AgentCatalogService(BaseService):
                     "custom_provider_id": custom_provider_id,
                     "model_provider": model_provider,
                     "model_name": model_name,
-                    "model_metadata": dict(model),
+                    "model_metadata": dict(raw),
                     "last_refreshed_at": now,
                 }
             )
