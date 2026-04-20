@@ -1,0 +1,118 @@
+tests/unit/test_temporal_codec.py
+  93a5c45e1871c4ed 14,68
+  60a975a17d8af3bb 22,36-37,74-76,80-81,86-87,100-102,104-105,107,111
+  c67b9894f41c9fb1 69-70
+  5c4473fed6ff8ce3 71
+  5e22448f39c57e47 72,77
+tracecat/temporal/codec.py
+  5519f9529cfd4849 198
+  c67b9894f41c9fb1 204,265
+  60a975a17d8af3bb 205,321
+  93a5c45e1871c4ed 306
+  5c4473fed6ff8ce3 310-311,366-367
+  e664505cc315a72c 312,368-370
+deployments/fargate/main.tf
+  e664505cc315a72c 90-92
+deployments/fargate/modules/ecs/secrets.tf
+  e664505cc315a72c 255,272
+deployments/fargate/modules/ecs/iam.tf
+  e664505cc315a72c 293-295
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "17e63f7dc0e95a3fed75d9be072a6cf8d8343b6c",
+  "prompts": {
+    "5519f9529cfd4849": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "788712cb-ae9d-41b8-b343-fbf701560713",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "5c4473fed6ff8ce3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "398a3b40-5ef4-4633-9820-26adbc9ed002",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 147,
+      "total_deletions": 87,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    },
+    "5e22448f39c57e47": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3af28b7-6cce-456d-98be-fc9139892505",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 352,
+      "total_deletions": 12,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    },
+    "60a975a17d8af3bb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "02c43452-e374-4385-9f88-3a17c12c8f3e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 157,
+      "total_deletions": 47,
+      "accepted_lines": 19,
+      "overriden_lines": 0
+    },
+    "93a5c45e1871c4ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f7f9bc81-332e-4c20-8d8e-095ed38eac55",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 114,
+      "total_deletions": 127,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    },
+    "c67b9894f41c9fb1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d46f9-030c-7de2-aa8c-5fee93ad48c3",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 107,
+      "total_deletions": 37,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    },
+    "e664505cc315a72c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dac11-f22a-7f11-a85a-7a3cf275b495",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 37,
+      "total_deletions": 3,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    }
+  }
+}

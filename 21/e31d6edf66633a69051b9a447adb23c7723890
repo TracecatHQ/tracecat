@@ -1,0 +1,23 @@
+tests/temporal/test_workflow_timers.py
+  60a975a17d8af3bb 500-501,506-507
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "21e31d6edf66633a69051b9a447adb23c7723890",
+  "prompts": {
+    "60a975a17d8af3bb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "02c43452-e374-4385-9f88-3a17c12c8f3e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 2,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}
