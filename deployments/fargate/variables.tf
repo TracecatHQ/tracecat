@@ -275,12 +275,6 @@ variable "temporal_payload_encryption_key_arn" {
   default     = null
 }
 
-variable "temporal_codec_server_shared_secret_arn" {
-  type        = string
-  description = "The ARN of the secret containing the Temporal codec server shared secret"
-  default     = null
-}
-
 variable "oauth_client_id_arn" {
   type        = string
   description = "The ARN of the secret containing the OAuth client ID (optional)"

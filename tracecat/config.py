@@ -391,16 +391,6 @@ TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS = int(
 )
 """Maximum number of cached derived Temporal payload keys."""
 
-TEMPORAL__CODEC_SERVER_SHARED_SECRET = os.environ.get(
-    "TEMPORAL__CODEC_SERVER_SHARED_SECRET"
-)
-"""Shared secret for the Temporal codec server break-glass endpoint."""
-
-TEMPORAL__CODEC_SERVER_ENABLED = os.environ.get(
-    "TEMPORAL__CODEC_SERVER_ENABLED", "false"
-).lower() in ("true", "1")
-"""Enable the Temporal codec server break-glass endpoint."""
-
 # === Sentry config === #
 SENTRY_ENVIRONMENT_OVERRIDE = os.environ.get("SENTRY_ENVIRONMENT_OVERRIDE")
 """Override the Sentry environment. If not set, defaults to '{app_env}-{temporal_namespace}'."""
