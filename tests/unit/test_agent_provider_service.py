@@ -70,6 +70,7 @@ def _workspace_role(org: Organization, workspace: Workspace) -> Role:
         organization_id=org.id,
         workspace_id=workspace.id,
         service_id="tracecat-api",
+        scopes=frozenset({"*"}),
     )
 
 
