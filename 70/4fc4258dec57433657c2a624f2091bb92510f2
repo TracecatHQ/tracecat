@@ -1,0 +1,9 @@
+tracecat/webhooks/router.py
+  93a5c45e1871c4ed 21,520
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "704fc4258dec57433657c2a624f2091bb92510f2",
+  "prompts": {}
+}
