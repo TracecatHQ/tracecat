@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import time
 import uuid
 
 import pytest
@@ -395,18 +394,15 @@ async def test_keyring_cache_expires_stale_entries(
     monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS", 0)
 
     keyring = TemporalEncryptionKeyring()
-    await keyring.get_key("ws-1", "1")
+    key_1 = await keyring.get_key("ws-1", "1")
 
-    # With TTL=0, the entry is immediately stale
+    # With TTL=0, TTLCache expires entries immediately — cache should be empty
     cache_key = ("ws-1", "1")
-    assert cache_key in keyring._cache
-    # Force the expiry time into the past
-    key_bytes, _ = keyring._cache[cache_key]
-    keyring._cache[cache_key] = (key_bytes, time.monotonic() - 1)
+    assert cache_key not in keyring._cache
 
-    # Should re-derive (and produce the same key)
+    # Should re-derive (and produce the same deterministic key)
     key_again = await keyring.get_key("ws-1", "1")
-    assert key_again == key_bytes
+    assert key_again == key_1
 
 
 # --- CompressionPayloadCodec tests ---

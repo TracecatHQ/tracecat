@@ -3,14 +3,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import os
-import time
-from collections import OrderedDict
 from collections.abc import Iterable, Sequence
 from threading import Lock
 from typing import Final
 
 import boto3
 from botocore.exceptions import ClientError
+from cachetools import TTLCache
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -192,14 +191,11 @@ class TemporalEncryptionKeyring:
     """Derive and cache workspace-scoped Temporal payload keys."""
 
     def __init__(self) -> None:
-        self._cache: OrderedDict[tuple[str, str], tuple[bytes, float]] = OrderedDict()
-        self._lock = Lock()
-
-    def _cache_settings(self) -> tuple[int, int]:
-        return (
-            config.TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS,
-            config.TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS,
+        self._cache: TTLCache[tuple[str, str], bytes] = TTLCache(
+            maxsize=config.TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS,
+            ttl=config.TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS,
         )
+        self._lock = Lock()
 
     def _coerce_root_secret(self, secret: str) -> bytes:
         return secret.encode("utf-8")
@@ -264,29 +260,15 @@ class TemporalEncryptionKeyring:
 
     async def get_key(self, workspace_id: str, key_version: str) -> bytes:
         cache_key = (workspace_id, key_version)
-        max_items, ttl_seconds = self._cache_settings()
-        now = time.monotonic()
         with self._lock:
-            if cache_entry := self._cache.get(cache_key):
-                key, expires_at = cache_entry
-                if expires_at > now:
-                    self._cache.move_to_end(cache_key)
-                    return key
-                self._cache.pop(cache_key, None)
+            if (key := self._cache.get(cache_key)) is not None:
+                return key
 
         key = await self._derive_key(workspace_id, key_version)
-        now = time.monotonic()
         with self._lock:
-            if cache_entry := self._cache.get(cache_key):
-                cached_key, expires_at = cache_entry
-                if expires_at > now:
-                    self._cache.move_to_end(cache_key)
-                    return cached_key
-                self._cache.pop(cache_key, None)
-
-            self._cache[cache_key] = (key, now + ttl_seconds)
-            while len(self._cache) > max_items:
-                self._cache.popitem(last=False)
+            if (cached := self._cache.get(cache_key)) is not None:
+                return cached
+            self._cache[cache_key] = key
             return key
 
     def clear(self) -> None:
