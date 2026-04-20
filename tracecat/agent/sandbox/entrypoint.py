@@ -37,6 +37,8 @@ RUNTIME_REGISTRY: dict[str, str] = {
     "claude_code": "tracecat.agent.runtime.claude_code.runtime.ClaudeAgentRuntime",
 }
 INIT_PAYLOAD_ENV_VAR = "TRACECAT__AGENT_INIT_PAYLOAD_PATH"
+SESSION_HOME_ENV_VAR = "TRACECAT__AGENT_SESSION_HOME_DIR"
+SESSION_PROJECT_ENV_VAR = "TRACECAT__AGENT_SESSION_PROJECT_DIR"
 
 
 def _load_runtime(runtime_type: str) -> type[BaseRuntime]:
@@ -84,6 +86,20 @@ def _resolve_init_payload_path() -> Path:
     raise RuntimeError(f"{INIT_PAYLOAD_ENV_VAR} is not set")
 
 
+def _resolve_runtime_path_overrides() -> tuple[Path | None, Path | None]:
+    """Resolve optional explicit Claude home/project dirs from env."""
+    session_home_dir = os.environ.get(SESSION_HOME_ENV_VAR)
+    session_project_dir = os.environ.get(SESSION_PROJECT_ENV_VAR)
+
+    if bool(session_home_dir) != bool(session_project_dir):
+        raise RuntimeError(
+            f"{SESSION_HOME_ENV_VAR} and {SESSION_PROJECT_ENV_VAR} must be set together"
+        )
+    if not session_home_dir or not session_project_dir:
+        return None, None
+    return Path(session_home_dir), Path(session_project_dir)
+
+
 async def run_sandboxed_runtime() -> None:
     """Entry point for sandboxed runtime execution.
 
@@ -126,9 +142,15 @@ async def run_sandboxed_runtime() -> None:
         # Load runtime dynamically based on payload
         RuntimeClass = _load_runtime(payload.runtime_type)
         logger.info("Creating runtime", runtime_type=payload.runtime_type)
+        session_home_dir, session_project_dir = _resolve_runtime_path_overrides()
 
         try:
-            runtime = RuntimeClass(socket_writer)
+            runtime = RuntimeClass(
+                socket_writer,
+                session_home_dir=session_home_dir,
+                cwd=session_project_dir,
+                cwd_setup_path=session_project_dir,
+            )
             logger.info("Runtime created, calling run()")
         except Exception as e:
             logger.exception("FAILED to create runtime", error=str(e))

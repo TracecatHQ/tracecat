@@ -36,6 +36,9 @@ from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
 )
+from tracecat.agent.runtime.claude_code.session_paths import (
+    build_claude_sandbox_path_mapping,
+)
 from tracecat.agent.runtime_services import get_claude_runtime_broker
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.sandbox.nsjail import (
@@ -519,10 +522,16 @@ class SandboxedAgentExecutor:
 
         async with server:
             self._log_benchmark_phase("legacy_sandbox_spawn_start")
+            path_mapping = build_claude_sandbox_path_mapping(
+                session_id=str(init_payload.session_id),
+                disable_nsjail=TRACECAT__DISABLE_NSJAIL,
+            )
             runtime_result = await spawn_jailed_runtime(
                 socket_dir=socket_dir,
                 llm_socket_path=llm_socket_path,
                 init_payload_path=init_payload_path,
+                session_home_dir=path_mapping.host_home_dir,
+                session_project_dir=path_mapping.host_project_dir,
                 enable_internet_access=init_payload.config.enable_internet_access,
             )
             self._spawned_runtime = runtime_result

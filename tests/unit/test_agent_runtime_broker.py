@@ -12,6 +12,7 @@ import pytest
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.types import SandboxAgentConfig
 from tracecat.agent.runtime.claude_code import broker as broker_module
+from tracecat.agent.runtime.claude_code import session_paths as session_paths_module
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeRuntimeBroker,
     ClaudeTurnRequest,
@@ -109,7 +110,9 @@ def test_build_path_mapping_uses_runtime_mount_paths_when_nsjail_enabled(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", False)
-    monkeypatch.setattr(broker_module.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
 
     mapping = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
 
@@ -128,7 +131,9 @@ def test_build_path_mapping_uses_host_paths_in_direct_mode(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", True)
-    monkeypatch.setattr(broker_module.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
 
     mapping = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
 
@@ -140,7 +145,9 @@ def test_build_path_mapping_is_stable_per_session(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", True)
-    monkeypatch.setattr(broker_module.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
+    )
 
     first = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")
     second = ClaudeRuntimeBroker._build_path_mapping(session_id="session-123")

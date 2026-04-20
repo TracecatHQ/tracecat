@@ -25,6 +25,7 @@ subprocess instead of through nsjail. This is useful for:
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import sys
 import tempfile
@@ -53,6 +54,8 @@ from tracecat.logger import logger
 
 BROKER_SHIM_ENTRYPOINT_MODULE = "tracecat.agent.sandbox.shim_entrypoint"
 BROKER_SHIM_SCRIPT_NAME = "shim_entrypoint.py"
+SESSION_HOME_ENV_VAR = "TRACECAT__AGENT_SESSION_HOME_DIR"
+SESSION_PROJECT_ENV_VAR = "TRACECAT__AGENT_SESSION_PROJECT_DIR"
 
 
 @dataclass(frozen=True)
@@ -200,6 +203,8 @@ async def spawn_jailed_runtime(
             entrypoint_module=entrypoint_module,
             control_socket_required=control_socket_required,
             pipe_stdin=pipe_stdin,
+            session_home_dir=session_home_dir,
+            session_project_dir=session_project_dir,
         )
 
     # NSJail mode for production - isolated runs require the per-job LLM socket.
@@ -234,6 +239,8 @@ async def _spawn_direct_runtime(
     entrypoint_module: str,
     control_socket_required: bool,
     pipe_stdin: bool,
+    session_home_dir: Path | None,
+    session_project_dir: Path | None,
 ) -> SpawnedRuntime:
     """Spawn the agent runtime as a direct subprocess (for development/testing).
 
@@ -282,6 +289,13 @@ async def _spawn_direct_runtime(
     for key in ("TRACECAT__LITELLM_BASE_URL",):
         if value := os.environ.get(key):
             env[key] = value
+    if session_home_dir is not None:
+        session_home_dir.mkdir(parents=True, exist_ok=True)
+        env[SESSION_HOME_ENV_VAR] = str(session_home_dir)
+        env["HOME"] = str(session_home_dir)
+    if session_project_dir is not None:
+        session_project_dir.mkdir(parents=True, exist_ok=True)
+        env[SESSION_PROJECT_ENV_VAR] = str(session_project_dir)
 
     process = await asyncio.create_subprocess_exec(
         *cmd,
@@ -383,6 +397,10 @@ async def _spawn_nsjail_runtime(
         # Build environment
         env_map = build_agent_env_map(config)
         env_map["TRACECAT__AGENT_INIT_PAYLOAD_PATH"] = "/work/init.json"
+        if session_home_dir is not None:
+            env_map[SESSION_HOME_ENV_VAR] = "/work/claude-home"
+        if session_project_dir is not None:
+            env_map[SESSION_PROJECT_ENV_VAR] = "/work/claude-project"
         env_args: list[str] = []
         for key, value in env_map.items():
             env_args.extend(["--env", f"{key}={value}"])

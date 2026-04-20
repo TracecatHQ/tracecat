@@ -571,6 +571,81 @@ class TestClaudeAgentRuntimeRun:
         assert session_file.read_text() == resumed_payload.sdk_session_data
 
     @pytest.mark.anyio
+    async def test_sets_claude_child_home_when_session_home_dir_is_configured(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        captured_options = []
+        session_home_dir = tmp_path / "claude-home"
+        runtime_cwd = tmp_path / "claude-project"
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer,
+                session_home_dir=session_home_dir,
+                cwd=runtime_cwd,
+                cwd_setup_path=runtime_cwd,
+            )
+            await runtime.run(sample_init_payload)
+
+        assert captured_options
+        assert captured_options[0].env["HOME"] == str(session_home_dir)
+
+    @pytest.mark.anyio
+    async def test_does_not_set_host_home_when_custom_transport_is_configured(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        captured_options = []
+        session_home_dir = tmp_path / "claude-home"
+        runtime_cwd = tmp_path / "claude-project"
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer,
+                transport_factory=lambda _options: MagicMock(),
+                session_home_dir=session_home_dir,
+                cwd=runtime_cwd,
+                cwd_setup_path=runtime_cwd,
+            )
+            await runtime.run(sample_init_payload)
+
+        assert captured_options
+        assert "HOME" not in captured_options[0].env
+
+    @pytest.mark.anyio
     async def test_write_session_file_canonicalizes_registry_mcp_aliases(
         self,
         mock_socket_writer: MagicMock,

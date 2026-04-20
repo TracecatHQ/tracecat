@@ -6,7 +6,6 @@ import asyncio
 import json
 import os
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 from typing import Any, TypedDict
@@ -22,22 +21,13 @@ from claude_agent_sdk._errors import CLIJSONDecodeError as SDKJSONDecodeError
 from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
 from claude_agent_sdk._version import __version__
 
+from tracecat.agent.runtime.claude_code.session_paths import ClaudeSandboxPathMapping
 from tracecat.agent.sandbox.nsjail import (
     SpawnedRuntime,
     cleanup_spawned_runtime,
     spawn_jailed_runtime,
 )
 from tracecat.logger import logger
-
-
-@dataclass(frozen=True, slots=True)
-class ClaudeSandboxPathMapping:
-    """Host and runtime-visible Claude working directories for one turn."""
-
-    host_home_dir: Path
-    host_project_dir: Path
-    runtime_home_dir: Path
-    runtime_cwd: Path
 
 
 class ClaudeShimInitPayload(TypedDict):

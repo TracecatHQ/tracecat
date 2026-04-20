@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,8 +10,11 @@ from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
-from tracecat.agent.runtime.claude_code.transport import (
+from tracecat.agent.runtime.claude_code.session_paths import (
     ClaudeSandboxPathMapping,
+    build_claude_sandbox_path_mapping,
+)
+from tracecat.agent.runtime.claude_code.transport import (
     SandboxedCLITransport,
 )
 
@@ -117,22 +119,7 @@ class ClaudeRuntimeBroker:
         so `--resume <sdk_session_id>` can find the same session metadata and JSONL
         history on resumed turns.
         """
-        session_root = Path(tempfile.gettempdir()) / f"tracecat-agent-{session_id}"
-        host_home_dir = session_root / "claude-home"
-        host_project_dir = session_root / "claude-project"
-        host_home_dir.mkdir(parents=True, exist_ok=True)
-        host_project_dir.mkdir(parents=True, exist_ok=True)
-
-        if TRACECAT__DISABLE_NSJAIL:
-            runtime_home_dir = host_home_dir
-            runtime_cwd = host_project_dir
-        else:
-            runtime_home_dir = Path("/work/claude-home")
-            runtime_cwd = Path("/work/claude-project")
-
-        return ClaudeSandboxPathMapping(
-            host_home_dir=host_home_dir,
-            host_project_dir=host_project_dir,
-            runtime_home_dir=runtime_home_dir,
-            runtime_cwd=runtime_cwd,
+        return build_claude_sandbox_path_mapping(
+            session_id=session_id,
+            disable_nsjail=TRACECAT__DISABLE_NSJAIL,
         )

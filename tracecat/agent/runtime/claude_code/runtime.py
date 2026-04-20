@@ -855,6 +855,12 @@ class ClaudeAgentRuntime:
                         if payload.config.passthrough
                         else {}
                     ),
+                    **(
+                        {"HOME": str(self._session_home_dir)}
+                        if self._session_home_dir is not None
+                        and self._transport_factory is None
+                        else {}
+                    ),
                 },
                 model=get_litellm_route_model(
                     model_provider=payload.config.model_provider,
