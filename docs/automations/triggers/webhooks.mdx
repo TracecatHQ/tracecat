@@ -48,7 +48,76 @@ Default response:
 }
 ```
 
-`echo=true` adds `payload`. `echo=true&empty_echo=true` returns an empty `200` response instead of the default JSON body.
+Query parameters:
+
+- `echo=true`: add the original request body to the response under `payload`.
+- `empty_echo=true`: return an empty `200` with no body. Implies `echo=true`.
+- `vendor=okta`: handle Okta verification challenges. See [Okta verification](#okta-verification).
+
+## Synchronous execution with /wait
+
+Use `POST /webhooks/{workflow_id}/{secret}/wait` to run a workflow and receive its `return` value in the response. The request blocks until the workflow finishes. The workflow must be published. The request body becomes `TRIGGER` exactly as with the default webhook.
+
+This endpoint is designed for workflows-as-APIs: the caller treats the workflow like a synchronous HTTP handler.
+
+### Response schema
+
+The response is an envelope with a `kind` discriminator:
+
+```json
+{
+  "kind": "value",
+  "value": { "status": "ok" }
+}
+```
+
+```json
+{
+  "kind": "download_file",
+  "download_url": "https://...",
+  "expires_in_seconds": 10,
+  "content_type": "application/json",
+  "size_bytes": 262144
+}
+```
+
+### Kinds
+
+- `value`: inline result. The body has `value` set to the workflow's `return` value.
+- `download_file`: externalized result. The body has a presigned `download_url`, plus `expires_in_seconds`, `content_type`, and `size_bytes`.
+- `download_export`: materialized collection result. Same fields as `download_file`; `content_type` is always `application/json`.
+
+Results over `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` (default 128 KiB) are stored in object storage and returned as a short-lived presigned URL (default 10-second expiry). This keeps the webhook response small and predictable, so synchronous callers never stream megabytes of workflow state through a single HTTP response.
+
+### Query parameters
+
+- `unwrap=true`: return the workflow's `return` value directly as the response body, with no envelope. Requires the result to fit inline.
+
+If the result was externalized (kind `download_file` or `download_export`), `/wait?unwrap=true` returns `413 Payload Too Large` with the download envelope under `detail`, so the caller can still fetch the data.
+
+Example:
+
+```bash
+curl -X POST "https://<host>/webhooks/<workflow_id>/<secret>/wait?unwrap=true" \
+  -H "Content-Type: application/json" \
+  -d '{"alert_id": "A-001"}'
+# 200 OK
+# {"status": "ok"}
+```
+
+If the workflow returns a result larger than the externalization threshold:
+
+```json
+{
+  "detail": {
+    "kind": "download_file",
+    "download_url": "https://...",
+    "expires_in_seconds": 10,
+    "content_type": "application/json",
+    "size_bytes": 262144
+  }
+}
+```
 
 ## Slack event subscriptions
 

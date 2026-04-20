@@ -21914,6 +21914,17 @@ export const $WaitResultOutput = {
   ],
 } as const
 
+export const $WaitResultUnwrapOverflowResponse = {
+  properties: {
+    detail: {
+      $ref: "#/components/schemas/WebhookStoredObjectDownloadResponse",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "WaitResultUnwrapOverflowResponse",
+} as const
+
 export const $WaitStrategy = {
   type: "string",
   enum: ["wait", "detach"],
