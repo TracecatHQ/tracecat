@@ -33,6 +33,14 @@ from tracecat.contexts import ctx_role
 
 TRACECAT_TEMPORAL_ENCODING: Final[bytes] = b"binary/tracecat-aes256gcm"
 TRACECAT_TEMPORAL_GLOBAL_SCOPE: Final[str] = "__global__"
+_TRACECAT_TEMPORAL_ENCRYPTION_METADATA_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "tracecat_original_encoding",
+        "tracecat_workspace_id",
+        "tracecat_key_id",
+        "tracecat_nonce",
+    }
+)
 
 
 class TemporalPayloadCodecError(RuntimeError):
@@ -391,6 +399,30 @@ class EncryptionPayloadCodec(PayloadCodec):
             return str(role.workspace_id)
         return TRACECAT_TEMPORAL_GLOBAL_SCOPE
 
+    @staticmethod
+    def _build_aad(
+        *,
+        workspace_id: str,
+        key_id: str,
+        original_encoding: bytes,
+    ) -> bytes:
+        """Build authenticated data for encrypted payload metadata."""
+        parts = (
+            workspace_id.encode("utf-8"),
+            key_id.encode("utf-8"),
+            TRACECAT_TEMPORAL_ENCODING,
+            original_encoding,
+        )
+        return b"".join(len(part).to_bytes(4, "big") + part for part in parts)
+
+    @staticmethod
+    def _has_encryption_metadata(payload: Payload) -> bool:
+        """Return whether payload metadata looks like Tracecat encrypted metadata."""
+        return any(
+            key in payload.metadata
+            for key in _TRACECAT_TEMPORAL_ENCRYPTION_METADATA_KEYS
+        )
+
     async def encode(self, payloads: Iterable[Payload]) -> list[Payload]:
         """Encrypt payloads."""
         if not self.enabled:
@@ -409,7 +441,11 @@ class EncryptionPayloadCodec(PayloadCodec):
 
             try:
                 nonce = os.urandom(12)
-                aad = b"|".join((workspace_id.encode("utf-8"), key_id.encode("utf-8")))
+                aad = self._build_aad(
+                    workspace_id=workspace_id,
+                    key_id=key_id,
+                    original_encoding=encoding,
+                )
                 ciphertext = aesgcm.encrypt(nonce, payload.data, aad)
                 metadata = dict(payload.metadata)
                 metadata.update(
@@ -439,6 +475,10 @@ class EncryptionPayloadCodec(PayloadCodec):
         result: list[Payload] = []
         async for payload in cooperative(payloads):
             if payload.metadata.get("encoding", b"") != TRACECAT_TEMPORAL_ENCODING:
+                if self._has_encryption_metadata(payload):
+                    raise TemporalPayloadCodecError(
+                        "Encrypted Temporal payload has an invalid encoding marker"
+                    )
                 result.append(payload)
                 continue
 
@@ -460,9 +500,18 @@ class EncryptionPayloadCodec(PayloadCodec):
                     raise TemporalPayloadCodecError(
                         "Encrypted Temporal payload is missing its nonce"
                     )
+                original_encoding = payload.metadata.get("tracecat_original_encoding")
+                if original_encoding is None:
+                    raise TemporalPayloadCodecError(
+                        "Encrypted Temporal payload is missing its original encoding"
+                    )
 
                 aesgcm = AESGCM(await self.keyring.get_key(workspace_id, key_id))
-                aad = b"|".join((workspace_id.encode("utf-8"), key_id.encode("utf-8")))
+                aad = self._build_aad(
+                    workspace_id=workspace_id,
+                    key_id=key_id,
+                    original_encoding=original_encoding,
+                )
                 plaintext = aesgcm.decrypt(
                     base64.urlsafe_b64decode(nonce_b64),
                     payload.data,
@@ -472,18 +521,9 @@ class EncryptionPayloadCodec(PayloadCodec):
                 metadata = {
                     key: value
                     for key, value in payload.metadata.items()
-                    if key
-                    not in {
-                        "encoding",
-                        "tracecat_original_encoding",
-                        "tracecat_workspace_id",
-                        "tracecat_key_id",
-                        "tracecat_nonce",
-                    }
+                    if key not in _TRACECAT_TEMPORAL_ENCRYPTION_METADATA_KEYS
+                    and key != "encoding"
                 }
-                original_encoding = payload.metadata.get(
-                    "tracecat_original_encoding", b""
-                )
                 if original_encoding:
                     metadata["encoding"] = original_encoding
                 result.append(Payload(metadata=metadata, data=plaintext))
