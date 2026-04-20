@@ -12,16 +12,20 @@ These tests verify the fix for the regression where:
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     PlatformRegistryRepository,
     PlatformRegistryVersion,
+    Tier,
 )
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.service import RegistryLockService
+from tracecat.tiers import defaults as tier_defaults
 from tracecat.webhooks.dependencies import DraftWorkflowContext
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -74,6 +78,33 @@ async def _setup_platform_registry(
     await session.commit()
 
     return version
+
+
+async def _ensure_default_tier(session: AsyncSession) -> Tier:
+    """Create the default tier required by multi-tenant entitlement checks."""
+    existing_default_tier = await session.scalar(
+        select(Tier).where(Tier.is_default.is_(True), Tier.is_active.is_(True))
+    )
+    if existing_default_tier is not None:
+        return existing_default_tier
+
+    default_tier = Tier(
+        display_name="Default",
+        entitlements=tier_defaults.DEFAULT_ENTITLEMENTS.model_dump(),
+        is_default=True,
+        sort_order=0,
+        is_active=True,
+    )
+    session.add(default_tier)
+    await session.commit()
+    return default_tier
+
+
+@pytest.fixture(autouse=True)
+async def registry_lock_prereqs(session: AsyncSession) -> None:
+    """Seed prerequisites required by workflow creation in current backend code."""
+    await _ensure_default_tier(session)
+    await _setup_platform_registry(session, [], DEFAULT_REGISTRY_ORIGIN)
 
 
 def _create_dsl_with_action(action_name: str, title: str = "Test Workflow") -> DSLInput:
