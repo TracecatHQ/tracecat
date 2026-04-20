@@ -1122,21 +1122,32 @@ class ChildWorkflowMemo(BaseModel):
 
     @staticmethod
     async def from_temporal(memo: temporalio.api.common.v1.Memo) -> ChildWorkflowMemo:
-        decoded_fields = dict(
-            zip(
-                memo.fields,
-                await decode_payloads(list(memo.fields.values())),
-                strict=False,
-            )
-        )
+        decoded_fields: dict[str, temporalio.api.common.v1.Payload] = {}
+        for key, value in memo.fields.items():
+            try:
+                decoded_fields[key] = (await decode_payloads([value]))[0]
+            except Exception as e:
+                logger.warning(
+                    "Error decoding child workflow memo field",
+                    error=e,
+                    key=key,
+                    encoding=value.metadata.get("encoding", b"").decode(
+                        "utf-8", errors="replace"
+                    ),
+                    payload_size_bytes=len(value.data),
+                )
         try:
             action_ref = orjson.loads(decoded_fields["action_ref"].data)
         except Exception as e:
             logger.warning("Error parsing child workflow memo action ref", error=e)
             action_ref = "Unknown Child Workflow"
-        if loop_index_data := decoded_fields["loop_index"].data:
-            loop_index = orjson.loads(loop_index_data)
-        else:
+        try:
+            if loop_index_data := decoded_fields["loop_index"].data:
+                loop_index = orjson.loads(loop_index_data)
+            else:
+                loop_index = None
+        except Exception as e:
+            logger.warning("Error parsing child workflow memo loop index", error=e)
             loop_index = None
         try:
             wait_strategy = WaitStrategy(
