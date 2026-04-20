@@ -6,6 +6,7 @@ import os
 from collections.abc import Iterable, Sequence
 from functools import cache
 from threading import Lock
+from time import monotonic
 from typing import Final, Self
 
 import boto3
@@ -86,6 +87,7 @@ class TemporalPayloadKeyring(BaseModel):
 
 _KEYRING_LOCK = Lock()
 _KEYRING_CACHE: TemporalPayloadKeyring | None = None
+_KEYRING_CACHE_EXPIRES_AT = 0.0
 
 
 class CompressionPayloadCodec(PayloadCodec):
@@ -286,23 +288,35 @@ class TemporalEncryptionKeyring:
         )
 
     async def _retrieve_keyring(self) -> TemporalPayloadKeyring:
-        global _KEYRING_CACHE
+        global _KEYRING_CACHE, _KEYRING_CACHE_EXPIRES_AT
+        now = monotonic()
         with _KEYRING_LOCK:
             if _KEYRING_CACHE is not None:
-                return _KEYRING_CACHE
+                if now < _KEYRING_CACHE_EXPIRES_AT:
+                    return _KEYRING_CACHE
+                _KEYRING_CACHE = None
+                _KEYRING_CACHE_EXPIRES_AT = 0.0
 
         if arn := config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN:
             keyring = await asyncio.to_thread(self._retrieve_keyring_from_aws, arn)
             with _KEYRING_LOCK:
-                if _KEYRING_CACHE is None:
+                now = monotonic()
+                if _KEYRING_CACHE is None or now >= _KEYRING_CACHE_EXPIRES_AT:
                     _KEYRING_CACHE = keyring
+                    _KEYRING_CACHE_EXPIRES_AT = (
+                        now + config.TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS
+                    )
                 return _KEYRING_CACHE
 
         if keyring_json := config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING:
             keyring = self._parse_keyring(keyring_json)
             with _KEYRING_LOCK:
-                if _KEYRING_CACHE is None:
+                now = monotonic()
+                if _KEYRING_CACHE is None or now >= _KEYRING_CACHE_EXPIRES_AT:
                     _KEYRING_CACHE = keyring
+                    _KEYRING_CACHE_EXPIRES_AT = (
+                        now + config.TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS
+                    )
                 return _KEYRING_CACHE
 
         raise TemporalPayloadCodecError(
@@ -533,6 +547,7 @@ async def decode_payloads(payloads: Sequence[Payload]) -> list[Payload]:
 
 
 def reset_temporal_payload_secret_cache() -> None:
-    global _KEYRING_CACHE
+    global _KEYRING_CACHE, _KEYRING_CACHE_EXPIRES_AT
     with _KEYRING_LOCK:
         _KEYRING_CACHE = None
+        _KEYRING_CACHE_EXPIRES_AT = 0.0

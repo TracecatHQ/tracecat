@@ -496,6 +496,36 @@ async def test_keyring_cache_expires_stale_entries(
 
 
 @pytest.mark.anyio
+async def test_keyring_secret_cache_refreshes_after_ttl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keyring secret cache reloads rotated keyring configuration after TTL expiry."""
+    monkeypatch.setattr(
+        config,
+        "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING",
+        _keyring_json(
+            current_key_id="v1",
+            keys={"v1": "unit-test-root-key-v1", "v2": "unit-test-root-key-v2"},
+        ),
+    )
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS", 0)
+
+    keyring = TemporalEncryptionKeyring()
+    assert await keyring.get_current_key_id() == "v1"
+
+    monkeypatch.setattr(
+        config,
+        "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING",
+        _keyring_json(
+            current_key_id="v2",
+            keys={"v1": "unit-test-root-key-v1", "v2": "unit-test-root-key-v2"},
+        ),
+    )
+
+    assert await keyring.get_current_key_id() == "v2"
+
+
+@pytest.mark.anyio
 async def test_keyring_rotation_keeps_old_payloads_decodable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
