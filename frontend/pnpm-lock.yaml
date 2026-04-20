@@ -26,11 +26,11 @@ overrides:
   jest-util@29.7.0>picomatch: 2.3.2
   jest-util@30.2.0>picomatch: 4.0.4
   minimatch>brace-expansion: 5.0.5
-  emblor>class-variance-authority: 0.7.1
-  emblor>clsx: 2.1.1
-  emblor>tailwind-merge: 3.5.0
+  class-variance-authority: 0.7.1
+  clsx: 2.1.1
+  tailwind-merge: 3.5.0
   defu: 6.1.5
-  axios>follow-redirects: 1.16.0
+  follow-redirects: 1.16.0
 
 importers:
 
