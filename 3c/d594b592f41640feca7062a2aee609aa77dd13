@@ -1,0 +1,41 @@
+packages/tracecat-ee/tracecat_ee/agent/workflows/durable.py
+  fb80b35e2225f683 435-436
+  10a6b9fcec6fb5f5 418-429,431-434,437
+tests/unit/test_agent_activities.py
+  fb80b35e2225f683 11,15-17,25,36,40,95-142
+packages/tracecat-ee/tracecat_ee/agent/activities.py
+  fb80b35e2225f683 12,30,208-218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "3cd594b592f41640feca7062a2aee609aa77dd13",
+  "prompts": {
+    "10a6b9fcec6fb5f5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d9b85-ff79-7f60-8773-8a3de4f80789",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 26,
+      "total_deletions": 14,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    },
+    "fb80b35e2225f683": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dab0b-4761-7752-825c-0b731043b1c5",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 600,
+      "total_deletions": 543,
+      "accepted_lines": 559,
+      "overriden_lines": 0
+    }
+  }
+}
