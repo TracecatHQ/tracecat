@@ -312,28 +312,6 @@ export type AdminUserRead = {
 }
 
 /**
- * List catalog entries with pagination.
- */
-export type AgentCatalogListResponse = {
-  items: Array<AgentCatalogRead>
-  next_cursor?: string | null
-}
-
-/**
- * Single catalog model entry.
- */
-export type AgentCatalogRead = {
-  id: string
-  custom_provider_id: string | null
-  organization_id: string | null
-  model_provider: string
-  model_name: string
-  model_metadata: {
-    [key: string]: unknown
-  } | null
-}
-
-/**
  * Request schema for creating an external channel token.
  */
 export type AgentChannelTokenCreate = {
