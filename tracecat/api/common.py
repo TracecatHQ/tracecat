@@ -1,4 +1,4 @@
-from fastapi import Request, Response, status
+from fastapi import HTTPException, Request, Response, status
 from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from sqlalchemy import select
@@ -36,6 +36,29 @@ def generic_exception_handler(request: Request, exc: Exception) -> Response:
     return ORJSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"message": "An unexpected error occurred. Please try again later."},
+    )
+
+
+def http_exception_handler(request: Request, exc: Exception) -> Response:
+    """Log HTTP exceptions with tenant context for observability."""
+    if not isinstance(exc, HTTPException):
+        return ORJSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": str(exc)},
+        )
+    role = ctx_role.get()
+    log_method = logger.warning if exc.status_code < 500 else logger.error
+    log_method(
+        "HTTP error",
+        status_code=exc.status_code,
+        detail=exc.detail,
+        path=request.url.path,
+        method=request.method,
+        role=role,
+    )
+    return ORJSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
     )
 
 
