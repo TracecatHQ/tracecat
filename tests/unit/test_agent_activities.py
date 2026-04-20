@@ -8,17 +8,14 @@ These tests cover:
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import orjson
 import pytest
 from temporalio.exceptions import ApplicationError
 from tracecat_ee.agent import activities as agent_activities
 from tracecat_ee.agent.activities import AgentActivities, BuildToolDefsArgs
 
-from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.executor.activity import (
@@ -43,6 +40,7 @@ from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.registry.lock.service import RegistryLockService
 
 
 @pytest.fixture
@@ -126,7 +124,7 @@ class TestBuildToolDefinitionsActivity:
             agent_activities, "build_agent_tools", mock_build_agent_tools
         )
         monkeypatch.setattr(
-            agent_activities.RegistryLockService,
+            RegistryLockService,
             "with_session",
             lambda: _AsyncContext(),
         )
@@ -592,37 +590,3 @@ class TestSandboxedAgentExecutorHelpers:
         assert payload.mcp_auth_token == executor_input.mcp_auth_token
         assert payload.llm_gateway_auth_token == executor_input.llm_gateway_auth_token
         assert payload.config.model_name == executor_input.config.model_name
-
-    @pytest.mark.anyio
-    async def test_write_runtime_init_payload_round_trip(
-        self,
-        executor_input: AgentExecutorInput,
-        tmp_path: Path,
-    ) -> None:
-        executor = SandboxedAgentExecutor(input=executor_input)
-        executor._job_dir = tmp_path
-        payload = executor._build_runtime_init_payload()
-
-        init_path = await executor._write_runtime_init_payload(payload)
-
-        assert init_path == tmp_path / SandboxedAgentExecutor.INIT_PAYLOAD_FILENAME
-        round_trip = RuntimeInitPayload.from_dict(orjson.loads(init_path.read_bytes()))
-        assert round_trip.to_dict() == payload.to_dict()
-
-    @pytest.mark.anyio
-    async def test_write_runtime_init_payload_rejects_oversized_payload(
-        self,
-        executor_input: AgentExecutorInput,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        executor = SandboxedAgentExecutor(input=executor_input)
-        executor._job_dir = tmp_path
-        payload = executor._build_runtime_init_payload()
-        monkeypatch.setattr(
-            "tracecat.agent.executor.activity.MAX_PAYLOAD_SIZE",
-            1,
-        )
-
-        with pytest.raises(AgentSandboxExecutionError, match="exceeds max size"):
-            await executor._write_runtime_init_payload(payload)

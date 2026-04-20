@@ -166,7 +166,7 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
         patch.object(workflow_instance, "_build_config", AsyncMock(return_value=cfg)),
         patch.object(
             workflow_instance,
-            "_run_with_nsjail",
+            "_run_with_agent_executor",
             AsyncMock(return_value=expected_output),
         ) as run_mock,
     ):

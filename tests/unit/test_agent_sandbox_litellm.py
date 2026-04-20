@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import uuid
-from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import cast
 
 import orjson
 import pytest
@@ -12,12 +9,15 @@ import pytest
 import tracecat.agent.executor.activity as executor_activity
 import tracecat.agent.sandbox.entrypoint as sandbox_entrypoint
 from tracecat.agent.common.protocol import RuntimeInitPayload
-from tracecat.agent.common.socket_io import MessageType
 from tracecat.agent.common.types import SandboxAgentConfig
-from tracecat.agent.executor.activity import AgentExecutorInput, SandboxedAgentExecutor
+from tracecat.agent.executor.activity import (
+    AgentExecutorInput,
+    AgentExecutorResult,
+    SandboxedAgentExecutor,
+)
 from tracecat.agent.executor.loopback import LoopbackResult
+from tracecat.agent.runtime.claude_code.broker import ClaudeTurnRequest
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME
-from tracecat.agent.sandbox.nsjail import SpawnedRuntime
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 
@@ -61,44 +61,97 @@ def _make_passthrough_executor_input(
 class _FakeLoopbackHandler:
     def __init__(self, input: object) -> None:
         self.input = input
+        self.prepared = False
+
+    async def prepare(self) -> None:
+        self.prepared = True
 
     async def handle_connection(self, reader: object, writer: object) -> LoopbackResult:
         del reader, writer
+        return LoopbackResult(success=True)
+
+    def build_result(self) -> LoopbackResult:
         return LoopbackResult(success=True)
 
     async def emit_terminal_error(self, error_msg: str) -> None:
         raise AssertionError(f"unexpected terminal error: {error_msg}")
 
 
-class _FakeServer:
-    async def __aenter__(self) -> _FakeServer:
-        return self
+class _FakeBroker:
+    def __init__(self) -> None:
+        self.requests: list[ClaudeTurnRequest] = []
+        self.cancelled_session_ids: list[str] = []
 
-    async def __aexit__(
+    async def run_turn(
         self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: object,
-    ) -> bool:
-        del exc_type, exc, tb
-        return False
+        request: ClaudeTurnRequest,
+        handler: _FakeLoopbackHandler,
+    ) -> None:
+        self.requests.append(request)
+        await handler.prepare()
+
+    async def cancel_turn(self, session_id: str) -> None:
+        self.cancelled_session_ids.append(session_id)
 
 
-class _FakeProcess:
-    pid = 12345
-    returncode = 0
+class _FakeProxy:
+    def __init__(self) -> None:
+        self.started = False
+        self.stopped = False
 
-    async def communicate(self) -> tuple[bytes, bytes]:
-        return b"", b""
+    async def start(self) -> None:
+        self.started = True
 
-    async def wait(self) -> int:
-        return 0
+    async def stop(self) -> None:
+        self.stopped = True
 
-    def terminate(self) -> None:
-        self.returncode = 0
 
-    def kill(self) -> None:
-        self.returncode = -9
+async def _run_executor_with_fake_broker(
+    *,
+    executor_input: AgentExecutorInput,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[AgentExecutorResult, list[Path], _FakeProxy, _FakeBroker]:
+    monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
+
+    created_socket_paths: list[Path] = []
+    fake_proxy = _FakeProxy()
+    fake_broker = _FakeBroker()
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        del self
+        socket_dir = tmp_path / "sockets"
+        socket_dir.mkdir(parents=True)
+        return tmp_path
+
+    def fake_create_llm_socket_proxy(
+        self: SandboxedAgentExecutor,
+        socket_path: Path,
+    ) -> _FakeProxy:
+        del self
+        created_socket_paths.append(socket_path)
+        return fake_proxy
+
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_llm_socket_proxy",
+        fake_create_llm_socket_proxy,
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "get_claude_runtime_broker",
+        lambda: fake_broker,
+    )
+
+    executor = SandboxedAgentExecutor(input=executor_input)
+    result = await executor.run()
+
+    return result, created_socket_paths, fake_proxy, fake_broker
 
 
 @pytest.mark.anyio
@@ -107,79 +160,26 @@ async def test_executor_always_starts_llm_socket_proxy(
     tmp_path: Path,
 ) -> None:
     """The executor always creates the LLM socket proxy, even with internet access enabled."""
-    monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
-
-    created_socket_paths: list[Path] = []
-
-    class _FakeProxy:
-        started = False
-        stopped = False
-
-        async def start(self) -> None:
-            self.started = True
-
-        async def stop(self) -> None:
-            self.stopped = True
-
-    fake_proxy = _FakeProxy()
-
-    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
-        socket_dir = tmp_path / "sockets"
-        socket_dir.mkdir(parents=True)
-        return tmp_path
-
-    async def fake_start_unix_server(
-        callback: Callable[[object, object], Awaitable[None]],
-        path: str,
-    ) -> _FakeServer:
-        del path
-        await callback(object(), object())
-        return _FakeServer()
-
-    async def fake_spawn_jailed_runtime(**kwargs: object) -> SpawnedRuntime:
-        assert kwargs["llm_socket_path"] == tmp_path / "sockets" / LLM_SOCKET_NAME
-        return SpawnedRuntime(
-            process=cast(asyncio.subprocess.Process, _FakeProcess()),
-            job_dir=None,
-        )
-
-    def fake_create_llm_socket_proxy(
-        self: SandboxedAgentExecutor,
-        socket_path: Path,
-    ) -> _FakeProxy:
-        created_socket_paths.append(socket_path)
-        return fake_proxy
-
-    monkeypatch.setattr(
-        SandboxedAgentExecutor,
-        "_create_job_directory",
-        fake_create_job_directory,
+    (
+        result,
+        created_socket_paths,
+        fake_proxy,
+        fake_broker,
+    ) = await _run_executor_with_fake_broker(
+        executor_input=_make_executor_input(enable_internet_access=True),
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
     )
-    monkeypatch.setattr(
-        executor_activity.asyncio,
-        "start_unix_server",
-        fake_start_unix_server,
-    )
-    monkeypatch.setattr(
-        executor_activity,
-        "spawn_jailed_runtime",
-        fake_spawn_jailed_runtime,
-    )
-    monkeypatch.setattr(
-        SandboxedAgentExecutor,
-        "_create_llm_socket_proxy",
-        fake_create_llm_socket_proxy,
-    )
-
-    executor = SandboxedAgentExecutor(
-        input=_make_executor_input(enable_internet_access=True),
-    )
-    result = await executor.run()
 
     assert result.success is True
     assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
     assert fake_proxy.started is True
     assert fake_proxy.stopped is True
+    assert len(fake_broker.requests) == 1
+    assert fake_broker.requests[0].llm_socket_path == (
+        tmp_path / "sockets" / LLM_SOCKET_NAME
+    )
+    assert fake_broker.requests[0].enable_internet_access is True
 
 
 @pytest.mark.anyio
@@ -187,79 +187,26 @@ async def test_executor_starts_llm_socket_proxy_for_isolated_passthrough_runs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
-
-    created_socket_paths: list[Path] = []
-
-    class _FakeProxy:
-        started = False
-        stopped = False
-
-        async def start(self) -> None:
-            self.started = True
-
-        async def stop(self) -> None:
-            self.stopped = True
-
-    fake_proxy = _FakeProxy()
-
-    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
-        socket_dir = tmp_path / "sockets"
-        socket_dir.mkdir(parents=True)
-        return tmp_path
-
-    async def fake_start_unix_server(
-        callback: Callable[[object, object], Awaitable[None]],
-        path: str,
-    ) -> _FakeServer:
-        del path
-        await callback(object(), object())
-        return _FakeServer()
-
-    async def fake_spawn_jailed_runtime(**kwargs: object) -> SpawnedRuntime:
-        assert kwargs["llm_socket_path"] == tmp_path / "sockets" / LLM_SOCKET_NAME
-        return SpawnedRuntime(
-            process=cast(asyncio.subprocess.Process, _FakeProcess()),
-            job_dir=None,
-        )
-
-    def fake_create_llm_socket_proxy(
-        self: SandboxedAgentExecutor,
-        socket_path: Path,
-    ) -> _FakeProxy:
-        created_socket_paths.append(socket_path)
-        return fake_proxy
-
-    monkeypatch.setattr(
-        SandboxedAgentExecutor,
-        "_create_job_directory",
-        fake_create_job_directory,
+    (
+        result,
+        created_socket_paths,
+        fake_proxy,
+        fake_broker,
+    ) = await _run_executor_with_fake_broker(
+        executor_input=_make_executor_input(enable_internet_access=False),
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
     )
-    monkeypatch.setattr(
-        executor_activity.asyncio,
-        "start_unix_server",
-        fake_start_unix_server,
-    )
-    monkeypatch.setattr(
-        executor_activity,
-        "spawn_jailed_runtime",
-        fake_spawn_jailed_runtime,
-    )
-    monkeypatch.setattr(
-        SandboxedAgentExecutor,
-        "_create_llm_socket_proxy",
-        fake_create_llm_socket_proxy,
-    )
-
-    executor = SandboxedAgentExecutor(
-        input=_make_executor_input(enable_internet_access=False),
-    )
-    result = await executor.run()
 
     assert result.success is True
     assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
     assert fake_proxy.started is True
     assert fake_proxy.stopped is True
+    assert len(fake_broker.requests) == 1
+    assert fake_broker.requests[0].llm_socket_path == (
+        tmp_path / "sockets" / LLM_SOCKET_NAME
+    )
+    assert fake_broker.requests[0].enable_internet_access is False
 
 
 @pytest.mark.anyio
@@ -267,79 +214,26 @@ async def test_executor_starts_llm_socket_proxy_for_passthrough_provider_with_in
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(executor_activity, "LoopbackHandler", _FakeLoopbackHandler)
-
-    created_socket_paths: list[Path] = []
-
-    class _FakeProxy:
-        started = False
-        stopped = False
-
-        async def start(self) -> None:
-            self.started = True
-
-        async def stop(self) -> None:
-            self.stopped = True
-
-    fake_proxy = _FakeProxy()
-
-    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
-        socket_dir = tmp_path / "sockets"
-        socket_dir.mkdir(parents=True)
-        return tmp_path
-
-    async def fake_start_unix_server(
-        callback: Callable[[object, object], Awaitable[None]],
-        path: str,
-    ) -> _FakeServer:
-        del path
-        await callback(object(), object())
-        return _FakeServer()
-
-    async def fake_spawn_jailed_runtime(**kwargs: object) -> SpawnedRuntime:
-        assert kwargs["llm_socket_path"] == tmp_path / "sockets" / LLM_SOCKET_NAME
-        return SpawnedRuntime(
-            process=cast(asyncio.subprocess.Process, _FakeProcess()),
-            job_dir=None,
-        )
-
-    def fake_create_llm_socket_proxy(
-        self: SandboxedAgentExecutor,
-        socket_path: Path,
-    ) -> _FakeProxy:
-        created_socket_paths.append(socket_path)
-        return fake_proxy
-
-    monkeypatch.setattr(
-        SandboxedAgentExecutor,
-        "_create_job_directory",
-        fake_create_job_directory,
+    (
+        result,
+        created_socket_paths,
+        fake_proxy,
+        fake_broker,
+    ) = await _run_executor_with_fake_broker(
+        executor_input=_make_passthrough_executor_input(enable_internet_access=True),
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
     )
-    monkeypatch.setattr(
-        executor_activity.asyncio,
-        "start_unix_server",
-        fake_start_unix_server,
-    )
-    monkeypatch.setattr(
-        executor_activity,
-        "spawn_jailed_runtime",
-        fake_spawn_jailed_runtime,
-    )
-    monkeypatch.setattr(
-        SandboxedAgentExecutor,
-        "_create_llm_socket_proxy",
-        fake_create_llm_socket_proxy,
-    )
-
-    executor = SandboxedAgentExecutor(
-        input=_make_passthrough_executor_input(enable_internet_access=True),
-    )
-    result = await executor.run()
 
     assert result.success is True
     assert created_socket_paths == [tmp_path / "sockets" / LLM_SOCKET_NAME]
     assert fake_proxy.started is True
     assert fake_proxy.stopped is True
+    assert len(fake_broker.requests) == 1
+    assert fake_broker.requests[0].llm_socket_path == (
+        tmp_path / "sockets" / LLM_SOCKET_NAME
+    )
+    assert fake_broker.requests[0].enable_internet_access is True
 
 
 class _DummySocketStreamWriter:
@@ -376,8 +270,18 @@ class _RecordingSocketStreamWriter:
 class _DummyRuntime:
     last_payload: RuntimeInitPayload | None = None
 
-    def __init__(self, socket_writer: object) -> None:
+    def __init__(
+        self,
+        socket_writer: object,
+        *,
+        session_home_dir: Path | None = None,
+        cwd: Path | None = None,
+        cwd_setup_path: Path | None = None,
+    ) -> None:
         self.socket_writer = socket_writer
+        self.session_home_dir = session_home_dir
+        self.cwd = cwd
+        self.cwd_setup_path = cwd_setup_path
 
     async def run(self, payload: RuntimeInitPayload) -> None:
         type(self).last_payload = payload
@@ -404,6 +308,7 @@ class _DummyBridge:
 @pytest.mark.anyio
 async def test_sandbox_entrypoint_starts_bridge_for_passthrough_provider_with_internet_enabled(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("TRACECAT__LITELLM_BASE_URL", "http://litellm:4000")
     monkeypatch.delenv("TRACECAT__LLM_BRIDGE_PORT", raising=False)
@@ -422,19 +327,13 @@ async def test_sandbox_entrypoint_starts_bridge_for_passthrough_provider_with_in
             enable_internet_access=True,
         ),
     )
+    init_path = tmp_path / "init.json"
+    init_path.write_bytes(orjson.dumps(payload.to_dict()))
+    monkeypatch.setenv(sandbox_entrypoint.INIT_PAYLOAD_ENV_VAR, str(init_path))
 
     async def fake_open_unix_connection(path: Path) -> tuple[object, object]:
         assert path == sandbox_entrypoint.TRACECAT__AGENT_CONTROL_SOCKET_PATH
         return object(), object()
-
-    async def fake_read_message(
-        reader: object,
-        *,
-        expected_type: MessageType,
-    ) -> tuple[MessageType, bytes]:
-        del reader
-        assert expected_type is MessageType.INIT
-        return expected_type, orjson.dumps(payload.to_dict())
 
     monkeypatch.setattr(
         sandbox_entrypoint.asyncio,
@@ -446,7 +345,6 @@ async def test_sandbox_entrypoint_starts_bridge_for_passthrough_provider_with_in
         "SocketStreamWriter",
         _DummySocketStreamWriter,
     )
-    monkeypatch.setattr(sandbox_entrypoint, "read_message", fake_read_message)
     monkeypatch.setattr(sandbox_entrypoint, "LLMBridge", _DummyBridge)
     monkeypatch.setattr(sandbox_entrypoint, "_load_runtime", lambda _: _DummyRuntime)
 

@@ -12,7 +12,6 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-import orjson
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 
@@ -24,7 +23,6 @@ from tracecat.agent.common.config import (
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
 from tracecat.agent.common.protocol import RuntimeInitPayload
-from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
 from tracecat.agent.executor.loopback import (
@@ -36,22 +34,12 @@ from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
 )
-from tracecat.agent.runtime.claude_code.session_paths import (
-    build_claude_sandbox_path_mapping,
-)
 from tracecat.agent.runtime_services import get_claude_runtime_broker
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
-from tracecat.agent.sandbox.nsjail import (
-    SpawnedRuntime,
-    cleanup_spawned_runtime,
-    spawn_jailed_runtime,
-)
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
-from tracecat.feature_flags import is_feature_enabled
-from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 
@@ -134,12 +122,12 @@ class ExecuteApprovedToolsResult(BaseModel):
 
 @dataclass
 class SandboxedAgentExecutor:
-    """Executes agent in NSJail sandbox.
+    """Executes an agent turn through the worker-global runtime broker.
 
     This executor:
     1. Creates a job directory with Unix sockets
-    2. Spawns the NSJail process
-    3. Uses LoopbackHandler to communicate with runtime
+    2. Starts the host-side LLM proxy
+    3. Dispatches the turn to the runtime broker
     4. Cleans up on completion
     """
 
@@ -151,15 +139,6 @@ class SandboxedAgentExecutor:
 
     # Internal state
     _job_dir: Path | None = field(default=None, init=False, repr=False)
-    _process: asyncio.subprocess.Process | None = field(
-        default=None, init=False, repr=False
-    )
-    _spawned_runtime: SpawnedRuntime | None = field(
-        default=None, init=False, repr=False
-    )
-    _loopback_result: asyncio.Future[LoopbackResult] | None = field(
-        default=None, init=False, repr=False
-    )
     _llm_proxy: LLMSocketProxy | None = field(default=None, init=False, repr=False)
     _fatal_error: str | None = field(default=None, init=False, repr=False)
     _fatal_error_event: asyncio.Event = field(
@@ -168,9 +147,7 @@ class SandboxedAgentExecutor:
     _turn_started_at: float = field(
         default_factory=perf_counter, init=False, repr=False
     )
-    _execution_path: str = field(default="legacy", init=False, repr=False)
-
-    INIT_PAYLOAD_FILENAME = "init.json"
+    _execution_path: str = field(default="broker", init=False, repr=False)
 
     def _log_benchmark_phase(self, phase: str, **extra: object) -> None:
         """Emit a temporary structured benchmark log for this turn."""
@@ -231,45 +208,13 @@ class SandboxedAgentExecutor:
             is_fork=self.input.is_fork,
         )
 
-    async def _write_runtime_init_payload(self, payload: RuntimeInitPayload) -> Path:
-        """Write the runtime init payload atomically into the job directory."""
-        if self._job_dir is None:
-            raise RuntimeError("Job directory must exist before writing init payload")
-
-        init_path = self._job_dir / self.INIT_PAYLOAD_FILENAME
-        temp_path = init_path.with_suffix(".tmp")
-        payload_bytes = orjson.dumps(payload.to_dict())
-        if len(payload_bytes) > MAX_PAYLOAD_SIZE:
-            raise AgentSandboxExecutionError(
-                "Runtime init payload exceeds max size "
-                f"({len(payload_bytes)} > {MAX_PAYLOAD_SIZE} bytes)"
-            )
-
-        def _write() -> None:
-            temp_path.write_bytes(payload_bytes)
-            temp_path.replace(init_path)
-
-        await asyncio.to_thread(_write)
-        logger.debug(
-            "Wrote runtime init payload",
-            init_path=str(init_path),
-            payload_size=len(payload_bytes),
-            session_id=self.input.session_id,
-        )
-        return init_path
-
     async def run(self) -> AgentExecutorResult:
-        """Execute the agent in an NSJail sandbox.
+        """Execute the agent through the brokered runtime.
 
         Returns:
             AgentExecutorResult with success status and any session updates.
         """
         result = AgentExecutorResult(success=False)
-        self._execution_path = (
-            "broker"
-            if is_feature_enabled(FeatureFlag.AGENT_SANDBOX_BROKER)
-            else "legacy"
-        )
         self._log_benchmark_phase("activity_start")
 
         try:
@@ -294,16 +239,7 @@ class SandboxedAgentExecutor:
             llm_socket_path = socket_dir / LLM_SOCKET_NAME
             self._llm_proxy = self._create_llm_socket_proxy(llm_socket_path)
 
-            if is_feature_enabled(FeatureFlag.AGENT_SANDBOX_BROKER):
-                await self._run_with_broker(
-                    result=result,
-                    handler=handler,
-                    init_payload=init_payload,
-                    socket_dir=socket_dir,
-                    llm_socket_path=llm_socket_path,
-                )
-                return result
-            await self._run_with_nsjail(
+            await self._run_with_broker(
                 result=result,
                 handler=handler,
                 init_payload=init_payload,
@@ -428,286 +364,6 @@ class SandboxedAgentExecutor:
                     with contextlib.suppress(asyncio.CancelledError):
                         await task
 
-    async def _run_with_nsjail(
-        self,
-        *,
-        result: AgentExecutorResult,
-        handler: LoopbackHandler,
-        init_payload: RuntimeInitPayload,
-        socket_dir: Path,
-        llm_socket_path: Path,
-    ) -> None:
-        """Execute the Claude turn through the legacy socket-based sandbox path."""
-        self._loopback_result = asyncio.get_running_loop().create_future()
-
-        async def connection_callback(
-            reader: asyncio.StreamReader,
-            writer: asyncio.StreamWriter,
-        ) -> None:
-            """Callback for Unix socket server."""
-            logger.debug("Connection callback started")
-            try:
-                loopback_result = await handler.handle_connection(reader, writer)
-                logger.info(
-                    "Loopback handler completed",
-                    success=loopback_result.success,
-                    error=loopback_result.error,
-                    approval_requested=loopback_result.approval_requested,
-                )
-                if self._loopback_result and not self._loopback_result.done():
-                    self._loopback_result.set_result(loopback_result)
-                    logger.debug("Future result set")
-                else:
-                    logger.warning(
-                        "Future already done or None",
-                        future_done=self._loopback_result.done()
-                        if self._loopback_result
-                        else None,
-                    )
-            except Exception as e:
-                logger.exception("Connection callback error", error=str(e))
-                if self._loopback_result and not self._loopback_result.done():
-                    self._loopback_result.set_exception(e)
-
-        control_socket_path = socket_dir / "control.sock"
-        logger.info(
-            "Starting control socket server",
-            socket_path=str(control_socket_path),
-        )
-
-        async def start_control_socket_server() -> asyncio.Server:
-            server = await asyncio.start_unix_server(
-                connection_callback,
-                path=str(control_socket_path),
-            )
-            control_socket_path.chmod(0o600)
-            return server
-
-        async def start_llm_proxy() -> None:
-            if self._llm_proxy is None:
-                raise RuntimeError("LLM proxy must exist before startup")
-            await self._llm_proxy.start()
-            logger.info(
-                "Started LLM socket proxy",
-                socket_path=str(llm_socket_path),
-            )
-
-        server_task: asyncio.Task[asyncio.Server] | None = None
-        try:
-            async with asyncio.TaskGroup() as tg:
-                init_payload_task = tg.create_task(
-                    self._write_runtime_init_payload(init_payload)
-                )
-                llm_proxy_task = tg.create_task(start_llm_proxy())
-                server_task = tg.create_task(start_control_socket_server())
-        except* Exception:
-            if (
-                server_task is not None
-                and server_task.done()
-                and not server_task.cancelled()
-            ):
-                with contextlib.suppress(Exception):
-                    server = server_task.result()
-                    server.close()
-                    await server.wait_closed()
-            raise
-
-        init_payload_path = init_payload_task.result()
-        _ = llm_proxy_task.result()
-        server = server_task.result()
-        self._log_benchmark_phase(
-            "legacy_runtime_bootstrap_ready",
-            init_payload_path=str(init_payload_path),
-        )
-
-        async with server:
-            self._log_benchmark_phase("legacy_sandbox_spawn_start")
-            path_mapping = build_claude_sandbox_path_mapping(
-                session_id=str(init_payload.session_id),
-                disable_nsjail=TRACECAT__DISABLE_NSJAIL,
-            )
-            runtime_result = await spawn_jailed_runtime(
-                socket_dir=socket_dir,
-                llm_socket_path=llm_socket_path,
-                init_payload_path=init_payload_path,
-                session_home_dir=path_mapping.host_home_dir,
-                session_project_dir=path_mapping.host_project_dir,
-                enable_internet_access=init_payload.config.enable_internet_access,
-            )
-            self._spawned_runtime = runtime_result
-            self._process = runtime_result.process
-            self._log_benchmark_phase(
-                "legacy_sandbox_spawned",
-                pid=self._process.pid,
-            )
-            logger.info(
-                "Agent runtime process spawned",
-                pid=self._process.pid,
-                session_id=self.input.session_id,
-                mode="direct" if TRACECAT__DISABLE_NSJAIL else "nsjail",
-            )
-
-            heartbeat_interval = 30
-            elapsed = 0
-
-            async def wait_fatal_error() -> str:
-                await self._fatal_error_event.wait()
-                return self._fatal_error or "Unknown LLM error"
-
-            fatal_error_task = asyncio.create_task(wait_fatal_error())
-
-            async def wait_process_exit() -> tuple[int, str]:
-                if self._process is None:
-                    return -1, "Process not started"
-                _, stderr_bytes = await self._process.communicate()
-                stderr = (
-                    stderr_bytes.decode("utf-8", errors="replace")
-                    if stderr_bytes
-                    else ""
-                )
-                return self._process.returncode or 0, stderr
-
-            process_exit_task = asyncio.create_task(wait_process_exit())
-
-            try:
-                while elapsed < self.timeout_seconds:
-                    done, _ = await asyncio.wait(
-                        [
-                            asyncio.ensure_future(
-                                asyncio.shield(self._loopback_result)
-                            ),
-                            fatal_error_task,
-                            process_exit_task,
-                        ],
-                        timeout=heartbeat_interval,
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-
-                    if not done:
-                        elapsed += heartbeat_interval
-                        activity.heartbeat(
-                            f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
-                        )
-                        logger.debug(
-                            "Heartbeat sent, continuing to wait",
-                            elapsed=elapsed,
-                            timeout=self.timeout_seconds,
-                        )
-                        continue
-
-                    if fatal_error_task in done:
-                        error_msg = fatal_error_task.result()
-                        logger.error(
-                            "Fatal LLM error detected, terminating agent",
-                            error=error_msg,
-                        )
-                        result.error = error_msg
-                        if self._process and self._process.returncode is None:
-                            self._process.kill()
-                        await handler.emit_terminal_error(error_msg)
-                        break
-
-                    if process_exit_task in done and not self._loopback_result.done():
-                        returncode, stderr = process_exit_task.result()
-                        if returncode == 0:
-                            logger.warning(
-                                "Runtime exited before loopback future was ready; waiting briefly",
-                                returncode=returncode,
-                                session_id=self.input.session_id,
-                            )
-                            try:
-                                loopback_result = await asyncio.wait_for(
-                                    asyncio.shield(self._loopback_result),
-                                    timeout=5.0,
-                                )
-                            except TimeoutError:
-                                error_msg = (
-                                    "Runtime exited cleanly but loopback result "
-                                    "was not received"
-                                )
-                                logger.error(
-                                    "Missing loopback result after clean runtime exit",
-                                    returncode=returncode,
-                                    session_id=self.input.session_id,
-                                )
-                                result.error = error_msg
-                                await handler.emit_terminal_error(error_msg)
-                                break
-
-                            logger.info(
-                                "Loopback result received after clean runtime exit",
-                                success=loopback_result.success,
-                                error=loopback_result.error,
-                            )
-                            self._apply_loopback_result(result, loopback_result)
-                            self._log_benchmark_phase(
-                                "legacy_activity_complete",
-                                success=result.success,
-                                approval_requested=result.approval_requested,
-                            )
-                            break
-
-                        if stderr:
-                            stderr_tail = (
-                                stderr[-4000:] if len(stderr) > 4000 else stderr
-                            )
-                            logger.error(
-                                "Runtime process stderr (tail)",
-                                stderr=stderr_tail,
-                            )
-                        error_msg = (
-                            f"Runtime process exited with code {returncode} "
-                            f"before connecting. stderr: {stderr[-1000:] if stderr else 'empty'}"
-                        )
-                        logger.error(
-                            "Runtime process crashed",
-                            returncode=returncode,
-                            stderr_tail=stderr[-500:] if stderr else None,
-                        )
-                        result.error = error_msg
-                        await handler.emit_terminal_error(error_msg)
-                        break
-
-                    loopback_result = self._loopback_result.result()
-                    logger.info(
-                        "Loopback result received",
-                        success=loopback_result.success,
-                        error=loopback_result.error,
-                    )
-                    self._apply_loopback_result(result, loopback_result)
-                    self._log_benchmark_phase(
-                        "legacy_activity_complete",
-                        success=result.success,
-                        approval_requested=result.approval_requested,
-                    )
-                    break
-                else:
-                    logger.error("Agent execution timed out waiting for loopback")
-                    result.error = (
-                        f"Agent execution timed out after {self.timeout_seconds}s"
-                    )
-                    await handler.emit_terminal_error(result.error)
-
-            except asyncio.CancelledError:
-                logger.error(
-                    "Loopback future was cancelled",
-                    future_done=self._loopback_result.done()
-                    if self._loopback_result
-                    else None,
-                    future_cancelled=self._loopback_result.cancelled()
-                    if self._loopback_result
-                    else None,
-                )
-                raise
-            finally:
-                for task in [fatal_error_task, process_exit_task]:
-                    if not task.done():
-                        task.cancel()
-                        try:
-                            await task
-                        except asyncio.CancelledError:
-                            pass
-
     async def _create_job_directory(self) -> Path:
         """Create a temporary job directory with socket subdirectory."""
         job_id = str(self.input.session_id)[:12]
@@ -730,16 +386,6 @@ class SandboxedAgentExecutor:
 
     async def _cleanup(self) -> None:
         """Clean up resources after execution."""
-        # Terminate process if still running
-        if self._process and self._process.returncode is None:
-            logger.warning("Terminating agent runtime process")
-            self._process.terminate()
-            try:
-                await asyncio.wait_for(self._process.wait(), timeout=5.0)
-            except TimeoutError:
-                self._process.kill()
-                await self._process.wait()
-
         # Stop LLM socket proxy
         if self._llm_proxy:
             try:
@@ -747,13 +393,6 @@ class SandboxedAgentExecutor:
             except Exception as e:
                 logger.warning("Failed to stop LLM proxy", error=str(e))
             self._llm_proxy = None
-
-        if self._spawned_runtime:
-            try:
-                cleanup_spawned_runtime(self._spawned_runtime)
-            except Exception as e:
-                logger.warning("Failed to clean up spawned runtime", error=str(e))
-            self._spawned_runtime = None
 
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():
@@ -772,16 +411,15 @@ class SandboxedAgentExecutor:
 async def run_agent_activity(
     input: AgentExecutorInput,
 ) -> AgentExecutorResult:
-    """Temporal activity that runs the agent in a sandbox (or direct subprocess for testing).
+    """Temporal activity that runs one brokered agent turn.
 
     This activity:
     1. Creates a SandboxedAgentExecutor
-    2. Runs the agent (in nsjail sandbox or direct subprocess depending on config)
+    2. Dispatches the turn through the worker-global runtime broker
     3. Returns the result with session updates
 
-    When TRACECAT__DISABLE_NSJAIL=true, the agent is run as a direct subprocess
-    without nsjail isolation. This is useful for testing on platforms without
-    nsjail (macOS, Windows, CI environments).
+    The broker-owned transport decides whether the runtime shim runs with nsjail
+    or as a direct subprocess based on TRACECAT__DISABLE_NSJAIL.
 
     The activity is designed to be retryable - if it fails due to transient
     errors, Temporal will retry it. Session state is persisted on success
