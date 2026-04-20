@@ -61,11 +61,6 @@ data "aws_secretsmanager_secret" "temporal_payload_encryption_key" {
   arn   = var.temporal_payload_encryption_key_arn
 }
 
-data "aws_secretsmanager_secret" "user_auth_secret" {
-  count = var.user_auth_secret_arn != null ? 1 : 0
-  arn   = var.user_auth_secret_arn
-}
-
 data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
   count = var.saml_idp_metadata_url_arn != null ? 1 : 0
   arn   = var.saml_idp_metadata_url_arn
