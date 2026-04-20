@@ -43,19 +43,6 @@ def upgrade() -> None:
         ),
         sa.Column("encrypted_config", sa.LargeBinary(), nullable=True),
         sa.Column("api_key_header", sa.String(length=120), nullable=True),
-        sa.Column(
-            "discovery_status",
-            sa.Enum(
-                "never",
-                "running",
-                "succeeded",
-                "failed",
-                name="agentcustomproviderdiscoverystatus",
-                native_enum=False,
-            ),
-            server_default=sa.text("'never'"),
-            nullable=False,
-        ),
         sa.Column("last_refreshed_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
         sa.Column(

@@ -47,7 +47,6 @@ from sqlalchemy.orm import (
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.agent.types import AgentCustomProviderDiscoveryStatus
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScopeSource
@@ -82,15 +81,6 @@ CASE_TASK_STATUS_ENUM = Enum(CaseTaskStatus, name="casetaskstatus")
 INTERACTION_STATUS_ENUM = Enum(InteractionStatus, name="interactionstatus")
 APPROVAL_STATUS_ENUM = Enum(ApprovalStatus, name="approvalstatus")
 INVITATION_STATUS_ENUM = Enum(InvitationStatus, name="invitationstatus")
-AGENT_CUSTOM_PROVIDER_DISCOVERY_STATUS_ENUM = Enum(
-    AgentCustomProviderDiscoveryStatus,
-    name="agentcustomproviderdiscoverystatus",
-    native_enum=False,
-    values_callable=lambda statuses: [status.value for status in statuses],
-    validate_strings=True,
-)
-
-
 # Naming convention for constraints so Alembic can generate deterministic names
 # See: https://alembic.sqlalchemy.org/en/latest/naming.html
 NAMING_CONVENTION: dict[str, str] = {
@@ -2582,12 +2572,6 @@ class AgentCustomProvider(OrganizationModel):
     )
     encrypted_config: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     api_key_header: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    discovery_status: Mapped[AgentCustomProviderDiscoveryStatus] = mapped_column(
-        AGENT_CUSTOM_PROVIDER_DISCOVERY_STATUS_ENUM,
-        nullable=False,
-        default=AgentCustomProviderDiscoveryStatus.NEVER,
-        server_default=text("'never'"),
-    )
     last_refreshed_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
