@@ -666,7 +666,7 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
 
 
 @app.get("/health", tags=["public"])
-def check_health() -> HealthResponse:
+async def check_health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
