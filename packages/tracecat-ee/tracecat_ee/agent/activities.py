@@ -9,6 +9,7 @@ from pydantic import (
     BaseModel,
 )
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
@@ -26,6 +27,7 @@ from tracecat.agent.tools import build_agent_tools
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
 from tracecat.contexts import ctx_role
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
@@ -203,10 +205,17 @@ class AgentActivities:
             for name in defs.keys()
             if not name.startswith("mcp__") and not name.startswith("internal.")
         }
-        async with RegistryLockService.with_session() as lock_service:
-            registry_lock = await lock_service.resolve_lock_with_bindings(
-                registry_action_names
-            )
+        try:
+            async with RegistryLockService.with_session() as lock_service:
+                registry_lock = await lock_service.resolve_lock_with_bindings(
+                    registry_action_names
+                )
+        except BuiltinRegistryHasNoSelectionError as e:
+            raise ApplicationError(
+                str(e),
+                e.detail,
+                type=e.__class__.__name__,
+            ) from e
 
         return BuildToolDefsResult(
             tool_definitions=defs,

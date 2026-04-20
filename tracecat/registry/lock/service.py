@@ -13,8 +13,13 @@ from tracecat.db.models import (
     RegistryVersion,
 )
 from tracecat.dsl.enums import PlatformAction
-from tracecat.exceptions import EntitlementRequired, RegistryError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    EntitlementRequired,
+    RegistryError,
+)
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.service import BaseOrgService
@@ -188,13 +193,33 @@ class RegistryLockService(BaseOrgService):
                         if step.action not in actions:
                             queue.append(step.action)
 
-        # Only keep origins that are actually needed for the resolved actions.
+        # Only keep origins needed for resolved actions. Always include the
+        # builtin platform registry — tracecat_registry is a runtime dependency
+        # for every action (decorators, secrets, context, SDK helpers imported
+        # from it), so its tarball must always be mounted in the ephemeral
+        # nsjail sandbox. Use the platform version because artifact lookup
+        # treats tracecat_registry as platform-scoped; an org override would miss.
         used_origins = set(actions.values())
-        origins = {
-            origin: version
-            for origin, version in origins.items()
-            if origin in used_origins
-        }
+        origins = {o: v for o, v in origins.items() if o in used_origins}
+        builtin_version = next(
+            (
+                str(version)
+                for origin, version, _ in platform_rows
+                if origin == DEFAULT_REGISTRY_ORIGIN
+            ),
+            None,
+        )
+        if builtin_version is None:
+            self.logger.info(
+                "Platform registry has no selected version; builtin lock resolution is pending sync",
+                origin=DEFAULT_REGISTRY_ORIGIN,
+            )
+            raise BuiltinRegistryHasNoSelectionError(
+                "Builtin registry sync is still in progress. Please retry shortly.",
+                detail={"origin": DEFAULT_REGISTRY_ORIGIN},
+            )
+
+        origins[DEFAULT_REGISTRY_ORIGIN] = builtin_version
 
         self.logger.debug(
             "Resolved lock with bindings",

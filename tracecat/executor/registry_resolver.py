@@ -222,7 +222,8 @@ async def prefetch_lock(lock: RegistryLock, organization_id: OrganizationID) -> 
         _get_manifest_entry(origin, version, organization_id)
         for origin, version in lock.origins.items()
     ]
-    await asyncio.gather(*tasks)
+    if tasks:
+        await asyncio.gather(*tasks)
 
     logger.debug(
         "Prefetched registry lock",

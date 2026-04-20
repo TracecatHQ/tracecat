@@ -415,21 +415,26 @@ class DurableAgentWorkflow:
 
         # Resolve tool definitions and registry lock from registry
         # Also discovers user MCP tools if configured
-        build_result = await workflow.execute_activity_method(
-            AgentActivities.build_tool_definitions,
-            arg=BuildToolDefsArgs(
-                role=self.role,
-                tool_filters=ToolFilters(
-                    namespaces=cfg.namespaces,
-                    actions=cfg.actions,
+        try:
+            build_result = await workflow.execute_activity_method(
+                AgentActivities.build_tool_definitions,
+                arg=BuildToolDefsArgs(
+                    role=self.role,
+                    tool_filters=ToolFilters(
+                        namespaces=cfg.namespaces,
+                        actions=cfg.actions,
+                    ),
+                    tool_approvals=cfg.tool_approvals,
+                    mcp_servers=cfg.mcp_servers,
+                    internal_tool_context=internal_tool_context,
                 ),
-                tool_approvals=cfg.tool_approvals,
-                mcp_servers=cfg.mcp_servers,
-                internal_tool_context=internal_tool_context,
-            ),
-            start_to_close_timeout=timedelta(seconds=120),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
+                start_to_close_timeout=timedelta(seconds=120),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as e:
+            if isinstance(e.cause, ApplicationError):
+                raise e.cause from e
+            raise
         allowed_actions = build_result.tool_definitions
         self._registry_lock = build_result.registry_lock
         user_mcp_claims = build_result.user_mcp_claims
