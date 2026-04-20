@@ -3514,18 +3514,17 @@ wheels = [
 
 [[package]]
 name = "pytest"
-version = "9.0.3"
+version = "8.3.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "colorama", marker = "sys_platform == 'win32'" },
     { name = "iniconfig" },
     { name = "packaging" },
     { name = "pluggy" },
-    { name = "pygments" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/0d/549bd94f1a0a402dc8cf64563a117c0f3765662e2e668477624baeec44d5/pytest-9.0.3.tar.gz", hash = "sha256:b86ada508af81d19edeb213c681b1d48246c1a91d304c6c81a427674c17eb91c", size = 1572165, upload-time = "2026-04-07T17:16:18.027Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b4/8c/9862305bdcd6020bc7b45b1b5e7397a6caf1a33d3025b9a003b39075ffb2/pytest-8.3.2.tar.gz", hash = "sha256:c132345d12ce551242c87269de812483f5bcc87cdbb4722e48487ba194f9fdce", size = 1439314, upload-time = "2024-07-25T10:40:00.159Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d4/24/a372aaf5c9b7208e7112038812994107bc65a84cd00e0354a88c2c77a617/pytest-9.0.3-py3-none-any.whl", hash = "sha256:2c5efc453d45394fdd706ade797c0a81091eccd1d6e4bccfcd476e2b8e0ab5d9", size = 375249, upload-time = "2026-04-07T17:16:16.13Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/f9/cf155cf32ca7d6fa3601bc4c5dd19086af4b320b706919d48a4c79081cf9/pytest-8.3.2-py3-none-any.whl", hash = "sha256:4ba08f9ae7dcf84ded419494d229b48d0903ea6407b030eaec46df5e6a73bba5", size = 341802, upload-time = "2024-07-25T10:39:57.834Z" },
 ]
 
 [[package]]
@@ -4518,7 +4517,7 @@ dev = [
     { name = "basedpyright", specifier = "==1.37.1" },
     { name = "pre-commit", specifier = "==4.1.0" },
     { name = "psycopg", specifier = "==3.1.19" },
-    { name = "pytest", specifier = "==9.0.3" },
+    { name = "pytest", specifier = "==8.3.2" },
     { name = "pytest-benchmark", specifier = "==5.2.3" },
     { name = "pytest-mock", specifier = "==3.14.0" },
     { name = "pytest-repeat", specifier = "==0.9.3" },
