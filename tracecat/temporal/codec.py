@@ -97,6 +97,7 @@ class TemporalPayloadKeyring(BaseModel):
 _KEYRING_LOCK = Lock()
 _KEYRING_CACHE: TemporalPayloadKeyring | None = None
 _KEYRING_CACHE_EXPIRES_AT = 0.0
+_KEYRING_CACHE_GENERATION = 0
 
 
 class CompressionPayloadCodec(PayloadCodec):
@@ -265,7 +266,7 @@ class TemporalEncryptionKeyring:
     """Derive and cache workspace-scoped Temporal payload keys."""
 
     def __init__(self) -> None:
-        self._cache: TTLCache[tuple[str, str], bytes] = TTLCache(
+        self._cache: TTLCache[tuple[str, str, int], bytes] = TTLCache(
             maxsize=config.TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS,
             ttl=config.TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS,
         )
@@ -308,12 +309,12 @@ class TemporalEncryptionKeyring:
             "Temporal payload encryption keyring secret is empty"
         )
 
-    async def _retrieve_keyring(self) -> TemporalPayloadKeyring:
-        global _KEYRING_CACHE, _KEYRING_CACHE_EXPIRES_AT
+    async def _retrieve_keyring(self) -> tuple[TemporalPayloadKeyring, int]:
+        global _KEYRING_CACHE, _KEYRING_CACHE_EXPIRES_AT, _KEYRING_CACHE_GENERATION
         now = monotonic()
         with _KEYRING_LOCK:
             if _KEYRING_CACHE is not None and now < _KEYRING_CACHE_EXPIRES_AT:
-                return _KEYRING_CACHE
+                return _KEYRING_CACHE, _KEYRING_CACHE_GENERATION
 
         arn = config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN
         keyring_json = config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING
@@ -335,25 +336,25 @@ class TemporalEncryptionKeyring:
                             "using cached keyring",
                             error=type(e).__name__,
                         )
-                        return _KEYRING_CACHE
+                        return _KEYRING_CACHE, _KEYRING_CACHE_GENERATION
             raise
 
         with _KEYRING_LOCK:
             now = monotonic()
             if _KEYRING_CACHE is not None and now < _KEYRING_CACHE_EXPIRES_AT:
-                return _KEYRING_CACHE
+                return _KEYRING_CACHE, _KEYRING_CACHE_GENERATION
             _KEYRING_CACHE = keyring
             _KEYRING_CACHE_EXPIRES_AT = (
                 now + config.TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS
             )
-            return _KEYRING_CACHE
+            _KEYRING_CACHE_GENERATION += 1
+            return _KEYRING_CACHE, _KEYRING_CACHE_GENERATION
 
-    async def _root_secret_for_key_id(self, key_id: str) -> bytes:
-        keyring = await self._retrieve_keyring()
-        return keyring.root_secret_for_key_id(key_id)
-
-    async def _derive_key(self, workspace_id: str, key_id: str) -> bytes:
-        root_secret = await self._root_secret_for_key_id(key_id)
+    @staticmethod
+    def _derive_key(
+        workspace_id: str, key_id: str, keyring: TemporalPayloadKeyring
+    ) -> bytes:
+        root_secret = keyring.root_secret_for_key_id(key_id)
         salt = f"tracecat-temporal-payload:{key_id}".encode()
         info = workspace_id.encode("utf-8")
         hkdf = HKDF(
@@ -366,16 +367,18 @@ class TemporalEncryptionKeyring:
 
     async def get_current_key_id(self) -> str:
         """Return the current Temporal payload key id for new encryptions."""
-        return (await self._retrieve_keyring()).current_key_id
+        keyring, _generation = await self._retrieve_keyring()
+        return keyring.current_key_id
 
     async def get_key(self, workspace_id: str, key_id: str) -> bytes:
         """Return the derived encryption key for a workspace and key id."""
-        cache_key = (workspace_id, key_id)
+        keyring, generation = await self._retrieve_keyring()
+        cache_key = (workspace_id, key_id, generation)
         with self._lock:
             if (key := self._cache.get(cache_key)) is not None:
                 return key
 
-        key = await self._derive_key(workspace_id, key_id)
+        key = self._derive_key(workspace_id, key_id, keyring)
         with self._lock:
             if (cached := self._cache.get(cache_key)) is not None:
                 return cached
@@ -604,7 +607,8 @@ async def decode_payloads(payloads: Sequence[Payload]) -> list[Payload]:
 
 
 def reset_temporal_payload_secret_cache() -> None:
-    global _KEYRING_CACHE, _KEYRING_CACHE_EXPIRES_AT
+    global _KEYRING_CACHE, _KEYRING_CACHE_EXPIRES_AT, _KEYRING_CACHE_GENERATION
     with _KEYRING_LOCK:
         _KEYRING_CACHE = None
         _KEYRING_CACHE_EXPIRES_AT = 0.0
+        _KEYRING_CACHE_GENERATION += 1

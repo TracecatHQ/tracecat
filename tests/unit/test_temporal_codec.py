@@ -678,6 +678,41 @@ async def test_keyring_secret_cache_refreshes_after_ttl(
 
 
 @pytest.mark.anyio
+async def test_keyring_revalidates_derived_keys_after_secret_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Derived keys are not reused after the backing keyring refreshes."""
+    monkeypatch.setattr(
+        config,
+        "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING",
+        _keyring_json(
+            current_key_id="v1",
+            keys={"v1": "unit-test-root-key-v1", "v2": "unit-test-root-key-v2"},
+        ),
+    )
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS", 3600)
+
+    keyring = TemporalEncryptionKeyring()
+    await keyring.get_key("ws-1", "v1")
+
+    monkeypatch.setattr(
+        config,
+        "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING",
+        _keyring_json(
+            current_key_id="v2",
+            keys={"v2": "unit-test-root-key-v2"},
+        ),
+    )
+    monkeypatch.setattr(temporal_codec, "_KEYRING_CACHE_EXPIRES_AT", 0.0)
+
+    with pytest.raises(
+        TemporalPayloadCodecError,
+        match="keyring does not contain the requested key id",
+    ):
+        await keyring.get_key("ws-1", "v1")
+
+
+@pytest.mark.anyio
 async def test_keyring_rotation_keeps_old_payloads_decodable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
