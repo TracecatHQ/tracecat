@@ -1,0 +1,27 @@
+tests/unit/test_workflow_executions.py
+  7a90caad148eb060 22-23,25,211-212,246,678-679,787-788,874-875,1192-1193,1712-1713,1733,1740-1782,1802,1809-1810,1824
+tracecat/workflow/executions/schemas.py
+  7a90caad148eb060 19,25,508-571,616,633-644,646
+tracecat/workflow/executions/service.py
+  7a90caad148eb060 638,700,981,1023,1127,1207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "bf3901fe04310bfbcbdb85efb80bf9c6e2e09e29",
+  "prompts": {
+    "7a90caad148eb060": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db0bd-df35-7973-b4af-4a02077751e9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 150,
+      "total_deletions": 22,
+      "accepted_lines": 150,
+      "overriden_lines": 0
+    }
+  }
+}
