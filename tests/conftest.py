@@ -16,7 +16,6 @@ os.environ.setdefault("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
 import aioboto3
 import pytest
 import redis
-import tracecat_registry
 import tracecat_registry.integrations.aws_boto3 as boto3_module
 from dotenv import load_dotenv
 from minio import Minio
@@ -980,18 +979,6 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
             ):
                 platform_repo.current_version_id = platform_rv.id
                 session.commit()
-            elif _should_wait_for_live_platform_current(
-                sync_db_uri,
-                current_version=current_platform_version.version
-                if current_platform_version is not None
-                else None,
-            ):
-                _wait_for_live_platform_current(
-                    session,
-                    platform_repo.id,
-                    fixture_version=version,
-                    fixture_tarball_uri=fake_tarball_uri,
-                )
 
             # Create PlatformRegistryIndex entries for each action in the manifest
             # This is required for get_actions_from_index to work in agent tools
@@ -1058,113 +1045,17 @@ def _should_select_fixture_platform_current(
     *,
     current_version: str | None,
     fixture_version: str,
-    executor_backend: str | None = None,
 ) -> bool:
     """Return whether the fixture platform version should be current.
 
-    The fake fixture tarball is safe as the selected version in the isolated
-    per-test DB and in TestBackend-only runs. The shared/default DB may also be
-    used by live executor services, so real executor paths must not get a fake
-    current selection when the real builtin registry has not synced yet.
+    The fake fixture tarball is safe as the selected version when no platform
+    current exists yet. The shared/default DB may also be used by live executor
+    services, so preserve any existing live current selection instead of
+    clobbering it with the fixture version.
     """
-    executor_backend = executor_backend or config.TRACECAT__EXECUTOR_BACKEND
     if sync_db_uri == TEST_DB_CONFIG.test_url_sync:
         return True
-    if current_version == fixture_version:
-        return True
-    return current_version is None and executor_backend == "test"
-
-
-def _should_wait_for_live_platform_current(
-    sync_db_uri: str,
-    *,
-    current_version: str | None,
-    executor_backend: str | None = None,
-) -> bool:
-    """Return whether a shared DB should wait for API startup registry sync."""
-    executor_backend = executor_backend or config.TRACECAT__EXECUTOR_BACKEND
-    return (
-        sync_db_uri != TEST_DB_CONFIG.test_url_sync
-        and current_version is None
-        and executor_backend != "test"
-    )
-
-
-def _is_live_platform_current(
-    *,
-    version: str | None,
-    tarball_uri: str | None,
-    expected_version: str,
-    fixture_version: str,
-    fixture_tarball_uri: str,
-) -> bool:
-    """Return whether the selected platform version is the real synced builtin."""
-    return (
-        version == expected_version
-        and version != fixture_version
-        and tarball_uri is not None
-        and tarball_uri != fixture_tarball_uri
-    )
-
-
-def _wait_for_live_platform_current(
-    session,
-    repository_id: uuid.UUID,
-    *,
-    fixture_version: str,
-    fixture_tarball_uri: str,
-    timeout_seconds: float = 90.0,
-    poll_seconds: float = 0.5,
-) -> None:
-    """Wait for the API startup sync to select the real builtin registry.
-
-    CI starts API and pytest concurrently. The fixture must not promote its fake
-    tarball in the shared DB, but tests should also not race lock resolution
-    while the real platform sync is still packaging the builtin registry.
-    """
-    expected_version = tracecat_registry.__version__
-    deadline = time.monotonic() + timeout_seconds
-
-    while True:
-        current_version = session.scalar(
-            select(PlatformRegistryVersion)
-            .join(
-                PlatformRegistryRepository,
-                PlatformRegistryRepository.current_version_id
-                == PlatformRegistryVersion.id,
-            )
-            .where(PlatformRegistryRepository.id == repository_id)
-        )
-        if _is_live_platform_current(
-            version=current_version.version if current_version is not None else None,
-            tarball_uri=current_version.tarball_uri
-            if current_version is not None
-            else None,
-            expected_version=expected_version,
-            fixture_version=fixture_version,
-            fixture_tarball_uri=fixture_tarball_uri,
-        ):
-            logger.info(
-                "Live platform registry current version is ready",
-                version=current_version.version,
-                tarball_uri=current_version.tarball_uri,
-            )
-            return
-
-        if time.monotonic() >= deadline:
-            logger.warning(
-                "Timed out waiting for live platform registry current version",
-                expected_version=expected_version,
-                current_version=current_version.version
-                if current_version is not None
-                else None,
-                tarball_uri=current_version.tarball_uri
-                if current_version is not None
-                else None,
-            )
-            return
-
-        time.sleep(poll_seconds)
+    return current_version is None or current_version == fixture_version
 
 
 @pytest.fixture(scope="function")
