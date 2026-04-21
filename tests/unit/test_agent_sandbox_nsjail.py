@@ -28,7 +28,6 @@ async def test_spawn_direct_runtime_sets_explicit_claude_session_paths(
             socket_dir=tmp_path / "sockets",
             llm_socket_path=tmp_path / "sockets" / "llm.sock",
             init_payload_path=tmp_path / "init.json",
-            entrypoint_module="tracecat.agent.sandbox.entrypoint",
             control_socket_required=True,
             pipe_stdin=False,
             session_home_dir=session_home_dir,
@@ -36,6 +35,9 @@ async def test_spawn_direct_runtime_sets_explicit_claude_session_paths(
         )
 
     assert create_subprocess_exec.await_args is not None
+    cmd = create_subprocess_exec.await_args.args
+    assert cmd[0].endswith("python")
+    assert cmd[1].endswith("tracecat/agent/sandbox/shim_entrypoint.py")
     env = create_subprocess_exec.await_args.kwargs["env"]
     assert env["HOME"] == str(session_home_dir)
     assert env[SESSION_HOME_ENV_VAR] == str(session_home_dir)

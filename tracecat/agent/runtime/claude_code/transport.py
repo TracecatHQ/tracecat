@@ -40,7 +40,6 @@ class ClaudeShimInitPayload(TypedDict):
 class SandboxedCLITransport(Transport):
     """Claude SDK transport that runs the Claude CLI inside the sandbox shim."""
 
-    ENTRYPOINT_MODULE = "tracecat.agent.sandbox.shim_entrypoint"
     JAILED_SITE_PACKAGES_ROOT = Path("/site-packages")
     _MAX_BUFFER_SIZE = 1024 * 1024
 
@@ -113,7 +112,6 @@ class SandboxedCLITransport(Transport):
             socket_dir=self._socket_dir,
             init_payload_path=init_payload_path,
             llm_socket_path=self._llm_socket_path,
-            entrypoint_module=self.ENTRYPOINT_MODULE,
             control_socket_required=False,
             pipe_stdin=True,
             job_dir=self._job_dir,

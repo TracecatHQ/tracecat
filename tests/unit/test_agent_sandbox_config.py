@@ -15,7 +15,6 @@ def test_build_agent_nsjail_config_mounts_stable_claude_session_dirs() -> None:
         socket_dir=Path("/tmp/agent-job/sockets"),
         config=AgentSandboxConfig(),
         site_packages_dir=Path("/app/.venv/lib/python3.12/site-packages"),
-        tracecat_pkg_dir=Path("/app/tracecat"),
         llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
         session_home_dir=Path("/tmp/tracecat-agent-session/claude-home"),
         session_project_dir=Path("/tmp/tracecat-agent-session/claude-project"),
@@ -32,7 +31,6 @@ def test_build_agent_nsjail_config_can_skip_control_socket_mount() -> None:
         socket_dir=Path("/tmp/agent-job/sockets"),
         config=AgentSandboxConfig(),
         site_packages_dir=Path("/app/.venv/lib/python3.12/site-packages"),
-        tracecat_pkg_dir=Path("/app/tracecat"),
         llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
         mount_control_socket=False,
     )
@@ -47,10 +45,7 @@ def test_build_agent_nsjail_config_uses_reduced_broker_shim_mounts() -> None:
         socket_dir=Path("/tmp/agent-job/sockets"),
         config=AgentSandboxConfig(),
         site_packages_dir=Path("/app/.venv/lib/python3.12/site-packages"),
-        tracecat_pkg_dir=Path("/app/tracecat"),
         llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
-        entrypoint_module="tracecat.agent.sandbox.shim_entrypoint",
-        entrypoint_script_path="/work/shim_entrypoint.py",
         mount_control_socket=False,
     )
 
