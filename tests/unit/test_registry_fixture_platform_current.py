@@ -19,6 +19,16 @@ def test_fixture_platform_current_is_not_selected_for_empty_default_db() -> None
         "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
         current_version=None,
         fixture_version="test-version",
+        executor_backend="direct",
+    )
+
+
+def test_fixture_platform_current_is_selected_for_test_backend_default_db() -> None:
+    assert _should_select_fixture_platform_current(
+        "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
+        current_version=None,
+        fixture_version="test-version",
+        executor_backend="test",
     )
 
 
@@ -27,6 +37,7 @@ def test_fixture_platform_current_is_reselected_when_already_current() -> None:
         "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
         current_version="test-version",
         fixture_version="test-version",
+        executor_backend="direct",
     )
 
 
@@ -35,13 +46,23 @@ def test_fixture_platform_current_preserves_live_default_current() -> None:
         "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
         current_version="1.0.0-beta.40",
         fixture_version="test-version",
+        executor_backend="test",
     )
 
 
-def test_fixture_waits_for_empty_default_db_current() -> None:
+def test_fixture_waits_for_empty_default_db_current_with_real_executor() -> None:
     assert _should_wait_for_live_platform_current(
         "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
         current_version=None,
+        executor_backend="direct",
+    )
+
+
+def test_fixture_does_not_wait_for_test_backend_default_db_current() -> None:
+    assert not _should_wait_for_live_platform_current(
+        "postgresql+psycopg://postgres:postgres@localhost:5432/postgres",
+        current_version=None,
+        executor_backend="test",
     )
 
 
@@ -49,6 +70,7 @@ def test_fixture_does_not_wait_for_per_test_db_current() -> None:
     assert not _should_wait_for_live_platform_current(
         TEST_DB_CONFIG.test_url_sync,
         current_version=None,
+        executor_backend="direct",
     )
 
 

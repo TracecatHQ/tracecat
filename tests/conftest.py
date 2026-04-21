@@ -1058,26 +1058,36 @@ def _should_select_fixture_platform_current(
     *,
     current_version: str | None,
     fixture_version: str,
+    executor_backend: str | None = None,
 ) -> bool:
     """Return whether the fixture platform version should be current.
 
-    The fake fixture tarball is safe as the selected version only in the isolated
-    per-test DB. The shared/default DB may be used by live API and executor
-    services, so it must not get a fake current selection when the real builtin
-    registry has not synced yet.
+    The fake fixture tarball is safe as the selected version in the isolated
+    per-test DB and in TestBackend-only runs. The shared/default DB may also be
+    used by live executor services, so real executor paths must not get a fake
+    current selection when the real builtin registry has not synced yet.
     """
+    executor_backend = executor_backend or config.TRACECAT__EXECUTOR_BACKEND
     if sync_db_uri == TEST_DB_CONFIG.test_url_sync:
         return True
-    return current_version == fixture_version
+    if current_version == fixture_version:
+        return True
+    return current_version is None and executor_backend == "test"
 
 
 def _should_wait_for_live_platform_current(
     sync_db_uri: str,
     *,
     current_version: str | None,
+    executor_backend: str | None = None,
 ) -> bool:
     """Return whether a shared DB should wait for API startup registry sync."""
-    return sync_db_uri != TEST_DB_CONFIG.test_url_sync and current_version is None
+    executor_backend = executor_backend or config.TRACECAT__EXECUTOR_BACKEND
+    return (
+        sync_db_uri != TEST_DB_CONFIG.test_url_sync
+        and current_version is None
+        and executor_backend != "test"
+    )
 
 
 def _is_live_platform_current(

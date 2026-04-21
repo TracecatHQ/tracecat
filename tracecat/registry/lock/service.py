@@ -63,7 +63,7 @@ class RegistryLockService(BaseOrgService):
             RegistryError: If an action is not found in any registry or is ambiguous
             RegistryError: If a repository has no current_version_id set
         """
-        # 1. Query platform registries via current_version_id
+        # Query platform registries via current_version_id.
         platform_statement = (
             select(
                 PlatformRegistryRepository.origin,
@@ -82,7 +82,25 @@ class RegistryLockService(BaseOrgService):
         platform_result = await self.session.execute(platform_statement)
         platform_rows = platform_result.tuples().all()
 
-        # 2. Query org registries via current_version_id
+        builtin_version = next(
+            (
+                str(version)
+                for origin, version, _ in platform_rows
+                if origin == DEFAULT_REGISTRY_ORIGIN
+            ),
+            None,
+        )
+        if builtin_version is None:
+            self.logger.info(
+                "Platform registry has no selected version; builtin lock resolution is pending sync",
+                origin=DEFAULT_REGISTRY_ORIGIN,
+            )
+            raise BuiltinRegistryHasNoSelectionError(
+                "Builtin registry sync is still in progress. Please retry shortly.",
+                detail={"origin": DEFAULT_REGISTRY_ORIGIN},
+            )
+
+        # Query org registries via current_version_id.
         org_statement = (
             select(
                 RegistryRepository.origin,
@@ -111,14 +129,14 @@ class RegistryLockService(BaseOrgService):
                 org_registry_count=len(org_rows),
             )
 
-        # 3. Combine: platform first, then org (org overrides for same origin).
+        # Combine: platform first, then org (org overrides for same origin).
         # When custom registry entitlement is disabled, only platform registries
         # are considered for lock resolution.
         rows = list(platform_rows)
         if custom_registry_enabled:
             rows.extend(org_rows)
 
-        # 2. Build origins dict and parse manifests
+        # Build origins dict and parse manifests.
         origins: dict[str, str] = {}
         origin_manifests: dict[str, RegistryVersionManifest] = {}
         excluded_custom_origin_manifests: dict[str, RegistryVersionManifest] = {}
@@ -136,25 +154,7 @@ class RegistryLockService(BaseOrgService):
                     RegistryVersionManifest.model_validate(manifest_dict)
                 )
 
-        builtin_version = next(
-            (
-                str(version)
-                for origin, version, _ in platform_rows
-                if origin == DEFAULT_REGISTRY_ORIGIN
-            ),
-            None,
-        )
-        if builtin_version is None:
-            self.logger.info(
-                "Platform registry has no selected version; builtin lock resolution is pending sync",
-                origin=DEFAULT_REGISTRY_ORIGIN,
-            )
-            raise BuiltinRegistryHasNoSelectionError(
-                "Builtin registry sync is still in progress. Please retry shortly.",
-                detail={"origin": DEFAULT_REGISTRY_ORIGIN},
-            )
-
-        # 3. Build action -> origin mapping using BFS to include template step actions
+        # Build action -> origin mapping using BFS to include template step actions.
         actions: dict[str, str] = {}
         queue: deque[str] = deque(sorted(action_names))
 
