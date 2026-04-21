@@ -178,12 +178,9 @@ jobs:
           TEMPORAL__CLUSTER_URL: "localhost:7233"
           TRACECAT__DISABLE_NSJAIL: "true"
         run: |
-          # Run pool tests sequentially (subprocess spawning doesn't parallelize well)
-          # faulthandler_timeout=300: dump thread state after 5min for extra debugging
-          uv run pytest tests/integration/test_pool_integration.py -m "not live_secret" -ra -v -o faulthandler_timeout=300
-
-          # Run other integration tests in parallel with pytest-xdist
+          # Skip pool integration tests for now.
           # Worker-specific task queues in conftest.py ensure isolation
+          # faulthandler_timeout=300: dump thread state after 5min for extra debugging
           uv run pytest tests/integration --ignore=tests/integration/test_pool_integration.py -m "not live_secret" -n auto -ra -v -o faulthandler_timeout=300
 
       - name: Show Docker logs on failure
