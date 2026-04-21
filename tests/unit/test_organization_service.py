@@ -28,7 +28,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.organization.service import OrgService
+from tracecat.organization.service import OrgService, accept_invitation_for_user
 
 
 @pytest.fixture
@@ -1163,6 +1163,60 @@ class TestOrganizationServiceInvitations:
         await session.refresh(invitation)
         assert invitation.status == InvitationStatus.ACCEPTED
         assert invitation.accepted_at is not None
+
+    @pytest.mark.anyio
+    async def test_accept_invitation_rejects_superuser_account(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+    ):
+        """Test superuser accounts cannot accept organization invitations."""
+        superuser = User(
+            id=uuid.uuid4(),
+            email=f"superuser-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=True,
+            is_verified=True,
+        )
+        session.add(superuser)
+        await session.commit()
+
+        admin_role = create_admin_role(org1.id, admin_in_org1.id)
+        admin_service = OrgService(session, role=admin_role)
+        invitation = await admin_service.create_invitation(
+            email=superuser.email,
+            role_id=org1_member_role.id,
+        )
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Platform superusers cannot accept organization invitations",
+        ):
+            await accept_invitation_for_user(
+                session,
+                user_id=superuser.id,
+                token=invitation.token,
+            )
+
+        user_role = Role(
+            type="user",
+            user_id=superuser.id,
+            organization_id=org2.id,
+            service_id="tracecat-api",
+            is_platform_superuser=True,
+            scopes=ORG_MEMBER_SCOPES,
+        )
+        user_service = OrgService(session, role=user_role)
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Platform superusers cannot accept organization invitations",
+        ):
+            await user_service.accept_invitation(invitation.token)
 
     @pytest.mark.anyio
     async def test_accept_invitation_already_accepted_raises(

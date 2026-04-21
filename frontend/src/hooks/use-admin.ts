@@ -4,19 +4,23 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useMemo } from "react"
 import {
   type AdminCreateOrganizationDomainResponse,
+  type AdminCreateOrganizationInvitationResponse,
   type AdminCreateOrganizationResponse,
   type AdminCreateTierResponse,
   type AdminCreateUserResponse,
   type AdminListOrganizationDomainsResponse,
+  type AdminListOrganizationInvitationsResponse,
   type AdminListOrganizationsResponse,
   type AdminListTiersResponse,
   type AdminListUsersResponse,
+  type AdminOrgInvitationCreate,
   type AdminRegistryGetRegistryStatusResponse,
   type AdminRegistryListRegistryVersionsResponse,
   type AdminUserCreate,
   type AdminUserRead,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
+  adminCreateOrganizationInvitation,
   adminCreateTier,
   adminCreateUser,
   adminDeleteOrganization,
@@ -24,10 +28,12 @@ import {
   adminDeleteTier,
   adminDemoteFromSuperuser,
   adminGetOrganization,
+  adminGetOrganizationInvitationToken,
   adminGetOrgTier,
   adminGetRegistrySettings,
   adminGetTier,
   adminListOrganizationDomains,
+  adminListOrganizationInvitations,
   adminListOrganizations,
   adminListOrgRepositories,
   adminListOrgRepositoryVersions,
@@ -41,6 +47,7 @@ import {
   adminRegistryPromoteRegistryVersion,
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
+  adminRevokeOrganizationInvitation,
   adminSyncOrgRepository,
   adminUpdateOrganization,
   adminUpdateOrganizationDomain,
@@ -218,6 +225,64 @@ export function useAdminOrgDomains(orgId: string) {
     updatePending,
     deleteDomain,
     deletePending,
+  }
+}
+
+/** Fetch and mutate platform-created organization invitations. */
+export function useAdminOrgInvitations(orgId: string) {
+  const queryClient = useQueryClient()
+  const queryKey = ["admin", "organizations", orgId, "invitations"]
+
+  const {
+    data: invitations,
+    isLoading,
+    error,
+  } = useQuery<AdminListOrganizationInvitationsResponse>({
+    queryKey,
+    queryFn: () => adminListOrganizationInvitations({ orgId }),
+    enabled: !!orgId,
+  })
+
+  const { mutateAsync: createInvitation, isPending: createPending } =
+    useMutation<
+      AdminCreateOrganizationInvitationResponse,
+      Error,
+      AdminOrgInvitationCreate
+    >({
+      mutationFn: (data) =>
+        adminCreateOrganizationInvitation({ orgId, requestBody: data }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey })
+      },
+    })
+
+  const { mutateAsync: getInvitationToken } = useMutation<
+    { token: string },
+    Error,
+    string
+  >({
+    mutationFn: (invitationId) =>
+      adminGetOrganizationInvitationToken({ orgId, invitationId }),
+  })
+
+  const { mutateAsync: revokeInvitation, isPending: revokePending } =
+    useMutation<void, Error, string>({
+      mutationFn: (invitationId) =>
+        adminRevokeOrganizationInvitation({ orgId, invitationId }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey })
+      },
+    })
+
+  return {
+    invitations: invitations ?? [],
+    isLoading,
+    error,
+    createInvitation,
+    createPending,
+    getInvitationToken,
+    revokeInvitation,
+    revokePending,
   }
 }
 

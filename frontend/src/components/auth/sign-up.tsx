@@ -87,9 +87,8 @@ export function SignUp({
 
   useEffect(() => {
     if (user) {
-      // Always redirect to /workspaces after login
       // Invitation acceptance is handled atomically during registration
-      router.push("/workspaces")
+      router.push(user.isSuperuser ? "/admin" : "/workspaces")
     }
   }, [user, router])
 

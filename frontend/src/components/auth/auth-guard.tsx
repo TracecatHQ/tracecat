@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
-import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useAuth } from "@/hooks/use-auth"
+import { useUserScopes } from "@/lib/hooks"
+import { hasGrantedScope } from "@/lib/scopes"
 
 interface AuthGuardProps {
   children: React.ReactNode
@@ -23,10 +24,16 @@ export function AuthGuard({
   redirectTo = "/",
 }: AuthGuardProps) {
   const { user, userIsLoading } = useAuth()
-  const canAdministerOrg = useScopeCheck("org:update")
+  const { userScopes, isLoading: scopesLoading } = useUserScopes(undefined, {
+    enabled: requireOrgAdmin && !!user,
+  })
   const router = useRouter()
+  const canAdministerOrg = requireOrgAdmin
+    ? hasGrantedScope("org:update", new Set(userScopes?.scopes ?? []))
+    : true
 
-  const isLoading = userIsLoading || canAdministerOrg === undefined
+  const isLoading =
+    userIsLoading || (requireOrgAdmin && !!user && scopesLoading)
 
   useEffect(() => {
     if (!isLoading) {

@@ -90,6 +90,10 @@ async def accept_invitation_for_user(
     user = user_result.scalar_one_or_none()
     if user is None:
         raise TracecatAuthorizationError("User not found")
+    if user.is_superuser:
+        raise TracecatAuthorizationError(
+            "Platform superusers cannot accept organization invitations"
+        )
 
     # Verify email match (case-insensitive)
     if user.email.lower() != invitation.email.lower():
@@ -489,6 +493,7 @@ class OrgService(BaseOrgService):
             token=secrets.token_urlsafe(32),
             expires_at=datetime.now(UTC) + timedelta(days=7),
             status=InvitationStatus.PENDING,
+            created_by_platform_admin=self.role.is_platform_superuser,
         )
         self.session.add(invitation)
         await self.session.commit()
@@ -605,6 +610,10 @@ class OrgService(BaseOrgService):
         user = user_result.scalar_one_or_none()
         if user is None:
             raise TracecatAuthorizationError("User not found")
+        if user.is_superuser:
+            raise TracecatAuthorizationError(
+                "Platform superusers cannot accept organization invitations"
+            )
         if user.email.lower() != invitation.email.lower():
             raise TracecatAuthorizationError(
                 "This invitation was sent to a different email address"

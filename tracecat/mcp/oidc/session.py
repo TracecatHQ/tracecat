@@ -6,7 +6,6 @@ without duplicating the underlying auth logic.
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
 from enum import StrEnum, auto
 
@@ -15,9 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from tracecat import config
-from tracecat.auth.credentials import ORG_OVERRIDE_COOKIE
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
-from tracecat.db.models import Organization, OrganizationMembership, User
+from tracecat.db.models import OrganizationMembership, User
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.organization.management import get_default_organization_id
@@ -30,7 +28,7 @@ class NeedsAction(StrEnum):
     """User has no active session — redirect to sign-in."""
 
     ORG_SELECTION = auto()
-    """Superuser needs to pick an organization."""
+    """User needs to pick an organization."""
 
 
 @dataclass(frozen=True)
@@ -79,7 +77,8 @@ async def _resolve_superuser_org(
     """Resolve org for a platform superadmin.
 
     In single-tenant mode, uses the default org.
-    In multi-tenant mode, requires the ``tracecat-org-id`` cookie.
+    In multi-tenant mode, platform superusers cannot authorize tenant MCP
+    sessions because they are not tenant users.
     """
     if not config.TRACECAT__EE_MULTI_TENANT:
         org_id = await get_default_organization_id(session)
@@ -90,28 +89,9 @@ async def _resolve_superuser_org(
         )
         return SessionResult(user=user, organization_id=org_id)
 
-    # Multi-tenant: check cookie
-    if org_cookie := request.cookies.get(ORG_OVERRIDE_COOKIE):
-        try:
-            candidate = uuid.UUID(org_cookie)
-        except ValueError:
-            logger.warning(
-                "MCP OIDC: invalid org cookie format",
-                org_cookie=org_cookie,
-            )
-            return SessionNeedsAction(action=NeedsAction.ORG_SELECTION)
-
-        result = await session.execute(
-            select(Organization.id).where(Organization.id == candidate)
-        )
-        if result.scalar_one_or_none() is not None:
-            return SessionResult(user=user, organization_id=candidate)
-        logger.warning(
-            "MCP OIDC: org from cookie does not exist",
-            org_id=str(candidate),
-        )
-
-    return SessionNeedsAction(action=NeedsAction.ORG_SELECTION)
+    raise ValueError(
+        "Platform superusers cannot authorize tenant MCP sessions in multi-tenant mode"
+    )
 
 
 async def _resolve_regular_user_org(

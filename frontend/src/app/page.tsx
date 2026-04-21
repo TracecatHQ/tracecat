@@ -19,7 +19,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (user && !userIsLoading) {
-      router.push("/workspaces")
+      router.push(user.isSuperuser ? "/admin" : "/workspaces")
     }
   }, [user, router, userIsLoading])
 

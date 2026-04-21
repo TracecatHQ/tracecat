@@ -333,7 +333,7 @@ async def _handle_authorize(
                 )
             case NeedsAction.ORG_SELECTION:
                 logger.info(
-                    "MCP OIDC: superuser needs org selection",
+                    "MCP OIDC: org selection required",
                     txn_id=txn_id,
                 )
                 return RedirectResponse(

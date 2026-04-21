@@ -16,7 +16,7 @@ function SignInContent() {
 
   useEffect(() => {
     if (user) {
-      router.replace(returnUrl ?? "/workspaces")
+      router.replace(returnUrl ?? (user.isSuperuser ? "/admin" : "/workspaces"))
     }
   }, [user, router, returnUrl])
 

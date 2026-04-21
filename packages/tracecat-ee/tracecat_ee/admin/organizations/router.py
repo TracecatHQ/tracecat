@@ -5,12 +5,18 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy.exc import NoResultFound
 
 from tracecat import config
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.exceptions import TracecatValidationError
+from tracecat.invitations.enums import InvitationStatus
 from tracecat_ee.admin.organizations.schemas import (
+    AdminOrgInvitationCreate,
+    AdminOrgInvitationCreateResponse,
+    AdminOrgInvitationRead,
+    AdminOrgInvitationTokenRead,
     OrgCreate,
     OrgDomainCreate,
     OrgDomainRead,
@@ -113,6 +119,106 @@ async def delete_organization(
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+# Org Invitation Endpoints
+
+
+@router.post(
+    "/{org_id}/invitations",
+    response_model=AdminOrgInvitationCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_organization_invitation(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    org_id: uuid.UUID,
+    params: AdminOrgInvitationCreate,
+) -> AdminOrgInvitationCreateResponse:
+    """Create a platform-scoped invitation for an organization."""
+    _require_multi_tenant()
+    service = AdminOrgService(session, role)
+    try:
+        return await service.create_organization_invitation(org_id, params)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.get("/{org_id}/invitations", response_model=list[AdminOrgInvitationRead])
+async def list_organization_invitations(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    org_id: uuid.UUID,
+    invitation_status: InvitationStatus | None = Query(None, alias="status"),
+) -> list[AdminOrgInvitationRead]:
+    """List platform-created invitations for an organization."""
+    _require_multi_tenant()
+    service = AdminOrgService(session, role)
+    try:
+        return list(
+            await service.list_organization_invitations(
+                org_id,
+                status=invitation_status,
+            )
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.get(
+    "/{org_id}/invitations/{invitation_id}/token",
+    response_model=AdminOrgInvitationTokenRead,
+)
+async def get_organization_invitation_token(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    org_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+) -> AdminOrgInvitationTokenRead:
+    """Get the raw token for a platform-created organization invitation."""
+    _require_multi_tenant()
+    service = AdminOrgService(session, role)
+    try:
+        return await service.get_organization_invitation_token(org_id, invitation_id)
+    except (NoResultFound, ValueError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found",
+        ) from e
+
+
+@router.delete(
+    "/{org_id}/invitations/{invitation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def revoke_organization_invitation(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    org_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+) -> None:
+    """Revoke a pending platform-created organization invitation."""
+    _require_multi_tenant()
+    service = AdminOrgService(session, role)
+    try:
+        await service.revoke_organization_invitation(org_id, invitation_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found",
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
         ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

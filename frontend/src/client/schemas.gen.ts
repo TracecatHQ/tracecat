@@ -852,6 +852,239 @@ export const $ActionValidationResult = {
   description: "Result of validating a registry action's arguments.",
 } as const
 
+export const $AdminOrgInvitationCreate = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role_slug: {
+      type: "string",
+      enum: ["organization-owner", "organization-admin", "organization-member"],
+      title: "Role Slug",
+      default: "organization-owner",
+    },
+  },
+  type: "object",
+  required: ["email"],
+  title: "AdminOrgInvitationCreate",
+  description:
+    "Create an organization invitation from the platform admin console.",
+} as const
+
+export const $AdminOrgInvitationCreateResponse = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    invited_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Invited By",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    accepted_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Accepted At",
+    },
+    created_by_platform_admin: {
+      type: "boolean",
+      title: "Created By Platform Admin",
+    },
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "email",
+    "role_id",
+    "role_name",
+    "status",
+    "invited_by",
+    "expires_at",
+    "created_at",
+    "accepted_at",
+    "created_by_platform_admin",
+    "token",
+  ],
+  title: "AdminOrgInvitationCreateResponse",
+  description: "Create response containing the raw invitation token.",
+} as const
+
+export const $AdminOrgInvitationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+    role_name: {
+      type: "string",
+      title: "Role Name",
+    },
+    role_slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Slug",
+    },
+    status: {
+      $ref: "#/components/schemas/InvitationStatus",
+    },
+    invited_by: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Invited By",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    accepted_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Accepted At",
+    },
+    created_by_platform_admin: {
+      type: "boolean",
+      title: "Created By Platform Admin",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "email",
+    "role_id",
+    "role_name",
+    "status",
+    "invited_by",
+    "expires_at",
+    "created_at",
+    "accepted_at",
+    "created_by_platform_admin",
+  ],
+  title: "AdminOrgInvitationRead",
+  description: "Platform-created organization invitation response.",
+} as const
+
+export const $AdminOrgInvitationTokenRead = {
+  properties: {
+    token: {
+      type: "string",
+      title: "Token",
+    },
+  },
+  type: "object",
+  required: ["token"],
+  title: "AdminOrgInvitationTokenRead",
+  description: "Raw invitation token response.",
+} as const
+
 export const $AdminUserCreate = {
   properties: {
     email: {

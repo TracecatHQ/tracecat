@@ -19,6 +19,8 @@ import type {
   AdminCreateOrganizationData,
   AdminCreateOrganizationDomainData,
   AdminCreateOrganizationDomainResponse,
+  AdminCreateOrganizationInvitationData,
+  AdminCreateOrganizationInvitationResponse,
   AdminCreateOrganizationResponse,
   AdminCreateTierData,
   AdminCreateTierResponse,
@@ -33,6 +35,8 @@ import type {
   AdminDemoteFromSuperuserData,
   AdminDemoteFromSuperuserResponse,
   AdminGetOrganizationData,
+  AdminGetOrganizationInvitationTokenData,
+  AdminGetOrganizationInvitationTokenResponse,
   AdminGetOrganizationResponse,
   AdminGetOrgTierData,
   AdminGetOrgTierResponse,
@@ -43,6 +47,8 @@ import type {
   AdminGetUserResponse,
   AdminListOrganizationDomainsData,
   AdminListOrganizationDomainsResponse,
+  AdminListOrganizationInvitationsData,
+  AdminListOrganizationInvitationsResponse,
   AdminListOrganizationsResponse,
   AdminListOrgRepositoriesData,
   AdminListOrgRepositoriesResponse,
@@ -69,6 +75,8 @@ import type {
   AdminRegistrySyncAllRepositoriesResponse,
   AdminRegistrySyncRepositoryData,
   AdminRegistrySyncRepositoryResponse,
+  AdminRevokeOrganizationInvitationData,
+  AdminRevokeOrganizationInvitationResponse,
   AdminSyncOrgRepositoryData,
   AdminSyncOrgRepositoryResponse,
   AdminUpdateOrganizationData,
@@ -5063,6 +5071,109 @@ export const adminDeleteOrganization = (
     },
     query: {
       confirm: data.confirm,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Organization Invitation
+ * Create a platform-scoped invitation for an organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.requestBody
+ * @returns AdminOrgInvitationCreateResponse Successful Response
+ * @throws ApiError
+ */
+export const adminCreateOrganizationInvitation = (
+  data: AdminCreateOrganizationInvitationData
+): CancelablePromise<AdminCreateOrganizationInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/organizations/{org_id}/invitations",
+    path: {
+      org_id: data.orgId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Organization Invitations
+ * List platform-created invitations for an organization.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.status
+ * @returns AdminOrgInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const adminListOrganizationInvitations = (
+  data: AdminListOrganizationInvitationsData
+): CancelablePromise<AdminListOrganizationInvitationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/organizations/{org_id}/invitations",
+    path: {
+      org_id: data.orgId,
+    },
+    query: {
+      status: data.status,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Organization Invitation Token
+ * Get the raw token for a platform-created organization invitation.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.invitationId
+ * @returns AdminOrgInvitationTokenRead Successful Response
+ * @throws ApiError
+ */
+export const adminGetOrganizationInvitationToken = (
+  data: AdminGetOrganizationInvitationTokenData
+): CancelablePromise<AdminGetOrganizationInvitationTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/admin/organizations/{org_id}/invitations/{invitation_id}/token",
+    path: {
+      org_id: data.orgId,
+      invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Organization Invitation
+ * Revoke a pending platform-created organization invitation.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.invitationId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const adminRevokeOrganizationInvitation = (
+  data: AdminRevokeOrganizationInvitationData
+): CancelablePromise<AdminRevokeOrganizationInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/admin/organizations/{org_id}/invitations/{invitation_id}",
+    path: {
+      org_id: data.orgId,
+      invitation_id: data.invitationId,
     },
     errors: {
       422: "Validation Error",

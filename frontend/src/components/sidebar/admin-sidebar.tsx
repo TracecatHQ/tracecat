@@ -1,6 +1,5 @@
 "use client"
 
-import Cookies from "js-cookie"
 import {
   BookOpenIcon,
   BuildingIcon,
@@ -11,7 +10,6 @@ import {
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
-import { useEffect } from "react"
 import {
   Sidebar,
   SidebarContent,
@@ -35,13 +33,6 @@ export function AdminSidebar({
   const pathname = usePathname()
   const { appInfo } = useAppInfo()
   const multiTenantEnabled = appInfo?.ee_multi_tenant ?? true
-
-  useEffect(() => {
-    if (!multiTenantEnabled) {
-      Cookies.remove("tracecat-org-id", { path: "/" })
-      Cookies.remove("__tracecat:workspaces:last-viewed", { path: "/" })
-    }
-  }, [multiTenantEnabled])
 
   const navPlatform = [
     ...(multiTenantEnabled
@@ -92,9 +83,9 @@ export function AdminSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
-              <Link href="/workspaces" className="text-muted-foreground">
+              <Link href="/admin" className="text-muted-foreground">
                 <ChevronLeftIcon />
-                <span>Exit admin console</span>
+                <span>Admin console</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>

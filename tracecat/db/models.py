@@ -3840,6 +3840,13 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
     )
+    created_by_platform_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        doc="Whether the invitation was created by a platform admin",
+    )
 
     # Relationships
     organization: Mapped[Organization] = relationship("Organization")

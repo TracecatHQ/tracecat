@@ -40,7 +40,6 @@ from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
-    Organization,
     OrganizationMembership,
     RoleScope,
     Scope,
@@ -89,9 +88,6 @@ HTTP_EXC = partial(
         headers={"WWW-Authenticate": "Cookie"},
     )
 )
-
-
-ORG_OVERRIDE_COOKIE = "tracecat-org-id"
 
 
 async def compute_effective_scopes(role: Role) -> frozenset[str]:
@@ -426,12 +422,14 @@ async def _resolve_org_for_superuser(
     request: Request,
     session: AsyncSession,
 ) -> uuid.UUID:
-    """Resolve organization context for a superuser from cookie.
+    """Resolve organization context for a superuser.
 
-    Superusers must explicitly select an organization via the ORG_OVERRIDE_COOKIE.
+    Multi-tenant superusers are platform-only operators and cannot resolve
+    tenant organization context through RoleACL. Single-tenant deployments keep
+    the historical default organization behavior.
 
     Raises:
-        HTTPException(428): If no valid org cookie is set.
+        HTTPException(403): If a multi-tenant superuser tries to enter tenant context.
     """
     if not config.TRACECAT__EE_MULTI_TENANT:
         default_org_id = await get_default_organization_id(session)
@@ -441,30 +439,9 @@ async def _resolve_org_for_superuser(
         )
         return default_org_id
 
-    if org_override := request.cookies.get(ORG_OVERRIDE_COOKIE):
-        try:
-            candidate_org_id = uuid.UUID(org_override)
-            # Validate that the organization actually exists
-            org_exists_stmt = select(Organization.id).where(
-                Organization.id == candidate_org_id
-            )
-            org_exists_result = await session.execute(org_exists_stmt)
-            if org_exists_result.scalar_one_or_none() is not None:
-                return candidate_org_id
-            logger.warning(
-                "Organization from cookie does not exist",
-                org_id=candidate_org_id,
-            )
-        except ValueError:
-            logger.warning(
-                "Invalid org override cookie format",
-                org_override=org_override,
-            )
-
-    # No cookie, invalid cookie, or org doesn't exist - prompt for org selection
     raise HTTPException(
-        status_code=status.HTTP_428_PRECONDITION_REQUIRED,
-        detail="Organization selection required",
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Platform superusers cannot access tenant context",
     )
 
 
@@ -531,7 +508,9 @@ async def _authenticate_user(
     """
     organization_id: uuid.UUID
 
-    if is_unprivileged(user) and workspace_id is not None:
+    if user.is_superuser:
+        organization_id = await _resolve_org_for_superuser(request, session)
+    elif is_unprivileged(user) and workspace_id is not None:
         resolved_org_id = await _get_workspace_org_id(workspace_id)
         if resolved_org_id is None:
             raise HTTPException(
@@ -562,10 +541,7 @@ async def _authenticate_user(
                 user=user,
             )
     else:
-        if user.is_superuser:
-            organization_id = await _resolve_org_for_superuser(request, session)
-        else:
-            organization_id = await _resolve_org_for_regular_user(session, user)
+        organization_id = await _resolve_org_for_regular_user(session, user)
 
     return get_role_from_user(
         user,

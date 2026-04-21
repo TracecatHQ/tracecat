@@ -226,6 +226,66 @@ export type ActionValidationResult = {
 export type status = "success" | "error"
 
 /**
+ * Create an organization invitation from the platform admin console.
+ */
+export type AdminOrgInvitationCreate = {
+  email: string
+  role_slug?:
+    | "organization-owner"
+    | "organization-admin"
+    | "organization-member"
+}
+
+export type role_slug =
+  | "organization-owner"
+  | "organization-admin"
+  | "organization-member"
+
+/**
+ * Create response containing the raw invitation token.
+ */
+export type AdminOrgInvitationCreateResponse = {
+  id: string
+  organization_id: string
+  email: string
+  role_id: string
+  role_name: string
+  role_slug?: string | null
+  status: InvitationStatus
+  invited_by: string | null
+  expires_at: string
+  created_at: string
+  accepted_at: string | null
+  created_by_platform_admin: boolean
+  token: string
+}
+
+/**
+ * Platform-created organization invitation response.
+ */
+export type AdminOrgInvitationRead = {
+  id: string
+  organization_id: string
+  email: string
+  role_id: string
+  role_name: string
+  role_slug?: string | null
+  status: InvitationStatus
+  invited_by: string | null
+  expires_at: string
+  created_at: string
+  accepted_at: string | null
+  created_by_platform_admin: boolean
+}
+
+/**
+ * Raw invitation token response.
+ */
+export type AdminOrgInvitationTokenRead = {
+  token: string
+}
+
+/**
  * Create a user from the platform admin control plane.
  */
 export type AdminUserCreate = {
@@ -9256,6 +9316,37 @@ export type AdminDeleteOrganizationData = {
 
 export type AdminDeleteOrganizationResponse = void
 
+export type AdminCreateOrganizationInvitationData = {
+  orgId: string
+  requestBody: AdminOrgInvitationCreate
+}
+
+export type AdminCreateOrganizationInvitationResponse =
+  AdminOrgInvitationCreateResponse
+
+export type AdminListOrganizationInvitationsData = {
+  orgId: string
+  status?: InvitationStatus | null
+}
+
+export type AdminListOrganizationInvitationsResponse =
+  Array<AdminOrgInvitationRead>
+
+export type AdminGetOrganizationInvitationTokenData = {
+  invitationId: string
+  orgId: string
+}
+
+export type AdminGetOrganizationInvitationTokenResponse =
+  AdminOrgInvitationTokenRead
+
+export type AdminRevokeOrganizationInvitationData = {
+  invitationId: string
+  orgId: string
+}
+
+export type AdminRevokeOrganizationInvitationResponse = void
+
 export type AdminListOrganizationDomainsData = {
   orgId: string
 }
@@ -13223,6 +13314,64 @@ export type $OpenApiTs = {
     }
     delete: {
       req: AdminDeleteOrganizationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/invitations": {
+    post: {
+      req: AdminCreateOrganizationInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: AdminOrgInvitationCreateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: AdminListOrganizationInvitationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AdminOrgInvitationRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/invitations/{invitation_id}/token": {
+    get: {
+      req: AdminGetOrganizationInvitationTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AdminOrgInvitationTokenRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/organizations/{org_id}/invitations/{invitation_id}": {
+    delete: {
+      req: AdminRevokeOrganizationInvitationData
       res: {
         /**
          * Successful Response
