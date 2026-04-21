@@ -970,10 +970,12 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 if platform_repo.current_version_id is not None
                 else None
             )
-            if (
-                platform_repo.current_version_id is None
-                or current_platform_version is None
-                or current_platform_version.version == version
+            if _should_select_fixture_platform_current(
+                sync_db_uri,
+                current_version=current_platform_version.version
+                if current_platform_version is not None
+                else None,
+                fixture_version=version,
             ):
                 platform_repo.current_version_id = platform_rv.id
                 session.commit()
@@ -1036,6 +1038,24 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
 
     yield
     # No cleanup needed - the database is dropped at the end of the session
+
+
+def _should_select_fixture_platform_current(
+    sync_db_uri: str,
+    *,
+    current_version: str | None,
+    fixture_version: str,
+) -> bool:
+    """Return whether the fixture platform version should be current.
+
+    The fake fixture tarball is safe as the selected version only in the isolated
+    per-test DB. The shared/default DB may be used by live API and executor
+    services, so it must not get a fake current selection when the real builtin
+    registry has not synced yet.
+    """
+    if sync_db_uri == TEST_DB_CONFIG.test_url_sync:
+        return True
+    return current_version == fixture_version
 
 
 @pytest.fixture(scope="function")
