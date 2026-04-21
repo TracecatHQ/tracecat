@@ -98,6 +98,7 @@ _KEYRING_LOCK = Lock()
 _KEYRING_CACHE: TemporalPayloadKeyring | None = None
 _KEYRING_CACHE_EXPIRES_AT = 0.0
 _KEYRING_CACHE_GENERATION = 0
+_KEYRING_REFRESH_FAILURE_BACKOFF_SECONDS: Final[float] = 30.0
 
 
 class CompressionPayloadCodec(PayloadCodec):
@@ -331,6 +332,9 @@ class TemporalEncryptionKeyring:
             if arn or keyring_json:
                 with _KEYRING_LOCK:
                     if _KEYRING_CACHE is not None:
+                        _KEYRING_CACHE_EXPIRES_AT = (
+                            monotonic() + _KEYRING_REFRESH_FAILURE_BACKOFF_SECONDS
+                        )
                         logger.warning(
                             "Failed to refresh Temporal payload encryption keyring; "
                             "using cached keyring",

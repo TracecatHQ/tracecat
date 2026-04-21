@@ -276,6 +276,7 @@ async def test_keyring_uses_cached_secret_when_refresh_fails(
     keyring = TemporalEncryptionKeyring()
     assert await keyring.get_current_key_id() == "v1"
     assert await keyring.get_current_key_id() == "v1"
+    assert await keyring.get_current_key_id() == "v1"
     assert calls == 2
 
 
