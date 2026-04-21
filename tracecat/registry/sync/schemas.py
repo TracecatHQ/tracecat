@@ -61,7 +61,7 @@ class RegistrySyncRequest(BaseModel):
     Git SSH keys are fetched by the ExecutorWorker and never enter Temporal args.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     repository_id: UUID = Field(..., description="Database repository ID")
     origin: str = Field(..., description="Repository origin URL or name")

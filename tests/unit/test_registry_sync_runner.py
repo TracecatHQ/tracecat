@@ -3,7 +3,6 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-from pydantic import ValidationError
 
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
@@ -15,8 +14,8 @@ from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.tarball import TarballVenvBuildResult
 
 
-def test_registry_sync_request_rejects_ssh_key() -> None:
-    """SSH keys must never be serializable into Temporal request payloads."""
+def test_registry_sync_request_ignores_legacy_ssh_key() -> None:
+    """Legacy SSH keys are accepted for rollout compatibility but not serialized."""
     payload = {
         "repository_id": str(uuid4()),
         "origin": "git+ssh://git@github.com/TracecatHQ/internal-registry.git",
@@ -26,8 +25,9 @@ def test_registry_sync_request_rejects_ssh_key() -> None:
         "ssh_key": "fake-ssh-key",
     }
 
-    with pytest.raises(ValidationError, match="ssh_key"):
-        RegistrySyncRequest.model_validate(payload)
+    request = RegistrySyncRequest.model_validate(payload)
+
+    assert "ssh_key" not in request.model_dump()
 
 
 @pytest.mark.anyio
