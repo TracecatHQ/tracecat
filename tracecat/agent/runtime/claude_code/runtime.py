@@ -30,7 +30,6 @@ from claude_agent_sdk.types import (
     HookInput,
     PreToolUseHookSpecificOutput,
     ResultMessage,
-    StopHookInput,
     StreamEvent,
     SyncHookJSONOutput,
     SystemMessage,
@@ -564,8 +563,8 @@ class ClaudeAgentRuntime:
     async def _stop_hook(
         self,
         input_data: HookInput,
-        tool_use_id: str | None,  # noqa: ARG002
-        context: HookContext,  # noqa: ARG002
+        tool_use_id: str | None,
+        context: HookContext,
     ) -> SyncHookJSONOutput:
         """Stop hook: cap structured-output retry loops.
 
@@ -575,8 +574,11 @@ class ClaudeAgentRuntime:
         ``MAX_STOP_HOOK_RETRIES`` retries through, then terminate the turn so a
         broken schema or stuck model can't death-loop.
         """
-        stop_input = cast(StopHookInput, input_data)
-        if not stop_input.get("stop_hook_active"):
+        if input_data["hook_event_name"] != "Stop":
+            raise ValueError(
+                f"Expected Stop hook event, got {input_data['hook_event_name']!r}"
+            )
+        if not input_data.get("stop_hook_active"):
             return {}
 
         self._stop_hook_retries += 1

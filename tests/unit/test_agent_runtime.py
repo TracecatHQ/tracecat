@@ -17,6 +17,7 @@ import pytest
 from claude_agent_sdk.types import (
     HookContext,
     PreToolUseHookInput,
+    StopHookInput,
     SyncHookJSONOutput,
 )
 
@@ -716,7 +717,7 @@ class TestClaudeAgentRuntimeStopHook:
     """
 
     @staticmethod
-    def _make_stop_input(*, stop_hook_active: bool) -> dict[str, Any]:
+    def _make_stop_input(*, stop_hook_active: bool) -> StopHookInput:
         return {
             "session_id": "test-session-id",
             "transcript_path": "/tmp/test-transcript.jsonl",
@@ -734,7 +735,7 @@ class TestClaudeAgentRuntimeStopHook:
         runtime = ClaudeAgentRuntime(mock_socket_writer)
 
         result = await runtime._stop_hook(
-            input_data=cast(Any, self._make_stop_input(stop_hook_active=False)),
+            input_data=self._make_stop_input(stop_hook_active=False),
             tool_use_id=None,
             context=make_hook_context(),
         )
@@ -754,7 +755,7 @@ class TestClaudeAgentRuntimeStopHook:
 
         for _ in range(MAX_STOP_HOOK_RETRIES):
             result = await runtime._stop_hook(
-                input_data=cast(Any, self._make_stop_input(stop_hook_active=True)),
+                input_data=self._make_stop_input(stop_hook_active=True),
                 tool_use_id=None,
                 context=make_hook_context(),
             )
@@ -774,7 +775,7 @@ class TestClaudeAgentRuntimeStopHook:
         runtime._stop_hook_retries = MAX_STOP_HOOK_RETRIES
 
         result = await runtime._stop_hook(
-            input_data=cast(Any, self._make_stop_input(stop_hook_active=True)),
+            input_data=self._make_stop_input(stop_hook_active=True),
             tool_use_id=None,
             context=make_hook_context(),
         )
