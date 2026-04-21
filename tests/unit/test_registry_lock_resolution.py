@@ -25,6 +25,7 @@ from tracecat.db.models import (
     Tier,
 )
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.service import RegistryLockService
@@ -158,6 +159,25 @@ def _create_dsl_with_action(action_name: str, title: str = "Test Workflow") -> D
 
 class TestDraftWorkflowRegistryLock:
     """Tests for draft workflow registry_lock behavior."""
+
+    @pytest.mark.anyio
+    async def test_missing_builtin_current_raises_retryable_sync_pending(
+        self,
+        svc_role: Role,
+        session: AsyncSession,
+    ) -> None:
+        repo = await session.scalar(
+            select(PlatformRegistryRepository).where(
+                PlatformRegistryRepository.origin == DEFAULT_REGISTRY_ORIGIN
+            )
+        )
+        assert repo is not None
+        repo.current_version_id = None
+        await session.commit()
+
+        lock_service = RegistryLockService(session, role=svc_role)
+        with pytest.raises(BuiltinRegistryHasNoSelectionError):
+            await lock_service.resolve_lock_with_bindings({"core.transform.reshape"})
 
     @pytest.mark.anyio
     async def test_draft_workflow_returns_none_registry_lock(
