@@ -11,8 +11,11 @@ These tests verify the fix for the regression where:
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -60,15 +63,41 @@ async def _setup_platform_registry(
     session: AsyncSession, action_names: list[str], origin: str = "test_registry"
 ) -> PlatformRegistryVersion:
     """Set up a platform registry with the given actions."""
-    repo = PlatformRegistryRepository(origin=origin)
-    session.add(repo)
-    await session.flush()
+    effective_origin = (
+        origin if origin == DEFAULT_REGISTRY_ORIGIN else f"{origin}_{uuid.uuid4().hex}"
+    )
+
+    await session.execute(
+        insert(PlatformRegistryRepository)
+        .values(origin=effective_origin)
+        .on_conflict_do_nothing(index_elements=["origin"])
+    )
+    repo = await session.scalar(
+        select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.origin == effective_origin
+        )
+    )
+    if repo is None:
+        raise RuntimeError("Failed to create platform registry repository")
+
+    if (
+        effective_origin == DEFAULT_REGISTRY_ORIGIN
+        and not action_names
+        and repo.current_version_id is not None
+    ):
+        existing_version = await session.scalar(
+            select(PlatformRegistryVersion).where(
+                PlatformRegistryVersion.id == repo.current_version_id
+            )
+        )
+        if existing_version is not None:
+            return existing_version
 
     version = PlatformRegistryVersion(
         repository_id=repo.id,
-        version="1.0.0",
+        version=f"1.0.0-{uuid.uuid4().hex}",
         manifest=_make_manifest(action_names),
-        tarball_uri=f"s3://{origin}/v1.tar.gz",
+        tarball_uri=f"s3://{effective_origin}/v1.tar.gz",
     )
     session.add(version)
     await session.flush()
