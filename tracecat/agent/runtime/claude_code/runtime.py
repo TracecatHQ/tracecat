@@ -160,6 +160,11 @@ LEGACY_REGISTRY_MCP_DOT_PREFIX = "mcp.tracecat_registry."
 CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES = 5 * 1024 * 1024
 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW = "128000"
 
+# Cap on how many times the CLI may re-invoke the model to satisfy a Stop hook
+# (e.g. structured-output schema validation). Without a cap the CLI can death-loop
+# when the model keeps emitting output that fails validation.
+MAX_STOP_HOOK_RETRIES = 3
+
 
 class ClaudeAgentRuntime:
     """Stateless, sandboxed Claude SDK runtime.
@@ -194,6 +199,8 @@ class ClaudeAgentRuntime:
         # Working directory for session file path resolution
         # Must match the cwd passed to ClaudeAgentOptions for session resume
         self._cwd: Path = Path.cwd()
+        # Tracks Stop hook retries within this run to break structured-output loops
+        self._stop_hook_retries: int = 0
 
     @staticmethod
     def _is_manual_compaction_prompt(prompt: str) -> bool:
@@ -553,6 +560,43 @@ class ClaudeAgentRuntime:
             "hookSpecificOutput": hook_output,
         }
 
+    async def _stop_hook(
+        self,
+        input_data: HookInput,
+        tool_use_id: str | None,
+        context: HookContext,
+    ) -> SyncHookJSONOutput:
+        """Stop hook: cap structured-output retry loops.
+
+        The CLI runs this on every natural stop. When ``stop_hook_active`` is True
+        the CLI is already inside a retry loop (e.g. structured-output schema
+        validation failed and it wants the model to try again). We let the first
+        ``MAX_STOP_HOOK_RETRIES`` retries through, then terminate the turn so a
+        broken schema or stuck model can't death-loop.
+        """
+        if input_data["hook_event_name"] != "Stop":
+            raise ValueError(
+                f"Expected Stop hook event, got {input_data['hook_event_name']!r}"
+            )
+        if not input_data.get("stop_hook_active"):
+            return {}
+
+        self._stop_hook_retries += 1
+        if self._stop_hook_retries <= MAX_STOP_HOOK_RETRIES:
+            return {}
+
+        reason = (
+            f"Stop hook retry cap reached ({MAX_STOP_HOOK_RETRIES}); ending turn "
+            "to prevent a structured-output death loop."
+        )
+        await self._socket_writer.send_log(
+            "warning",
+            "Stop hook retry cap reached, terminating turn",
+            retries=self._stop_hook_retries,
+            cap=MAX_STOP_HOOK_RETRIES,
+        )
+        return {"continue_": False, "stopReason": reason}
+
     def _build_system_prompt(
         self, instructions: str | None, output_type: str | dict[str, Any] | None = None
     ) -> str:
@@ -722,6 +766,7 @@ class ClaudeAgentRuntime:
                 sandbox=sandbox_settings,
                 hooks={
                     "PreToolUse": [HookMatcher(hooks=[self._pre_tool_use_hook])],
+                    "Stop": [HookMatcher(hooks=[self._stop_hook])],
                 },
                 # Stable per-session working directory (deterministic across turns)
                 cwd=self._cwd,
