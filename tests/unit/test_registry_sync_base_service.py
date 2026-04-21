@@ -11,6 +11,7 @@ from temporalio.exceptions import ApplicationError
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import Organization, RegistryRepository
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
     RegistryActionOptions,
@@ -245,7 +246,7 @@ async def test_sync_via_temporal_git_requires_registry_ssh_key_before_workflow(
     )
     get_org_secret_by_name = mocker.patch(
         "tracecat.registry.sync.base_service.SecretsService.get_org_secret_by_name",
-        mocker.AsyncMock(side_effect=RuntimeError("missing")),
+        mocker.AsyncMock(side_effect=TracecatNotFoundError("missing")),
     )
     get_ssh_key = mocker.patch(
         "tracecat.registry.sync.base_service.SecretsService.get_ssh_key",
@@ -261,3 +262,42 @@ async def test_sync_via_temporal_git_requires_registry_ssh_key_before_workflow(
     get_ssh_key.assert_not_awaited()
     get_temporal_client.assert_not_awaited()
     mock_client.execute_workflow.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_sync_via_temporal_git_preserves_unexpected_secret_check_error(
+    mock_org_id: uuid.UUID,
+    mocker,
+) -> None:
+    role = Role(
+        type="service",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-runner",
+    )
+
+    session = mocker.Mock(spec=AsyncSession)
+    repo = RegistryRepository(
+        id=uuid.uuid4(),
+        origin="git+ssh://git@github.com/TracecatHQ/internal-registry.git",
+        organization_id=mock_org_id,
+        current_version_id=None,
+    )
+
+    get_temporal_client = mocker.patch(
+        "tracecat.dsl.client.get_temporal_client",
+        mocker.AsyncMock(),
+    )
+    get_org_secret_by_name = mocker.patch(
+        "tracecat.registry.sync.base_service.SecretsService.get_org_secret_by_name",
+        mocker.AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    sync_service = RegistrySyncService(session, role)
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await sync_service._sync_via_temporal_workflow(repo, commit=False)
+
+    get_org_secret_by_name.assert_awaited_once_with(REGISTRY_GIT_SSH_KEY_SECRET_NAME)
+    get_temporal_client.assert_not_awaited()

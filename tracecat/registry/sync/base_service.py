@@ -19,6 +19,7 @@ from temporalio.exceptions import ApplicationError
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_role
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
     RegistryActionValidationErrorInfo,
@@ -599,7 +600,7 @@ class BaseRegistrySyncService[
                 await secrets_service.get_org_secret_by_name(
                     REGISTRY_GIT_SSH_KEY_SECRET_NAME
                 )
-            except Exception as exc:
+            except TracecatNotFoundError as exc:
                 raise self._sync_error_cls()(
                     "Git repository sync requires a "
                     f"'{REGISTRY_GIT_SSH_KEY_SECRET_NAME}' organization secret."
