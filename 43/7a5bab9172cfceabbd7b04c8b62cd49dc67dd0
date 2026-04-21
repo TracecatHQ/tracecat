@@ -1,0 +1,25 @@
+tests/unit/test_registry_fixture_platform_current.py
+  829382512538f2a5 1-34
+tests/conftest.py
+  829382512538f2a5 973-978,1043-1058
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "437a5bab9172cfceabbd7b04c8b62cd49dc67dd0",
+  "prompts": {
+    "829382512538f2a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db040-ed71-7953-ac7a-5b71d9ca0243",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 58,
+      "total_deletions": 4,
+      "accepted_lines": 58,
+      "overriden_lines": 0
+    }
+  }
+}
