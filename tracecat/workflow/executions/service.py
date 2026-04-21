@@ -635,7 +635,7 @@ class WorkflowExecutionsService:
                 )
             # ── synthetic compact event for top-level workflow failure ──
             elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
-                failure = EventFailure.from_history_event(event)
+                failure = await EventFailure.from_history_event(event)
                 id2event[event.event_id] = WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
                     schedule_time=event.event_time.ToDatetime(datetime.UTC),
@@ -697,7 +697,7 @@ class WorkflowExecutionsService:
                         source.action_name, source.action_result
                     )
                 if is_error_event(event):
-                    source.action_error = EventFailure.from_history_event(event)
+                    source.action_error = await EventFailure.from_history_event(event)
 
         desc = await handle.describe()
         # Iterate over the pending activities and update the source event
@@ -978,7 +978,7 @@ class WorkflowExecutionsService:
                             event_type=WorkflowEventType.CHILD_WORKFLOW_EXECUTION_FAILED,
                             event_group=group,
                             task_id=event.task_id,
-                            failure=EventFailure.from_history_event(event),
+                            failure=await EventFailure.from_history_event(event),
                         )
                     )
 
@@ -1020,7 +1020,7 @@ class WorkflowExecutionsService:
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=WorkflowEventType.WORKFLOW_EXECUTION_FAILED,
                             task_id=event.task_id,
-                            failure=EventFailure.from_history_event(event),
+                            failure=await EventFailure.from_history_event(event),
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
@@ -1124,7 +1124,7 @@ class WorkflowExecutionsService:
                             event_type=WorkflowEventType.ACTIVITY_TASK_FAILED,
                             task_id=event.task_id,
                             event_group=group,
-                            failure=EventFailure.from_history_event(event),
+                            failure=await EventFailure.from_history_event(event),
                         )
                     )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT:
@@ -1204,7 +1204,7 @@ class WorkflowExecutionsService:
                                 event_type=WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_COMPLETED,
                                 event_group=group,
                                 task_id=event.task_id,
-                                failure=EventFailure.from_history_event(event),
+                                failure=await EventFailure.from_history_event(event),
                             )
                         )
                 case _:

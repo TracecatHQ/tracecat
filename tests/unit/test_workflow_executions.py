@@ -19,7 +19,10 @@ from unittest.mock import AsyncMock, Mock, patch
 import orjson
 import pytest
 from temporalio.api.enums.v1 import EventType, PendingActivityState
+from temporalio.api.failure.v1 import Failure
+from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import Client, WorkflowHandle
+from temporalio.converter import DefaultPayloadConverter
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -205,7 +208,8 @@ class TestWorkflowExecutionEvents:
 
         # Mock EventFailure.from_history_event
         with patch(
-            "tracecat.workflow.executions.service.EventFailure.from_history_event"
+            "tracecat.workflow.executions.service.EventFailure.from_history_event",
+            new_callable=AsyncMock,
         ) as mock_event_failure:
             mock_failure = EventFailure(
                 message="Workflow execution failed due to timeout",
@@ -239,7 +243,7 @@ class TestWorkflowExecutionEvents:
             assert event.close_time == expected_time
 
             # Verify EventFailure.from_history_event was called
-            mock_event_failure.assert_called_once_with(failure_event)
+            mock_event_failure.assert_awaited_once_with(failure_event)
 
     async def test_workflow_completed_synthetic_event_creation(
         self,
@@ -671,7 +675,8 @@ class TestWorkflowExecutionEvents:
 
             # Mock EventFailure.from_history_event
             with patch(
-                "tracecat.workflow.executions.service.EventFailure.from_history_event"
+                "tracecat.workflow.executions.service.EventFailure.from_history_event",
+                new_callable=AsyncMock,
             ) as mock_event_failure:
                 mock_action_failure = EventFailure(message="Action failed", cause=None)
                 mock_workflow_failure = EventFailure(
@@ -779,7 +784,8 @@ class TestWorkflowExecutionEvents:
 
         # Mock EventFailure.from_history_event
         with patch(
-            "tracecat.workflow.executions.service.EventFailure.from_history_event"
+            "tracecat.workflow.executions.service.EventFailure.from_history_event",
+            new_callable=AsyncMock,
         ) as mock_event_failure:
             mock_failure = EventFailure(message="Custom failure message", cause=None)
             mock_event_failure.return_value = mock_failure
@@ -865,7 +871,8 @@ class TestWorkflowExecutionEvents:
 
         # Mock EventFailure.from_history_event
         with patch(
-            "tracecat.workflow.executions.service.EventFailure.from_history_event"
+            "tracecat.workflow.executions.service.EventFailure.from_history_event",
+            new_callable=AsyncMock,
         ) as mock_event_failure:
             mock_failure = EventFailure(
                 message="Database operation failed", cause=complex_cause
@@ -1182,7 +1189,8 @@ class TestWorkflowExecutionEvents:
             ) as mock_get_result:
                 mock_get_result.return_value = "ok"
                 with patch(
-                    "tracecat.workflow.executions.service.EventFailure.from_history_event"
+                    "tracecat.workflow.executions.service.EventFailure.from_history_event",
+                    new_callable=AsyncMock,
                 ) as mock_event_failure:
                     mock_event_failure.return_value = EventFailure(
                         message="Body failed on latest iteration",
@@ -1701,7 +1709,8 @@ def test_event_failure_extract_root_cause_message_handles_empty_and_cycles() -> 
     assert result == "Top-level failure"
 
 
-def test_event_failure_from_history_event_populates_root_cause_message() -> None:
+@pytest.mark.anyio
+async def test_event_failure_from_history_event_populates_root_cause_message() -> None:
     failure_cause = Mock()
     event = create_mock_history_event(
         event_id=1,
@@ -1721,14 +1730,56 @@ def test_event_failure_from_history_event_populates_root_cause_message() -> None
         "tracecat.workflow.executions.schemas.MessageToDict",
         return_value=nested_cause,
     ):
-        failure = EventFailure.from_history_event(event)
+        failure = await EventFailure.from_history_event(event)
 
     assert failure.message == "Workflow execution failed"
     assert failure.cause is None
     assert failure.root_cause_message == "Workflow alias 'invalid' not found"
 
 
-def test_event_failure_from_history_event_sanitizes_sensitive_data() -> None:
+@pytest.mark.anyio
+async def test_event_failure_from_history_event_decodes_encoded_attribute_messages() -> (
+    None
+):
+    failure_proto = Failure(message="Encoded failure")
+    failure_proto.application_failure_info.type = "EncodedFailure"
+    failure_proto.encoded_attributes.CopyFrom(
+        DefaultPayloadConverter().to_payloads(
+            [
+                {
+                    "message": "Outer failure with Authorization: Bearer abc123",
+                    "stack_trace": "",
+                }
+            ]
+        )[0]
+    )
+    failure_proto.cause.message = "Encoded failure"
+    failure_proto.cause.application_failure_info.type = "RootFailure"
+    failure_proto.cause.encoded_attributes.CopyFrom(
+        DefaultPayloadConverter().to_payloads(
+            [
+                {
+                    "message": "Root failure with api_key=topsecret",
+                    "stack_trace": "",
+                }
+            ]
+        )[0]
+    )
+    event = HistoryEvent(
+        event_id=1,
+        event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,
+    )
+    event.workflow_execution_failed_event_attributes.failure.CopyFrom(failure_proto)
+
+    failure = await EventFailure.from_history_event(event)
+
+    assert failure.message == "Outer failure with Authorization: Bearer [REDACTED]"
+    assert failure.root_cause_message == "Root failure with api_key=[REDACTED]"
+    assert failure.cause is None
+
+
+@pytest.mark.anyio
+async def test_event_failure_from_history_event_sanitizes_sensitive_data() -> None:
     failure_cause = Mock()
     event = create_mock_history_event(
         event_id=1,
@@ -1748,14 +1799,15 @@ def test_event_failure_from_history_event_sanitizes_sensitive_data() -> None:
         "tracecat.workflow.executions.schemas.MessageToDict",
         return_value=nested_cause,
     ):
-        failure = EventFailure.from_history_event(event)
+        failure = await EventFailure.from_history_event(event)
 
     assert failure.message == "Request failed with Authorization: Bearer [REDACTED]"
     assert failure.root_cause_message == "postgresql://user:[REDACTED]@localhost/db"
     assert failure.cause is None
 
 
-def test_event_failure_from_history_event_include_raw_cause() -> None:
+@pytest.mark.anyio
+async def test_event_failure_from_history_event_include_raw_cause() -> None:
     failure_cause = Mock()
     event = create_mock_history_event(
         event_id=1,
@@ -1769,7 +1821,7 @@ def test_event_failure_from_history_event_include_raw_cause() -> None:
         "tracecat.workflow.executions.schemas.MessageToDict",
         return_value=nested_cause,
     ):
-        failure = EventFailure.from_history_event(event, include_raw_cause=True)
+        failure = await EventFailure.from_history_event(event, include_raw_cause=True)
 
     assert failure.cause == nested_cause
 

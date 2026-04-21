@@ -16,11 +16,13 @@ import temporalio.api.enums.v1
 import temporalio.api.history.v1
 from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, model_validator
+from temporalio.api.failure.v1 import Failure
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs
 
 from tracecat.auth.types import Role
+from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import ScatterActionInput
 from tracecat.dsl.common import (
     AgentActionMemo,
@@ -504,6 +506,70 @@ class EventFailure(BaseModel):
     root_cause_message: str | None = None
 
     @staticmethod
+    def _has_field(message: Any, field: str) -> bool:
+        has_field = getattr(message, "HasField", None)
+        if callable(has_field):
+            return bool(has_field(field))
+        return getattr(message, field, None) is not None
+
+    @staticmethod
+    def _has_encoded_attributes(failure: Failure) -> bool:
+        current: Failure | None = failure
+        while current is not None:
+            if current.HasField("encoded_attributes"):
+                return True
+            current = current.cause if current.HasField("cause") else None
+        return False
+
+    @staticmethod
+    async def _decode_failure_exception(failure: Any) -> BaseException | None:
+        if not isinstance(failure, Failure) or not EventFailure._has_encoded_attributes(
+            failure
+        ):
+            return None
+
+        decoded_failure = Failure()
+        decoded_failure.CopyFrom(failure)
+        try:
+            return await get_data_converter(compression_enabled=False).decode_failure(
+                decoded_failure
+            )
+        except Exception as e:
+            logger.warning("Failed to decode Temporal failure attributes", error=e)
+            return None
+
+    @staticmethod
+    def _exception_message(error: BaseException | None) -> str | None:
+        if error is None:
+            return None
+
+        message = getattr(error, "message", None)
+        if isinstance(message, str) and message.strip():
+            return message
+
+        fallback = str(error)
+        return fallback if fallback.strip() else None
+
+    @staticmethod
+    def _exception_root_cause_message(error: BaseException | None) -> str | None:
+        if error is None:
+            return None
+
+        root_message: str | None = None
+        current = error.__cause__
+        seen: set[int] = set()
+        while current is not None:
+            current_id = id(current)
+            if current_id in seen:
+                break
+            seen.add(current_id)
+
+            if message := EventFailure._exception_message(current):
+                root_message = message
+            current = current.__cause__
+        return root_message
+
+    @staticmethod
     def extract_root_cause_message(cause: dict[str, Any] | None) -> str | None:
         """Extract the deepest non-empty message from nested Temporal failure causes."""
         if not cause:
@@ -547,7 +613,7 @@ class EventFailure(BaseModel):
         return sanitized
 
     @staticmethod
-    def from_history_event(
+    async def from_history_event(
         event: temporalio.api.history.v1.HistoryEvent,
         *,
         include_raw_cause: bool = False,
@@ -564,10 +630,20 @@ class EventFailure(BaseModel):
             case _:
                 raise ValueError("Event type not supported for failure extraction.")
 
-        cause = MessageToDict(failure.cause) if failure.HasField("cause") else None
-        root_cause_message = EventFailure.extract_root_cause_message(cause)
+        decoded_error = await EventFailure._decode_failure_exception(failure)
+        cause = (
+            MessageToDict(failure.cause)
+            if EventFailure._has_field(failure, "cause")
+            else None
+        )
+        root_cause_message = EventFailure._exception_root_cause_message(
+            decoded_error
+        ) or EventFailure.extract_root_cause_message(cause)
+        message = EventFailure._exception_message(decoded_error) or getattr(
+            failure, "message", ""
+        )
         return EventFailure(
-            message=EventFailure.sanitize_error_text(failure.message) or "",
+            message=EventFailure.sanitize_error_text(message) or "",
             cause=cause if include_raw_cause else None,
             root_cause_message=EventFailure.sanitize_error_text(root_cause_message),
         )
