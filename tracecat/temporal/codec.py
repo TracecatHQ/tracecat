@@ -369,14 +369,14 @@ class TemporalEncryptionKeyring:
         )
         return hkdf.derive(root_secret)
 
-    async def get_current_key_id(self) -> str:
-        """Return the current Temporal payload key id for new encryptions."""
-        keyring, _generation = await self._retrieve_keyring()
-        return keyring.current_key_id
-
-    async def get_key(self, workspace_id: str, key_id: str) -> bytes:
-        """Return the derived encryption key for a workspace and key id."""
-        keyring, generation = await self._retrieve_keyring()
+    def _get_or_derive_key(
+        self,
+        *,
+        workspace_id: str,
+        key_id: str,
+        keyring: TemporalPayloadKeyring,
+        generation: int,
+    ) -> bytes:
         cache_key = (workspace_id, key_id, generation)
         with self._lock:
             if (key := self._cache.get(cache_key)) is not None:
@@ -388,6 +388,33 @@ class TemporalEncryptionKeyring:
                 return cached
             self._cache[cache_key] = key
             return key
+
+    async def get_current_key_id(self) -> str:
+        """Return the current Temporal payload key id for new encryptions."""
+        keyring, _generation = await self._retrieve_keyring()
+        return keyring.current_key_id
+
+    async def get_current_key(self, workspace_id: str) -> tuple[str, bytes]:
+        """Return the current key id and derived key from one keyring snapshot."""
+        keyring, generation = await self._retrieve_keyring()
+        key_id = keyring.current_key_id
+        key = self._get_or_derive_key(
+            workspace_id=workspace_id,
+            key_id=key_id,
+            keyring=keyring,
+            generation=generation,
+        )
+        return key_id, key
+
+    async def get_key(self, workspace_id: str, key_id: str) -> bytes:
+        """Return the derived encryption key for a workspace and key id."""
+        keyring, generation = await self._retrieve_keyring()
+        return self._get_or_derive_key(
+            workspace_id=workspace_id,
+            key_id=key_id,
+            keyring=keyring,
+            generation=generation,
+        )
 
     def clear(self) -> None:
         """Clear the derived key cache."""
@@ -453,8 +480,8 @@ class EncryptionPayloadCodec(PayloadCodec):
             return list(payloads)
 
         workspace_id = self._resolve_workspace_scope()
-        key_id = await self.keyring.get_current_key_id()
-        aesgcm = AESGCM(await self.keyring.get_key(workspace_id, key_id))
+        key_id, key = await self.keyring.get_current_key(workspace_id)
+        aesgcm = AESGCM(key)
 
         result: list[Payload] = []
         async for payload in cooperative(payloads):

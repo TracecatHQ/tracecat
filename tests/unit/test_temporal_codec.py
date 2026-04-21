@@ -25,6 +25,7 @@ from tracecat.temporal.codec import (
     EncryptionPayloadCodec,
     TemporalEncryptionKeyring,
     TemporalPayloadCodecError,
+    TemporalPayloadKeyring,
     decode_payloads,
     get_payload_codec,
     reset_temporal_payload_codec_cache,
@@ -711,6 +712,49 @@ async def test_keyring_revalidates_derived_keys_after_secret_refresh(
         match="keyring does not contain the requested key id",
     ):
         await keyring.get_key("ws-1", "v1")
+
+
+@pytest.mark.anyio
+async def test_payload_encode_resolves_current_key_from_one_keyring_snapshot() -> None:
+    """Encode should derive key material from the same keyring snapshot as key id."""
+
+    class RefreshingKeyring(TemporalEncryptionKeyring):
+        retrieve_calls = 0
+
+        async def _retrieve_keyring(self) -> tuple[TemporalPayloadKeyring, int]:
+            self.retrieve_calls += 1
+            if self.retrieve_calls == 1:
+                return (
+                    TemporalPayloadKeyring.model_validate(
+                        {
+                            "current_key_id": "v1",
+                            "keys": {"v1": "unit-test-root-key-v1"},
+                        }
+                    ),
+                    1,
+                )
+            return (
+                TemporalPayloadKeyring.model_validate(
+                    {
+                        "current_key_id": "v2",
+                        "keys": {"v2": "unit-test-root-key-v2"},
+                    }
+                ),
+                2,
+            )
+
+    keyring = RefreshingKeyring()
+    codec = EncryptionPayloadCodec(enabled=True, keyring=keyring)
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=b'{"secret":"new"}')
+
+    token = _set_workspace_role()
+    try:
+        encoded = await codec.encode([payload])
+    finally:
+        ctx_role.reset(token)
+
+    assert keyring.retrieve_calls == 1
+    assert encoded[0].metadata["tracecat_key_id"] == b"v1"
 
 
 @pytest.mark.anyio
