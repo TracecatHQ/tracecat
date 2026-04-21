@@ -22,7 +22,7 @@ const mockLogin = jest.fn()
 const mockLogout = jest.fn()
 const mockRegister = jest.fn()
 
-let mockUser: { email: string } | null = null
+let mockUser: { email: string; isSuperuser: boolean } | null = null
 let mockAppInfo: MockAppInfo = {
   version: "test",
   public_app_url: "http://localhost:3000",
@@ -272,4 +272,26 @@ describe("Auth UI matrix", () => {
       }
     }
   )
+
+  it("redirects authenticated single-tenant superusers to workspaces from sign-up", async () => {
+    setMultiTenant(false)
+    mockUser = { email: "admin@example.com", isSuperuser: true }
+
+    render(<SignUp />)
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith("/workspaces")
+    })
+  })
+
+  it("redirects authenticated multi-tenant superusers to admin from sign-up", async () => {
+    setMultiTenant(true)
+    mockUser = { email: "admin@example.com", isSuperuser: true }
+
+    render(<SignUp />)
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith("/admin")
+    })
+  })
 })

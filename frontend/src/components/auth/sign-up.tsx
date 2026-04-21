@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
+import { getPostAuthRedirectPath } from "@/lib/auth-redirect"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -86,11 +87,20 @@ export function SignUp({
   const signInPath = buildSignInPath(returnUrl, organizationSlug)
 
   useEffect(() => {
-    if (user) {
-      // Invitation acceptance is handled atomically during registration
-      router.push(user.isSuperuser ? "/admin" : "/workspaces")
+    if (!user) {
+      return
     }
-  }, [user, router])
+    if (user.isSuperuser && appInfoIsLoading) {
+      return
+    }
+    // Invitation acceptance is handled atomically during registration.
+    router.push(
+      getPostAuthRedirectPath({
+        isSuperuser: user.isSuperuser,
+        eeMultiTenant: appInfo?.ee_multi_tenant ?? true,
+      })
+    )
+  }, [appInfo?.ee_multi_tenant, appInfoIsLoading, user, router])
 
   if (appInfoIsLoading) {
     return <CenteredSpinner />
