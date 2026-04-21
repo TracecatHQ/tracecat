@@ -8,7 +8,11 @@ from pydantic_core import to_jsonable_python
 
 from tracecat.expressions.schemas import ExpectedField
 from tracecat.logger import logger
-from tracecat.registry.fields import get_components_for_union_type, type_drop_null
+from tracecat.registry.fields import (
+    get_components_for_union_type,
+    type_drop_null,
+    type_is_nullable,
+)
 
 # Re-export for backwards compatibility
 __all__ = ["ExpectedField", "create_expectation_model"]
@@ -148,6 +152,20 @@ def parse_type(type_string: str, field_name: str) -> Any:
     return TypeTransformer(field_name).transform(tree)
 
 
+def _field_type_from_expected_field(field_info: ExpectedField, field_name: str) -> type:
+    parsed_type = parse_type(field_info.type, field_name)
+    if field_info.enum is None:
+        return parsed_type
+
+    if not field_info.enum:
+        raise ValueError(f"Field {field_name!r} defines an empty enum list")
+
+    literal_type = Literal.__getitem__(tuple(field_info.enum))  # pyright: ignore[reportAttributeAccessIssue]
+    if type_is_nullable(parsed_type):
+        return Union[literal_type, None]  # noqa: UP007  # pyright: ignore[reportReturnType]
+    return literal_type
+
+
 def create_expectation_model(
     schema: Mapping[str, ExpectedField | Mapping[str, Any]],
     model_name: str = "ExpectedSchemaModel",
@@ -159,7 +177,9 @@ def create_expectation_model(
         validated_field_info = ExpectedField.model_validate(field_info)
 
         # Extract metadata
-        field_type: type = parse_type(validated_field_info.type, field_name)
+        field_type: type = _field_type_from_expected_field(
+            validated_field_info, field_name
+        )
         description = validated_field_info.description
 
         if description:
@@ -168,6 +188,8 @@ def create_expectation_model(
         if validated_field_info.has_default():
             # If the field has a default value, use it
             field_info_kwargs["default"] = validated_field_info.default
+        elif validated_field_info.optional:
+            field_info_kwargs["default"] = None
         else:
             # Use ... (ellipsis) to indicate a required field in Pydantic
             field_info_kwargs["default"] = ...
