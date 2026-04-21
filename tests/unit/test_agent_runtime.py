@@ -707,6 +707,83 @@ class TestClaudeAgentRuntimePreToolUseHook:
         runtime.client.interrupt.assert_awaited()
 
 
+class TestClaudeAgentRuntimeStopHook:
+    """Tests for ClaudeAgentRuntime._stop_hook().
+
+    The Stop hook guards against structured-output death loops: the CLI re-invokes
+    the model when its final message fails a stop-hook check (e.g. schema
+    validation). Without a cap the loop can run indefinitely.
+    """
+
+    @staticmethod
+    def _make_stop_input(*, stop_hook_active: bool) -> dict[str, Any]:
+        return {
+            "session_id": "test-session-id",
+            "transcript_path": "/tmp/test-transcript.jsonl",
+            "cwd": "/tmp",
+            "hook_event_name": "Stop",
+            "stop_hook_active": stop_hook_active,
+        }
+
+    @pytest.mark.anyio
+    async def test_natural_stop_passes_through(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """A natural stop (stop_hook_active=False) must not count against the cap."""
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        result = await runtime._stop_hook(
+            input_data=cast(Any, self._make_stop_input(stop_hook_active=False)),
+            tool_use_id=None,
+            context=make_hook_context(),
+        )
+
+        assert result == {}
+        assert runtime._stop_hook_retries == 0
+
+    @pytest.mark.anyio
+    async def test_allows_retries_up_to_cap(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """The first MAX_STOP_HOOK_RETRIES active retries pass through unchanged."""
+        from tracecat.agent.runtime.claude_code.runtime import MAX_STOP_HOOK_RETRIES
+
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+
+        for _ in range(MAX_STOP_HOOK_RETRIES):
+            result = await runtime._stop_hook(
+                input_data=cast(Any, self._make_stop_input(stop_hook_active=True)),
+                tool_use_id=None,
+                context=make_hook_context(),
+            )
+            assert result == {}
+
+        assert runtime._stop_hook_retries == MAX_STOP_HOOK_RETRIES
+
+    @pytest.mark.anyio
+    async def test_terminates_turn_when_cap_exceeded(
+        self,
+        mock_socket_writer: MagicMock,
+    ) -> None:
+        """Once retries exceed the cap, the hook must stop the turn cleanly."""
+        from tracecat.agent.runtime.claude_code.runtime import MAX_STOP_HOOK_RETRIES
+
+        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        runtime._stop_hook_retries = MAX_STOP_HOOK_RETRIES
+
+        result = await runtime._stop_hook(
+            input_data=cast(Any, self._make_stop_input(stop_hook_active=True)),
+            tool_use_id=None,
+            context=make_hook_context(),
+        )
+
+        assert result.get("continue_") is False
+        assert "retry cap" in (result.get("stopReason") or "").lower()
+        mock_socket_writer.send_log.assert_awaited()
+
+
 class TestClaudeAgentRuntimeInternalSessionLines:
     """Tests for ClaudeAgentRuntime internal session line filtering."""
 
