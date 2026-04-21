@@ -90,7 +90,7 @@ jobs:
       )
     needs: ssh-sanity # only start if key check passed
     environment: internal-registry-ci
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: blacksmith-8vcpu-ubuntu-2204
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
