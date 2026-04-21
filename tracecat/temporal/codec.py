@@ -33,6 +33,7 @@ from tracecat.contexts import ctx_role
 
 TRACECAT_TEMPORAL_ENCODING: Final[bytes] = b"binary/tracecat-aes256gcm"
 TRACECAT_TEMPORAL_GLOBAL_SCOPE: Final[str] = "__global__"
+_COMPRESSION_ALGORITHMS: Final[frozenset[str]] = frozenset({"zstd", "gzip", "brotli"})
 _TRACECAT_TEMPORAL_ENCRYPTION_METADATA_KEYS: Final[frozenset[str]] = frozenset(
     {
         "tracecat_original_encoding",
@@ -143,6 +144,12 @@ class CompressionPayloadCodec(PayloadCodec):
         """Encode payloads, compressing those that exceed the threshold."""
         if not self.enabled:
             return list(payloads)
+        if self.algorithm not in _COMPRESSION_ALGORITHMS:
+            supported = ", ".join(sorted(_COMPRESSION_ALGORITHMS))
+            raise ValueError(
+                f"Unsupported compression algorithm: {self.algorithm}. "
+                f"Supported algorithms: {supported}"
+            )
 
         result: list[Payload] = []
         async for payload in cooperative(payloads):

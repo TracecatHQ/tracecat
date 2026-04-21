@@ -769,6 +769,16 @@ async def test_compression_codec_disabled_is_passthrough() -> None:
     assert encoded[0].data == data
 
 
+@pytest.mark.anyio
+async def test_compression_codec_rejects_invalid_algorithm_when_enabled() -> None:
+    """Enabled compression rejects invalid algorithms before storing payloads."""
+    codec = CompressionPayloadCodec(threshold_bytes=1, algorithm="zstdd", enabled=True)
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=b"a" * 100)
+
+    with pytest.raises(ValueError, match="Unsupported compression algorithm: zstdd"):
+        await codec.encode([payload])
+
+
 # --- CompositePayloadCodec / get_payload_codec factory tests ---
 
 
@@ -873,6 +883,24 @@ async def test_decode_payloads_decompresses_when_compression_disabled(
 
     # Disable compression — simulates config change
     monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", False)
+
+    result = await decode_payloads(compressed)
+    assert result[0].data == payload.data
+    assert result[0].metadata.get("encoding") == b"json/plain"
+
+
+@pytest.mark.anyio
+async def test_decode_payloads_decompresses_with_invalid_current_algorithm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Decode remains metadata-driven when current compression config is invalid."""
+    compress_codec = CompressionPayloadCodec(
+        threshold_bytes=1, algorithm="zstd", enabled=True
+    )
+    payload = Payload(metadata={"encoding": b"json/plain"}, data=b'{"key":"value"}')
+    compressed = await compress_codec.encode([payload])
+
+    monkeypatch.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ALGORITHM", "zstdd")
 
     result = await decode_payloads(compressed)
     assert result[0].data == payload.data
