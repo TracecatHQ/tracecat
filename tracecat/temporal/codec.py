@@ -10,7 +10,7 @@ from time import monotonic
 from typing import Final, Self
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 from cachetools import TTLCache
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -279,7 +279,7 @@ class TemporalEncryptionKeyring:
             session = boto3.session.Session()
             client = session.client(service_name="secretsmanager")
             response = client.get_secret_value(SecretId=arn)
-        except ClientError as e:
+        except (BotoCoreError, ClientError) as e:
             raise TemporalPayloadCodecError(
                 "Failed to retrieve Temporal payload encryption keyring"
             ) from e

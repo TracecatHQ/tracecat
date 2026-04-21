@@ -5,6 +5,7 @@ import uuid
 
 import orjson
 import pytest
+from botocore.exceptions import EndpointConnectionError
 from temporalio.api.common.v1 import Payload
 from temporalio.converter import (
     DefaultFailureConverter,
@@ -178,6 +179,37 @@ async def test_payload_codec_retrieves_root_key_from_secret_arn(
     decoded = await codec.decode(encoded)
     assert decoded[0].data == payload.data
     assert calls == 1
+
+
+@pytest.mark.anyio
+async def test_keyring_wraps_aws_secret_retrieval_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING", None)
+    monkeypatch.setattr(
+        config,
+        "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:tracecat",
+    )
+
+    class SecretsManagerClient:
+        def get_secret_value(self, *, SecretId: str) -> dict[str, str]:
+            assert SecretId == config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN
+            raise EndpointConnectionError(endpoint_url="https://secretsmanager")
+
+    class Session:
+        def client(self, *, service_name: str) -> SecretsManagerClient:
+            assert service_name == "secretsmanager"
+            return SecretsManagerClient()
+
+    monkeypatch.setattr(temporal_codec.boto3.session, "Session", lambda: Session())
+
+    keyring = TemporalEncryptionKeyring()
+    with pytest.raises(
+        TemporalPayloadCodecError,
+        match="Failed to retrieve Temporal payload encryption keyring",
+    ):
+        await keyring.get_current_key_id()
 
 
 def test_get_data_converter_switches_failure_converter_with_encryption(
