@@ -11,6 +11,26 @@ describe("getPostAuthRedirectPath", () => {
     ).toBe("/admin")
   })
 
+  it("honors MCP OAuth continuation paths for multi-tenant superusers", () => {
+    expect(
+      getPostAuthRedirectPath({
+        isSuperuser: true,
+        eeMultiTenant: true,
+        returnUrl: "/oauth/mcp/continue?txn=abc123",
+      })
+    ).toBe("/oauth/mcp/continue?txn=abc123")
+  })
+
+  it("does not treat similar MCP paths as continuation paths", () => {
+    expect(
+      getPostAuthRedirectPath({
+        isSuperuser: true,
+        eeMultiTenant: true,
+        returnUrl: "/oauth/mcp/continue-later?txn=abc123",
+      })
+    ).toBe("/admin")
+  })
+
   it("keeps single-tenant superusers on normal app routes", () => {
     expect(
       getPostAuthRedirectPath({
