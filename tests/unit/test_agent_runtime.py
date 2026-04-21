@@ -252,7 +252,9 @@ class TestClaudeAgentRuntimeRun:
                 AsyncMock(return_value={}),
             ),
         ):
-            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
             await runtime.run(sample_init_payload)
 
         mock_socket_writer.send_done.assert_awaited_once()
@@ -302,7 +304,9 @@ class TestClaudeAgentRuntimeRun:
             ),
             patch("tracecat.agent.runtime.claude_code.runtime.StreamEvent", MagicMock),
         ):
-            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
             await runtime.run(sample_init_payload)
 
         # Should have called send_stream_event
@@ -344,7 +348,9 @@ class TestClaudeAgentRuntimeRun:
                 AsyncMock(return_value={}),
             ),
         ):
-            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
             await runtime.run(sample_init_payload)
 
         assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "1"
@@ -385,7 +391,9 @@ class TestClaudeAgentRuntimeRun:
                 AsyncMock(return_value={}),
             ),
         ):
-            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
             await runtime.run(sample_init_payload)
 
         assert os.environ["CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"] == "existing"
@@ -411,7 +419,9 @@ class TestClaudeAgentRuntimeRun:
             ),
             pytest.raises(ValueError, match="Test error"),
         ):
-            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
             await runtime.run(sample_init_payload)
 
         mock_socket_writer.send_error.assert_awaited_once()
@@ -447,7 +457,9 @@ class TestClaudeAgentRuntimeRun:
                 AsyncMock(return_value={}),
             ),
         ):
-            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
             await runtime.run(resumed_payload)
 
         assert captured_options
@@ -480,7 +492,9 @@ class TestClaudeAgentRuntimeRun:
                 AsyncMock(return_value={}),
             ),
         ):
-            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
             await runtime.run(sample_init_payload)
 
         assert captured_options
@@ -518,7 +532,9 @@ class TestClaudeAgentRuntimeRun:
                 AsyncMock(return_value={}),
             ),
         ):
-            runtime = ClaudeAgentRuntime(mock_socket_writer)
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
             await runtime.run(custom_payload)
 
         assert captured_options
@@ -598,6 +614,7 @@ class TestClaudeAgentRuntimeRun:
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer,
+                transport_factory=lambda _: MagicMock(),
                 session_home_dir=session_home_dir,
                 cwd=runtime_cwd,
                 cwd_setup_path=runtime_cwd,
@@ -651,7 +668,9 @@ class TestClaudeAgentRuntimeRun:
         mock_socket_writer: MagicMock,
     ) -> None:
         """Test that resume JSONL is rewritten to the canonical registry MCP name."""
-        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
         sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
         runtime._cwd = (
             Path(tempfile.gettempdir())
@@ -691,7 +710,9 @@ class TestClaudeAgentRuntimePreToolUseHook:
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
         """Test that user MCP tools are auto-approved."""
-        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
         runtime.registry_tools = sample_init_payload.allowed_actions
         runtime.tool_approvals = sample_init_payload.config.tool_approvals
 
@@ -719,7 +740,9 @@ class TestClaudeAgentRuntimePreToolUseHook:
         sample_init_payload: RuntimeInitPayload,
     ) -> None:
         """Test that registry tools are auto-approved when not requiring approval."""
-        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
         runtime.registry_tools = sample_init_payload.allowed_actions
         runtime.tool_approvals = {"core.http_request": False}  # No approval needed
 
@@ -749,7 +772,9 @@ class TestClaudeAgentRuntimePreToolUseHook:
         self,
         mock_socket_writer: MagicMock,
     ) -> None:
-        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
 
         result = await runtime._pre_tool_use_hook(
             input_data=make_hook_input(
@@ -772,7 +797,9 @@ class TestClaudeAgentRuntimePreToolUseHook:
         self,
         mock_socket_writer: MagicMock,
     ) -> None:
-        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
 
         result = await runtime._pre_tool_use_hook(
             input_data=make_hook_input(
@@ -796,7 +823,9 @@ class TestClaudeAgentRuntimePreToolUseHook:
         mock_socket_writer: MagicMock,
     ) -> None:
         """Test that tools marked for approval trigger approval request."""
-        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
         runtime.registry_tools = {
             "core.http_request": SharedMCPToolDefinition(
                 name="core.http_request",
@@ -920,7 +949,9 @@ class TestClaudeAgentRuntimeInternalSessionLines:
         mock_socket_writer: MagicMock,
     ) -> None:
         """Natural-language text should not be hidden as a compaction artifact."""
-        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
 
         line_data = {
             "type": "assistant",
@@ -941,7 +972,9 @@ class TestClaudeAgentRuntimeInternalSessionLines:
         mock_socket_writer: MagicMock,
     ) -> None:
         """Structured Claude compaction markup should remain internal."""
-        runtime = ClaudeAgentRuntime(mock_socket_writer)
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock()
+        )
 
         line_data = {
             "type": "assistant",

@@ -216,7 +216,7 @@ class ClaudeAgentRuntime:
         self,
         event_writer: RuntimeEventWriter,
         *,
-        transport_factory: Callable[[ClaudeAgentOptions], Transport] | None = None,
+        transport_factory: Callable[[ClaudeAgentOptions], Transport],
         session_home_dir: Path | None = None,
         cwd: Path | None = None,
         cwd_setup_path: Path | None = None,
@@ -835,11 +835,7 @@ class ClaudeAgentRuntime:
                 ),
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
-                    **(
-                        {"ANTHROPIC_BASE_URL": get_llm_proxy_url()}
-                        if self._transport_factory is None
-                        else {}
-                    ),
+                    "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
                     **(
                         {
                             "CLAUDE_CODE_AUTO_COMPACT_WINDOW": CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
@@ -850,12 +846,6 @@ class ClaudeAgentRuntime:
                     **(
                         {"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1"}
                         if payload.config.passthrough
-                        else {}
-                    ),
-                    **(
-                        {"HOME": str(self._session_home_dir)}
-                        if self._session_home_dir is not None
-                        and self._transport_factory is None
                         else {}
                     ),
                 },
@@ -892,11 +882,7 @@ class ClaudeAgentRuntime:
                 mcp_servers=list(mcp_servers.keys()),
             )
             _configure_claude_sdk_process_env()
-            transport = (
-                self._transport_factory(options)
-                if self._transport_factory is not None
-                else None
-            )
+            transport = self._transport_factory(options)
             client = ClaudeSDKClient(options=options, transport=transport)
             logger.debug("Client created, entering context")
             async with client:
