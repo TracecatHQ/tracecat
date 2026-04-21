@@ -17,10 +17,13 @@ import pytest
 from claude_agent_sdk.types import (
     HookContext,
     PreToolUseHookInput,
+    ResultMessage,
     StopHookInput,
+    StreamEvent,
     SyncHookJSONOutput,
 )
 
+import tracecat.agent.runtime.claude_code.runtime as runtime_module
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
@@ -516,6 +519,276 @@ class TestClaudeAgentRuntimeRun:
 
         assert captured_options
         assert captured_options[0].env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] == "128000"
+
+    @pytest.mark.parametrize(
+        "disable_nsjail",
+        [
+            pytest.param(True, id="direct"),
+            pytest.param(False, id="nsjail"),
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_run_invokes_approval_hook_from_sdk_turn_in_each_sandbox_mode(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        disable_nsjail: bool,
+    ) -> None:
+        """A mocked SDK turn should still drive runtime approval interrupts."""
+        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+        captured_options: list[Any] = []
+
+        class ApprovalHookClient:
+            def __init__(self, options: Any) -> None:
+                self.options = options
+                self.query = AsyncMock(side_effect=self._query)
+                self.interrupt = AsyncMock()
+
+            async def __aenter__(self) -> ApprovalHookClient:
+                return self
+
+            async def __aexit__(
+                self,
+                exc_type: object,
+                exc: object,
+                tb: object,
+            ) -> None:
+                del exc_type, exc, tb
+
+            async def _query(self, _prompt: str) -> None:
+                [matcher] = self.options.hooks["PreToolUse"]
+                [hook] = matcher.hooks
+                await hook(
+                    input_data=make_hook_input(
+                        tool_name="mcp__tracecat-registry__core__http_request",
+                        tool_input={"url": "https://example.com", "method": "GET"},
+                        tool_use_id="call-approval",
+                    ),
+                    tool_use_id="call-approval",
+                    context=make_hook_context(),
+                )
+
+            async def receive_response(self) -> Any:
+                return
+                yield  # pragma: no cover  # noqa: B901
+
+        clients: list[ApprovalHookClient] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> ApprovalHookClient:
+            captured_options.append(kwargs["options"])
+            client = ApprovalHookClient(kwargs["options"])
+            clients.append(client)
+            return client
+
+        approval_payload = replace(
+            sample_init_payload,
+            config=replace(
+                sample_init_payload.config,
+                tool_approvals={"core.http_request": True},
+            ),
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(approval_payload)
+
+        assert captured_options
+        assert captured_options[0].sandbox["enabled"] is disable_nsjail
+        [client] = clients
+        client.query.assert_awaited_once_with(approval_payload.user_prompt)
+        client.interrupt.assert_awaited_once()
+
+        approval_events = [
+            call.args[0]
+            for call in mock_socket_writer.send_stream_event.await_args_list
+            if call.args[0].type == StreamEventType.APPROVAL_REQUEST
+        ]
+        assert len(approval_events) == 1
+        [approval_item] = approval_events[0].approval_items or []
+        assert approval_item.id == "call-approval"
+        assert approval_item.name == "core.http_request"
+        assert approval_item.input == {
+            "url": "https://example.com",
+            "method": "GET",
+        }
+
+    @pytest.mark.parametrize(
+        "disable_nsjail",
+        [
+            pytest.param(True, id="direct"),
+            pytest.param(False, id="nsjail"),
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_approval_continuation_uses_hidden_prompt_in_each_sandbox_mode(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+        disable_nsjail: bool,
+    ) -> None:
+        """Approval continuations must resume with Tracecat's hidden prompt."""
+        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+        captured_options: list[Any] = []
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        continued_payload = replace(
+            sample_init_payload,
+            sdk_session_id="eed8297f-26fb-4e00-905f-a10f0cf20704",
+            sdk_session_data='{"type":"user","message":{"content":"tool result"}}\n',
+            is_approval_continuation=True,
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer,
+                transport_factory=lambda _options: MagicMock(),
+                session_home_dir=tmp_path / "claude-home",
+                cwd=tmp_path / "claude-project",
+                cwd_setup_path=tmp_path / "claude-project",
+            )
+            await runtime.run(continued_payload)
+
+        assert captured_options
+        assert captured_options[0].resume == continued_payload.sdk_session_id
+        assert captured_options[0].fork_session is False
+        assert captured_options[0].sandbox["enabled"] is disable_nsjail
+        mock_claude_sdk_client.query.assert_awaited_once_with(
+            "[INTERNAL] End of Tool Call"
+        )
+
+    @pytest.mark.parametrize(
+        "disable_nsjail",
+        [
+            pytest.param(True, id="direct"),
+            pytest.param(False, id="nsjail"),
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_forked_resume_sets_sdk_fork_flag_and_skips_parent_history(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+        disable_nsjail: bool,
+    ) -> None:
+        """Forked sessions should pass fork_session=True and not re-emit parent JSONL."""
+        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+        captured_options: list[Any] = []
+
+        parent_sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
+        child_sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20705"
+        parent_history = (
+            '{"type":"user","message":{"content":"parent prompt"}}\n'
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"parent answer"}]}}\n'
+        )
+        fork_payload = replace(
+            sample_init_payload,
+            sdk_session_id=parent_sdk_session_id,
+            sdk_session_data=parent_history,
+            is_fork=True,
+        )
+
+        session_home_dir = tmp_path / "claude-home"
+        runtime_cwd = tmp_path / "claude-project"
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _options: MagicMock(),
+            session_home_dir=session_home_dir,
+            cwd=runtime_cwd,
+            cwd_setup_path=runtime_cwd,
+        )
+        child_session_file = runtime._get_session_file_path(child_sdk_session_id)
+        child_session_file.parent.mkdir(parents=True, exist_ok=True)
+        child_session_file.write_text(parent_history)
+
+        async def mock_receive() -> Any:
+            yield StreamEvent(
+                uuid="stream-1",
+                session_id=child_sdk_session_id,
+                event={
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "forked"},
+                },
+            )
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=child_sdk_session_id,
+                usage={},
+                result="done",
+            )
+
+        mock_claude_sdk_client.receive_response = mock_receive
+
+        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
+            captured_options.append(kwargs["options"])
+            return mock_claude_sdk_client
+
+        mock_adapter = MagicMock()
+        mock_adapter.to_unified_event.return_value = UnifiedStreamEvent(
+            type=StreamEventType.TEXT_DELTA,
+            text="forked",
+            part_id=0,
+        )
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                side_effect=_mock_client_ctor,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
+                return_value=mock_adapter,
+            ),
+        ):
+            await runtime.run(fork_payload)
+
+        assert captured_options
+        assert captured_options[0].resume == parent_sdk_session_id
+        assert captured_options[0].fork_session is True
+        assert captured_options[0].sandbox["enabled"] is disable_nsjail
+        mock_claude_sdk_client.query.assert_awaited_once_with(
+            sample_init_payload.user_prompt
+        )
+        mock_socket_writer.send_session_line.assert_not_awaited()
+        mock_socket_writer.send_result.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_resume_writes_session_file_when_using_custom_transport(

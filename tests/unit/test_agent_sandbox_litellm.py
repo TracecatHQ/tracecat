@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -26,7 +26,12 @@ import tracecat.agent.runtime.claude_code.transport as transport_module
 import tracecat.agent.sandbox.nsjail as nsjail_module
 import tracecat.agent.sandbox.shim_entrypoint as shim_entrypoint
 from tracecat import config as app_config
-from tracecat.agent.common.stream_types import UnifiedStreamEvent
+from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.stream_types import (
+    StreamEventType,
+    ToolCallContent,
+    UnifiedStreamEvent,
+)
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
@@ -371,6 +376,37 @@ class _FakeRuntimeConnectingTransport:
         await transport.close()
 
 
+class _FakeLoopbackRuntime:
+    instances: list[_FakeLoopbackRuntime] = []
+    payloads: list[RuntimeInitPayload] = []
+    script: Callable[[LoopbackHandler, RuntimeInitPayload], Awaitable[None]] | None = (
+        None
+    )
+
+    def __init__(
+        self,
+        handler: LoopbackHandler,
+        *,
+        transport_factory: Callable[[Any], SandboxedCLITransport],
+        session_home_dir: Path,
+        cwd: Path,
+        cwd_setup_path: Path,
+    ) -> None:
+        del transport_factory
+        self.handler = handler
+        self.session_home_dir = session_home_dir
+        self.cwd = cwd
+        self.cwd_setup_path = cwd_setup_path
+        type(self).instances.append(self)
+
+    async def run(self, payload: RuntimeInitPayload) -> None:
+        type(self).payloads.append(payload)
+        script = type(self).script
+        if script is None:
+            raise AssertionError("Fake loopback runtime script was not configured")
+        await script(self.handler, payload)
+
+
 class _FakeAgentSessionService:
     async def __aenter__(self) -> _FakeAgentSessionService:
         return self
@@ -622,6 +658,281 @@ async def _run_executor_with_fake_broker(
     result = await executor.run()
 
     return result, created_socket_paths, fake_proxy, fake_broker
+
+
+async def _run_activity_with_fake_loopback_runtime(
+    *,
+    executor_input: AgentExecutorInput,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    script: Callable[[LoopbackHandler, RuntimeInitPayload], Awaitable[None]],
+) -> tuple[
+    AgentExecutorResult,
+    _InMemoryStreamSink,
+    list[tuple[str, str, bool]],
+    _FakeProxy,
+    list[RuntimeInitPayload],
+    list[_FakeLoopbackRuntime],
+]:
+    _FakeLoopbackRuntime.instances.clear()
+    _FakeLoopbackRuntime.payloads.clear()
+    _FakeLoopbackRuntime.script = script
+
+    stream_sink = _InMemoryStreamSink()
+    persisted_session_lines: list[tuple[str, str, bool]] = []
+    fake_proxy = _FakeProxy()
+    broker = ClaudeRuntimeBroker()
+    job_dir = tmp_path / "job"
+
+    async def fake_create_job_directory(self: SandboxedAgentExecutor) -> Path:
+        del self
+        (job_dir / "sockets").mkdir(parents=True, exist_ok=True)
+        return job_dir
+
+    def fake_create_llm_socket_proxy(
+        self: SandboxedAgentExecutor,
+        socket_path: Path,
+    ) -> _FakeProxy:
+        del self, socket_path
+        return fake_proxy
+
+    async def fake_initialize_stream_sink(self: LoopbackHandler) -> _InMemoryStreamSink:
+        del self
+        return stream_sink
+
+    async def fake_persist_session_line(
+        self: LoopbackHandler,
+        sdk_session_id: str,
+        session_line: str,
+        *,
+        internal: bool = False,
+    ) -> None:
+        del self
+        persisted_session_lines.append((sdk_session_id, session_line, internal))
+
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_job_directory",
+        fake_create_job_directory,
+    )
+    monkeypatch.setattr(
+        SandboxedAgentExecutor,
+        "_create_llm_socket_proxy",
+        fake_create_llm_socket_proxy,
+    )
+    monkeypatch.setattr(
+        LoopbackHandler,
+        "_initialize_stream_sink",
+        fake_initialize_stream_sink,
+    )
+    monkeypatch.setattr(
+        LoopbackHandler,
+        "_persist_session_line",
+        fake_persist_session_line,
+    )
+    monkeypatch.setattr(executor_activity, "get_claude_runtime_broker", lambda: broker)
+    monkeypatch.setattr(broker_module, "ClaudeAgentRuntime", _FakeLoopbackRuntime)
+    monkeypatch.setattr(
+        session_paths_module.tempfile,
+        "gettempdir",
+        lambda: str(tmp_path / "sessions"),
+    )
+    monkeypatch.setattr(
+        executor_activity,
+        "activity",
+        SimpleNamespace(heartbeat=lambda _message: None),
+    )
+    monkeypatch.setattr(
+        executor_activity.AgentSessionService,
+        "with_session",
+        lambda **_kwargs: _FakeAgentSessionService(),
+    )
+
+    await broker.start()
+    try:
+        result = await run_agent_activity(executor_input)
+    finally:
+        await broker.stop()
+        _FakeLoopbackRuntime.script = None
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+    return (
+        result,
+        stream_sink,
+        persisted_session_lines,
+        fake_proxy,
+        list(_FakeLoopbackRuntime.payloads),
+        list(_FakeLoopbackRuntime.instances),
+    )
+
+
+@pytest.mark.anyio
+async def test_run_agent_activity_with_fake_runtime_exercises_loopback_approval_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _set_disable_nsjail_mode(monkeypatch, True)
+    executor_input = _make_executor_input(enable_internet_access=False)
+
+    async def approval_script(
+        handler: LoopbackHandler,
+        payload: RuntimeInitPayload,
+    ) -> None:
+        assert payload.session_id == executor_input.session_id
+        assert payload.is_fork is False
+        assert payload.is_approval_continuation is False
+        await handler.send_stream_event(
+            UnifiedStreamEvent.approval_request_event(
+                [
+                    ToolCallContent(
+                        id="call_approval",
+                        name="core__http_request",
+                        input={"url": "https://example.com", "method": "GET"},
+                    )
+                ]
+            )
+        )
+        await handler.send_stream_event(
+            UnifiedStreamEvent.tool_result_event(
+                tool_call_id="call_approval",
+                tool_name="core__http_request",
+                output=["Request interrupted by user"],
+                is_error=True,
+            )
+        )
+        await handler.send_done()
+
+    (
+        result,
+        stream_sink,
+        persisted_session_lines,
+        fake_proxy,
+        payloads,
+        runtimes,
+    ) = await _run_activity_with_fake_loopback_runtime(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        script=approval_script,
+    )
+
+    assert result.success is True
+    assert result.error is None
+    assert result.approval_requested is True
+    assert result.approval_items == [
+        ToolCallContent(
+            id="call_approval",
+            name="core__http_request",
+            input={"url": "https://example.com", "method": "GET"},
+        )
+    ]
+    assert result.messages == []
+
+    assert [event.type for event in stream_sink.events] == [
+        StreamEventType.APPROVAL_REQUEST
+    ]
+    assert stream_sink.errors == []
+    assert stream_sink.done_count == 1
+    assert persisted_session_lines == []
+
+    assert fake_proxy.started is True
+    assert fake_proxy.stopped is True
+    assert len(payloads) == 1
+    assert len(runtimes) == 1
+
+
+@pytest.mark.parametrize(
+    ("disable_nsjail", "is_fork", "is_approval_continuation"),
+    [
+        pytest.param(True, True, False, id="fork-direct"),
+        pytest.param(False, True, False, id="fork-nsjail"),
+        pytest.param(True, False, True, id="approval-continuation-direct"),
+    ],
+)
+@pytest.mark.anyio
+async def test_run_agent_activity_with_fake_runtime_plumbs_resume_flags_to_loopback(
+    disable_nsjail: bool,
+    is_fork: bool,
+    is_approval_continuation: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _set_disable_nsjail_mode(monkeypatch, disable_nsjail)
+    executor_input = _make_executor_input(enable_internet_access=False).model_copy(
+        update={
+            "sdk_session_id": "parent-sdk-session",
+            "sdk_session_data": '{"type":"user","message":{"content":"parent"}}\n',
+            "is_fork": is_fork,
+            "is_approval_continuation": is_approval_continuation,
+        }
+    )
+    session_line = (
+        '{"uuid":"line-1","type":"assistant","message":{"role":"assistant",'
+        '"content":[{"type":"text","text":"resumed"}]}}\n'
+    )
+
+    async def resume_script(
+        handler: LoopbackHandler,
+        payload: RuntimeInitPayload,
+    ) -> None:
+        assert payload.sdk_session_id == "parent-sdk-session"
+        assert payload.sdk_session_data == executor_input.sdk_session_data
+        assert payload.is_fork is is_fork
+        assert payload.is_approval_continuation is is_approval_continuation
+        await handler.send_stream_event(
+            UnifiedStreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                part_id=0,
+                text="resumed",
+            )
+        )
+        await handler.send_session_line("child-sdk-session", session_line)
+        await handler.send_result(
+            usage={"input_tokens": 3, "output_tokens": 5},
+            num_turns=2,
+            duration_ms=10,
+            output={"status": "continued"},
+        )
+        await handler.send_done()
+
+    (
+        result,
+        stream_sink,
+        persisted_session_lines,
+        _fake_proxy,
+        payloads,
+        runtimes,
+    ) = await _run_activity_with_fake_loopback_runtime(
+        executor_input=executor_input,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        script=resume_script,
+    )
+
+    assert result.success is True
+    assert result.error is None
+    assert result.output == {"status": "continued"}
+    assert result.result_usage == {"input_tokens": 3, "output_tokens": 5}
+    assert result.result_num_turns == 2
+    assert result.messages == []
+
+    assert [event.type for event in stream_sink.events] == [StreamEventType.TEXT_DELTA]
+    assert stream_sink.errors == []
+    assert stream_sink.done_count == 1
+    assert persisted_session_lines == [
+        ("child-sdk-session", session_line, False),
+    ]
+
+    assert len(payloads) == 1
+    assert payloads[0].is_fork is is_fork
+    assert payloads[0].is_approval_continuation is is_approval_continuation
+    assert len(runtimes) == 1
+    if disable_nsjail:
+        assert runtimes[0].cwd == runtimes[0].cwd_setup_path
+        assert runtimes[0].cwd.is_relative_to(tmp_path / "sessions")
+    else:
+        assert runtimes[0].cwd == Path("/work/claude-project")
+        assert runtimes[0].cwd_setup_path.is_relative_to(tmp_path / "sessions")
 
 
 @pytest.mark.anyio
