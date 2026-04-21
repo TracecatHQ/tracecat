@@ -212,6 +212,42 @@ async def test_keyring_wraps_aws_secret_retrieval_failures(
         await keyring.get_current_key_id()
 
 
+@pytest.mark.anyio
+async def test_keyring_uses_cached_secret_when_refresh_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING", None)
+    monkeypatch.setattr(
+        config,
+        "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:tracecat",
+    )
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS", 0)
+
+    calls = 0
+
+    class SecretsManagerClient:
+        def get_secret_value(self, *, SecretId: str) -> dict[str, str]:
+            nonlocal calls
+            calls += 1
+            assert SecretId == config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN
+            if calls == 1:
+                return {"SecretString": _keyring_json()}
+            raise EndpointConnectionError(endpoint_url="https://secretsmanager")
+
+    class Session:
+        def client(self, *, service_name: str) -> SecretsManagerClient:
+            assert service_name == "secretsmanager"
+            return SecretsManagerClient()
+
+    monkeypatch.setattr(temporal_codec.boto3.session, "Session", lambda: Session())
+
+    keyring = TemporalEncryptionKeyring()
+    assert await keyring.get_current_key_id() == "v1"
+    assert await keyring.get_current_key_id() == "v1"
+    assert calls == 2
+
+
 def test_get_data_converter_switches_failure_converter_with_encryption(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

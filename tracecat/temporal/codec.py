@@ -299,37 +299,41 @@ class TemporalEncryptionKeyring:
         global _KEYRING_CACHE, _KEYRING_CACHE_EXPIRES_AT
         now = monotonic()
         with _KEYRING_LOCK:
-            if _KEYRING_CACHE is not None:
-                if now < _KEYRING_CACHE_EXPIRES_AT:
-                    return _KEYRING_CACHE
-                _KEYRING_CACHE = None
-                _KEYRING_CACHE_EXPIRES_AT = 0.0
-
-        if arn := config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN:
-            keyring = await asyncio.to_thread(self._retrieve_keyring_from_aws, arn)
-            with _KEYRING_LOCK:
-                now = monotonic()
-                if _KEYRING_CACHE is None or now >= _KEYRING_CACHE_EXPIRES_AT:
-                    _KEYRING_CACHE = keyring
-                    _KEYRING_CACHE_EXPIRES_AT = (
-                        now + config.TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS
-                    )
+            if _KEYRING_CACHE is not None and now < _KEYRING_CACHE_EXPIRES_AT:
                 return _KEYRING_CACHE
 
-        if keyring_json := config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING:
-            keyring = self._parse_keyring(keyring_json)
-            with _KEYRING_LOCK:
-                now = monotonic()
-                if _KEYRING_CACHE is None or now >= _KEYRING_CACHE_EXPIRES_AT:
-                    _KEYRING_CACHE = keyring
-                    _KEYRING_CACHE_EXPIRES_AT = (
-                        now + config.TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS
-                    )
-                return _KEYRING_CACHE
+        arn = config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN
+        keyring_json = config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING
+        try:
+            if arn:
+                keyring = await asyncio.to_thread(self._retrieve_keyring_from_aws, arn)
+            elif keyring_json:
+                keyring = self._parse_keyring(keyring_json)
+            else:
+                raise TemporalPayloadCodecError(
+                    "Temporal payload encryption is enabled but no keyring is configured"
+                )
+        except TemporalPayloadCodecError as e:
+            if arn or keyring_json:
+                with _KEYRING_LOCK:
+                    if _KEYRING_CACHE is not None:
+                        logger.warning(
+                            "Failed to refresh Temporal payload encryption keyring; "
+                            "using cached keyring",
+                            error=type(e).__name__,
+                        )
+                        return _KEYRING_CACHE
+            raise
 
-        raise TemporalPayloadCodecError(
-            "Temporal payload encryption is enabled but no keyring is configured"
-        )
+        with _KEYRING_LOCK:
+            now = monotonic()
+            if _KEYRING_CACHE is not None and now < _KEYRING_CACHE_EXPIRES_AT:
+                return _KEYRING_CACHE
+            _KEYRING_CACHE = keyring
+            _KEYRING_CACHE_EXPIRES_AT = (
+                now + config.TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS
+            )
+            return _KEYRING_CACHE
 
     async def _root_secret_for_key_id(self, key_id: str) -> bytes:
         keyring = await self._retrieve_keyring()
