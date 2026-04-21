@@ -182,6 +182,37 @@ async def test_payload_codec_retrieves_root_key_from_secret_arn(
 
 
 @pytest.mark.anyio
+async def test_keyring_wraps_malformed_binary_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING", None)
+    monkeypatch.setattr(
+        config,
+        "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN",
+        "arn:aws:secretsmanager:us-east-1:123456789012:secret:tracecat",
+    )
+
+    class SecretsManagerClient:
+        def get_secret_value(self, *, SecretId: str) -> dict[str, bytes]:
+            assert SecretId == config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN
+            return {"SecretBinary": b"\xff\xfe"}
+
+    class Session:
+        def client(self, *, service_name: str) -> SecretsManagerClient:
+            assert service_name == "secretsmanager"
+            return SecretsManagerClient()
+
+    monkeypatch.setattr(temporal_codec.boto3.session, "Session", lambda: Session())
+
+    keyring = TemporalEncryptionKeyring()
+    with pytest.raises(
+        TemporalPayloadCodecError,
+        match="Temporal payload encryption keyring SecretBinary is invalid",
+    ):
+        await keyring.get_current_key_id()
+
+
+@pytest.mark.anyio
 async def test_keyring_wraps_aws_secret_retrieval_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

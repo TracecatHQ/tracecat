@@ -288,7 +288,13 @@ class TemporalEncryptionKeyring:
             case {"SecretString": str(secret_string)} if secret_string:
                 return self._parse_keyring(secret_string)
             case {"SecretBinary": bytes(secret_binary)}:
-                if secret_string := secret_binary.decode("utf-8"):
+                try:
+                    secret_string = secret_binary.decode("utf-8")
+                except UnicodeDecodeError as e:
+                    raise TemporalPayloadCodecError(
+                        "Temporal payload encryption keyring SecretBinary is invalid"
+                    ) from e
+                if secret_string:
                     return self._parse_keyring(secret_string)
 
         raise TemporalPayloadCodecError(
