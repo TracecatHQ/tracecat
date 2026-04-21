@@ -363,6 +363,30 @@ TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION = os.environ.get(
     "TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION", "true"
 ).lower() in ("true", "1")
 """Disable eager activity execution for Temporal workflows."""
+TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", "false"
+).lower() in ("true", "1")
+"""Enable application-layer encryption for Temporal payloads."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING"
+)
+"""JSON keyring used to derive workspace-scoped Temporal payload keys."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN"
+)
+"""AWS Secrets Manager ARN containing the Temporal payload encryption keyring."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS = int(
+    os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS") or 3600
+)
+"""TTL for cached derived Temporal payload keys."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS = int(
+    os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS") or 4096
+)
+"""Maximum number of cached derived Temporal payload keys."""
 
 # === Sentry config === #
 SENTRY_ENVIRONMENT_OVERRIDE = os.environ.get("SENTRY_ENVIRONMENT_OVERRIDE")

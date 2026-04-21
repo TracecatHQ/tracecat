@@ -9915,6 +9915,9 @@ export const $EventGroup_TypeVar_ = {
         {
           $ref: "#/components/schemas/InteractionInput",
         },
+        {
+          $ref: "#/components/schemas/UnreadableTemporalPayload",
+        },
       ],
       title: "Action Input",
     },
@@ -20796,6 +20799,34 @@ export const $UIMessage = {
   title: "UIMessage",
   description: `Pydantic model for AI SDK UI Messages, used for validation between
 frontend and backend.`,
+} as const
+
+export const $UnreadableTemporalPayload = {
+  properties: {
+    error: {
+      type: "string",
+      const: "unreadable_temporal_payload",
+      title: "Error",
+      default: "unreadable_temporal_payload",
+    },
+    error_type: {
+      type: "string",
+      title: "Error Type",
+    },
+    encoding: {
+      type: "string",
+      title: "Encoding",
+    },
+    payload_size_bytes: {
+      type: "integer",
+      title: "Payload Size Bytes",
+    },
+  },
+  type: "object",
+  required: ["error_type", "encoding", "payload_size_bytes"],
+  title: "UnreadableTemporalPayload",
+  description:
+    "Structured placeholder for Temporal payloads that cannot be decoded.",
 } as const
 
 export const $UpdatedEventRead = {
