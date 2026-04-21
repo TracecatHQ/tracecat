@@ -582,26 +582,12 @@ class BaseRegistrySyncService[
 
         origin_type = self._get_origin_type(origin)
 
-        ssh_key: str | None = None
         if origin_type == "git":
-            # Git origins require SSH key for authentication
-            if not isinstance(self.role, Role):
+            # Git origins require org context so the worker can fetch the SSH key.
+            if not isinstance(self.role, Role) or self.role.organization_id is None:
                 raise self._sync_error_cls()(
                     "Git repository sync requires organization context (Role with organization_id)"
                 )
-
-            from tracecat.secrets.service import SecretsService
-
-            secrets_service = SecretsService(self.session, role=self.role)
-            try:
-                secret = await secrets_service.get_ssh_key(target="registry")
-                ssh_key = secret.get_secret_value()
-            except Exception as exc:
-                # SSH key is required for git repos - fail fast with clear error
-                raise self._sync_error_cls()(
-                    f"Failed to retrieve SSH key for git operations: {exc}. "
-                    "Ensure a 'github-ssh-key' secret exists in your organization."
-                ) from exc
 
         request = RegistrySyncRequest(
             repository_id=repo_id,
@@ -610,7 +596,6 @@ class BaseRegistrySyncService[
             git_url=origin if origin_type == "git" else None,
             commit_sha=target_commit_sha,
             git_repo_package_name=git_repo_package_name,
-            ssh_key=ssh_key,
             validate_actions=True,
             storage_namespace=self._get_storage_namespace(),
             organization_id=self.role.organization_id

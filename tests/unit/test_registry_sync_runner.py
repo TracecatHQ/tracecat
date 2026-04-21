@@ -3,6 +3,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
@@ -14,19 +15,35 @@ from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.tarball import TarballVenvBuildResult
 
 
+def test_registry_sync_request_rejects_ssh_key() -> None:
+    """SSH keys must never be serializable into Temporal request payloads."""
+    payload = {
+        "repository_id": str(uuid4()),
+        "origin": "git+ssh://git@github.com/TracecatHQ/internal-registry.git",
+        "origin_type": "git",
+        "git_url": "git+ssh://git@github.com/TracecatHQ/internal-registry.git",
+        "organization_id": str(uuid4()),
+        "ssh_key": "fake-ssh-key",
+    }
+
+    with pytest.raises(ValidationError, match="ssh_key"):
+        RegistrySyncRequest.model_validate(payload)
+
+
 @pytest.mark.anyio
 async def test_runner_passes_resolved_commit_sha_to_discovery(
     tmp_path,
     mocker,
 ) -> None:
     runner = RegistrySyncRunner()
+    organization_id = uuid4()
     request = RegistrySyncRequest(
         repository_id=uuid4(),
         origin="git+ssh://git@github.com/TracecatHQ/internal-registry.git",
         origin_type="git",
         git_url="git+ssh://git@github.com/TracecatHQ/internal-registry.git",
         commit_sha="requested-sha",
-        ssh_key="fake-ssh-key",
+        organization_id=organization_id,
         validate_actions=True,
     )
 
@@ -37,6 +54,11 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
         runner,
         "_clone_repository",
         mocker.AsyncMock(return_value=(tmp_path, "resolved-sha")),
+    )
+    fetch_registry_ssh_key = mocker.patch.object(
+        runner,
+        "_fetch_registry_ssh_key",
+        mocker.AsyncMock(return_value="fake-ssh-key"),
     )
     mocker.patch.object(
         runner,
@@ -63,14 +85,20 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
 
     result = await runner.run(request)
 
-    clone_repository.assert_awaited_once()
+    fetch_registry_ssh_key.assert_awaited_once_with(organization_id)
+    clone_repository.assert_awaited_once_with(
+        git_url=request.git_url,
+        commit_sha="requested-sha",
+        ssh_key="fake-ssh-key",
+        work_dir=mocker.ANY,
+    )
     discover_actions.assert_awaited_once_with(
         repository_id=request.repository_id,
         origin=request.origin,
         commit_sha="resolved-sha",
         validate=True,
         git_repo_package_name=None,
-        organization_id=None,
+        organization_id=organization_id,
     )
     upload_tarball.assert_awaited_once()
     assert result.commit_sha == "resolved-sha"
