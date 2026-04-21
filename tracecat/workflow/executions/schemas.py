@@ -51,8 +51,10 @@ from tracecat.sessions import Session
 from tracecat.storage.object import CollectionObject, StoredObject
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
+    UnreadableTemporalPayload,
     extract_first,
     is_action_activity,
+    is_unreadable_temporal_payload,
 )
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -344,6 +346,7 @@ EventInput = (
     | InteractionResult
     | InteractionInput
     | AgentWorkflowArgs
+    | UnreadableTemporalPayload
 )
 
 
@@ -378,6 +381,16 @@ class EventGroup[T: EventInput](BaseModel):
         activity_input_data = await extract_first(attrs.input)
 
         act_type = attrs.activity_type.name
+        if is_unreadable_temporal_payload(activity_input_data):
+            return EventGroup(
+                event_id=event.event_id,
+                udf_namespace="temporal",
+                udf_name=act_type,
+                udf_key=act_type,
+                action_ref=attrs.activity_id,
+                action_input=cast(EventInput, activity_input_data),
+            )
+
         # Handle specific activity types we care about
         if act_type == "get_workflow_definition_activity":
             action_input = GetWorkflowDefinitionActivityInputs(**activity_input_data)
@@ -418,7 +431,7 @@ class EventGroup[T: EventInput](BaseModel):
     @staticmethod
     async def from_initiated_child_workflow(
         event: temporalio.api.history.v1.HistoryEvent,
-    ) -> EventGroup[DSLRunArgs | AgentWorkflowArgs]:
+    ) -> EventGroup[EventInput]:
         if (
             event.event_type
             != temporalio.api.enums.v1.EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
@@ -431,6 +444,17 @@ class EventGroup[T: EventInput](BaseModel):
             case "DSLWorkflow":
                 wf_exec_id: WorkflowExecutionID = attrs.workflow_id
                 input = await extract_first(attrs.input)
+                if is_unreadable_temporal_payload(input):
+                    return EventGroup(
+                        event_id=event.event_id,
+                        udf_namespace="core.workflow",
+                        udf_name="execute",
+                        udf_key="core.workflow.execute",
+                        action_ref=None,
+                        action_input=cast(EventInput, input),
+                        related_wf_exec_id=wf_exec_id,
+                    )
+
                 dsl_run_args = DSLRunArgs(**input)
                 # Create an event group
 
@@ -457,8 +481,22 @@ class EventGroup[T: EventInput](BaseModel):
             case "DurableAgentWorkflow":
                 agent_wf_id = AgentWorkflowID.from_workflow_id(attrs.workflow_id)
                 input = await extract_first(attrs.input)
-                agent_run_args = AgentWorkflowArgs(**input)
                 namespace, name = PlatformAction.AI_AGENT.value.split(".", 1)
+                if is_unreadable_temporal_payload(input):
+                    return EventGroup(
+                        event_id=event.event_id,
+                        udf_namespace=namespace,
+                        udf_name=name,
+                        udf_key=PlatformAction.AI_AGENT.value,
+                        action_id=agent_wf_id,
+                        action_ref=None,
+                        action_title="AI Agent",
+                        action_description="AI Agent",
+                        action_input=cast(EventInput, input),
+                        related_wf_exec_id=agent_wf_id,
+                    )
+
+                agent_run_args = AgentWorkflowArgs(**input)
                 return EventGroup(
                     event_id=event.event_id,
                     udf_namespace=namespace,
@@ -477,7 +515,7 @@ class EventGroup[T: EventInput](BaseModel):
     @staticmethod
     async def from_accepted_workflow_update(
         event: temporalio.api.history.v1.HistoryEvent,
-    ) -> EventGroup[InteractionInput]:
+    ) -> EventGroup[InteractionInput | UnreadableTemporalPayload]:
         if (
             event.event_type
             != temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED
@@ -487,7 +525,16 @@ class EventGroup[T: EventInput](BaseModel):
 
         attrs = event.workflow_execution_update_accepted_event_attributes
         input = await extract_first(attrs.accepted_request.input.args)
-        group = EventGroup(
+        if is_unreadable_temporal_payload(input):
+            return EventGroup(
+                event_id=event.event_id,
+                udf_namespace="core.interact",
+                udf_name="response",
+                udf_key="core.interact.response",
+                action_input=input,
+            )
+
+        group: EventGroup[InteractionInput | UnreadableTemporalPayload] = EventGroup(
             event_id=event.event_id,
             udf_namespace="core.interact",
             udf_name="response",
@@ -735,6 +782,19 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
         activity_input_data = await extract_first(attrs.input)
 
         act_type = attrs.activity_type.name
+        if is_unreadable_temporal_payload(activity_input_data):
+            return WorkflowExecutionEventCompact(
+                source_event_id=event.event_id,
+                schedule_time=event.event_time.ToDatetime(UTC),
+                curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+                status=WorkflowExecutionEventStatus.SCHEDULED,
+                action_name=act_type,
+                action_ref=attrs.activity_id,
+                action_input=activity_input_data,
+                stream_id=ROOT_STREAM,
+                session=None,
+            )
+
         # Only parse activities that use action schemas
         if not is_action_activity(act_type):
             logger.trace("Skipping non-action activity", act_type=act_type)
@@ -835,6 +895,21 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                 )
 
                 input_data = await extract_first(attrs.input)
+                if is_unreadable_temporal_payload(input_data):
+                    return WorkflowExecutionEventCompact(
+                        source_event_id=event.event_id,
+                        schedule_time=event.event_time.ToDatetime(UTC),
+                        curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+                        status=status,
+                        action_name=PlatformAction.CHILD_WORKFLOW_EXECUTE.value,
+                        action_ref=memo.action_ref,
+                        action_input=input_data,
+                        child_wf_exec_id=wf_exec_id,
+                        loop_index=memo.loop_index,
+                        child_wf_wait_strategy=memo.wait_strategy,
+                        stream_id=memo.stream_id,
+                    )
+
                 dsl_run_args = DSLRunArgs(**input_data)
 
                 return WorkflowExecutionEventCompact(
@@ -858,6 +933,21 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     raise e
 
                 input_data = await extract_first(attrs.input)
+                if is_unreadable_temporal_payload(input_data):
+                    return WorkflowExecutionEventCompact(
+                        source_event_id=event.event_id,
+                        schedule_time=event.event_time.ToDatetime(UTC),
+                        curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+                        status=WorkflowExecutionEventStatus.SCHEDULED,
+                        action_name=PlatformAction.AI_AGENT.value,
+                        action_ref=memo.action_ref,
+                        action_input=input_data,
+                        child_wf_exec_id=None,
+                        loop_index=memo.loop_index,
+                        stream_id=memo.stream_id,
+                        session=None,
+                    )
+
                 agent_run_args = AgentWorkflowArgs(**input_data)
                 session = None
                 session_id = agent_run_args.agent_args.session_id
@@ -893,6 +983,17 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
 
         attrs = event.workflow_execution_update_accepted_event_attributes
         input_data = await extract_first(attrs.accepted_request.input.args)
+        if is_unreadable_temporal_payload(input_data):
+            return WorkflowExecutionEventCompact(
+                source_event_id=event.event_id,
+                schedule_time=event.event_time.ToDatetime(UTC),
+                curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+                status=WorkflowExecutionEventStatus.SCHEDULED,
+                action_name="core.interact.response",
+                action_ref="core.interact.response",
+                action_input=input_data,
+            )
+
         signal_input = InteractionInput(**input_data)
         return WorkflowExecutionEventCompact(
             source_event_id=event.event_id,

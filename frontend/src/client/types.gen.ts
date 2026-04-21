@@ -2965,6 +2965,7 @@ export type EventGroup_TypeVar_ = {
     | GetWorkflowDefinitionActivityInputs
     | InteractionResult
     | InteractionInput
+    | UnreadableTemporalPayload
   action_result?: unknown | null
   current_attempt?: number | null
   retry_policy?: ActionRetryPolicy
@@ -6486,6 +6487,16 @@ export type UIMessage = {
 }
 
 export type role = "system" | "user" | "assistant"
+
+/**
+ * Structured placeholder for Temporal payloads that cannot be decoded.
+ */
+export type UnreadableTemporalPayload = {
+  error?: "unreadable_temporal_payload"
+  error_type: string
+  encoding: string
+  payload_size_bytes: number
+}
 
 /**
  * Event for when a case is updated.

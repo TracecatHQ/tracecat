@@ -32,6 +32,7 @@ from tracecat.dsl.schemas import StreamID
 from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowUUID
 from tracecat.pagination import CursorPaginationParams
 from tracecat.storage.object import ExternalObject, InlineObject, ObjectRef
+from tracecat.workflow.executions.common import UnreadableTemporalPayload
 from tracecat.workflow.executions.enums import (
     TriggerType,
     WorkflowEventType,
@@ -392,6 +393,52 @@ class TestWorkflowExecutionEvents:
         event = events[0]
         assert event.action_ref == WF_TRIGGER_REF
         assert event.action_input is None
+
+    async def test_workflow_trigger_unreadable_payload_emits_sentinel(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Unreadable encrypted trigger payloads should not break compact history."""
+        started_event = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield started_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="TemporalPayloadCodecError",
+            encoding="binary/tracecat-aes256gcm",
+            payload_size_bytes=42,
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value=unreadable),
+            ),
+            patch("tracecat.workflow.executions.service.DSLRunArgs") as mock_run_args,
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+        mock_run_args.assert_not_called()
+        assert len(events) == 1
+        event = events[0]
+        assert event.action_ref == WF_TRIGGER_REF
+        assert event.action_input == unreadable
 
     async def test_workflow_trigger_externalized_payload_uses_ref_backend(
         self,

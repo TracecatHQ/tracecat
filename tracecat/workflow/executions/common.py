@@ -1,10 +1,10 @@
 from collections.abc import Collection
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 
 import orjson
 import temporalio.api.common.v1
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
@@ -107,6 +107,21 @@ ACTION_ACTIVITIES = {
     DSLActivities.noop_loop_end_activity.__name__,
     DSLActivities.handle_scatter_input_activity.__name__,
 }
+
+
+class UnreadableTemporalPayload(BaseModel):
+    """Structured placeholder for Temporal payloads that cannot be decoded."""
+
+    error: Literal["unreadable_temporal_payload"] = "unreadable_temporal_payload"
+    error_type: str
+    encoding: str
+    payload_size_bytes: int
+
+
+def is_unreadable_temporal_payload(
+    value: Any,
+) -> TypeGuard[UnreadableTemporalPayload]:
+    return isinstance(value, UnreadableTemporalPayload)
 
 
 def is_scheduled_event(event: HistoryEvent) -> bool:
@@ -249,17 +264,21 @@ async def extract_payload(
 ) -> Any:
     """Extract the first payload from a workflow history event."""
     payload_obj = payload.payloads[index]
-    decode_failed = False
     try:
         payload_obj = (await decode_payloads([payload_obj]))[0]
     except TemporalPayloadCodecError as e:
-        decode_failed = True
+        encoding = payload_obj.metadata.get("encoding", b"").decode(
+            "utf-8", errors="replace"
+        )
         logger.warning(
-            "Failed to decode Temporal payload; falling back to raw payload",
+            "Failed to decode Temporal payload; returning unreadable payload sentinel",
             error=type(e).__name__,
-            encoding=payload_obj.metadata.get("encoding", b"").decode(
-                "utf-8", errors="replace"
-            ),
+            encoding=encoding,
+            payload_size_bytes=len(payload_obj.data),
+        )
+        return UnreadableTemporalPayload(
+            error_type=type(e).__name__,
+            encoding=encoding,
             payload_size_bytes=len(payload_obj.data),
         )
 
@@ -267,7 +286,7 @@ async def extract_payload(
         "utf-8", errors="replace"
     )
     # Temporal's NullPayloadConverter encodes `None` as binary/null with no data.
-    if encoding == "binary/null" and not decode_failed:
+    if encoding == "binary/null":
         logger.debug("Decoded binary/null payload; returning None")
         return None
 

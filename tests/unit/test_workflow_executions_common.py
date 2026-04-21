@@ -9,7 +9,11 @@ from temporalio.api.common.v1 import Payload
 from tracecat.storage.object import CollectionObject, InlineObject, ObjectRef
 from tracecat.temporal.codec import TemporalPayloadCodecError
 from tracecat.workflow.executions import common as executions_common
-from tracecat.workflow.executions.common import extract_payload, unwrap_action_result
+from tracecat.workflow.executions.common import (
+    UnreadableTemporalPayload,
+    extract_payload,
+    unwrap_action_result,
+)
 
 
 def _collection() -> CollectionObject:
@@ -45,7 +49,7 @@ async def test_unwrap_action_result_keeps_inline_payload_data() -> None:
 
 
 @pytest.mark.anyio
-async def test_extract_payload_falls_back_to_raw_payload_on_decode_failure(
+async def test_extract_payload_returns_unreadable_sentinel_on_decode_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fail_decode_payloads(_payloads: Sequence[Payload]) -> list[Payload]:
@@ -61,4 +65,8 @@ async def test_extract_payload_falls_back_to_raw_payload_on_decode_failure(
 
     result = await extract_payload(payloads)
 
-    assert result == {"ok": True}
+    assert isinstance(result, UnreadableTemporalPayload)
+    assert result.error == "unreadable_temporal_payload"
+    assert result.error_type == "TemporalPayloadCodecError"
+    assert result.encoding == "json/plain"
+    assert result.payload_size_bytes == len(b'{"ok":true}')
