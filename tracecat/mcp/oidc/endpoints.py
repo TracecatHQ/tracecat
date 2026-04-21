@@ -44,7 +44,6 @@ from tracecat.mcp.oidc.schemas import (
     ResumeTransaction,
 )
 from tracecat.mcp.oidc.session import (
-    NeedsAction,
     SessionNeedsAction,
     SessionResult,
     resolve_authorize_session,
@@ -300,7 +299,7 @@ async def _handle_authorize(
         )
 
     if isinstance(session_result, SessionNeedsAction):
-        # Store authorize params for replay after login/org-selection.
+        # Store authorize params for replay after login.
         txn_id = secrets.token_urlsafe(32)
         txn = ResumeTransaction(
             transaction_id=txn_id,
@@ -321,25 +320,15 @@ async def _handle_authorize(
         await store_resume_transaction(txn)
 
         frontend_base = TRACECAT__PUBLIC_APP_URL.rstrip("/")
-        match session_result.action:
-            case NeedsAction.LOGIN:
-                logger.info(
-                    "MCP OIDC: no session, redirecting to login",
-                    txn_id=txn_id,
-                )
-                return RedirectResponse(
-                    f"{frontend_base}/oauth/mcp/continue?txn={txn_id}",
-                    status_code=302,
-                )
-            case NeedsAction.ORG_SELECTION:
-                logger.info(
-                    "MCP OIDC: org selection required",
-                    txn_id=txn_id,
-                )
-                return RedirectResponse(
-                    f"{frontend_base}/oauth/mcp/select-org?txn={txn_id}",
-                    status_code=302,
-                )
+        logger.info(
+            "MCP OIDC: no session, redirecting to login",
+            txn_id=txn_id,
+            action=session_result.action,
+        )
+        return RedirectResponse(
+            f"{frontend_base}/oauth/mcp/continue?txn={txn_id}",
+            status_code=302,
+        )
 
     # --- Issue authorization code ---
     assert isinstance(session_result, SessionResult)

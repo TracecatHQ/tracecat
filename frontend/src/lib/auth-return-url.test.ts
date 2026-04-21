@@ -32,11 +32,10 @@ describe("sanitizeReturnUrl", () => {
     expect(sanitizeReturnUrl("/authentic/path")).toBe("/authentic/path")
   })
 
-  it.each([
-    "/oauth/mcp/continue?txn=abc123",
-    "/oauth/mcp/select-org?txn=abc123",
-  ])("allows MCP OAuth resume paths for %s", (value) => {
-    expect(sanitizeReturnUrl(value)).toBe(value)
+  it("allows MCP OAuth resume paths", () => {
+    expect(sanitizeReturnUrl("/oauth/mcp/continue?txn=abc123")).toBe(
+      "/oauth/mcp/continue?txn=abc123"
+    )
   })
 })
 

@@ -457,29 +457,6 @@ async def test_authorize_redirects_to_login_when_no_session(
 
 
 @pytest.mark.anyio
-async def test_authorize_redirects_to_org_selection_for_superuser(
-    client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
-        AsyncMock(return_value=SessionNeedsAction(action=NeedsAction.ORG_SELECTION)),
-    )
-    monkeypatch.setattr(
-        "tracecat.mcp.oidc.endpoints.store_resume_transaction", AsyncMock()
-    )
-
-    response = client.get(
-        "/authorize",
-        params=_authorize_params(),
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 302
-    assert "/oauth/mcp/select-org?txn=" in response.headers["location"]
-
-
-@pytest.mark.anyio
 async def test_authorize_issues_code_on_valid_session(
     client: TestClient,
     mock_user: SimpleNamespace,

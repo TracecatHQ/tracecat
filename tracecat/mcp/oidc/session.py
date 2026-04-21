@@ -27,9 +27,6 @@ class NeedsAction(StrEnum):
     LOGIN = auto()
     """User has no active session — redirect to sign-in."""
 
-    ORG_SELECTION = auto()
-    """User needs to pick an organization."""
-
 
 @dataclass(frozen=True)
 class SessionResult:
@@ -73,7 +70,7 @@ async def _resolve_superuser_org(
     request: Request,
     session: AsyncSession,
     user: User,
-) -> SessionResult | SessionNeedsAction:
+) -> SessionResult:
     """Resolve org for a platform superadmin.
 
     In single-tenant mode, uses the default org.
