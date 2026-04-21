@@ -26,6 +26,7 @@ from tracecat.registry.actions.schemas import (
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
+    REGISTRY_GIT_SSH_KEY_SECRET_NAME,
 )
 from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
@@ -42,6 +43,7 @@ from tracecat.registry.versions.schemas import (
     RegistryVersionCreate,
     RegistryVersionManifest,
 )
+from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseService
 from tracecat.storage import blob
 
@@ -584,10 +586,24 @@ class BaseRegistrySyncService[
 
         if origin_type == "git":
             # Git origins require org context so the worker can fetch the SSH key.
-            if not isinstance(self.role, Role) or self.role.organization_id is None:
+            role = self.role
+            if not isinstance(role, Role) or role.organization_id is None:
                 raise self._sync_error_cls()(
                     "Git repository sync requires organization context (Role with organization_id)"
                 )
+
+            # Validate that the key exists before scheduling the workflow.
+            # The worker fetches the value again and the key is not serialized.
+            secrets_service = SecretsService(self.session, role=role)
+            try:
+                await secrets_service.get_org_secret_by_name(
+                    REGISTRY_GIT_SSH_KEY_SECRET_NAME
+                )
+            except Exception as exc:
+                raise self._sync_error_cls()(
+                    "Git repository sync requires a "
+                    f"'{REGISTRY_GIT_SSH_KEY_SECRET_NAME}' organization secret."
+                ) from exc
 
         request = RegistrySyncRequest(
             repository_id=repo_id,
