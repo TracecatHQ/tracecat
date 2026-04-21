@@ -1,0 +1,9 @@
+deployments/fargate/modules/ecs/secrets.tf
+  e664505cc315a72c 228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "4e0d0c87ca792a0b949a755b8458c992051f5cfa",
+  "prompts": {}
+}

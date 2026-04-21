@@ -1,0 +1,29 @@
+deployments/fargate/modules/ecs/iam.tf
+  e664505cc315a72c 319-321,508-509
+deployments/fargate/modules/ecs/secrets.tf
+  e664505cc315a72c 228,233-235,315,345,350
+deployments/fargate/modules/ecs/ecs-agent-worker.tf
+  e664505cc315a72c 30
+deployments/fargate/modules/ecs/ecs-worker.tf
+  e664505cc315a72c 30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "e4ab483032784bff356a14fe31aae8afe8a840ab",
+  "prompts": {
+    "e664505cc315a72c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dac11-f22a-7f11-a85a-7a3cf275b495",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 37,
+      "total_deletions": 3,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    }
+  }
+}
