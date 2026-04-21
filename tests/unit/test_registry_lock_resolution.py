@@ -11,8 +11,11 @@ These tests verify the fix for the regression where:
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -22,6 +25,7 @@ from tracecat.db.models import (
     Tier,
 )
 from tracecat.dsl.common import DSLInput
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.service import RegistryLockService
@@ -60,15 +64,41 @@ async def _setup_platform_registry(
     session: AsyncSession, action_names: list[str], origin: str = "test_registry"
 ) -> PlatformRegistryVersion:
     """Set up a platform registry with the given actions."""
-    repo = PlatformRegistryRepository(origin=origin)
-    session.add(repo)
-    await session.flush()
+    effective_origin = (
+        origin if origin == DEFAULT_REGISTRY_ORIGIN else f"{origin}_{uuid.uuid4().hex}"
+    )
+
+    await session.execute(
+        insert(PlatformRegistryRepository)
+        .values(origin=effective_origin)
+        .on_conflict_do_nothing(index_elements=["origin"])
+    )
+    repo = await session.scalar(
+        select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.origin == effective_origin
+        )
+    )
+    if repo is None:
+        raise RuntimeError("Failed to create platform registry repository")
+
+    if (
+        effective_origin == DEFAULT_REGISTRY_ORIGIN
+        and not action_names
+        and repo.current_version_id is not None
+    ):
+        existing_version = await session.scalar(
+            select(PlatformRegistryVersion).where(
+                PlatformRegistryVersion.id == repo.current_version_id
+            )
+        )
+        if existing_version is not None:
+            return existing_version
 
     version = PlatformRegistryVersion(
         repository_id=repo.id,
-        version="1.0.0",
+        version=f"1.0.0-{uuid.uuid4().hex}",
         manifest=_make_manifest(action_names),
-        tarball_uri=f"s3://{origin}/v1.tar.gz",
+        tarball_uri=f"s3://{effective_origin}/v1.tar.gz",
     )
     session.add(version)
     await session.flush()
@@ -129,6 +159,25 @@ def _create_dsl_with_action(action_name: str, title: str = "Test Workflow") -> D
 
 class TestDraftWorkflowRegistryLock:
     """Tests for draft workflow registry_lock behavior."""
+
+    @pytest.mark.anyio
+    async def test_missing_builtin_current_raises_retryable_sync_pending(
+        self,
+        svc_role: Role,
+        session: AsyncSession,
+    ) -> None:
+        repo = await session.scalar(
+            select(PlatformRegistryRepository).where(
+                PlatformRegistryRepository.origin == DEFAULT_REGISTRY_ORIGIN
+            )
+        )
+        assert repo is not None
+        repo.current_version_id = None
+        await session.commit()
+
+        lock_service = RegistryLockService(session, role=svc_role)
+        with pytest.raises(BuiltinRegistryHasNoSelectionError):
+            await lock_service.resolve_lock_with_bindings({"core.transform.reshape"})
 
     @pytest.mark.anyio
     async def test_draft_workflow_returns_none_registry_lock(
