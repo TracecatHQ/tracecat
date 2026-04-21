@@ -16,10 +16,8 @@ from tracecat import config
 from tracecat.agent.executor.activity import run_agent_activity
 from tracecat.agent.runtime_services import (
     start_claude_runtime_broker,
-    start_configured_llm_proxy,
     start_mcp_server,
     stop_claude_runtime_broker,
-    stop_configured_llm_proxy,
     stop_mcp_server,
 )
 from tracecat.agent.worker import new_sandbox_runner
@@ -41,9 +39,8 @@ def get_activities() -> list:
 async def _start_runtime_services() -> Client:
     """Start shared runtime services needed by the agent executor worker."""
     logger.info("Starting runtime services")
-    _, _, _, client = await asyncio.gather(
+    _, _, client = await asyncio.gather(
         start_claude_runtime_broker(),
-        start_configured_llm_proxy(),
         start_mcp_server(),
         get_temporal_client(),
     )
@@ -56,11 +53,10 @@ async def _stop_runtime_services() -> None:
     results = await asyncio.gather(
         stop_claude_runtime_broker(),
         stop_mcp_server(),
-        stop_configured_llm_proxy(),
         return_exceptions=True,
     )
     for service_name, result in zip(
-        ("Claude runtime broker", "MCP server", "LLM proxy"),
+        ("Claude runtime broker", "MCP server"),
         results,
         strict=True,
     ):

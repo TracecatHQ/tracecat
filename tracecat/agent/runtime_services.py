@@ -31,24 +31,6 @@ async def _wait_for_socket(
     return False
 
 
-async def start_configured_llm_proxy() -> None:
-    """Start any worker-global LLM backend services required by the runtime.
-
-    LiteLLM runs as a separate shared service, so the agent executor has no
-    worker-global LLM startup work to do.
-    """
-    logger.info(
-        "LiteLLM is managed outside the agent executor; no worker-global startup required"
-    )
-
-
-async def stop_configured_llm_proxy() -> None:
-    """Stop any worker-global LLM backend services.
-
-    LiteLLM is managed outside the agent executor, so this is a no-op.
-    """
-
-
 async def start_mcp_server() -> None:
     """Start the trusted MCP HTTP server on Unix socket."""
     global _mcp_server_task

@@ -67,18 +67,6 @@ async def test_start_mcp_server_raises_when_socket_is_not_created(
 
 
 @pytest.mark.anyio
-async def test_start_configured_llm_proxy_is_noop(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    info = Mock()
-    monkeypatch.setattr(runtime_services.logger, "info", info)
-
-    await runtime_services.start_configured_llm_proxy()
-
-    info.assert_called_once()
-
-
-@pytest.mark.anyio
 async def test_start_and_stop_claude_runtime_broker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
