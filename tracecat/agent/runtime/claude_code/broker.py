@@ -93,6 +93,7 @@ class ClaudeRuntimeBroker:
                     job_dir=request.job_dir,
                     path_mapping=path_mapping,
                     enable_internet_access=request.enable_internet_access,
+                    use_jailed_paths=not TRACECAT__DISABLE_NSJAIL,
                     session_id=str(request.init_payload.session_id),
                 ),
                 session_home_dir=path_mapping.host_home_dir,

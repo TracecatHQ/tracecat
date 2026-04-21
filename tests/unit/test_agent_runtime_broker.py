@@ -176,6 +176,27 @@ def test_transport_rewrites_bundled_claude_path_for_jail(
     ]
 
 
+def test_transport_keeps_bundled_claude_path_for_direct_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.agent.runtime.claude_code.transport.claude_agent_sdk.__file__",
+        "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/__init__.py",
+    )
+
+    command = [
+        "/app/.venv/lib/python3.12/site-packages/claude_agent_sdk/_bundled/claude",
+        "--print",
+    ]
+
+    prepared = SandboxedCLITransport._prepare_command_for_runtime(
+        command,
+        use_jailed_paths=False,
+    )
+
+    assert prepared == command
+
+
 def test_transport_rewrites_resolved_bundled_claude_path_for_jail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

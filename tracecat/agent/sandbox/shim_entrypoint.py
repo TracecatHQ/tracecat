@@ -68,18 +68,29 @@ class LLMBridge:
 
     async def stop(self) -> None:
         """Stop the bridge server."""
+        if self._serve_task is not None:
+            if not self._serve_task.done():
+                self._serve_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._serve_task
+            self._serve_task = None
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
-            self._serve_task = None
             LOGGER.info("LLM bridge stopped")
 
     def _on_serve_done(self, task: asyncio.Task[None]) -> None:
         """Log unexpected bridge task failures."""
         if task.cancelled():
             return
-        if exc := task.exception():
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if isinstance(exc, RuntimeError) and str(exc) == "server is closed":
+            return
+        if exc:
             LOGGER.error("LLM bridge server failed: %s", exc)
 
     async def _handle_connection(

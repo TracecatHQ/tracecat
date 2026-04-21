@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, cast
 
@@ -9,6 +10,7 @@ import pytest
 from tracecat.agent.sandbox.shim_entrypoint import (
     DEFAULT_LLM_SOCKET_PATH,
     INIT_PAYLOAD_ENV_VAR,
+    LLMBridge,
     _pump_stdin_to_process,
     _read_stdin_chunk,
     _resolve_init_payload_path,
@@ -63,6 +65,25 @@ def test_resolve_llm_socket_path_falls_back_on_empty_env(
     monkeypatch.setenv("TRACECAT__AGENT_LLM_SOCKET_PATH", "")
 
     assert _resolve_llm_socket_path() == Path(DEFAULT_LLM_SOCKET_PATH)
+
+
+@pytest.mark.anyio
+async def test_llm_bridge_ignores_expected_server_closed_error(
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+) -> None:
+    bridge = LLMBridge(socket_path=tmp_path / "llm.sock")
+
+    async def raise_server_closed() -> None:
+        raise RuntimeError("server is closed")
+
+    task = asyncio.create_task(raise_server_closed())
+    await asyncio.sleep(0)
+
+    with caplog.at_level("ERROR"):
+        bridge._on_serve_done(task)
+
+    assert "LLM bridge server failed" not in caplog.text
 
 
 @pytest.mark.anyio

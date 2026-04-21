@@ -53,6 +53,7 @@ class SandboxedCLITransport(Transport):
         job_dir: Path,
         path_mapping: ClaudeSandboxPathMapping,
         enable_internet_access: bool,
+        use_jailed_paths: bool,
     ) -> None:
         self._options = options
         self._session_id = session_id
@@ -61,6 +62,7 @@ class SandboxedCLITransport(Transport):
         self._job_dir = job_dir
         self._path_mapping = path_mapping
         self._enable_internet_access = enable_internet_access
+        self._use_jailed_paths = use_jailed_paths
         self._process: asyncio.subprocess.Process | None = None
         self._spawned_runtime: SpawnedRuntime | None = None
         self._ready = False
@@ -249,7 +251,25 @@ class SandboxedCLITransport(Transport):
             helper._cli_path = await asyncio.to_thread(helper._find_cli)
         if not os.environ.get("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"):
             await helper._check_claude_version()
-        return self._rewrite_command_for_jail(helper._build_command())
+        command = helper._build_command()
+        return self._prepare_command_for_runtime(
+            command,
+            use_jailed_paths=self._use_jailed_paths,
+        )
+
+    @classmethod
+    def _prepare_command_for_runtime(
+        cls,
+        command: list[str],
+        *,
+        use_jailed_paths: bool,
+    ) -> list[str]:
+        """Translate SDK-built command paths only when the runtime is jailed."""
+        if not command:
+            raise CLIConnectionError("Claude command is empty")
+        if not use_jailed_paths:
+            return command
+        return cls._rewrite_command_for_jail(command)
 
     @classmethod
     def _rewrite_command_for_jail(cls, command: list[str]) -> list[str]:
