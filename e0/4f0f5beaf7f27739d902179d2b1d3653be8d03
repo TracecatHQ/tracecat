@@ -1,0 +1,23 @@
+frontend/src/components/admin/admin-org-invitations-dialog.tsx
+  bda8442756a6389e 112-124,126,130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "e04f0f5beaf7f27739d902179d2b1d3653be8d03",
+  "prompts": {
+    "bda8442756a6389e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db133-d236-7602-a3fb-b00f0c2eccc4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 15,
+      "total_deletions": 4,
+      "accepted_lines": 20,
+      "overriden_lines": 0
+    }
+  }
+}
