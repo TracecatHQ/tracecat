@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 import pytest
+from pydantic import SecretStr
 
+from tracecat.auth.types import Role
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
 from tracecat.registry.sync.runner import (
@@ -102,6 +105,30 @@ async def test_runner_passes_resolved_commit_sha_to_discovery(
     )
     upload_tarball.assert_awaited_once()
     assert result.commit_sha == "resolved-sha"
+
+
+@pytest.mark.anyio
+async def test_fetch_registry_ssh_key_uses_role_scoped_service_session(mocker) -> None:
+    runner = RegistrySyncRunner()
+    organization_id = uuid4()
+    secrets_service = mocker.Mock()
+    secrets_service.get_ssh_key = mocker.AsyncMock(return_value=SecretStr("fake-key\n"))
+
+    @asynccontextmanager
+    async def fake_with_session(*, role: Role):
+        assert role.organization_id == organization_id
+        yield secrets_service
+
+    with_session = mocker.patch(
+        "tracecat.registry.sync.runner.SecretsService.with_session",
+        side_effect=fake_with_session,
+    )
+
+    ssh_key = await runner._fetch_registry_ssh_key(organization_id)
+
+    assert ssh_key == "fake-key\n"
+    with_session.assert_called_once()
+    secrets_service.get_ssh_key.assert_awaited_once_with(target="registry")
 
 
 @pytest.mark.anyio

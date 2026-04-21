@@ -28,7 +28,6 @@ import aiofiles
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
-from tracecat.db.engine import get_async_session_context_manager
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
 from tracecat.registry.sync.platform_service import PLATFORM_REGISTRY_TARBALL_NAMESPACE
@@ -260,8 +259,7 @@ class RegistrySyncRunner:
             scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
         )
 
-        async with get_async_session_context_manager() as session:
-            secrets_service = SecretsService(session, role=role)
+        async with SecretsService.with_session(role=role) as secrets_service:
             try:
                 secret = await secrets_service.get_ssh_key(target="registry")
             except Exception as exc:
