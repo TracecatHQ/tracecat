@@ -109,14 +109,25 @@ export function AdminOrgInvitationsDialog({
     [createdToken]
   )
 
+  async function copyTextToClipboard(text: string, description: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast({ title: "Copied", description })
+    } catch {
+      toast({
+        title: "Failed to copy",
+        description: "Clipboard access was denied or is unavailable.",
+        variant: "destructive",
+      })
+    }
+  }
+
   async function copyToken(token: string) {
-    await navigator.clipboard.writeText(token)
-    toast({ title: "Copied", description: "Invitation token copied." })
+    await copyTextToClipboard(token, "Invitation token copied.")
   }
 
   async function copyLink(token: string) {
-    await navigator.clipboard.writeText(invitationUrl(token))
-    toast({ title: "Copied", description: "Invitation link copied." })
+    await copyTextToClipboard(invitationUrl(token), "Invitation link copied.")
   }
 
   async function copyInvitationLink(invitationId: string) {
