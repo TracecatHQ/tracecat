@@ -1,0 +1,36 @@
+tests/unit/test_registry_lock_resolution.py
+  c513fe5831e14630 15,22,26,28,63-71,73-77,79-90,99-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.0",
+  "base_commit_sha": "542579d0bb5e303ea84c197754e1c617db4ef7f4",
+  "prompts": {
+    "64c18de8cffe3e6a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8ae5d65c-d491-4de4-a6c0-f08d2e855ada",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 236,
+      "overriden_lines": 0
+    },
+    "c513fe5831e14630": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dad34-bb15-7261-8bc3-632760e5808e",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 58,
+      "total_deletions": 11,
+      "accepted_lines": 58,
+      "overriden_lines": 0
+    }
+  }
+}
