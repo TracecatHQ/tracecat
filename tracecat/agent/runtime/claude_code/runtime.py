@@ -725,9 +725,6 @@ class ClaudeAgentRuntime:
                 phase=phase,
                 elapsed_ms=round((perf_counter() - run_started_at) * 1000, 2),
                 session_id=payload.session_id,
-                execution_path=(
-                    "broker" if self._transport_factory is not None else "legacy"
-                ),
                 component="runtime",
                 **extra,
             )

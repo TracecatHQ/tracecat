@@ -82,7 +82,6 @@ class SandboxedCLITransport(Transport):
             phase=phase,
             elapsed_ms=elapsed_ms,
             session_id=self._session_id,
-            execution_path="broker",
             component="transport",
             **extra,
         )

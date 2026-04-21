@@ -52,7 +52,6 @@ class LoopbackInput:
 
     session_id: uuid.UUID
     workspace_id: uuid.UUID
-    execution_path: str = "legacy"
 
 
 @dataclass(kw_only=True, slots=True)
@@ -208,7 +207,6 @@ class LoopbackHandler:
             phase=phase,
             elapsed_ms=round((perf_counter() - self._started_at) * 1000, 2),
             session_id=self.input.session_id,
-            execution_path=self.input.execution_path,
             component="loopback",
             **extra,
         )

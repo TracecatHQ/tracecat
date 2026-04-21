@@ -147,7 +147,6 @@ class SandboxedAgentExecutor:
     _turn_started_at: float = field(
         default_factory=perf_counter, init=False, repr=False
     )
-    _execution_path: str = field(default="broker", init=False, repr=False)
 
     def _log_benchmark_phase(self, phase: str, **extra: object) -> None:
         """Emit a temporary structured benchmark log for this turn."""
@@ -156,7 +155,6 @@ class SandboxedAgentExecutor:
             phase=phase,
             elapsed_ms=round((perf_counter() - self._turn_started_at) * 1000, 2),
             session_id=self.input.session_id,
-            execution_path=self._execution_path,
             sandbox_mode="direct" if TRACECAT__DISABLE_NSJAIL else "nsjail",
             **extra,
         )
@@ -232,7 +230,6 @@ class SandboxedAgentExecutor:
             loopback_input = LoopbackInput(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
-                execution_path=self._execution_path,
             )
             handler = LoopbackHandler(input=loopback_input)
 
