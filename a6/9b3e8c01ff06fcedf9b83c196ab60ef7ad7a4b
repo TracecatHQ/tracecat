@@ -1,0 +1,36 @@
+deployments/fargate/main.tf
+  7a90caad148eb060 129-151,161-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "a69b3e8c01ff06fcedf9b83c196ab60ef7ad7a4b",
+  "prompts": {
+    "7a90caad148eb060": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db0bd-df35-7973-b4af-4a02077751e9",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 40,
+      "total_deletions": 38,
+      "accepted_lines": 40,
+      "overriden_lines": 0
+    },
+    "940b49277825824e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db032-8248-7702-afc2-d44067879519",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 236,
+      "total_deletions": 0,
+      "accepted_lines": 236,
+      "overriden_lines": 0
+    }
+  }
+}
