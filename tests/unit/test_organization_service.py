@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES, ORG_MEMBER_SCOPES, ORG_OWNER_SCOPES
@@ -1165,15 +1166,17 @@ class TestOrganizationServiceInvitations:
         assert invitation.accepted_at is not None
 
     @pytest.mark.anyio
-    async def test_accept_invitation_rejects_superuser_account(
+    async def test_accept_invitation_rejects_superuser_account_in_multi_tenant(
         self,
         session: AsyncSession,
         org1: Organization,
         org2: Organization,
         admin_in_org1: User,
         org1_member_role: DBRole,
+        monkeypatch: pytest.MonkeyPatch,
     ):
-        """Test superuser accounts cannot accept organization invitations."""
+        """Test multi-tenant superuser accounts cannot accept org invitations."""
+        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
         superuser = User(
             id=uuid.uuid4(),
             email=f"superuser-{uuid.uuid4().hex[:8]}@example.com",
@@ -1217,6 +1220,73 @@ class TestOrganizationServiceInvitations:
             match="Platform superusers cannot accept organization invitations",
         ):
             await user_service.accept_invitation(invitation.token)
+
+    @pytest.mark.anyio
+    async def test_accept_invitation_allows_superuser_account_in_single_tenant(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        org2: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Test single-tenant superuser accounts can accept org invitations."""
+        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+        standalone_superuser = User(
+            id=uuid.uuid4(),
+            email=f"standalone-superuser-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=True,
+            is_verified=True,
+        )
+        service_superuser = User(
+            id=uuid.uuid4(),
+            email=f"service-superuser-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=True,
+            is_verified=True,
+        )
+        session.add_all([standalone_superuser, service_superuser])
+        await session.commit()
+
+        admin_role = create_admin_role(org1.id, admin_in_org1.id)
+        admin_service = OrgService(session, role=admin_role)
+        standalone_invitation = await admin_service.create_invitation(
+            email=standalone_superuser.email,
+            role_id=org1_member_role.id,
+        )
+        service_invitation = await admin_service.create_invitation(
+            email=service_superuser.email,
+            role_id=org1_member_role.id,
+        )
+
+        standalone_membership = await accept_invitation_for_user(
+            session,
+            user_id=standalone_superuser.id,
+            token=standalone_invitation.token,
+        )
+        assert standalone_membership.user_id == standalone_superuser.id
+        assert standalone_membership.organization_id == org1.id
+
+        user_role = Role(
+            type="user",
+            user_id=service_superuser.id,
+            organization_id=org2.id,
+            service_id="tracecat-api",
+            is_platform_superuser=True,
+            scopes=ORG_MEMBER_SCOPES,
+        )
+        user_service = OrgService(session, role=user_role)
+        service_membership = await user_service.accept_invitation(
+            service_invitation.token
+        )
+        assert service_membership.user_id == service_superuser.id
+        assert service_membership.organization_id == org1.id
 
     @pytest.mark.anyio
     async def test_accept_invitation_already_accepted_raises(

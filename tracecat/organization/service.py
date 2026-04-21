@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager, selectinload
 
+from tracecat import config
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
@@ -90,7 +91,7 @@ async def accept_invitation_for_user(
     user = user_result.scalar_one_or_none()
     if user is None:
         raise TracecatAuthorizationError("User not found")
-    if user.is_superuser:
+    if config.TRACECAT__EE_MULTI_TENANT and user.is_superuser:
         raise TracecatAuthorizationError(
             "Platform superusers cannot accept organization invitations"
         )
@@ -610,7 +611,7 @@ class OrgService(BaseOrgService):
         user = user_result.scalar_one_or_none()
         if user is None:
             raise TracecatAuthorizationError("User not found")
-        if user.is_superuser:
+        if config.TRACECAT__EE_MULTI_TENANT and user.is_superuser:
             raise TracecatAuthorizationError(
                 "Platform superusers cannot accept organization invitations"
             )
