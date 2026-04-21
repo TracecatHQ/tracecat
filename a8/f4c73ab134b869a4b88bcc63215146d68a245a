@@ -1,0 +1,36 @@
+tests/integration/test_install_and_run_custom_remote_registry_flow.py
+  829382512538f2a5 35,42-196,249-250
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "a8f4c73ab134b869a4b88bcc63215146d68a245a",
+  "prompts": {
+    "829382512538f2a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db040-ed71-7953-ac7a-5b71d9ca0243",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 177,
+      "total_deletions": 18,
+      "accepted_lines": 159,
+      "overriden_lines": 0
+    },
+    "e4a22e60bf295e03": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc4ec068-2c3d-4ddb-8e50-9c7838ac2f4c",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 323,
+      "total_deletions": 0,
+      "accepted_lines": 323,
+      "overriden_lines": 0
+    }
+  }
+}
