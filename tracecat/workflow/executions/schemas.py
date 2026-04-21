@@ -553,13 +553,6 @@ class EventFailure(BaseModel):
     root_cause_message: str | None = None
 
     @staticmethod
-    def _has_field(message: Any, field: str) -> bool:
-        has_field = getattr(message, "HasField", None)
-        if callable(has_field):
-            return bool(has_field(field))
-        return getattr(message, field, None) is not None
-
-    @staticmethod
     def _has_encoded_attributes(failure: Failure) -> bool:
         current: Failure | None = failure
         while current is not None:
@@ -678,11 +671,7 @@ class EventFailure(BaseModel):
                 raise ValueError("Event type not supported for failure extraction.")
 
         decoded_error = await EventFailure._decode_failure_exception(failure)
-        cause = (
-            MessageToDict(failure.cause)
-            if EventFailure._has_field(failure, "cause")
-            else None
-        )
+        cause = MessageToDict(failure.cause) if failure.HasField("cause") else None
         root_cause_message = EventFailure._exception_root_cause_message(
             decoded_error
         ) or EventFailure.extract_root_cause_message(cause)
