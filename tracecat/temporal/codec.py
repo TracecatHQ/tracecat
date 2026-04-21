@@ -288,7 +288,7 @@ class TemporalEncryptionKeyring:
             case {"SecretString": str(secret_string)} if secret_string:
                 return self._parse_keyring(secret_string)
             case {"SecretBinary": bytes(secret_binary)}:
-                if secret_string := base64.b64decode(secret_binary).decode("utf-8"):
+                if secret_string := secret_binary.decode("utf-8"):
                     return self._parse_keyring(secret_string)
 
         raise TemporalPayloadCodecError(

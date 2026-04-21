@@ -154,7 +154,7 @@ async def test_payload_codec_retrieves_root_key_from_secret_arn(
             nonlocal calls
             calls += 1
             assert SecretId == config.TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN
-            return {"SecretBinary": base64.b64encode(keyring_secret.encode())}
+            return {"SecretBinary": keyring_secret.encode()}
 
     class Session:
         def client(self, *, service_name: str) -> SecretsManagerClient:
