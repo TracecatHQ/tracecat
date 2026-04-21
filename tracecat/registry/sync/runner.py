@@ -26,6 +26,8 @@ from uuid import UUID
 import aiofiles
 
 from tracecat import config
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
 from tracecat.registry.sync.platform_service import PLATFORM_REGISTRY_TARBALL_NAMESPACE
@@ -39,6 +41,7 @@ from tracecat.registry.sync.tarball import (
     get_tarball_venv_s3_key,
     upload_tarball_venv,
 )
+from tracecat.secrets.service import SecretsService
 from tracecat.storage import blob
 
 if TYPE_CHECKING:
@@ -156,10 +159,11 @@ class RegistrySyncRunner:
                     raise RegistrySyncRunnerError(
                         "git_url is required for git origin type"
                     )
+                ssh_key = await self._fetch_registry_ssh_key(request.organization_id)
                 package_path, commit_sha = await self._clone_repository(
                     git_url=request.git_url,
                     commit_sha=request.commit_sha,
-                    ssh_key=request.ssh_key,
+                    ssh_key=ssh_key,
                     work_dir=work_dir,
                 )
             else:
@@ -240,6 +244,30 @@ class RegistrySyncRunner:
             return get_builtin_registry_source_path()
         except TarballBuildError as e:
             raise RegistrySyncRunnerError(str(e)) from e
+
+    async def _fetch_registry_ssh_key(self, organization_id: UUID | None) -> str:
+        """Fetch the org-scoped registry SSH key on the ExecutorWorker."""
+        if organization_id is None:
+            raise GitCloneError(
+                "Git repository sync requires organization_id to fetch the SSH key"
+            )
+
+        role = Role(
+            type="service",
+            service_id="tracecat-service",
+            organization_id=organization_id,
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
+        )
+
+        async with SecretsService.with_session(role=role) as secrets_service:
+            try:
+                secret = await secrets_service.get_ssh_key(target="registry")
+            except Exception as exc:
+                raise GitCloneError(
+                    f"Failed to retrieve SSH key for git operations: {exc}. "
+                    "Ensure a 'github-ssh-key' secret exists in your organization."
+                ) from exc
+        return secret.get_secret_value()
 
     async def _clone_repository(
         self,

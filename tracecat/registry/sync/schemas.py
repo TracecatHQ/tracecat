@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
@@ -58,8 +58,10 @@ class RegistrySyncRequest(BaseModel):
     """Request for sandboxed registry sync via Temporal workflow.
 
     This is passed from the API service to the ExecutorWorker via Temporal.
-    The SSH key is used for git clone only and never enters the nsjail sandbox.
+    Git SSH keys are fetched by the ExecutorWorker and never enter Temporal args.
     """
+
+    model_config = ConfigDict(extra="ignore")
 
     repository_id: UUID = Field(..., description="Database repository ID")
     origin: str = Field(..., description="Repository origin URL or name")
@@ -75,10 +77,6 @@ class RegistrySyncRequest(BaseModel):
     git_repo_package_name: str | None = Field(
         default=None,
         description="Optional Python package name override for git repositories",
-    )
-    ssh_key: str | None = Field(
-        default=None,
-        description="SSH private key for git clone (never enters nsjail sandbox)",
     )
     validate_actions: bool = Field(
         default=False, description="Whether to validate template actions"
