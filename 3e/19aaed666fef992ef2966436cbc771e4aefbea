@@ -1,0 +1,23 @@
+tests/unit/test_registry_lock_resolution.py
+  e1bab4596da6d0d3 88-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "3e19aaed666fef992ef2966436cbc771e4aefbea",
+  "prompts": {
+    "e1bab4596da6d0d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dad2c-4f87-7390-bab9-d225f54caad4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 2,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}
