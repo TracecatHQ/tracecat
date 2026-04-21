@@ -1,0 +1,36 @@
+tests/unit/test_interactions.py
+  a2cb6a70d60187f3 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "a6b249cf40f021d25ecf35aab39da6fcae602eff",
+  "prompts": {
+    "85323a97fc488dc3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db131-92ae-70c2-847a-e74ce51faeac",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 139,
+      "total_deletions": 139,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    },
+    "a2cb6a70d60187f3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ac32baa8-b532-43cc-a0b8-01a6317e1083",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}
