@@ -344,7 +344,6 @@ async def _spawn_nsjail_runtime(
     # Get site-packages and tracecat package directories
     site_packages_dir = _get_site_packages_dir()
     tracecat_pkg_dir = _get_tracecat_pkg_dir()
-    broker_shim_mode = entrypoint_module == BROKER_SHIM_ENTRYPOINT_MODULE
 
     # Create temp directory for nsjail job
     owns_job_dir = job_dir is None
@@ -361,7 +360,7 @@ async def _spawn_nsjail_runtime(
             shutil.copy2, init_payload_path, jailed_init_payload_path
         )
         entrypoint_script_path: str | None = None
-        if broker_shim_mode:
+        if entrypoint_module == BROKER_SHIM_ENTRYPOINT_MODULE:
             host_shim_path = (
                 tracecat_pkg_dir / "agent" / "sandbox" / BROKER_SHIM_SCRIPT_NAME
             )
@@ -379,7 +378,6 @@ async def _spawn_nsjail_runtime(
             llm_socket_path=llm_socket_path,
             entrypoint_module=entrypoint_module,
             entrypoint_script_path=entrypoint_script_path,
-            broker_shim_mode=broker_shim_mode,
             mount_control_socket=control_socket_required,
             control_socket_path=socket_dir / CONTROL_SOCKET_NAME
             if control_socket_required

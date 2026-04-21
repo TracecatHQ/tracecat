@@ -51,7 +51,6 @@ def test_build_agent_nsjail_config_uses_reduced_broker_shim_mounts() -> None:
         llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
         entrypoint_module="tracecat.agent.sandbox.shim_entrypoint",
         entrypoint_script_path="/work/shim_entrypoint.py",
-        broker_shim_mode=True,
         mount_control_socket=False,
     )
 

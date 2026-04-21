@@ -225,7 +225,6 @@ def build_agent_nsjail_config(
     *,
     entrypoint_module: str = "tracecat.agent.sandbox.entrypoint",
     entrypoint_script_path: str | None = None,
-    broker_shim_mode: bool = False,
     mount_control_socket: bool = True,
     control_socket_path: Path | None = None,
     session_home_dir: Path | None = None,
@@ -247,8 +246,6 @@ def build_agent_nsjail_config(
             access.
         entrypoint_script_path: Optional in-jail script path to execute instead of
             `python -m ...`. Used by the brokered standalone shim.
-        broker_shim_mode: If True, emit the reduced broker-only mount set instead
-            of the legacy runtime package mounts.
         mount_control_socket: Whether to mount the per-job control socket into the
             jail. Legacy runtime mode requires this; brokered shim mode does not.
         control_socket_path: Optional explicit control socket path. When omitted
@@ -298,8 +295,9 @@ def build_agent_nsjail_config(
             raise AgentSandboxValidationError(
                 f"Invalid entrypoint_script_path: {reason}"
             )
+    standalone_shim_mode = entrypoint_script_path is not None
     claude_sdk_package_dir = site_packages_dir / "claude_agent_sdk"
-    if broker_shim_mode:
+    if standalone_shim_mode:
         _validate_path(claude_sdk_package_dir, "claude_sdk_package_dir")
     # TRUSTED_MCP_SOCKET_PATH and JAILED_LLM_SOCKET_PATH are constants, no validation needed
 
@@ -383,7 +381,7 @@ def build_agent_nsjail_config(
         ]
     )
 
-    if broker_shim_mode:
+    if standalone_shim_mode:
         lines.extend(
             [
                 "",
