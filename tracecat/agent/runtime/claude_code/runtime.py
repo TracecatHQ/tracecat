@@ -90,17 +90,6 @@ class RuntimeEventWriter(Protocol):
         """Send a structured runtime log event."""
 
 
-def get_llm_proxy_url() -> str:
-    """Get the LLM proxy base URL for the Claude SDK."""
-
-    port = os.environ.get("TRACECAT__LLM_BRIDGE_PORT")
-    if not port:
-        raise RuntimeError(
-            "TRACECAT__LLM_BRIDGE_PORT is not set — LLM bridge was not started"
-        )
-    return f"http://127.0.0.1:{port}"
-
-
 _LITELLM_ROUTE_PREFIXES: dict[str, str] = {
     "openai": "openai",
     "anthropic": "anthropic",
@@ -835,7 +824,6 @@ class ClaudeAgentRuntime:
                 ),
                 env={
                     "ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token,
-                    "ANTHROPIC_BASE_URL": get_llm_proxy_url(),
                     **(
                         {
                             "CLAUDE_CODE_AUTO_COMPACT_WINDOW": CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW

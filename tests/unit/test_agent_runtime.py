@@ -39,7 +39,6 @@ from tracecat.agent.runtime.claude_code.runtime import (
     CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES,
     ClaudeAgentRuntime,
     get_litellm_route_model,
-    get_llm_proxy_url,
 )
 from tracecat.agent.types import AgentConfig
 
@@ -171,23 +170,6 @@ def get_hook_output(result: SyncHookJSONOutput) -> dict[str, Any]:
     return cast(dict[str, Any], result.get("hookSpecificOutput", {}))
 
 
-def test_get_litellm_url_uses_bridge_port_when_network_isolated(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "4312")
-
-    assert get_llm_proxy_url() == "http://127.0.0.1:4312"
-
-
-def test_get_litellm_url_requires_bridge_port(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("TRACECAT__LLM_BRIDGE_PORT", raising=False)
-
-    with pytest.raises(RuntimeError, match="TRACECAT__LLM_BRIDGE_PORT is not set"):
-        get_llm_proxy_url()
-
-
 @pytest.mark.parametrize(
     ("provider", "model_name", "passthrough", "expected"),
     [
@@ -228,11 +210,6 @@ def test_get_litellm_route_model_prefixes_provider_route(
 
 class TestClaudeAgentRuntimeRun:
     """Tests for ClaudeAgentRuntime.run()."""
-
-    @pytest.fixture(autouse=True)
-    def _mock_llm_bridge_port(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Set the LLM bridge port env var so get_llm_proxy_url() succeeds."""
-        monkeypatch.setenv("TRACECAT__LLM_BRIDGE_PORT", "12345")
 
     @pytest.mark.anyio
     async def test_sends_done_on_completion(
@@ -585,44 +562,6 @@ class TestClaudeAgentRuntimeRun:
         )
         assert session_file.exists()
         assert session_file.read_text() == resumed_payload.sdk_session_data
-
-    @pytest.mark.anyio
-    async def test_sets_claude_child_home_when_session_home_dir_is_configured(
-        self,
-        mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-        tmp_path: Path,
-    ) -> None:
-        captured_options = []
-        session_home_dir = tmp_path / "claude-home"
-        runtime_cwd = tmp_path / "claude-project"
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.create_proxy_mcp_server",
-                AsyncMock(return_value={}),
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer,
-                transport_factory=lambda _: MagicMock(),
-                session_home_dir=session_home_dir,
-                cwd=runtime_cwd,
-                cwd_setup_path=runtime_cwd,
-            )
-            await runtime.run(sample_init_payload)
-
-        assert captured_options
-        assert captured_options[0].env["HOME"] == str(session_home_dir)
 
     @pytest.mark.anyio
     async def test_does_not_set_host_home_when_custom_transport_is_configured(
