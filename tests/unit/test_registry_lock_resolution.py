@@ -86,8 +86,10 @@ async def _setup_platform_registry(
         and not action_names
         and repo.current_version_id is not None
     ):
-        existing_version = await session.get(
-            PlatformRegistryVersion, repo.current_version_id
+        existing_version = await session.scalar(
+            select(PlatformRegistryVersion).where(
+                PlatformRegistryVersion.id == repo.current_version_id
+            )
         )
         if existing_version is not None:
             return existing_version
