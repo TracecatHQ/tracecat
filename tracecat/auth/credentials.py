@@ -93,16 +93,16 @@ async def _get_workspace_org_id(workspace_id: uuid.UUID) -> uuid.UUID | None:
         return result.scalar_one_or_none()
 
 
-CREDENTIALS_EXCEPTION = HTTPException(
+UNAUTHORIZED_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Could not validate credentials",
+    detail="Unauthorized",
     headers={"WWW-Authenticate": "Cookie"},
 )
 
 HTTP_EXC = partial(
     lambda msg: HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail=msg or "Could not validate credentials",
+        detail=msg or "Unauthorized",
         headers={"WWW-Authenticate": "Cookie"},
     )
 )
@@ -267,7 +267,7 @@ async def _authenticate_service(
         raise HTTP_EXC(msg)
     if not secrets.compare_digest(api_key, get_service_key()):
         logger.error("Could not validate service key")
-        raise CREDENTIALS_EXCEPTION
+        raise UNAUTHORIZED_EXCEPTION
     user_id = (
         uuid.UUID(uid)
         if (uid := request.headers.get("x-tracecat-role-user-id")) is not None
@@ -357,12 +357,12 @@ async def _authenticate_api_key(
         result = await session.execute(stmt)
         record = result.scalar_one_or_none()
         if record is None or record.revoked_at is not None:
-            raise CREDENTIALS_EXCEPTION
+            raise UNAUTHORIZED_EXCEPTION
         if not verify_api_key(api_key, record.salt, record.hashed):
-            raise CREDENTIALS_EXCEPTION
+            raise UNAUTHORIZED_EXCEPTION
         service_account = record.service_account
         if service_account.disabled_at is not None:
-            raise CREDENTIALS_EXCEPTION
+            raise UNAUTHORIZED_EXCEPTION
 
         # `workspace_id` is the effective request context. `bound_workspace_id`
         # preserves the actor's intrinsic workspace binding for the few places
@@ -371,7 +371,7 @@ async def _authenticate_api_key(
         resolved_workspace_id: uuid.UUID | None
         if bound_workspace_id is None:
             if parsed.prefix != ORG_API_KEY_PREFIX:
-                raise CREDENTIALS_EXCEPTION
+                raise UNAUTHORIZED_EXCEPTION
             if workspace_id is not None:
                 workspace_org_id = await _get_workspace_org_id(workspace_id)
                 if workspace_org_id is None:
@@ -386,10 +386,10 @@ async def _authenticate_api_key(
             resolved_workspace_id = workspace_id
         else:
             if parsed.prefix != WORKSPACE_API_KEY_PREFIX:
-                raise CREDENTIALS_EXCEPTION
+                raise UNAUTHORIZED_EXCEPTION
             workspace_org_id = await _get_workspace_org_id(bound_workspace_id)
             if workspace_org_id is None:
-                raise CREDENTIALS_EXCEPTION
+                raise UNAUTHORIZED_EXCEPTION
             if workspace_org_id != service_account.organization_id:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"

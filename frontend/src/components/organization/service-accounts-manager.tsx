@@ -1,12 +1,13 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { formatDistanceToNow } from "date-fns"
+import { format, formatDistanceToNow } from "date-fns"
 import {
   BotIcon,
   ChevronRightIcon,
   CircleCheckIcon,
   CircleXIcon,
+  ClockIcon,
   KeyRoundIcon,
   RefreshCwIcon,
   SearchIcon,
@@ -271,6 +272,14 @@ function formatTimestamp(value?: string | null): string {
   return formatDistanceToNow(new Date(value), { addSuffix: true })
 }
 
+function formatFullTimestamp(value?: string | null): string {
+  if (!value) {
+    return "Never"
+  }
+
+  return format(new Date(value), "PPpp")
+}
+
 function getApiKeyStatusLabel(apiKey: ServiceAccountApiKeyRead): string {
   return apiKey.revoked_at ? "Revoked" : "Active"
 }
@@ -370,6 +379,40 @@ function RowActionButton({
         </Button>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function LastUsedIndicator({ value }: { value?: string | null }) {
+  const relativeTimestamp = formatTimestamp(value)
+  const fullTimestamp = formatFullTimestamp(value)
+  const label = !value ? "Last used: Never" : `Last used ${relativeTimestamp}`
+  const accessibleLabel = value ? `${label}; ${fullTimestamp}` : label
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors",
+            "hover:bg-muted hover:text-foreground focus:outline-none focus:ring-1 focus:ring-inset focus:ring-ring"
+          )}
+          tabIndex={0}
+          aria-label={accessibleLabel}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <ClockIcon className="size-3.5" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="text-xs">
+        <div className="flex flex-col gap-1">
+          <span>{label}</span>
+          {value ? (
+            <span className="text-muted-foreground">{fullTimestamp}</span>
+          ) : null}
+        </div>
+      </TooltipContent>
     </Tooltip>
   )
 }
@@ -994,7 +1037,7 @@ export function ServiceAccountsManager({
                       />
                     </div>
 
-                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
                       <div className="flex min-w-0 shrink-0 items-center gap-2">
                         <BotIcon className="size-4 shrink-0 text-muted-foreground" />
                         <span className={SERVICE_ACCOUNT_NAME_COLUMN_CLASS}>
@@ -1030,7 +1073,7 @@ export function ServiceAccountsManager({
                         {ownerLabel ? `Created by ${ownerLabel}` : ""}
                       </span>
 
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
                         <Badge
                           variant="secondary"
                           className="h-5 shrink-0 gap-1 px-1.5 py-0 text-[10px] font-normal"
@@ -1047,9 +1090,9 @@ export function ServiceAccountsManager({
                             serviceAccount.api_key_counts?.total ?? 0
                           ).toString()}
                         </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {formatTimestamp(serviceAccount.last_used_at)}
-                        </span>
+                        <LastUsedIndicator
+                          value={serviceAccount.last_used_at}
+                        />
                       </div>
                     </div>
 
