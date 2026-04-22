@@ -1,0 +1,25 @@
+packages/tracecat-ee/tracecat_ee/admin/organizations/service.py
+  1744d17930661be1 287,307-311,317
+tests/unit/test_admin_org_invitations_service.py
+  1744d17930661be1 255-312
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "027e9d143deacb724f49faba9db1fb084e05142f",
+  "prompts": {
+    "1744d17930661be1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db2c2-aa49-7890-97fe-010dad7889f3",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 257,
+      "total_deletions": 1,
+      "accepted_lines": 257,
+      "overriden_lines": 0
+    }
+  }
+}
