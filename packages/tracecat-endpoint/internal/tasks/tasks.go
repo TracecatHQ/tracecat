@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TracecatHQ/tracecat/packages/tracecat-endpoint/internal/claude"
 	"github.com/TracecatHQ/tracecat/packages/tracecat-endpoint/internal/spmapi"
 )
 
@@ -24,8 +25,66 @@ type ClaudeExecutor struct {
 	HomeDir string
 }
 
+type writableSurface string
+
+const (
+	writableSurfaceUserSettings writableSurface = "user_settings"
+	writableSurfaceUserState    writableSurface = "user_state"
+	writableSurfaceProjectLocal writableSurface = "project_local_settings"
+)
+
 func NewClaudeExecutor(homeDir string) ClaudeExecutor {
 	return ClaudeExecutor{HomeDir: strings.TrimSpace(homeDir)}
+}
+
+func (e ClaudeExecutor) userSettingsPath() string {
+	return filepath.Clean(filepath.Join(e.HomeDir, ".claude", "settings.json"))
+}
+
+func (e ClaudeExecutor) userStatePath() string {
+	return filepath.Clean(filepath.Join(e.HomeDir, ".claude.json"))
+}
+
+func (e ClaudeExecutor) resolveTargetPath(
+	requestedPath string,
+	defaultPath string,
+	allowed ...writableSurface,
+) (string, writableSurface, error) {
+	targetPath := strings.TrimSpace(requestedPath)
+	if targetPath == "" {
+		targetPath = strings.TrimSpace(defaultPath)
+	}
+	if targetPath == "" {
+		return "", "", fmt.Errorf("target path is required")
+	}
+
+	cleanPath := filepath.Clean(targetPath)
+	surface, ok := e.classifyWritableSurface(cleanPath)
+	if !ok {
+		return "", "", fmt.Errorf("target path %q is not a writable Claude config surface", cleanPath)
+	}
+
+	for _, allowedSurface := range allowed {
+		if surface == allowedSurface {
+			return cleanPath, surface, nil
+		}
+	}
+	return "", "", fmt.Errorf("target path %q is not allowed for this action", cleanPath)
+}
+
+func (e ClaudeExecutor) classifyWritableSurface(path string) (writableSurface, bool) {
+	cleanPath := filepath.Clean(strings.TrimSpace(path))
+	switch {
+	case cleanPath == e.userSettingsPath():
+		return writableSurfaceUserSettings, true
+	case cleanPath == e.userStatePath():
+		return writableSurfaceUserState, true
+	case filepath.Base(cleanPath) == "settings.local.json" &&
+		filepath.Base(filepath.Dir(cleanPath)) == ".claude":
+		return writableSurfaceProjectLocal, true
+	default:
+		return "", false
+	}
 }
 
 func (e ClaudeExecutor) Execute(
@@ -77,9 +136,9 @@ func (e ClaudeExecutor) apply(
 	case "reconcile_sandbox_config":
 		return e.reconcileConfig(task.Payload, "sandbox")
 	case "disable_hook":
-		return e.disableNamedEntry(task.Payload, "hooks")
+		return e.disableHook(task.Payload)
 	case "disable_skill":
-		return e.disableNamedEntry(task.Payload, "skills")
+		return e.disableSkill(task.Payload)
 	default:
 		return spmapi.TaskResultStatusFailed, nil, fmt.Errorf("unsupported enforcement action %q", task.Action)
 	}
@@ -102,8 +161,13 @@ func (e ClaudeExecutor) disableMCPServer(payload map[string]any) (spmapi.TaskRes
 			}
 			targetPath = filepath.Join(projectRoot, ".claude", "settings.local.json")
 		} else {
-			targetPath = filepath.Join(e.HomeDir, ".claude.json")
+			targetPath = e.userStatePath()
 		}
+	}
+
+	targetPath, surface, err := e.resolveTargetPath(targetPath, "", writableSurfaceUserState, writableSurfaceProjectLocal)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, nil, err
 	}
 
 	doc, err := loadJSONDocument(targetPath)
@@ -111,7 +175,7 @@ func (e ClaudeExecutor) disableMCPServer(payload map[string]any) (spmapi.TaskRes
 		return spmapi.TaskResultStatusFailed, nil, err
 	}
 
-	if strings.HasSuffix(targetPath, string(filepath.Separator)+".claude"+string(filepath.Separator)+"settings.local.json") {
+	if surface == writableSurfaceProjectLocal {
 		list := uniqueStrings(stringSlice(doc["disabledMcpjsonServers"]))
 		if containsString(list, serverName) {
 			return spmapi.TaskResultStatusSkipped, map[string]any{
@@ -176,7 +240,7 @@ func disableMCPEntry(doc map[string]any, serverName string, resolvedIdentity str
 			if !ok {
 				continue
 			}
-			if resolvedIdentity != "" && resolveMCPIdentity(serverMap) != resolvedIdentity {
+			if resolvedIdentity != "" && claude.ResolveMCPIdentity(serverMap).Resolved != resolvedIdentity {
 				continue
 			}
 			if disabled, ok := serverMap["disabled"].(bool); ok && disabled {
@@ -198,7 +262,7 @@ func disableMCPEntry(doc map[string]any, serverName string, resolvedIdentity str
 			if name != serverName {
 				continue
 			}
-			if resolvedIdentity != "" && resolveMCPIdentity(serverMap) != resolvedIdentity {
+			if resolvedIdentity != "" && claude.ResolveMCPIdentity(serverMap).Resolved != resolvedIdentity {
 				continue
 			}
 			if disabled, ok := serverMap["disabled"].(bool); ok && disabled {
@@ -225,8 +289,12 @@ func (e ClaudeExecutor) excludeInstructionFile(payload map[string]any) (spmapi.T
 		if projectRoot != "" {
 			targetPath = filepath.Join(projectRoot, ".claude", "settings.local.json")
 		} else {
-			targetPath = filepath.Join(e.HomeDir, ".claude", "settings.json")
+			targetPath = e.userSettingsPath()
 		}
+	}
+	targetPath, _, err = e.resolveTargetPath(targetPath, "", writableSurfaceUserSettings, writableSurfaceProjectLocal)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, nil, err
 	}
 	doc, err := loadJSONDocument(targetPath)
 	if err != nil {
@@ -267,7 +335,11 @@ func (e ClaudeExecutor) revokeDirectory(
 	}
 	targetPath, _ := optionalString(payload, "target_path")
 	if targetPath == "" {
-		targetPath = filepath.Join(e.HomeDir, ".claude.json")
+		targetPath = e.userStatePath()
+	}
+	targetPath, _, err = e.resolveTargetPath(targetPath, "", writableSurfaceUserState)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, nil, err
 	}
 	doc, err := loadJSONDocument(targetPath)
 	if err != nil {
@@ -340,7 +412,11 @@ func (e ClaudeExecutor) reconcileConfig(
 ) (spmapi.TaskResultStatus, map[string]any, error) {
 	targetPath, _ := optionalString(payload, "target_path")
 	if targetPath == "" {
-		targetPath = filepath.Join(e.HomeDir, ".claude", "settings.json")
+		targetPath = e.userSettingsPath()
+	}
+	targetPath, _, err := e.resolveTargetPath(targetPath, "", writableSurfaceUserSettings, writableSurfaceUserState, writableSurfaceProjectLocal)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, nil, err
 	}
 	value, ok := pickValue(payload, "value", "approved_value", "config")
 	if !ok {
@@ -366,9 +442,79 @@ func (e ClaudeExecutor) reconcileConfig(
 	}, nil
 }
 
+func (e ClaudeExecutor) disableHook(
+	payload map[string]any,
+) (spmapi.TaskResultStatus, map[string]any, error) {
+	fingerprint, err := requireString(payload, "fingerprint")
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, nil, fmt.Errorf("hooks identifier is required")
+	}
+	targetPath, _ := optionalString(payload, "target_path")
+	if targetPath == "" {
+		targetPath = e.userStatePath()
+	}
+	targetPath, _, err = e.resolveTargetPath(targetPath, "", writableSurfaceUserSettings, writableSurfaceUserState, writableSurfaceProjectLocal)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, nil, err
+	}
+
+	doc, err := loadJSONDocument(targetPath)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, nil, err
+	}
+
+	hooks, ok := doc["hooks"].(map[string]any)
+	if !ok {
+		return spmapi.TaskResultStatusSkipped, map[string]any{
+			"reason":      "hooks entry already disabled",
+			"target_path": targetPath,
+			"fingerprint": fingerprint,
+		}, nil
+	}
+
+	changed := false
+	for eventName, eventValue := range hooks {
+		index := 0
+		filtered, removed := filterHookEntries(eventValue, eventName, fingerprint, &index)
+		if !removed {
+			continue
+		}
+		changed = true
+		if filtered == nil {
+			delete(hooks, eventName)
+			continue
+		}
+		hooks[eventName] = filtered
+	}
+
+	if !changed {
+		return spmapi.TaskResultStatusSkipped, map[string]any{
+			"reason":      "hooks entry already disabled",
+			"target_path": targetPath,
+			"fingerprint": fingerprint,
+		}, nil
+	}
+
+	doc["hooks"] = hooks
+	if err := writeJSONDocument(targetPath, doc); err != nil {
+		return spmapi.TaskResultStatusFailed, nil, err
+	}
+	return spmapi.TaskResultStatusApplied, map[string]any{
+		"target_path": targetPath,
+		"fingerprint": fingerprint,
+	}, nil
+}
+
+func (e ClaudeExecutor) disableSkill(
+	payload map[string]any,
+) (spmapi.TaskResultStatus, map[string]any, error) {
+	return e.disableNamedEntry(payload, "skills", writableSurfaceUserSettings, writableSurfaceUserState, writableSurfaceProjectLocal)
+}
+
 func (e ClaudeExecutor) disableNamedEntry(
 	payload map[string]any,
 	key string,
+	allowed ...writableSurface,
 ) (spmapi.TaskResultStatus, map[string]any, error) {
 	fingerprint, err := requireString(payload, "fingerprint")
 	if err != nil {
@@ -379,7 +525,11 @@ func (e ClaudeExecutor) disableNamedEntry(
 	}
 	targetPath, _ := optionalString(payload, "target_path")
 	if targetPath == "" {
-		targetPath = filepath.Join(e.HomeDir, ".claude.json")
+		targetPath = e.userStatePath()
+	}
+	targetPath, _, err = e.resolveTargetPath(targetPath, "", allowed...)
+	if err != nil {
+		return spmapi.TaskResultStatusFailed, nil, err
 	}
 	doc, err := loadJSONDocument(targetPath)
 	if err != nil {
@@ -441,6 +591,60 @@ func namedEntryFingerprint(raw any) string {
 
 func namedEntryFingerprintWithName(name string, raw any) string {
 	return hashString(name + "|" + mustJSON(raw))
+}
+
+func filterHookEntries(raw any, eventName string, fingerprint string, index *int) (any, bool) {
+	switch value := raw.(type) {
+	case []any:
+		next := make([]any, 0, len(value))
+		removed := false
+		for _, item := range value {
+			filtered, itemRemoved := filterHookEntries(item, eventName, fingerprint, index)
+			if itemRemoved {
+				removed = true
+			}
+			if filtered != nil {
+				next = append(next, filtered)
+			}
+		}
+		if len(next) == 0 {
+			return nil, removed
+		}
+		return next, removed
+	case map[string]any:
+		hook := normalizeHookEntry(value)
+		currentFingerprint := fmt.Sprintf("%s|%s|%s|%d", eventName, hook.Matcher, hook.Command, *index)
+		*index++
+		if currentFingerprint == fingerprint {
+			return nil, true
+		}
+		return value, false
+	default:
+		return raw, false
+	}
+}
+
+type hookFingerprint struct {
+	Matcher string
+	Command string
+}
+
+func normalizeHookEntry(value map[string]any) hookFingerprint {
+	matcher, _ := pickString(value, "matcher", "name")
+	command, _ := pickString(value, "command", "cmd")
+	if command == "" {
+		if commands, ok := value["commands"].([]any); ok {
+			parts := make([]string, 0, len(commands))
+			for _, commandPart := range commands {
+				text, ok := commandPart.(string)
+				if ok && strings.TrimSpace(text) != "" {
+					parts = append(parts, strings.TrimSpace(text))
+				}
+			}
+			command = strings.Join(parts, " ")
+		}
+	}
+	return hookFingerprint{Matcher: matcher, Command: command}
 }
 
 func loadJSONDocument(path string) (map[string]any, error) {
@@ -565,51 +769,6 @@ func pickString(doc map[string]any, keys ...string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func resolveMCPIdentity(server map[string]any) string {
-	if rawURL, ok := pickString(server, "url", "endpoint"); ok {
-		return normalizeURLIdentity(rawURL)
-	}
-	command, _ := pickString(server, "command", "cmd")
-	args := stringSlice(server["args"])
-	return normalizeStdioIdentity(command, args)
-}
-
-func normalizeURLIdentity(raw string) string {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return trimmed
-	}
-	if parsedPath := strings.Index(trimmed, "#"); parsedPath >= 0 {
-		trimmed = trimmed[:parsedPath]
-	}
-	return strings.TrimRight(trimmed, "/")
-}
-
-func normalizeStdioIdentity(command string, args []string) string {
-	base := filepath.Base(strings.TrimSpace(command))
-	switch base {
-	case "npx", "npm", "pnpm", "yarn", "uvx", "pipx":
-		for _, arg := range args {
-			if strings.TrimSpace(arg) == "" || strings.HasPrefix(arg, "-") {
-				continue
-			}
-			return "package:" + arg
-		}
-	}
-	if base == "node" || base == "python" || base == "python3" {
-		for _, arg := range args {
-			if strings.TrimSpace(arg) == "" || strings.HasPrefix(arg, "-") {
-				continue
-			}
-			return "binary:" + filepath.Base(arg)
-		}
-	}
-	if base == "" {
-		return "binary:unknown"
-	}
-	return "binary:" + base
 }
 
 func mustJSON(value any) string {

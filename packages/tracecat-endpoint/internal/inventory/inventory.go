@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"math"
 	"net"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/TracecatHQ/tracecat/packages/tracecat-endpoint/internal/claude"
 	"github.com/TracecatHQ/tracecat/packages/tracecat-endpoint/internal/spmapi"
 )
 
@@ -571,10 +571,10 @@ func buildMCPAsset(cfg jsonSurfaceConfig, serverName string, raw any) (spmapi.Sy
 		return spmapi.SyncAsset{}, false
 	}
 
-	resolvedIdentity, transport, identityEvidence := resolveMCPIdentity(server)
+	identity := claude.ResolveMCPIdentity(server)
 	disabled, _ := boolValue(server["disabled"])
 	contentHash, normalized := hashValue(server)
-	identityKey := cfg.Path + "#mcp:" + serverName + "|" + resolvedIdentity
+	identityKey := cfg.Path + "#mcp:" + serverName + "|" + identity.Resolved
 
 	metadata := map[string]any{
 		"file_path":         cfg.Path,
@@ -583,20 +583,20 @@ func buildMCPAsset(cfg jsonSurfaceConfig, serverName string, raw any) (spmapi.Sy
 		"parse_status":      parseStatusOK,
 		"writable":          cfg.Writable,
 		"server_name":       serverName,
-		"resolved_identity": resolvedIdentity,
-		"transport":         transport,
-		"mcp_identity_key":  serverName + "|" + resolvedIdentity,
-		"approval_identity": map[string]any{"server_name": serverName, "resolved_identity": resolvedIdentity},
+		"resolved_identity": identity.Resolved,
+		"transport":         identity.Transport,
+		"mcp_identity_key":  serverName + "|" + identity.Resolved,
+		"approval_identity": map[string]any{"server_name": serverName, "resolved_identity": identity.Resolved},
 	}
-	for key, value := range identityEvidence {
+	for key, value := range identity.Evidence {
 		metadata[key] = value
 	}
 
 	evidence := map[string]any{
 		"file_path":         cfg.Path,
 		"server_name":       serverName,
-		"resolved_identity": resolvedIdentity,
-		"transport":         transport,
+		"resolved_identity": identity.Resolved,
+		"transport":         identity.Transport,
 		"config":            normalized,
 	}
 	for key, value := range indicatorsFromServer(server) {
@@ -925,89 +925,6 @@ func obfuscationSignals(text string) map[string]any {
 		"defanged_indicator_found": defanged,
 		"obfuscation_detected":     len(base64Matches) > 0 || len(highEntropy) > 0 || defanged,
 	}
-}
-
-func resolveMCPIdentity(server map[string]any) (string, string, map[string]any) {
-	if rawURL, ok := pickString(server, "url", "endpoint"); ok {
-		normalized, origin := normalizeURLIdentity(rawURL)
-		return normalized, "http", map[string]any{
-			"url":             normalized,
-			"origin":          origin,
-			"resolved_url":    normalized,
-			"resolved_origin": origin,
-		}
-	}
-
-	command, _ := pickString(server, "command", "cmd")
-	args := stringSlice(server["args"])
-	identity := normalizeStdioIdentity(command, args)
-	return identity, "stdio", map[string]any{
-		"command":          command,
-		"args":             args,
-		"resolved_command": identity,
-	}
-}
-
-func normalizeURLIdentity(raw string) (string, string) {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return strings.TrimSpace(raw), strings.TrimSpace(raw)
-	}
-	parsed.Fragment = ""
-	parsed.RawFragment = ""
-	parsed.RawQuery = ""
-	parsed.Host = strings.ToLower(parsed.Hostname())
-	if port := parsed.Port(); port != "" && !isDefaultPort(parsed.Scheme, port) {
-		parsed.Host = parsed.Host + ":" + port
-	}
-	cleanPath := filepath.Clean(parsed.EscapedPath())
-	if cleanPath == "." || cleanPath == "/" {
-		parsed.Path = ""
-	} else {
-		parsed.Path = cleanPath
-	}
-	origin := parsed.Scheme + "://" + parsed.Host
-	if parsed.Path == "" {
-		return origin, origin
-	}
-	return origin + parsed.Path, origin
-}
-
-func normalizeStdioIdentity(command string, args []string) string {
-	cmd := strings.TrimSpace(command)
-	base := filepath.Base(cmd)
-	packageManagers := map[string]bool{
-		"npx":  true,
-		"npm":  true,
-		"pnpm": true,
-		"yarn": true,
-		"uvx":  true,
-		"pipx": true,
-	}
-	if packageManagers[base] {
-		for _, arg := range args {
-			if strings.HasPrefix(arg, "-") || strings.TrimSpace(arg) == "" {
-				continue
-			}
-			return "package:" + arg
-		}
-	}
-	if base == "node" || base == "python" || base == "python3" {
-		for _, arg := range args {
-			if strings.HasPrefix(arg, "-") || strings.TrimSpace(arg) == "" {
-				continue
-			}
-			return "binary:" + filepath.Base(arg)
-		}
-	}
-	if base == "" {
-		return "binary:unknown"
-	}
-	return "binary:" + base
-}
-
-func isDefaultPort(scheme string, port string) bool {
-	return (scheme == "http" && port == "80") || (scheme == "https" && port == "443")
 }
 
 func readDirectoryEntries(doc map[string]any, keys ...string) []string {

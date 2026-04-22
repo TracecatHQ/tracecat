@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/TracecatHQ/tracecat/packages/tracecat-endpoint/internal/claude"
 	"github.com/TracecatHQ/tracecat/packages/tracecat-endpoint/internal/spmapi"
 )
 
@@ -164,25 +165,25 @@ func TestClaudeProviderEmitsMCPParseErrorsForSettingsSurfaces(t *testing.T) {
 func TestResolveMCPIdentityUsesDeterministicTransportSpecificKeys(t *testing.T) {
 	t.Parallel()
 
-	httpIdentity, transport, _ := resolveMCPIdentity(map[string]any{
+	httpIdentity := claude.ResolveMCPIdentity(map[string]any{
 		"url": "HTTPS://api.github.com/mcp/",
 	})
-	if transport != "http" {
-		t.Fatalf("unexpected transport %q", transport)
+	if httpIdentity.Transport != "http" {
+		t.Fatalf("unexpected transport %q", httpIdentity.Transport)
 	}
-	if httpIdentity != "https://api.github.com/mcp" {
-		t.Fatalf("unexpected http identity %q", httpIdentity)
+	if httpIdentity.Resolved != "https://api.github.com/mcp" {
+		t.Fatalf("unexpected http identity %q", httpIdentity.Resolved)
 	}
 
-	stdioIdentity, transport, _ := resolveMCPIdentity(map[string]any{
+	stdioIdentity := claude.ResolveMCPIdentity(map[string]any{
 		"command": "uvx",
 		"args":    []any{"slack-mcp", "--stdio"},
 	})
-	if transport != "stdio" {
-		t.Fatalf("unexpected transport %q", transport)
+	if stdioIdentity.Transport != "stdio" {
+		t.Fatalf("unexpected transport %q", stdioIdentity.Transport)
 	}
-	if stdioIdentity != "package:slack-mcp" {
-		t.Fatalf("unexpected stdio identity %q", stdioIdentity)
+	if stdioIdentity.Resolved != "package:slack-mcp" {
+		t.Fatalf("unexpected stdio identity %q", stdioIdentity.Resolved)
 	}
 }
 
