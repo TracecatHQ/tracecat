@@ -10,6 +10,7 @@ on:
       - pyproject.toml
       - uv.lock
       - Dockerfile
+      - .github/docker-compose.integration.yml
       - docker-compose.yml
       - docker-compose.dev.yml
       - docker-compose.local.yml
@@ -23,6 +24,7 @@ on:
       - pyproject.toml
       - uv.lock
       - Dockerfile
+      - .github/docker-compose.integration.yml
       - docker-compose.yml
       - docker-compose.dev.yml
       - docker-compose.local.yml
@@ -100,7 +102,9 @@ jobs:
         with:
           version: "0.9.7"
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
       - name: Set up Python 3.12
         uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
@@ -122,16 +126,32 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
-      - name: Start core Docker services
+      - name: Build image and start core Docker services
         env:
-          COMPOSE_BAKE: "true"
+          TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
           TRACECAT__EXECUTOR_BACKEND: "direct"
           TRACECAT__FEATURE_FLAGS: ""
           # Keep sandboxed registry sync enabled (run on executor via Temporal)
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
         run: |
-          docker compose -f docker-compose.local.yml up -d temporal api worker executor postgres_db caddy minio redis
+          set -euo pipefail
+
+          compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
+          image="tracecat-ci:${TRACECAT__CI_IMAGE_TAG}"
+
+          # Overlap host dependency setup with the Docker image build and service startup.
+          uv sync --locked --group dev &
+          uv_sync_pid=$!
+          cleanup_uv_sync() {
+            if kill -0 "$uv_sync_pid" 2>/dev/null; then
+              kill "$uv_sync_pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup_uv_sync EXIT
+
+          docker buildx build --load --target production -t "$image" .
+          docker compose "${compose_files[@]}" up --no-build -d temporal api worker executor postgres_db caddy minio redis
 
           # Wait for services with health checks to become healthy
           echo "Waiting for services to become healthy..."
@@ -141,7 +161,7 @@ jobs:
               # A service is ready when Health is exactly "healthy" (not empty, null, or starting)
               # Note: docker compose ps --format json outputs JSON Lines (one object per line),
               # so we use jq -s to slurp them into an array first
-              statuses=$(docker compose -f docker-compose.local.yml ps --format json | jq -s -r ".[] | select(.Health != null and .Health != \"\") | .Health")
+              statuses=$(docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml ps --format json | jq -s -r ".[] | select(.Health != null and .Health != \"\") | .Health")
 
               # Count healthy vs total services with health checks
               total=$(echo "$statuses" | grep -c . || true)
@@ -161,12 +181,16 @@ jobs:
           '
 
           # Show final service status
-          docker compose -f docker-compose.local.yml ps
+          docker compose "${compose_files[@]}" ps
 
           # Verify postgres is accessible from host (core-db network is not internal)
           echo "Verifying PostgreSQL is accessible from host..."
           timeout 30 bash -c 'until pg_isready -h localhost -p 5432 -U postgres; do sleep 1; done'
           echo "PostgreSQL is ready"
+
+          echo "Waiting for Python environment sync..."
+          wait "$uv_sync_pid"
+          trap - EXIT
 
       - name: Run integration tests
         env:
@@ -181,36 +205,40 @@ jobs:
           # Skip pool integration tests for now.
           # Worker-specific task queues in conftest.py ensure isolation
           # faulthandler_timeout=300: dump thread state after 5min for extra debugging
-          uv run pytest tests/integration --ignore=tests/integration/test_pool_integration.py -m "not live_secret" -n auto -ra -v -o faulthandler_timeout=300
+          uv run --no-sync pytest tests/integration --ignore=tests/integration/test_pool_integration.py -m "not live_secret" -n auto -ra -v -o faulthandler_timeout=300
 
       - name: Show Docker logs on failure
         if: failure()
+        env:
+          TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           echo "=== Docker Service Status ==="
-          docker compose -f docker-compose.local.yml ps
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml ps
 
           echo "=== API Logs ==="
-          docker compose -f docker-compose.local.yml logs api --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs api --tail=200
 
           echo "=== Worker Logs ==="
-          docker compose -f docker-compose.local.yml logs worker --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs worker --tail=200
 
           echo "=== Executor Logs ==="
-          docker compose -f docker-compose.local.yml logs executor --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs executor --tail=200
 
           echo "=== Temporal Logs ==="
-          docker compose -f docker-compose.local.yml logs temporal --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs temporal --tail=200
 
           echo "=== Redis Logs ==="
-          docker compose -f docker-compose.local.yml logs redis --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs redis --tail=200
 
           echo "=== MinIO Logs ==="
-          docker compose -f docker-compose.local.yml logs minio --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs minio --tail=200
 
           echo "=== PostgreSQL Logs ==="
-          docker compose -f docker-compose.local.yml logs postgres_db --tail=200
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml logs postgres_db --tail=200
 
       - name: Clean up
         if: always()
+        env:
+          TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          docker compose -f docker-compose.local.yml down -v
+          docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml down -v
