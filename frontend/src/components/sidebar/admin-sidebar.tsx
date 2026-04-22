@@ -1,20 +1,20 @@
 "use client"
 
-import Cookies from "js-cookie"
 import {
   BookOpenIcon,
   BuildingIcon,
   ChevronLeftIcon,
   LayersIcon,
+  LogOutIcon,
   UsersIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
-import { useEffect } from "react"
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -27,21 +27,20 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { useAuthActions } from "@/hooks/use-auth"
 import { useAppInfo } from "@/lib/hooks"
 
 export function AdminSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
+  const { logout } = useAuthActions()
   const { appInfo } = useAppInfo()
   const multiTenantEnabled = appInfo?.ee_multi_tenant ?? true
 
-  useEffect(() => {
-    if (!multiTenantEnabled) {
-      Cookies.remove("tracecat-org-id", { path: "/" })
-      Cookies.remove("__tracecat:workspaces:last-viewed", { path: "/" })
-    }
-  }, [multiTenantEnabled])
+  const handleLogout = async () => {
+    await logout()
+  }
 
   const navPlatform = [
     ...(multiTenantEnabled
@@ -92,9 +91,9 @@ export function AdminSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
-              <Link href="/workspaces" className="text-muted-foreground">
+              <Link href="/admin" className="text-muted-foreground">
                 <ChevronLeftIcon />
-                <span>Exit admin console</span>
+                <span>Admin console</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -140,6 +139,16 @@ export function AdminSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={handleLogout} tooltip="Logout">
+              <LogOutIcon />
+              <span>Logout</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   )

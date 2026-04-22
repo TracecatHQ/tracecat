@@ -5,12 +5,14 @@ import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import cast as type_cast
 
 from sqlalchemy import and_, cast, func, select, update
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager, selectinload
+from sqlalchemy.orm import Mapped, contains_eager, selectinload
 
+from tracecat import config
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
@@ -90,6 +92,10 @@ async def accept_invitation_for_user(
     user = user_result.scalar_one_or_none()
     if user is None:
         raise TracecatAuthorizationError("User not found")
+    if config.TRACECAT__EE_MULTI_TENANT and user.is_superuser:
+        raise TracecatAuthorizationError(
+            "Platform superusers cannot accept organization invitations"
+        )
 
     # Verify email match (case-insensitive)
     if user.email.lower() != invitation.email.lower():
@@ -445,6 +451,18 @@ class OrgService(BaseOrgService):
                     "Only organization owners can create owner invitations"
                 )
 
+        if config.TRACECAT__EE_MULTI_TENANT:
+            existing_superuser = await self.session.scalar(
+                select(User).where(
+                    func.lower(User.email) == email.lower(),
+                    type_cast(Mapped[bool], User.is_superuser).is_(True),
+                )
+            )
+            if existing_superuser is not None:
+                raise TracecatValidationError(
+                    "Invitation cannot be created for this email"
+                )
+
         # Check if user with this email is already a member (case-insensitive)
         existing_member_stmt = (
             select(OrganizationMembership)
@@ -489,6 +507,7 @@ class OrgService(BaseOrgService):
             token=secrets.token_urlsafe(32),
             expires_at=datetime.now(UTC) + timedelta(days=7),
             status=InvitationStatus.PENDING,
+            created_by_platform_admin=self.role.is_platform_superuser,
         )
         self.session.add(invitation)
         await self.session.commit()
@@ -605,6 +624,10 @@ class OrgService(BaseOrgService):
         user = user_result.scalar_one_or_none()
         if user is None:
             raise TracecatAuthorizationError("User not found")
+        if config.TRACECAT__EE_MULTI_TENANT and user.is_superuser:
+            raise TracecatAuthorizationError(
+                "Platform superusers cannot accept organization invitations"
+            )
         if user.email.lower() != invitation.email.lower():
             raise TracecatAuthorizationError(
                 "This invitation was sent to a different email address"
