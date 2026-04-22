@@ -1,0 +1,10 @@
+id: claude.sandbox_config.approved
+revision: "1"
+title: Claude Sandbox Config Must Be Approved
+description: Claude sandbox settings must match the approved local configuration.
+harness: claude_code
+asset_class: sandbox
+asset_type: sandbox_config
+severity: high
+check: sandbox_config_approved
+action: reconcile_sandbox_config

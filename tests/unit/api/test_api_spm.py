@@ -9,21 +9,26 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 from tracecat_ee.spm.schemas import (
+    SpmControlRead,
     SpmEndpointCreateResponse,
     SpmEndpointRead,
     SpmEndpointSyncResponse,
     SpmEnforcementTaskRead,
 )
 from tracecat_ee.spm.types import (
+    SpmAssetClass,
+    SpmAssetType,
+    SpmControlCheck,
     SpmEndpointPlatform,
     SpmEndpointStatus,
     SpmEnforcementAction,
     SpmEnforcementTaskStatus,
     SpmHarness,
+    SpmSeverity,
 )
 
 from tracecat.auth.types import Role
-from tracecat.exceptions import EntitlementRequired
+from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
 
 spm_router_module = importlib.import_module("tracecat_ee.spm.router")
@@ -49,6 +54,21 @@ def _endpoint_read() -> SpmEndpointRead:
         last_sync_error=None,
         created_at=now,
         updated_at=now,
+    )
+
+
+def _control_read() -> SpmControlRead:
+    return SpmControlRead(
+        id="claude.mcp_server.approved",
+        revision="1",
+        title="Claude MCP Server Must Be Approved",
+        description="MCP servers configured for Claude must match an approved server-name plus resolved-identity tuple.",
+        harness=SpmHarness.CLAUDE_CODE,
+        asset_class=SpmAssetClass.MCP_SERVER,
+        asset_type=SpmAssetType.MCP_SERVER,
+        severity=SpmSeverity.HIGH,
+        check=SpmControlCheck.MCP_SERVER_APPROVED,
+        action=SpmEnforcementAction.DISABLE_MCP_SERVER,
     )
 
 
@@ -89,6 +109,77 @@ async def test_list_spm_endpoints_requires_spm_entitlement(
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
     mock_check_entitlement.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_list_spm_controls_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(
+            spm_router_module,
+            "check_entitlement",
+            new_callable=AsyncMock,
+        ),
+        patch.object(spm_router_module, "SpmService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.list_controls.return_value = [_control_read()]
+        mock_service_cls.return_value = mock_service
+
+        response = client.get("/spm/controls")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()[0]["id"] == "claude.mcp_server.approved"
+
+
+@pytest.mark.anyio
+async def test_get_spm_control_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(
+            spm_router_module,
+            "check_entitlement",
+            new_callable=AsyncMock,
+        ),
+        patch.object(spm_router_module, "SpmService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_control.return_value = _control_read()
+        mock_service_cls.return_value = mock_service
+
+        response = client.get("/spm/controls/claude.mcp_server.approved")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["check"] == "mcp_server_approved"
+
+
+@pytest.mark.anyio
+async def test_get_spm_control_not_found(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(
+            spm_router_module,
+            "check_entitlement",
+            new_callable=AsyncMock,
+        ),
+        patch.object(spm_router_module, "SpmService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.get_control.side_effect = TracecatNotFoundError(
+            "SPM control not found: missing"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.get("/spm/controls/missing")
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "SPM control not found: missing"
 
 
 @pytest.mark.anyio

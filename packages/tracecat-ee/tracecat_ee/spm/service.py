@@ -30,8 +30,10 @@ from tracecat.pagination import (
 from tracecat.service import BaseOrgService
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
+from tracecat_ee.spm.controls import get_control, get_control_catalog
 from tracecat_ee.spm.schemas import (
     SpmAssetRead,
+    SpmControlRead,
     SpmEndpointCreate,
     SpmEndpointCreateResponse,
     SpmEndpointRead,
@@ -87,6 +89,14 @@ class SpmService(BaseOrgService):
     """Org-scoped service for SPM operator APIs."""
 
     service_name = "spm"
+
+    async def list_controls(self) -> list[SpmControlRead]:
+        return list(get_control_catalog())
+
+    async def get_control(self, control_id: str) -> SpmControlRead:
+        if control := get_control(control_id):
+            return control
+        raise TracecatNotFoundError(f"SPM control not found: {control_id}")
 
     async def list_endpoints(
         self,

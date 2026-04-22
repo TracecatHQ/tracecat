@@ -605,12 +605,15 @@ import type {
   SpmCreateSpmFindingDecisionResponse,
   SpmGetSpmAssetData,
   SpmGetSpmAssetResponse,
+  SpmGetSpmControlData,
+  SpmGetSpmControlResponse,
   SpmGetSpmEndpointData,
   SpmGetSpmEndpointResponse,
   SpmGetSpmFindingData,
   SpmGetSpmFindingResponse,
   SpmListSpmAssetsData,
   SpmListSpmAssetsResponse,
+  SpmListSpmControlsResponse,
   SpmListSpmEndpointsData,
   SpmListSpmEndpointsResponse,
   SpmListSpmFindingsData,
@@ -5814,6 +5817,41 @@ export const approvalsSubmitApprovals = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Spm Controls
+ * @returns SpmControlRead Successful Response
+ * @throws ApiError
+ */
+export const spmListSpmControls =
+  (): CancelablePromise<SpmListSpmControlsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/spm/controls",
+    })
+  }
+
+/**
+ * Get Spm Control
+ * @param data The data for the request.
+ * @param data.controlId
+ * @returns SpmControlRead Successful Response
+ * @throws ApiError
+ */
+export const spmGetSpmControl = (
+  data: SpmGetSpmControlData
+): CancelablePromise<SpmGetSpmControlResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/spm/controls/{control_id}",
+    path: {
+      control_id: data.controlId,
+    },
     errors: {
       422: "Validation Error",
     },

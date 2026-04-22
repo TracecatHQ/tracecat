@@ -1,0 +1,10 @@
+id: claude.hook.approved
+revision: "1"
+title: Claude Hook Must Be Approved
+description: Hooks configured for Claude must be approved before they remain enabled.
+harness: claude_code
+asset_class: extension
+asset_type: hook
+severity: high
+check: hook_approved
+action: disable_hook

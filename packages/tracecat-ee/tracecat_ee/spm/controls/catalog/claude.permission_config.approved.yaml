@@ -1,0 +1,10 @@
+id: claude.permission_config.approved
+revision: "1"
+title: Claude Permission Config Must Be Approved
+description: Claude permission settings must match the approved local configuration.
+harness: claude_code
+asset_class: permissions
+asset_type: permission_config
+severity: high
+check: permission_config_approved
+action: reconcile_permission_config

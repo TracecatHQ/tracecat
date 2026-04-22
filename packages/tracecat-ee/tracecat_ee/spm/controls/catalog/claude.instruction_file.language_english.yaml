@@ -1,0 +1,10 @@
+id: claude.instruction_file.language_english
+revision: "1"
+title: Claude Instruction File Must Be English
+description: Claude instruction files must remain English-language when the policy requires it.
+harness: claude_code
+asset_class: instruction_file
+asset_type: claude_md
+severity: medium
+check: instruction_file_language_english
+action: exclude_instruction_file

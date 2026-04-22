@@ -6222,6 +6222,39 @@ export type SpmAssetType =
   | "subagent"
 
 /**
+ * Registered SPM control evaluation keys.
+ */
+export type SpmControlCheck =
+  | "trusted_directory_approved"
+  | "additional_directory_approved"
+  | "permission_config_approved"
+  | "sandbox_config_approved"
+  | "mcp_server_approved"
+  | "mcp_server_vulnerability_ok"
+  | "mcp_server_reputation_ok"
+  | "skill_approved"
+  | "hook_approved"
+  | "instruction_file_language_english"
+  | "instruction_file_obfuscation_absent"
+  | "instruction_file_external_indicators_reputation_ok"
+
+/**
+ * Static SPM control manifest.
+ */
+export type SpmControlRead = {
+  id: string
+  revision: string
+  title: string
+  description: string
+  harness: SpmHarness
+  asset_class: SpmAssetClass
+  asset_type: SpmAssetType
+  severity: SpmSeverity
+  check: SpmControlCheck
+  action: SpmEnforcementAction
+}
+
+/**
  * Operator request to create an endpoint enrollment.
  */
 export type SpmEndpointCreate = {
@@ -10330,6 +10363,14 @@ export type ApprovalsSubmitApprovalsData = {
 }
 
 export type ApprovalsSubmitApprovalsResponse = void
+
+export type SpmListSpmControlsResponse = Array<SpmControlRead>
+
+export type SpmGetSpmControlData = {
+  controlId: string
+}
+
+export type SpmGetSpmControlResponse = SpmControlRead
 
 export type SpmListSpmEndpointsData = {
   cursor?: string | null
@@ -14839,6 +14880,31 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/spm/controls": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<SpmControlRead>
+      }
+    }
+  }
+  "/spm/controls/{control_id}": {
+    get: {
+      req: SpmGetSpmControlData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SpmControlRead
         /**
          * Validation Error
          */

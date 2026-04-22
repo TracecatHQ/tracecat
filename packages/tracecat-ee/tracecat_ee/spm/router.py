@@ -17,6 +17,7 @@ from tracecat.tiers.enums import Entitlement
 from tracecat_ee.spm.schemas import (
     SpmAssetListResponse,
     SpmAssetRead,
+    SpmControlRead,
     SpmEndpointCreate,
     SpmEndpointCreateResponse,
     SpmEndpointListResponse,
@@ -64,6 +65,42 @@ def _parse_bearer_token(authorization: str | None) -> str:
             detail="Invalid Authorization header",
         )
     return token
+
+
+@router.get(
+    "/controls",
+    response_model=list[SpmControlRead],
+    dependencies=[Depends(_require_spm_entitlement)],
+)
+@require_scope("org:read")
+async def list_spm_controls(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+) -> list[SpmControlRead]:
+    service = SpmService(session, role=role)
+    return await service.list_controls()
+
+
+@router.get(
+    "/controls/{control_id}",
+    response_model=SpmControlRead,
+    dependencies=[Depends(_require_spm_entitlement)],
+)
+@require_scope("org:read")
+async def get_spm_control(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    control_id: str,
+) -> SpmControlRead:
+    service = SpmService(session, role=role)
+    try:
+        return await service.get_control(control_id)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
 
 
 @router.get(

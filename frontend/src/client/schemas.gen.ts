@@ -20286,6 +20286,80 @@ export const $SpmAssetType = {
   description: "Harness-native governed surfaces.",
 } as const
 
+export const $SpmControlCheck = {
+  type: "string",
+  enum: [
+    "trusted_directory_approved",
+    "additional_directory_approved",
+    "permission_config_approved",
+    "sandbox_config_approved",
+    "mcp_server_approved",
+    "mcp_server_vulnerability_ok",
+    "mcp_server_reputation_ok",
+    "skill_approved",
+    "hook_approved",
+    "instruction_file_language_english",
+    "instruction_file_obfuscation_absent",
+    "instruction_file_external_indicators_reputation_ok",
+  ],
+  title: "SpmControlCheck",
+  description: "Registered SPM control evaluation keys.",
+} as const
+
+export const $SpmControlRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    revision: {
+      type: "string",
+      title: "Revision",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    harness: {
+      $ref: "#/components/schemas/SpmHarness",
+    },
+    asset_class: {
+      $ref: "#/components/schemas/SpmAssetClass",
+    },
+    asset_type: {
+      $ref: "#/components/schemas/SpmAssetType",
+    },
+    severity: {
+      $ref: "#/components/schemas/SpmSeverity",
+    },
+    check: {
+      $ref: "#/components/schemas/SpmControlCheck",
+    },
+    action: {
+      $ref: "#/components/schemas/SpmEnforcementAction",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "revision",
+    "title",
+    "description",
+    "harness",
+    "asset_class",
+    "asset_type",
+    "severity",
+    "check",
+    "action",
+  ],
+  title: "SpmControlRead",
+  description: "Static SPM control manifest.",
+} as const
+
 export const $SpmEndpointCreate = {
   properties: {
     name: {

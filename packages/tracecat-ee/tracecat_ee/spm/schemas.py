@@ -13,6 +13,7 @@ from tracecat.pagination import CursorPaginatedResponse
 from tracecat_ee.spm.types import (
     SpmAssetClass,
     SpmAssetType,
+    SpmControlCheck,
     SpmEndpointPlatform,
     SpmEndpointStatus,
     SpmEnforcementAction,
@@ -23,6 +24,21 @@ from tracecat_ee.spm.types import (
     SpmSeverity,
     SpmSyncTaskResultStatus,
 )
+
+
+class SpmControlRead(Schema):
+    """Static SPM control manifest."""
+
+    id: str
+    revision: str
+    title: str
+    description: str
+    harness: SpmHarness
+    asset_class: SpmAssetClass
+    asset_type: SpmAssetType
+    severity: SpmSeverity
+    check: SpmControlCheck
+    action: SpmEnforcementAction
 
 
 class SpmEndpointRead(Schema):

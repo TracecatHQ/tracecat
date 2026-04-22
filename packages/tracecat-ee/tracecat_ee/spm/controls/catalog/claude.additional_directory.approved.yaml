@@ -1,0 +1,10 @@
+id: claude.additional_directory.approved
+revision: "1"
+title: Claude Additional Directory Must Be Approved
+description: Additional directories configured for Claude must be approved before they remain enabled.
+harness: claude_code
+asset_class: workspace_access
+asset_type: additional_directory
+severity: medium
+check: additional_directory_approved
+action: revoke_additional_directory

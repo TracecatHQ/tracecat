@@ -63,6 +63,25 @@ class SpmSeverity(StrEnum):
     CRITICAL = "critical"
 
 
+class SpmControlCheck(StrEnum):
+    """Registered SPM control evaluation keys."""
+
+    TRUSTED_DIRECTORY_APPROVED = "trusted_directory_approved"
+    ADDITIONAL_DIRECTORY_APPROVED = "additional_directory_approved"
+    PERMISSION_CONFIG_APPROVED = "permission_config_approved"
+    SANDBOX_CONFIG_APPROVED = "sandbox_config_approved"
+    MCP_SERVER_APPROVED = "mcp_server_approved"
+    MCP_SERVER_VULNERABILITY_OK = "mcp_server_vulnerability_ok"
+    MCP_SERVER_REPUTATION_OK = "mcp_server_reputation_ok"
+    SKILL_APPROVED = "skill_approved"
+    HOOK_APPROVED = "hook_approved"
+    INSTRUCTION_FILE_LANGUAGE_ENGLISH = "instruction_file_language_english"
+    INSTRUCTION_FILE_OBFUSCATION_ABSENT = "instruction_file_obfuscation_absent"
+    INSTRUCTION_FILE_EXTERNAL_INDICATORS_REPUTATION_OK = (
+        "instruction_file_external_indicators_reputation_ok"
+    )
+
+
 class SpmFindingStatus(StrEnum):
     """Current lifecycle state of a finding."""
 
