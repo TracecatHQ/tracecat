@@ -1,7 +1,7 @@
 """add service account tables
 
 Revision ID: 548aa7691799
-Revises: 0c9a39e54e2f
+Revises: b8f7a2c4d9e1
 Create Date: 2026-03-11 17:38:27.533527
 
 """
@@ -20,7 +20,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "548aa7691799"
-down_revision: str | None = "0c9a39e54e2f"
+down_revision: str | None = "b8f7a2c4d9e1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
