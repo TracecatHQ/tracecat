@@ -308,8 +308,16 @@ def enable_service_account_child_table_rls(table: str) -> str:
                       )
                 )
     """
+def _agent_catalog_platform_read_policy() -> str:
+    return f"{policy_name('agent_catalog')}_platform_read"
+
 
 def enable_agent_catalog_table_rls() -> str:
+    # Split policy so platform rows (organization_id IS NULL) are readable by
+    # every org but cannot be written or deleted by an org-scoped session.
+    # Writes/deletes are gated by the FOR ALL policy, which only matches
+    # rows owned by the current org; platform-row read access is granted
+    # additively via a FOR SELECT policy (permissive policies OR together).
     return f"""
         ALTER TABLE "agent_catalog" ENABLE ROW LEVEL SECURITY;
 
@@ -317,12 +325,17 @@ def enable_agent_catalog_table_rls() -> str:
             FOR ALL
             USING (
                 current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
-                OR organization_id IS NULL
                 OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
             )
             WITH CHECK (
                 current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
                 OR organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            );
+
+        CREATE POLICY {_agent_catalog_platform_read_policy()} ON "agent_catalog"
+            FOR SELECT
+            USING (
+                organization_id IS NULL
             );
     """
 
@@ -335,6 +348,7 @@ def disable_service_account_child_table_rls(table: str) -> str:
 
 def disable_agent_catalog_table_rls() -> str:
     return f"""
+        DROP POLICY IF EXISTS {_agent_catalog_platform_read_policy()} ON "agent_catalog";
         DROP POLICY IF EXISTS {policy_name("agent_catalog")} ON "agent_catalog";
         ALTER TABLE "agent_catalog" DISABLE ROW LEVEL SECURITY;
     """
