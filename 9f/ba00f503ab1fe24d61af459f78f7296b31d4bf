@@ -1,0 +1,25 @@
+tracecat/workflow/graph/router.py
+  f12c66eb84e9f062 11,48
+tests/unit/api/test_api_workflow_graph.py
+  f12c66eb84e9f062 11,114-135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "9fba00f503ab1fe24d61af459f78f7296b31d4bf",
+  "prompts": {
+    "f12c66eb84e9f062": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db5dc-e113-7b32-8873-7afbd1169814",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 27,
+      "total_deletions": 0,
+      "accepted_lines": 27,
+      "overriden_lines": 0
+    }
+  }
+}
