@@ -338,6 +338,69 @@ async def test_workspace_service_account_key_rejects_mismatched_workspace_target
 
 
 @pytest.mark.anyio
+async def test_workspace_service_account_key_rejects_bound_workspace_outside_org(
+    session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization = Organization(
+        name="Service account org", slug="sa-org", is_active=True
+    )
+    other_organization = Organization(
+        name="Workspace owner org",
+        slug="workspace-owner-org",
+        is_active=True,
+    )
+    session.add_all([organization, other_organization])
+    await session.flush()
+    bound_workspace = Workspace(
+        name="Cross-org bound workspace",
+        organization_id=other_organization.id,
+    )
+    session.add(bound_workspace)
+    await session.flush()
+
+    await seed_system_scopes(session)
+    scopes = await _get_scopes(session, "workspace:read")
+    generated = generate_managed_api_key(prefix="tc_ws_sk_")
+    service_account = ServiceAccount(
+        organization_id=organization.id,
+        workspace_id=bound_workspace.id,
+        name="Cross-org bound automation",
+        scopes=scopes,
+    )
+    session.add(service_account)
+    await session.flush()
+    session.add(
+        ServiceAccountApiKey(
+            service_account_id=service_account.id,
+            name="Primary",
+            key_id=generated.key_id,
+            hashed=generated.hashed,
+            salt=generated.salt_b64,
+            preview=generated.preview(),
+        )
+    )
+    await session.commit()
+
+    @asynccontextmanager
+    async def _session_cm():
+        yield session
+
+    monkeypatch.setattr(
+        "tracecat.auth.credentials.get_async_session_bypass_rls_context_manager",
+        _session_cm,
+    )
+
+    with pytest.raises(HTTPException, match="Forbidden") as exc_info:
+        await _authenticate_api_key(
+            api_key=generated.raw,
+            workspace_id=None,
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.anyio
 async def test_workspace_service_account_key_can_bind_workspace_for_actor_org_route(
     session,
     monkeypatch: pytest.MonkeyPatch,

@@ -387,6 +387,13 @@ async def _authenticate_api_key(
         else:
             if parsed.prefix != WORKSPACE_API_KEY_PREFIX:
                 raise CREDENTIALS_EXCEPTION
+            workspace_org_id = await _get_workspace_org_id(bound_workspace_id)
+            if workspace_org_id is None:
+                raise CREDENTIALS_EXCEPTION
+            if workspace_org_id != service_account.organization_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                )
             if workspace_id is not None and bound_workspace_id != workspace_id:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
