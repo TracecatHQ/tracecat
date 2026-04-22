@@ -3,6 +3,7 @@
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import HomePage from "@/app/page"
 import SignInPage from "@/app/sign-in/[[...sign-in]]/page"
 import { authDiscoverAuthMethod } from "@/client"
 import { SignIn } from "@/components/auth/sign-in"
@@ -258,6 +259,19 @@ describe("Auth UI matrix", () => {
       expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces")
     })
     expect(mockRouterReplace).not.toHaveBeenCalledWith("/admin")
+  })
+
+  it("defaults unknown tenancy to workspaces for authenticated superusers on home", async () => {
+    mockUser = { email: "admin@example.com", isSuperuser: true }
+    mockAppInfo = undefined
+    mockAppInfoError = new Error("Unable to fetch app info")
+
+    render(<HomePage />)
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith("/workspaces")
+    })
+    expect(mockRouterPush).not.toHaveBeenCalledWith("/admin")
   })
 
   it.each([

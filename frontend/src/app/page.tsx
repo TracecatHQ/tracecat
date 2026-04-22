@@ -30,7 +30,7 @@ export default function HomePage() {
     router.push(
       getPostAuthRedirectPath({
         isSuperuser: user.isSuperuser,
-        eeMultiTenant: appInfo?.ee_multi_tenant ?? true,
+        eeMultiTenant: appInfo?.ee_multi_tenant ?? false,
       })
     )
   }, [appInfo?.ee_multi_tenant, appInfoIsLoading, user, router, userIsLoading])
