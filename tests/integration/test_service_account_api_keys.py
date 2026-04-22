@@ -96,6 +96,26 @@ async def _api_key_last_used_at(api_key_id: str) -> str | None:
     return last_used_at.isoformat() if last_used_at is not None else None
 
 
+async def _request_with_service_account_key(
+    method: str,
+    path: str,
+    *,
+    raw_key: str,
+    params: dict[str, Any] | None = None,
+) -> httpx.Response:
+    token = ctx_role.set(None)
+    try:
+        async with _api_client() as client:
+            return await client.request(
+                method,
+                path,
+                params=params,
+                headers={API_KEY_HEADER_NAME: raw_key},
+            )
+    finally:
+        ctx_role.reset(token)
+
+
 def _management_role(
     *,
     organization_id: UUID,
@@ -215,5 +235,123 @@ async def test_service_account_key_created_over_http_authenticates_separate_clie
             )
 
         assert after_disable_response.status_code == status.HTTP_401_UNAUTHORIZED
+    finally:
+        await _delete_service_accounts(created_service_account_ids)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("kind", ["workspace", "organization"])
+async def test_service_account_rotation_and_revoke_invalidate_old_keys(
+    kind: str,
+    test_workspace: Workspace,
+) -> None:
+    organization_id = test_workspace.organization_id
+    workspace_id = test_workspace.id
+    created_service_account_ids: list[UUID] = []
+    allowed_request = (
+        "GET",
+        "/workflows",
+        {"workspace_id": str(workspace_id), "limit": 5},
+    )
+
+    if kind == "workspace":
+        role_dependency = _dependency_for_role(WorkspaceUserOnlyInPath)
+        create_path = f"/workspaces/{workspace_id}/service-accounts"
+        service_account_base_path = f"/workspaces/{workspace_id}/service-accounts"
+        role = _management_role(
+            organization_id=organization_id,
+            workspace_id=workspace_id,
+        )
+        expected_prefix = "tc_ws_sk_"
+    else:
+        role_dependency = _dependency_for_role(OrgUserOnlyRole)
+        create_path = "/organization/service-accounts"
+        service_account_base_path = "/organization/service-accounts"
+        role = _management_role(
+            organization_id=organization_id,
+            workspace_id=None,
+        )
+        expected_prefix = "tc_org_sk_"
+
+    try:
+        scope_ids = await _scope_ids_by_name(("workflow:read",))
+        overrides = {role_dependency: _role_override(role)}
+
+        with _dependency_overrides(overrides):
+            async with _api_client() as client:
+                create_response = await client.post(
+                    create_path,
+                    json={
+                        "name": f"{kind} rotation key",
+                        "scope_ids": [scope_ids["workflow:read"]],
+                        "initial_key_name": "Initial",
+                    },
+                )
+
+        assert create_response.status_code == status.HTTP_201_CREATED
+        create_payload = create_response.json()
+        original_raw_key = create_payload["issued_api_key"]["raw_key"]
+        assert original_raw_key.startswith(expected_prefix)
+        service_account_id = UUID(create_payload["service_account"]["id"])
+        created_service_account_ids.append(service_account_id)
+        original_api_key_id = create_payload["issued_api_key"]["api_key"]["id"]
+
+        method, path, params = allowed_request
+        original_key_response = await _request_with_service_account_key(
+            method,
+            path,
+            raw_key=original_raw_key,
+            params=params,
+        )
+        assert original_key_response.status_code == status.HTTP_200_OK
+
+        with _dependency_overrides(overrides):
+            async with _api_client() as client:
+                rotate_response = await client.post(
+                    f"{service_account_base_path}/{service_account_id}/api-keys",
+                    json={"name": "Rotated"},
+                )
+
+        assert rotate_response.status_code == status.HTTP_201_CREATED
+        rotate_payload = rotate_response.json()
+        rotated_raw_key = rotate_payload["issued_api_key"]["raw_key"]
+        assert rotated_raw_key.startswith(expected_prefix)
+        assert rotated_raw_key != original_raw_key
+        assert rotate_payload["issued_api_key"]["api_key"]["id"] != original_api_key_id
+
+        old_key_after_rotation_response = await _request_with_service_account_key(
+            method,
+            path,
+            raw_key=original_raw_key,
+            params=params,
+        )
+        assert (
+            old_key_after_rotation_response.status_code == status.HTTP_401_UNAUTHORIZED
+        )
+
+        rotated_key_response = await _request_with_service_account_key(
+            method,
+            path,
+            raw_key=rotated_raw_key,
+            params=params,
+        )
+        assert rotated_key_response.status_code == status.HTTP_200_OK
+
+        rotated_api_key_id = rotate_payload["issued_api_key"]["api_key"]["id"]
+        with _dependency_overrides(overrides):
+            async with _api_client() as client:
+                revoke_response = await client.post(
+                    f"{service_account_base_path}/{service_account_id}/api-keys/{rotated_api_key_id}/revoke"
+                )
+
+        assert revoke_response.status_code == status.HTTP_204_NO_CONTENT
+
+        revoked_key_response = await _request_with_service_account_key(
+            method,
+            path,
+            raw_key=rotated_raw_key,
+            params=params,
+        )
+        assert revoked_key_response.status_code == status.HTTP_401_UNAUTHORIZED
     finally:
         await _delete_service_accounts(created_service_account_ids)

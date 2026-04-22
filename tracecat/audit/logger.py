@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import functools
+import inspect
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Concatenate, ParamSpec, TypeVar
 
 from tracecat.audit.enums import AuditEventStatus
@@ -51,6 +52,7 @@ def audit_log(
             if resource_id_attr is not None
             else _RESOURCE_ID_ATTR_MAP.get(resource_type, "id")
         )
+        signature = inspect.signature(func)
 
         @functools.wraps(func)
         async def wrapper(self: Any, *args: P.args, **kwargs: P.kwargs) -> R:
@@ -61,10 +63,22 @@ def audit_log(
 
             # Get existing session. Currently only BaseService has a session.
             session = self.session if isinstance(self, BaseService) else None
+            bound_arguments: Mapping[str, Any] = {}
+            try:
+                bound_arguments = signature.bind_partial(
+                    self, *args, **kwargs
+                ).arguments
+            except TypeError as exc:
+                logger.warning("Audit argument binding failed", error=str(exc))
+
             resource_id: uuid.UUID | None = None
             try:
                 resource_id = _extract_resource_id(
-                    args, kwargs, None, resolved_resource_id_attr
+                    args,
+                    kwargs,
+                    None,
+                    resolved_resource_id_attr,
+                    bound_arguments=bound_arguments,
                 )
             except Exception as exc:
                 logger.warning("Audit resource_id extraction failed", error=str(exc))
@@ -89,7 +103,11 @@ def audit_log(
                 # Log success
                 try:
                     resource_id = _extract_resource_id(
-                        args, kwargs, result, resolved_resource_id_attr
+                        args,
+                        kwargs,
+                        result,
+                        resolved_resource_id_attr,
+                        bound_arguments=bound_arguments,
                     )
                     async with AuditService.with_session(role, session=session) as svc:
                         await svc.create_event(
@@ -125,13 +143,16 @@ def _extract_resource_id(
     kwargs: dict[str, Any],
     result: Any | None,
     attr: str,
+    *,
+    bound_arguments: Mapping[str, Any] | None = None,
 ) -> uuid.UUID | None:
     """Heuristic to find a resource id.
 
     Priority:
     1) return value `attr` if present
     2) first arg with `attr`
-    3) kwargs value for `attr`
+    3) bound function argument named `attr`
+    4) kwargs value for `attr`
     """
 
     raw: Any | None = None
@@ -143,6 +164,8 @@ def _extract_resource_id(
             if hasattr(arg, attr):
                 raw = getattr(arg, attr)
                 break
+        if raw is None and bound_arguments is not None:
+            raw = bound_arguments.get(attr)
         if raw is None and attr in kwargs:
             raw = kwargs.get(attr)
 

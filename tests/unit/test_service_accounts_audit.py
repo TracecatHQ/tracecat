@@ -18,6 +18,10 @@ from tracecat.service_accounts.service import (
     WorkspaceServiceAccountService,
 )
 
+type ServiceAccountServiceClass = (
+    type[OrganizationServiceAccountService] | type[WorkspaceServiceAccountService]
+)
+
 
 def test_issued_service_account_api_key_result_exposes_api_key_id() -> None:
     service_account = cast(ServiceAccount, SimpleNamespace(id=uuid4()))
@@ -101,3 +105,132 @@ async def test_create_service_account_audit_logs_created_service_account_id(
         if call["status"] == AuditEventStatus.SUCCESS
     )
     assert success_call["resource_id"] == service_account_id
+
+
+def _role_with_scope(scope: str) -> Role:
+    return Role(
+        type="user",
+        user_id=uuid4(),
+        organization_id=uuid4(),
+        workspace_id=uuid4(),
+        service_id="tracecat-api",
+        scopes=frozenset({scope}),
+    )
+
+
+def _has_audit_call(
+    calls: list[dict[str, object]],
+    *,
+    resource_type: str,
+    action: str,
+    resource_id: object,
+    status: AuditEventStatus,
+) -> bool:
+    return any(
+        call["resource_type"] == resource_type
+        and call["action"] == action
+        and call["resource_id"] == resource_id
+        and call["status"] == status
+        for call in calls
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("service_cls", "scope"),
+    [
+        (OrganizationServiceAccountService, "org:service_account:update"),
+        (WorkspaceServiceAccountService, "workspace:service_account:update"),
+    ],
+)
+async def test_api_key_issue_and_revoke_audit_logs_api_key_id(
+    service_cls: ServiceAccountServiceClass,
+    scope: str,
+) -> None:
+    service_account_id = uuid4()
+    api_key_id = uuid4()
+    service_account = cast(ServiceAccount, SimpleNamespace(id=service_account_id))
+    api_key = cast(ServiceAccountApiKey, SimpleNamespace(id=api_key_id))
+    result = IssuedServiceAccountApiKeyResult(
+        service_account=service_account,
+        api_key=api_key,
+        raw_key="tc_ws_sk_rotated",
+    )
+    role = _role_with_scope(scope)
+    service = service_cls(AsyncMock(), role=role)
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args: object, **kwargs: object) -> None:
+        create_event_calls.append(kwargs)
+
+    token = ctx_role.set(role)
+    try:
+        with (
+            patch.object(service, "_issue_api_key", new=AsyncMock(return_value=result)),
+            patch.object(service, "_revoke_api_key", new=AsyncMock()),
+            patch.object(AuditService, "create_event", side_effect=mock_create_event),
+        ):
+            await service.issue_api_key(service_account_id, name="Rotated")
+            await service.revoke_api_key(service_account_id, api_key_id)
+    finally:
+        ctx_role.reset(token)
+
+    assert _has_audit_call(
+        create_event_calls,
+        resource_type="service_account_api_key",
+        action="create",
+        resource_id=api_key_id,
+        status=AuditEventStatus.SUCCESS,
+    )
+    assert _has_audit_call(
+        create_event_calls,
+        resource_type="service_account_api_key",
+        action="revoke",
+        resource_id=api_key_id,
+        status=AuditEventStatus.SUCCESS,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("service_cls", "scope"),
+    [
+        (OrganizationServiceAccountService, "org:service_account:disable"),
+        (WorkspaceServiceAccountService, "workspace:service_account:disable"),
+    ],
+)
+async def test_disable_and_enable_service_account_audit_logs_service_account_id(
+    service_cls: ServiceAccountServiceClass,
+    scope: str,
+) -> None:
+    service_account_id = uuid4()
+    role = _role_with_scope(scope)
+    service = service_cls(AsyncMock(), role=role)
+    set_disabled = AsyncMock()
+    create_event_calls: list[dict[str, object]] = []
+
+    async def mock_create_event(*args: object, **kwargs: object) -> None:
+        create_event_calls.append(kwargs)
+
+    token = ctx_role.set(role)
+    try:
+        with (
+            patch.object(service, "_set_service_account_disabled", new=set_disabled),
+            patch.object(AuditService, "create_event", side_effect=mock_create_event),
+        ):
+            await service.disable_service_account(service_account_id)
+            await service.enable_service_account(service_account_id)
+    finally:
+        ctx_role.reset(token)
+
+    set_disabled.assert_any_await(service_account_id, disabled=True)
+    set_disabled.assert_any_await(service_account_id, disabled=False)
+    update_success_calls = [
+        call
+        for call in create_event_calls
+        if call["resource_type"] == "service_account"
+        and call["action"] == "update"
+        and call["resource_id"] == service_account_id
+        and call["status"] == AuditEventStatus.SUCCESS
+    ]
+    assert len(update_success_calls) == 2

@@ -396,9 +396,14 @@ class BaseServiceAccountService:
         )
 
     async def get_service_account(
-        self, service_account_id: uuid.UUID
+        self,
+        service_account_id: uuid.UUID,
+        *,
+        populate_existing: bool = False,
     ) -> ServiceAccount:
         stmt = self._service_account_stmt(service_account_id)
+        if populate_existing:
+            stmt = stmt.execution_options(populate_existing=True)
         result = await self.session.execute(stmt)
         if (service_account := result.scalar_one_or_none()) is None:
             raise TracecatNotFoundError(self.not_found_message)
@@ -412,6 +417,7 @@ class BaseServiceAccountService:
     ) -> tuple[ServiceAccountApiKey, str]:
         generated = generate_managed_api_key(prefix=self.key_prefix)
         api_key = ServiceAccountApiKey(
+            id=uuid.uuid4(),
             service_account_id=service_account.id,
             name=name,
             key_id=generated.key_id,
@@ -454,12 +460,16 @@ class BaseServiceAccountService:
             service_account=service_account,
             name=initial_key_name,
         )
+        created_api_key_id = created_api_key.id
         await self.session.commit()
-        refreshed_service_account = await self.get_service_account(service_account.id)
+        refreshed_service_account = await self.get_service_account(
+            service_account.id,
+            populate_existing=True,
+        )
         issued_api_key = next(
             key
             for key in refreshed_service_account.api_keys
-            if key.id == created_api_key.id
+            if key.id == created_api_key_id
         )
         return IssuedServiceAccountApiKeyResult(
             service_account=refreshed_service_account,
@@ -548,12 +558,17 @@ class BaseServiceAccountService:
         created_api_key, raw_key = await self._create_api_key(
             service_account=service_account, name=name
         )
+        created_api_key_id = created_api_key.id
+        refreshed_service_account_id = service_account.id
         await self.session.commit()
-        refreshed_service_account = await self.get_service_account(service_account.id)
+        refreshed_service_account = await self.get_service_account(
+            refreshed_service_account_id,
+            populate_existing=True,
+        )
         issued_api_key = next(
             key
             for key in refreshed_service_account.api_keys
-            if key.id == created_api_key.id
+            if key.id == created_api_key_id
         )
         return IssuedServiceAccountApiKeyResult(
             service_account=refreshed_service_account,
