@@ -21,6 +21,16 @@ describe("getPostAuthRedirectPath", () => {
     ).toBe("/oauth/mcp/continue?txn=abc123")
   })
 
+  it("rewrites legacy MCP OAuth org-selection paths", () => {
+    expect(
+      getPostAuthRedirectPath({
+        isSuperuser: true,
+        eeMultiTenant: true,
+        returnUrl: "/oauth/mcp/select-org?txn=abc123",
+      })
+    ).toBe("/oauth/mcp/continue?txn=abc123")
+  })
+
   it("does not treat similar MCP paths as continuation paths", () => {
     expect(
       getPostAuthRedirectPath({

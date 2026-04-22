@@ -6,22 +6,29 @@ type PostAuthRedirectPathParams = {
 
 const APP_URL_PLACEHOLDER = "https://tracecat.local"
 const MCP_AUTH_CONTINUE_PATH = "/oauth/mcp/continue"
+const MCP_AUTH_LEGACY_SELECT_ORG_PATH = "/oauth/mcp/select-org"
 
-function isMcpAuthContinuePath(
+function getMcpAuthReturnUrl(
   returnUrl: string | null | undefined
-): returnUrl is string {
+): string | null {
   if (!returnUrl) {
-    return false
+    return null
   }
 
   try {
     const parsed = new URL(returnUrl, APP_URL_PLACEHOLDER)
-    return (
-      parsed.pathname === MCP_AUTH_CONTINUE_PATH &&
-      Boolean(parsed.searchParams.get("txn"))
-    )
+    if (!parsed.searchParams.get("txn")) {
+      return null
+    }
+    if (parsed.pathname === MCP_AUTH_CONTINUE_PATH) {
+      return returnUrl
+    }
+    if (parsed.pathname === MCP_AUTH_LEGACY_SELECT_ORG_PATH) {
+      return `${MCP_AUTH_CONTINUE_PATH}${parsed.search}${parsed.hash}`
+    }
+    return null
   } catch {
-    return false
+    return null
   }
 }
 
@@ -33,8 +40,9 @@ export function getPostAuthRedirectPath({
   eeMultiTenant,
   returnUrl,
 }: PostAuthRedirectPathParams): string {
-  if (isMcpAuthContinuePath(returnUrl)) {
-    return returnUrl
+  const mcpAuthReturnUrl = getMcpAuthReturnUrl(returnUrl)
+  if (mcpAuthReturnUrl) {
+    return mcpAuthReturnUrl
   }
   if (isSuperuser && eeMultiTenant) {
     return "/admin"
