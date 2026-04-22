@@ -8951,6 +8951,69 @@ export const $CursorPaginatedResponse_SpmAssetRead_ = {
   title: "CursorPaginatedResponse[SpmAssetRead]",
 } as const
 
+export const $CursorPaginatedResponse_SpmEndpointAssetRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SpmEndpointAssetRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SpmEndpointAssetRead]",
+} as const
+
 export const $CursorPaginatedResponse_SpmEndpointRead_ = {
   properties: {
     items: {
@@ -20358,6 +20421,112 @@ export const $SpmControlRead = {
   ],
   title: "SpmControlRead",
   description: "Static SPM control manifest.",
+} as const
+
+export const $SpmEndpointAssetRead = {
+  properties: {
+    asset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Asset Id",
+    },
+    asset_sighting_id: {
+      type: "string",
+      format: "uuid",
+      title: "Asset Sighting Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    endpoint_id: {
+      type: "string",
+      format: "uuid",
+      title: "Endpoint Id",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    harness: {
+      $ref: "#/components/schemas/SpmHarness",
+    },
+    asset_class: {
+      $ref: "#/components/schemas/SpmAssetClass",
+    },
+    asset_type: {
+      $ref: "#/components/schemas/SpmAssetType",
+    },
+    identity_key: {
+      type: "string",
+      title: "Identity Key",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    content_hash: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content Hash",
+    },
+    metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Metadata",
+    },
+    evidence: {
+      additionalProperties: true,
+      type: "object",
+      title: "Evidence",
+    },
+    observed_state: {
+      additionalProperties: true,
+      type: "object",
+      title: "Observed State",
+    },
+    first_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "First Seen At",
+    },
+    last_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "Last Seen At",
+    },
+  },
+  type: "object",
+  required: [
+    "asset_id",
+    "asset_sighting_id",
+    "organization_id",
+    "endpoint_id",
+    "harness",
+    "asset_class",
+    "asset_type",
+    "identity_key",
+    "display_name",
+    "first_seen_at",
+    "last_seen_at",
+  ],
+  title: "SpmEndpointAssetRead",
+  description: "Endpoint-scoped asset row with per-sighting state.",
 } as const
 
 export const $SpmEndpointCreate = {

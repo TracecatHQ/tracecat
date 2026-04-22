@@ -614,6 +614,8 @@ import type {
   SpmListSpmAssetsData,
   SpmListSpmAssetsResponse,
   SpmListSpmControlsResponse,
+  SpmListSpmEndpointAssetsData,
+  SpmListSpmEndpointAssetsResponse,
   SpmListSpmEndpointsData,
   SpmListSpmEndpointsResponse,
   SpmListSpmFindingsData,
@@ -5926,10 +5928,42 @@ export const spmGetSpmEndpoint = (
 }
 
 /**
+ * List Spm Endpoint Assets
+ * @param data The data for the request.
+ * @param data.endpointId
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_SpmEndpointAssetRead_ Successful Response
+ * @throws ApiError
+ */
+export const spmListSpmEndpointAssets = (
+  data: SpmListSpmEndpointAssetsData
+): CancelablePromise<SpmListSpmEndpointAssetsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/spm/endpoints/{endpoint_id}/assets",
+    path: {
+      endpoint_id: data.endpointId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Spm Assets
  * @param data The data for the request.
  * @param data.limit
  * @param data.cursor
+ * @param data.harness
+ * @param data.endpointId
+ * @param data.assetClass
+ * @param data.assetType
  * @returns CursorPaginatedResponse_SpmAssetRead_ Successful Response
  * @throws ApiError
  */
@@ -5942,6 +5976,10 @@ export const spmListSpmAssets = (
     query: {
       limit: data.limit,
       cursor: data.cursor,
+      harness: data.harness,
+      endpoint_id: data.endpointId,
+      asset_class: data.assetClass,
+      asset_type: data.assetType,
     },
     errors: {
       422: "Validation Error",
@@ -5976,6 +6014,8 @@ export const spmGetSpmAsset = (
  * @param data The data for the request.
  * @param data.limit
  * @param data.cursor
+ * @param data.endpointId
+ * @param data.controlId
  * @returns CursorPaginatedResponse_SpmFindingRead_ Successful Response
  * @throws ApiError
  */
@@ -5988,6 +6028,8 @@ export const spmListSpmFindings = (
     query: {
       limit: data.limit,
       cursor: data.cursor,
+      endpoint_id: data.endpointId,
+      control_id: data.controlId,
     },
     errors: {
       422: "Validation Error",

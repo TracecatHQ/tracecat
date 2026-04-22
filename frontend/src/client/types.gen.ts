@@ -2635,8 +2635,54 @@ export type CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_SpmEndpointAssetRead_ = {
+  items: Array<SpmEndpointAssetRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_ServiceAccountRead_ = {
   items: Array<ServiceAccountRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_SpmEndpointRead_ = {
   items: Array<SpmEndpointRead>
   /**
@@ -6252,6 +6298,34 @@ export type SpmControlRead = {
   severity: SpmSeverity
   check: SpmControlCheck
   action: SpmEnforcementAction
+}
+
+/**
+ * Endpoint-scoped asset row with per-sighting state.
+ */
+export type SpmEndpointAssetRead = {
+  asset_id: string
+  asset_sighting_id: string
+  organization_id: string
+  endpoint_id: string
+  workspace_id?: string | null
+  harness: SpmHarness
+  asset_class: SpmAssetClass
+  asset_type: SpmAssetType
+  identity_key: string
+  display_name: string
+  content_hash?: string | null
+  metadata?: {
+    [key: string]: unknown
+  }
+  evidence?: {
+    [key: string]: unknown
+  }
+  observed_state?: {
+    [key: string]: unknown
+  }
+  first_seen_at: string
+  last_seen_at: string
 }
 
 /**
@@ -10392,8 +10466,21 @@ export type SpmGetSpmEndpointData = {
 
 export type SpmGetSpmEndpointResponse = SpmEndpointRead
 
-export type SpmListSpmAssetsData = {
+export type SpmListSpmEndpointAssetsData = {
   cursor?: string | null
+  endpointId: string
+  limit?: number
+}
+
+export type SpmListSpmEndpointAssetsResponse =
+  CursorPaginatedResponse_SpmEndpointAssetRead_
+
+export type SpmListSpmAssetsData = {
+  assetClass?: SpmAssetClass | null
+  assetType?: SpmAssetType | null
+  cursor?: string | null
+  endpointId?: string | null
+  harness?: SpmHarness | null
   limit?: number
 }
 
@@ -10406,7 +10493,9 @@ export type SpmGetSpmAssetData = {
 export type SpmGetSpmAssetResponse = SpmAssetRead
 
 export type SpmListSpmFindingsData = {
+  controlId?: string | null
   cursor?: string | null
+  endpointId?: string | null
   limit?: number
 }
 
@@ -14948,6 +15037,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: SpmEndpointRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/spm/endpoints/{endpoint_id}/assets": {
+    get: {
+      req: SpmListSpmEndpointAssetsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SpmEndpointAssetRead_
         /**
          * Validation Error
          */

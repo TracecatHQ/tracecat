@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import Field
 
+from tracecat import config
 from tracecat.core.schemas import Schema
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat_ee.spm.types import (
@@ -104,6 +105,21 @@ class SpmAssetRead(Schema):
     updated_at: datetime
 
 
+class SpmAssetQueryParams(Schema):
+    """Filter params for deduplicated asset inventory."""
+
+    limit: int = Field(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    )
+    cursor: str | None = None
+    harness: SpmHarness | None = None
+    endpoint_id: uuid.UUID | None = None
+    asset_class: SpmAssetClass | None = None
+    asset_type: SpmAssetType | None = None
+
+
 class SpmAssetSightingRead(Schema):
     """Endpoint-scoped observation for an asset."""
 
@@ -119,6 +135,30 @@ class SpmAssetSightingRead(Schema):
     last_seen_at: datetime
     created_at: datetime
     updated_at: datetime
+
+
+class SpmEndpointAssetRead(Schema):
+    """Endpoint-scoped asset row with per-sighting state."""
+
+    asset_id: uuid.UUID
+    asset_sighting_id: uuid.UUID
+    organization_id: uuid.UUID
+    endpoint_id: uuid.UUID
+    workspace_id: uuid.UUID | None = None
+    harness: SpmHarness
+    asset_class: SpmAssetClass
+    asset_type: SpmAssetType
+    identity_key: str
+    display_name: str
+    content_hash: str | None = None
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        validation_alias="asset_metadata",
+    )
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    observed_state: dict[str, Any] = Field(default_factory=dict)
+    first_seen_at: datetime
+    last_seen_at: datetime
 
 
 class SpmFindingRead(Schema):
@@ -146,6 +186,19 @@ class SpmFindingRead(Schema):
     last_decision_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class SpmFindingQueryParams(Schema):
+    """Filter params for endpoint findings."""
+
+    limit: int = Field(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    )
+    cursor: str | None = None
+    endpoint_id: uuid.UUID | None = None
+    control_id: str | None = Field(default=None, max_length=255)
 
 
 class SpmFindingDecisionCreate(Schema):
@@ -244,4 +297,5 @@ class SpmEndpointSyncResponse(Schema):
 
 SpmEndpointListResponse = CursorPaginatedResponse[SpmEndpointRead]
 SpmAssetListResponse = CursorPaginatedResponse[SpmAssetRead]
+SpmEndpointAssetListResponse = CursorPaginatedResponse[SpmEndpointAssetRead]
 SpmFindingListResponse = CursorPaginatedResponse[SpmFindingRead]

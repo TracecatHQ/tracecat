@@ -2,18 +2,37 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  type SpmEndpointCreate,
-  type SpmFindingDecisionCreate,
+  type SpmCreateSpmEndpointData,
+  type SpmCreateSpmFindingDecisionData,
+  type SpmListSpmAssetsData,
+  type SpmListSpmFindingsData,
   spmCreateSpmEndpoint,
   spmCreateSpmFindingDecision,
   spmGetSpmEndpoint,
   spmListSpmAssets,
   spmListSpmControls,
+  spmListSpmEndpointAssets,
   spmListSpmEndpoints,
   spmListSpmFindings,
 } from "@/client"
 
 const SPM_REFRESH_MS = 10_000
+
+export interface UseSpmAssetsParams {
+  assetClass?: SpmListSpmAssetsData["assetClass"]
+  assetType?: SpmListSpmAssetsData["assetType"]
+  cursor?: SpmListSpmAssetsData["cursor"]
+  endpointId?: SpmListSpmAssetsData["endpointId"]
+  harness?: SpmListSpmAssetsData["harness"]
+  limit?: SpmListSpmAssetsData["limit"]
+}
+
+export interface UseSpmFindingsParams {
+  controlId?: SpmListSpmFindingsData["controlId"]
+  cursor?: SpmListSpmFindingsData["cursor"]
+  endpointId?: SpmListSpmFindingsData["endpointId"]
+  limit?: SpmListSpmFindingsData["limit"]
+}
 
 /**
  * Fetch the first page of SPM endpoints for the operator UI.
@@ -46,24 +65,69 @@ export function useSpmEndpoint(endpointId: string | null) {
 }
 
 /**
- * Fetch the first page of SPM findings.
+ * Fetch endpoint-scoped asset sightings.
  */
-export function useSpmFindings(limit = 100) {
+export function useSpmEndpointAssets(endpointId: string | null, limit = 100) {
   return useQuery({
-    queryKey: ["spm", "findings", { limit }],
-    queryFn: () => spmListSpmFindings({ limit }),
+    queryKey: ["spm", "endpoint-assets", endpointId, { limit }],
+    queryFn: () => {
+      if (!endpointId) {
+        throw new Error("Missing endpoint ID")
+      }
+      return spmListSpmEndpointAssets({ endpointId, limit })
+    },
+    enabled: Boolean(endpointId),
     refetchInterval: SPM_REFRESH_MS,
     staleTime: 2_000,
   })
 }
 
 /**
- * Fetch the first page of SPM assets.
+ * Fetch SPM findings with optional filters.
  */
-export function useSpmAssets(limit = 100) {
+export function useSpmFindings(params: UseSpmFindingsParams = {}) {
+  const { controlId, cursor, endpointId, limit = 100 } = params
   return useQuery({
-    queryKey: ["spm", "assets", { limit }],
-    queryFn: () => spmListSpmAssets({ limit }),
+    queryKey: ["spm", "findings", { controlId, cursor, endpointId, limit }],
+    queryFn: () =>
+      spmListSpmFindings({
+        controlId,
+        cursor,
+        endpointId,
+        limit,
+      }),
+    refetchInterval: SPM_REFRESH_MS,
+    staleTime: 2_000,
+  })
+}
+
+/**
+ * Fetch SPM assets with optional filters.
+ */
+export function useSpmAssets(params: UseSpmAssetsParams = {}) {
+  const {
+    assetClass,
+    assetType,
+    cursor,
+    endpointId,
+    harness,
+    limit = 100,
+  } = params
+  return useQuery({
+    queryKey: [
+      "spm",
+      "assets",
+      { assetClass, assetType, cursor, endpointId, harness, limit },
+    ],
+    queryFn: () =>
+      spmListSpmAssets({
+        assetClass,
+        assetType,
+        cursor,
+        endpointId,
+        harness,
+        limit,
+      }),
     refetchInterval: SPM_REFRESH_MS,
     staleTime: 2_000,
   })
@@ -91,20 +155,14 @@ export function useSpmActions() {
   }
 
   const createEndpoint = useMutation({
-    mutationFn: (requestBody: SpmEndpointCreate) =>
+    mutationFn: (requestBody: SpmCreateSpmEndpointData["requestBody"]) =>
       spmCreateSpmEndpoint({ requestBody }),
     onSuccess: invalidate,
   })
 
   const decideFinding = useMutation({
-    mutationFn: (params: {
-      findingId: string
-      requestBody: SpmFindingDecisionCreate
-    }) =>
-      spmCreateSpmFindingDecision({
-        findingId: params.findingId,
-        requestBody: params.requestBody,
-      }),
+    mutationFn: (params: SpmCreateSpmFindingDecisionData) =>
+      spmCreateSpmFindingDecision(params),
     onSuccess: invalidate,
   })
 

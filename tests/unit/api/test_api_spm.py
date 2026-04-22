@@ -9,11 +9,14 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 from tracecat_ee.spm.schemas import (
+    SpmAssetRead,
     SpmControlRead,
+    SpmEndpointAssetRead,
     SpmEndpointCreateResponse,
     SpmEndpointRead,
     SpmEndpointSyncResponse,
     SpmEnforcementTaskRead,
+    SpmFindingRead,
 )
 from tracecat_ee.spm.types import (
     SpmAssetClass,
@@ -23,6 +26,7 @@ from tracecat_ee.spm.types import (
     SpmEndpointStatus,
     SpmEnforcementAction,
     SpmEnforcementTaskStatus,
+    SpmFindingStatus,
     SpmHarness,
     SpmSeverity,
 )
@@ -57,6 +61,47 @@ def _endpoint_read() -> SpmEndpointRead:
     )
 
 
+def _asset_read() -> SpmAssetRead:
+    now = datetime(2026, 4, 22, tzinfo=UTC)
+    return SpmAssetRead(
+        id=uuid.UUID("dddddddd-dddd-4ddd-dddd-dddddddddddd"),
+        organization_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        harness=SpmHarness.CLAUDE_CODE,
+        asset_class=SpmAssetClass.MCP_SERVER,
+        asset_type=SpmAssetType.MCP_SERVER,
+        identity_key="file:/Users/chris/.claude.json#mcp:github|https://api.github.com/mcp",
+        display_name="github",
+        content_hash="abc123",
+        metadata={"file_path": "/Users/chris/.claude.json"},
+        first_seen_at=now,
+        last_seen_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _endpoint_asset_read() -> SpmEndpointAssetRead:
+    now = datetime(2026, 4, 22, tzinfo=UTC)
+    return SpmEndpointAssetRead(
+        asset_id=uuid.UUID("dddddddd-dddd-4ddd-dddd-dddddddddddd"),
+        asset_sighting_id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"),
+        organization_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        endpoint_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
+        workspace_id=None,
+        harness=SpmHarness.CLAUDE_CODE,
+        asset_class=SpmAssetClass.MCP_SERVER,
+        asset_type=SpmAssetType.MCP_SERVER,
+        identity_key="file:/Users/chris/.claude.json#mcp:github|https://api.github.com/mcp",
+        display_name="github",
+        content_hash="abc123",
+        metadata={"file_path": "/Users/chris/.claude.json"},
+        evidence={"config": {"url": "https://api.github.com/mcp"}},
+        observed_state={"disabled": False},
+        first_seen_at=now,
+        last_seen_at=now,
+    )
+
+
 def _control_read() -> SpmControlRead:
     return SpmControlRead(
         id="claude.mcp_server.approved",
@@ -69,6 +114,34 @@ def _control_read() -> SpmControlRead:
         severity=SpmSeverity.HIGH,
         check=SpmControlCheck.MCP_SERVER_APPROVED,
         action=SpmEnforcementAction.DISABLE_MCP_SERVER,
+    )
+
+
+def _finding_read() -> SpmFindingRead:
+    now = datetime(2026, 4, 22, tzinfo=UTC)
+    return SpmFindingRead(
+        id=uuid.UUID("cccccccc-cccc-4ccc-cccc-cccccccccccc"),
+        organization_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        endpoint_id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
+        asset_id=uuid.UUID("dddddddd-dddd-4ddd-dddd-dddddddddddd"),
+        asset_sighting_id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"),
+        control_id="claude.mcp_server.approved",
+        control_revision="1",
+        harness=SpmHarness.CLAUDE_CODE,
+        asset_class=SpmAssetClass.MCP_SERVER,
+        asset_type=SpmAssetType.MCP_SERVER,
+        severity=SpmSeverity.HIGH,
+        status=SpmFindingStatus.OPEN,
+        summary="Github MCP server is not approved",
+        evidence={"config": {"url": "https://api.github.com/mcp"}},
+        enrichment={},
+        recommended_action=SpmEnforcementAction.DISABLE_MCP_SERVER,
+        recommended_payload={"server_name": "github"},
+        opened_at=now,
+        closed_at=None,
+        last_decision_at=None,
+        created_at=now,
+        updated_at=now,
     )
 
 
@@ -213,6 +286,38 @@ async def test_list_spm_endpoints_success(
 
 
 @pytest.mark.anyio
+async def test_list_spm_endpoint_assets_success(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(
+            spm_router_module,
+            "check_entitlement",
+            new_callable=AsyncMock,
+        ),
+        patch.object(spm_router_module, "SpmService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.list_endpoint_assets.return_value = CursorPaginatedResponse[
+            SpmEndpointAssetRead
+        ](
+            items=[_endpoint_asset_read()],
+            next_cursor=None,
+            has_more=False,
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            "/spm/endpoints/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/assets"
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["items"][0]["display_name"] == "github"
+    assert response.json()["items"][0]["observed_state"] == {"disabled": False}
+
+
+@pytest.mark.anyio
 async def test_create_spm_endpoint_success(
     client: TestClient,
     test_admin_role: Role,
@@ -243,6 +348,82 @@ async def test_create_spm_endpoint_success(
 
     assert response.status_code == status.HTTP_201_CREATED
     assert response.json()["enrollment_token"] == "tcspm_enroll_example"
+
+
+@pytest.mark.anyio
+async def test_list_spm_assets_passes_filters(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(
+            spm_router_module,
+            "check_entitlement",
+            new_callable=AsyncMock,
+        ),
+        patch.object(spm_router_module, "SpmService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.list_assets.return_value = CursorPaginatedResponse[SpmAssetRead](
+            items=[_asset_read()],
+            next_cursor=None,
+            has_more=False,
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            "/spm/assets",
+            params={
+                "endpoint_id": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+                "harness": "claude_code",
+                "asset_class": "mcp_server",
+                "asset_type": "mcp_server",
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    params = mock_service.list_assets.await_args.args[0]
+    assert str(params.endpoint_id) == "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
+    assert params.harness == SpmHarness.CLAUDE_CODE
+    assert params.asset_class == SpmAssetClass.MCP_SERVER
+    assert params.asset_type == SpmAssetType.MCP_SERVER
+
+
+@pytest.mark.anyio
+async def test_list_spm_findings_passes_filters(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with (
+        patch.object(
+            spm_router_module,
+            "check_entitlement",
+            new_callable=AsyncMock,
+        ),
+        patch.object(spm_router_module, "SpmService") as mock_service_cls,
+    ):
+        mock_service = AsyncMock()
+        mock_service.list_findings.return_value = CursorPaginatedResponse[
+            SpmFindingRead
+        ](
+            items=[_finding_read()],
+            next_cursor=None,
+            has_more=False,
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            "/spm/findings",
+            params={
+                "endpoint_id": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+                "control_id": "claude.mcp_server.approved",
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    params = mock_service.list_findings.await_args.args[0]
+    assert str(params.endpoint_id) == "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
+    assert params.control_id == "claude.mcp_server.approved"
 
 
 @pytest.mark.anyio

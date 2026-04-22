@@ -16,8 +16,10 @@ from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 from tracecat_ee.spm.schemas import (
     SpmAssetListResponse,
+    SpmAssetQueryParams,
     SpmAssetRead,
     SpmControlRead,
+    SpmEndpointAssetListResponse,
     SpmEndpointCreate,
     SpmEndpointCreateResponse,
     SpmEndpointListResponse,
@@ -27,9 +29,11 @@ from tracecat_ee.spm.schemas import (
     SpmFindingDecisionCreate,
     SpmFindingDecisionRead,
     SpmFindingListResponse,
+    SpmFindingQueryParams,
     SpmFindingRead,
 )
 from tracecat_ee.spm.service import SpmService, SpmSyncService
+from tracecat_ee.spm.types import SpmAssetClass, SpmAssetType, SpmHarness
 
 router = APIRouter(prefix="/spm", tags=["spm"])
 
@@ -43,6 +47,50 @@ def _pagination_params(
     cursor: str | None = Query(default=None),
 ) -> CursorPaginationParams:
     return CursorPaginationParams.model_construct(limit=limit, cursor=cursor)
+
+
+def _asset_query_params(
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    harness: SpmHarness | None = Query(default=None),
+    endpoint_id: uuid.UUID | None = Query(default=None),
+    asset_class: SpmAssetClass | None = Query(default=None),
+    asset_type: SpmAssetType | None = Query(default=None),
+) -> SpmAssetQueryParams:
+    return SpmAssetQueryParams.model_validate(
+        {
+            "limit": limit,
+            "cursor": cursor,
+            "harness": harness,
+            "endpoint_id": endpoint_id,
+            "asset_class": asset_class,
+            "asset_type": asset_type,
+        }
+    )
+
+
+def _finding_query_params(
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    endpoint_id: uuid.UUID | None = Query(default=None),
+    control_id: str | None = Query(default=None),
+) -> SpmFindingQueryParams:
+    return SpmFindingQueryParams.model_validate(
+        {
+            "limit": limit,
+            "cursor": cursor,
+            "endpoint_id": endpoint_id,
+            "control_id": control_id,
+        }
+    )
 
 
 async def _require_spm_entitlement(
@@ -158,6 +206,28 @@ async def get_spm_endpoint(
 
 
 @router.get(
+    "/endpoints/{endpoint_id}/assets",
+    response_model=SpmEndpointAssetListResponse,
+    dependencies=[Depends(_require_spm_entitlement)],
+)
+@require_scope("org:read")
+async def list_spm_endpoint_assets(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    endpoint_id: uuid.UUID,
+    pagination: CursorPaginationParams = Depends(_pagination_params),
+) -> SpmEndpointAssetListResponse:
+    service = SpmService(session, role=role)
+    try:
+        return await service.list_endpoint_assets(endpoint_id, pagination)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+
+
+@router.get(
     "/assets",
     response_model=SpmAssetListResponse,
     dependencies=[Depends(_require_spm_entitlement)],
@@ -167,10 +237,10 @@ async def list_spm_assets(
     *,
     role: OrgUserRole,
     session: AsyncDBSession,
-    pagination: CursorPaginationParams = Depends(_pagination_params),
+    params: SpmAssetQueryParams = Depends(_asset_query_params),
 ) -> SpmAssetListResponse:
     service = SpmService(session, role=role)
-    return await service.list_assets(pagination)
+    return await service.list_assets(params)
 
 
 @router.get(
@@ -204,10 +274,10 @@ async def list_spm_findings(
     *,
     role: OrgUserRole,
     session: AsyncDBSession,
-    pagination: CursorPaginationParams = Depends(_pagination_params),
+    params: SpmFindingQueryParams = Depends(_finding_query_params),
 ) -> SpmFindingListResponse:
     service = SpmService(session, role=role)
-    return await service.list_findings(pagination)
+    return await service.list_findings(params)
 
 
 @router.get(

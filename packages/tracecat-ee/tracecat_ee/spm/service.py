@@ -33,8 +33,10 @@ from tracecat.tiers.enums import Entitlement
 from tracecat_ee.spm.analyzer import SpmInventoryAnalyzer
 from tracecat_ee.spm.controls import get_control, get_control_catalog
 from tracecat_ee.spm.schemas import (
+    SpmAssetQueryParams,
     SpmAssetRead,
     SpmControlRead,
+    SpmEndpointAssetRead,
     SpmEndpointCreate,
     SpmEndpointCreateResponse,
     SpmEndpointRead,
@@ -43,6 +45,7 @@ from tracecat_ee.spm.schemas import (
     SpmEnforcementTaskRead,
     SpmFindingDecisionCreate,
     SpmFindingDecisionRead,
+    SpmFindingQueryParams,
     SpmFindingRead,
     SpmSyncAssetUpsert,
     SpmSyncTaskResult,
@@ -82,6 +85,28 @@ def _apply_desc_cursor_filter(
         sa.or_(
             sort_column < sort_value,
             sa.and_(sort_column == sort_value, model.id < cursor_id),
+        )
+    )
+
+
+def _apply_desc_cursor_filter_columns(
+    stmt: sa.Select[Any],
+    *,
+    cursor: str | None,
+    sort_column: Any,
+    id_column: Any,
+) -> sa.Select[Any]:
+    if not cursor:
+        return stmt
+    cursor_data = BaseCursorPaginator.decode_cursor(cursor)
+    sort_value = cursor_data.sort_value
+    if sort_value is None:
+        raise ValueError("Cursor missing sort value")
+    cursor_id = uuid.UUID(cursor_data.id)
+    return stmt.where(
+        sa.or_(
+            sort_column < sort_value,
+            sa.and_(sort_column == sort_value, id_column < cursor_id),
         )
     )
 
@@ -168,9 +193,26 @@ class SpmService(BaseOrgService):
 
     async def list_assets(
         self,
-        params: CursorPaginationParams,
+        params: SpmAssetQueryParams,
     ) -> CursorPaginatedResponse[SpmAssetRead]:
         stmt = select(SpmAsset).where(SpmAsset.organization_id == self.organization_id)
+        if params.harness is not None:
+            stmt = stmt.where(SpmAsset.harness == params.harness.value)
+        if params.asset_class is not None:
+            stmt = stmt.where(SpmAsset.asset_class == params.asset_class.value)
+        if params.asset_type is not None:
+            stmt = stmt.where(SpmAsset.asset_type == params.asset_type.value)
+        if params.endpoint_id is not None:
+            asset_sighting_exists = (
+                select(SpmAssetSighting.id)
+                .where(
+                    SpmAssetSighting.organization_id == self.organization_id,
+                    SpmAssetSighting.endpoint_id == params.endpoint_id,
+                    SpmAssetSighting.asset_id == SpmAsset.id,
+                )
+                .exists()
+            )
+            stmt = stmt.where(asset_sighting_exists)
         stmt = _apply_desc_cursor_filter(
             stmt,
             model=SpmAsset,
@@ -199,6 +241,69 @@ class SpmService(BaseOrgService):
             has_more=has_more,
         )
 
+    async def list_endpoint_assets(
+        self,
+        endpoint_id: uuid.UUID,
+        params: CursorPaginationParams,
+    ) -> CursorPaginatedResponse[SpmEndpointAssetRead]:
+        await self._get_endpoint_row(endpoint_id)
+        stmt = (
+            select(
+                SpmAsset.id.label("asset_id"),
+                SpmAssetSighting.id.label("asset_sighting_id"),
+                SpmAsset.organization_id.label("organization_id"),
+                SpmAssetSighting.endpoint_id.label("endpoint_id"),
+                SpmAssetSighting.workspace_id.label("workspace_id"),
+                SpmAsset.harness.label("harness"),
+                SpmAsset.asset_class.label("asset_class"),
+                SpmAsset.asset_type.label("asset_type"),
+                SpmAsset.identity_key.label("identity_key"),
+                SpmAsset.display_name.label("display_name"),
+                SpmAssetSighting.content_hash.label("content_hash"),
+                SpmAsset.asset_metadata.label("asset_metadata"),
+                SpmAssetSighting.evidence.label("evidence"),
+                SpmAssetSighting.observed_state.label("observed_state"),
+                SpmAssetSighting.first_seen_at.label("first_seen_at"),
+                SpmAssetSighting.last_seen_at.label("last_seen_at"),
+            )
+            .select_from(SpmAssetSighting)
+            .join(SpmAsset, SpmAsset.id == SpmAssetSighting.asset_id)
+            .where(
+                SpmAssetSighting.organization_id == self.organization_id,
+                SpmAssetSighting.endpoint_id == endpoint_id,
+            )
+        )
+        stmt = _apply_desc_cursor_filter_columns(
+            stmt,
+            cursor=params.cursor,
+            sort_column=SpmAssetSighting.last_seen_at,
+            id_column=SpmAssetSighting.id,
+        )
+        stmt = stmt.order_by(
+            SpmAssetSighting.last_seen_at.desc(),
+            SpmAssetSighting.id.desc(),
+        )
+        stmt = stmt.limit(params.limit + 1)
+        rows = list((await self.session.execute(stmt)).mappings().all())
+        has_more = len(rows) > params.limit
+        if has_more:
+            rows = rows[: params.limit]
+
+        next_cursor = None
+        if has_more and rows:
+            last = rows[-1]
+            next_cursor = BaseCursorPaginator.encode_cursor(
+                id=last["asset_sighting_id"],
+                sort_column="last_seen_at",
+                sort_value=last["last_seen_at"],
+            )
+
+        return CursorPaginatedResponse[SpmEndpointAssetRead](
+            items=SpmEndpointAssetRead.list_adapter().validate_python(rows),
+            next_cursor=next_cursor,
+            has_more=has_more,
+        )
+
     async def get_asset(self, asset_id: uuid.UUID) -> SpmAssetRead:
         stmt = select(SpmAsset).where(
             SpmAsset.id == asset_id,
@@ -211,11 +316,15 @@ class SpmService(BaseOrgService):
 
     async def list_findings(
         self,
-        params: CursorPaginationParams,
+        params: SpmFindingQueryParams,
     ) -> CursorPaginatedResponse[SpmFindingRead]:
         stmt = select(SpmFinding).where(
             SpmFinding.organization_id == self.organization_id
         )
+        if params.endpoint_id is not None:
+            stmt = stmt.where(SpmFinding.endpoint_id == params.endpoint_id)
+        if params.control_id is not None:
+            stmt = stmt.where(SpmFinding.control_id == params.control_id)
         stmt = _apply_desc_cursor_filter(
             stmt,
             model=SpmFinding,
