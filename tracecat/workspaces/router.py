@@ -55,7 +55,7 @@ WorkspaceUserInPath = Annotated[
 
 
 @router.get("")
-@require_scope("org:read", "workspace:read", require_all=False)
+@require_scope("org:workspace:read", "workspace:read", require_all=False)
 async def list_workspaces(
     *,
     role: OrgActorRole,
@@ -68,7 +68,7 @@ async def list_workspaces(
     - Org owners/admins (have `org:workspace:read` scope): See all workspaces in the org.
     - Other users: See only workspaces where they are a member.
 
-    No scope requirement - membership itself is the authorization.
+    Membership limits workspace-scoped access to the actor's workspaces.
     """
     service = WorkspaceService(session, role=role)
     try:
@@ -116,7 +116,7 @@ async def create_workspace(
 
 # NOTE: This route must be defined before the route for getting a single workspace for both to work
 @router.get("/search")
-@require_scope("org:read", "workspace:read", require_all=False)
+@require_scope("org:workspace:read", "workspace:read", require_all=False)
 async def search_workspaces(
     *,
     role: OrgActorRole,

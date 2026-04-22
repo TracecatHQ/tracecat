@@ -20,6 +20,7 @@ from tracecat.tables import router as tables_router
 from tracecat.vcs import router as vcs_router
 from tracecat.workflow.executions import router as workflow_executions_router
 from tracecat.workflow.store import router as workflow_store_router
+from tracecat.workspaces import router as workspaces_router
 
 type AsyncEndpoint = Callable[..., Awaitable[object]]
 
@@ -55,6 +56,51 @@ async def _assert_endpoint_requires_scope(
             await endpoint()
     finally:
         ctx_role.reset(token)
+
+
+async def _assert_endpoint_requires_any_scope(
+    endpoint: AsyncEndpoint,
+    *,
+    allowed_scopes: Sequence[str],
+    denied_scopes: Sequence[str] = (),
+) -> None:
+    no_scope_role = Role(
+        type="user",
+        service_id="tracecat-api",
+        scopes=frozenset(),
+    )
+    token = ctx_role.set(no_scope_role)
+    try:
+        with pytest.raises(ScopeDeniedError):
+            await endpoint()
+    finally:
+        ctx_role.reset(token)
+
+    for denied_scope in denied_scopes:
+        denied_role = Role(
+            type="user",
+            service_id="tracecat-api",
+            scopes=frozenset({denied_scope}),
+        )
+        token = ctx_role.set(denied_role)
+        try:
+            with pytest.raises(ScopeDeniedError):
+                await endpoint()
+        finally:
+            ctx_role.reset(token)
+
+    for allowed_scope in allowed_scopes:
+        allowed_role = Role(
+            type="user",
+            service_id="tracecat-api",
+            scopes=frozenset({allowed_scope}),
+        )
+        token = ctx_role.set(allowed_role)
+        try:
+            with pytest.raises(TypeError):
+                await endpoint()
+        finally:
+            ctx_role.reset(token)
 
 
 @pytest.mark.anyio
@@ -120,6 +166,22 @@ async def test_agent_preset_scope_guards(
 @pytest.mark.anyio
 async def test_table_update_row_requires_table_update_scope() -> None:
     await _assert_endpoint_requires_scope(tables_router.update_row, "table:update")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        workspaces_router.list_workspaces,
+        workspaces_router.search_workspaces,
+    ],
+)
+async def test_workspace_collection_scope_guards(endpoint: AsyncEndpoint) -> None:
+    await _assert_endpoint_requires_any_scope(
+        endpoint,
+        allowed_scopes=("org:workspace:read", "workspace:read"),
+        denied_scopes=("org:read",),
+    )
 
 
 @pytest.mark.anyio

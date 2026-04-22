@@ -52,6 +52,7 @@ ORG_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = (
             "org:secret:create",
             "org:secret:update",
             "org:secret:delete",
+            "org:workspace:read",
             "workspace:create",
         }
     )
