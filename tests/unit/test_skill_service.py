@@ -35,7 +35,14 @@ from tracecat.agent.skill.schemas import (
 )
 from tracecat.agent.skill.service import SkillService
 from tracecat.auth.types import Role
-from tracecat.db.models import SkillBlob, SkillVersion, Workspace
+from tracecat.db.models import (
+    SkillBlob,
+    SkillVersion,
+    Workspace,
+)
+from tracecat.db.models import (
+    SkillUpload as SkillUploadModel,
+)
 from tracecat.exceptions import TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.storage.blob import ensure_bucket_exists
@@ -617,6 +624,53 @@ class TestSkillService:
         assert uploaded["key"] == canonical_key
         assert blob_row.key == canonical_key
         assert blob_row.sha256 == sha256
+
+    @pytest.mark.parametrize(
+        ("content_type", "reason"),
+        [
+            (" ; ", "empty"),
+            (";".join(["x"] * 128), "too_long"),
+        ],
+    )
+    async def test_create_draft_upload_rejects_invalid_normalized_content_type(
+        self,
+        skill_service: SkillService,
+        content_type: str,
+        reason: str,
+    ) -> None:
+        """Upload sessions should validate the normalized content type."""
+
+        created = await skill_service.create_skill(
+            SkillCreate(name=f"invalid-content-type-{reason.replace('_', '-')}")
+        )
+        content = b"upload payload"
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await skill_service.create_draft_upload(
+                skill_id=created.id,
+                params=SkillUploadSessionCreate(
+                    sha256=hashlib.sha256(content).hexdigest(),
+                    size_bytes=len(content),
+                    content_type=content_type,
+                ),
+            )
+
+        expected_detail: dict[str, object] = {
+            "code": "invalid_content_type",
+            "reason": reason,
+        }
+        if reason == "too_long":
+            expected_detail["max_length"] = 255
+        assert exc_info.value.detail == expected_detail
+        upload_rows = (
+            await skill_service.session.execute(
+                select(SkillUploadModel).where(
+                    SkillUploadModel.workspace_id == skill_service.workspace_id,
+                    SkillUploadModel.skill_id == created.id,
+                )
+            )
+        ).scalars()
+        assert upload_rows.all() == []
 
     async def test_attach_uploaded_blob_rejects_size_mismatch(
         self,

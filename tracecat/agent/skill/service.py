@@ -67,6 +67,7 @@ from tracecat.tiers.enums import Entitlement
 
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
+MAX_CONTENT_TYPE_LENGTH = 255
 SKILL_NAME_ADAPTER = TypeAdapter(SkillName)
 
 
@@ -109,7 +110,22 @@ class SkillService(BaseWorkspaceService):
         """Return a canonical MIME type string for skill file metadata."""
 
         parts = [part.strip().lower() for part in content_type.split(";")]
-        return "; ".join(part for part in parts if part)
+        normalized = "; ".join(part for part in parts if part)
+        if not normalized:
+            raise TracecatValidationError(
+                "Skill file content type cannot be empty",
+                detail={"code": "invalid_content_type", "reason": "empty"},
+            )
+        if len(normalized) > MAX_CONTENT_TYPE_LENGTH:
+            raise TracecatValidationError(
+                "Skill file content type must be 255 characters or fewer",
+                detail={
+                    "code": "invalid_content_type",
+                    "reason": "too_long",
+                    "max_length": MAX_CONTENT_TYPE_LENGTH,
+                },
+            )
+        return normalized
 
     def _storage_key_for(self, sha256: str) -> str:
         """Return the canonical storage key for a skill blob."""
