@@ -1,0 +1,44 @@
+name: Go code quality
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - packages/tracecat-endpoint/**
+      - .github/workflows/lint-go.yml
+  pull_request:
+    branches: ["main", "staging"]
+    paths:
+      - packages/tracecat-endpoint/**
+      - .github/workflows/lint-go.yml
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: packages/tracecat-endpoint
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6
+        with:
+          go-version-file: packages/tracecat-endpoint/go.mod
+          cache-dependency-path: packages/tracecat-endpoint/go.mod
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Unformatted Go files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
