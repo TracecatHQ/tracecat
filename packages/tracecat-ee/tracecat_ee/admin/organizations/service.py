@@ -162,7 +162,7 @@ class AdminOrgService(BasePlatformService):
         existing_superuser = await self.session.scalar(
             select(User).where(
                 func.lower(User.email) == params.email.lower(),
-                cast(Mapped[bool], User.is_superuser) == True,  # noqa: E712
+                cast(Mapped[bool], User.is_superuser).is_(True),
             )
         )
         if existing_superuser is not None:
