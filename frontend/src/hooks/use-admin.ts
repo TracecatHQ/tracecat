@@ -18,6 +18,7 @@ import {
   type AdminRegistryListRegistryVersionsResponse,
   type AdminUserCreate,
   type AdminUserRead,
+  type AgentCatalogRead,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
   adminCreateOrganizationInvitation,
@@ -54,6 +55,7 @@ import {
   adminUpdateOrgTier,
   adminUpdateRegistrySettings,
   adminUpdateTier,
+  listCatalog,
   type OrganizationTierRead,
   type OrganizationTierUpdate,
   type OrgCreate,
@@ -67,6 +69,24 @@ import {
   type TierRead,
   type TierUpdate,
 } from "@/client"
+import { retryHandler, type TracecatApiError } from "@/lib/errors"
+
+export interface AdminPlatformCatalogEntry {
+  id: string
+  model_provider: string
+  model_name: string
+  model_id: string
+  display_name: string
+  metadata?: Record<string, unknown> | null
+}
+
+export interface AdminPlatformCatalogRead {
+  discovery_status: string
+  last_refreshed_at: string | null
+  last_error: string | null
+  next_cursor: string | null
+  models: AdminPlatformCatalogEntry[]
+}
 
 /* ── ORGANIZATIONS ─────────────────────────────────────────────────────────── */
 
@@ -761,5 +781,86 @@ export function useAdminRegistrySettings() {
     error,
     updateSettings,
     updatePending,
+  }
+}
+
+/**
+ * Read platform-scoped catalog rows through the current organization catalog
+ * surface.
+ */
+export function useAdminPlatformCatalog({
+  query = "",
+}: {
+  query?: string
+} = {}) {
+  const {
+    data: catalog,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<AdminPlatformCatalogRead, TracecatApiError>({
+    queryKey: ["admin", "agent-platform-catalog", query],
+    queryFn: async () => {
+      const items: AgentCatalogRead[] = []
+      let cursor: string | undefined
+
+      do {
+        const response = await listCatalog({
+          cursor,
+          limit: 100,
+        })
+        items.push(...response.items)
+        cursor = response.next_cursor ?? undefined
+      } while (cursor)
+
+      const normalizedQuery = query.trim().toLowerCase()
+      const models = items
+        .filter((item) => item.organization_id === null)
+        .filter((item) => {
+          if (!normalizedQuery) {
+            return true
+          }
+          return (
+            item.model_name.toLowerCase().includes(normalizedQuery) ||
+            item.model_provider.toLowerCase().includes(normalizedQuery)
+          )
+        })
+        .sort((left, right) => {
+          const providerComparison = left.model_provider.localeCompare(
+            right.model_provider
+          )
+          if (providerComparison !== 0) {
+            return providerComparison
+          }
+          return left.model_name.localeCompare(right.model_name)
+        })
+        .map((item) => ({
+          id: item.id,
+          model_provider: item.model_provider,
+          model_name: item.model_name,
+          model_id: item.model_name,
+          display_name:
+            (item.model_metadata?.display_name as string | undefined) ??
+            item.model_name,
+          metadata:
+            (item.model_metadata as Record<string, unknown> | null) ?? null,
+        }))
+
+      return {
+        discovery_status: models.length ? "loaded" : "unknown",
+        last_refreshed_at: null,
+        last_error: null,
+        next_cursor: null,
+        models,
+      }
+    },
+    retry: retryHandler,
+  })
+
+  return {
+    catalog,
+    isLoading,
+    error,
+    refetch,
   }
 }

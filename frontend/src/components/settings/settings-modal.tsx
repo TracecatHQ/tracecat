@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  Cpu,
   FileIcon,
   GitBranchIcon,
   LockIcon,
@@ -172,6 +173,7 @@ function SettingsModalContent() {
   const displayedSection =
     showWorkspaceNav && canDisplaySection ? activeSection : "profile"
   const showSyncNav = hasEntitlement("git_sync")
+  const showAgentModelsNav = hasEntitlement("agent_addons")
 
   return (
     <DialogContent className="h-[600px] max-w-[900px] gap-0 overflow-hidden p-0">
@@ -215,6 +217,14 @@ function SettingsModalContent() {
                         section="workspace-runtime"
                         activeSection={displayedSection}
                         onSelect={setActiveSection}
+                      />
+                      <NavItem
+                        icon={Cpu}
+                        label="AI models"
+                        section="workspace-models"
+                        activeSection={displayedSection}
+                        onSelect={setActiveSection}
+                        blocked={!showAgentModelsNav}
                       />
                       <NavItem
                         icon={FileIcon}

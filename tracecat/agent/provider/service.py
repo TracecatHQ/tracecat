@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -35,6 +36,29 @@ from tracecat.service import BaseOrgService
 
 CUSTOM_MODEL_PROVIDER_SLUG = "custom-model-provider"
 
+_VERSION_SUFFIX_RE = re.compile(r"/v\d+$")
+
+
+def normalize_openai_compat_base_url(base_url: str | None) -> str | None:
+    """Normalize an OpenAI-compatible base URL so discovery hits ``<base>/models``.
+
+    Accepts user input with any combination of trailing slash, a pasted
+    ``/models`` suffix, or a missing ``/v1`` version segment, and returns the
+    canonical ``scheme://host[:port]/v1`` form (or ``scheme://host/vN`` if the
+    user provided a different version).
+    """
+    if base_url is None:
+        return None
+    trimmed = base_url.strip()
+    if not trimmed:
+        return None
+    without_trailing_slash = trimmed.rstrip("/")
+    if without_trailing_slash.endswith("/models"):
+        without_trailing_slash = without_trailing_slash[: -len("/models")].rstrip("/")
+    if _VERSION_SUFFIX_RE.search(without_trailing_slash):
+        return without_trailing_slash
+    return f"{without_trailing_slash}/v1"
+
 
 class AgentCustomProviderService(BaseOrgService):
     """Manage organization-scoped custom LLM provider configurations."""
@@ -64,7 +88,7 @@ class AgentCustomProviderService(BaseOrgService):
         model = AgentCustomProvider(
             organization_id=self.organization_id,
             display_name=provider.display_name,
-            base_url=provider.base_url,
+            base_url=normalize_openai_compat_base_url(provider.base_url),
             passthrough=provider.passthrough,
             api_key_header=provider.api_key_header,
             encrypted_config=encrypted_config,
@@ -298,6 +322,10 @@ class AgentCustomProviderService(BaseOrgService):
             )
 
         update_data = updates.model_dump(exclude_unset=True)
+        if "base_url" in update_data:
+            update_data["base_url"] = normalize_openai_compat_base_url(
+                update_data["base_url"]
+            )
         incoming_secrets: dict[str, object] = {}
         if "api_key" in update_data:
             incoming_secrets["api_key"] = update_data.pop("api_key")
@@ -412,6 +440,57 @@ class AgentCustomProviderService(BaseOrgService):
         provider.last_refreshed_at = datetime.now(UTC)
         await self.session.commit()
 
+        # Auto-grant org-wide access to every catalog row this custom provider
+        # now exposes. Orgs without the ``agent_addons`` entitlement cannot
+        # toggle per-model enablement, so discovering a model has to double as
+        # enabling it; idempotent via the unique index on (org, workspace,
+        # catalog).
+        await self._auto_grant_custom_provider_access(provider_id)
+
+    async def _auto_grant_custom_provider_access(self, provider_id: UUID) -> None:
+        """Grant org-wide access to all catalog rows for a custom provider."""
+        import uuid as _uuid
+        from datetime import UTC, datetime
+
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        catalog_ids = (
+            (
+                await self.session.execute(
+                    select(AgentCatalog.id).where(
+                        AgentCatalog.organization_id == self.organization_id,
+                        AgentCatalog.custom_provider_id == provider_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not catalog_ids:
+            return
+
+        now = datetime.now(UTC)
+        values = [
+            {
+                "id": _uuid.uuid4(),
+                "organization_id": self.organization_id,
+                "workspace_id": None,
+                "catalog_id": catalog_id,
+                "created_at": now,
+                "updated_at": now,
+            }
+            for catalog_id in catalog_ids
+        ]
+        stmt = (
+            pg_insert(AgentModelAccess)
+            .values(values)
+            .on_conflict_do_nothing(
+                index_elements=["organization_id", "workspace_id", "catalog_id"],
+            )
+        )
+        await self.session.execute(stmt)
+        await self.session.commit()
+
     @staticmethod
     async def _fetch_models(
         *,
@@ -439,9 +518,12 @@ class AgentCustomProviderService(BaseOrgService):
         custom_headers: dict[str, str] | None = None,
     ) -> bool:
         """Test provider connectivity."""
+        normalized = normalize_openai_compat_base_url(base_url)
+        if not normalized:
+            return False
         try:
             response = await self._fetch_models(
-                base_url=base_url,
+                base_url=normalized,
                 api_key=api_key,
                 api_key_header=api_key_header,
                 custom_headers=custom_headers,

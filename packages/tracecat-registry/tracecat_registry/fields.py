@@ -25,9 +25,14 @@ class AgentPreset:
 
 
 @dataclass(slots=True)
+class AgentModel:
+    component_id: Literal["agent-model"] = "agent-model"
+
+
+@dataclass(slots=True)
 class ActionType:
     component_id: Literal["action-type"] = "action-type"
     multiple: bool = False
 
 
-__all__ = ["ActionType", "AgentPreset", "Code", "TextArea"]
+__all__ = ["ActionType", "AgentModel", "AgentPreset", "Code", "TextArea"]

@@ -129,7 +129,8 @@ async def test_update_provider(
     )
 
     assert updated.display_name == "Updated"
-    assert updated.base_url == "https://api.example.com"
+    # The service normalizes OpenAI-compatible base URLs by appending `/v1`.
+    assert updated.base_url == "https://api.example.com/v1"
     assert updated.passthrough is True
 
 
@@ -202,7 +203,8 @@ async def test_validate_provider_success(
             return False
 
         async def get(self, url: str, headers: dict[str, str]):
-            assert url == "https://api.example.com/models"
+            # Service normalizes missing /v1 and applies to the /models probe.
+            assert url == "https://api.example.com/v1/models"
             assert headers == {"Authorization": "secret"}
             return _Response()
 
@@ -258,7 +260,7 @@ async def test_resolve_catalog_config_custom_provider(
     assert target.custom_provider_id == provider.id
     assert target.model_provider == "custom-model-provider"
     assert target.model_name == "customer-model"
-    assert target.base_url == "https://gateway.example.com"
+    assert target.base_url == "https://gateway.example.com/v1"
     assert target.passthrough is True
     assert target.api_key_header == "X-API-Key"
     assert target.custom_provider_credentials is not None

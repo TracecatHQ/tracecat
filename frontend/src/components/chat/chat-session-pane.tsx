@@ -87,7 +87,7 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { getIcon } from "@/components/icons"
+import { getIcon, ProviderIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Dots } from "@/components/loading/dots"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -130,11 +130,6 @@ type ToolSuggestion = {
   label: string
   description?: string
   group?: string
-}
-
-type CompactionStatusData = {
-  phase?: "started" | "completed" | "failed"
-  pre_tokens?: number
 }
 
 function areToolListsEqual(left: string[], right: string[]): boolean {
@@ -324,19 +319,7 @@ export function ChatSessionPane({
         (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
         (isToolUIPart(lastPart) && lastPart.state === "input-streaming")
 
-      if (lastPart.type === "data-approval-request") {
-        return false
-      }
-
-      if (lastPart.type === "data-compaction") {
-        const compaction =
-          "data" in lastPart &&
-          lastPart.data &&
-          typeof lastPart.data === "object"
-            ? (lastPart.data as CompactionStatusData)
-            : undefined
-        return compaction?.phase === "started"
-      }
+      if (lastPart.type === "data-approval-request") return false
 
       return !isStreamingVisual
     }
@@ -1092,6 +1075,9 @@ export function ChatSessionPane({
                   disabled={inputDisabled || !canSubmit}
                 />
               )}
+              {!isReadonly ? (
+                <PromptModelIndicator modelInfo={modelInfo} />
+              ) : null}
             </PromptInputTools>
             <PromptInputSubmit
               disabled={isInputDisabled || !input.trim()}
@@ -1256,6 +1242,52 @@ function PromptPresetSelector({
   )
 }
 
+function formatProviderLabel(value: string): string {
+  return value.replaceAll("_", " ")
+}
+
+function getProviderIconId(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "anthropic"
+    case "azure_ai":
+    case "azure_openai":
+      return "microsoft"
+    case "bedrock":
+      return "amazon-bedrock"
+    case "gemini":
+    case "vertex_ai":
+      return "google"
+    case "openai":
+      return "openai"
+    default:
+      return "custom"
+  }
+}
+
+function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
+  return (
+    <Badge
+      variant="outline"
+      className="h-7 max-w-[18rem] gap-1.5 px-2.5 text-xs font-normal"
+    >
+      <ProviderIcon
+        className="size-4 rounded-none bg-transparent p-0"
+        providerId={modelInfo.iconId ?? getProviderIconId(modelInfo.provider)}
+      />
+      <span
+        className="truncate font-medium text-foreground"
+        title={modelInfo.name}
+      >
+        {modelInfo.name}
+      </span>
+      <span className="shrink-0 text-muted-foreground">
+        {formatProviderLabel(modelInfo.provider)}
+      </span>
+    </Badge>
+  )
+}
+
 export function MessagePart({
   part,
   partIdx,
@@ -1284,47 +1316,6 @@ export function MessagePart({
         approvals={approvals}
         onSubmit={onSubmitApprovals}
       />
-    )
-  }
-
-  if (part.type === "data-compaction") {
-    const payload = (part as { data?: unknown }).data
-    const compaction =
-      payload && typeof payload === "object"
-        ? (payload as CompactionStatusData)
-        : {}
-    const phase = compaction.phase ?? "completed"
-    let label = "Conversation compacted."
-    if (phase === "started") {
-      label = "Compacting conversation..."
-    } else if (phase === "failed") {
-      label = "Compaction failed."
-    }
-    const tokenSummary =
-      typeof compaction.pre_tokens === "number"
-        ? `${compaction.pre_tokens.toLocaleString()} tokens`
-        : null
-
-    return (
-      <Message key={`${id}-${partIdx}`} from={role}>
-        <MessageContent variant="flat">
-          <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-muted-foreground">
-            {phase === "started" ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : phase === "failed" ? (
-              <XIcon className="size-3" />
-            ) : (
-              <CheckIcon className="size-3" />
-            )}
-            <span>{label}</span>
-            {tokenSummary ? (
-              <span className="text-[11px] text-muted-foreground/80">
-                {tokenSummary}
-              </span>
-            ) : null}
-          </div>
-        </MessageContent>
-      </Message>
     )
   }
 

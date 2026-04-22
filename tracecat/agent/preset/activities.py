@@ -82,28 +82,19 @@ class CustomModelProviderConfigResult(BaseModel):
 @activity.defn
 async def resolve_custom_model_provider_config_activity(
     role: Role,
-    use_workspace_credentials: bool,
 ) -> CustomModelProviderConfigResult:
-    activity.logger.info(
-        "Resolving custom model provider config",
-        extra={"use_workspace_credentials": use_workspace_credentials},
-    )
+    activity.logger.info("Resolving custom model provider config")
     async with AgentManagementService.with_session(role) as svc:
         creds = await svc.get_runtime_provider_credentials(
             "custom-model-provider",
-            use_workspace_credentials=use_workspace_credentials,
         )
     if creds is None:
-        activity.logger.error(
-            "Custom model provider credentials not found",
-            extra={"use_workspace_credentials": use_workspace_credentials},
-        )
+        activity.logger.error("Custom model provider credentials not found")
         raise ApplicationError("Invalid custom model provider credentials")
     if not (base_url := creds.get("CUSTOM_MODEL_PROVIDER_BASE_URL")):
         activity.logger.error(
             "Custom model provider base URL missing",
             extra={
-                "use_workspace_credentials": use_workspace_credentials,
                 "has_model_name_override": bool(
                     creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")
                 ),
@@ -120,7 +111,6 @@ async def resolve_custom_model_provider_config_activity(
     activity.logger.info(
         "Resolved custom model provider config",
         extra={
-            "use_workspace_credentials": use_workspace_credentials,
             "passthrough": passthrough,
             "has_model_name_override": bool(
                 creds.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME")

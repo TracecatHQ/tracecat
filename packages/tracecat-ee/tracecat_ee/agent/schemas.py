@@ -1,13 +1,21 @@
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from tracecat import config
 from tracecat.agent.types import OutputType
 
+# ``extra="ignore"`` keeps Temporal activity replay working after the legacy
+# ``use_workspace_credentials`` field was dropped — in-flight workflow history
+# still carries the old key and pydantic will silently drop it rather than
+# error.
+_BASE_CONFIG = ConfigDict(extra="ignore")
+
 
 class AgentActionArgs(BaseModel):
+    model_config = _BASE_CONFIG
+
     user_prompt: str
     model_name: str
     model_provider: str
@@ -32,13 +40,11 @@ class AgentActionArgs(BaseModel):
     enable_thinking: bool = True
     base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
-    use_workspace_credentials: bool = Field(
-        default=True,
-        description="If True, use workspace-scoped credentials; otherwise org-level",
-    )
 
 
 class PresetAgentActionArgs(BaseModel):
+    model_config = _BASE_CONFIG
+
     preset: str
     preset_version: int | None = None
     user_prompt: str
@@ -56,8 +62,4 @@ class PresetAgentActionArgs(BaseModel):
         ge=1,
         le=config.TRACECAT__AGENT_MAX_REQUESTS,
         description="The maximum number of model requests to make per agent run",
-    )
-    use_workspace_credentials: bool = Field(
-        default=True,
-        description="If True, use workspace-scoped credentials; otherwise org-level",
     )

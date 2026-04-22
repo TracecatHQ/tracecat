@@ -81,6 +81,7 @@ class AgentPresetService(BaseWorkspaceService):
         "instructions",
         "model_name",
         "model_provider",
+        "catalog_id",
         "base_url",
         "output_type",
         "actions",
@@ -246,6 +247,7 @@ class AgentPresetService(BaseWorkspaceService):
             instructions=params.instructions,
             model_name=params.model_name,
             model_provider=params.model_provider,
+            catalog_id=params.catalog_id,
             base_url=params.base_url,
             output_type=params.output_type,
             actions=params.actions,
@@ -1276,6 +1278,7 @@ class AgentPresetService(BaseWorkspaceService):
         for field in (
             "model_name",
             "model_provider",
+            "catalog_id",
             "base_url",
             "output_type",
             "retries",
@@ -1381,6 +1384,7 @@ class AgentPresetService(BaseWorkspaceService):
         return AgentConfig(
             model_name=version.model_name,
             model_provider=version.model_provider,
+            catalog_id=version.catalog_id,
             base_url=version.base_url,
             instructions=version.instructions,
             output_type=cast(OutputType | None, version.output_type),
@@ -1450,6 +1454,7 @@ class AgentPresetService(BaseWorkspaceService):
             instructions=preset.instructions,
             model_name=preset.model_name,
             model_provider=preset.model_provider,
+            catalog_id=preset.catalog_id,
             base_url=preset.base_url,
             output_type=preset.output_type,
             actions=preset.actions,
@@ -1474,6 +1479,7 @@ class AgentPresetService(BaseWorkspaceService):
         preset.instructions = version.instructions
         preset.model_name = version.model_name
         preset.model_provider = version.model_provider
+        preset.catalog_id = version.catalog_id
         preset.base_url = version.base_url
         preset.output_type = version.output_type
         preset.actions = version.actions

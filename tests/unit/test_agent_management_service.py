@@ -1,4 +1,4 @@
-"""Tests for AgentManagementService credential context behavior."""
+"""Tests for AgentManagementService credential and runtime behavior."""
 
 import uuid
 from types import SimpleNamespace
@@ -9,6 +9,7 @@ import pytest
 from tracecat_registry._internal import secrets as registry_secrets
 
 import tracecat.agent.service as agent_service
+from tracecat.agent.config import PROVIDER_CREDENTIAL_CONFIGS
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.types import AgentConfig
@@ -32,15 +33,35 @@ def role() -> Role:
 @pytest.mark.anyio
 async def test_with_model_config_sets_registry_and_env_context(role: Role) -> None:
     service = AgentManagementService(AsyncMock(), role=role)
-    service.get_default_model = AsyncMock(return_value="claude-opus-4-5-20251101")
-    service.get_provider_credentials = AsyncMock(
+    catalog_id = uuid.uuid4()
+    service._get_default_model_catalog_id_setting = AsyncMock(return_value=catalog_id)
+    service._get_default_model_name_setting = AsyncMock(
+        return_value="claude-opus-4-5-20251101"
+    )
+    service.get_catalog_credentials = AsyncMock(
         return_value={"ANTHROPIC_API_KEY": "test-key"}
+    )
+
+    # ``with_model_config`` issues a follow-up ``SELECT`` against
+    # ``agent_catalog`` to resolve the row's provider + model_name. Stub it
+    # out so the test session mock doesn't have to round-trip SQL.
+    catalog_row = SimpleNamespace(
+        id=catalog_id,
+        model_provider="anthropic",
+        model_name="claude-opus-4-5-20251101",
+    )
+    service.session = AsyncMock()
+    service.session.execute = AsyncMock(
+        return_value=SimpleNamespace(scalar_one=lambda: catalog_row)
     )
 
     assert registry_secrets.get_or_default("ANTHROPIC_API_KEY") is None
     assert secrets_manager.get("ANTHROPIC_API_KEY") is None
 
-    async with service.with_model_config(use_workspace_credentials=False):
+    async with service.with_model_config() as model_config:
+        assert model_config.name == "claude-opus-4-5-20251101"
+        assert model_config.provider == "anthropic"
+        assert model_config.catalog_id == catalog_id
         assert registry_secrets.get("ANTHROPIC_API_KEY") == "test-key"
         assert secrets_manager.get("ANTHROPIC_API_KEY") == "test-key"
 
@@ -62,17 +83,14 @@ async def test_with_preset_config_sets_registry_and_env_context(role: Role) -> N
             )
         ),
     )
-    service.get_workspace_provider_credentials = AsyncMock(
+    service.get_runtime_provider_credentials = AsyncMock(
         return_value={"ANTHROPIC_API_KEY": "workspace-key"}
     )
 
     assert registry_secrets.get_or_default("ANTHROPIC_API_KEY") is None
     assert secrets_manager.get("ANTHROPIC_API_KEY") is None
 
-    async with service.with_preset_config(
-        preset_id=uuid.uuid4(),
-        use_workspace_credentials=True,
-    ):
+    async with service.with_preset_config(preset_id=uuid.uuid4()):
         assert registry_secrets.get("ANTHROPIC_API_KEY") == "workspace-key"
         assert secrets_manager.get("ANTHROPIC_API_KEY") == "workspace-key"
 
@@ -97,7 +115,7 @@ async def test_with_preset_config_loads_custom_passthrough_base_url_from_workspa
             )
         ),
     )
-    service.get_workspace_provider_credentials = AsyncMock(
+    service.get_runtime_provider_credentials = AsyncMock(
         return_value={
             "CUSTOM_MODEL_PROVIDER_BASE_URL": "https://litellm.customer.example",
             "CUSTOM_MODEL_PROVIDER_MODEL_NAME": "customer-routed-model",
@@ -105,16 +123,13 @@ async def test_with_preset_config_loads_custom_passthrough_base_url_from_workspa
         }
     )
 
-    async with service.with_preset_config(
-        preset_id=uuid.uuid4(),
-        use_workspace_credentials=True,
-    ) as config:
+    async with service.with_preset_config(preset_id=uuid.uuid4()) as config:
         assert config.model_provider == "custom-model-provider"
         assert config.base_url == "https://litellm.customer.example"
         assert config.model_name == "customer-routed-model"
         assert config.passthrough is True
 
-    service.get_workspace_provider_credentials.assert_awaited_once_with(
+    service.get_runtime_provider_credentials.assert_awaited_once_with(
         "custom-model-provider"
     )
 
@@ -133,16 +148,16 @@ async def test_get_runtime_provider_credentials_injects_bedrock_external_id(
     role: Role,
 ) -> None:
     service = AgentManagementService(AsyncMock(), role=role)
-    service.get_workspace_provider_credentials = AsyncMock(
+    service.get_provider_credentials = AsyncMock(
         return_value={
             "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
             "AWS_REGION": "us-east-1",
             "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-sonnet-4-20250514-v1:0",
         }
     )
+    assert role.workspace_id is not None
 
     credentials = await service.get_runtime_provider_credentials("bedrock")
-    assert role.workspace_id is not None
 
     assert credentials is not None
     assert credentials["TRACECAT_AWS_EXTERNAL_ID"] == build_workspace_external_id(
@@ -153,29 +168,38 @@ async def test_get_runtime_provider_credentials_injects_bedrock_external_id(
 @pytest.mark.anyio
 async def test_with_model_config_injects_bedrock_external_id(role: Role) -> None:
     service = AgentManagementService(AsyncMock(), role=role)
-    service.get_default_model = AsyncMock(return_value="bedrock")
-    service.get_provider_credentials = AsyncMock(
+    assert role.workspace_id is not None
+    external_id = build_workspace_external_id(role.workspace_id)
+    catalog_id = uuid.uuid4()
+    service._get_default_model_catalog_id_setting = AsyncMock(return_value=catalog_id)
+    service._get_default_model_name_setting = AsyncMock(
+        return_value="us.anthropic.claude-sonnet-4-20250514-v1:0"
+    )
+    service.get_catalog_credentials = AsyncMock(
         return_value={
             "AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role",
             "AWS_REGION": "us-east-1",
             "AWS_INFERENCE_PROFILE_ID": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+            "TRACECAT_AWS_EXTERNAL_ID": external_id,
         }
     )
-    assert role.workspace_id is not None
+    catalog_row = SimpleNamespace(
+        id=catalog_id,
+        model_provider="bedrock",
+        model_name="us.anthropic.claude-sonnet-4-20250514-v1:0",
+    )
+    service.session = AsyncMock()
+    service.session.execute = AsyncMock(
+        return_value=SimpleNamespace(scalar_one=lambda: catalog_row)
+    )
 
     assert registry_secrets.get_or_default("TRACECAT_AWS_EXTERNAL_ID") is None
     assert secrets_manager.get("TRACECAT_AWS_EXTERNAL_ID") is None
 
-    async with service.with_model_config(
-        use_workspace_credentials=False
-    ) as model_config:
+    async with service.with_model_config() as model_config:
         assert model_config.name == "us.anthropic.claude-sonnet-4-20250514-v1:0"
-        assert registry_secrets.get("TRACECAT_AWS_EXTERNAL_ID") == (
-            build_workspace_external_id(role.workspace_id)
-        )
-        assert secrets_manager.get("TRACECAT_AWS_EXTERNAL_ID") == (
-            build_workspace_external_id(role.workspace_id)
-        )
+        assert registry_secrets.get("TRACECAT_AWS_EXTERNAL_ID") == external_id
+        assert secrets_manager.get("TRACECAT_AWS_EXTERNAL_ID") == external_id
 
     assert registry_secrets.get_or_default("TRACECAT_AWS_EXTERNAL_ID") is None
     assert secrets_manager.get("TRACECAT_AWS_EXTERNAL_ID") is None
@@ -187,7 +211,7 @@ async def test_get_runtime_provider_credentials_resolves_azure_openai_client_cre
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = AgentManagementService(AsyncMock(), role=role)
-    service.get_workspace_provider_credentials = AsyncMock(
+    service.get_provider_credentials = AsyncMock(
         return_value={
             "AZURE_API_BASE": "https://example.openai.azure.com",
             "AZURE_API_VERSION": "2024-02-15-preview",
@@ -220,7 +244,7 @@ async def test_get_runtime_provider_credentials_rejects_incomplete_azure_client_
     role: Role,
 ) -> None:
     service = AgentManagementService(AsyncMock(), role=role)
-    service.get_workspace_provider_credentials = AsyncMock(
+    service.get_provider_credentials = AsyncMock(
         return_value={
             "AZURE_API_BASE": "https://example.services.ai.azure.com/anthropic",
             "AZURE_AI_MODEL_NAME": "claude-sonnet-4-5",
@@ -235,3 +259,18 @@ async def test_get_runtime_provider_credentials_rejects_incomplete_azure_client_
         "AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET",
     ):
         await service.get_runtime_provider_credentials("azure_ai")
+
+
+async def test_get_providers_status_includes_builtin_configs_without_enabled_models(
+    role: Role,
+) -> None:
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.check_provider_credentials = AsyncMock(
+        side_effect=lambda provider: provider == "anthropic"
+    )
+
+    status = await service.get_providers_status()
+
+    assert set(PROVIDER_CREDENTIAL_CONFIGS).issubset(status)
+    assert status["anthropic"] is True
+    assert status["openai"] is False

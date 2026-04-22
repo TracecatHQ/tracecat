@@ -7,6 +7,7 @@ from typing_extensions import Doc
 from tracecat_registry import registry
 from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
 from tracecat_registry.core.transform import flatten_dict
+from tracecat_registry.fields import AgentModel
 from tracecat_registry.sdk.agents import RankableItem, rank_items, rank_items_pairwise
 
 
@@ -53,6 +54,7 @@ async def rank_documents(
     model_name: Annotated[
         str,
         Doc("LLM model to use for ranking."),
+        AgentModel(),
     ] = DEFAULT_RANKING_MODEL,
     model_provider: Annotated[
         str,
@@ -160,6 +162,7 @@ async def select_field(
     model_name: Annotated[
         str,
         Doc("LLM model to use for ranking."),
+        AgentModel(),
     ] = DEFAULT_RANKING_MODEL,
     model_provider: Annotated[
         str,
@@ -258,6 +261,7 @@ async def select_fields(
     model_name: Annotated[
         str,
         Doc("LLM model to use for ranking."),
+        AgentModel(),
     ] = DEFAULT_RANKING_MODEL,
     model_provider: Annotated[
         str,

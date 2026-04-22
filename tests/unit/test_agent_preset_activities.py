@@ -97,11 +97,10 @@ async def test_resolve_custom_model_provider_config_activity_returns_base_url(
         lambda *_args, **_kwargs: _AsyncContext(service),
     )
 
-    result = await resolve_custom_model_provider_config_activity(role, True)
+    result = await resolve_custom_model_provider_config_activity(role)
 
     service.get_runtime_provider_credentials.assert_awaited_once_with(
         "custom-model-provider",
-        use_workspace_credentials=True,
     )
     assert result.base_url == "https://customer.example"
     assert result.model_name == "provider/custom-model"

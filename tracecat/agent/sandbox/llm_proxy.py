@@ -157,7 +157,6 @@ class LLMSocketProxy:
         on_error: Callable[[str], None] | None = None,
         passthrough: bool = False,
         role: Role | None = None,
-        use_workspace_credentials: bool = False,
         model_provider: str | None = None,
     ):
         """Initialize the LLM socket proxy.
@@ -169,7 +168,6 @@ class LLMSocketProxy:
             passthrough: When True, strip managed auth headers before forwarding
                 directly to the configured upstream.
             role: Role used to fetch the custom provider API key in passthrough mode.
-            use_workspace_credentials: Credential scope for the passthrough key fetch.
             model_provider: Selected model provider. Used to decide whether to strip
                 Anthropic-only request fields from outbound payloads.
         """
@@ -185,7 +183,6 @@ class LLMSocketProxy:
         self._error_emitted = False  # Only call callback once
         self._is_passthrough = passthrough
         self._role = role
-        self._use_workspace_credentials = use_workspace_credentials
         self._upstream_api_key: str | None = None
         self._model_provider = model_provider
 
@@ -201,19 +198,14 @@ class LLMSocketProxy:
         async with AgentManagementService.with_session(self._role) as svc:
             creds = await svc.get_runtime_provider_credentials(
                 "custom-model-provider",
-                use_workspace_credentials=self._use_workspace_credentials,
             )
         if creds is None:
-            logger.warning(
-                "Passthrough credentials not found",
-                use_workspace_credentials=self._use_workspace_credentials,
-            )
+            logger.warning("Passthrough credentials not found")
             return
         self._upstream_api_key = creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or None
         logger.info(
             "Resolved passthrough upstream credentials",
             has_upstream_api_key=bool(self._upstream_api_key),
-            use_workspace_credentials=self._use_workspace_credentials,
         )
 
     async def start(self) -> None:

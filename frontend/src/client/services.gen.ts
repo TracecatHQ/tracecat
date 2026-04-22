@@ -327,6 +327,16 @@ import type {
   CaseTagsListCaseTagsResponse,
   CaseTagsUpdateCaseTagData,
   CaseTagsUpdateCaseTagResponse,
+  CreateCatalogEntryData,
+  CreateCatalogEntryResponse,
+  CreateCustomProviderData,
+  CreateCustomProviderResponse,
+  DeleteCatalogEntryData,
+  DeleteCatalogEntryResponse,
+  DeleteCustomProviderData,
+  DeleteCustomProviderResponse,
+  DisableModelData,
+  DisableModelResponse,
   EditorFieldSchemaResponse,
   EditorListActionsData,
   EditorListActionsResponse,
@@ -334,6 +344,8 @@ import type {
   EditorListFunctionsResponse,
   EditorValidateExpressionData,
   EditorValidateExpressionResponse,
+  EnableModelData,
+  EnableModelResponse,
   FeatureFlagsGetFeatureFlagsResponse,
   FoldersCreateFolderData,
   FoldersCreateFolderResponse,
@@ -349,6 +361,12 @@ import type {
   FoldersMoveFolderResponse,
   FoldersUpdateFolderData,
   FoldersUpdateFolderResponse,
+  GetCatalogEntryData,
+  GetCatalogEntryResponse,
+  GetCustomProviderData,
+  GetCustomProviderResponse,
+  GetWorkspaceModelsData,
+  GetWorkspaceModelsResponse,
   GraphApplyGraphOperationsData,
   GraphApplyGraphOperationsResponse,
   GraphGetGraphData,
@@ -371,6 +389,12 @@ import type {
   IntegrationsTestConnectionResponse,
   IntegrationsUpdateIntegrationData,
   IntegrationsUpdateIntegrationResponse,
+  ListCatalogData,
+  ListCatalogResponse,
+  ListCustomProvidersData,
+  ListCustomProvidersResponse,
+  ListEnabledModelsData,
+  ListEnabledModelsResponse,
   McpIntegrationsCreateMcpIntegrationData,
   McpIntegrationsCreateMcpIntegrationResponse,
   McpIntegrationsDeleteMcpIntegrationData,
@@ -490,6 +514,8 @@ import type {
   RbacUpdateRoleResponse,
   RbacUpdateUserAssignmentData,
   RbacUpdateUserAssignmentResponse,
+  RefreshCustomProviderCatalogData,
+  RefreshCustomProviderCatalogResponse,
   RegistryActionsGetRegistryActionData,
   RegistryActionsGetRegistryActionResponse,
   RegistryActionsListRegistryActionsData,
@@ -663,6 +689,10 @@ import type {
   TriggersUpdateCaseTriggerResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
+  UpdateCatalogEntryData,
+  UpdateCatalogEntryResponse,
+  UpdateCustomProviderData,
+  UpdateCustomProviderResponse,
   UsersGetMyScopesData,
   UsersGetMyScopesResponse,
   UsersSearchUserData,
@@ -676,6 +706,8 @@ import type {
   UsersUsersPatchUserResponse,
   UsersUsersUserData,
   UsersUsersUserResponse,
+  ValidateCustomProviderConnectionData,
+  ValidateCustomProviderConnectionResponse,
   VariablesCreateVariableData,
   VariablesCreateVariableResponse,
   VariablesDeleteVariableByIdData,
@@ -4663,6 +4695,394 @@ export const agentGetWorkspaceProvidersStatus = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Catalog
+ * List catalog entries with optional filtering and pagination.
+ * @param data The data for the request.
+ * @param data.provider
+ * @param data.modelName
+ * @param data.cursor
+ * @param data.limit
+ * @returns AgentCatalogListResponse Successful Response
+ * @throws ApiError
+ */
+export const listCatalog = (
+  data: ListCatalogData = {}
+): CancelablePromise<ListCatalogResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/agent-catalog",
+    query: {
+      provider: data.provider,
+      model_name: data.modelName,
+      cursor: data.cursor,
+      limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Catalog Entry
+ * Create an org-scoped catalog entry.
+ *
+ * Does not auto-enable the model; enablement is handled separately via the
+ * model-access API or a one-time migration.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AgentCatalogRead Successful Response
+ * @throws ApiError
+ */
+export const createCatalogEntry = (
+  data: CreateCatalogEntryData
+): CancelablePromise<CreateCatalogEntryResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/agent-catalog",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Catalog Entry
+ * Get a specific catalog entry.
+ * @param data The data for the request.
+ * @param data.catalogId
+ * @returns AgentCatalogRead Successful Response
+ * @throws ApiError
+ */
+export const getCatalogEntry = (
+  data: GetCatalogEntryData
+): CancelablePromise<GetCatalogEntryResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/agent-catalog/{catalog_id}",
+    path: {
+      catalog_id: data.catalogId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Catalog Entry
+ * Update metadata on an org-scoped catalog entry.
+ * @param data The data for the request.
+ * @param data.catalogId
+ * @param data.requestBody
+ * @returns AgentCatalogRead Successful Response
+ * @throws ApiError
+ */
+export const updateCatalogEntry = (
+  data: UpdateCatalogEntryData
+): CancelablePromise<UpdateCatalogEntryResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/organization/agent-catalog/{catalog_id}",
+    path: {
+      catalog_id: data.catalogId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Catalog Entry
+ * Delete an org-scoped catalog entry.
+ * @param data The data for the request.
+ * @param data.catalogId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const deleteCatalogEntry = (
+  data: DeleteCatalogEntryData
+): CancelablePromise<DeleteCatalogEntryResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/organization/agent-catalog/{catalog_id}",
+    path: {
+      catalog_id: data.catalogId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Workspace Models
+ * Get models accessible to a workspace.
+ *
+ * Returns the full effective set; the list is bounded by org enablement
+ * and is expected to be small, so pagination is not used here.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns AgentCatalogListResponse Successful Response
+ * @throws ApiError
+ */
+export const getWorkspaceModels = (
+  data: GetWorkspaceModelsData
+): CancelablePromise<GetWorkspaceModelsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent-models",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Enable Model
+ * Enable a model for org or workspace.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AgentModelAccessRead Successful Response
+ * @throws ApiError
+ */
+export const enableModel = (
+  data: EnableModelData
+): CancelablePromise<EnableModelResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/agent-model-access",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Enabled Models
+ * List enabled models with pagination.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.cursor
+ * @param data.limit
+ * @returns AgentModelAccessListResponse Successful Response
+ * @throws ApiError
+ */
+export const listEnabledModels = (
+  data: ListEnabledModelsData = {}
+): CancelablePromise<ListEnabledModelsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/agent-model-access",
+    query: {
+      workspace_id: data.workspaceId,
+      cursor: data.cursor,
+      limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disable Model
+ * Disable a model.
+ * @param data The data for the request.
+ * @param data.accessId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const disableModel = (
+  data: DisableModelData
+): CancelablePromise<DisableModelResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/organization/agent-model-access/{access_id}",
+    path: {
+      access_id: data.accessId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Custom Provider
+ * Create a new custom LLM provider.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns AgentCustomProviderRead Successful Response
+ * @throws ApiError
+ */
+export const createCustomProvider = (
+  data: CreateCustomProviderData
+): CancelablePromise<CreateCustomProviderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/agent-custom-providers",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Custom Providers
+ * List organization custom providers with pagination.
+ * @param data The data for the request.
+ * @param data.cursor
+ * @param data.limit
+ * @returns AgentCustomProviderListResponse Successful Response
+ * @throws ApiError
+ */
+export const listCustomProviders = (
+  data: ListCustomProvidersData = {}
+): CancelablePromise<ListCustomProvidersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/agent-custom-providers",
+    query: {
+      cursor: data.cursor,
+      limit: data.limit,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Custom Provider
+ * Get a specific custom provider.
+ * @param data The data for the request.
+ * @param data.providerId
+ * @returns AgentCustomProviderRead Successful Response
+ * @throws ApiError
+ */
+export const getCustomProvider = (
+  data: GetCustomProviderData
+): CancelablePromise<GetCustomProviderResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/agent-custom-providers/{provider_id}",
+    path: {
+      provider_id: data.providerId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Custom Provider
+ * Update custom provider configuration.
+ * @param data The data for the request.
+ * @param data.providerId
+ * @param data.requestBody
+ * @returns AgentCustomProviderRead Successful Response
+ * @throws ApiError
+ */
+export const updateCustomProvider = (
+  data: UpdateCustomProviderData
+): CancelablePromise<UpdateCustomProviderResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/organization/agent-custom-providers/{provider_id}",
+    path: {
+      provider_id: data.providerId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Custom Provider
+ * Delete a custom provider.
+ * @param data The data for the request.
+ * @param data.providerId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const deleteCustomProvider = (
+  data: DeleteCustomProviderData
+): CancelablePromise<DeleteCustomProviderResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/organization/agent-custom-providers/{provider_id}",
+    path: {
+      provider_id: data.providerId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Refresh Custom Provider Catalog
+ * Trigger model discovery for a custom provider.
+ * @param data The data for the request.
+ * @param data.providerId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const refreshCustomProviderCatalog = (
+  data: RefreshCustomProviderCatalogData
+): CancelablePromise<RefreshCustomProviderCatalogResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/agent-custom-providers/{provider_id}/refresh",
+    path: {
+      provider_id: data.providerId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Validate Custom Provider Connection
+ * Test provider connectivity without saving.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns boolean Successful Response
+ * @throws ApiError
+ */
+export const validateCustomProviderConnection = (
+  data: ValidateCustomProviderConnectionData
+): CancelablePromise<ValidateCustomProviderConnectionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/agent-custom-providers/validate",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

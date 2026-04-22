@@ -20,7 +20,7 @@ from typing import Any, Literal
 
 import jwt
 from jwt import PyJWTError
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from tracecat import config
 from tracecat.auth.secrets import get_service_key
@@ -235,7 +235,13 @@ class LLMTokenClaims(BaseModel):
 
     These claims are set by the AgentExecutor when minting the token
     and are immutable - the jailed runtime cannot modify them.
+
+    ``extra="ignore"`` lets tokens minted by a previous release (e.g. with
+    the legacy ``use_workspace_credentials`` field) still verify during the
+    rollout window, so in-flight sessions don't break on deploy.
     """
+
+    model_config = ConfigDict(extra="ignore")
 
     # Identity
     workspace_id: WorkspaceID = Field(..., description="Workspace UUID")
@@ -246,6 +252,16 @@ class LLMTokenClaims(BaseModel):
     model: str = Field(..., description="The model to use for this run")
     provider: str = Field(
         ..., description="The provider for the model (e.g., openai, anthropic, bedrock)"
+    )
+    catalog_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Catalog row backing this request. When set, the gateway loads "
+            "credentials (and the invocation target for cloud/custom "
+            "providers) from ``agent_catalog.encrypted_config`` instead of "
+            "the legacy ``agent-{provider}-credentials`` secret. Null for "
+            "direct-provider platform rows and for legacy-replay tokens."
+        ),
     )
     base_url: str | None = Field(
         default=None,
@@ -259,12 +275,6 @@ class LLMTokenClaims(BaseModel):
         description="Model-specific settings passed through to the LLM provider",
     )
 
-    # Credential scope
-    use_workspace_credentials: bool = Field(
-        default=False,
-        description="If True, use workspace-level credentials; otherwise org-level",
-    )
-
 
 def mint_llm_token(
     *,
@@ -273,9 +283,9 @@ def mint_llm_token(
     session_id: uuid.UUID,
     model: str,
     provider: str,
+    catalog_id: uuid.UUID | None = None,
     base_url: str | None = None,
     model_settings: dict[str, Any] | None = None,
-    use_workspace_credentials: bool = False,
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed LLM JWT for jailed agent runtime.
@@ -289,10 +299,13 @@ def mint_llm_token(
         session_id: The agent session UUID
         model: The model to use for this run
         provider: The provider for the model (e.g., openai, anthropic, bedrock)
+        catalog_id: Optional catalog row backing this request. When set, the
+            gateway loads credentials from ``agent_catalog.encrypted_config``;
+            when ``None`` the gateway falls back to the legacy
+            ``agent-{provider}-credentials`` secret lookup.
         base_url: Optional provider base URL override from the agent config/preset
         model_settings: Model-specific settings (temperature, max_tokens,
             reasoning_effort, etc.) passed through to LLM provider
-        use_workspace_credentials: Whether to use workspace-level creds
         ttl_seconds: Token TTL in seconds (defaults to executor token TTL)
 
     Returns:
@@ -315,10 +328,9 @@ def mint_llm_token(
         # Model configuration
         "model": model,
         "provider": provider,
+        "catalog_id": str(catalog_id) if catalog_id is not None else None,
         "base_url": base_url,
         "model_settings": model_settings or {},
-        # Credential scope
-        "use_workspace_credentials": use_workspace_credentials,
     }
 
     return jwt.encode(payload, get_service_key(), algorithm="HS256")

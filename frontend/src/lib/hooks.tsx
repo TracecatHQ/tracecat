@@ -12,11 +12,11 @@ import {
   type ActionRead,
   type ActionsDeleteActionData,
   type ActionUpdate,
+  type AgentCatalogRead,
+  type AgentCustomProviderRead,
   type AgentGetProviderCredentialConfigResponse,
   type AgentGetProvidersStatusResponse,
-  type AgentGetWorkspaceProvidersStatusResponse,
-  type AgentListModelsResponse,
-  type AgentListProvidersResponse,
+  type AgentModelAccessRead,
   type AgentSessionsListSessionsData,
   type AgentSessionsListSessionsResponse,
   type AgentSettingsRead,
@@ -32,10 +32,7 @@ import {
   agentGetDefaultModel,
   agentGetProviderCredentialConfig,
   agentGetProvidersStatus,
-  agentGetWorkspaceProvidersStatus,
-  agentListModels,
   agentListProviderCredentialConfigs,
-  agentListProviders,
   agentSessionsListSessions,
   agentSetDefaultModel,
   agentUpdateProviderCredentials,
@@ -124,6 +121,7 @@ import {
   type GroupRoleAssignmentReadWithDetails,
   type GroupRoleAssignmentUpdate,
   type GroupUpdate,
+  getWorkspaceModels,
   graphApplyGraphOperations,
   graphGetGraph,
   type IntegrationRead,
@@ -136,6 +134,9 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  listCatalog,
+  listCustomProviders,
+  listEnabledModels,
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
   type MCPIntegrationUpdate,
@@ -358,7 +359,7 @@ import {
   listCaseDurations,
 } from "@/lib/case-durations"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
-import type { ModelInfo } from "@/lib/chat"
+import { type ModelInfo, supportsCredentiallessModelAccess } from "@/lib/chat"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -5076,37 +5077,158 @@ export function useAgentSessions(
   }
 }
 
-export function useAgentModels() {
+const AGENT_MODEL_PAGE_SIZE = 100
+
+async function fetchAllProvidersPaginated(): Promise<
+  AgentCustomProviderRead[]
+> {
+  const items: AgentCustomProviderRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await listCustomProviders({
+      cursor,
+      limit: AGENT_MODEL_PAGE_SIZE,
+    })
+    items.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return items
+}
+
+async function fetchAllWorkspaceAgentModels(
+  workspaceId: string
+): Promise<AgentCatalogRead[]> {
+  // The workspace-models endpoint returns the full effective set (no
+  // pagination); org enablement caps the list naturally.
+  const response = await getWorkspaceModels({ workspaceId })
+  return response.items
+}
+
+async function fetchAllOrgCatalogEntries(): Promise<AgentCatalogRead[]> {
+  const items: AgentCatalogRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await listCatalog({
+      cursor,
+      limit: AGENT_MODEL_PAGE_SIZE,
+    })
+    items.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return items
+}
+
+async function fetchAllOrgEnabledAccessRows(): Promise<AgentModelAccessRead[]> {
+  const items: AgentModelAccessRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await listEnabledModels({
+      cursor,
+      limit: AGENT_MODEL_PAGE_SIZE,
+    })
+    items.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return items
+}
+
+/**
+ * Fetch the AI models that are enabled for the given workspace via
+ * AgentModelAccess. Use this anywhere a workspace-scoped picker should
+ * only show models the workspace is allowed to use.
+ */
+export function useWorkspaceAgentModels(
+  workspaceId: string | null | undefined
+) {
+  const enabled = Boolean(workspaceId)
+
   const {
     data: models,
     isLoading: modelsLoading,
     error: modelsError,
-  } = useQuery<AgentListModelsResponse, ApiError>({
-    queryKey: ["agent-models"],
-    queryFn: async () => await agentListModels(),
+  } = useQuery<AgentCatalogRead[], ApiError>({
+    queryKey: ["workspace", workspaceId, "agent-models"],
+    queryFn: async () => fetchAllWorkspaceAgentModels(workspaceId as string),
+    enabled,
+    retry: retryHandler,
+  })
+
+  const {
+    data: providers,
+    isLoading: providersLoading,
+    error: providersError,
+  } = useQuery<AgentCustomProviderRead[], ApiError>({
+    queryKey: ["organization", "agent-providers"],
+    queryFn: fetchAllProvidersPaginated,
+    enabled,
+    retry: retryHandler,
   })
 
   return {
     models,
-    modelsLoading,
-    modelsError,
+    providers,
+    modelsLoading: modelsLoading || providersLoading,
+    modelsError: modelsError ?? providersError,
   }
 }
 
-export function useModelProviders() {
+/**
+ * Fetch the AI models that are enabled at the organization level (i.e.
+ * AgentModelAccess rows with workspace_id === null), joined against the
+ * full catalog. Use this for org-wide pickers like the default model
+ * setting.
+ */
+export function useOrgAgentModels() {
   const {
-    data: providers,
-    isLoading,
-    error,
-  } = useQuery<AgentListProvidersResponse>({
-    queryKey: ["agent-providers"],
-    queryFn: async () => await agentListProviders(),
+    data: catalogEntries,
+    isLoading: catalogLoading,
+    error: catalogError,
+  } = useQuery<AgentCatalogRead[], ApiError>({
+    queryKey: ["organization", "agent-catalog"],
+    queryFn: fetchAllOrgCatalogEntries,
+    retry: retryHandler,
   })
 
+  const {
+    data: accessRows,
+    isLoading: accessLoading,
+    error: accessError,
+  } = useQuery<AgentModelAccessRead[], ApiError>({
+    queryKey: ["organization", "agent-model-access"],
+    queryFn: fetchAllOrgEnabledAccessRows,
+    retry: retryHandler,
+  })
+
+  const {
+    data: providers,
+    isLoading: providersLoading,
+    error: providersError,
+  } = useQuery<AgentCustomProviderRead[], ApiError>({
+    queryKey: ["organization", "agent-providers"],
+    queryFn: fetchAllProvidersPaginated,
+    retry: retryHandler,
+  })
+
+  const orgEnabledCatalogIds = new Set(
+    (accessRows ?? [])
+      .filter((row) => row.workspace_id === null)
+      .map((row) => row.catalog_id)
+  )
+  const models = (catalogEntries ?? []).filter((entry) =>
+    orgEnabledCatalogIds.has(entry.id)
+  )
+
   return {
+    models,
     providers,
-    isLoading,
-    error,
+    modelsLoading: catalogLoading || accessLoading || providersLoading,
+    modelsError: catalogError ?? accessError ?? providersError,
   }
 }
 
@@ -5119,26 +5241,6 @@ export function useModelProvidersStatus() {
   } = useQuery<AgentGetProvidersStatusResponse>({
     queryKey: ["agent-providers-status"],
     queryFn: async () => await agentGetProvidersStatus(),
-  })
-
-  return {
-    providersStatus,
-    isLoading,
-    error,
-    refetch,
-  }
-}
-
-export function useWorkspaceModelProvidersStatus(workspaceId: string) {
-  const {
-    data: providersStatus,
-    isLoading,
-    error,
-    refetch,
-  } = useQuery<AgentGetWorkspaceProvidersStatusResponse>({
-    queryKey: ["workspace-agent-providers-status", workspaceId],
-    queryFn: async () =>
-      await agentGetWorkspaceProvidersStatus({ workspaceId }),
   })
 
   return {
@@ -5335,7 +5437,7 @@ interface ChatReadinessOptions {
 
 export function useChatReadiness(options?: ChatReadinessOptions) {
   const { defaultModel, defaultModelLoading } = useAgentDefaultModel()
-  const { models, modelsLoading } = useAgentModels()
+  const { models, providers, modelsLoading } = useOrgAgentModels()
   const { providersStatus, isLoading: statusLoading } =
     useModelProvidersStatus()
   const modelOverride = options?.modelOverride
@@ -5355,7 +5457,9 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
       provider: modelOverride.provider,
       baseUrl: modelOverride.baseUrl ?? null,
     }
-    const hasOverrideCreds = providersStatus?.[modelOverride.provider] ?? false
+    const hasOverrideCreds =
+      supportsCredentiallessModelAccess(modelInfo) ||
+      (providersStatus?.[modelOverride.provider] ?? false)
     if (!hasOverrideCreds) {
       return {
         ready: false,
@@ -5382,7 +5486,8 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
   }
 
   /* unknown model name → treat as no model */
-  const modelCfg = models?.[defaultModel]
+  const modelCfg =
+    models?.find((model) => model.model_name === defaultModel) ?? null
   if (!modelCfg) {
     return {
       ready: false,
@@ -5392,12 +5497,21 @@ export function useChatReadiness(options?: ChatReadinessOptions) {
   }
 
   /* check provider creds */
-  const providerId = modelCfg.provider
-  const hasCreds = providersStatus?.[providerId] ?? false
+  const hasCreds = providersStatus?.[modelCfg.model_provider] ?? false
+  const baseUrl =
+    providers?.find((provider) => provider.id === modelCfg.custom_provider_id)
+      ?.base_url ?? null
   const modelInfo: ModelInfo = {
-    name: defaultModel,
-    provider: providerId,
-    baseUrl: null,
+    name: modelCfg.model_name,
+    provider: modelCfg.model_provider,
+    baseUrl,
+  }
+  if (supportsCredentiallessModelAccess(modelInfo)) {
+    return {
+      ready: true,
+      loading: false,
+      modelInfo,
+    }
   }
   if (!hasCreds) {
     return {

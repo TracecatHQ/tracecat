@@ -2,6 +2,7 @@
 
 import {
   BookOpenIcon,
+  BotIcon,
   BuildingIcon,
   ChevronLeftIcon,
   LayersIcon,
@@ -64,6 +65,12 @@ export function AdminSidebar({
       url: "/admin/tiers",
       icon: LayersIcon,
       isActive: pathname?.includes("/admin/tiers"),
+    },
+    {
+      title: "Agent",
+      url: "/admin/agent",
+      icon: BotIcon,
+      isActive: pathname?.includes("/admin/agent"),
     },
   ]
 

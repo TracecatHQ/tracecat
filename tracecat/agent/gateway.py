@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from typing import Any
 from urllib.parse import parse_qsl, urlencode
 
@@ -83,9 +84,14 @@ def _credential_cache_key(
     workspace_id: WorkspaceID,
     organization_id: OrganizationID,
     provider: str,
-    use_workspace_creds: bool,
+    catalog_id: uuid.UUID | None,
 ) -> str:
-    return f"creds:{workspace_id}:{organization_id}:{provider}:{use_workspace_creds}"
+    # When a catalog_id is set the credentials belong to that specific
+    # catalog row (cloud or custom provider in v2). Without it, we fall back
+    # to the legacy ``agent-{provider}-credentials`` secret which is
+    # org-scoped.
+    scope = str(catalog_id) if catalog_id is not None else "org"
+    return f"creds:{workspace_id}:{organization_id}:{provider}:{scope}"
 
 
 def _get_aws_role_session_name(credentials: dict[str, str]) -> str:
@@ -181,11 +187,18 @@ async def get_provider_credentials(
     workspace_id: WorkspaceID,
     organization_id: OrganizationID,
     provider: str,
-    use_workspace_creds: bool = False,
+    catalog_id: uuid.UUID | None = None,
 ) -> dict[str, str] | None:
-    """Fetch provider credentials, with a process-local TTL cache."""
+    """Fetch provider credentials, with a process-local TTL cache.
+
+    When ``catalog_id`` is set (v2 path), credentials are loaded from
+    ``agent_catalog.encrypted_config`` via
+    ``AgentManagementService.get_catalog_credentials``. When it's ``None``
+    (legacy-replay tokens or direct-provider platform rows), falls back to
+    the org-scoped ``agent-{provider}-credentials`` secret.
+    """
     cache_key = _credential_cache_key(
-        workspace_id, organization_id, provider, use_workspace_creds
+        workspace_id, organization_id, provider, catalog_id
     )
 
     cached = await _credential_cache.get(key=cache_key)
@@ -202,10 +215,10 @@ async def get_provider_credentials(
     )
     async with AgentManagementService.with_session(role=role) as service:
         try:
-            creds = await service.get_runtime_provider_credentials(
-                provider,
-                use_workspace_credentials=use_workspace_creds,
-            )
+            if catalog_id is not None:
+                creds = await service.get_catalog_credentials(catalog_id)
+            else:
+                creds = await service.get_runtime_provider_credentials(provider)
         except ValueError as exc:
             raise ProxyException(
                 message=str(exc),
@@ -254,7 +267,7 @@ async def user_api_key_auth(request: Request, api_key: str | None) -> UserAPIKey
             "workspace_id": str(claims.workspace_id),
             "organization_id": str(claims.organization_id),
             "session_id": str(claims.session_id),
-            "use_workspace_credentials": claims.use_workspace_credentials,
+            "catalog_id": str(claims.catalog_id) if claims.catalog_id else "",
             "model": claims.model,
             "provider": claims.provider,
             "base_url": claims.base_url,
@@ -278,11 +291,20 @@ class TracecatCallbackHandler(CustomLogger):
         organization_id = OrganizationID(
             user_api_key_dict.metadata.get("organization_id", "")
         )
-        use_workspace_creds = bool(
-            user_api_key_dict.metadata.get("use_workspace_credentials", False)
-        )
         model = user_api_key_dict.metadata.get("model")
         provider = user_api_key_dict.metadata.get("provider")
+        catalog_id: uuid.UUID | None = None
+        raw_catalog_id = user_api_key_dict.metadata.get("catalog_id")
+        if raw_catalog_id:
+            try:
+                catalog_id = uuid.UUID(raw_catalog_id)
+            except ValueError:
+                raise ProxyException(
+                    message="Invalid catalog_id in LLM token metadata",
+                    type="config_error",
+                    param=None,
+                    code=400,
+                ) from None
         if not model or not provider:
             raise ProxyException(
                 message="Model not specified. Please select a model in the chat settings.",
@@ -296,7 +318,7 @@ class TracecatCallbackHandler(CustomLogger):
             workspace_id=workspace_id,
             organization_id=organization_id,
             provider=provider,
-            use_workspace_creds=use_workspace_creds,
+            catalog_id=catalog_id,
         )
         if not creds:
             raise ProxyException(

@@ -114,7 +114,11 @@ import { ValidationErrorView } from "@/components/validation-errors"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
 import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
-import { isTracecatJsonSchema, type TracecatJsonSchema } from "@/lib/schema"
+import {
+  getTracecatComponents,
+  isTracecatJsonSchema,
+  type TracecatJsonSchema,
+} from "@/lib/schema"
 import { cn, slugifyActionRef } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
@@ -466,6 +470,39 @@ function ActionPanelContent({
       optionalFields: optionalFieldEntries,
     }
   }, [action?.type, registryAction, required])
+  const systemManagedFieldNames = useMemo(() => {
+    const hiddenFields = new Set<string>()
+    const properties = registryAction?.interface?.expects?.properties as
+      | Record<string, unknown>
+      | undefined
+    const modelNameField = properties?.model_name
+
+    if (
+      modelNameField &&
+      isTracecatJsonSchema(modelNameField) &&
+      getTracecatComponents(modelNameField).some(
+        (component) => component.component_id === "agent-model"
+      )
+    ) {
+      hiddenFields.add("model_provider")
+    }
+
+    return hiddenFields
+  }, [registryAction])
+  const visibleRequiredFields = useMemo(
+    () =>
+      requiredFields.filter(
+        ([fieldName]) => !systemManagedFieldNames.has(fieldName)
+      ),
+    [requiredFields, systemManagedFieldNames]
+  )
+  const visibleOptionalFieldEntries = useMemo(
+    () =>
+      optionalFields.filter(
+        ([fieldName]) => !systemManagedFieldNames.has(fieldName)
+      ),
+    [optionalFields, systemManagedFieldNames]
+  )
 
   // Track manually shown/hidden fields separately from fields with values
   const [manuallyVisibleFields, setManuallyVisibleFields] = useState<
@@ -616,7 +653,13 @@ function ActionPanelContent({
             const valErrs = apiError.body.detail as RequestValidationError[]
             console.error("Validation errors", valErrs)
             valErrs.forEach(({ loc, msg }) => {
-              const key: string = loc.slice(1).join(".")
+              let key: string = loc.slice(1).join(".")
+              if (
+                key === "inputs.model_provider" &&
+                systemManagedFieldNames.has("model_provider")
+              ) {
+                key = "inputs.model_name"
+              }
               // Skip the old combined field mapping since we now have individual fields
               // Combine errors if they have the same key
               if (errors[key]) {
@@ -652,6 +695,7 @@ function ActionPanelContent({
       inputMode,
       commitAllEditors,
       clearActionDraft,
+      systemManagedFieldNames,
     ]
   )
 
@@ -1030,35 +1074,37 @@ function ActionPanelContent({
                       {inputMode === "form" && formModeEnabled && (
                         <>
                           {/* Required fields - always shown */}
-                          {requiredFields.map(([fieldName, fieldDefn]) => {
-                            const fullFieldName = `inputs.${fieldName}`
-                            const label = fieldName
-                              .replaceAll("_", " ")
-                              .replace(/^\w/, (c) => c.toUpperCase())
-                            if (!isTracecatJsonSchema(fieldDefn)) {
-                              // For non-TracecatJsonSchema, we can't extract type information
+                          {visibleRequiredFields.map(
+                            ([fieldName, fieldDefn]) => {
+                              const fullFieldName = `inputs.${fieldName}`
+                              const label = fieldName
+                                .replaceAll("_", " ")
+                                .replace(/^\w/, (c) => c.toUpperCase())
+                              if (!isTracecatJsonSchema(fieldDefn)) {
+                                // For non-TracecatJsonSchema, we can't extract type information
+                                return (
+                                  <ControlledYamlField
+                                    key={fieldName}
+                                    label={label}
+                                    fieldName={fullFieldName}
+                                    info="Please sync your base actions repository to get the latest field schema."
+                                  />
+                                )
+                              }
+
                               return (
-                                <ControlledYamlField
+                                <PolymorphicField
                                   key={fieldName}
                                   label={label}
                                   fieldName={fullFieldName}
-                                  info="Please sync your base actions repository to get the latest field schema."
+                                  fieldDefn={fieldDefn}
                                 />
                               )
                             }
-
-                            return (
-                              <PolymorphicField
-                                key={fieldName}
-                                label={label}
-                                fieldName={fullFieldName}
-                                fieldDefn={fieldDefn}
-                              />
-                            )
-                          })}
+                          )}
 
                           {/* Optional fields - only shown if in visibleOptionalFields */}
-                          {optionalFields
+                          {visibleOptionalFieldEntries
                             .filter(([fieldName]) =>
                               visibleOptionalFields.has(fieldName)
                             )
@@ -1089,7 +1135,7 @@ function ActionPanelContent({
                             })}
 
                           {/* Add optional fields dropdown */}
-                          {optionalFields.length > 0 && (
+                          {visibleOptionalFieldEntries.length > 0 && (
                             <div className="mt-4">
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -1107,7 +1153,7 @@ function ActionPanelContent({
                                   collisionPadding={8}
                                   className="max-h-[var(--radix-dropdown-menu-content-available-height)] max-w-96 overflow-y-auto"
                                 >
-                                  {optionalFields.map(
+                                  {visibleOptionalFieldEntries.map(
                                     ([fieldName, fieldDefn]) => {
                                       const label = fieldName
                                         .replaceAll("_", " ")

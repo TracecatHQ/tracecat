@@ -100,6 +100,7 @@ class AgentConfigPayload(BaseModel):
 
     model_name: str
     model_provider: str
+    catalog_id: uuid.UUID | None = Field(default=None)
     base_url: str | None = Field(default=None)
     passthrough: bool = Field(default=False)
     instructions: str | None = Field(default=None)
