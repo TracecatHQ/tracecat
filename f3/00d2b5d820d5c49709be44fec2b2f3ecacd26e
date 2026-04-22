@@ -1,0 +1,25 @@
+tests/unit/api/test_api_actor_roles.py
+  45508ae7d680a89b 45,62,225
+tracecat/workspaces/router.py
+  45508ae7d680a89b 58,117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "f300d2b5d820d5c49709be44fec2b2f3ecacd26e",
+  "prompts": {
+    "45508ae7d680a89b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db5a2-2863-7460-b9f2-0024395ae451",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 95,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}
