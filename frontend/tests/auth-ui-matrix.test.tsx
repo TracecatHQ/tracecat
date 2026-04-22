@@ -3,6 +3,7 @@
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import SignInPage from "@/app/sign-in/[[...sign-in]]/page"
 import { authDiscoverAuthMethod } from "@/client"
 import { SignIn } from "@/components/auth/sign-in"
 import { SignUp } from "@/components/auth/sign-up"
@@ -18,12 +19,14 @@ type MockAppInfo = {
 }
 
 const mockRouterPush = jest.fn()
+const mockRouterReplace = jest.fn()
 const mockLogin = jest.fn()
 const mockLogout = jest.fn()
 const mockRegister = jest.fn()
+let mockSearchParams = new URLSearchParams()
 
 let mockUser: { email: string; isSuperuser: boolean } | null = null
-let mockAppInfo: MockAppInfo = {
+let mockAppInfo: MockAppInfo | undefined = {
   version: "test",
   public_app_url: "http://localhost:3000",
   auth_allowed_types: ["basic"],
@@ -35,7 +38,8 @@ let mockAppInfoIsLoading = false
 let mockAppInfoError: Error | null = null
 
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockRouterPush }),
+  useRouter: () => ({ push: mockRouterPush, replace: mockRouterReplace }),
+  useSearchParams: () => mockSearchParams,
 }))
 
 jest.mock("next/image", () => ({
@@ -91,15 +95,26 @@ jest.mock("@/client", () => {
 
 function setAuthTypes(authAllowedTypes: string[]): void {
   mockAppInfo = {
-    ...mockAppInfo,
+    ...(mockAppInfo ?? getDefaultAppInfo()),
     auth_allowed_types: authAllowedTypes,
   }
 }
 
 function setMultiTenant(eeMultiTenant: boolean): void {
   mockAppInfo = {
-    ...mockAppInfo,
+    ...(mockAppInfo ?? getDefaultAppInfo()),
     ee_multi_tenant: eeMultiTenant,
+  }
+}
+
+function getDefaultAppInfo(): MockAppInfo {
+  return {
+    version: "test",
+    public_app_url: "http://localhost:3000",
+    auth_allowed_types: ["basic"],
+    saml_enabled: false,
+    saml_enforced: false,
+    ee_multi_tenant: false,
   }
 }
 
@@ -116,6 +131,8 @@ describe("Auth UI matrix", () => {
     jest.clearAllMocks()
     consoleErrorSpy = jest.spyOn(console, "error").mockImplementation(() => {})
     mockUser = null
+    mockSearchParams = new URLSearchParams()
+    mockAppInfo = getDefaultAppInfo()
     mockAppInfoIsLoading = false
     mockAppInfoError = null
     setAuthTypes(["basic"])
@@ -228,6 +245,19 @@ describe("Auth UI matrix", () => {
     await waitFor(() => {
       expect(mockStartOidcLogin).toHaveBeenCalledWith("/workspaces")
     })
+  })
+
+  it("defaults unknown tenancy to workspaces for authenticated superusers on sign-in", async () => {
+    mockUser = { email: "admin@example.com", isSuperuser: true }
+    mockAppInfo = undefined
+    mockAppInfoError = new Error("Unable to fetch app info")
+
+    render(<SignInPage />)
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith("/workspaces")
+    })
+    expect(mockRouterReplace).not.toHaveBeenCalledWith("/admin")
   })
 
   it.each([

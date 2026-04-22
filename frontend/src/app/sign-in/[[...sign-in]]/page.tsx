@@ -27,7 +27,7 @@ function SignInContent() {
     router.replace(
       getPostAuthRedirectPath({
         isSuperuser: user.isSuperuser,
-        eeMultiTenant: appInfo?.ee_multi_tenant ?? true,
+        eeMultiTenant: appInfo?.ee_multi_tenant ?? false,
         returnUrl,
       })
     )
