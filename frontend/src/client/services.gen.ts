@@ -167,6 +167,8 @@ import type {
   AgentSkillsGetSkillDraftResponse,
   AgentSkillsGetSkillResponse,
   AgentSkillsGetSkillVersionData,
+  AgentSkillsGetSkillVersionFileData,
+  AgentSkillsGetSkillVersionFileResponse,
   AgentSkillsGetSkillVersionResponse,
   AgentSkillsListSkillsData,
   AgentSkillsListSkillsResponse,
@@ -5368,6 +5370,37 @@ export const agentSkillsGetSkillVersion = (
       version_id: data.versionId,
     },
     query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Skill Version File
+ * Return one published version file inline or as a presigned download.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.versionId
+ * @param data.path
+ * @param data.workspaceId
+ * @returns SkillDraftFileRead Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsGetSkillVersionFile = (
+  data: AgentSkillsGetSkillVersionFileData
+): CancelablePromise<AgentSkillsGetSkillVersionFileResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/skills/{skill_id}/versions/{version_id}/file",
+    path: {
+      skill_id: data.skillId,
+      version_id: data.versionId,
+    },
+    query: {
+      path: data.path,
       workspace_id: data.workspaceId,
     },
     errors: {

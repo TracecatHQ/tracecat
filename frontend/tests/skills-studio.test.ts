@@ -28,8 +28,7 @@ jest.mock("@/lib/skills-studio", () => {
 const mockSkillOne: SkillRead = {
   id: "skill-1",
   workspace_id: "workspace-1",
-  slug: "skill-1",
-  title: "Skill 1",
+  name: "skill-1",
   description: null,
   current_version_id: null,
   draft_revision: 1,
@@ -45,8 +44,7 @@ const mockSkillOne: SkillRead = {
 const mockSkillTwo: SkillRead = {
   id: "skill-2",
   workspace_id: "workspace-1",
-  slug: "skill-2",
-  title: "Skill 2",
+  name: "skill-2",
   description: null,
   current_version_id: null,
   draft_revision: 3,
@@ -68,9 +66,9 @@ const mockSkillsById: Record<string, SkillRead> = {
 
 const mockDraftOne: SkillDraftRead = {
   skill_id: "skill-1",
-  skill_slug: "skill-1",
+  skill_name: "skill-1",
   draft_revision: 1,
-  title: "Skill 1",
+  name: "Skill 1",
   description: null,
   files: [
     {
@@ -87,9 +85,9 @@ const mockDraftOne: SkillDraftRead = {
 
 const mockDraftTwo: SkillDraftRead = {
   skill_id: "skill-2",
-  skill_slug: "skill-2",
+  skill_name: "skill-2",
   draft_revision: 3,
-  title: "Skill 2",
+  name: "Skill 2",
   description: null,
   files: [
     {

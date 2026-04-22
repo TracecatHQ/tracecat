@@ -17,6 +17,7 @@ import type {
   SkillDraftRead,
   SkillDraftUpsertTextFileOp,
   SkillRead,
+  SkillReadMinimal,
   SkillUpload,
   SkillVersionRead,
 } from "@/client"
@@ -62,7 +63,7 @@ type UseSkillsStudioReturn = {
   // Skill list panel
   search: string
   onSearchChange: (value: string) => void
-  visibleSkills: SkillRead[]
+  visibleSkills: SkillReadMinimal[]
   skillsLoading: boolean
   skillsError: TracecatApiError | null
   onSelectSkill: (skillId: string) => void
@@ -114,10 +115,8 @@ type UseSkillsStudioReturn = {
   // Create skill dialog
   showNewSkillDialog: boolean
   onNewSkillDialogChange: (open: boolean) => void
-  newSkillTitle: string
-  onNewSkillTitleChange: (value: string) => void
-  newSkillSlug: string
-  onNewSkillSlugChange: (value: string) => void
+  newSkillName: string
+  onNewSkillNameChange: (value: string) => void
   newSkillDescription: string
   onNewSkillDescriptionChange: (value: string) => void
   createSkillPending: boolean
@@ -162,8 +161,7 @@ export function useSkillsStudio(params: {
   const [showNewSkillDialog, setShowNewSkillDialog] = useState(false)
   const [showUploadSkillDialog, setShowUploadSkillDialog] = useState(false)
   const [showNewFileDialog, setShowNewFileDialog] = useState(false)
-  const [newSkillSlug, setNewSkillSlug] = useState("")
-  const [newSkillTitle, setNewSkillTitle] = useState("")
+  const [newSkillName, setNewSkillName] = useState("")
   const [newSkillDescription, setNewSkillDescription] = useState("")
   const [newFilePath, setNewFilePath] = useState("")
   const [isDragOver, setIsDragOver] = useState(false)
@@ -261,8 +259,7 @@ export function useSkillsStudio(params: {
     }
     return (skills ?? []).filter((s) => {
       return (
-        s.slug.toLowerCase().includes(query) ||
-        (s.title ?? "").toLowerCase().includes(query) ||
+        s.name.toLowerCase().includes(query) ||
         (s.description ?? "").toLowerCase().includes(query)
       )
     })
@@ -347,16 +344,13 @@ export function useSkillsStudio(params: {
   }
 
   const handleCreateSkill = async () => {
-    const slug =
-      slugify(newSkillSlug.trim() || newSkillTitle.trim(), "-") || "skill"
+    const name = slugify(newSkillName.trim(), "-") || "skill"
     const created = await createSkill({
-      slug,
-      title: newSkillTitle.trim() || null,
+      name,
       description: newSkillDescription.trim() || null,
     })
     setShowNewSkillDialog(false)
-    setNewSkillSlug("")
-    setNewSkillTitle("")
+    setNewSkillName("")
     setNewSkillDescription("")
     router.push(`/workspaces/${workspaceId}/skills/${created.id}`)
   }
@@ -384,12 +378,12 @@ export function useSkillsStudio(params: {
         return await fileToUploadEntry(file, relativePath || file.name)
       })
     )
-    const slug = slugify(
+    const name = slugify(
       rootName ?? files[0]?.file.name.replace(/\.[^.]+$/, ""),
       "-"
     )
     await handleUploadPayload({
-      slug: slug || "skill",
+      name: name || "skill",
       files: normalizedFiles,
     })
   }
@@ -722,10 +716,8 @@ export function useSkillsStudio(params: {
 
     showNewSkillDialog,
     onNewSkillDialogChange: setShowNewSkillDialog,
-    newSkillTitle,
-    onNewSkillTitleChange: setNewSkillTitle,
-    newSkillSlug,
-    onNewSkillSlugChange: setNewSkillSlug,
+    newSkillName,
+    onNewSkillNameChange: setNewSkillName,
     newSkillDescription,
     onNewSkillDescriptionChange: setNewSkillDescription,
     createSkillPending,

@@ -9801,6 +9801,15 @@ export type AgentSkillsGetSkillVersionData = {
 
 export type AgentSkillsGetSkillVersionResponse = SkillVersionRead
 
+export type AgentSkillsGetSkillVersionFileData = {
+  path: string
+  skillId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type AgentSkillsGetSkillVersionFileResponse = SkillDraftFileRead
+
 export type AgentSkillsRestoreSkillVersionData = {
   skillId: string
   versionId: string
@@ -14162,6 +14171,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: SkillVersionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/skills/{skill_id}/versions/{version_id}/file": {
+    get: {
+      req: AgentSkillsGetSkillVersionFileData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillDraftFileRead
         /**
          * Validation Error
          */

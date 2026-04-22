@@ -62,24 +62,24 @@ export function isMarkdownPath(path: string): boolean {
   return path.endsWith(".md")
 }
 
-const SKILL_SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
-const SKILL_SLUG_MAX_LENGTH = 64
+const SKILL_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
+const SKILL_NAME_MAX_LENGTH = 64
 
 /**
- * Validates a skill slug against the Agent Skills `name` rules: kebab-case
+ * Validates a skill name against the Agent Skills `name` rules: kebab-case
  * (lowercase letters, digits, and single hyphens), 1-64 characters.
  *
- * Returns a human-readable error message, or null if the slug is valid.
+ * Returns a human-readable error message, or null if the name is valid.
  */
-export function validateSkillSlug(slug: string): string | null {
-  const trimmed = slug.trim()
+export function validateSkillName(name: string): string | null {
+  const trimmed = name.trim()
   if (trimmed.length === 0) {
-    return "Slug is required."
+    return "Name is required."
   }
-  if (trimmed.length > SKILL_SLUG_MAX_LENGTH) {
-    return `Slug must be ${SKILL_SLUG_MAX_LENGTH} characters or fewer.`
+  if (trimmed.length > SKILL_NAME_MAX_LENGTH) {
+    return `Name must be ${SKILL_NAME_MAX_LENGTH} characters or fewer.`
   }
-  if (!SKILL_SLUG_PATTERN.test(trimmed)) {
+  if (!SKILL_NAME_PATTERN.test(trimmed)) {
     return "Use lowercase letters, numbers, and single hyphens (e.g. threat-intel)."
   }
   return null

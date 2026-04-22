@@ -11,16 +11,14 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { validateSkillSlug } from "@/lib/skills-studio"
+import { validateSkillName } from "@/lib/skills-studio"
 import { cn, slugify } from "@/lib/utils"
 
 type CreateSkillDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  title: string
-  onTitleChange: (value: string) => void
-  slug: string
-  onSlugChange: (value: string) => void
+  name: string
+  onNameChange: (value: string) => void
   description: string
   onDescriptionChange: (value: string) => void
   pending: boolean
@@ -28,25 +26,23 @@ type CreateSkillDialogProps = {
 }
 
 /**
- * Dialog for creating a new empty skill with title, slug, and description.
+ * Dialog for creating a new empty skill with name and description.
  *
  * @param props Dialog state and callbacks from the parent hook.
  */
 export function CreateSkillDialog({
   open,
   onOpenChange,
-  title,
-  onTitleChange,
-  slug,
-  onSlugChange,
+  name,
+  onNameChange,
   description,
   onDescriptionChange,
   pending,
   onCreate,
 }: CreateSkillDialogProps) {
-  const slugError = validateSkillSlug(slug)
-  const showSlugError = slug.trim().length > 0 && slugError !== null
-  const canCreate = !pending && slugError === null
+  const nameError = validateSkillName(name)
+  const showNameError = name.trim().length > 0 && nameError !== null
+  const canCreate = !pending && nameError === null && name.trim().length > 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -59,36 +55,22 @@ export function CreateSkillDialog({
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-2">
-            <Label htmlFor="new-skill-title">Title</Label>
+            <Label htmlFor="new-skill-name">Name</Label>
             <Input
-              id="new-skill-title"
-              value={title}
-              onChange={(event) => {
-                const nextTitle = event.target.value
-                const generatedSlug = slugify(title, "-")
-                onTitleChange(nextTitle)
-                if (!slug || slug === generatedSlug) {
-                  onSlugChange(slugify(nextTitle, "-"))
-                }
-              }}
-              placeholder="Threat Intel"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="new-skill-slug">Slug</Label>
-            <Input
-              id="new-skill-slug"
-              value={slug}
-              onChange={(event) => onSlugChange(event.target.value)}
+              id="new-skill-name"
+              value={name}
+              onChange={(event) =>
+                onNameChange(slugify(event.target.value, "-"))
+              }
               placeholder="threat-intel"
-              aria-invalid={showSlugError || undefined}
+              aria-invalid={showNameError || undefined}
               className={cn(
-                showSlugError &&
+                showNameError &&
                   "border-destructive focus-visible:ring-destructive"
               )}
             />
-            {showSlugError ? (
-              <p className="text-xs text-destructive">{slugError}</p>
+            {showNameError ? (
+              <p className="text-xs text-destructive">{nameError}</p>
             ) : (
               <p className="text-xs text-muted-foreground">
                 Lowercase letters, numbers, and single hyphens. Max 64

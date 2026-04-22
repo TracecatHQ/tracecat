@@ -9,7 +9,7 @@ import {
   SearchX,
   Upload,
 } from "lucide-react"
-import type { SkillRead } from "@/client"
+import type { SkillReadMinimal } from "@/client"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,7 +29,7 @@ type SkillListPanelProps = {
   activeSkillId: string | null
   search: string
   onSearchChange: (value: string) => void
-  visibleSkills: SkillRead[]
+  visibleSkills: SkillReadMinimal[]
   skillsLoading: boolean
   skillsError: TracecatApiError | null
   onSelectSkill: (skillId: string) => void
@@ -156,18 +156,16 @@ export function SkillListPanel({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate font-medium">
-                        {listedSkill.title ?? listedSkill.slug}
+                        {listedSkill.name}
                       </span>
-                      {listedSkill.current_version ? (
-                        <Badge variant="outline">
-                          v{listedSkill.current_version.version}
-                        </Badge>
+                      {listedSkill.current_version_id ? (
+                        <Badge variant="outline">Published</Badge>
                       ) : (
                         <Badge variant="secondary">Unpublished</Badge>
                       )}
                     </div>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {listedSkill.slug}
+                    <p className="line-clamp-2 text-xs text-muted-foreground">
+                      {listedSkill.description?.trim() || "No description"}
                     </p>
                   </button>
                 )

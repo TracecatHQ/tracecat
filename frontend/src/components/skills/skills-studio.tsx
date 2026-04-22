@@ -49,6 +49,7 @@ function SkillsStudioContent({
             <div className="flex h-full min-h-0 flex-col">
               {studio.selectedSkillId && studio.skill && studio.draft ? (
                 <WorkingCopyBar
+                  workspaceId={workspaceId}
                   skill={studio.skill}
                   draft={studio.draft}
                   versions={studio.versions}
@@ -100,10 +101,8 @@ function SkillsStudioContent({
       <CreateSkillDialog
         open={studio.showNewSkillDialog}
         onOpenChange={studio.onNewSkillDialogChange}
-        title={studio.newSkillTitle}
-        onTitleChange={studio.onNewSkillTitleChange}
-        slug={studio.newSkillSlug}
-        onSlugChange={studio.onNewSkillSlugChange}
+        name={studio.newSkillName}
+        onNameChange={studio.onNewSkillNameChange}
         description={studio.newSkillDescription}
         onDescriptionChange={studio.onNewSkillDescriptionChange}
         pending={studio.createSkillPending}

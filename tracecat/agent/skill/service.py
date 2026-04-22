@@ -1288,6 +1288,63 @@ class SkillService(BaseWorkspaceService):
         )
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def get_version_file(
+        self, *, skill_id: uuid.UUID, version_id: uuid.UUID, path: str
+    ) -> SkillDraftFileRead | None:
+        """Return one published version file inline or as a presigned download."""
+
+        normalized_path = self._normalize_path(path)
+        stmt = (
+            select(SkillVersionFile, SkillBlob)
+            .join(SkillBlob, SkillVersionFile.blob_id == SkillBlob.id)
+            .where(
+                SkillVersionFile.workspace_id == self.workspace_id,
+                SkillVersionFile.skill_version_id == version_id,
+                SkillVersionFile.path == normalized_path,
+            )
+        )
+        row = (await self.session.execute(stmt)).tuples().first()
+        if row is None:
+            return None
+        version_file, blob_row = row
+
+        version = await self.get_version(version_id)
+        if version is None or version.skill_id != skill_id:
+            return None
+
+        if self._is_inline_text(
+            version_file.content_type, size_bytes=blob_row.size_bytes
+        ):
+            try:
+                content = await blob.download_file(
+                    key=blob_row.key,
+                    bucket=blob_row.bucket,
+                )
+                return SkillDraftFileRead(
+                    kind="inline",
+                    path=normalized_path,
+                    content_type=version_file.content_type,
+                    size_bytes=blob_row.size_bytes,
+                    sha256=blob_row.sha256,
+                    text_content=content.decode("utf-8"),
+                )
+            except UnicodeDecodeError:
+                pass
+
+        return SkillDraftFileRead(
+            kind="download",
+            path=normalized_path,
+            content_type=version_file.content_type,
+            size_bytes=blob_row.size_bytes,
+            sha256=blob_row.sha256,
+            download_url=await blob.generate_presigned_download_url(
+                key=blob_row.key,
+                bucket=blob_row.bucket,
+                override_content_type=version_file.content_type,
+            ),
+        )
+
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_draft_text_file(
         self, *, skill_id: uuid.UUID, path: str
     ) -> str | None:

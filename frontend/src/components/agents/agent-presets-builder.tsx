@@ -40,7 +40,7 @@ import type {
   AgentPresetCreate,
   AgentPresetRead,
   AgentPresetUpdate,
-  SkillRead,
+  SkillReadMinimal,
   SkillVersionRead,
 } from "@/client"
 import { AgentPresetDeleteDialog } from "@/components/agents/agent-preset-delete-dialog"
@@ -2057,15 +2057,13 @@ function AgentPresetSkillsPanel({
             {availableSkillsToAdd.map((skill) => (
               <CommandItem
                 key={skill.id}
-                value={`${skill.title ?? skill.slug} ${skill.slug} ${
-                  skill.description ?? ""
-                }`}
+                value={`${skill.name} ${skill.description ?? ""}`}
                 onSelect={() => handleAddSkill(skill.id)}
               >
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  <span>{skill.title ?? skill.slug}</span>
+                  <span>{skill.name}</span>
                   <span className="truncate text-xs text-muted-foreground">
-                    {skill.description?.trim() || skill.slug}
+                    {skill.description?.trim() || skill.name}
                   </span>
                 </div>
               </CommandItem>
@@ -2089,7 +2087,7 @@ function AgentPresetSkillBindingRow({
   workspaceId: string
   index: number
   isSaving: boolean
-  availableSkills: SkillRead[]
+  availableSkills: SkillReadMinimal[]
   onRemove: (index: number) => void
 }) {
   const skillFieldName = `skills.${index}.skillId` as const
@@ -2149,7 +2147,11 @@ function AgentPresetSkillBindingRow({
   const skillHref = selectedSkillId
     ? `/workspaces/${workspaceId}/skills/${selectedSkillId}`
     : null
-  const skillDescription = selectedSkill?.description?.trim() || null
+  const displaySkillName = selectedVersion?.name?.trim() || selectedSkill?.name
+  const displaySkillDescription =
+    selectedVersion?.description?.trim() ||
+    selectedSkill?.description?.trim() ||
+    null
 
   function handleOpenSkill() {
     if (!skillHref) {
@@ -2169,21 +2171,15 @@ function AgentPresetSkillBindingRow({
               className="min-w-0 truncate rounded-sm text-left text-sm font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={handleOpenSkill}
             >
-              {selectedSkill?.title ?? selectedSkill?.slug ?? "Unknown skill"}
+              {displaySkillName ?? "Unknown skill"}
             </button>
           ) : (
             <span className="truncate text-sm font-medium">
-              {selectedSkill?.title ?? selectedSkill?.slug ?? "Unknown skill"}
+              {displaySkillName ?? "Unknown skill"}
             </span>
           )}
-          {selectedSkill?.title &&
-          selectedSkill.title !== selectedSkill.slug ? (
-            <span className="shrink-0 text-xs text-muted-foreground">
-              {selectedSkill.slug}
-            </span>
-          ) : null}
         </div>
-        {skillDescription ? (
+        {displaySkillDescription ? (
           <div className="space-y-1">
             <p
               className={
@@ -2192,7 +2188,7 @@ function AgentPresetSkillBindingRow({
                   : "line-clamp-2 text-xs text-muted-foreground"
               }
             >
-              {skillDescription}
+              {displaySkillDescription}
             </p>
             <button
               type="button"
@@ -2720,8 +2716,8 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
 }
 
 function formatSkillVersionLabel(version: SkillVersionRead): string {
-  const title = version.title?.trim()
-  return title ? `v${version.version} · ${title}` : `v${version.version}`
+  const name = version.name.trim()
+  return name ? `v${version.version} · ${name}` : `v${version.version}`
 }
 
 function normalizeOptional(value: string | null | undefined) {

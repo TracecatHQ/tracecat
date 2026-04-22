@@ -7,6 +7,8 @@ import {
   agentSkillsGetSkill,
   agentSkillsGetSkillDraft,
   agentSkillsGetSkillDraftFile,
+  agentSkillsGetSkillVersion,
+  agentSkillsGetSkillVersionFile,
   agentSkillsListSkills,
   agentSkillsListSkillVersions,
   agentSkillsPatchSkillDraft,
@@ -18,6 +20,7 @@ import {
   type SkillDraftPatch,
   type SkillDraftRead,
   type SkillRead,
+  type SkillReadMinimal,
   type SkillUpload,
   type SkillUploadSessionCreate,
   type SkillUploadSessionRead,
@@ -40,14 +43,14 @@ import {
  * const { skills } = useSkills(workspaceId)
  */
 export function useSkills(workspaceId?: string) {
-  const query = useQuery<SkillRead[], TracecatApiError>({
+  const query = useQuery<SkillReadMinimal[], TracecatApiError>({
     queryKey: ["skills", workspaceId],
     queryFn: async () => {
       if (!workspaceId) {
         throw new Error("workspaceId is required to list skills")
       }
 
-      const items: SkillRead[] = []
+      const items: SkillReadMinimal[] = []
       let cursor: string | undefined
       do {
         const page = await agentSkillsListSkills({
@@ -203,6 +206,83 @@ export function useSkillVersions(
 }
 
 /**
+ * Get one immutable published version manifest for a skill.
+ *
+ * @param workspaceId Workspace identifier.
+ * @param skillId Skill identifier.
+ * @param versionId Version identifier.
+ * @returns Skill version detail query state.
+ */
+export function useSkillVersion(
+  workspaceId?: string,
+  skillId?: string | null,
+  versionId?: string | null
+) {
+  const query = useQuery<SkillVersionRead, TracecatApiError>({
+    queryKey: ["skill-version", workspaceId, skillId, versionId],
+    queryFn: async () => {
+      if (!workspaceId || !skillId || !versionId) {
+        throw new Error("workspaceId, skillId, and versionId are required")
+      }
+      return await agentSkillsGetSkillVersion({
+        workspaceId,
+        skillId,
+        versionId,
+      })
+    },
+    enabled: Boolean(workspaceId && skillId && versionId),
+    retry: retryHandler,
+  })
+
+  return {
+    version: query.data,
+    versionLoading: query.isLoading,
+    versionError: query.error,
+  }
+}
+
+/**
+ * Get one file from an immutable published skill version.
+ *
+ * @param workspaceId Workspace identifier.
+ * @param skillId Skill identifier.
+ * @param versionId Published version identifier.
+ * @param path Relative file path in the version.
+ * @returns Skill version file query state.
+ */
+export function useSkillVersionFile(
+  workspaceId?: string,
+  skillId?: string | null,
+  versionId?: string | null,
+  path?: string | null
+) {
+  const query = useQuery<SkillDraftFileRead, TracecatApiError>({
+    queryKey: ["skill-version-file", workspaceId, skillId, versionId, path],
+    queryFn: async () => {
+      if (!workspaceId || !skillId || !versionId || !path) {
+        throw new Error(
+          "workspaceId, skillId, versionId, and path are required"
+        )
+      }
+      return await agentSkillsGetSkillVersionFile({
+        workspaceId,
+        skillId,
+        versionId,
+        path,
+      })
+    },
+    enabled: Boolean(workspaceId && skillId && versionId && path),
+    retry: retryHandler,
+  })
+
+  return {
+    versionFile: query.data,
+    versionFileLoading: query.isLoading,
+    versionFileError: query.error,
+  }
+}
+
+/**
  * Create a new empty skill.
  *
  * @param workspaceId Workspace identifier.
@@ -223,7 +303,7 @@ export function useCreateSkill(workspaceId: string) {
       })
       toast({
         title: "Skill created",
-        description: `Created ${skill.title ?? skill.slug}`,
+        description: `Created ${skill.name}`,
       })
     },
     onError: (error) => {
@@ -263,7 +343,7 @@ export function useUploadSkill(workspaceId: string) {
       })
       toast({
         title: "Skill uploaded",
-        description: `Imported ${skill.title ?? skill.slug}`,
+        description: `Imported ${skill.name}`,
       })
     },
     onError: (error) => {
@@ -406,7 +486,7 @@ export function usePublishSkill(workspaceId: string) {
 }
 
 /**
- * Restore a published version into the working copy.
+ * Set the currently active published version for a skill.
  *
  * @param workspaceId Workspace identifier.
  * @returns Restore mutation state.
@@ -414,35 +494,35 @@ export function usePublishSkill(workspaceId: string) {
 export function useRestoreSkillVersion(workspaceId: string) {
   const queryClient = useQueryClient()
   const mutation = useMutation<
-    SkillDraftRead,
+    SkillReadMinimal,
     TracecatApiError,
     { skillId: string; versionId: string }
   >({
     mutationFn: async ({ skillId, versionId }) =>
       await agentSkillsRestoreSkillVersion({ workspaceId, skillId, versionId }),
-    onSuccess: (draft, variables) => {
+    onSuccess: (_skill, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["skills", workspaceId],
       })
       queryClient.invalidateQueries({
         queryKey: ["skill", workspaceId, variables.skillId],
       })
-      queryClient.setQueryData(
-        ["skill-draft", workspaceId, variables.skillId],
-        draft
-      )
+      queryClient.invalidateQueries({
+        queryKey: ["skill-draft", workspaceId, variables.skillId],
+      })
       queryClient.invalidateQueries({
         queryKey: ["skill-draft-file", workspaceId, variables.skillId],
       })
       toast({
-        title: "Working copy restored",
-        description: `Restored revision ${draft.draft_revision}`,
+        title: "Active version updated",
+        description: "The selected published version is now active.",
       })
     },
     onError: (error) => {
       toast({
-        title: "Restore failed",
-        description: getApiErrorDetail(error) ?? "Failed to restore version.",
+        title: "Update failed",
+        description:
+          getApiErrorDetail(error) ?? "Failed to update the active version.",
         variant: "destructive",
       })
     },

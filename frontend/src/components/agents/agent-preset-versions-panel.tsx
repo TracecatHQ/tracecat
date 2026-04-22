@@ -512,7 +512,7 @@ function VersionsCompareView({
                       <div className="px-3 py-3 text-xs">
                         <div className="flex items-center gap-2 font-medium text-foreground">
                           <Pyramid className="size-3.5 text-muted-foreground" />
-                          <span>{change.skill_slug}</span>
+                          <span>{change.skill_name}</span>
                         </div>
                         <div className="mt-3 grid gap-3 md:grid-cols-2">
                           <div className="text-muted-foreground">
