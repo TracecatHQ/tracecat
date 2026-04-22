@@ -1,0 +1,14 @@
+tracecat/auth/types.py
+  h_a05ba93e776158 86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "73afa71a9362a3be77078ae508c5bf59b0aa6061",
+  "prompts": {},
+  "humans": {
+    "h_a05ba93e776158": {
+      "author": "Daryl Lim"
+    }
+  }
+}
