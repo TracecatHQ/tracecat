@@ -303,6 +303,7 @@ async def test_auth_cache_reduces_database_queries(mocker):
     mock_user = MagicMock(spec=User)
     mock_user.id = uuid.uuid4()
     mock_user.role = UserRole.BASIC
+    mock_user.is_superuser = False
 
     workspace_id_1 = uuid.uuid4()
     workspace_id_2 = uuid.uuid4()
@@ -420,10 +421,12 @@ async def test_performance_improvement(mocker):
     admin_user = MagicMock(spec=User)
     admin_user.id = uuid.uuid4()
     admin_user.role = UserRole.ADMIN
+    admin_user.is_superuser = False
 
     basic_user = MagicMock(spec=User)
     basic_user.id = uuid.uuid4()
     basic_user.role = UserRole.BASIC
+    basic_user.is_superuser = False
 
     workspace_id = uuid.uuid4()
 
@@ -551,10 +554,12 @@ async def test_cache_user_id_validation():
     user1 = MagicMock(spec=User)
     user1.id = uuid.uuid4()
     user1.role = UserRole.BASIC
+    user1.is_superuser = False
 
     user2 = MagicMock(spec=User)
     user2.id = uuid.uuid4()
     user2.role = UserRole.BASIC
+    user2.is_superuser = False
 
     workspace_id = uuid.uuid4()
 
@@ -645,6 +650,7 @@ async def test_cache_size_limit():
     user = MagicMock(spec=User)
     user.id = uuid.uuid4()
     user.role = UserRole.BASIC
+    user.is_superuser = False
 
     # Create 1500 memberships (exceeds MAX_CACHED_MEMBERSHIPS = 1000)
     memberships = [
