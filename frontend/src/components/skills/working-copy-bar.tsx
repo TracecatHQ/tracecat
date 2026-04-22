@@ -157,7 +157,12 @@ export function WorkingCopyBar({
     if (!versionToRestore) {
       return
     }
-    await onRestore(versionToRestore.id)
+    try {
+      await onRestore(versionToRestore.id)
+    } catch {
+      // The mutation hook reports restore failures; keep the dialog open.
+      return
+    }
     setVersionToRestore(null)
   }
 
