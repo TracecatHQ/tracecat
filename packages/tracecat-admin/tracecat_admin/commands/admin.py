@@ -8,9 +8,11 @@ from functools import wraps
 from typing import Annotated, Any
 
 import typer
+from rich.text import Text
 
 from tracecat_admin.client import AdminClient, AdminClientError
 from tracecat_admin.output import (
+    console,
     print_error,
     print_success,
     print_user_detail,
@@ -28,6 +30,13 @@ def async_command[F: Callable[..., Any]](func: F) -> F:
         return asyncio.run(func(*args, **kwargs))
 
     return wrapper  # type: ignore[return-value]
+
+
+def print_dev_seed(message: str) -> None:
+    """Print a colorized dev seed message with a literal prefix."""
+    text = Text("[dev-seed] ", style="green")
+    text.append(message, style="green")
+    console.print(text)
 
 
 @app.command("list-users")
@@ -200,6 +209,127 @@ def create_superuser(
             print_success(f"Created and promoted user '{email}' to superuser")
         else:
             print_success(f"Promoted existing user '{email}' to superuser")
+    except Exception as e:
+        print_error(str(e))
+        raise typer.Exit(1) from None
+
+
+@app.command("create-dev-user")
+def create_dev_user(
+    email: Annotated[
+        str,
+        typer.Option(
+            "--email",
+            "-e",
+            help="Dev user email address",
+            envvar="TRACECAT__DEV_USER_EMAIL",
+        ),
+    ] = "dev@tracecat.com",
+    password: Annotated[
+        str,
+        typer.Option(
+            "--password",
+            "-p",
+            help="Dev user password",
+            envvar="TRACECAT__DEV_USER_PASSWORD",
+        ),
+    ] = "password1234",
+    superuser_email: Annotated[
+        str,
+        typer.Option(
+            "--superuser-email",
+            help="Dev platform superuser email address",
+            envvar="TRACECAT__DEV_SUPERUSER_EMAIL",
+        ),
+    ] = "test@tracecat.com",
+    superuser_password: Annotated[
+        str,
+        typer.Option(
+            "--superuser-password",
+            help="Dev platform superuser password",
+            envvar="TRACECAT__DEV_SUPERUSER_PASSWORD",
+        ),
+    ] = "password1234",
+    default_tier_entitlements: Annotated[
+        str,
+        typer.Option(
+            "--default-tier-entitlements",
+            help="Default tier entitlements: all, none, or comma-separated names",
+            envvar="TRACECAT__DEV_DEFAULT_TIER_ENTITLEMENTS",
+        ),
+    ] = "all",
+    org_role: Annotated[
+        str,
+        typer.Option(
+            "--org-role",
+            help="Organization role slug to assign",
+            envvar="TRACECAT__DEV_ORG_ROLE",
+        ),
+    ] = "organization-owner",
+    workspace_role: Annotated[
+        str,
+        typer.Option(
+            "--workspace-role",
+            help="Workspace role slug to assign",
+            envvar="TRACECAT__DEV_WORKSPACE_ROLE",
+        ),
+    ] = "workspace-admin",
+) -> None:
+    """Create local development superuser and tenant accounts.
+
+    This command operates directly on the database and is intended for dev
+    cluster seeding only. It creates or updates a platform superuser, creates
+    or updates a tenant user, adds org and workspace memberships, and assigns
+    RBAC roles.
+    """
+    try:
+        from tracecat_admin.services.bootstrap import (
+            create_dev_user as bootstrap_create_dev_user,
+        )
+    except ImportError:
+        print_error(
+            "Bootstrap dependencies not installed. "
+            "Install with: pip install tracecat-admin[bootstrap]"
+        )
+        raise typer.Exit(1) from None
+
+    if len(password) < 12:
+        print_error("Password must be at least 12 characters")
+        raise typer.Exit(1)
+    if len(superuser_password) < 12:
+        print_error("Superuser password must be at least 12 characters")
+        raise typer.Exit(1)
+
+    try:
+        result = asyncio.run(
+            bootstrap_create_dev_user(
+                email=email,
+                password=password,
+                superuser_email=superuser_email,
+                superuser_password=superuser_password,
+                default_tier_entitlements=default_tier_entitlements,
+                org_role=org_role,
+                workspace_role=workspace_role,
+            )
+        )
+        verb = "Created" if result.created else "Updated"
+        superuser_verb = "Created" if result.superuser_created else "Updated"
+        print_dev_seed(
+            f"{superuser_verb} platform superuser '{result.superuser_email}'"
+        )
+        print_dev_seed(
+            f"{verb} dev user '{result.email}' ({result.org_role}, {result.workspace_role})"
+        )
+        enabled_entitlements = [
+            name
+            for name, enabled in result.default_tier_entitlements.items()
+            if enabled
+        ]
+        enabled_display = ", ".join(enabled_entitlements) or "none"
+        print_dev_seed(f"Organization: {result.organization_id}")
+        print_dev_seed(f"Workspace: {result.workspace_id}")
+        print_dev_seed(f"Default tier: {result.default_tier_id}")
+        print_dev_seed(f"Default tier entitlements: {enabled_display}")
     except Exception as e:
         print_error(str(e))
         raise typer.Exit(1) from None

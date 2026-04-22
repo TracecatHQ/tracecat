@@ -70,7 +70,7 @@ get_running_clusters() {
 
     docker compose ls --format json 2>/dev/null | jq -r '.[].Name' 2>/dev/null | while read -r project; do
         if [[ "$project" == ${prefix}* ]]; then
-            local num="${project#$prefix}"
+            local num="${project#"$prefix"}"
             if [[ "$num" =~ ^[0-9]+$ ]]; then
                 echo "$num"
             fi
@@ -223,7 +223,10 @@ Commands:
   up [args]     Start the cluster (e.g., up -d)
                 Reuses existing cluster for this worktree if one is running.
                 Use --new/-n to force a new cluster instead.
-                Use --seed to auto-register test@tracecat.com:password1234
+                Seeds test@tracecat.com superuser, dev@tracecat.com tenant
+                user, and all default tier entitlements by default for the dev
+                profile. Use --no-seed to skip.
+                Use --default-tier-entitlements all|none|a,b to override.
   down          Stop the cluster (keeps volumes)
   rm            Remove the cluster (down + remove volumes)
   restart [svc] Restart the cluster or specific service
@@ -244,9 +247,11 @@ Nuke options:
   nuke volumes          List and select volumes to remove
 
 Examples:
-  ./cluster up -d                Start cluster (reuses existing, or starts new)
+  ./cluster up -d                Start cluster and create dev users
   ./cluster up -d --new          Force a new cluster on next available number
-  ./cluster up -d --seed         Start cluster and register test user
+  ./cluster up -d --no-seed      Start cluster without creating dev tenant user
+  ./cluster up -d --default-tier-entitlements none
+  ./cluster up -d --default-tier-entitlements custom_registry,case_addons
   ./cluster down                 Stop cluster (keeps volumes)
   ./cluster rm                   Remove cluster and volumes
   ./cluster restart api          Restart the api service
@@ -366,11 +371,8 @@ list_clusters() {
         # Match any tracecat cluster: tracecat-{worktree}-{num}
         if [[ "$project" =~ ^tracecat-(.+)-([0-9]+)$ ]]; then
             found=true
-            local worktree="${BASH_REMATCH[1]}"
             local cluster_num="${BASH_REMATCH[2]}"
             calculate_ports "$cluster_num"
-            local status
-            status=$(docker compose -p "$project" ps --format json 2>/dev/null | jq -r 'if type == "array" then .[0].State else .State end' 2>/dev/null || echo "unknown")
             local marker=""
             [[ "$project" == "${current_worktree_prefix}${cluster_num}" ]] && marker=" (this worktree)"
             echo "  ${project}: http://localhost:${PUBLIC_APP_PORT}${marker}"
@@ -623,7 +625,7 @@ if [[ "$COMMAND" == "nuke" ]]; then
         fi
 
         echo "Volumes to remove:"
-        echo "$VOLUMES" | sed 's/^/  /'
+        printf '  %s\n' "${VOLUMES//$'\n'/$'\n'  }"
 
         if [[ "$DRY_RUN" == "true" ]]; then
             echo ""
@@ -732,33 +734,64 @@ if [[ "$COMMAND" == "up" ]]; then
     (cd "$REPO_ROOT" && pnpm -C frontend install > /dev/null 2>&1)
 fi
 
-# Check for --seed flag in up command
+# Check for seed flags in up command. Dev profile seeds by default.
 SEED_USER=false
+if [[ "$COMMAND" == "up" && "$PROFILE" == "dev" ]]; then
+    SEED_USER=true
+fi
+DETACHED_UP=false
+DEFAULT_TIER_ENTITLEMENTS="${TRACECAT__DEV_DEFAULT_TIER_ENTITLEMENTS:-all}"
 UP_ARGS=()
 if [[ "$COMMAND" == "up" ]]; then
-    for arg in "$@"; do
-        if [[ "$arg" == "--seed" ]]; then
-            SEED_USER=true
-        else
-            UP_ARGS+=("$arg")
-        fi
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -d|--detach)
+                DETACHED_UP=true
+                UP_ARGS+=("$1")
+                shift
+                ;;
+            --seed)
+                SEED_USER=true
+                shift
+                ;;
+            --no-seed)
+                SEED_USER=false
+                shift
+                ;;
+            --default-tier-entitlements)
+                if [[ $# -lt 2 ]]; then
+                    echo "Error: --default-tier-entitlements requires a value" >&2
+                    exit 1
+                fi
+                DEFAULT_TIER_ENTITLEMENTS="$2"
+                shift 2
+                ;;
+            --default-tier-entitlements=*)
+                DEFAULT_TIER_ENTITLEMENTS="${1#*=}"
+                shift
+                ;;
+            *)
+                UP_ARGS+=("$1")
+                shift
+                ;;
+        esac
     done
     set -- ${UP_ARGS[@]+"${UP_ARGS[@]}"}
 fi
 
-# Function to seed test user after cluster starts
-seed_test_user() {
+# Function to seed a tenant dev user after cluster starts
+seed_dev_user() {
     local api_url="http://localhost:${PUBLIC_APP_PORT}/api"
     local max_attempts=60
     local attempt=1
 
-    echo "Waiting for API to be ready..."
+    echo "[dev-seed] Waiting for API to be ready..."
     while [[ $attempt -le $max_attempts ]]; do
         # Use /ready endpoint which checks full startup completion (not /health which returns immediately)
         local status_code
         status_code=$(curl -s -o /dev/null -w "%{http_code}" "${api_url}/ready" 2>/dev/null || echo "000")
         if [[ "$status_code" == "200" ]]; then
-            echo "API is ready"
+            echo "[dev-seed] API is ready"
             break
         fi
         sleep 2
@@ -766,39 +799,44 @@ seed_test_user() {
     done
 
     if [[ $attempt -gt $max_attempts ]]; then
-        echo "Warning: API did not become ready in time, skipping user registration"
+        echo "[dev-seed] Warning: API did not become ready in time, skipping dev seed"
         return 1
     fi
 
-    echo "Registering test user (test@tracecat.com)..."
-    local response
-    response=$(curl -s -w "\n%{http_code}" -X POST "${api_url}/auth/register" \
-        -H "Content-Type: application/json" \
-        -d '{"email": "test@tracecat.com", "password": "password1234"}')
+    local seed_email="${TRACECAT__DEV_USER_EMAIL:-dev@tracecat.com}"
+    local seed_password="${TRACECAT__DEV_USER_PASSWORD:-password1234}"
+    local seed_superuser_email="${TRACECAT__DEV_SUPERUSER_EMAIL:-test@tracecat.com}"
+    local seed_superuser_password="${TRACECAT__DEV_SUPERUSER_PASSWORD:-password1234}"
+    local seed_org_role="${TRACECAT__DEV_ORG_ROLE:-organization-owner}"
+    local seed_workspace_role="${TRACECAT__DEV_WORKSPACE_ROLE:-workspace-admin}"
+    local seed_default_tier_entitlements="${DEFAULT_TIER_ENTITLEMENTS}"
+    local seed_db_uri="postgresql+psycopg://postgres:postgres@localhost:${PG_PORT}/postgres"
 
-    local http_code
-    http_code=$(echo "$response" | tail -n1)
-    local body
-    body=$(echo "$response" | sed '$d')
-
-    case "$http_code" in
-        201)
-            echo "Successfully registered test user"
-            ;;
-        400|409)
-            echo "Test user already exists"
-            ;;
-        *)
-            echo "Warning: Registration returned status $http_code: $body"
-            ;;
-    esac
+    echo "[dev-seed] Seeding dev superuser (${seed_superuser_email}), tenant user (${seed_email}), and default tier (${seed_default_tier_entitlements})..."
+    (
+        cd "$REPO_ROOT"
+        TRACECAT__DB_URI="$seed_db_uri" \
+            uv run tracecat admin create-dev-user \
+            --email "$seed_email" \
+            --password "$seed_password" \
+            --superuser-email "$seed_superuser_email" \
+            --superuser-password "$seed_superuser_password" \
+            --default-tier-entitlements "$seed_default_tier_entitlements" \
+            --org-role "$seed_org_role" \
+            --workspace-role "$seed_workspace_role"
+    )
 }
 
 # Run docker compose with the configured environment
 if [[ "$SEED_USER" == "true" && "$COMMAND" == "up" ]]; then
-    # Run in background mode for seeding, then seed
-    docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
-    seed_test_user
+    if [[ "$DETACHED_UP" == "true" ]]; then
+        docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+        seed_dev_user
+    else
+        # Keep compose attached while a background seeder waits for API readiness.
+        seed_dev_user &
+        exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
+    fi
 else
     exec docker compose -f "$COMPOSE_FILE" -p "tracecat-${WORKTREE_ID}-${CLUSTER_NUM}" "$COMMAND" "$@"
 fi
