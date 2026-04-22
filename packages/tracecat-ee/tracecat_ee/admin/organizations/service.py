@@ -7,6 +7,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
+import sqlalchemy as sa
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlalchemy.orm import selectinload
@@ -33,6 +34,11 @@ from tracecat.organization.management import (
     create_organization_with_defaults,
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
+)
+from tracecat.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
 )
 from tracecat.service import BasePlatformService
 from tracecat_ee.admin.organizations.schemas import (
@@ -215,9 +221,11 @@ class AdminOrgService(BasePlatformService):
         org_id: uuid.UUID,
         *,
         status: InvitationStatus | None = None,
-    ) -> Sequence[AdminOrgInvitationRead]:
-        """List platform-created invitations for an organization."""
+        pagination: CursorPaginationParams,
+    ) -> CursorPaginatedResponse[AdminOrgInvitationRead]:
+        """List platform-created invitations for an organization with pagination."""
         await self._require_organization(org_id)
+        paginator = BaseCursorPaginator(self.session)
         stmt = (
             select(OrganizationInvitation)
             .where(
@@ -225,19 +233,83 @@ class AdminOrgService(BasePlatformService):
                 OrganizationInvitation.created_by_platform_admin.is_(True),
             )
             .options(selectinload(OrganizationInvitation.role_obj))
-            .order_by(
-                OrganizationInvitation.created_at.desc(),
-                OrganizationInvitation.id.desc(),
-            )
         )
         if status is not None:
             stmt = stmt.where(OrganizationInvitation.status == status)
+        if pagination.cursor:
+            try:
+                cursor_data = paginator.decode_cursor(pagination.cursor)
+                cursor_id = uuid.UUID(cursor_data.id)
+            except ValueError as e:
+                raise TracecatValidationError(
+                    "Invalid cursor for organization invitations"
+                ) from e
+
+            cursor_created_at = cursor_data.sort_value
+            if not isinstance(cursor_created_at, datetime):
+                raise TracecatValidationError(
+                    "Invalid cursor for organization invitations"
+                )
+
+            cursor_predicate = sa.or_(
+                OrganizationInvitation.created_at > cursor_created_at,
+                sa.and_(
+                    OrganizationInvitation.created_at == cursor_created_at,
+                    OrganizationInvitation.id > cursor_id,
+                ),
+            )
+            if not pagination.reverse:
+                cursor_predicate = sa.or_(
+                    OrganizationInvitation.created_at < cursor_created_at,
+                    sa.and_(
+                        OrganizationInvitation.created_at == cursor_created_at,
+                        OrganizationInvitation.id < cursor_id,
+                    ),
+                )
+            stmt = stmt.where(cursor_predicate)
+
+        if pagination.reverse:
+            stmt = stmt.order_by(
+                OrganizationInvitation.created_at.asc(),
+                OrganizationInvitation.id.asc(),
+            )
+        else:
+            stmt = stmt.order_by(
+                OrganizationInvitation.created_at.desc(),
+                OrganizationInvitation.id.desc(),
+            )
+        stmt = stmt.limit(pagination.limit + 1)
 
         result = await self.session.execute(stmt)
-        return [
-            self._serialize_invitation(invitation)
-            for invitation in result.scalars().all()
-        ]
+        invitations = result.scalars().all()
+        has_more = len(invitations) > pagination.limit
+        items = invitations[: pagination.limit]
+
+        next_cursor = None
+        if has_more and items:
+            last_invitation = items[-1]
+            next_cursor = paginator.encode_cursor(
+                last_invitation.id,
+                sort_column="created_at",
+                sort_value=last_invitation.created_at,
+            )
+
+        prev_cursor = None
+        if pagination.cursor and items:
+            first_invitation = items[0]
+            prev_cursor = paginator.encode_cursor(
+                first_invitation.id,
+                sort_column="created_at",
+                sort_value=first_invitation.created_at,
+            )
+
+        return CursorPaginatedResponse(
+            items=[self._serialize_invitation(invitation) for invitation in items],
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=pagination.cursor is not None,
+        )
 
     async def get_organization_invitation_token(
         self,

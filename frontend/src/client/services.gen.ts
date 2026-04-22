@@ -5110,7 +5110,10 @@ export const adminCreateOrganizationInvitation = (
  * @param data The data for the request.
  * @param data.orgId
  * @param data.status
- * @returns AdminOrgInvitationRead Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_AdminOrgInvitationRead_ Successful Response
  * @throws ApiError
  */
 export const adminListOrganizationInvitations = (
@@ -5124,6 +5127,9 @@ export const adminListOrganizationInvitations = (
     },
     query: {
       status: data.status,
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
     },
     errors: {
       422: "Validation Error",

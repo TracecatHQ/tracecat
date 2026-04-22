@@ -12,6 +12,7 @@ from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat_ee.admin.organizations.schemas import (
     AdminOrgInvitationCreate,
     AdminOrgInvitationCreateResponse,
@@ -161,7 +162,7 @@ async def create_organization_invitation(
 
 @router.get(
     "/{org_id}/invitations",
-    response_model=list[AdminOrgInvitationRead],
+    response_model=CursorPaginatedResponse[AdminOrgInvitationRead],
     dependencies=[Depends(_require_multi_tenant)],
 )
 async def list_organization_invitations(
@@ -169,16 +170,30 @@ async def list_organization_invitations(
     session: AsyncDBSessionBypass,
     org_id: uuid.UUID,
     invitation_status: InvitationStatus | None = Query(None, alias="status"),
-) -> list[AdminOrgInvitationRead]:
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginatedResponse[AdminOrgInvitationRead]:
     """List platform-created invitations for an organization."""
     service = AdminOrgService(session, role)
     try:
-        return list(
-            await service.list_organization_invitations(
-                org_id,
-                status=invitation_status,
-            )
+        return await service.list_organization_invitations(
+            org_id,
+            status=invitation_status,
+            pagination=CursorPaginationParams(
+                limit=limit,
+                cursor=cursor,
+                reverse=reverse,
+            ),
         )
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 

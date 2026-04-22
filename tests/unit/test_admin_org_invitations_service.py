@@ -24,6 +24,7 @@ from tracecat.db.models import (
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.pagination import CursorPaginationParams
 
 
 @pytest.fixture
@@ -205,9 +206,67 @@ async def test_list_organization_invitations_only_returns_platform_created(
     session.add(tenant_invitation)
     await session.commit()
 
-    invitations = await service.list_organization_invitations(org.id)
+    invitations = await service.list_organization_invitations(
+        org.id,
+        pagination=CursorPaginationParams(limit=10),
+    )
 
-    assert [inv.id for inv in invitations] == [platform_invitation.id]
+    assert [inv.id for inv in invitations.items] == [platform_invitation.id]
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("org_roles")
+async def test_list_organization_invitations_paginates(
+    session: AsyncSession,
+    org: Organization,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminOrgService(session, platform_role)
+    first_invitation = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(email="first-page@example.com"),
+    )
+    second_invitation = await service.create_organization_invitation(
+        org.id,
+        AdminOrgInvitationCreate(email="second-page@example.com"),
+    )
+
+    first_page = await service.list_organization_invitations(
+        org.id,
+        pagination=CursorPaginationParams(limit=1),
+    )
+    assert len(first_page.items) == 1
+    assert first_page.has_more is True
+    assert first_page.next_cursor is not None
+
+    second_page = await service.list_organization_invitations(
+        org.id,
+        pagination=CursorPaginationParams(limit=1, cursor=first_page.next_cursor),
+    )
+
+    assert len(second_page.items) == 1
+    assert {first_page.items[0].id, second_page.items[0].id} == {
+        first_invitation.id,
+        second_invitation.id,
+    }
+
+
+@pytest.mark.anyio
+async def test_list_organization_invitations_rejects_invalid_cursor(
+    session: AsyncSession,
+    org: Organization,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminOrgService(session, platform_role)
+
+    with pytest.raises(
+        TracecatValidationError,
+        match="Invalid cursor for organization invitations",
+    ):
+        await service.list_organization_invitations(
+            org.id,
+            pagination=CursorPaginationParams(limit=10, cursor="invalid-base64"),
+        )
 
 
 @pytest.mark.anyio

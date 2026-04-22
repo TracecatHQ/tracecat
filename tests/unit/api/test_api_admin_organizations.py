@@ -20,6 +20,7 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 
 def _org_read(org_id: uuid.UUID | None = None) -> OrgRead:
@@ -303,20 +304,57 @@ async def test_list_organization_invitations_success(
 
     with patch.object(organizations_router, "AdminOrgService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.list_organization_invitations.return_value = [invitation]
+        mock_svc.list_organization_invitations.return_value = CursorPaginatedResponse[
+            AdminOrgInvitationRead
+        ](
+            items=[invitation],
+            next_cursor="next-cursor",
+            has_more=True,
+        )
         MockService.return_value = mock_svc
 
         response = client.get(
-            f"/admin/organizations/{org_id}/invitations?status=pending"
+            f"/admin/organizations/{org_id}/invitations"
+            "?status=pending&limit=25&cursor=current-cursor&reverse=true"
         )
 
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
-    assert data[0]["id"] == str(invitation.id)
+    assert data["items"][0]["id"] == str(invitation.id)
+    assert data["next_cursor"] == "next-cursor"
+    assert data["has_more"] is True
     mock_svc.list_organization_invitations.assert_awaited_once_with(
         org_id,
         status=InvitationStatus.PENDING,
+        pagination=CursorPaginationParams(
+            limit=25,
+            cursor="current-cursor",
+            reverse=True,
+        ),
     )
+
+
+@pytest.mark.anyio
+async def test_list_organization_invitations_invalid_cursor(
+    client: TestClient,
+    test_admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    org_id = uuid.uuid4()
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    with patch.object(organizations_router, "AdminOrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.list_organization_invitations.side_effect = TracecatValidationError(
+            "Invalid cursor for organization invitations"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            f"/admin/organizations/{org_id}/invitations?cursor=not-a-cursor"
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 @pytest.mark.anyio

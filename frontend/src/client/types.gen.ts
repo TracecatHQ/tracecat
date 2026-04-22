@@ -2426,6 +2426,30 @@ export type CreatedEventRead = {
   created_at: string
 }
 
+export type CursorPaginatedResponse_AdminOrgInvitationRead_ = {
+  items: Array<AdminOrgInvitationRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
   items: Array<AgentPresetVersionReadMinimal>
   /**
@@ -9325,12 +9349,15 @@ export type AdminCreateOrganizationInvitationResponse =
   AdminOrgInvitationCreateResponse
 
 export type AdminListOrganizationInvitationsData = {
+  cursor?: string | null
+  limit?: number
   orgId: string
+  reverse?: boolean
   status?: InvitationStatus | null
 }
 
 export type AdminListOrganizationInvitationsResponse =
-  Array<AdminOrgInvitationRead>
+  CursorPaginatedResponse_AdminOrgInvitationRead_
 
 export type AdminGetOrganizationInvitationTokenData = {
   invitationId: string
@@ -13346,7 +13373,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<AdminOrgInvitationRead>
+        200: CursorPaginatedResponse_AdminOrgInvitationRead_
         /**
          * Validation Error
          */

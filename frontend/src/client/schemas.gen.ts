@@ -8483,6 +8483,69 @@ export const $CreatedEventRead = {
   description: "Event for when a case is created.",
 } as const
 
+export const $CursorPaginatedResponse_AdminOrgInvitationRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/AdminOrgInvitationRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[AdminOrgInvitationRead]",
+} as const
+
 export const $CursorPaginatedResponse_AgentPresetVersionReadMinimal_ = {
   properties: {
     items: {

@@ -275,7 +275,7 @@ export function useAdminOrgInvitations(orgId: string) {
     })
 
   return {
-    invitations: invitations ?? [],
+    invitations: invitations?.items ?? [],
     isLoading,
     error,
     createInvitation,
