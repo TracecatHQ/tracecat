@@ -15,6 +15,7 @@ from tracecat.agent.sandbox.shim_entrypoint import (
     _read_stdin_chunk,
     _resolve_init_payload_path,
     _resolve_llm_socket_path,
+    _wait_for_process_with_stdin,
 )
 from tracecat.agent.sandbox.shim_entrypoint import (
     _read_init_payload as _read_shim_init_payload,
@@ -128,29 +129,19 @@ class _FakeStreamWriter:
         return None
 
 
-class _FakeLoop:
-    def __init__(self, chunks: list[bytes]) -> None:
-        self._chunks = iter(chunks)
-
-    async def run_in_executor(
-        self,
-        _executor: object,
-        fn: object,
-        chunk_size: int,
-    ) -> bytes:
-        assert fn is _read_stdin_chunk
-        assert chunk_size == 65536
-        return next(self._chunks)
-
-
 @pytest.mark.anyio
 async def test_pump_stdin_to_process_suppresses_broken_pipe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    loop = _FakeLoop([b"hello", b""])
+    chunks = iter([b"hello", b""])
+
+    async def fake_wait_for_stdin_chunk(chunk_size: int) -> bytes:
+        assert chunk_size == 65536
+        return next(chunks)
+
     monkeypatch.setattr(
-        "tracecat.agent.sandbox.shim_entrypoint.asyncio.get_running_loop",
-        lambda: loop,
+        "tracecat.agent.sandbox.shim_entrypoint._wait_for_stdin_chunk",
+        fake_wait_for_stdin_chunk,
     )
     writer = _FakeStreamWriter(fail_after_write=True)
 
@@ -158,3 +149,39 @@ async def test_pump_stdin_to_process_suppresses_broken_pipe(
 
     assert writer.writes == [b"hello"]
     assert writer.closed is True
+
+
+class _FakeProcess:
+    async def wait(self) -> int:
+        await asyncio.sleep(0)
+        return 7
+
+
+@pytest.mark.anyio
+async def test_wait_for_process_with_stdin_does_not_wait_for_stdin_eof(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stdin_started = asyncio.Event()
+    stdin_cancelled = asyncio.Event()
+
+    async def fake_pump_stdin_to_process(_writer: asyncio.StreamWriter) -> None:
+        stdin_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            stdin_cancelled.set()
+            raise
+
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.shim_entrypoint._pump_stdin_to_process",
+        fake_pump_stdin_to_process,
+    )
+
+    return_code = await _wait_for_process_with_stdin(
+        cast(Any, _FakeProcess()),
+        cast(Any, _FakeStreamWriter()),
+    )
+
+    assert return_code == 7
+    assert stdin_started.is_set()
+    assert stdin_cancelled.is_set()

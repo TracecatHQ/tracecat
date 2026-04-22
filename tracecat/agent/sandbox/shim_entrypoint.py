@@ -245,8 +245,7 @@ async def run_sandboxed_claude_shim() -> None:
             _pump_stream(process.stderr, sys.stderr.buffer)
         )
 
-        await _pump_stdin_to_process(process.stdin)
-        return_code = await process.wait()
+        return_code = await _wait_for_process_with_stdin(process, process.stdin)
         await stdout_task
         await stderr_task
         if return_code != 0:
@@ -310,18 +309,52 @@ def _resolve_llm_socket_path() -> Path:
     return Path(os.environ.get(LLM_SOCKET_ENV_VAR) or DEFAULT_LLM_SOCKET_PATH)
 
 
+async def _wait_for_process_with_stdin(
+    process: asyncio.subprocess.Process,
+    process_stdin: asyncio.StreamWriter,
+) -> int:
+    """Proxy stdin while waiting for the child process to exit."""
+    stdin_task = asyncio.create_task(_pump_stdin_to_process(process_stdin))
+    try:
+        return await process.wait()
+    finally:
+        if not stdin_task.done():
+            stdin_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await stdin_task
+
+
 async def _pump_stdin_to_process(process_stdin: asyncio.StreamWriter) -> None:
     """Proxy shim stdin into the Claude subprocess stdin."""
+    try:
+        while chunk := await _wait_for_stdin_chunk(65536):
+            try:
+                process_stdin.write(chunk)
+                await process_stdin.drain()
+            except (BrokenPipeError, ConnectionResetError):
+                break
+    finally:
+        process_stdin.close()
+        with contextlib.suppress(Exception):
+            await process_stdin.wait_closed()
+
+
+async def _wait_for_stdin_chunk(chunk_size: int) -> bytes:
+    """Wait until shim stdin is readable and return one chunk."""
     loop = asyncio.get_running_loop()
-    while chunk := await loop.run_in_executor(None, _read_stdin_chunk, 65536):
-        try:
-            process_stdin.write(chunk)
-            await process_stdin.drain()
-        except (BrokenPipeError, ConnectionResetError):
-            break
-    process_stdin.close()
-    with contextlib.suppress(Exception):
-        await process_stdin.wait_closed()
+    fd = sys.stdin.fileno()
+    ready: asyncio.Future[None] = loop.create_future()
+
+    def mark_ready() -> None:
+        if not ready.done():
+            ready.set_result(None)
+
+    loop.add_reader(fd, mark_ready)
+    try:
+        await ready
+    finally:
+        loop.remove_reader(fd)
+    return _read_stdin_chunk(chunk_size)
 
 
 def _read_stdin_chunk(chunk_size: int) -> bytes:
