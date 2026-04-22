@@ -59,6 +59,11 @@ func TestClaudeProviderCollectsClaudeSurfaces(t *testing.T) {
 		t.Fatalf("unexpected project mcp identity %v", projectMCP.Metadata["resolved_identity"])
 	}
 
+	projectLocalMCP := findAssetByDisplayName(t, assets, assetClassMCPServer, assetTypeMCPServer, "github-project")
+	if projectLocalMCP.Metadata["resolved_identity"] != "https://api.github.com/mcp" {
+		t.Fatalf("unexpected project-local mcp identity %v", projectLocalMCP.Metadata["resolved_identity"])
+	}
+
 	claudeFile := findAsset(t, assets, assetClassInstructionFile, assetTypeClaudeMD, claudePath)
 	if claudeFile.Evidence["urls"] == nil {
 		t.Fatal("expected claude file evidence urls")
@@ -91,6 +96,68 @@ func TestClaudeProviderEmitsParseErrorAssetsWithoutFailingSync(t *testing.T) {
 	parseErrorAsset := findAssetBySuffix(t, assets, assetClassMCPServer, assetTypeMCPServer, ".claude.json#parse_error#mcp_server")
 	if parseErrorAsset.Metadata["parse_status"] != parseStatusInvalid {
 		t.Fatalf("unexpected parse status %v", parseErrorAsset.Metadata["parse_status"])
+	}
+}
+
+func TestClaudeProviderDoesNotCrawlUndiscoveredProjectRoots(t *testing.T) {
+	t.Parallel()
+
+	homeDir := copyFixture(t, "claude")
+	undiscoveredRoot := filepath.Join(homeDir, "workspace-hidden")
+	if err := os.MkdirAll(filepath.Join(undiscoveredRoot, ".claude"), 0o755); err != nil {
+		t.Fatalf("mkdir hidden root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(undiscoveredRoot, "CLAUDE.md"), []byte("hidden instructions"), 0o600); err != nil {
+		t.Fatalf("write hidden CLAUDE.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(undiscoveredRoot, ".mcp.json"), []byte(`{"mcpServers":{"hidden":{"url":"https://hidden.example/mcp"}}}`), 0o600); err != nil {
+		t.Fatalf("write hidden .mcp.json: %v", err)
+	}
+
+	provider := NewClaudeProvider(homeDir)
+	assets, err := provider.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+
+	assertAssetMissing(t, assets, assetClassInstructionFile, assetTypeClaudeMD, filepath.Join(undiscoveredRoot, "CLAUDE.md"))
+	assertDisplayNameMissing(t, assets, assetClassMCPServer, assetTypeMCPServer, "hidden")
+}
+
+func TestClaudeProviderEmitsMCPParseErrorsForSettingsSurfaces(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		relativePath string
+	}{
+		{name: "user settings", relativePath: filepath.Join(".claude", "settings.json")},
+		{name: "project settings", relativePath: filepath.Join("workspace-alpha", ".claude", "settings.json")},
+		{name: "project local settings", relativePath: filepath.Join("workspace-alpha", ".claude", "settings.local.json")},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			homeDir := copyFixture(t, "claude")
+			targetPath := filepath.Join(homeDir, tc.relativePath)
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+				t.Fatalf("mkdir %s: %v", tc.relativePath, err)
+			}
+			if err := os.WriteFile(targetPath, []byte(`{"mcpServers":{"broken":`), 0o600); err != nil {
+				t.Fatalf("write %s: %v", tc.relativePath, err)
+			}
+
+			provider := NewClaudeProvider(homeDir)
+			assets, err := provider.Collect(context.Background())
+			if err != nil {
+				t.Fatalf("Collect() error = %v", err)
+			}
+
+			parseErrorAsset := findAssetBySuffix(t, assets, assetClassMCPServer, assetTypeMCPServer, tc.relativePath+"#parse_error#mcp_server")
+			if parseErrorAsset.Metadata["parse_status"] != parseStatusInvalid {
+				t.Fatalf("unexpected parse status %v", parseErrorAsset.Metadata["parse_status"])
+			}
+		})
 	}
 }
 
@@ -211,4 +278,34 @@ func findAssetBySuffix(
 	}
 	t.Fatalf("asset %s/%s with identity suffix %s not found", assetClass, assetType, suffix)
 	return spmapi.SyncAsset{}
+}
+
+func assertAssetMissing(
+	t *testing.T,
+	assets []spmapi.SyncAsset,
+	assetClass string,
+	assetType string,
+	identity string,
+) {
+	t.Helper()
+	for _, asset := range assets {
+		if asset.AssetClass == assetClass && asset.AssetType == assetType && asset.IdentityKey == identity {
+			t.Fatalf("unexpected asset %s/%s with identity %s", assetClass, assetType, identity)
+		}
+	}
+}
+
+func assertDisplayNameMissing(
+	t *testing.T,
+	assets []spmapi.SyncAsset,
+	assetClass string,
+	assetType string,
+	displayName string,
+) {
+	t.Helper()
+	for _, asset := range assets {
+		if asset.AssetClass == assetClass && asset.AssetType == assetType && asset.DisplayName == displayName {
+			t.Fatalf("unexpected asset %s/%s with display name %s", assetClass, assetType, displayName)
+		}
+	}
 }

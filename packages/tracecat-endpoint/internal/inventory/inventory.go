@@ -89,6 +89,7 @@ func (p ClaudeProvider) Collect(ctx context.Context) ([]spmapi.SyncAsset, error)
 		EmitParseOnError: []parseErrorSurface{
 			{AssetClass: assetClassPermissions, AssetType: assetTypePermissionConfig, DisplaySuffix: "permissions"},
 			{AssetClass: assetClassSandbox, AssetType: assetTypeSandboxConfig, DisplaySuffix: "sandbox"},
+			{AssetClass: assetClassMCPServer, AssetType: assetTypeMCPServer, DisplaySuffix: "mcp"},
 		},
 		DiscoverProjects: true,
 	}, projectRoots); err != nil {
@@ -220,14 +221,14 @@ func collectProjectSurfaces(collector *assetCollector, projectRoot string) error
 			SourceSurface:    "project_settings_json",
 			ProjectRoot:      projectRoot,
 			Writable:         false,
-			EmitParseOnError: []parseErrorSurface{{AssetClass: assetClassPermissions, AssetType: assetTypePermissionConfig, DisplaySuffix: "permissions"}, {AssetClass: assetClassSandbox, AssetType: assetTypeSandboxConfig, DisplaySuffix: "sandbox"}},
+			EmitParseOnError: []parseErrorSurface{{AssetClass: assetClassPermissions, AssetType: assetTypePermissionConfig, DisplaySuffix: "permissions"}, {AssetClass: assetClassSandbox, AssetType: assetTypeSandboxConfig, DisplaySuffix: "sandbox"}, {AssetClass: assetClassMCPServer, AssetType: assetTypeMCPServer, DisplaySuffix: "mcp"}},
 		},
 		{
 			Path:             filepath.Join(projectRoot, ".claude", "settings.local.json"),
 			SourceSurface:    "project_local_settings_json",
 			ProjectRoot:      projectRoot,
 			Writable:         true,
-			EmitParseOnError: []parseErrorSurface{{AssetClass: assetClassPermissions, AssetType: assetTypePermissionConfig, DisplaySuffix: "permissions"}, {AssetClass: assetClassSandbox, AssetType: assetTypeSandboxConfig, DisplaySuffix: "sandbox"}},
+			EmitParseOnError: []parseErrorSurface{{AssetClass: assetClassPermissions, AssetType: assetTypePermissionConfig, DisplaySuffix: "permissions"}, {AssetClass: assetClassSandbox, AssetType: assetTypeSandboxConfig, DisplaySuffix: "sandbox"}, {AssetClass: assetClassMCPServer, AssetType: assetTypeMCPServer, DisplaySuffix: "mcp"}},
 		},
 		{
 			Path:             filepath.Join(projectRoot, ".mcp.json"),
