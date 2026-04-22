@@ -540,15 +540,17 @@ def test_org_agent_routes_remain_user_only() -> None:
 
 
 def test_github_manifest_flow_routes_remain_user_only() -> None:
-    manifest_role = get_type_hints(
-        vcs_router.get_github_app_manifest, include_extras=True
-    )["_role"]
-    install_role = get_type_hints(
-        vcs_router.github_app_install_callback, include_extras=True
-    )["role"]
+    endpoints = [
+        (vcs_router.get_github_app_manifest, "_role"),
+        (vcs_router.github_app_install_callback, "role"),
+        (vcs_router.save_github_app_credentials, "role"),
+        (vcs_router.delete_github_app_credentials, "role"),
+        (vcs_router.get_github_app_credentials_status, "role"),
+    ]
 
-    assert manifest_role == vcs_router.OrgUserRole
-    assert install_role == vcs_router.OrgUserRole
+    for endpoint, role_param in endpoints:
+        role = get_type_hints(endpoint, include_extras=True)[role_param]
+        assert role == vcs_router.OrgUserRole
 
 
 def test_draft_workflow_execution_route_remains_user_only() -> None:

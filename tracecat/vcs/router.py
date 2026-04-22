@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
+from tracecat.auth.dependencies import OrgUserRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
@@ -127,7 +127,7 @@ async def github_webhook(*, payload: dict[str, Any]) -> dict[str, str]:
 async def save_github_app_credentials(
     *,
     session: AsyncDBSession,
-    role: OrgActorRole,
+    role: OrgUserRole,
     request: GitHubAppCredentialsRequest,
 ) -> dict[str, str]:
     """Save GitHub App credentials (register new or update existing)."""
@@ -180,7 +180,7 @@ async def save_github_app_credentials(
 async def delete_github_app_credentials(
     *,
     session: AsyncDBSession,
-    role: OrgActorRole,
+    role: OrgUserRole,
 ) -> None:
     """Delete GitHub App credentials."""
     try:
@@ -206,7 +206,7 @@ async def delete_github_app_credentials(
 async def get_github_app_credentials_status(
     *,
     session: AsyncDBSession,
-    role: OrgActorRole,
+    role: OrgUserRole,
 ) -> GitHubAppCredentialsStatus:
     """Get the status of GitHub App credentials."""
     # Organization-level operation, no specific checks needed since this is org VCS

@@ -313,9 +313,18 @@ async def _authenticate_service(
         is not None
         else None
     )
+    role_type: Literal["service", "service_account"] = "service"
+    if request.headers.get("x-tracecat-role-type") == "service_account":
+        if service_account_id is None:
+            raise HTTP_EXC("Missing x-tracecat-role-service-account-id header")
+        if organization_id is None:
+            raise HTTP_EXC("Missing x-tracecat-role-organization-id header")
+        if user_id is not None:
+            raise HTTP_EXC("Service account role must not include user_id")
+        role_type = "service_account"
     service_id: InternalServiceID = service_role_id  # type: ignore[assignment]
     return Role(
-        type="service",
+        type=role_type,
         service_id=service_id,
         user_id=user_id,
         workspace_id=workspace_id,

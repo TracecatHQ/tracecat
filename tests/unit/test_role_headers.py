@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from tracecat.auth.credentials import _authenticate_service
+from tracecat.auth.credentials import _authenticate_service, compute_effective_scopes
 from tracecat.auth.types import Role
 
 
@@ -231,3 +231,39 @@ class TestAuthenticateServiceRoundtrip:
         assert role.workspace_id == workspace_id
         assert role.organization_id == organization_id
         assert role.bound_workspace_id == workspace_id
+
+    async def test_authenticate_service_preserves_service_account_role(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "tracecat.auth.credentials.config.TRACECAT__SERVICE_KEY", "test-key"
+        )
+        monkeypatch.setattr(
+            "tracecat.auth.credentials.config.TRACECAT__SERVICE_ROLES_WHITELIST",
+            ["tracecat-api"],
+        )
+
+        workspace_id = uuid4()
+        service_account_id = uuid4()
+        original_role = Role(
+            type="service_account",
+            service_id="tracecat-api",
+            organization_id=uuid4(),
+            workspace_id=workspace_id,
+            bound_workspace_id=workspace_id,
+            service_account_id=service_account_id,
+            scopes=frozenset({"workflow:read"}),
+        )
+
+        request = MagicMock()
+        request.headers = MockHeaders(original_role.to_headers())
+
+        reconstructed = await _authenticate_service(request, api_key="test-key")
+
+        assert reconstructed is not None
+        assert reconstructed.type == "service_account"
+        assert reconstructed.service_account_id == service_account_id
+        assert reconstructed.scopes == frozenset({"workflow:read"})
+        assert await compute_effective_scopes(reconstructed) == frozenset(
+            {"workflow:read"}
+        )
