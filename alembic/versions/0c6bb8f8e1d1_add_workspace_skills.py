@@ -1,7 +1,7 @@
 """add workspace skills
 
 Revision ID: 0c6bb8f8e1d1
-Revises: 7e1a4d9c2b6f
+Revises: 0c9a39e54e2f
 Create Date: 2026-04-03 00:00:00.000000
 
 """
@@ -18,7 +18,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "0c6bb8f8e1d1"
-down_revision: str | None = "b742858f7d69"
+down_revision: str | None = "0c9a39e54e2f"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
