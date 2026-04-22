@@ -58,9 +58,17 @@ CHECK_REGISTRY: dict[SpmControlCheck, SpmControlCheckDefinition] = {
         key=SpmControlCheck.HOOK_APPROVED,
         description="Hooks must be approved before they remain enabled for Claude.",
     ),
+    SpmControlCheck.HOOK_RISK_OK: SpmControlCheckDefinition(
+        key=SpmControlCheck.HOOK_RISK_OK,
+        description="Hooks must not match risky execution heuristics.",
+    ),
     SpmControlCheck.SKILL_APPROVED: SpmControlCheckDefinition(
         key=SpmControlCheck.SKILL_APPROVED,
         description="Skills must be approved before they remain enabled for Claude.",
+    ),
+    SpmControlCheck.SKILL_RISK_OK: SpmControlCheckDefinition(
+        key=SpmControlCheck.SKILL_RISK_OK,
+        description="Skills must not match risky content heuristics.",
     ),
     SpmControlCheck.MCP_SERVER_APPROVED: SpmControlCheckDefinition(
         key=SpmControlCheck.MCP_SERVER_APPROVED,

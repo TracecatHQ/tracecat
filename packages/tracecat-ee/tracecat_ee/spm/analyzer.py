@@ -1,33 +1,60 @@
-"""Inline and external analysis for persisted SPM inventory."""
+"""Analysis for persisted SPM inventory and threat-intel-backed findings."""
 
 from __future__ import annotations
 
-import asyncio
+import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.db.models import SpmAsset, SpmAssetSighting, SpmEndpoint, SpmFinding
 from tracecat_ee.spm.controls import get_control
+from tracecat_ee.spm.intel import NoopSpmThreatIntelProvider, SpmThreatIntelProvider
 from tracecat_ee.spm.schemas import SpmControlRead
 from tracecat_ee.spm.types import SpmFindingStatus
 
-
-class SpmExternalEnricher(Protocol):
-    """Asynchronous network-bound enricher interface."""
-
-    async def enrich_findings(self, finding_ids: list[uuid.UUID]) -> None: ...
-
-
-class NoopSpmExternalEnricher:
-    """Default external enricher implementation."""
-
-    async def enrich_findings(self, finding_ids: list[uuid.UUID]) -> None:
-        _ = finding_ids
+_HOOK_RISK_RULES: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "remote_exec_pipeline",
+        re.compile(r"(curl|wget).{0,120}(\||&&|;).{0,40}\b(sh|bash|zsh)\b", re.I),
+    ),
+    (
+        "inline_interpreter_exec",
+        re.compile(r"\b(bash|sh|zsh|python|python3|node|osascript)\s+-c\b", re.I),
+    ),
+    (
+        "credential_material_reference",
+        re.compile(
+            r"\b(api[_-]?key|access[_-]?token|secret[_-]?key|aws_secret_access_key)\b",
+            re.I,
+        ),
+    ),
+]
+_SKILL_RISK_RULES: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "prompt_injection_language",
+        re.compile(
+            r"\b(ignore previous|system prompt|override policy|bypass guardrail)\b",
+            re.I,
+        ),
+    ),
+    (
+        "credential_collection_language",
+        re.compile(
+            r"\b(cookie|credential|token|secret|api[_-]?key|aws_secret_access_key)\b",
+            re.I,
+        ),
+    ),
+    (
+        "remote_execution_language",
+        re.compile(r"\b(curl|wget|ssh|osascript|rm -rf|bash -c|python -c)\b", re.I),
+    ),
+]
 
 
 @dataclass(slots=True)
@@ -99,7 +126,7 @@ class EvaluationResult:
     summary: str
     evidence: dict[str, Any]
     recommended_payload: dict[str, Any]
-    schedule_external_enrichment: bool = False
+    enrichment: dict[str, Any] = field(default_factory=dict)
 
 
 class SpmInventoryAnalyzer:
@@ -109,12 +136,12 @@ class SpmInventoryAnalyzer:
         self,
         session: AsyncSession,
         *,
-        external_enricher: SpmExternalEnricher | None = None,
-        schedule_background_tasks: bool = True,
+        threat_intel_provider: SpmThreatIntelProvider | None = None,
     ) -> None:
         self.session = session
-        self.external_enricher = external_enricher or NoopSpmExternalEnricher()
-        self.schedule_background_tasks = schedule_background_tasks
+        self.threat_intel_provider = (
+            threat_intel_provider or NoopSpmThreatIntelProvider()
+        )
 
     async def analyze_endpoint(self, endpoint: SpmEndpoint) -> None:
         policy = SpmPolicy.from_client_metadata(endpoint.client_metadata or {})
@@ -122,11 +149,16 @@ class SpmInventoryAnalyzer:
 
         handled_pairs: set[tuple[uuid.UUID, str]] = set()
         failing_pairs: set[tuple[uuid.UUID, str]] = set()
-        enrichable_ids: list[uuid.UUID] = []
 
         for sighting, asset in rows:
+            intelligence = await self._asset_intelligence(
+                asset=asset, sighting=sighting
+            )
             for evaluation in self._evaluate_asset(
-                endpoint=endpoint, asset=asset, sighting=sighting, policy=policy
+                asset=asset,
+                sighting=sighting,
+                policy=policy,
+                intelligence=intelligence,
             ):
                 pair = (asset.id, evaluation.control.id)
                 handled_pairs.add(pair)
@@ -134,23 +166,18 @@ class SpmInventoryAnalyzer:
                     continue
 
                 failing_pairs.add(pair)
-                finding = await self._upsert_finding(
+                await self._upsert_finding(
                     endpoint=endpoint,
                     asset=asset,
                     sighting=sighting,
                     evaluation=evaluation,
                 )
-                if evaluation.schedule_external_enrichment:
-                    enrichable_ids.append(finding.id)
 
         await self._resolve_passing_findings(
             endpoint=endpoint,
             handled_pairs=handled_pairs,
             failing_pairs=failing_pairs,
         )
-
-        if enrichable_ids:
-            await self._schedule_external_enrichment(enrichable_ids)
 
     async def _endpoint_rows(
         self, endpoint: SpmEndpoint
@@ -166,20 +193,38 @@ class SpmInventoryAnalyzer:
         result = await self.session.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]
 
+    async def _asset_intelligence(
+        self,
+        *,
+        asset: SpmAsset,
+        sighting: SpmAssetSighting,
+    ) -> dict[str, Any]:
+        metadata = asset.asset_metadata or {}
+        evidence = sighting.evidence or {}
+        if asset.asset_type == "mcp_server":
+            return await self.threat_intel_provider.enrich_mcp_server(
+                metadata=metadata,
+                evidence=evidence,
+            )
+        if asset.asset_type == "claude_md":
+            return await self.threat_intel_provider.enrich_instruction_file(
+                metadata=metadata,
+                evidence=evidence,
+            )
+        return {}
+
     def _evaluate_asset(
         self,
         *,
-        endpoint: SpmEndpoint,
         asset: SpmAsset,
         sighting: SpmAssetSighting,
         policy: SpmPolicy,
+        intelligence: dict[str, Any],
     ) -> list[EvaluationResult]:
-        _ = endpoint
         metadata = asset.asset_metadata or {}
         parse_status = metadata.get("parse_status")
 
         results: list[EvaluationResult] = []
-
         if asset.asset_type == "trusted_directory":
             results.append(
                 self._evaluate_directory_approval(
@@ -243,6 +288,7 @@ class SpmInventoryAnalyzer:
                     sighting=sighting,
                     policy=policy,
                     parse_status=parse_status,
+                    intelligence=intelligence,
                 )
             )
         elif asset.asset_type == "hook":
@@ -252,7 +298,16 @@ class SpmInventoryAnalyzer:
                     asset=asset,
                     approved=policy.approved_hooks,
                     fingerprint=metadata.get("fingerprint"),
-                    payload={"fingerprint": metadata.get("fingerprint")},
+                    payload={
+                        "fingerprint": metadata.get("fingerprint"),
+                        "target_path": metadata.get("file_path"),
+                    },
+                    parse_status=parse_status,
+                )
+            )
+            results.append(
+                self._evaluate_hook_risk(
+                    asset=asset,
                     parse_status=parse_status,
                 )
             )
@@ -263,14 +318,27 @@ class SpmInventoryAnalyzer:
                     asset=asset,
                     approved=policy.approved_skills,
                     fingerprint=metadata.get("fingerprint"),
-                    payload={"fingerprint": metadata.get("fingerprint")},
+                    payload={
+                        "fingerprint": metadata.get("fingerprint"),
+                        "target_path": metadata.get("file_path"),
+                    },
+                    parse_status=parse_status,
+                )
+            )
+            results.append(
+                self._evaluate_skill_risk(
+                    asset=asset,
+                    sighting=sighting,
                     parse_status=parse_status,
                 )
             )
         elif asset.asset_type == "claude_md":
             results.extend(
                 self._evaluate_instruction_file(
-                    asset=asset, sighting=sighting, parse_status=parse_status
+                    asset=asset,
+                    sighting=sighting,
+                    parse_status=parse_status,
+                    intelligence=intelligence,
                 )
             )
 
@@ -359,6 +427,71 @@ class SpmInventoryAnalyzer:
             recommended_payload=payload,
         )
 
+    def _evaluate_hook_risk(
+        self,
+        *,
+        asset: SpmAsset,
+        parse_status: Any,
+    ) -> EvaluationResult:
+        metadata = asset.asset_metadata or {}
+        command = metadata.get("command")
+        matches = _match_rules(command, _HOOK_RISK_RULES)
+        return EvaluationResult(
+            control=_require_control("claude.hook.risk_ok"),
+            failed=parse_status == "ok" and bool(matches),
+            summary=f"{asset.display_name} matches risky hook heuristics",
+            evidence={
+                "fingerprint": metadata.get("fingerprint"),
+                "event": metadata.get("event"),
+                "command": command,
+                "matched_rules": matches,
+                "parse_status": parse_status,
+            },
+            recommended_payload={
+                "fingerprint": metadata.get("fingerprint"),
+                "target_path": metadata.get("file_path"),
+            },
+        )
+
+    def _evaluate_skill_risk(
+        self,
+        *,
+        asset: SpmAsset,
+        sighting: SpmAssetSighting,
+        parse_status: Any,
+    ) -> EvaluationResult:
+        metadata = asset.asset_metadata or {}
+        skill = (sighting.evidence or {}).get("skill")
+        serialized_skill = json.dumps(skill, sort_keys=True, default=str)
+        matches = _match_rules(
+            "\n".join(
+                filter(
+                    None,
+                    [
+                        str(metadata.get("name") or ""),
+                        serialized_skill,
+                    ],
+                )
+            ),
+            _SKILL_RISK_RULES,
+        )
+        return EvaluationResult(
+            control=_require_control("claude.skill.risk_ok"),
+            failed=parse_status == "ok" and bool(matches),
+            summary=f"{asset.display_name} matches risky skill heuristics",
+            evidence={
+                "fingerprint": metadata.get("fingerprint"),
+                "name": metadata.get("name"),
+                "matched_rules": matches,
+                "parse_status": parse_status,
+            },
+            recommended_payload={
+                "fingerprint": metadata.get("fingerprint"),
+                "name": metadata.get("name"),
+                "target_path": metadata.get("file_path"),
+            },
+        )
+
     def _evaluate_mcp_server(
         self,
         *,
@@ -366,6 +499,7 @@ class SpmInventoryAnalyzer:
         sighting: SpmAssetSighting,
         policy: SpmPolicy,
         parse_status: Any,
+        intelligence: dict[str, Any],
     ) -> list[EvaluationResult]:
         metadata = asset.asset_metadata or {}
         approval_identity = metadata.get("mcp_identity_key")
@@ -381,8 +515,12 @@ class SpmInventoryAnalyzer:
             and isinstance(approval_identity, str)
             and approval_identity not in policy.approved_mcp_servers
         )
-        reputation_status = _reputation_status(metadata, sighting.evidence)
-        vulnerability_status = _vulnerability_status(metadata, sighting.evidence)
+        reputation_status = _reputation_status(
+            metadata, sighting.evidence, intelligence
+        )
+        vulnerability_status = _vulnerability_status(
+            metadata, sighting.evidence, intelligence
+        )
 
         return [
             EvaluationResult(
@@ -408,7 +546,7 @@ class SpmInventoryAnalyzer:
                     "resolved_identity": metadata.get("resolved_identity"),
                 },
                 recommended_payload=payload,
-                schedule_external_enrichment=bool(metadata.get("resolved_identity")),
+                enrichment=intelligence,
             ),
             EvaluationResult(
                 control=_require_control("claude.mcp_server.vulnerability_ok"),
@@ -419,7 +557,7 @@ class SpmInventoryAnalyzer:
                     "resolved_identity": metadata.get("resolved_identity"),
                 },
                 recommended_payload=payload,
-                schedule_external_enrichment=bool(metadata.get("resolved_identity")),
+                enrichment=intelligence,
             ),
         ]
 
@@ -429,6 +567,7 @@ class SpmInventoryAnalyzer:
         asset: SpmAsset,
         sighting: SpmAssetSighting,
         parse_status: Any,
+        intelligence: dict[str, Any],
     ) -> list[EvaluationResult]:
         metadata = asset.asset_metadata or {}
         evidence = sighting.evidence or {}
@@ -437,7 +576,9 @@ class SpmInventoryAnalyzer:
         urls = evidence.get("urls", [])
         domains = evidence.get("domains", [])
         ips = evidence.get("ips", [])
-        indicator_reputation_status = _reputation_status(metadata, evidence)
+        indicator_reputation_status = _reputation_status(
+            metadata, evidence, intelligence
+        )
         payload = {
             "file_path": metadata.get("file_path"),
             "project_root": metadata.get("project_root"),
@@ -484,9 +625,10 @@ class SpmInventoryAnalyzer:
                     "domains": domains,
                     "ips": ips,
                     "indicator_reputation_status": indicator_reputation_status,
+                    "bad_indicators": intelligence.get("bad_indicators", []),
                 },
                 recommended_payload=payload,
-                schedule_external_enrichment=bool(urls or domains or ips),
+                enrichment=intelligence,
             ),
         ]
 
@@ -522,6 +664,7 @@ class SpmInventoryAnalyzer:
                 status=SpmFindingStatus.OPEN.value,
                 summary=evaluation.summary,
                 evidence=evaluation.evidence,
+                enrichment=evaluation.enrichment,
                 recommended_action=evaluation.control.action.value,
                 recommended_payload=evaluation.recommended_payload,
                 opened_at=now,
@@ -538,6 +681,7 @@ class SpmInventoryAnalyzer:
         finding.severity = evaluation.control.severity.value
         finding.summary = evaluation.summary
         finding.evidence = evaluation.evidence
+        finding.enrichment = evaluation.enrichment
         finding.recommended_action = evaluation.control.action.value
         finding.recommended_payload = evaluation.recommended_payload
         finding.closed_at = None
@@ -573,20 +717,6 @@ class SpmInventoryAnalyzer:
                 finding.status = SpmFindingStatus.RESOLVED.value
                 finding.closed_at = now
 
-    async def _schedule_external_enrichment(self, finding_ids: list[uuid.UUID]) -> None:
-        finding_ids = list(dict.fromkeys(finding_ids))
-        if not finding_ids:
-            return
-        if self.schedule_background_tasks:
-            try:
-                asyncio.get_running_loop().create_task(
-                    self.external_enricher.enrich_findings(finding_ids)
-                )
-                return
-            except RuntimeError:
-                pass
-        await self.external_enricher.enrich_findings(finding_ids)
-
 
 def _require_control(control_id: str) -> SpmControlRead:
     control = get_control(control_id)
@@ -595,10 +725,18 @@ def _require_control(control_id: str) -> SpmControlRead:
     return control
 
 
+def _match_rules(value: Any, rules: list[tuple[str, re.Pattern[str]]]) -> list[str]:
+    if not isinstance(value, str) or not value:
+        return []
+    return [rule_id for rule_id, pattern in rules if pattern.search(value)]
+
+
 def _reputation_status(
-    metadata: dict[str, Any], evidence: dict[str, Any]
+    metadata: dict[str, Any],
+    evidence: dict[str, Any],
+    enrichment: dict[str, Any] | None = None,
 ) -> str | None:
-    for source in (metadata, evidence):
+    for source in (metadata, evidence, enrichment or {}):
         value = source.get("reputation_status")
         if isinstance(value, str):
             return value
@@ -609,9 +747,11 @@ def _reputation_status(
 
 
 def _vulnerability_status(
-    metadata: dict[str, Any], evidence: dict[str, Any]
+    metadata: dict[str, Any],
+    evidence: dict[str, Any],
+    enrichment: dict[str, Any] | None = None,
 ) -> str | None:
-    for source in (metadata, evidence):
+    for source in (metadata, evidence, enrichment or {}):
         value = source.get("vulnerability_status")
         if isinstance(value, str):
             return value

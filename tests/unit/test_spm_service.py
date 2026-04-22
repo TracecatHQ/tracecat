@@ -52,10 +52,7 @@ async def test_list_assets_and_endpoint_assets_preserve_endpoint_state(
     service = SpmService(session, role=svc_role)
     sync_service = SpmSyncService(
         session,
-        analyzer=SpmInventoryAnalyzer(
-            session,
-            schedule_background_tasks=False,
-        ),
+        analyzer=SpmInventoryAnalyzer(session),
     )
     endpoint_one = await service.create_endpoint(
         SpmEndpointCreate(
@@ -140,10 +137,7 @@ async def test_list_findings_supports_endpoint_and_control_filters(
     service = SpmService(session, role=svc_role)
     sync_service = SpmSyncService(
         session,
-        analyzer=SpmInventoryAnalyzer(
-            session,
-            schedule_background_tasks=False,
-        ),
+        analyzer=SpmInventoryAnalyzer(session),
     )
     endpoint_one = await service.create_endpoint(
         SpmEndpointCreate(

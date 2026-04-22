@@ -16,6 +16,8 @@ def test_builtin_spm_control_catalog_contains_required_v1_controls() -> None:
     assert "claude.mcp_server.approved" in control_ids
     assert "claude.mcp_server.vulnerability_ok" in control_ids
     assert "claude.mcp_server.reputation_ok" in control_ids
+    assert "claude.hook.risk_ok" in control_ids
+    assert "claude.skill.risk_ok" in control_ids
     assert "claude.instruction_file.language_english" in control_ids
     assert "claude.instruction_file.obfuscation_absent" in control_ids
     assert "claude.instruction_file.external_indicators_reputation_ok" in control_ids

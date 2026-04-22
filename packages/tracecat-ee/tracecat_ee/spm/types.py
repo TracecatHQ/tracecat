@@ -74,7 +74,9 @@ class SpmControlCheck(StrEnum):
     MCP_SERVER_VULNERABILITY_OK = "mcp_server_vulnerability_ok"
     MCP_SERVER_REPUTATION_OK = "mcp_server_reputation_ok"
     SKILL_APPROVED = "skill_approved"
+    SKILL_RISK_OK = "skill_risk_ok"
     HOOK_APPROVED = "hook_approved"
+    HOOK_RISK_OK = "hook_risk_ok"
     INSTRUCTION_FILE_LANGUAGE_ENGLISH = "instruction_file_language_english"
     INSTRUCTION_FILE_OBFUSCATION_ABSENT = "instruction_file_obfuscation_absent"
     INSTRUCTION_FILE_EXTERNAL_INDICATORS_REPUTATION_OK = (

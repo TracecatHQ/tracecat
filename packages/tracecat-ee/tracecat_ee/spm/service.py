@@ -32,6 +32,7 @@ from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
 from tracecat_ee.spm.analyzer import SpmInventoryAnalyzer
 from tracecat_ee.spm.controls import get_control, get_control_catalog
+from tracecat_ee.spm.intel import BestEffortSpmThreatIntelProvider
 from tracecat_ee.spm.schemas import (
     SpmAssetQueryParams,
     SpmAssetRead,
@@ -438,7 +439,7 @@ class SpmSyncService:
         analyzer: SpmInventoryAnalyzer | None = None,
     ):
         self.session = session
-        self.analyzer = analyzer or SpmInventoryAnalyzer(session)
+        self.analyzer = analyzer
 
     async def sync_endpoint(
         self,
@@ -480,7 +481,14 @@ class SpmSyncService:
             await self._apply_task_result(endpoint=endpoint, task_result=task_result)
 
         await self.session.flush()
-        await self.analyzer.analyze_endpoint(endpoint)
+        analyzer = self.analyzer or SpmInventoryAnalyzer(
+            self.session,
+            threat_intel_provider=BestEffortSpmThreatIntelProvider(
+                self.session,
+                organization_id=endpoint.organization_id,
+            ),
+        )
+        await analyzer.analyze_endpoint(endpoint)
         await self.session.commit()
         await self.session.refresh(endpoint)
         tasks = await self._pending_tasks(endpoint.id, endpoint.organization_id)
