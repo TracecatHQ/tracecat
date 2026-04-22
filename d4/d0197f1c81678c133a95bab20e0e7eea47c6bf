@@ -1,0 +1,25 @@
+.github/docker-compose.python-tests.yml
+  542cfd8a011642e9 1-10
+.github/workflows/test-python.yml
+  542cfd8a011642e9 15,31,54-57,75-76,92-94,116-127,130-131,133-148,158,164,166,173,176,179,182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "d4d0197f1c81678c133a95bab20e0e7eea47c6bf",
+  "prompts": {
+    "542cfd8a011642e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db1fd-89e9-7df1-bdaa-fbff335e4bd5",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 58,
+      "total_deletions": 13,
+      "accepted_lines": 58,
+      "overriden_lines": 0
+    }
+  }
+}
