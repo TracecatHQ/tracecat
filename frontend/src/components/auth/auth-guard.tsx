@@ -14,6 +14,7 @@ interface AuthGuardProps {
   requireOrgAdmin?: boolean
   requireSuperuser?: boolean
   redirectTo?: string
+  unauthenticatedRedirectTo?: string
 }
 
 export function AuthGuard({
@@ -22,6 +23,7 @@ export function AuthGuard({
   requireOrgAdmin = false,
   requireSuperuser = false,
   redirectTo = "/",
+  unauthenticatedRedirectTo = "/sign-in",
 }: AuthGuardProps) {
   const { user, userIsLoading } = useAuth()
   const { userScopes, isLoading: scopesLoading } = useUserScopes(undefined, {
@@ -38,7 +40,7 @@ export function AuthGuard({
   useEffect(() => {
     if (!isLoading) {
       if (requireAuth && !user) {
-        router.push(redirectTo)
+        router.push(unauthenticatedRedirectTo)
       } else if (requireOrgAdmin && canAdministerOrg === false) {
         router.push(redirectTo)
       } else if (requireSuperuser && !user?.isSuperuser) {
@@ -53,6 +55,7 @@ export function AuthGuard({
     canAdministerOrg,
     requireSuperuser,
     redirectTo,
+    unauthenticatedRedirectTo,
     router,
   ])
 

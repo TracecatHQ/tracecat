@@ -908,7 +908,7 @@ class TestOrganizationServiceInvitations:
 
         with pytest.raises(
             TracecatValidationError,
-            match="belongs to a platform superuser account",
+            match="Invitation cannot be created for this email",
         ):
             await service.create_invitation(
                 email=superuser.email,

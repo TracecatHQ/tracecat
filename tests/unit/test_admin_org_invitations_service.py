@@ -204,7 +204,7 @@ async def test_create_organization_invitation_rejects_existing_superuser(
     service = AdminOrgService(session, platform_role)
     with pytest.raises(
         TracecatValidationError,
-        match="superuser@example.com belongs to a platform superuser account",
+        match="Invitation cannot be created for this email",
     ):
         await service.create_organization_invitation(
             org.id,

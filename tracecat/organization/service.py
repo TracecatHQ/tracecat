@@ -455,12 +455,12 @@ class OrgService(BaseOrgService):
             existing_superuser = await self.session.scalar(
                 select(User).where(
                     func.lower(User.email) == email.lower(),
-                    type_cast(Mapped[bool], User.is_superuser) == True,  # noqa: E712
+                    type_cast(Mapped[bool], User.is_superuser).is_(True),
                 )
             )
             if existing_superuser is not None:
                 raise TracecatValidationError(
-                    f"{email} belongs to a platform superuser account and cannot be invited to an organization"
+                    "Invitation cannot be created for this email"
                 )
 
         # Check if user with this email is already a member (case-insensitive)

@@ -166,9 +166,7 @@ class AdminOrgService(BasePlatformService):
             )
         )
         if existing_superuser is not None:
-            raise TracecatValidationError(
-                f"{params.email} belongs to a platform superuser account and cannot be invited to an organization"
-            )
+            raise TracecatValidationError("Invitation cannot be created for this email")
 
         existing_member_stmt = (
             select(OrganizationMembership)

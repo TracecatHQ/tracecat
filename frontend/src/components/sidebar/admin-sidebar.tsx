@@ -5,6 +5,7 @@ import {
   BuildingIcon,
   ChevronLeftIcon,
   LayersIcon,
+  LogOutIcon,
   UsersIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -13,6 +14,7 @@ import type * as React from "react"
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -25,14 +27,20 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { useAuthActions } from "@/hooks/use-auth"
 import { useAppInfo } from "@/lib/hooks"
 
 export function AdminSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
+  const { logout } = useAuthActions()
   const { appInfo } = useAppInfo()
   const multiTenantEnabled = appInfo?.ee_multi_tenant ?? true
+
+  const handleLogout = async () => {
+    await logout()
+  }
 
   const navPlatform = [
     ...(multiTenantEnabled
@@ -131,6 +139,16 @@ export function AdminSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={handleLogout} tooltip="Logout">
+              <LogOutIcon />
+              <span>Logout</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   )
