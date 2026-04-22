@@ -1,4 +1,7 @@
-import { getPostAuthRedirectPath } from "@/lib/auth-redirect"
+import {
+  getPostAuthDecisionPath,
+  getPostAuthRedirectPath,
+} from "@/lib/auth-redirect"
 
 describe("getPostAuthRedirectPath", () => {
   it("forces multi-tenant superusers into admin", () => {
@@ -59,4 +62,25 @@ describe("getPostAuthRedirectPath", () => {
       })
     ).toBe("/workspaces")
   })
+})
+
+describe("getPostAuthDecisionPath", () => {
+  it("routes saved return URLs through the sign-in post-auth logic", () => {
+    expect(getPostAuthDecisionPath("/workspaces/tenant-path")).toBe(
+      "/sign-in?returnUrl=%2Fworkspaces%2Ftenant-path"
+    )
+  })
+
+  it("normalizes MCP continuation paths before routing through sign-in", () => {
+    expect(getPostAuthDecisionPath("/oauth/mcp/select-org?txn=abc123")).toBe(
+      "/sign-in?returnUrl=%2Foauth%2Fmcp%2Fcontinue%3Ftxn%3Dabc123"
+    )
+  })
+
+  it.each([undefined, null, "https://example.com/workspaces", "/auth/error"])(
+    "falls back to the app root for unsafe return URLs: %s",
+    (returnUrl) => {
+      expect(getPostAuthDecisionPath(returnUrl)).toBe("/")
+    }
+  )
 })
