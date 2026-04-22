@@ -55,7 +55,7 @@ WorkspaceUserInPath = Annotated[
 
 
 @router.get("")
-@require_scope("org:read")
+@require_scope("org:read", "workspace:read", require_all=False)
 async def list_workspaces(
     *,
     role: OrgActorRole,
@@ -114,7 +114,7 @@ async def create_workspace(
 
 # NOTE: This route must be defined before the route for getting a single workspace for both to work
 @router.get("/search")
-@require_scope("org:read")
+@require_scope("org:read", "workspace:read", require_all=False)
 async def search_workspaces(
     *,
     role: OrgActorRole,
