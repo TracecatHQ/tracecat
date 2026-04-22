@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
+from tracecat.contexts import ctx_role
 from tracecat.db.models import Workflow, Workspace
 from tracecat.workflow.graph.service import WorkflowGraphService
 from tracecat.workflow.management.schemas import GraphResponse
@@ -108,6 +109,30 @@ async def test_apply_operations_success(
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["version"] == mock_workflow.graph_version
+
+
+@pytest.mark.anyio
+async def test_apply_operations_requires_update_scope(
+    client: TestClient, test_admin_role: Role, mock_workflow: Workflow
+) -> None:
+    """PATCH /workflows/{id}/graph requires workflow:update."""
+
+    role = test_admin_role.model_copy(update={"scopes": frozenset({"workflow:read"})})
+    token = ctx_role.set(role)
+    try:
+        with patch.object(
+            WorkflowGraphService, "apply_operations", new_callable=AsyncMock
+        ) as mock_apply:
+            response = client.patch(
+                f"/workflows/{mock_workflow.id}/graph",
+                params={"workspace_id": str(test_admin_role.workspace_id)},
+                json={"base_version": 3, "operations": []},
+            )
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    mock_apply.assert_not_called()
 
 
 @pytest.mark.anyio

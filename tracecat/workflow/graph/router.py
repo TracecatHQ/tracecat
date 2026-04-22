@@ -8,6 +8,7 @@ This module provides the canonical graph API endpoints:
 from fastapi import APIRouter, HTTPException, status
 
 from tracecat.auth.dependencies import WorkspaceActorRole
+from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.workflow.graph.service import WorkflowGraphService
@@ -44,6 +45,7 @@ async def get_graph(
 
 
 @router.patch("")
+@require_scope("workflow:update")
 async def apply_graph_operations(
     role: WorkspaceActorRole,
     workflow_id: AnyWorkflowIDPath,
