@@ -400,8 +400,11 @@ class BaseServiceAccountService:
         service_account_id: uuid.UUID,
         *,
         populate_existing: bool = False,
+        for_update: bool = False,
     ) -> ServiceAccount:
         stmt = self._service_account_stmt(service_account_id)
+        if for_update:
+            stmt = stmt.with_for_update()
         if populate_existing:
             stmt = stmt.execution_options(populate_existing=True)
         result = await self.session.execute(stmt)
@@ -547,7 +550,10 @@ class BaseServiceAccountService:
         *,
         name: str,
     ) -> IssuedServiceAccountApiKeyResult:
-        service_account = await self.get_service_account(service_account_id)
+        service_account = await self.get_service_account(
+            service_account_id,
+            for_update=True,
+        )
         if service_account.disabled_at is not None:
             raise TracecatAuthorizationError(
                 "Disabled service accounts cannot generate new API keys"

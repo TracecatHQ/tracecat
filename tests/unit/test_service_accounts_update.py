@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock
@@ -60,6 +61,56 @@ async def test_update_service_account_can_clear_description(
     )
 
     assert updated.description is None
+
+
+@pytest.mark.anyio
+async def test_issue_api_key_locks_service_account_before_rotation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service_account_id = uuid.uuid4()
+    active_key = SimpleNamespace(
+        id=uuid.uuid4(),
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
+        revoked_at=None,
+        revoked_by=None,
+    )
+    created_key = SimpleNamespace(id=uuid.uuid4())
+    service_account = SimpleNamespace(
+        id=service_account_id,
+        disabled_at=None,
+        api_keys=[active_key],
+    )
+    refreshed_service_account = SimpleNamespace(
+        id=service_account_id,
+        disabled_at=None,
+        api_keys=[active_key, created_key],
+    )
+    service = OrganizationServiceAccountService(
+        cast(AsyncSession, _NoopSession()),
+        role=Role(
+            type="user",
+            user_id=uuid.uuid4(),
+            service_id="tracecat-api",
+            organization_id=uuid.uuid4(),
+            scopes=frozenset({"org:service_account:update"}),
+        ),
+    )
+    get_service_account = AsyncMock(
+        side_effect=[service_account, refreshed_service_account]
+    )
+    monkeypatch.setattr(service, "get_service_account", get_service_account)
+    monkeypatch.setattr(
+        service,
+        "_create_api_key",
+        AsyncMock(return_value=(created_key, "tcok_test_raw")),
+    )
+
+    result = await service._issue_api_key(service_account_id, name="Rotated")
+
+    assert result.api_key is created_key
+    assert active_key.revoked_at is not None
+    assert active_key.revoked_by == service.role.user_id
+    get_service_account.assert_any_await(service_account_id, for_update=True)
 
 
 @pytest.mark.anyio
