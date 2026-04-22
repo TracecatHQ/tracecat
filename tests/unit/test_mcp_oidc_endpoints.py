@@ -11,6 +11,7 @@ import uuid
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi import FastAPI
@@ -307,6 +308,11 @@ def _authorize_params(**overrides) -> dict[str, str]:
     return defaults | overrides
 
 
+def _location_query_params(location: str) -> dict[str, list[str]]:
+    """Parse query parameters from a redirect location."""
+    return parse_qs(urlsplit(location).query)
+
+
 def test_authorize_rejects_wrong_response_type(client: TestClient) -> None:
     response = client.get("/authorize", params=_authorize_params(response_type="token"))
 
@@ -491,6 +497,33 @@ async def test_authorize_issues_code_on_valid_session(
     assert "state=my-state" in location
     assert len(stored_codes) == 1
     assert stored_codes[0].organization_id == org_id
+
+
+@pytest.mark.anyio
+async def test_authorize_redirects_access_denied_to_client_callback(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
+        AsyncMock(side_effect=ValueError("User cannot authorize MCP session")),
+    )
+
+    response = client.get(
+        "/authorize",
+        params=_authorize_params(state="denied-state"),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    assert location.startswith(_ALLOWED_REDIRECT)
+    query = _location_query_params(location)
+    assert query["error"] == ["access_denied"]
+    assert query["state"] == ["denied-state"]
+    assert query["error_description"] == [
+        "User cannot be resolved to a single organization"
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1399,6 +1432,43 @@ async def test_authorize_resume_replays_authorize_on_success(
     location = response.headers["location"]
     assert "code=" in location
     assert "state=resumed-state" in location
+
+
+@pytest.mark.anyio
+async def test_authorize_resume_redirects_access_denied_to_client_callback(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    txn = ResumeTransaction(
+        transaction_id="txn-denied",
+        authorize_params=_authorize_params(state="resume-denied-state"),
+        created_at=time.time(),
+        bound_ip=_TESTCLIENT_IP_HASH,
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.load_and_delete_resume_transaction",
+        AsyncMock(return_value=txn),
+    )
+    monkeypatch.setattr(
+        "tracecat.mcp.oidc.endpoints.resolve_authorize_session",
+        AsyncMock(side_effect=ValueError("User cannot authorize MCP session")),
+    )
+
+    response = client.get(
+        "/authorize/resume",
+        params={"txn": "txn-denied"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    location = response.headers["location"]
+    assert location.startswith(_ALLOWED_REDIRECT)
+    query = _location_query_params(location)
+    assert query["error"] == ["access_denied"]
+    assert query["state"] == ["resume-denied-state"]
+    assert query["error_description"] == [
+        "User cannot be resolved to a single organization"
+    ]
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ import hmac
 import secrets
 import time
 from typing import Annotated, Any
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import jwt
 from fastapi import APIRouter, Depends, Form, Header, Query, Request
@@ -132,6 +132,32 @@ def _error_response(
         {"error": error, "error_description": description},
         status_code=status_code,
     )
+
+
+def _build_redirect_url(url: str, params: dict[str, str]) -> str:
+    """Return ``url`` with encoded query parameters appended."""
+    parts = urlsplit(url)
+    query = urlencode(
+        [*parse_qsl(parts.query, keep_blank_values=True), *params.items()]
+    )
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
+
+def _oauth_error_redirect_response(
+    redirect_uri: str,
+    error: str,
+    description: str,
+    *,
+    state: str | None,
+) -> RedirectResponse:
+    """Redirect a validated OAuth authorization request with an error payload."""
+    params = {
+        "error": error,
+        "error_description": description,
+    }
+    if state:
+        params["state"] = state
+    return RedirectResponse(_build_redirect_url(redirect_uri, params), status_code=302)
 
 
 def _validate_pkce_s256(code_verifier: str, code_challenge: str) -> bool:
@@ -286,16 +312,17 @@ async def _handle_authorize(
     try:
         session_result = await resolve_authorize_session(request, user)
     except ValueError as exc:
-        # Regular users with zero or multiple org memberships land here.
+        # The OAuth client callback has already been validated at this point.
         logger.warning(
             "MCP OIDC: session resolution failed",
             error=str(exc),
             client_ip=_get_client_ip(request),
         )
-        return _error_response(
+        return _oauth_error_redirect_response(
+            redirect_uri,
             "access_denied",
             "User cannot be resolved to a single organization",
-            status_code=403,
+            state=state,
         )
 
     if isinstance(session_result, SessionNeedsAction):
@@ -361,8 +388,7 @@ async def _handle_authorize(
         client_ip=_get_client_ip(request),
     )
 
-    query = urlencode({"code": code, "state": state})
-    redirect_url = f"{redirect_uri}?{query}"
+    redirect_url = _build_redirect_url(redirect_uri, {"code": code, "state": state})
     return RedirectResponse(redirect_url, status_code=302)
 
 
