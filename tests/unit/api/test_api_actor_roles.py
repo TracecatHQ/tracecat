@@ -15,7 +15,7 @@ from tracecat.auth.dependencies import WorkspaceActorRole, WorkspaceUserRole
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
 from tracecat.contexts import ctx_role
-from tracecat.db.models import Webhook, Workflow, Workspace
+from tracecat.db.models import Workflow, Workspace
 from tracecat.integrations import router as integrations_router
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.organization import router as organization_router
@@ -88,21 +88,6 @@ def mock_workflow(test_workspace: Workspace) -> Workflow:
     )
 
 
-@pytest.fixture
-def mock_webhook(test_workspace: Workspace, mock_workflow: Workflow) -> Webhook:
-    return Webhook(
-        id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaac"),
-        workspace_id=test_workspace.id,
-        workflow_id=mock_workflow.id,
-        status="online",
-        methods=["POST"],
-        filters={},
-        allowlisted_cidrs=[],
-        created_at=datetime(2024, 1, 1, tzinfo=UTC),
-        updated_at=datetime(2024, 1, 1, tzinfo=UTC),
-    )
-
-
 @pytest.mark.anyio
 async def test_service_account_can_list_workflows(
     client: TestClient,
@@ -144,40 +129,6 @@ async def test_service_account_can_list_workflows(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["items"][0]["title"] == "Test Workflow"
-
-
-@pytest.mark.anyio
-async def test_service_account_can_get_workflow(
-    client: TestClient,
-    workspace_targeted_service_account_role: Role,
-    mock_workflow: Workflow,
-    mock_webhook: Webhook,
-) -> None:
-    mock_workflow.webhook = mock_webhook
-    mock_workflow.schedules = []
-
-    with patch.object(
-        workflow_management_router, "WorkflowsManagementService"
-    ) as mock_service_cls:
-        mock_svc = AsyncMock()
-        mock_svc.get_workflow.return_value = mock_workflow
-        mock_service_cls.return_value = mock_svc
-
-        token = ctx_role.set(workspace_targeted_service_account_role)
-        try:
-            response = client.get(
-                f"/workflows/{mock_workflow.id}",
-                params={
-                    "workspace_id": str(
-                        workspace_targeted_service_account_role.workspace_id
-                    )
-                },
-            )
-        finally:
-            ctx_role.reset(token)
-
-    assert response.status_code == status.HTTP_200_OK
-    assert response.json()["alias"] == "test-workflow"
 
 
 @pytest.mark.anyio
@@ -564,6 +515,14 @@ def test_draft_workflow_execution_route_remains_user_only() -> None:
 
     assert draft_role == WorkspaceActorRole
     assert draft_execution_role == WorkspaceUserRole
+
+
+def test_workflow_detail_route_remains_user_only() -> None:
+    workflow_detail_role = get_type_hints(
+        workflow_management_router.get_workflow, include_extras=True
+    )["role"]
+
+    assert workflow_detail_role == WorkspaceUserRole
 
 
 def test_webhook_api_key_revocation_route_remains_user_only() -> None:

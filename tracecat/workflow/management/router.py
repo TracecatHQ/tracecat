@@ -331,7 +331,7 @@ async def create_workflow(
 @router.get("/{workflow_id}", tags=["workflows"])
 @require_scope("workflow:read")
 async def get_workflow(
-    role: WorkspaceActorRole,
+    role: WorkspaceUserRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WorkflowRead:
