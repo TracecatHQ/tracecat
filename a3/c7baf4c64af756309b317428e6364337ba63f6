@@ -1,0 +1,81 @@
+frontend/src/hooks/use-skills.ts
+  647ef2ee78532672 208
+frontend/next.config.mjs
+  f9759fd526f79bba 8
+frontend/src/components/sidebar/app-sidebar.tsx
+  f9759fd526f79bba 23,77-90,211-217,235-244
+frontend/src/components/skills/use-skills-studio.ts
+  7a57ed7b18619e83 180,277,282,300-309,367,390-391,394,399-400,416-418,434-435,489-490,507-508,628-629,632,638-641,645,650,656-659,701,703,720,722,737-738,741,768-770
+  0654838314e74edc 276,279-281,364-366
+frontend/src/lib/skills-studio.tsx
+  7a57ed7b18619e83 71
+frontend/src/components/agents/agent-presets-builder.tsx
+  f9759fd526f79bba 118,131,1071-1072,1106-1107,1143
+  e2366595845a235a 1145-1146,1182,1227,1533,1535,1963,1968,1975-1977,1987-1990,1996,1999-2000,2028,2040-2042,2067-2070,2076,2092,2096,2100-2101,2108-2109,2112-2113,2116,2119-2120,2125-2126,2137,2144,2148-2154,2175,2185,2187-2194,2196-2267,2275-2283,2393-2395,2434,2482,2554-2565,2568,2570-2679,2681,2689-2697,2725-2726
+  9e0fa2bede874c7f 1525,1595,2147,2553,2566,2569
+frontend/src/components/skills/skills-studio.tsx
+  7a57ed7b18619e83 151-160
+frontend/src/components/skills/working-copy-bar.tsx
+  647ef2ee78532672 8,137,140,159-160
+frontend/src/components/skills/file-tree.tsx
+  7a57ed7b18619e83 126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "a3c7baf4c64af756309b317428e6364337ba63f6",
+  "prompts": {
+    "0654838314e74edc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d6df6-7d69-71f1-ad98-0817009a564d",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 144,
+      "total_deletions": 296,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    },
+    "647ef2ee78532672": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d83d5-919f-7861-be9e-41000a93c013",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 689,
+      "total_deletions": 208,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    },
+    "7a57ed7b18619e83": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c715e816-8e48-4375-b308-ce4cc5bb2897",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 975,
+      "total_deletions": 351,
+      "accepted_lines": 63,
+      "overriden_lines": 0
+    },
+    "e2366595845a235a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d5548-3858-7db1-9443-c64ad289fda3",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 143,
+      "overriden_lines": 0
+    }
+  }
+}
