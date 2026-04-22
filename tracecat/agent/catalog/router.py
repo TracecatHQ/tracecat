@@ -2,8 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Body, HTTPException, Query, status
 
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.catalog.schemas import (
@@ -15,7 +14,7 @@ from tracecat.agent.catalog.schemas import (
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.auth.dependencies import OrgUserRole, WorkspaceUserPathRole
 from tracecat.authz.controls import require_scope
-from tracecat.db.engine import get_async_session
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
 
@@ -29,7 +28,7 @@ router = APIRouter()
 @require_scope("agent:read")
 async def list_catalog(
     role: OrgUserRole,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
     provider: str | None = Query(None),
     model_name: str | None = Query(None),
     cursor: str | None = Query(None),
@@ -61,7 +60,7 @@ async def list_catalog(
 async def get_catalog_entry(
     catalog_id: UUID,
     role: OrgUserRole,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> AgentCatalogRead:
     """Get a specific catalog entry."""
     assert role.organization_id is not None  # OrgUserRole guarantees this
@@ -87,8 +86,8 @@ async def get_catalog_entry(
 @require_scope("agent:create")
 async def create_catalog_entry(
     role: OrgUserRole,
+    session: AsyncDBSession,
     params: AgentCatalogCreate = Body(...),
-    session: AsyncSession = Depends(get_async_session),
 ) -> AgentCatalogRead:
     """Create an org-scoped catalog entry.
 
@@ -121,8 +120,8 @@ async def create_catalog_entry(
 async def update_catalog_entry(
     catalog_id: UUID,
     role: OrgUserRole,
+    session: AsyncDBSession,
     params: AgentCatalogUpdate = Body(...),
-    session: AsyncSession = Depends(get_async_session),
 ) -> AgentCatalogRead:
     """Update metadata on an org-scoped catalog entry."""
     assert role.organization_id is not None  # OrgUserRole guarantees this
@@ -137,7 +136,7 @@ async def update_catalog_entry(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    metadata = params.model_dump(exclude={"model_provider"})
+    metadata = params.model_dump(exclude={"model_provider"}, exclude_unset=True)
     try:
         updated = await service.update_catalog_entry(
             row,
@@ -166,7 +165,7 @@ async def update_catalog_entry(
 async def delete_catalog_entry(
     catalog_id: UUID,
     role: OrgUserRole,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> None:
     """Delete an org-scoped catalog entry."""
     assert role.organization_id is not None  # OrgUserRole guarantees this
@@ -198,7 +197,7 @@ async def delete_catalog_entry(
 async def get_workspace_models(
     workspace_id: UUID,
     role: WorkspaceUserPathRole,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> AgentCatalogListResponse:
     """Get models accessible to a workspace.
 
@@ -212,5 +211,11 @@ async def get_workspace_models(
         )
 
     access_service = AgentModelAccessService(session=session, role=role)
-    models = await access_service.get_workspace_models(workspace_id=workspace_id)
+    try:
+        models = await access_service.get_workspace_models(workspace_id=workspace_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     return AgentCatalogListResponse(items=models, next_cursor=None)

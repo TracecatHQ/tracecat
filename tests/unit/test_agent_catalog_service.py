@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.catalog.schemas import AzureOpenAICatalogUpdate
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -316,6 +317,51 @@ async def test_update_catalog_entry_replaces_metadata(
     assert updated.model_metadata == {
         "vertex_model": "gemini-3-pro",
         "max_input_tokens": 1_000_000,
+    }
+
+
+def test_catalog_update_dump_excludes_unset_optional_metadata() -> None:
+    params = AzureOpenAICatalogUpdate(
+        model_provider="azure_openai",
+        deployment_name="gpt-4o-updated",
+    )
+
+    metadata = params.model_dump(exclude={"model_provider"}, exclude_unset=True)
+
+    assert metadata == {"deployment_name": "gpt-4o-updated"}
+
+
+@pytest.mark.anyio
+async def test_update_catalog_entry_preserves_unspecified_metadata(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    service = AgentCatalogService(session=session)
+    token = ctx_role.set(_user_role(svc_organization.id))
+    try:
+        row = await service.create_catalog_entry(
+            org_id=svc_organization.id,
+            model_provider="azure_openai",
+            model_name="gpt-4o-deploy",
+            metadata={
+                "deployment_name": "gpt-4o",
+                "display_name": "Customer GPT-4o",
+                "max_input_tokens": 128_000,
+            },
+        )
+        updated = await service.update_catalog_entry(
+            row,
+            org_id=svc_organization.id,
+            expected_provider="azure_openai",
+            metadata={"deployment_name": "gpt-4o-updated"},
+        )
+    finally:
+        ctx_role.reset(token)
+
+    assert updated.model_metadata == {
+        "deployment_name": "gpt-4o-updated",
+        "display_name": "Customer GPT-4o",
+        "max_input_tokens": 128_000,
     }
 
 

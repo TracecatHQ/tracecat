@@ -7,6 +7,18 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+def validate_base_url(value: str | None) -> str | None:
+    """Validate a base_url is http(s) and has a hostname."""
+    if value is None:
+        return None
+    parsed = urlparse(value)
+    if not parsed.netloc:
+        raise ValueError("base_url must include a hostname")
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise ValueError("base_url must use HTTP or HTTPS")
+    return value
+
+
 class AgentCustomProviderCreate(BaseModel):
     """Create custom LLM provider."""
 
@@ -20,14 +32,7 @@ class AgentCustomProviderCreate(BaseModel):
     @field_validator("base_url")
     @classmethod
     def _validate_base_url(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        parsed = urlparse(value)
-        if not parsed.netloc:
-            raise ValueError("base_url must include a hostname")
-        if parsed.scheme.lower() not in ("http", "https"):
-            raise ValueError("base_url must use HTTP or HTTPS")
-        return value
+        return validate_base_url(value)
 
 
 class AgentCustomProviderRead(BaseModel):
@@ -57,14 +62,7 @@ class AgentCustomProviderUpdate(BaseModel):
     @field_validator("base_url")
     @classmethod
     def _validate_base_url(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        parsed = urlparse(value)
-        if not parsed.netloc:
-            raise ValueError("base_url must include a hostname")
-        if parsed.scheme.lower() not in ("http", "https"):
-            raise ValueError("base_url must use HTTP or HTTPS")
-        return value
+        return validate_base_url(value)
 
 
 class AgentCustomProviderListResponse(BaseModel):

@@ -2,8 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat.agent.provider.schemas import (
     AgentCustomProviderCreate,
@@ -14,21 +13,22 @@ from tracecat.agent.provider.schemas import (
 from tracecat.agent.provider.service import AgentCustomProviderService
 from tracecat.auth.dependencies import OrgUserRole
 from tracecat.authz.controls import require_scope
-from tracecat.db.engine import get_async_session
+from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginationParams
 
-router = APIRouter()
+router = APIRouter(prefix="/organization/agent-custom-providers")
 
 
 @router.post(
-    "/organization/agent-custom-providers",
+    "",
     response_model=AgentCustomProviderRead,
 )
 @require_scope("agent:create")
-async def create_provider(
+async def create_custom_provider(
     provider: AgentCustomProviderCreate,
     role: OrgUserRole,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> AgentCustomProviderRead:
     """Create a new custom LLM provider."""
     service = AgentCustomProviderService(session=session, role=role)
@@ -36,13 +36,13 @@ async def create_provider(
 
 
 @router.get(
-    "/organization/agent-custom-providers",
+    "",
     response_model=AgentCustomProviderListResponse,
 )
 @require_scope("agent:read")
-async def list_providers(
+async def list_custom_providers(
     role: OrgUserRole,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
     cursor: str | None = Query(None),
     limit: int = Query(50, ge=1, le=100),
 ) -> AgentCustomProviderListResponse:
@@ -63,65 +63,88 @@ async def list_providers(
 
 
 @router.get(
-    "/organization/agent-custom-providers/{provider_id}",
+    "/{provider_id}",
     response_model=AgentCustomProviderRead,
 )
 @require_scope("agent:read")
-async def get_provider(
+async def get_custom_provider(
     provider_id: UUID,
     role: OrgUserRole,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> AgentCustomProviderRead:
     """Get a specific custom provider."""
     service = AgentCustomProviderService(session=session, role=role)
-    return await service.get_provider(provider_id)
+    try:
+        return await service.get_provider(provider_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
 
 
 @router.patch(
-    "/organization/agent-custom-providers/{provider_id}",
+    "/{provider_id}",
     response_model=AgentCustomProviderRead,
 )
 @require_scope("agent:update")
-async def update_provider(
+async def update_custom_provider(
     provider_id: UUID,
     updates: AgentCustomProviderUpdate,
     role: OrgUserRole,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> AgentCustomProviderRead:
     """Update custom provider configuration."""
     service = AgentCustomProviderService(session=session, role=role)
-    return await service.update_provider(provider_id, updates)
+    try:
+        return await service.update_provider(provider_id, updates)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
 
 
 @router.delete(
-    "/organization/agent-custom-providers/{provider_id}",
+    "/{provider_id}",
     status_code=204,
 )
 @require_scope("agent:delete")
-async def delete_provider(
+async def delete_custom_provider(
     provider_id: UUID,
     role: OrgUserRole,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> None:
     """Delete a custom provider."""
     service = AgentCustomProviderService(session=session, role=role)
-    await service.delete_provider(provider_id)
+    try:
+        await service.delete_provider(provider_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
 
 
 @router.post(
-    "/organization/agent-custom-providers/{provider_id}/refresh",
+    "/{provider_id}/refresh",
     status_code=202,
 )
 @require_scope("agent:update")
-async def refresh_provider_catalog(
+async def refresh_custom_provider_catalog(
     provider_id: UUID,
     role: OrgUserRole,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> None:
     """Trigger model discovery for a custom provider."""
     service = AgentCustomProviderService(session=session, role=role)
     try:
         await service.refresh_provider_catalog(provider_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -130,14 +153,14 @@ async def refresh_provider_catalog(
 
 
 @router.post(
-    "/organization/agent-custom-providers/validate",
+    "/validate",
     status_code=200,
 )
 @require_scope("agent:create")
-async def validate_provider_connection(
+async def validate_custom_provider_connection(
     provider: AgentCustomProviderCreate,
     role: OrgUserRole,
-    session: AsyncSession = Depends(get_async_session),
+    session: AsyncDBSession,
 ) -> dict[str, bool]:
     """Test provider connectivity without saving."""
     service = AgentCustomProviderService(session=session, role=role)

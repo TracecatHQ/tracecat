@@ -153,6 +153,8 @@ class AgentCatalogService(BaseService):
                 cursor_data = paginator.decode_cursor(params.cursor)
             except (ValueError, AttributeError) as err:
                 raise ValueError("Invalid cursor") from err
+            if not isinstance(cursor_data.sort_value, datetime):
+                raise ValueError("Invalid cursor")
             stmt = stmt.where(
                 sa.or_(
                     AgentCatalog.created_at < cursor_data.sort_value,
@@ -277,7 +279,10 @@ class AgentCatalogService(BaseService):
                 f"model_provider mismatch: expected {row.model_provider!r}, "
                 f"got {expected_provider!r}"
             )
-        row.model_metadata = metadata or {}
+        row.model_metadata = {
+            **(row.model_metadata or {}),
+            **(metadata or {}),
+        }
         row.last_refreshed_at = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(row)

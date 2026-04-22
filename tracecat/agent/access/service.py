@@ -4,14 +4,14 @@ from datetime import datetime
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy import and_, exists, select
+from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.agent.access.schemas import AgentModelAccessRead
 from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.audit.logger import audit_log
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import AgentCatalog, AgentModelAccess
+from tracecat.db.models import AgentCatalog, AgentModelAccess, Workspace
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.service import BaseOrgService
@@ -38,6 +38,32 @@ class AgentModelAccessService(BaseOrgService):
         Returns:
             The created access entry.
         """
+        catalog_exists = await self.session.scalar(
+            select(
+                exists().where(
+                    AgentCatalog.id == catalog_id,
+                    sa.or_(
+                        AgentCatalog.organization_id == self.organization_id,
+                        AgentCatalog.organization_id.is_(None),
+                    ),
+                )
+            )
+        )
+        if not catalog_exists:
+            raise TracecatNotFoundError(f"Catalog {catalog_id} not found")
+
+        if workspace_id is not None:
+            workspace_exists = await self.session.scalar(
+                select(
+                    exists().where(
+                        Workspace.id == workspace_id,
+                        Workspace.organization_id == self.organization_id,
+                    )
+                )
+            )
+            if not workspace_exists:
+                raise TracecatNotFoundError(f"Workspace {workspace_id} not found")
+
         access = AgentModelAccess(
             organization_id=self.organization_id,
             workspace_id=workspace_id,
@@ -48,9 +74,16 @@ class AgentModelAccessService(BaseOrgService):
             await self.session.commit()
         except IntegrityError as err:
             await self.session.rollback()
-            raise TracecatValidationError(
-                f"Model access for catalog {catalog_id} already enabled"
-            ) from err
+            pgcode = getattr(getattr(err, "orig", None), "pgcode", None)
+            if pgcode == "23505":
+                raise TracecatValidationError(
+                    f"Model access for catalog {catalog_id} already enabled"
+                ) from err
+            if pgcode == "23503":
+                raise TracecatNotFoundError(
+                    f"Catalog {catalog_id} or workspace {workspace_id} not found"
+                ) from err
+            raise
         await self.session.refresh(access)
         return AgentModelAccessRead.model_validate(access)
 
@@ -70,10 +103,8 @@ class AgentModelAccessService(BaseOrgService):
             TracecatNotFoundError: The access row does not exist.
         """
         stmt = select(AgentModelAccess).where(
-            and_(
-                AgentModelAccess.id == access_id,
-                AgentModelAccess.organization_id == self.organization_id,
-            )
+            AgentModelAccess.id == access_id,
+            AgentModelAccess.organization_id == self.organization_id,
         )
         access = (await self.session.execute(stmt)).scalar_one_or_none()
         if access is None:
@@ -95,7 +126,7 @@ class AgentModelAccessService(BaseOrgService):
 
         stmt = (
             select(AgentModelAccess)
-            .where(and_(*conditions))
+            .where(*conditions)
             .order_by(
                 AgentModelAccess.created_at.desc(),
                 AgentModelAccess.id.desc(),
@@ -146,6 +177,10 @@ class AgentModelAccessService(BaseOrgService):
             .where(
                 AgentModelAccess.organization_id == self.organization_id,
                 AgentModelAccess.workspace_id.is_(None),
+                sa.or_(
+                    AgentCatalog.organization_id == self.organization_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
             )
             .order_by(
                 AgentCatalog.model_provider.asc(),
@@ -165,32 +200,32 @@ class AgentModelAccessService(BaseOrgService):
         workspace_override_exists = await self.session.scalar(
             select(
                 exists().where(
-                    and_(
-                        AgentModelAccess.organization_id == self.organization_id,
-                        AgentModelAccess.workspace_id == workspace_id,
-                    )
+                    AgentModelAccess.organization_id == self.organization_id,
+                    AgentModelAccess.workspace_id == workspace_id,
                 )
             )
         )
 
         if workspace_override_exists:
             effective_catalog_ids = select(AgentModelAccess.catalog_id).where(
-                and_(
-                    AgentModelAccess.organization_id == self.organization_id,
-                    AgentModelAccess.workspace_id == workspace_id,
-                )
+                AgentModelAccess.organization_id == self.organization_id,
+                AgentModelAccess.workspace_id == workspace_id,
             )
         else:
             effective_catalog_ids = select(AgentModelAccess.catalog_id).where(
-                and_(
-                    AgentModelAccess.organization_id == self.organization_id,
-                    AgentModelAccess.workspace_id.is_(None),
-                )
+                AgentModelAccess.organization_id == self.organization_id,
+                AgentModelAccess.workspace_id.is_(None),
             )
 
         stmt = (
             select(AgentCatalog)
-            .where(AgentCatalog.id.in_(effective_catalog_ids))
+            .where(
+                AgentCatalog.id.in_(effective_catalog_ids),
+                sa.or_(
+                    AgentCatalog.organization_id == self.organization_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
+            )
             .order_by(
                 AgentCatalog.model_provider.asc(),
                 AgentCatalog.model_name.asc(),

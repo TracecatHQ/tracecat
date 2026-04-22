@@ -234,7 +234,13 @@ class AgentCustomProviderService(BaseOrgService):
                     AgentCustomProvider.id == AgentCatalog.custom_provider_id,
                 ),
             )
-            .where(AgentCatalog.id == catalog_id)
+            .where(
+                AgentCatalog.id == catalog_id,
+                sa.or_(
+                    AgentCatalog.organization_id == self.organization_id,
+                    AgentCatalog.organization_id.is_(None),
+                ),
+            )
         )
         row = (await self.session.execute(stmt)).one_or_none()
         if row is None:
@@ -406,6 +412,25 @@ class AgentCustomProviderService(BaseOrgService):
         provider.last_refreshed_at = datetime.now(UTC)
         await self.session.commit()
 
+    @staticmethod
+    async def _fetch_models(
+        *,
+        base_url: str,
+        api_key: str | None,
+        api_key_header: str | None,
+        custom_headers: dict[str, str] | None,
+        timeout: float,
+    ) -> httpx.Response:
+        """Make a GET /models request against a provider base URL."""
+        headers = custom_headers.copy() if custom_headers else {}
+        if api_key and api_key_header:
+            headers[api_key_header] = api_key
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            return await client.get(
+                f"{base_url.rstrip('/')}/models",
+                headers=headers,
+            )
+
     async def validate_provider(
         self,
         base_url: str,
@@ -415,15 +440,14 @@ class AgentCustomProviderService(BaseOrgService):
     ) -> bool:
         """Test provider connectivity."""
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                headers = custom_headers.copy() if custom_headers else {}
-                if api_key and api_key_header:
-                    headers[api_key_header] = api_key
-                response = await client.get(
-                    f"{base_url.rstrip('/')}/models",
-                    headers=headers,
-                )
-                return response.status_code == 200
+            response = await self._fetch_models(
+                base_url=base_url,
+                api_key=api_key,
+                api_key_header=api_key_header,
+                custom_headers=custom_headers,
+                timeout=10.0,
+            )
+            return response.status_code == 200
         except Exception:
             return False
 
@@ -436,20 +460,19 @@ class AgentCustomProviderService(BaseOrgService):
     ) -> list[dict[str, object]]:
         """Discover available models from a provider endpoint."""
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                headers = custom_headers.copy() if custom_headers else {}
-                if api_key and api_key_header:
-                    headers[api_key_header] = api_key
-                response = await client.get(
-                    f"{base_url.rstrip('/')}/models",
-                    headers=headers,
-                )
-                response.raise_for_status()
-                data = response.json()
-                if isinstance(data, dict) and isinstance(data.get("data"), list):
-                    return [item for item in data["data"] if isinstance(item, dict)]
-                if isinstance(data, list):
-                    return [item for item in data if isinstance(item, dict)]
-                raise ValueError(f"Unexpected response format: {type(data)}")
+            response = await self._fetch_models(
+                base_url=base_url,
+                api_key=api_key,
+                api_key_header=api_key_header,
+                custom_headers=custom_headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
         except httpx.HTTPError as err:
             raise ValueError(f"Failed to discover models: {err}") from err
+        if isinstance(data, dict) and isinstance(data.get("data"), list):
+            return [item for item in data["data"] if isinstance(item, dict)]
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        raise ValueError(f"Unexpected response format: {type(data)}")
