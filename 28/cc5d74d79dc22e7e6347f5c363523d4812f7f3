@@ -1,0 +1,23 @@
+packages/tracecat-ee/tracecat_ee/admin/organizations/router.py
+  b009de0eedd5b625 7,56-61,108-112,141,162-166,189,211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "28cc5d74d79dc22e7e6347f5c363523d4812f7f3",
+  "prompts": {
+    "b009de0eedd5b625": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "88a8bdeb-9168-4530-abc5-0b70251e4d7e",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 55,
+      "total_deletions": 57,
+      "accepted_lines": 36,
+      "overriden_lines": 0
+    }
+  }
+}
