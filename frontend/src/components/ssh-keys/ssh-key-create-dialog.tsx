@@ -88,7 +88,7 @@ export function CreateSSHKeyDialog({
     const { private_key, ...rest } = values
     try {
       const secret: SecretCreate = {
-        type: "ssh-key",
+        type: "ssh_key",
         keys: [{ key: "PRIVATE_KEY", value: private_key }],
         ...rest,
       }

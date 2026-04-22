@@ -12,6 +12,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from tracecat_registry import secrets as registry_secrets
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -23,6 +24,7 @@ from tracecat.dsl.schemas import (
 )
 from tracecat.executor.backends.test import TestBackend
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
+from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
 
@@ -237,5 +239,50 @@ class TestTestBackendNoRegistryAction:
 
             assert result.type == "failure"
             assert "module" in result.error.message.lower()
+        finally:
+            await backend.shutdown()
+
+    @pytest.mark.anyio
+    async def test_execute_udf_reuses_cached_secret_projection(
+        self,
+        test_role: Role,
+        test_resolved_context: ResolvedContext,
+        test_run_action_input: RunActionInput,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        cached_projection = SecretEnvProjection(
+            env={"TOKEN": "cached-token"},
+            mask_values={"cached-token"},
+        )
+        test_resolved_context.secret_projection = cached_projection
+
+        async def _unexpected_project_secret_env(*args, **kwargs):
+            pytest.fail(
+                "project_secret_env should not be called when projection is cached"
+            )
+
+        backend = TestBackend()
+        await backend.start()
+
+        try:
+            monkeypatch.setattr(
+                "tracecat.executor.backends.test.project_secret_env",
+                _unexpected_project_secret_env,
+            )
+            monkeypatch.setattr(
+                backend,
+                "_load_udf_callable",
+                lambda _action_impl: lambda **_kwargs: registry_secrets.get("TOKEN"),
+            )
+
+            result = await backend.execute(
+                input=test_run_action_input,
+                role=test_role,
+                resolved_context=test_resolved_context,
+                timeout=30.0,
+            )
+
+            assert result.type == "success"
+            assert result.result == "cached-token"
         finally:
             await backend.shutdown()

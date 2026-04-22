@@ -85,6 +85,7 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
         model_name=config.model_name,
         model_provider=config.model_provider,
         base_url=config.base_url,
+        passthrough=config.passthrough,
         instructions=config.instructions,
         output_type=config.output_type,
         actions=config.actions,
@@ -97,6 +98,7 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
             else None
         ),
         retries=config.retries,
+        enable_thinking=config.enable_thinking,
         enable_internet_access=config.enable_internet_access,
     )
 
@@ -107,6 +109,7 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
         model_name=payload.model_name,
         model_provider=payload.model_provider,
         base_url=payload.base_url,
+        passthrough=payload.passthrough,
         instructions=payload.instructions,
         output_type=payload.output_type,
         actions=payload.actions,
@@ -119,5 +122,6 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
             else None
         ),
         retries=payload.retries,
+        enable_thinking=payload.enable_thinking,
         enable_internet_access=payload.enable_internet_access,
     )

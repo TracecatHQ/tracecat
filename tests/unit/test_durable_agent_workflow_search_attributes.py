@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
@@ -13,14 +14,19 @@ from tracecat_ee.agent.workflows.durable import (
     UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
+    _build_approved_tool_run_input,
 )
 
+from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import ResolveAgentPresetConfigActivityInput
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
+from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
+from tracecat.registry.lock.types import RegistryLock
+from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -82,6 +88,9 @@ async def test_upsert_tracecat_search_attributes_fills_missing_keys() -> None:
     assert (
         values[TemporalSearchAttr.EXECUTION_TYPE.value] == ExecutionType.PUBLISHED.value
     )
+    assert values[
+        TemporalSearchAttr.CORRELATION_ID.value
+    ] == build_agent_session_correlation_id(workflow_args.agent_args.session_id)
     assert values[TemporalSearchAttr.WORKSPACE_ID.value] == str(role.workspace_id)
     assert values[TemporalSearchAttr.TRIGGERED_BY_USER_ID.value] == str(role.user_id)
 
@@ -105,6 +114,7 @@ async def test_upsert_tracecat_search_attributes_preserves_existing_values() -> 
             TemporalSearchAttr.EXECUTION_TYPE.create_pair(ExecutionType.DRAFT.value),
             TemporalSearchAttr.WORKSPACE_ID.create_pair(existing_workspace),
             TemporalSearchAttr.TRIGGERED_BY_USER_ID.create_pair(existing_user),
+            TemporalSearchAttr.CORRELATION_ID.create_pair("agent-session:existing"),
         ]
     )
 
@@ -156,7 +166,7 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
         patch.object(workflow_instance, "_build_config", AsyncMock(return_value=cfg)),
         patch.object(
             workflow_instance,
-            "_run_with_nsjail",
+            "_run_with_agent_executor",
             AsyncMock(return_value=expected_output),
         ) as run_mock,
     ):
@@ -225,3 +235,69 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
     assert cfg.model_provider == pinned_config.model_provider
     assert cfg.actions == ["core.http_request"]
     assert cfg.instructions == "base instructions\nappend this"
+
+
+def test_build_approved_tool_run_input_is_deterministic() -> None:
+    workflow_id = uuid.UUID("00000000-0000-4000-8000-000000000123")
+    run_id = uuid.UUID("00000000-0000-4000-8000-000000000456")
+    execution_id = uuid.UUID("00000000-0000-4000-8000-000000000789")
+    logical_time = datetime(2026, 3, 17, tzinfo=UTC)
+    registry_lock = RegistryLock(
+        origins={"tracecat_registry": "test-version"},
+        actions={"core.http_request": "tracecat_registry"},
+    )
+    tool_call = ApprovedToolCall(
+        tool_call_id="toolu_123",
+        tool_name="mcp__tracecat__core_http_request",
+        args={"url": "https://example.com"},
+    )
+
+    result = _build_approved_tool_run_input(
+        tool_call=tool_call,
+        registry_lock=registry_lock,
+        workflow_id=workflow_id,
+        run_id=run_id,
+        execution_id=execution_id,
+        logical_time=logical_time,
+    )
+
+    assert result.task.action == "core_http_request"
+    assert result.task.args == {"url": "https://example.com"}
+    assert result.run_context.wf_id == WorkflowUUID.from_uuid(workflow_id)
+    assert result.run_context.wf_run_id == run_id
+    assert (
+        result.run_context.wf_exec_id
+        == f"{WorkflowUUID.from_uuid(workflow_id).short()}/{ExecutionUUID.from_uuid(execution_id).short()}"
+    )
+    assert result.run_context.logical_time == logical_time
+
+
+def test_build_approved_tool_run_input_strips_proxy_metadata() -> None:
+    workflow_id = uuid.UUID("00000000-0000-4000-8000-000000000123")
+    run_id = uuid.UUID("00000000-0000-4000-8000-000000000456")
+    execution_id = uuid.UUID("00000000-0000-4000-8000-000000000789")
+    logical_time = datetime(2026, 3, 17, tzinfo=UTC)
+    registry_lock = RegistryLock(
+        origins={"tracecat_registry": "test-version"},
+        actions={"core.cases.create_case": "tracecat_registry"},
+    )
+    tool_call = ApprovedToolCall(
+        tool_call_id="toolu_123",
+        tool_name="mcp__tracecat_registry__core__cases__create_case",
+        args={
+            "summary": "hello",
+            "__tracecat": {"tool_call_id": "toolu_123"},
+        },
+    )
+
+    result = _build_approved_tool_run_input(
+        tool_call=tool_call,
+        registry_lock=registry_lock,
+        workflow_id=workflow_id,
+        run_id=run_id,
+        execution_id=execution_id,
+        logical_time=logical_time,
+    )
+
+    assert result.task.action == "core.cases.create_case"
+    assert result.task.args == {"summary": "hello"}

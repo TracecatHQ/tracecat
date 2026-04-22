@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock
 from uuid import UUID
 
+import orjson
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
+from tracecat.agent.common.protocol import RuntimeEventEnvelope
+from tracecat.agent.common.socket_io import MessageType, build_message
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.executor.loopback import (
     AgentStreamSink,
@@ -15,7 +19,6 @@ from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
 )
-from tracecat.agent.types import AgentConfig
 
 
 class _FakeStream:
@@ -32,19 +35,25 @@ class _FakeExternalSink:
         self.done = AsyncMock()
 
 
+def _reader_for_envelopes(*envelopes: RuntimeEventEnvelope) -> asyncio.StreamReader:
+    reader = asyncio.StreamReader()
+    for envelope in envelopes:
+        reader.feed_data(
+            build_message(
+                MessageType.EVENT,
+                orjson.dumps(envelope.to_dict()),
+            )
+        )
+    reader.feed_eof()
+    return reader
+
+
 @pytest.fixture
 def loopback_input(tmp_path: Path) -> LoopbackInput:
+    del tmp_path
     return LoopbackInput(
         session_id=uuid.uuid4(),
         workspace_id=uuid.uuid4(),
-        user_prompt="Investigate runtime crash",
-        config=AgentConfig(
-            model_name="claude-3-5-sonnet-20241022",
-            model_provider="anthropic",
-        ),
-        mcp_auth_token="mcp-token",
-        litellm_auth_token="litellm-token",
-        socket_dir=tmp_path,
     )
 
 
@@ -121,19 +130,57 @@ async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
     fake_stream.done.assert_awaited_once()
 
 
+@pytest.mark.anyio
+async def test_emit_terminal_error_emits_failed_compaction_when_pending(
+    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
+) -> None:
+    handler = LoopbackHandler(input=loopback_input)
+    monkeypatch.setattr(
+        handler,
+        "_build_external_channel_sink",
+        AsyncMock(side_effect=SQLAlchemyError("database unavailable")),
+    )
+
+    fake_stream = _FakeStream()
+    stream_new = AsyncMock(return_value=fake_stream)
+    monkeypatch.setattr("tracecat.agent.executor.loopback.AgentStream.new", stream_new)
+
+    handler._started_compaction_event = True
+
+    await handler.emit_terminal_error("runtime exited before connect")
+
+    fake_stream.append.assert_awaited_once()
+    await_args = fake_stream.append.await_args
+    assert await_args is not None
+    failed_event = await_args.args[0]
+    assert failed_event.type == StreamEventType.COMPACTION
+    assert failed_event.metadata == {"phase": "failed"}
+    fake_stream.error.assert_awaited_once_with("runtime exited before connect")
+    fake_stream.done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_prepare_initializes_stream_sink_once(
+    monkeypatch: pytest.MonkeyPatch, loopback_input: LoopbackInput
+) -> None:
+    handler = LoopbackHandler(input=loopback_input)
+    fake_stream = _FakeStream()
+    initialize_stream_sink = AsyncMock(return_value=fake_stream)
+    monkeypatch.setattr(handler, "_initialize_stream_sink", initialize_stream_sink)
+
+    first = await handler.prepare()
+    second = await handler.prepare()
+
+    assert first is fake_stream
+    assert second is fake_stream
+    initialize_stream_sink.assert_awaited_once()
+
+
 def _make_handler() -> LoopbackHandler:
     return LoopbackHandler(
         input=LoopbackInput(
             session_id=UUID("00000000-0000-0000-0000-000000000001"),
             workspace_id=UUID("00000000-0000-0000-0000-000000000002"),
-            user_prompt="hi",
-            config=AgentConfig(
-                model_name="claude-3-7-sonnet",
-                model_provider="anthropic",
-            ),
-            mcp_auth_token="mcp-token",
-            litellm_auth_token="llm-token",
-            socket_dir=Path("/tmp"),
         )
     )
 
@@ -200,3 +247,129 @@ def test_should_not_suppress_normal_tool_result_error() -> None:
     )
 
     assert handler._should_suppress_stream_event(event) is False
+
+
+@pytest.mark.anyio
+async def test_process_runtime_events_emits_failed_compaction_on_runtime_error() -> (
+    None
+):
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(
+        RuntimeEventEnvelope.from_stream_event(
+            UnifiedStreamEvent.compaction_event(phase="started")
+        ),
+        RuntimeEventEnvelope.from_stream_event(
+            UnifiedStreamEvent(
+                type=StreamEventType.ERROR,
+                error="request_timeout: LLM gateway timed out",
+                is_error=True,
+            )
+        ),
+    )
+
+    await handler._process_runtime_events(reader)
+
+    append_calls = [call.args[0] for call in stream.append.await_args_list]
+    assert [
+        event.metadata
+        for event in append_calls
+        if event.type == StreamEventType.COMPACTION
+    ] == [
+        {"phase": "started"},
+        {"phase": "failed"},
+    ]
+    stream.error.assert_awaited_once_with("request_timeout: LLM gateway timed out")
+    stream.done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_process_runtime_events_emits_failed_compaction_on_done_without_boundary() -> (
+    None
+):
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(
+        RuntimeEventEnvelope.from_stream_event(
+            UnifiedStreamEvent.compaction_event(phase="started")
+        ),
+        RuntimeEventEnvelope.from_result(
+            usage={"requests": 0},
+            output="Command rejected",
+        ),
+        RuntimeEventEnvelope.done(),
+    )
+
+    await handler._process_runtime_events(reader)
+
+    append_calls = [call.args[0] for call in stream.append.await_args_list]
+    assert [
+        event.metadata
+        for event in append_calls
+        if event.type == StreamEventType.COMPACTION
+    ] == [
+        {"phase": "started"},
+        {"phase": "failed"},
+    ]
+    stream.error.assert_not_awaited()
+    stream.done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_process_runtime_events_fails_when_done_arrives_without_result() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(RuntimeEventEnvelope.done())
+
+    await handler._process_runtime_events(reader)
+
+    assert handler._result.error == "Runtime completed without final result"
+    stream.error.assert_awaited_once_with("Runtime completed without final result")
+    stream.done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_process_runtime_events_fails_zero_work_completion() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    reader = _reader_for_envelopes(
+        RuntimeEventEnvelope.from_result(
+            usage={
+                "requests": 0,
+                "tool_calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+            },
+            output=None,
+        ),
+        RuntimeEventEnvelope.done(),
+    )
+
+    await handler._process_runtime_events(reader)
+
+    assert (
+        handler._result.error
+        == "Runtime completed without assistant output or model usage"
+    )
+    stream.error.assert_awaited_once_with(
+        "Runtime completed without assistant output or model usage"
+    )
+
+
+@pytest.mark.anyio
+async def test_send_done_preserves_existing_error_state() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    handler._result.error = "runtime failed"
+
+    await handler.send_done()
+
+    assert handler._result.success is False
+    assert handler._result.error == "runtime failed"
+    stream.error.assert_not_awaited()
+    stream.done.assert_awaited_once()

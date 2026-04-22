@@ -11,6 +11,7 @@ from pydantic import BaseModel, SecretStr
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import OAuthStateDB, User, Workspace
@@ -56,7 +57,7 @@ class MockOAuthProvider(AuthorizationCodeOAuthProvider):
 def encryption_key(monkeypatch: pytest.MonkeyPatch) -> str:
     """Set up encryption key for testing."""
     key = Fernet.generate_key().decode()
-    monkeypatch.setenv("TRACECAT__DB_ENCRYPTION_KEY", key)
+    monkeypatch.setattr(config, "TRACECAT__DB_ENCRYPTION_KEY", key)
     return key
 
 

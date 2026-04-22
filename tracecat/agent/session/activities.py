@@ -8,17 +8,22 @@ These activities handle:
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from pydantic import BaseModel
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
-from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.common.stream_types import HarnessType, UnifiedStreamEvent
+from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.stream.connector import AgentStream
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
+from tracecat.storage.object import StoredObject, retrieve_stored_object
 
 
 class CreateSessionInput(BaseModel):
@@ -26,6 +31,7 @@ class CreateSessionInput(BaseModel):
 
     role: Role
     session_id: uuid.UUID
+    require_existing: bool = False
     # Entity context
     entity_type: AgentSessionEntity
     entity_id: uuid.UUID
@@ -48,6 +54,31 @@ class CreateSessionResult(BaseModel):
     session_id: uuid.UUID
     success: bool
     error: str | None = None
+
+
+class PendingToolResult(BaseModel):
+    """Pending tool execution result that preserves approval ordering."""
+
+    tool_call_id: str
+    tool_name: str
+    stored_result: StoredObject | None = None
+    raw_result: Any = None
+    is_error: bool = False
+
+
+class ReconcileToolResultsInput(BaseModel):
+    """Input for reconciling approved tool results back into agent state."""
+
+    session_id: uuid.UUID
+    workspace_id: uuid.UUID
+    role: Role
+    pending_results: list[PendingToolResult]
+
+
+class ReconcileToolResultsResult(BaseModel):
+    """Result from reconciling approved tool results."""
+
+    results: list[ToolExecutionResult]
 
 
 class LoadSessionInput(BaseModel):
@@ -82,19 +113,28 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
 
     try:
         async with AgentSessionService.with_session(role=input.role) as service:
-            agent_session, created = await service.get_or_create_session(
-                AgentSessionCreate(
-                    id=input.session_id,
-                    title=input.title,
-                    created_by=input.created_by,
-                    entity_type=input.entity_type,
-                    entity_id=input.entity_id,
-                    tools=input.tools,
-                    agent_preset_id=input.agent_preset_id,
-                    agent_preset_version_id=input.agent_preset_version_id,
-                    harness_type=input.harness_type,
+            if input.require_existing:
+                agent_session = await service.get_session(input.session_id)
+                if agent_session is None:
+                    raise ApplicationError(
+                        f"Session {input.session_id} does not exist",
+                        non_retryable=True,
+                    )
+                created = False
+            else:
+                agent_session, created = await service.get_or_create_session(
+                    AgentSessionCreate(
+                        id=input.session_id,
+                        title=input.title,
+                        created_by=input.created_by,
+                        entity_type=input.entity_type,
+                        entity_id=input.entity_id,
+                        tools=input.tools,
+                        agent_preset_id=input.agent_preset_id,
+                        agent_preset_version_id=input.agent_preset_version_id,
+                        harness_type=input.harness_type,
+                    )
                 )
-            )
 
             # Set curr_run_id if provided (for workflow-initiated sessions)
             if input.curr_run_id is not None:
@@ -170,9 +210,65 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
         return LoadSessionResult(found=False, error=str(e))
 
 
+@activity.defn
+async def reconcile_tool_results_activity(
+    input: ReconcileToolResultsInput,
+) -> ReconcileToolResultsResult:
+    """Materialize executor results and persist tool_result continuation state."""
+    ctx_role.set(input.role)
+    results: list[ToolExecutionResult] = []
+    stream = await AgentStream.new(
+        session_id=input.session_id,
+        workspace_id=input.workspace_id,
+    )
+
+    for pending in input.pending_results:
+        try:
+            if pending.stored_result is not None:
+                output = await retrieve_stored_object(pending.stored_result)
+                is_error = False
+            else:
+                output = pending.raw_result
+                is_error = pending.is_error
+        except Exception as e:
+            logger.exception(
+                "Failed to materialize tool result",
+                tool_call_id=pending.tool_call_id,
+                tool_name=pending.tool_name,
+                error=str(e),
+            )
+            raise
+
+        result = ToolExecutionResult(
+            tool_call_id=pending.tool_call_id,
+            tool_name=pending.tool_name,
+            result=output,
+            is_error=is_error,
+        )
+        results.append(result)
+        await stream.append(
+            UnifiedStreamEvent.tool_result_event(
+                tool_call_id=result.tool_call_id,
+                tool_name=result.tool_name,
+                output=result.result,
+                is_error=result.is_error,
+            )
+        )
+
+    if results:
+        async with AgentSessionService.with_session(role=input.role) as service:
+            await service.replace_interrupt_with_tool_results(
+                input.session_id,
+                results,
+            )
+
+    return ReconcileToolResultsResult(results=results)
+
+
 def get_session_activities() -> list:
     """Get all session-related activities for worker registration."""
     return [
         create_session_activity,
         load_session_activity,
+        reconcile_tool_results_activity,
     ]

@@ -5,6 +5,7 @@ import "./ag-grid-setup"
 import type {
   CellValueChangedEvent,
   ColDef,
+  ColumnResizedEvent,
   GridApi,
   GridReadyEvent,
   SelectionChangedEvent,
@@ -24,17 +25,11 @@ import { tracecatTheme } from "@/components/tables/ag-grid-theme"
 import { CellDisplay } from "@/components/tables/cell-display"
 import { useTableSelection } from "@/components/tables/table-selection-context"
 import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useUpdateRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-const TEXT_TYPES = new Set([
-  "TEXT",
-  "VARCHAR",
-  "CHAR",
-  "CITEXT",
-  "UUID",
-  "BPCHAR",
-])
+const TEXT_TYPES = new Set(["TEXT", "VARCHAR", "CHAR", "CITEXT", "BPCHAR"])
 const JSON_TYPES = new Set(["JSON", "JSONB"])
 const NUMERIC_TYPES = new Set([
   "INT",
@@ -54,16 +49,8 @@ const NUMERIC_TYPES = new Set([
   "SERIAL4",
   "SERIAL8",
 ])
-const DATE_TYPES = new Set([
-  "DATE",
-  "TIMESTAMP",
-  "TIMESTAMPTZ",
-  "TIME",
-  "TIMETZ",
-])
+const DATE_TYPES = new Set(["DATE", "TIMESTAMPTZ", "TIME", "TIMETZ"])
 const BOOLEAN_TYPES = new Set(["BOOL", "BOOLEAN"])
-const POPUP_EDITOR_TYPES = new Set(["JSON", "JSONB"])
-
 function normalizeSqlType(rawType?: string) {
   if (!rawType) return ""
   const [base] = rawType.toUpperCase().split("(")
@@ -87,7 +74,7 @@ function numericValueFormatter(params: ValueFormatterParams): string {
   if (typeof value !== "number") return String(value)
   if (!Number.isFinite(value)) return String(value)
   if (Number.isInteger(value)) return String(value)
-  return parseFloat(value.toFixed(2)).toString()
+  return parseFloat(value.toFixed(4)).toString()
 }
 
 function getColumnWidthPx(rawType?: string): number {
@@ -128,11 +115,16 @@ export function AgGridTable({
   hidePagination?: boolean
 }) {
   const isReadOnly = readOnly || rowsOverride !== undefined
+  const useAutoHeight = rowsOverride !== undefined
   const workspaceId = useWorkspaceId()
   const [pageSize, setPageSize] = useState(20)
   const [gridApi, setGridApi] = useState<GridApi | null>(null)
   const { updateRow } = useUpdateRow()
   const { updateSelection } = useTableSelection()
+  const [savedWidths, setSavedWidths] = useLocalStorage<Record<string, number>>(
+    `ag-grid-col-widths:${id}`,
+    {}
+  )
 
   const {
     data: rows,
@@ -241,18 +233,30 @@ export function AgGridTable({
     [id, workspaceId, updateRow, isReadOnly]
   )
 
+  const handleColumnResized = useCallback(
+    (event: ColumnResizedEvent) => {
+      if (!event.finished || !event.api) return
+      const widths: Record<string, number> = {}
+      for (const col of event.api.getColumns() ?? []) {
+        widths[col.getColId()] = col.getActualWidth()
+      }
+      setSavedWidths(widths)
+    },
+    [setSavedWidths]
+  )
+
   const columnDefs: ColDef[] = useMemo(() => {
     const defs: ColDef[] = [
       ...columns.map((column): ColDef => {
         const normalizedType = normalizeSqlType(column.type)
-        const isPopupEditor = POPUP_EDITOR_TYPES.has(normalizedType)
+        const isJsonColumn = JSON_TYPES.has(normalizedType)
         const isNumeric = NUMERIC_TYPES.has(normalizedType)
         const baseDef: ColDef = {
           field: column.name,
           headerName: column.name,
           sortable: true,
           resizable: true,
-          width: getColumnWidthPx(column.type),
+          width: savedWidths[column.name] ?? getColumnWidthPx(column.type),
           minWidth: 100,
           ...(isNumeric && { valueFormatter: numericValueFormatter }),
         }
@@ -278,18 +282,20 @@ export function AgGridTable({
           cellRendererParams: {
             tableColumn: column,
           },
-          cellEditor: AgGridCellEditor,
-          cellEditorParams: {
-            tableColumn: column,
-          },
-          cellEditorPopup: isPopupEditor,
-          suppressKeyboardEvent: suppressEditorKeys,
-          editable: true,
+          // JSON columns are edited only via the side panel
+          ...(isJsonColumn
+            ? { editable: false }
+            : {
+                cellEditor: AgGridCellEditor,
+                cellEditorParams: { tableColumn: column },
+                suppressKeyboardEvent: suppressEditorKeys,
+                editable: true,
+              }),
         }
       }),
     ]
     return defs
-  }, [columns, isReadOnly])
+  }, [columns, isReadOnly, savedWidths])
 
   if (error) {
     return (
@@ -302,16 +308,22 @@ export function AgGridTable({
   }
 
   return (
-    <div className="flex h-full flex-col gap-2">
+    <div
+      className={`flex flex-col gap-2 pb-2 ${useAutoHeight ? "" : "h-full"}`}
+    >
       {isReadOnly ? (
-        <div onKeyDown={(e) => handleGridKeyDown(e, gridApi)}>
+        <div
+          className={useAutoHeight ? "" : "flex-1 min-h-0"}
+          onKeyDown={(e) => handleGridKeyDown(e, gridApi)}
+        >
           <AgGridReact
             theme={tracecatTheme}
-            domLayout="autoHeight"
+            domLayout={useAutoHeight ? "autoHeight" : undefined}
             rowData={rowData}
             columnDefs={columnDefs}
             getRowId={(params) => params.data.id}
             onGridReady={handleGridReady}
+            onColumnResized={handleColumnResized}
             suppressContextMenu
             headerHeight={36}
             rowHeight={36}
@@ -321,14 +333,18 @@ export function AgGridTable({
         </div>
       ) : (
         <AgGridContextMenu gridApi={gridApi} columns={columns}>
-          <div onKeyDown={(e) => handleGridKeyDown(e, gridApi)}>
+          <div
+            className={useAutoHeight ? "" : "flex-1 min-h-0"}
+            onKeyDown={(e) => handleGridKeyDown(e, gridApi)}
+          >
             <AgGridReact
               theme={tracecatTheme}
-              domLayout="autoHeight"
+              domLayout={useAutoHeight ? "autoHeight" : undefined}
               rowData={rowData}
               columnDefs={columnDefs}
               getRowId={(params) => params.data.id}
               onGridReady={handleGridReady}
+              onColumnResized={handleColumnResized}
               onCellValueChanged={handleCellValueChanged}
               onSelectionChanged={handleSelectionChanged}
               selectionColumnDef={{
@@ -341,7 +357,6 @@ export function AgGridTable({
                 headerCheckbox: true,
                 checkboxes: true,
               }}
-              suppressClickEdit
               suppressContextMenu
               headerHeight={36}
               rowHeight={36}

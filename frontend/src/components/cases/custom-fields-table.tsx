@@ -10,7 +10,6 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
-import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import type { SqlType } from "@/lib/data-type"
+import { getCaseFieldTypeConfig } from "@/lib/data-type"
 
 interface CustomFieldsTableProps {
   fields: CaseFieldReadMinimal[]
@@ -87,15 +86,29 @@ export function CustomFieldsTable({
                   title="Data type"
                 />
               ),
-              cell: ({ row }) => (
-                <SqlTypeBadge
-                  type={
-                    row.getValue<CaseFieldReadMinimal["type"]>(
-                      "type"
-                    ) as SqlType
-                  }
-                />
-              ),
+              cell: ({ row }) => {
+                const fieldType =
+                  row.getValue<CaseFieldReadMinimal["type"]>("type")
+                const fieldKind = row.original.kind
+                const config = getCaseFieldTypeConfig(fieldType, fieldKind)
+                if (config) {
+                  const Icon = config.icon
+                  return (
+                    <Badge
+                      variant="secondary"
+                      className="text-xs whitespace-nowrap"
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <Icon className="size-3 shrink-0" />
+                        <span className="text-xs font-medium whitespace-nowrap">
+                          {config.label}
+                        </span>
+                      </span>
+                    </Badge>
+                  )
+                }
+                return <div className="text-xs">{fieldType}</div>
+              },
               enableSorting: true,
               enableHiding: false,
             },
@@ -151,11 +164,11 @@ export function CustomFieldsTable({
                   return <div className="text-xs">-</div>
                 }
 
-                // Handle TIMESTAMP/TIMESTAMPTZ with date formatting
+                // Handle TIMESTAMPTZ defaults with date formatting
                 const parsedDate =
                   typeof defaultValue === "string" &&
                   defaultValue &&
-                  (fieldType === "TIMESTAMP" || fieldType === "TIMESTAMPTZ")
+                  fieldType === "TIMESTAMPTZ"
                     ? new Date(defaultValue)
                     : null
                 const isValidDate =

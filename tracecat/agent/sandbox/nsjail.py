@@ -1,7 +1,7 @@
 """NSJail spawning utilities for agent runtime.
 
-Provides utilities for the orchestrator to spawn AgentRuntime implementations
-inside an NSJail sandbox. The orchestrator is responsible for:
+Provides utilities for spawning the standalone Claude shim inside an NSJail
+sandbox. The orchestrator is responsible for:
 - Creating Unix sockets
 - Starting the trusted MCP server
 - Managing the runtime lifecycle
@@ -11,7 +11,8 @@ This module handles:
 - Spawning the sandboxed process
 
 Uses the same rootfs as the action sandbox (TRACECAT__SANDBOX_ROOTFS_PATH).
-Site-packages are mounted read-only for Claude SDK and tracecat dependencies.
+The sandbox mounts only the standalone shim script and the Claude SDK package
+subtree needed to launch the bundled Claude executable.
 
 When TRACECAT__DISABLE_NSJAIL=true, the runtime is spawned as a direct
 subprocess instead of through nsjail. This is useful for:
@@ -40,6 +41,7 @@ from tracecat.agent.common.exceptions import (
     AgentSandboxTimeoutError,
 )
 from tracecat.agent.sandbox.config import (
+    JAILED_SHIM_ENTRYPOINT_PATH,
     AgentSandboxConfig,
     build_agent_env_map,
     build_agent_nsjail_config,
@@ -49,6 +51,10 @@ from tracecat.config import (
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
+
+BROKER_SHIM_SCRIPT_NAME = Path(JAILED_SHIM_ENTRYPOINT_PATH).name
+SESSION_HOME_ENV_VAR = "TRACECAT__AGENT_SESSION_HOME_DIR"
+SESSION_PROJECT_ENV_VAR = "TRACECAT__AGENT_SESSION_PROJECT_DIR"
 
 
 @dataclass(frozen=True)
@@ -113,22 +119,27 @@ def _get_tracecat_pkg_dir() -> Path:
 
 async def spawn_jailed_runtime(
     socket_dir: Path,
+    init_payload_path: Path,
     llm_socket_path: Path | None = None,
     config: AgentSandboxConfig | None = None,
     nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
     rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
     *,
+    control_socket_required: bool = True,
+    pipe_stdin: bool = False,
+    job_dir: Path | None = None,
+    session_home_dir: Path | None = None,
+    session_project_dir: Path | None = None,
     enable_internet_access: bool = False,
 ) -> SpawnedRuntime:
-    """Spawn the agent runtime inside an NSJail sandbox (or direct subprocess for testing).
+    """Spawn the Claude shim inside an NSJail sandbox or direct subprocess.
 
-    This is the entrypoint for the orchestrator to spawn a jailed runtime.
+    This is the entrypoint for the orchestrator to spawn a Claude shim runtime.
     The orchestrator is responsible for:
     - Creating socket_dir with control.sock
     - Starting the LLM socket proxy on llm_socket_path
     - Starting the trusted MCP HTTP server on socket_dir/mcp.sock
-    - Sending RuntimeInitPayload after the runtime connects to control.sock
-    - Reading events from the control socket
+    - Reading events from the shim stdout/stderr streams
 
     When TRACECAT__DISABLE_NSJAIL=true, the runtime is spawned as a direct
     subprocess instead of through nsjail. This enables testing on platforms
@@ -136,8 +147,9 @@ async def spawn_jailed_runtime(
 
     Args:
         socket_dir: Directory containing the per-job control socket (control.sock).
-        llm_socket_path: Path to the LLM socket for proxied LiteLLM access.
-            Required in production mode (NSJail), optional in direct mode.
+        llm_socket_path: Optional path to the LLM socket for proxied LLM gateway
+            access.
+        init_payload_path: Path to the per-job runtime init payload file.
         config: Optional sandbox configuration. Defaults to standard agent config.
         nsjail_path: Path to the nsjail binary.
         rootfs_path: Path to the sandbox rootfs (same rootfs as action sandbox).
@@ -165,9 +177,7 @@ async def spawn_jailed_runtime(
             llm_socket_path=socket_dir / "llm.sock",
         )
         try:
-            # Wait for runtime to connect to control socket
-            # Send RuntimeInitPayload
-            # Stream events until done
+            # Stream shim output until done
             await result.process.wait()
         finally:
             cleanup_spawned_runtime(result)
@@ -184,21 +194,32 @@ async def spawn_jailed_runtime(
         return await _spawn_direct_runtime(
             socket_dir=socket_dir,
             llm_socket_path=llm_socket_path,
+            init_payload_path=init_payload_path,
+            control_socket_required=control_socket_required,
+            pipe_stdin=pipe_stdin,
+            session_home_dir=session_home_dir,
+            session_project_dir=session_project_dir,
         )
 
-    # NSJail mode for production - llm_socket_path is required
-    if llm_socket_path is None:
+    # NSJail mode for production - isolated runs require the per-job LLM socket.
+    if llm_socket_path is None and not enable_internet_access:
         raise AgentSandboxExecutionError(
-            "llm_socket_path is required in production mode (NSJail)"
+            "llm_socket_path is required in production mode (NSJail) when network isolation is enabled"
         )
 
     # NSJail mode for production
     return await _spawn_nsjail_runtime(
         socket_dir=socket_dir,
         llm_socket_path=llm_socket_path,
+        init_payload_path=init_payload_path,
         config=config,
         nsjail_path=nsjail_path,
         rootfs_path=rootfs_path,
+        control_socket_required=control_socket_required,
+        pipe_stdin=pipe_stdin,
+        job_dir=job_dir,
+        session_home_dir=session_home_dir,
+        session_project_dir=session_project_dir,
         enable_internet_access=enable_internet_access,
     )
 
@@ -207,28 +228,35 @@ async def _spawn_direct_runtime(
     *,
     socket_dir: Path,
     llm_socket_path: Path | None,
+    init_payload_path: Path,
+    control_socket_required: bool,
+    pipe_stdin: bool,
+    session_home_dir: Path | None,
+    session_project_dir: Path | None,
 ) -> SpawnedRuntime:
-    """Spawn the agent runtime as a direct subprocess (for development/testing).
+    """Spawn the Claude shim as a direct subprocess (for development/testing).
 
-    This bypasses nsjail and runs ClaudeAgentRuntime directly in the current
+    This bypasses nsjail and runs the same standalone shim script in the current
     Python environment. Used when TRACECAT__DISABLE_NSJAIL=true.
 
     Security: Uses minimal base environment to prevent host secrets from
     leaking into the subprocess. Only passes socket paths and essential
     Python configuration.
     """
+    from tracecat.agent.common.config import TRUSTED_MCP_SOCKET_PATH
     from tracecat.agent.sandbox.config import (
         AGENT_SANDBOX_BASE_ENV,
         JAILED_CONTROL_SOCKET_PATH,
-        TRUSTED_MCP_SOCKET_PATH,
     )
 
     control_socket_path = socket_dir / CONTROL_SOCKET_NAME
+    shim_script_path = (
+        _get_tracecat_pkg_dir() / "agent" / "sandbox" / BROKER_SHIM_SCRIPT_NAME
+    )
 
     cmd = [
         sys.executable,
-        "-m",
-        "tracecat.agent.sandbox.entrypoint",
+        str(shim_script_path),
     ]
 
     logger.info(
@@ -243,18 +271,29 @@ async def _spawn_direct_runtime(
         **AGENT_SANDBOX_BASE_ENV,
         # Override for direct mode
         "TRACECAT__DISABLE_NSJAIL": "true",
-        # Point the runtime at the orchestrator's per-job control socket
-        "TRACECAT__AGENT_CONTROL_SOCKET_PATH": str(control_socket_path),
-        # Use host's HOME for Claude SDK session storage
-        "HOME": os.environ.get("HOME", "/tmp"),
+        # Point the runtime at the per-job init payload file without changing cwd.
+        "TRACECAT__AGENT_INIT_PAYLOAD_PATH": str(init_payload_path),
     }
+    if control_socket_required:
+        env["TRACECAT__AGENT_CONTROL_SOCKET_PATH"] = str(control_socket_path)
     if llm_socket_path is not None:
         # If the runtime uses LLMBridge (internet access disabled), it must connect
         # to the orchestrator-side LLM socket.
         env["TRACECAT__AGENT_LLM_SOCKET_PATH"] = str(llm_socket_path)
+    for key in ("TRACECAT__LITELLM_BASE_URL",):
+        if value := os.environ.get(key):
+            env[key] = value
+    if session_home_dir is not None:
+        session_home_dir.mkdir(parents=True, exist_ok=True)
+        env[SESSION_HOME_ENV_VAR] = str(session_home_dir)
+        env["HOME"] = str(session_home_dir)
+    if session_project_dir is not None:
+        session_project_dir.mkdir(parents=True, exist_ok=True)
+        env[SESSION_PROJECT_ENV_VAR] = str(session_project_dir)
 
     process = await asyncio.create_subprocess_exec(
         *cmd,
+        stdin=asyncio.subprocess.PIPE if pipe_stdin else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
@@ -265,18 +304,23 @@ async def _spawn_direct_runtime(
 
 async def _spawn_nsjail_runtime(
     socket_dir: Path,
-    llm_socket_path: Path,
+    llm_socket_path: Path | None,
+    init_payload_path: Path,
     config: AgentSandboxConfig,
     nsjail_path: str,
     rootfs_path: str,
     *,
+    control_socket_required: bool,
+    pipe_stdin: bool,
+    job_dir: Path | None,
+    session_home_dir: Path | None,
+    session_project_dir: Path | None,
     enable_internet_access: bool = False,
 ) -> SpawnedRuntime:
-    """Spawn the agent runtime inside an NSJail sandbox (production mode).
+    """Spawn the Claude shim inside an NSJail sandbox (production mode).
 
-    The runtime uses tracecat.agent.sandbox.entrypoint which is available via
-    site-packages mounted read-only. This provides isolation while using the
-    unified ClaudeAgentRuntime (with lazy imports for minimal cold start).
+    The host copies the standalone shim script into the job directory and the
+    nsjail config executes that script from the mounted /work directory.
     """
     rootfs = Path(rootfs_path)
     nsjail = Path(nsjail_path)
@@ -286,7 +330,7 @@ async def _spawn_nsjail_runtime(
         raise AgentSandboxExecutionError(f"Rootfs not found: {rootfs}")
     if not nsjail.exists():
         raise AgentSandboxExecutionError(f"nsjail binary not found: {nsjail}")
-    if not llm_socket_path.exists():
+    if llm_socket_path is not None and not llm_socket_path.exists():
         raise AgentSandboxExecutionError(f"LLM socket not found: {llm_socket_path}")
 
     # Get site-packages and tracecat package directories
@@ -294,19 +338,38 @@ async def _spawn_nsjail_runtime(
     tracecat_pkg_dir = _get_tracecat_pkg_dir()
 
     # Create temp directory for nsjail job
-    job_id = uuid.uuid4().hex[:12]
-    job_dir = Path(tempfile.mkdtemp(prefix=f"agent-nsjail-{job_id}-"))
+    owns_job_dir = job_dir is None
+    if job_dir is None:
+        job_id = uuid.uuid4().hex[:12]
+        job_dir = Path(tempfile.mkdtemp(prefix=f"agent-nsjail-{job_id}-"))
+    else:
+        job_dir.mkdir(parents=True, exist_ok=True)
+    jailed_init_payload_path = job_dir / "init.json"
 
     try:
         # Build nsjail config (socket paths are derived from socket_dir internally)
+        await asyncio.to_thread(
+            shutil.copy2, init_payload_path, jailed_init_payload_path
+        )
+        host_shim_path = (
+            tracecat_pkg_dir / "agent" / "sandbox" / BROKER_SHIM_SCRIPT_NAME
+        )
+        jailed_shim_path = job_dir / BROKER_SHIM_SCRIPT_NAME
+        await asyncio.to_thread(shutil.copy2, host_shim_path, jailed_shim_path)
+
         nsjail_config = build_agent_nsjail_config(
             rootfs=rootfs,
             job_dir=job_dir,
             socket_dir=socket_dir,
             config=config,
             site_packages_dir=site_packages_dir,
-            tracecat_pkg_dir=tracecat_pkg_dir,
             llm_socket_path=llm_socket_path,
+            mount_control_socket=control_socket_required,
+            control_socket_path=socket_dir / CONTROL_SOCKET_NAME
+            if control_socket_required
+            else None,
+            session_home_dir=session_home_dir,
+            session_project_dir=session_project_dir,
             enable_internet_access=enable_internet_access,
         )
 
@@ -317,6 +380,11 @@ async def _spawn_nsjail_runtime(
 
         # Build environment
         env_map = build_agent_env_map(config)
+        env_map["TRACECAT__AGENT_INIT_PAYLOAD_PATH"] = "/work/init.json"
+        if session_home_dir is not None:
+            env_map[SESSION_HOME_ENV_VAR] = "/work/claude-home"
+        if session_project_dir is not None:
+            env_map[SESSION_PROJECT_ENV_VAR] = "/work/claude-project"
         env_args: list[str] = []
         for key, value in env_map.items():
             env_args.extend(["--env", f"{key}={value}"])
@@ -340,6 +408,7 @@ async def _spawn_nsjail_runtime(
         # Spawn nsjail process
         process = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.PIPE if pipe_stdin else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(job_dir),
@@ -347,11 +416,14 @@ async def _spawn_nsjail_runtime(
         )
 
         # Return result with job_dir for caller to clean up after process completes
-        return SpawnedRuntime(process=process, job_dir=job_dir)
+        return SpawnedRuntime(
+            process=process, job_dir=job_dir if owns_job_dir else None
+        )
 
     except Exception as e:
         # Clean up job directory on spawn failure
-        _cleanup_job_dir(job_dir)
+        if owns_job_dir:
+            _cleanup_job_dir(job_dir)
         raise AgentSandboxExecutionError(f"Failed to spawn jailed runtime: {e}") from e
 
 

@@ -19,7 +19,10 @@ from unittest.mock import AsyncMock, Mock, patch
 import orjson
 import pytest
 from temporalio.api.enums.v1 import EventType, PendingActivityState
+from temporalio.api.failure.v1 import Failure
+from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import Client, WorkflowHandle
+from temporalio.converter import DefaultPayloadConverter
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -27,7 +30,9 @@ from tracecat.db.models import Workspace
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.schemas import StreamID
 from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowUUID
+from tracecat.pagination import CursorPaginationParams
 from tracecat.storage.object import ExternalObject, InlineObject, ObjectRef
+from tracecat.workflow.executions.common import UnreadableTemporalPayload
 from tracecat.workflow.executions.enums import (
     TriggerType,
     WorkflowEventType,
@@ -204,7 +209,8 @@ class TestWorkflowExecutionEvents:
 
         # Mock EventFailure.from_history_event
         with patch(
-            "tracecat.workflow.executions.service.EventFailure.from_history_event"
+            "tracecat.workflow.executions.service.EventFailure.from_history_event",
+            new_callable=AsyncMock,
         ) as mock_event_failure:
             mock_failure = EventFailure(
                 message="Workflow execution failed due to timeout",
@@ -238,7 +244,7 @@ class TestWorkflowExecutionEvents:
             assert event.close_time == expected_time
 
             # Verify EventFailure.from_history_event was called
-            mock_event_failure.assert_called_once_with(failure_event)
+            mock_event_failure.assert_awaited_once_with(failure_event)
 
     async def test_workflow_completed_synthetic_event_creation(
         self,
@@ -387,6 +393,52 @@ class TestWorkflowExecutionEvents:
         event = events[0]
         assert event.action_ref == WF_TRIGGER_REF
         assert event.action_input is None
+
+    async def test_workflow_trigger_unreadable_payload_emits_sentinel(
+        self,
+        workflow_executions_service: WorkflowExecutionsService,
+        workflow_exec_id: WorkflowExecutionID,
+    ) -> None:
+        """Unreadable encrypted trigger payloads should not break compact history."""
+        started_event = create_mock_history_event(
+            event_id=1,
+            event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,  # type: ignore
+        )
+
+        mock_handle = Mock(spec=WorkflowHandle)
+
+        async def mock_fetch_history_events(**kwargs):
+            yield started_event
+
+        mock_handle.fetch_history_events.return_value = mock_fetch_history_events()
+        mock_handle.describe = AsyncMock(
+            return_value=Mock(raw_description=Mock(pending_activities=[]))
+        )
+        workflow_executions_service._client.get_workflow_handle_for = Mock(
+            return_value=mock_handle
+        )
+        unreadable = UnreadableTemporalPayload(
+            error_type="TemporalPayloadCodecError",
+            encoding="binary/tracecat-aes256gcm",
+            payload_size_bytes=42,
+        )
+
+        with (
+            patch(
+                "tracecat.workflow.executions.service.extract_first",
+                AsyncMock(return_value=unreadable),
+            ),
+            patch("tracecat.workflow.executions.service.DSLRunArgs") as mock_run_args,
+        ):
+            events = await workflow_executions_service.list_workflow_execution_events_compact(
+                workflow_exec_id
+            )
+
+        mock_run_args.assert_not_called()
+        assert len(events) == 1
+        event = events[0]
+        assert event.action_ref == WF_TRIGGER_REF
+        assert event.action_input == unreadable
 
     async def test_workflow_trigger_externalized_payload_uses_ref_backend(
         self,
@@ -670,7 +722,8 @@ class TestWorkflowExecutionEvents:
 
             # Mock EventFailure.from_history_event
             with patch(
-                "tracecat.workflow.executions.service.EventFailure.from_history_event"
+                "tracecat.workflow.executions.service.EventFailure.from_history_event",
+                new_callable=AsyncMock,
             ) as mock_event_failure:
                 mock_action_failure = EventFailure(message="Action failed", cause=None)
                 mock_workflow_failure = EventFailure(
@@ -778,7 +831,8 @@ class TestWorkflowExecutionEvents:
 
         # Mock EventFailure.from_history_event
         with patch(
-            "tracecat.workflow.executions.service.EventFailure.from_history_event"
+            "tracecat.workflow.executions.service.EventFailure.from_history_event",
+            new_callable=AsyncMock,
         ) as mock_event_failure:
             mock_failure = EventFailure(message="Custom failure message", cause=None)
             mock_event_failure.return_value = mock_failure
@@ -864,7 +918,8 @@ class TestWorkflowExecutionEvents:
 
         # Mock EventFailure.from_history_event
         with patch(
-            "tracecat.workflow.executions.service.EventFailure.from_history_event"
+            "tracecat.workflow.executions.service.EventFailure.from_history_event",
+            new_callable=AsyncMock,
         ) as mock_event_failure:
             mock_failure = EventFailure(
                 message="Database operation failed", cause=complex_cause
@@ -1181,7 +1236,8 @@ class TestWorkflowExecutionEvents:
             ) as mock_get_result:
                 mock_get_result.return_value = "ok"
                 with patch(
-                    "tracecat.workflow.executions.service.EventFailure.from_history_event"
+                    "tracecat.workflow.executions.service.EventFailure.from_history_event",
+                    new_callable=AsyncMock,
                 ) as mock_event_failure:
                     mock_event_failure.return_value = EventFailure(
                         message="Body failed on latest iteration",
@@ -1700,7 +1756,8 @@ def test_event_failure_extract_root_cause_message_handles_empty_and_cycles() -> 
     assert result == "Top-level failure"
 
 
-def test_event_failure_from_history_event_populates_root_cause_message() -> None:
+@pytest.mark.anyio
+async def test_event_failure_from_history_event_populates_root_cause_message() -> None:
     failure_cause = Mock()
     event = create_mock_history_event(
         event_id=1,
@@ -1720,14 +1777,56 @@ def test_event_failure_from_history_event_populates_root_cause_message() -> None
         "tracecat.workflow.executions.schemas.MessageToDict",
         return_value=nested_cause,
     ):
-        failure = EventFailure.from_history_event(event)
+        failure = await EventFailure.from_history_event(event)
 
     assert failure.message == "Workflow execution failed"
     assert failure.cause is None
     assert failure.root_cause_message == "Workflow alias 'invalid' not found"
 
 
-def test_event_failure_from_history_event_sanitizes_sensitive_data() -> None:
+@pytest.mark.anyio
+async def test_event_failure_from_history_event_decodes_encoded_attribute_messages() -> (
+    None
+):
+    failure_proto = Failure(message="Encoded failure")
+    failure_proto.application_failure_info.type = "EncodedFailure"
+    failure_proto.encoded_attributes.CopyFrom(
+        DefaultPayloadConverter().to_payloads(
+            [
+                {
+                    "message": "Outer failure with Authorization: Bearer abc123",
+                    "stack_trace": "",
+                }
+            ]
+        )[0]
+    )
+    failure_proto.cause.message = "Encoded failure"
+    failure_proto.cause.application_failure_info.type = "RootFailure"
+    failure_proto.cause.encoded_attributes.CopyFrom(
+        DefaultPayloadConverter().to_payloads(
+            [
+                {
+                    "message": "Root failure with api_key=topsecret",
+                    "stack_trace": "",
+                }
+            ]
+        )[0]
+    )
+    event = HistoryEvent(
+        event_id=1,
+        event_type=EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED,
+    )
+    event.workflow_execution_failed_event_attributes.failure.CopyFrom(failure_proto)
+
+    failure = await EventFailure.from_history_event(event)
+
+    assert failure.message == "Outer failure with Authorization: Bearer [REDACTED]"
+    assert failure.root_cause_message == "Root failure with api_key=[REDACTED]"
+    assert failure.cause is None
+
+
+@pytest.mark.anyio
+async def test_event_failure_from_history_event_sanitizes_sensitive_data() -> None:
     failure_cause = Mock()
     event = create_mock_history_event(
         event_id=1,
@@ -1747,14 +1846,15 @@ def test_event_failure_from_history_event_sanitizes_sensitive_data() -> None:
         "tracecat.workflow.executions.schemas.MessageToDict",
         return_value=nested_cause,
     ):
-        failure = EventFailure.from_history_event(event)
+        failure = await EventFailure.from_history_event(event)
 
     assert failure.message == "Request failed with Authorization: Bearer [REDACTED]"
     assert failure.root_cause_message == "postgresql://user:[REDACTED]@localhost/db"
     assert failure.cause is None
 
 
-def test_event_failure_from_history_event_include_raw_cause() -> None:
+@pytest.mark.anyio
+async def test_event_failure_from_history_event_include_raw_cause() -> None:
     failure_cause = Mock()
     event = create_mock_history_event(
         event_id=1,
@@ -1768,7 +1868,7 @@ def test_event_failure_from_history_event_include_raw_cause() -> None:
         "tracecat.workflow.executions.schemas.MessageToDict",
         return_value=nested_cause,
     ):
-        failure = EventFailure.from_history_event(event, include_raw_cause=True)
+        failure = await EventFailure.from_history_event(event, include_raw_cause=True)
 
     assert failure.cause == nested_cause
 
@@ -1812,3 +1912,60 @@ class TestWorkflowStartAcknowledgement:
         assert (
             mock_client.start_workflow.await_args.kwargs["id"] == response["wf_exec_id"]
         )
+
+
+@pytest.mark.anyio
+async def test_list_executions_paginated_emits_prev_cursor_history(
+    workflow_executions_service: WorkflowExecutionsService,
+    mock_client: Mock,
+) -> None:
+    first_page_items = [Mock(id="wf_first/exec_1")]
+    second_page_items = [Mock(id="wf_first/exec_2")]
+    calls: list[bytes | None] = []
+
+    class _Iterator:
+        def __init__(self, items: list[Any], next_page_token: bytes | None) -> None:
+            self.current_page = items
+            self.next_page_token = next_page_token
+
+        async def fetch_next_page(self, *, page_size: int) -> None:
+            assert page_size == 1
+
+    def _list_workflows(
+        *,
+        query: str | None = None,
+        page_size: int,
+        next_page_token: bytes | None = None,
+    ) -> _Iterator:
+        _ = query
+        assert page_size == 1
+        calls.append(next_page_token)
+        if next_page_token is None:
+            return _Iterator(first_page_items, b"page-2")
+        if next_page_token == b"page-2":
+            return _Iterator(second_page_items, b"page-3")
+        raise AssertionError(f"Unexpected page token: {next_page_token!r}")
+
+    mock_client.list_workflows = Mock(side_effect=_list_workflows)
+
+    first_page = await workflow_executions_service.list_executions_paginated(
+        pagination=CursorPaginationParams(limit=1),
+    )
+    assert first_page.prev_cursor is None
+    assert first_page.has_previous is False
+    assert first_page.next_cursor is not None
+
+    second_page = await workflow_executions_service.list_executions_paginated(
+        pagination=CursorPaginationParams(limit=1, cursor=first_page.next_cursor),
+    )
+    assert second_page.items == second_page_items
+    assert second_page.prev_cursor is not None
+    assert second_page.has_previous is True
+
+    rewound_page = await workflow_executions_service.list_executions_paginated(
+        pagination=CursorPaginationParams(limit=1, cursor=second_page.prev_cursor),
+    )
+    assert rewound_page.items == first_page_items
+    assert rewound_page.has_previous is False
+    assert rewound_page.prev_cursor is None
+    assert calls == [None, b"page-2", None]

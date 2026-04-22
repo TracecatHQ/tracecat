@@ -1254,6 +1254,11 @@ export const $AgentPresetCreate = {
       title: "Retries",
       default: 3,
     },
+    enable_thinking: {
+      type: "boolean",
+      title: "Enable Thinking",
+      default: true,
+    },
     enable_internet_access: {
       type: "boolean",
       title: "Enable Internet Access",
@@ -1403,6 +1408,11 @@ export const $AgentPresetRead = {
       minimum: 0,
       title: "Retries",
       default: 3,
+    },
+    enable_thinking: {
+      type: "boolean",
+      title: "Enable Thinking",
+      default: true,
     },
     enable_internet_access: {
       type: "boolean",
@@ -1712,6 +1722,17 @@ export const $AgentPresetUpdate = {
       ],
       title: "Retries",
     },
+    enable_thinking: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enable Thinking",
+    },
     enable_internet_access: {
       anyOf: [
         {
@@ -1921,6 +1942,11 @@ export const $AgentPresetVersionRead = {
       title: "Retries",
       default: 3,
     },
+    enable_thinking: {
+      type: "boolean",
+      title: "Enable Thinking",
+      default: true,
+    },
     enable_internet_access: {
       type: "boolean",
       title: "Enable Internet Access",
@@ -2077,6 +2103,11 @@ export const $AgentPresetVersionReadMinimal = {
       minimum: 0,
       title: "Retries",
       default: 3,
+    },
+    enable_thinking: {
+      type: "boolean",
+      title: "Enable Thinking",
+      default: true,
     },
     enable_internet_access: {
       type: "boolean",
@@ -3374,6 +3405,62 @@ export const $AssistantMessage = {
       ],
       title: "Error",
     },
+    usage: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Usage",
+    },
+    message_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Message Id",
+    },
+    stop_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stop Reason",
+    },
+    session_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Session Id",
+    },
+    uuid: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Uuid",
+    },
   },
   type: "object",
   required: ["content", "model"],
@@ -4622,6 +4709,11 @@ export const $CaseDropdownDefinitionCreate = {
       title: "Is Ordered",
       default: false,
     },
+    required_on_closure: {
+      type: "boolean",
+      title: "Required On Closure",
+      default: false,
+    },
     position: {
       type: "integer",
       title: "Position",
@@ -4671,6 +4763,10 @@ export const $CaseDropdownDefinitionRead = {
       type: "boolean",
       title: "Is Ordered",
     },
+    required_on_closure: {
+      type: "boolean",
+      title: "Required On Closure",
+    },
     position: {
       type: "integer",
       title: "Position",
@@ -4684,7 +4780,14 @@ export const $CaseDropdownDefinitionRead = {
     },
   },
   type: "object",
-  required: ["id", "name", "ref", "is_ordered", "position"],
+  required: [
+    "id",
+    "name",
+    "ref",
+    "is_ordered",
+    "required_on_closure",
+    "position",
+  ],
   title: "CaseDropdownDefinitionRead",
   description: "Read model for a dropdown definition with its options.",
 } as const
@@ -4739,6 +4842,17 @@ export const $CaseDropdownDefinitionUpdate = {
         },
       ],
       title: "Is Ordered",
+    },
+    required_on_closure: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Required On Closure",
     },
     position: {
       anyOf: [
@@ -5754,11 +5868,36 @@ export const $CaseFieldCreate = {
       ],
       title: "Options",
     },
+    kind: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseFieldKind",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    required_on_closure: {
+      type: "boolean",
+      title: "Required On Closure",
+      default: false,
+    },
   },
   type: "object",
   required: ["name", "type"],
   title: "CaseFieldCreate",
   description: "Create a new case field.",
+} as const
+
+export const $CaseFieldKind = {
+  type: "string",
+  enum: ["LONG_TEXT", "URL"],
+  title: "CaseFieldKind",
+  description: `Semantic kind for case custom fields.
+
+Controls how the field is rendered in the UI without changing the underlying
+SQL storage type.`,
 } as const
 
 export const $CaseFieldRead = {
@@ -5768,7 +5907,7 @@ export const $CaseFieldRead = {
       title: "Id",
     },
     type: {
-      $ref: "#/components/schemas/SqlType",
+      $ref: "#/components/schemas/CaseFieldReadType",
     },
     description: {
       type: "string",
@@ -5806,6 +5945,21 @@ export const $CaseFieldRead = {
         },
       ],
       title: "Options",
+    },
+    kind: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseFieldKind",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    required_on_closure: {
+      type: "boolean",
+      title: "Required On Closure",
+      default: false,
     },
     value: {
       title: "Value",
@@ -5832,7 +5986,7 @@ export const $CaseFieldReadMinimal = {
       title: "Id",
     },
     type: {
-      $ref: "#/components/schemas/SqlType",
+      $ref: "#/components/schemas/CaseFieldReadType",
     },
     description: {
       type: "string",
@@ -5871,11 +6025,44 @@ export const $CaseFieldReadMinimal = {
       ],
       title: "Options",
     },
+    kind: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseFieldKind",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    required_on_closure: {
+      type: "boolean",
+      title: "Required On Closure",
+      default: false,
+    },
   },
   type: "object",
   required: ["id", "type", "description", "nullable", "default", "reserved"],
   title: "CaseFieldReadMinimal",
   description: "Minimal read model for a case field.",
+} as const
+
+export const $CaseFieldReadType = {
+  type: "string",
+  enum: [
+    "TEXT",
+    "INTEGER",
+    "NUMERIC",
+    "DATE",
+    "BOOLEAN",
+    "TIMESTAMPTZ",
+    "JSONB",
+    "SELECT",
+    "MULTI_SELECT",
+    "UUID",
+  ],
+  title: "CaseFieldReadType",
+  description: "Read-only type for case field metadata.",
 } as const
 
 export const $CaseFieldUpdate = {
@@ -5954,6 +6141,17 @@ export const $CaseFieldUpdate = {
         },
       ],
       title: "Options",
+    },
+    required_on_closure: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Required On Closure",
     },
   },
   type: "object",
@@ -6147,6 +6345,32 @@ export const $CaseReadMinimal = {
       },
       type: "array",
       title: "Rows",
+    },
+    durations: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/CaseDurationRead",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Durations",
+    },
+    field_values: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Field Values",
     },
     num_tasks_completed: {
       type: "integer",
@@ -6997,6 +7221,9 @@ export const $ChatMessage = {
           $ref: "#/components/schemas/StreamEvent",
         },
         {
+          $ref: "#/components/schemas/RateLimitEvent",
+        },
+        {
           type: "null",
         },
       ],
@@ -7015,15 +7242,30 @@ export const $ChatMessage = {
       description:
         "Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)",
     },
+    compaction: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Compaction",
+      description:
+        "Compaction status data for badge rendering (for kind=COMPACTION)",
+    },
   },
   type: "object",
   required: ["id"],
   title: "ChatMessage",
   description: `Model for a chat message with typed message payload.
 
-This model supports both regular messages and approval bubbles:
+This model supports multiple message kinds:
 - kind=CHAT_MESSAGE: Contains message field with user/assistant content
-- kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data`,
+- kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
+- kind=COMPACTION: Contains compaction field with compaction status data`,
 } as const
 
 export const $ChatRead = {
@@ -9798,6 +10040,9 @@ export const $EventGroup_TypeVar_ = {
         },
         {
           $ref: "#/components/schemas/InteractionInput",
+        },
+        {
+          $ref: "#/components/schemas/UnreadableTemporalPayload",
         },
       ],
       title: "Action Input",
@@ -12680,7 +12925,13 @@ export const $MCPStdioServerConfig = {
 
 export const $MessageKind = {
   type: "string",
-  enum: ["chat-message", "approval-request", "approval-decision", "internal"],
+  enum: [
+    "chat-message",
+    "approval-request",
+    "approval-decision",
+    "internal",
+    "compaction",
+  ],
   title: "MessageKind",
   description: "The type/kind of message stored in the chat.",
 } as const
@@ -14716,6 +14967,117 @@ export const $PullResult = {
   title: "PullResult",
 } as const
 
+export const $RateLimitEvent = {
+  properties: {
+    rate_limit_info: {
+      $ref: "#/components/schemas/RateLimitInfo",
+    },
+    uuid: {
+      type: "string",
+      title: "Uuid",
+    },
+    session_id: {
+      type: "string",
+      title: "Session Id",
+    },
+  },
+  type: "object",
+  required: ["rate_limit_info", "uuid", "session_id"],
+  title: "RateLimitEvent",
+} as const
+
+export const $RateLimitInfo = {
+  properties: {
+    status: {
+      type: "string",
+      enum: ["allowed", "allowed_warning", "rejected"],
+      title: "Status",
+    },
+    resets_at: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resets At",
+    },
+    rate_limit_type: {
+      anyOf: [
+        {
+          type: "string",
+          enum: [
+            "five_hour",
+            "seven_day",
+            "seven_day_opus",
+            "seven_day_sonnet",
+            "overage",
+          ],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Rate Limit Type",
+    },
+    utilization: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Utilization",
+    },
+    overage_status: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["allowed", "allowed_warning", "rejected"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Overage Status",
+    },
+    overage_resets_at: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Overage Resets At",
+    },
+    overage_disabled_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Overage Disabled Reason",
+    },
+    raw: {
+      additionalProperties: true,
+      type: "object",
+      title: "Raw",
+    },
+  },
+  type: "object",
+  required: ["status"],
+  title: "RateLimitInfo",
+} as const
+
 export const $ReadinessResponse = {
   properties: {
     status: {
@@ -14773,6 +15135,28 @@ export const $ReceiveInteractionResponse = {
   type: "object",
   required: ["message"],
   title: "ReceiveInteractionResponse",
+} as const
+
+export const $RegistryActionAvailability = {
+  properties: {
+    locked: {
+      type: "boolean",
+      title: "Locked",
+      description: "Whether this action is locked behind an upgraded plan",
+      default: false,
+    },
+    missing_entitlements: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Missing Entitlements",
+      description: "Entitlements required to unlock this action",
+    },
+  },
+  type: "object",
+  title: "RegistryActionAvailability",
+  description: "Availability metadata for a registry action.",
 } as const
 
 export const $RegistryActionInterface = {
@@ -15065,6 +15449,10 @@ export const $RegistryActionReadMinimal = {
       ],
       title: "Display Group",
       description: "The presentation group of the action",
+    },
+    availability: {
+      $ref: "#/components/schemas/RegistryActionAvailability",
+      description: "Availability metadata for this action",
     },
     action: {
       type: "string",
@@ -15516,6 +15904,12 @@ export const $RegistrySecret = {
       title: "Optional",
       default: false,
     },
+    secret_type: {
+      type: "string",
+      enum: ["custom", "ssh_key", "mtls", "ca_cert"],
+      title: "Secret Type",
+      default: "custom",
+    },
   },
   type: "object",
   required: ["name"],
@@ -15815,6 +16209,17 @@ export const $ResultMessage = {
       type: "string",
       title: "Session Id",
     },
+    stop_reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stop Reason",
+    },
     total_cost_usd: {
       anyOf: [
         {
@@ -15851,6 +16256,55 @@ export const $ResultMessage = {
     },
     structured_output: {
       title: "Structured Output",
+    },
+    model_usage: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Usage",
+    },
+    permission_denials: {
+      anyOf: [
+        {
+          items: {},
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Permission Denials",
+    },
+    errors: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Errors",
+    },
+    uuid: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Uuid",
     },
   },
   type: "object",
@@ -17043,7 +17497,7 @@ Secret types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
 - \`oauth2\`: OAuth2 Client Credentials (TBC)
 - \`mtls\`: TLS client certificate and key
-- \`ca-cert\`: Certificate authority bundle`,
+- \`ca_cert\`: Certificate authority bundle`,
 } as const
 
 export const $SecretDefinition = {
@@ -17077,6 +17531,10 @@ export const $SecretDefinition = {
       type: "boolean",
       title: "Optional",
       default: false,
+    },
+    secret_type: {
+      $ref: "#/components/schemas/SecretType",
+      default: "custom",
     },
     actions: {
       items: {
@@ -17242,7 +17700,7 @@ export const $SecretReadMinimal = {
 
 export const $SecretType = {
   type: "string",
-  enum: ["custom", "ssh-key", "mtls", "ca-cert", "github-app"],
+  enum: ["custom", "ssh_key", "mtls", "ca_cert", "github_app"],
   title: "SecretType",
   description: "The type of a secret.",
 } as const
@@ -17341,7 +17799,7 @@ Secret types
 - \`token\`: A token, e.g. API Key, JWT Token (TBC)
 - \`oauth2\`: OAuth2 Client Credentials (TBC)
 - \`mtls\`: TLS client certificate and key
-- \`ca-cert\`: Certificate authority bundle`,
+- \`ca_cert\`: Certificate authority bundle`,
 } as const
 
 export const $SecretValidationDetail = {
@@ -18167,10 +18625,8 @@ export const $SqlType = {
     "NUMERIC",
     "DATE",
     "BOOLEAN",
-    "TIMESTAMP",
     "TIMESTAMPTZ",
     "JSONB",
-    "UUID",
     "SELECT",
     "MULTI_SELECT",
   ],
@@ -20911,6 +21367,34 @@ export const $UIMessage = {
 frontend and backend.`,
 } as const
 
+export const $UnreadableTemporalPayload = {
+  properties: {
+    error: {
+      type: "string",
+      const: "unreadable_temporal_payload",
+      title: "Error",
+      default: "unreadable_temporal_payload",
+    },
+    error_type: {
+      type: "string",
+      title: "Error Type",
+    },
+    encoding: {
+      type: "string",
+      title: "Encoding",
+    },
+    payload_size_bytes: {
+      type: "integer",
+      title: "Payload Size Bytes",
+    },
+  },
+  type: "object",
+  required: ["error_type", "encoding", "payload_size_bytes"],
+  title: "UnreadableTemporalPayload",
+  description:
+    "Structured placeholder for Temporal payloads that cannot be decoded.",
+} as const
+
 export const $UpdatedEventRead = {
   properties: {
     wf_exec_id: {
@@ -21120,6 +21604,18 @@ export const $UserMessage = {
         },
       ],
       title: "Parent Tool Use Id",
+    },
+    tool_use_result: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Use Result",
     },
   },
   type: "object",
@@ -22056,6 +22552,17 @@ export const $WaitResultOutput = {
       $ref: "#/components/schemas/WebhookStoredObjectDownloadResponse",
     },
   ],
+} as const
+
+export const $WaitResultUnwrapOverflowResponse = {
+  properties: {
+    detail: {
+      $ref: "#/components/schemas/WebhookStoredObjectDownloadResponse",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "WaitResultUnwrapOverflowResponse",
 } as const
 
 export const $WaitStrategy = {

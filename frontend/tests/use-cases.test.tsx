@@ -88,6 +88,16 @@ function HookProbe() {
   )
 }
 
+function RequestedColumnsProbe() {
+  const { cases } = useCases({
+    autoRefresh: false,
+    fieldIds: ["priority_reason"],
+    includeDurations: true,
+  })
+
+  return <span data-testid="rows">{cases.length}</span>
+}
+
 const ALL_STATUSES: CaseStatus[] = [
   "unknown",
   "new",
@@ -294,6 +304,57 @@ describe("useCases", () => {
         workspaceId: "workspace-1",
         searchTerm: "persisted query",
         updatedAfter: expect.stringContaining("T"),
+      })
+    )
+  })
+
+  it("forwards selected field IDs and duration hydration flags", async () => {
+    const firstPage: CasesSearchCasesResponse = {
+      items: [createCase(1)],
+      next_cursor: null,
+      prev_cursor: null,
+      has_more: false,
+      has_previous: false,
+      total_estimate: 1,
+    }
+
+    const aggregate: CasesSearchCaseAggregatesResponse = {
+      total: 1,
+      status_groups: {
+        new: 1,
+        in_progress: 0,
+        on_hold: 0,
+        resolved: 0,
+        other: 0,
+      },
+    }
+
+    mockSearchCases.mockResolvedValue(firstPage)
+    mockSearchCaseAggregates.mockResolvedValue(aggregate)
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RequestedColumnsProbe />
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rows")).toHaveTextContent("1")
+    })
+
+    expect(mockSearchCases).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "workspace-1",
+        fieldIds: ["priority_reason"],
+        includeDurations: true,
       })
     )
   })

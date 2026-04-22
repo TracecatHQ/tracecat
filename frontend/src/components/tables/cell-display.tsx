@@ -1,25 +1,19 @@
 "use client"
 
-import { format } from "date-fns"
 import type { TableColumnRead } from "@/client"
 import { Badge } from "@/components/ui/badge"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 
-/**
- * Check whether converting a string to Number and back preserves the value.
- * Returns false for BIGINT values beyond MAX_SAFE_INTEGER or high-precision decimals.
- */
-function isLosslessNumber(str: string): boolean {
-  const num = Number(str)
-  if (!Number.isFinite(num)) return false
-  return String(num) === str
-}
+const INTEGER_TYPES = new Set([
+  "INT",
+  "INTEGER",
+  "BIGINT",
+  "SMALLINT",
+  "BIGSERIAL",
+  "SERIAL",
+  "SERIAL4",
+  "SERIAL8",
+])
 
-const TIMESTAMP_TYPES = new Set(["TIMESTAMP", "TIMESTAMPTZ"])
 const NUMERIC_TYPES = new Set([
   "INT",
   "INTEGER",
@@ -55,28 +49,36 @@ const sanitizeColumnOptions = (options?: Array<string> | null) => {
   return normalized.length > 0 ? normalized : undefined
 }
 
-function formatNumber(value: number): string {
+/** Format a number as plain text (no scientific notation). */
+function formatNumberDisplay(value: number, isInteger: boolean): string {
   if (!Number.isFinite(value)) return String(value)
-  if (Number.isInteger(value)) return String(value)
-  return parseFloat(value.toFixed(2)).toString()
+  if (isInteger) {
+    // Use toFixed(0) to avoid JS scientific notation for large integers
+    return value.toFixed(0)
+  }
+  if (Number.isInteger(value)) return value.toFixed(0)
+  return parseFloat(value.toFixed(4)).toString()
 }
 
-function ScientificNumber({ value }: { value: number }) {
-  const needsScientific =
-    value !== 0 && (Math.abs(value) >= 1e6 || Math.abs(value) < 1e-3)
+/**
+ * Format a date string as ISO YYYY-MM-DD.
+ * Returns the raw string if it's already in that format to avoid timezone shifts.
+ */
+function formatDateISO(value: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${yyyy}-${mm}-${dd}`
+}
 
-  if (!needsScientific) {
-    return <span>{formatNumber(value)}</span>
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="cursor-default">{value.toExponential(3)}</span>
-      </TooltipTrigger>
-      <TooltipContent>{String(value)}</TooltipContent>
-    </Tooltip>
-  )
+/** Format a timestamp string as ISO. */
+function formatTimestampISO(value: string): string {
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  return d.toISOString()
 }
 
 export function CellDisplay({
@@ -88,8 +90,9 @@ export function CellDisplay({
 }) {
   const normalizedType = normalizeSqlType(column.type)
   const isNumericColumn = NUMERIC_TYPES.has(normalizedType)
-  const isDateLike =
-    normalizedType === "DATE" || TIMESTAMP_TYPES.has(normalizedType)
+  const isIntegerColumn = INTEGER_TYPES.has(normalizedType)
+  const isDate = normalizedType === "DATE"
+  const isTimestamp = normalizedType === "TIMESTAMPTZ"
   const isSelectColumn = normalizedType === "SELECT"
   const isMultiSelectColumn = normalizedType === "MULTI_SELECT"
   const columnOptions = sanitizeColumnOptions(column.options)
@@ -103,24 +106,14 @@ export function CellDisplay({
       ? parsedMultiValue.filter((item) => columnOptions.includes(item))
       : parsedMultiValue
 
-  let parsedDate: Date | undefined
-  if (isDateLike && typeof value === "string" && value) {
-    if (normalizedType === "DATE") {
-      const [year, month, day] = value.split("-").map(Number)
-      parsedDate = new Date(year, month - 1, day)
-    } else {
-      parsedDate = new Date(value)
-    }
-  }
-
-  const isValidDate =
-    parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
   const selectDisplayValue =
     typeof value === "string"
       ? value
       : value === null || value === undefined
         ? ""
         : String(value)
+
+  const isEmpty = value === null || value === undefined || value === ""
 
   return (
     <div className="flex items-center h-full w-full text-xs font-sans text-foreground">
@@ -146,26 +139,24 @@ export function CellDisplay({
         <span className="truncate text-xs font-sans">
           {JSON.stringify(value)}
         </span>
-      ) : isValidDate ? (
-        <span>
-          {format(
-            isValidDate,
-            normalizedType === "DATE" ? "MMM d yyyy" : "MMM d yyyy '\u00b7' p"
-          )}
-        </span>
-      ) : isNumericColumn && typeof value === "number" ? (
-        <ScientificNumber value={value} />
-      ) : isNumericColumn &&
-        typeof value === "string" &&
-        value !== "" &&
-        !Number.isNaN(Number(value)) ? (
-        isLosslessNumber(value) ? (
-          <ScientificNumber value={Number(value)} />
+      ) : isDate ? (
+        isEmpty ? (
+          <span className="text-muted-foreground">YYYY-MM-DD</span>
         ) : (
-          <span>{value}</span>
+          <span>{formatDateISO(String(value))}</span>
         )
+      ) : isTimestamp ? (
+        isEmpty ? (
+          <span className="text-muted-foreground">YYYY-MM-DDTHH:mm:ss.Z</span>
+        ) : (
+          <span>{formatTimestampISO(String(value))}</span>
+        )
+      ) : isNumericColumn && typeof value === "number" ? (
+        <span>{formatNumberDisplay(value, isIntegerColumn)}</span>
+      ) : isNumericColumn && typeof value === "string" && value !== "" ? (
+        <span>{value}</span>
       ) : typeof value === "number" ? (
-        <ScientificNumber value={value} />
+        <span>{formatNumberDisplay(value, false)}</span>
       ) : typeof value === "string" && value.length > 25 ? (
         <span className="truncate text-xs font-sans">{String(value)}</span>
       ) : (

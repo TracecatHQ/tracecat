@@ -13,14 +13,21 @@ from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
 import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.contexts import ctx_role
-from tracecat.registry.actions.schemas import RegistryActionCreate
+from tracecat.exceptions import TracecatNotFoundError
+from tracecat.registry.actions.schemas import (
+    RegistryActionCreate,
+    RegistryActionValidationErrorInfo,
+)
 from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
+    REGISTRY_GIT_SSH_KEY_SECRET_NAME,
 )
 from tracecat.registry.sync.schemas import RegistrySyncRequest
 from tracecat.registry.sync.subprocess import fetch_actions_from_subprocess
@@ -37,6 +44,7 @@ from tracecat.registry.versions.schemas import (
     RegistryVersionCreate,
     RegistryVersionManifest,
 )
+from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseService
 from tracecat.storage import blob
 
@@ -232,6 +240,37 @@ class BaseRegistrySyncService[
         tiebreaker = uuid.uuid4().int % 1_000_000
         return f"{base_version}.dev{suffix}{tiebreaker:06d}"
 
+    def _build_validation_failure_message(
+        self,
+        validation_errors: dict[str, list[RegistryActionValidationErrorInfo]],
+    ) -> str:
+        total_errors = sum(len(errs) for errs in validation_errors.values())
+        action_name = next(iter(validation_errors), "<unknown>")
+        first_error = (
+            validation_errors[action_name][0]
+            if validation_errors[action_name]
+            else None
+        )
+
+        first_detail = ""
+        if first_error is not None:
+            details = getattr(first_error, "details", None)
+            if isinstance(details, list) and details:
+                first_detail = str(details[0])
+
+        suffix = (
+            f" First error in '{action_name}': {first_detail}" if first_detail else ""
+        )
+        return f"Registry sync validation failed with {total_errors} error(s).{suffix}"
+
+    def _raise_if_validation_errors(
+        self,
+        validation_errors: dict[str, list[RegistryActionValidationErrorInfo]],
+    ) -> None:
+        if validation_errors:
+            message = self._build_validation_failure_message(validation_errors)
+            raise self._sync_error_cls()(message)
+
     async def sync_repository_v2(
         self,
         db_repo: RepoT,
@@ -293,6 +332,7 @@ class BaseRegistrySyncService[
             git_repo_package_name=git_repo_package_name,
             organization_id=org_id,
         )
+        self._raise_if_validation_errors(sync_result.validation_errors)
         actions = sync_result.actions
         commit_sha = sync_result.commit_sha
 
@@ -545,25 +585,25 @@ class BaseRegistrySyncService[
 
         origin_type = self._get_origin_type(origin)
 
-        ssh_key: str | None = None
         if origin_type == "git":
-            # Git origins require SSH key for authentication
-            if not isinstance(self.role, Role):
+            # Git origins require org context so the worker can fetch the SSH key.
+            role = self.role
+            if not isinstance(role, Role) or role.organization_id is None:
                 raise self._sync_error_cls()(
                     "Git repository sync requires organization context (Role with organization_id)"
                 )
 
-            from tracecat.secrets.service import SecretsService
-
-            secrets_service = SecretsService(self.session, role=self.role)
+            # Validate that the key exists before scheduling the workflow.
+            # The worker fetches the value again and the key is not serialized.
+            secrets_service = SecretsService(self.session, role=role)
             try:
-                secret = await secrets_service.get_ssh_key(target="registry")
-                ssh_key = secret.get_secret_value()
-            except Exception as exc:
-                # SSH key is required for git repos - fail fast with clear error
+                await secrets_service.get_org_secret_by_name(
+                    REGISTRY_GIT_SSH_KEY_SECRET_NAME
+                )
+            except TracecatNotFoundError as exc:
                 raise self._sync_error_cls()(
-                    f"Failed to retrieve SSH key for git operations: {exc}. "
-                    "Ensure a 'github-ssh-key' secret exists in your organization."
+                    "Git repository sync requires a "
+                    f"'{REGISTRY_GIT_SSH_KEY_SECRET_NAME}' organization secret."
                 ) from exc
 
         request = RegistrySyncRequest(
@@ -573,7 +613,6 @@ class BaseRegistrySyncService[
             git_url=origin if origin_type == "git" else None,
             commit_sha=target_commit_sha,
             git_repo_package_name=git_repo_package_name,
-            ssh_key=ssh_key,
             validate_actions=True,
             storage_namespace=self._get_storage_namespace(),
             organization_id=self.role.organization_id
@@ -599,6 +638,28 @@ class BaseRegistrySyncService[
                     initial_interval=timedelta(seconds=5),
                 ),
             )
+        except WorkflowFailureError as exc:
+            failure = exc.cause
+            while isinstance(failure, BaseException):
+                if isinstance(failure, ApplicationError) and (
+                    failure.type == "RegistrySyncValidationError"
+                ):
+                    raise self._sync_error_cls()(str(failure)) from exc
+                if not (
+                    (nested := getattr(failure, "cause", None))
+                    and isinstance(nested, BaseException)
+                ):
+                    break
+                failure = nested
+
+            self.logger.error(
+                "Registry sync workflow failed",
+                repository=origin,
+                error=str(exc),
+            )
+            raise self._sync_error_cls()(
+                f"Registry sync workflow failed: {exc}"
+            ) from exc
         except Exception as exc:
             self.logger.error(
                 "Registry sync workflow failed",
@@ -610,6 +671,7 @@ class BaseRegistrySyncService[
             ) from exc
 
         actions = workflow_result.actions
+        self._raise_if_validation_errors(workflow_result.validation_errors)
         tarball_uri = workflow_result.tarball_uri
         commit_sha = workflow_result.commit_sha
 

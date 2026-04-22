@@ -80,6 +80,7 @@ mtls_secret = RegistrySecret(
     name="mtls",
     keys=["TLS_CERTIFICATE", "TLS_PRIVATE_KEY"],
     optional=True,
+    secret_type="mtls",
 )
 """HTTP mTLS certificate secret.
 
@@ -98,6 +99,7 @@ ca_cert_secret = RegistrySecret(
     name="ca_cert",
     keys=["CA_CERTIFICATE"],
     optional=True,
+    secret_type="ca_cert",
 )
 """HTTP CA certificate secret.
 

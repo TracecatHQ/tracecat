@@ -1,6 +1,6 @@
 "use client"
 
-import { CircleIcon, ListIcon, UserIcon } from "lucide-react"
+import { CircleIcon, CircleSlashIcon, ListIcon } from "lucide-react"
 import type {
   CaseDropdownDefinitionRead,
   CaseDropdownValueRead,
@@ -24,7 +24,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import UserAvatar from "@/components/user-avatar"
-import { getDisplayName } from "@/lib/auth"
 import { cn, linearStyles } from "@/lib/utils"
 
 /**
@@ -335,8 +334,8 @@ export function AssigneeSelect({
                   firstName={assignee.first_name}
                   className="size-5 text-xs text-foreground"
                 />
-                <span className={cn("font-medium", valueClassName)}>
-                  {assignee.first_name || assignee.email.split("@")[0]}
+                <span className={cn("truncate", valueClassName)}>
+                  {assignee.email}
                 </span>
               </div>
             ) : (
@@ -367,6 +366,7 @@ export function AssigneeSelect({
                 email={member.email}
                 firstName={member.first_name}
                 lastName={member.last_name}
+                className={valueClassName}
               />
             </SelectItem>
           ))
@@ -388,8 +388,8 @@ export function NoAssignee({
   const baseClass = "flex items-center gap-1.5 text-xs leading-4"
   return (
     <div className={cn(baseClass, "text-muted-foreground", className)}>
-      <div className="flex size-4 items-center justify-center rounded-full border border-dashed border-muted-foreground/50">
-        <UserIcon className="size-3 text-muted-foreground" />
+      <div className="flex size-4 items-center justify-center">
+        <CircleSlashIcon className="size-2.5 text-muted-foreground/50" />
       </div>
       <span className={cn("text-xs text-muted-foreground", labelClassName)}>
         {text ?? "Unassigned"}
@@ -409,11 +409,6 @@ export function AssignedUser({
   lastName?: string | null
   className?: string
 }) {
-  const displayName = getDisplayName({
-    email,
-    first_name: firstName,
-    last_name: lastName,
-  })
   return (
     <div
       className={cn(
@@ -422,14 +417,14 @@ export function AssignedUser({
       )}
     >
       <UserAvatar
-        alt={displayName}
+        alt={email}
         email={email}
         firstName={firstName}
         className="size-4 text-foreground"
         fallbackClassName="text-[10px]"
       />
-      <span className="truncate text-xs" title={displayName}>
-        {displayName}
+      <span className="truncate" title={email}>
+        {email}
       </span>
     </div>
   )

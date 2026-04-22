@@ -60,6 +60,7 @@ from pydantic_ai.messages import (
 from pydantic_core import to_json
 
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.agent.mcp.utils import normalize_mcp_tool_name
 from tracecat.agent.stream.events import (
     StreamDelta,
@@ -73,6 +74,7 @@ from tracecat.agent.types import UnifiedMessage
 from tracecat.chat.constants import (
     APPROVAL_DATA_PART_TYPE,
     APPROVAL_REQUEST_HEADER,
+    COMPACTION_DATA_PART_TYPE,
 )
 from tracecat.chat.enums import MessageKind
 from tracecat.logger import logger
@@ -671,6 +673,10 @@ class ToolInputAvailableEventPayload:
     toolName: str
     input: Any
 
+    def __post_init__(self) -> None:
+        if isinstance(self.input, dict):
+            self.input = strip_proxy_tool_metadata(self.input)
+
 
 @dataclasses.dataclass(slots=True, kw_only=True)
 class ToolOutputAvailableEventPayload:
@@ -679,6 +685,12 @@ class ToolOutputAvailableEventPayload:
     )
     toolCallId: str
     output: Any
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
+class CompactionDataPayload:
+    phase: Literal["started", "completed", "failed"]
+    pre_tokens: int | None = None
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
@@ -908,7 +920,7 @@ class VercelStreamContext:
                 tool_call = ToolCallPart(
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
-                    args=event.tool_input or {},
+                    args=strip_proxy_tool_metadata(event.tool_input or {}),
                 )
                 state = self._create_part_state(
                     event.part_id or 0, "tool", tool_call=tool_call
@@ -935,13 +947,11 @@ class VercelStreamContext:
                         tool_call_id = state.tool_call.tool_call_id
                         if not self.tool_input_emitted.get(tool_call_id, False):
                             # Emit final tool input
-                            tool_input = (
-                                event.tool_input or state.tool_call.args_as_dict()
-                            )
                             yield ToolInputAvailableEventPayload(
                                 toolCallId=tool_call_id,
                                 toolName=event.tool_name or state.tool_call.tool_name,
-                                input=tool_input,
+                                input=event.tool_input
+                                or state.tool_call.args_as_dict(),
                             )
                             self.tool_input_emitted[tool_call_id] = True
                     for message in self._finalize_part(event.part_id):
@@ -961,11 +971,10 @@ class VercelStreamContext:
                     tool_name = self.approval_tool_name.get(
                         tool_call_id, event.tool_name or "tool"
                     )
-                    input_payload: Any = self.approval_input.get(tool_call_id, {})
                     yield ToolInputAvailableEventPayload(
                         toolCallId=tool_call_id,
                         toolName=str(tool_name),
-                        input=input_payload,
+                        input=self.approval_input.get(tool_call_id, {}),
                     )
                     self.tool_input_emitted[tool_call_id] = True
 
@@ -993,6 +1002,17 @@ class VercelStreamContext:
                         output=event.tool_output,
                     )
 
+            case StreamEventType.COMPACTION:
+                metadata = event.metadata or {}
+                payload = CompactionDataPayload(
+                    phase=metadata["phase"],
+                    pre_tokens=metadata.get("pre_tokens"),
+                )
+                yield DataEventPayload(
+                    type=COMPACTION_DATA_PART_TYPE,
+                    data=payload,
+                )
+
             case StreamEventType.ERROR:
                 yield ErrorEventPayload(errorText=event.error or "Unknown error")
 
@@ -1000,9 +1020,10 @@ class VercelStreamContext:
                 # Unified approval request from any harness (pydantic-ai or claude)
                 if event.approval_items:
                     for item in event.approval_items:
+                        sanitized_input = strip_proxy_tool_metadata(item.input)
                         # Cache tool data for UI reconstruction on continuation
                         self.approval_tool_name[item.id] = item.name
-                        self.approval_input[item.id] = item.input
+                        self.approval_input[item.id] = sanitized_input
 
                         # Finalize any open tool parts so UI shows input-available
                         if item.id in self.tool_index:
@@ -1019,7 +1040,7 @@ class VercelStreamContext:
                             {
                                 "tool_call_id": item.id,
                                 "tool_name": item.name,
-                                "args": item.input,
+                                "args": strip_proxy_tool_metadata(item.input),
                             }
                             for item in event.approval_items
                         ],
@@ -1216,6 +1237,10 @@ class MutableToolPart:
     output: Any | None = None
     error_text: str | None = None
 
+    def __post_init__(self) -> None:
+        if isinstance(self.input, dict):
+            self.input = strip_proxy_tool_metadata(self.input)
+
     def set_result(
         self,
         content: Any,
@@ -1334,7 +1359,7 @@ def _extract_approval_payload_from_message(
                             ToolCallPart(
                                 tool_name=part.tool_name,
                                 tool_call_id=part.tool_call_id,
-                                args=part.args_as_dict(),
+                                args=strip_proxy_tool_metadata(part.args_as_dict()),
                             )
                         )
                 return approvals if approvals else None
@@ -1360,7 +1385,7 @@ def _extract_approval_payload_from_message(
                     ToolCallPart(
                         tool_name=block.name,
                         tool_call_id=block.id,
-                        args=block.input or {},
+                        args=strip_proxy_tool_metadata(block.input or {}),
                     )
                 )
         return approvals if approvals else None
@@ -1485,6 +1510,21 @@ def convert_chat_messages_to_ui(
     tool_entries: dict[str, MutableToolPart] = {}
 
     for chat_message in messages:
+        # Handle compaction status badges from DB (kind=COMPACTION)
+        # These show when a conversation was compacted
+        if chat_message.kind == MessageKind.COMPACTION and chat_message.compaction:
+            compaction_data = chat_message.compaction
+            # Create a system message with the compaction data part
+            mutable_message = MutableMessage(
+                id=chat_message.id,
+                role="system",
+                parts=[
+                    DataUIPart(type=COMPACTION_DATA_PART_TYPE, data=compaction_data)
+                ],
+            )
+            mutable_messages.append(mutable_message)
+            continue
+
         # Handle approval request bubbles from DB (kind=APPROVAL_REQUEST)
         # These are inserted by list_messages() when loading session history
         if chat_message.kind == MessageKind.APPROVAL_REQUEST and chat_message.approval:

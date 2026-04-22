@@ -33,7 +33,7 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
     "/{workflow_id}/publish",
     response_model=WorkflowDslPublishResult,
 )
-@require_scope("workflow:update")
+@require_scope("workflow:update", "workflow:sync")
 async def publish_workflow(
     role: WorkspaceActorRole,
     session: AsyncDBSession,
@@ -85,7 +85,7 @@ async def publish_workflow(
 
 
 @router.get("/sync/commits", response_model=list[GitCommitInfo])
-@require_scope("workflow:read")
+@require_scope("workflow:sync")
 async def list_workflow_commits(
     role: WorkspaceActorRole,
     session: AsyncDBSession,
@@ -177,7 +177,7 @@ async def list_workflow_commits(
 
 
 @router.get("/sync/branches", response_model=list[GitBranchInfo])
-@require_scope("workflow:read")
+@require_scope("workflow:sync")
 async def list_workflow_branches(
     role: WorkspaceActorRole,
     session: AsyncDBSession,
@@ -247,7 +247,7 @@ async def list_workflow_branches(
 
 
 @router.post("/sync/pull", response_model=PullResult)
-@require_scope("workflow:update")
+@require_scope("workflow:update", "workflow:sync")
 async def pull_workflows(
     role: WorkspaceActorRole,
     session: AsyncDBSession,

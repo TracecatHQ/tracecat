@@ -173,7 +173,7 @@ def send_email_smtp(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    """Run a send email action.
+    """Send email using SMTP.
 
     Returns
     -------

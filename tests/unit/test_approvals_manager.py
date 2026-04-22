@@ -406,6 +406,40 @@ class TestRecordApprovalRequestsActivity:
             assert approval is not None
             assert approval.tool_call_args == {"json": "string"}
 
+    async def test_record_approvals_strips_internal_proxy_metadata(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        mock_agent_session: AgentSession,
+    ) -> None:
+        """Test recording approval args removes Tracecat-internal metadata."""
+        approvals = [
+            ToolApprovalPayload(
+                tool_call_id="call_123",
+                tool_name="test_tool",
+                args={
+                    "url": "https://example.com",
+                    "__tracecat": {"tool_call_id": "call_123"},
+                },
+            ),
+        ]
+
+        input_data = PersistApprovalsActivityInputs(
+            role=svc_role,
+            session_id=mock_agent_session.id,
+            approvals=approvals,
+        )
+
+        await ApprovalManager.record_approval_requests(input_data)
+
+        async with ApprovalService.with_session(role=svc_role) as service:
+            approval = await service.get_approval_by_session_and_tool(
+                session_id=mock_agent_session.id,
+                tool_call_id="call_123",
+            )
+            assert approval is not None
+            assert approval.tool_call_args == {"url": "https://example.com"}
+
 
 @pytest.mark.anyio
 class TestApplyApprovalDecisionsActivity:

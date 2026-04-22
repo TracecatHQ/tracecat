@@ -12,6 +12,7 @@ from pydantic_ai.tools import ToolApproved, ToolDenied
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import HarnessType
+from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import ClaudeSDKMessageTA, ModelMessageTA, UnifiedMessage
 from tracecat.chat.enums import MessageKind
@@ -194,9 +195,10 @@ class ApprovalRead(BaseModel):
 class ChatMessage(BaseModel):
     """Model for a chat message with typed message payload.
 
-    This model supports both regular messages and approval bubbles:
+    This model supports multiple message kinds:
     - kind=CHAT_MESSAGE: Contains message field with user/assistant content
     - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
+    - kind=COMPACTION: Contains compaction field with compaction status data
     """
 
     id: str = Field(..., description="Unique message identifier")
@@ -212,14 +214,19 @@ class ChatMessage(BaseModel):
         default=None,
         description="Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)",
     )
+    compaction: dict[str, Any] | None = Field(
+        default=None,
+        description="Compaction status data for badge rendering (for kind=COMPACTION)",
+    )
 
     @classmethod
     def from_db(cls, db_msg: models.ChatMessage) -> ChatMessage:
         """Deserialize a database message into a typed ChatMessage."""
+        sanitized_data = sanitize_message_tool_inputs(db_msg.data)
         if db_msg.harness == HarnessType.CLAUDE_CODE.value:
-            message = ClaudeSDKMessageTA.validate_python(db_msg.data)
+            message = ClaudeSDKMessageTA.validate_python(sanitized_data)
         else:
-            message = ModelMessageTA.validate_python(db_msg.data)
+            message = ModelMessageTA.validate_python(sanitized_data)
         return cls(id=str(db_msg.id), message=message)
 
 

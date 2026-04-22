@@ -34,7 +34,11 @@ from tracecat.agent.tokens import MCPTokenClaims, verify_mcp_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import EntitlementRequired, ExecutionError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    EntitlementRequired,
+    ExecutionError,
+)
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 
@@ -68,6 +72,7 @@ async def execute_action_tool(
     action_name: str,
     args: dict[str, Any],
     auth_token: str,
+    tool_call_id: str | None = None,
 ) -> str:
     """Execute any Tracecat registry action.
 
@@ -101,7 +106,11 @@ async def execute_action_tool(
             )
 
         result = await execute_action(
-            normalized_action_name, args, claims, registry_lock
+            normalized_action_name,
+            args,
+            claims,
+            registry_lock,
+            tool_call_id=tool_call_id,
         )
         return json.dumps(result, default=str)
     except ActionExecutionError as e:
@@ -119,6 +128,8 @@ async def execute_action_tool(
         )
         raise ToolError(error_msg) from e
     except EntitlementRequired as e:
+        raise ToolError(str(e)) from e
+    except BuiltinRegistryHasNoSelectionError as e:
         raise ToolError(str(e)) from e
     except Exception as e:
         # Unexpected platform errors - log full details but return generic message

@@ -99,3 +99,29 @@ class CaseTaskStatus(StrEnum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     BLOCKED = "blocked"
+
+
+class CaseFieldKind(StrEnum):
+    """Semantic kind for case custom fields.
+
+    Controls how the field is rendered in the UI without changing the underlying
+    SQL storage type.
+    """
+
+    LONG_TEXT = "LONG_TEXT"
+    URL = "URL"
+
+
+class CaseFieldReadType(StrEnum):
+    """Read-only type for case field metadata."""
+
+    TEXT = "TEXT"
+    INTEGER = "INTEGER"
+    NUMERIC = "NUMERIC"
+    DATE = "DATE"
+    BOOLEAN = "BOOLEAN"
+    TIMESTAMPTZ = "TIMESTAMPTZ"
+    JSONB = "JSONB"
+    SELECT = "SELECT"
+    MULTI_SELECT = "MULTI_SELECT"
+    UUID = "UUID"

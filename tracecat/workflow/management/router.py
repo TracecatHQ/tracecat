@@ -30,7 +30,11 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Webhook, WebhookApiKey, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.schemas import DSLConfig
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
@@ -269,6 +273,27 @@ async def create_workflow(
             workflow = await service.create_workflow_from_external_definition(
                 external_defn_data, use_workflow_id=use_workflow_id
             )
+        except BuiltinRegistryHasNoSelectionError as e:
+            error = ValidationResult.new(
+                type=ValidationResultType.DSL,
+                status="error",
+                msg=str(e),
+                detail=[
+                    ValidationDetail(
+                        type="registry.builtin_sync_pending",
+                        msg=str(e),
+                        loc=("registry_lock",),
+                    )
+                ],
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "status": "failure",
+                    "message": "1 validation error(s)",
+                    "errors": [error.root.model_dump(mode="json", exclude_none=True)],
+                },
+            ) from e
         except ValidationError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -498,7 +523,27 @@ async def commit_workflow(
     # This ensures the lock reflects the actual actions in the workflow, not stale data
     lock_service = RegistryLockService(session, role)
     action_names = {action.action for action in dsl.actions}
-    registry_lock = await lock_service.resolve_lock_with_bindings(action_names)
+    try:
+        registry_lock = await lock_service.resolve_lock_with_bindings(action_names)
+    except BuiltinRegistryHasNoSelectionError as e:
+        error = ValidationResult.new(
+            type=ValidationResultType.DSL,
+            status="error",
+            msg=str(e),
+            detail=[
+                ValidationDetail(
+                    type="registry.builtin_sync_pending",
+                    msg=str(e),
+                    loc=("registry_lock",),
+                )
+            ],
+        )
+        return WorkflowCommitResponse(
+            workflow_id=workflow_id.short(),
+            status="failure",
+            message="1 validation error(s)",
+            errors=[error],
+        )
     # Update the workflow with the newly computed lock
     workflow.registry_lock = registry_lock.model_dump()
 

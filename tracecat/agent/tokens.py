@@ -4,7 +4,7 @@ This module provides token minting and verification for authenticating requests
 between the jailed agent runtime and trusted services:
 
 1. MCP Token: For tool execution via the trusted MCP server
-2. LLM Token: For LLM API calls via the LiteLLM gateway
+2. LLM Token: For LLM API calls via the LLM gateway
 
 These tokens are separate to provide isolation - a compromised MCP execution
 path (which runs user code) cannot make arbitrary LLM calls, and vice versa.
@@ -23,6 +23,7 @@ from jwt import PyJWTError
 from pydantic import BaseModel, Field, ValidationError
 
 from tracecat import config
+from tracecat.auth.secrets import get_service_key
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 
 # -----------------------------------------------------------------------------
@@ -86,6 +87,10 @@ class MCPTokenClaims(BaseModel):
     """Optional user ID for audit/traceability."""
     session_id: uuid.UUID
     """Agent session ID for traceability."""
+    parent_agent_workflow_id: str | None = None
+    """Optional parent durable agent workflow ID for correlation."""
+    parent_agent_run_id: str | None = None
+    """Optional parent durable agent run ID for correlation."""
     organization_id: OrganizationID
     """Organization UUID for authorization context."""
     allowed_actions: list[str]
@@ -105,6 +110,8 @@ def mint_mcp_token(
     allowed_actions: list[str],
     session_id: uuid.UUID,
     user_id: UserID | None = None,
+    parent_agent_workflow_id: str | None = None,
+    parent_agent_run_id: str | None = None,
     user_mcp_servers: list[UserMCPServerClaim] | None = None,
     allowed_internal_tools: list[str] | None = None,
     internal_tool_context: InternalToolContext | None = None,
@@ -133,9 +140,6 @@ def mint_mcp_token(
     Returns:
         Signed JWT string
     """
-    if not config.TRACECAT__SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
-
     now = datetime.now(UTC)
     ttl = ttl_seconds or config.TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS
 
@@ -154,6 +158,12 @@ def mint_mcp_token(
     if user_id is not None:
         payload["user_id"] = str(user_id)
 
+    if parent_agent_workflow_id is not None:
+        payload["parent_agent_workflow_id"] = parent_agent_workflow_id
+
+    if parent_agent_run_id is not None:
+        payload["parent_agent_run_id"] = parent_agent_run_id
+
     if user_mcp_servers:
         payload["user_mcp_servers"] = [s.model_dump() for s in user_mcp_servers]
 
@@ -163,7 +173,7 @@ def mint_mcp_token(
     if internal_tool_context:
         payload["internal_tool_context"] = internal_tool_context.model_dump(mode="json")
 
-    return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")
+    return jwt.encode(payload, get_service_key(), algorithm="HS256")
 
 
 def verify_mcp_token(token: str) -> MCPTokenClaims:
@@ -178,13 +188,10 @@ def verify_mcp_token(token: str) -> MCPTokenClaims:
     Raises:
         ValueError: If token is invalid or missing required claims
     """
-    if not config.TRACECAT__SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
-
     try:
         payload = jwt.decode(
             token,
-            config.TRACECAT__SERVICE_KEY,
+            get_service_key(),
             algorithms=["HS256"],
             audience=MCP_TOKEN_AUDIENCE,
             issuer=MCP_TOKEN_ISSUER,
@@ -291,9 +298,6 @@ def mint_llm_token(
     Returns:
         Signed JWT string
     """
-    if not config.TRACECAT__SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
-
     now = datetime.now(UTC)
     ttl = ttl_seconds or config.TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS
 
@@ -317,7 +321,7 @@ def mint_llm_token(
         "use_workspace_credentials": use_workspace_credentials,
     }
 
-    return jwt.encode(payload, config.TRACECAT__SERVICE_KEY, algorithm="HS256")
+    return jwt.encode(payload, get_service_key(), algorithm="HS256")
 
 
 def verify_llm_token(token: str) -> LLMTokenClaims:
@@ -332,13 +336,13 @@ def verify_llm_token(token: str) -> LLMTokenClaims:
     Raises:
         ValueError: If token is invalid, expired, or missing required claims
     """
-    if not config.TRACECAT__SERVICE_KEY:
-        raise ValueError("TRACECAT__SERVICE_KEY is not set")
+    if not token:
+        raise ValueError("Invalid LLM token")
 
     try:
         payload = jwt.decode(
             token,
-            config.TRACECAT__SERVICE_KEY,
+            get_service_key(),
             algorithms=["HS256"],
             audience=LLM_TOKEN_AUDIENCE,
             issuer=LLM_TOKEN_ISSUER,

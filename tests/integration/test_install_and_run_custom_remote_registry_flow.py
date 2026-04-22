@@ -32,11 +32,168 @@ from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.schemas import SecretCreate
 from tracecat.settings.schemas import GitSettingsUpdate
 
 GIT_SSH_URL = "git+ssh://git@github.com/TracecatHQ/internal-registry.git"
+KNOWN_GOOD_REMOTE_COMMIT_SHA = "e2bfd94c35c93f8052c2b97ff542961596ddd3f8"
+PLACEHOLDER_TARBALL_URI = "s3://test/test.tar.gz"
+
+
+def _assert_response_ok(response: requests.Response, action: str) -> None:
+    assert response.status_code == 200, (
+        f"{action} failed: {response.status_code} - {response.text}"
+    )
+
+
+def _builtin_versions(
+    session: requests.Session,
+    base_url: str,
+    repository_id: str,
+) -> list[dict]:
+    versions_response = session.get(
+        f"{base_url}/admin/registry/versions",
+        params={"repository_id": repository_id},
+    )
+    _assert_response_ok(versions_response, "List builtin platform registry versions")
+    return versions_response.json()
+
+
+def _current_builtin_version(
+    session: requests.Session,
+    base_url: str,
+    repository_id: str,
+    current_version_id: str | None,
+) -> dict | None:
+    if current_version_id is None:
+        return None
+
+    return next(
+        (
+            version
+            for version in _builtin_versions(session, base_url, repository_id)
+            if version["id"] == current_version_id
+        ),
+        None,
+    )
+
+
+def _has_real_tarball(version: dict | None) -> bool:
+    if version is None:
+        return False
+    tarball_uri = version.get("tarball_uri")
+    return bool(tarball_uri and tarball_uri != PLACEHOLDER_TARBALL_URI)
+
+
+def _sync_builtin_platform_registry(
+    session: requests.Session,
+    base_url: str,
+) -> None:
+    """Ensure tracecat_registry resolves to a downloadable platform tarball.
+
+    The remote custom registry sync only updates the org-scoped custom repo.
+    Workflow lock resolution always includes tracecat_registry as a runtime
+    dependency, so this test must ensure the platform builtin repo is not still
+    pointing at the placeholder fixture tarball.
+    """
+    repos_response = session.get(f"{base_url}/admin/registry/repos")
+    _assert_response_ok(repos_response, "List platform registry repositories")
+
+    builtin_repo = next(
+        (
+            repo
+            for repo in repos_response.json()
+            if repo["origin"] == DEFAULT_REGISTRY_ORIGIN
+        ),
+        None,
+    )
+
+    if builtin_repo is None:
+        sync_response = session.post(f"{base_url}/admin/registry/sync")
+        _assert_response_ok(sync_response, "Sync platform registry repositories")
+        sync_data = sync_response.json()
+        builtin_result = next(
+            (
+                result
+                for result in sync_data["repositories"]
+                if result["repository_name"] == DEFAULT_REGISTRY_ORIGIN
+            ),
+            None,
+        )
+        assert builtin_result is not None, "Builtin platform registry was not synced"
+        assert builtin_result["success"] is True, (
+            f"Builtin platform registry sync failed: {builtin_result}"
+        )
+        return
+
+    repository_id = builtin_repo["id"]
+    current_version = _current_builtin_version(
+        session,
+        base_url,
+        repository_id,
+        builtin_repo.get("current_version_id"),
+    )
+    if _has_real_tarball(current_version):
+        assert current_version is not None
+        logger.info(
+            "Builtin platform registry already has a real tarball",
+            version=current_version["version"],
+            tarball_uri=current_version["tarball_uri"],
+        )
+        return
+
+    sync_response = session.post(
+        f"{base_url}/admin/registry/sync/{repository_id}",
+        params={"force": True},
+    )
+    _assert_response_ok(sync_response, "Sync builtin platform registry")
+    sync_data = sync_response.json()
+    builtin_result = sync_data["repositories"][0]
+    assert builtin_result["success"] is True, (
+        f"Builtin platform registry sync failed: {builtin_result}"
+    )
+
+    repos_response = session.get(f"{base_url}/admin/registry/repos")
+    _assert_response_ok(repos_response, "Reload platform registry repositories")
+    builtin_repo = next(
+        repo
+        for repo in repos_response.json()
+        if repo["origin"] == DEFAULT_REGISTRY_ORIGIN
+    )
+    current_version = _current_builtin_version(
+        session,
+        base_url,
+        repository_id,
+        builtin_repo.get("current_version_id"),
+    )
+    if not _has_real_tarball(current_version):
+        versions = _builtin_versions(session, base_url, repository_id)
+        synced_version = builtin_result.get("version")
+        candidate = next(
+            (
+                version
+                for version in versions
+                if _has_real_tarball(version) and version["version"] == synced_version
+            ),
+            None,
+        ) or next(
+            (version for version in versions if _has_real_tarball(version)),
+            None,
+        )
+        assert candidate is not None, (
+            "Builtin platform registry sync did not create a real tarball version"
+        )
+        promote_response = session.post(
+            f"{base_url}/admin/registry/{repository_id}/versions/{candidate['id']}/promote"
+        )
+        _assert_response_ok(promote_response, "Promote builtin platform registry")
+        current_version = candidate
+
+    assert _has_real_tarball(current_version), (
+        "Builtin platform registry still points to the placeholder tarball"
+    )
 
 
 @pytest.mark.anyio
@@ -88,6 +245,9 @@ async def test_remote_custom_registry_repo() -> None:
     org_id = orgs_list[0]["id"]
     session.cookies.set("tracecat-org-id", org_id)
     logger.info("Set organization context", organization_id=org_id)
+
+    logger.info("Ensuring builtin platform registry tarball is synced")
+    _sync_builtin_platform_registry(session, base_url)
 
     # ---------------------------------------------------------------------
     # 2.  Get or create a RegistryRepository pointing to the remote Git repo
@@ -190,6 +350,7 @@ async def test_remote_custom_registry_repo() -> None:
     )
     sync_response = session.post(
         f"{base_url}/registry/repos/{repository_id}/sync",
+        json={"target_commit_sha": KNOWN_GOOD_REMOTE_COMMIT_SHA},
     )
     assert sync_response.status_code == 200, f"Sync failed: {sync_response.text}"
     sync_data = sync_response.json()

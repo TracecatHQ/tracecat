@@ -129,6 +129,21 @@ TRACECAT__EXECUTOR_QUEUE = os.environ.get(
 )
 """Task queue for the ExecutorWorker (Temporal activity queue)."""
 
+TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT = int(
+    os.environ.get("TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT") or 60
+)
+"""Heartbeat timeout in seconds for executor activities.
+
+If Temporal does not receive a heartbeat within this window, the activity
+is considered failed and can be retried on a healthy worker. Set to 0 to disable."""
+
+TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL = int(
+    os.environ.get("TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL") or 30
+)
+"""Interval in seconds between heartbeat signals sent by executor activities.
+
+Should be less than TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT (recommended: half)."""
+
 TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = os.environ.get(
     "TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR", "/tmp/tracecat/registry-cache"
 )
@@ -254,7 +269,7 @@ OIDC_SCOPES = tuple(
 # Backward-compatible aliases for legacy config names.
 OAUTH_CLIENT_ID = OIDC_CLIENT_ID
 OAUTH_CLIENT_SECRET = OIDC_CLIENT_SECRET
-USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET", "")
+USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET")
 TRACECAT__DB_ENCRYPTION_KEY = os.environ.get("TRACECAT__DB_ENCRYPTION_KEY")
 TRACECAT__SIGNING_SECRET = os.environ.get("TRACECAT__SIGNING_SECRET")
 TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID = os.environ.get(
@@ -319,7 +334,7 @@ SAML_VERIFY_SSL_METADATA = (
 # === CORS config === #
 # NOTE: If you are using Tracecat self-hosted, please replace with your
 # own domain by setting the comma separated TRACECAT__ALLOW_ORIGINS env var.
-TRACECAT__ALLOW_ORIGINS = os.environ.get("TRACECAT__ALLOW_ORIGINS")
+TRACECAT__ALLOW_ORIGINS = os.environ.get("TRACECAT__ALLOW_ORIGINS") or None
 
 # === Temporal config === #
 TEMPORAL__CONNECT_RETRIES = int(os.environ.get("TEMPORAL__CONNECT_RETRIES") or 10)
@@ -348,6 +363,30 @@ TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION = os.environ.get(
     "TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION", "true"
 ).lower() in ("true", "1")
 """Disable eager activity execution for Temporal workflows."""
+TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED", "false"
+).lower() in ("true", "1")
+"""Enable application-layer encryption for Temporal payloads."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING"
+)
+"""JSON keyring used to derive workspace-scoped Temporal payload keys."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN = os.environ.get(
+    "TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN"
+)
+"""AWS Secrets Manager ARN containing the Temporal payload encryption keyring."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS = int(
+    os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS") or 3600
+)
+"""TTL for cached derived Temporal payload keys."""
+
+TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS = int(
+    os.environ.get("TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS") or 4096
+)
+"""Maximum number of cached derived Temporal payload keys."""
 
 # === Sentry config === #
 SENTRY_ENVIRONMENT_OVERRIDE = os.environ.get("SENTRY_ENVIRONMENT_OVERRIDE")
@@ -621,16 +660,87 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
 )
 """Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
 
+TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
+"""Bind port for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_NUM_WORKERS = int(
+    os.environ.get("TRACECAT__LITELLM_NUM_WORKERS") or 2
+)
+"""Number of uvicorn workers for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_BASE_URL = os.environ.get(
+    "TRACECAT__LITELLM_BASE_URL", f"http://127.0.0.1:{TRACECAT__LITELLM_PORT}"
+)
+"""Internal base URL for the managed LiteLLM service."""
+
 TRACECAT__LLM_PROXY_READ_TIMEOUT = float(
     os.environ.get("TRACECAT__LLM_PROXY_READ_TIMEOUT") or 300.0
 )
 """Read timeout for the LLM socket proxy in seconds (default: 5 minutes)."""
+
+
+TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS") or 60.0
+)
+"""TTL for process-local LLM gateway credential cache entries in seconds."""
+
+TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS") or 30.0
+)
+"""Interval between LLM gateway readiness checks in seconds."""
+
+TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS") or 2.0
+)
+"""Default timeout for LLM gateway readiness checks in seconds."""
+
+TRACECAT__LLM_GATEWAY_CONNECT_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_CONNECT_TIMEOUT_SECONDS")
+    or TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS
+)
+"""Connect timeout for LLM gateway requests in seconds."""
+
+TRACECAT__LLM_GATEWAY_READ_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_READ_TIMEOUT_SECONDS")
+    or TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS
+)
+"""Read timeout for LLM gateway requests in seconds."""
+
+TRACECAT__LLM_GATEWAY_WRITE_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_WRITE_TIMEOUT_SECONDS")
+    or TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS
+)
+"""Write timeout for LLM gateway requests in seconds."""
+
+TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS")
+    or TRACECAT__LLM_GATEWAY_HEALTHCHECK_TIMEOUT_SECONDS
+)
+"""Pool timeout for LLM gateway requests in seconds."""
+
+TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD = int(
+    os.environ.get("TRACECAT__LLM_GATEWAY_FAILURE_THRESHOLD") or 3
+)
+"""Number of consecutive LLM gateway failures before failing the worker."""
+
+TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS = float(
+    os.environ.get("TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS") or 30.0
+)
+"""Interval between periodic LLM gateway status heartbeat logs in seconds."""
 
 TRACECAT__AGENT_QUEUE = os.environ.get("TRACECAT__AGENT_QUEUE", "shared-agent-queue")
 """Task queue for the AgentWorker (Temporal workflow queue).
 
 This is the dedicated queue for agent workflow execution, separate from the main
 tracecat-task-queue used by DSLWorkflow."""
+
+TRACECAT__AGENT_EXECUTOR_QUEUE = os.environ.get(
+    "TRACECAT__AGENT_EXECUTOR_QUEUE", "shared-agent-executor-queue"
+)
+"""Task queue for the AgentExecutorWorker.
+
+This queue is reserved for `run_agent_activity` so agent runtime capacity can be
+provisioned independently from agent workflow/control-plane work."""
 
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (

@@ -103,6 +103,20 @@ async def _sync_as_leader(session: AsyncSession, target_version: str) -> None:
             )
             return
 
+        # If there is no current selection, repair the pointer to the target
+        # version. This is idempotent startup behavior, not an auto-upgrade over
+        # an intentional rollback.
+        if repo.current_version_id is None:
+            repo.current_version_id = existing_version.id
+            session.add(repo)
+            await session.commit()
+            logger.info(
+                "Promoted existing platform registry target version with no current selection",
+                target_version=target_version,
+                version_id=str(existing_version.id),
+            )
+            return
+
         # Version exists but is not current - don't auto-promote
         # There may be a deliberate reason it's not current (e.g., manual rollback)
         logger.info(

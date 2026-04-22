@@ -5,13 +5,12 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Sequence
-from typing import cast
+from typing import Any, cast
 
 import sqlalchemy as sa
 from slugify import slugify
 from sqlalchemy import select
 
-from tracecat import config
 from tracecat.agent.common.types import MCPHttpServerConfig
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -27,6 +26,7 @@ from tracecat.agent.types import (
     OutputType,
 )
 from tracecat.audit.logger import audit_log
+from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPreset,
@@ -71,6 +71,7 @@ class AgentPresetService(BaseWorkspaceService):
         "tool_approvals",
         "mcp_integrations",
         "retries",
+        "enable_thinking",
         "enable_internet_access",
     }
 
@@ -114,6 +115,7 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=params.namespaces,
             tool_approvals=params.tool_approvals,
             mcp_integrations=params.mcp_integrations,
+            enable_thinking=params.enable_thinking,
             enable_internet_access=params.enable_internet_access,
             retries=params.retries,
         )
@@ -133,6 +135,7 @@ class AgentPresetService(BaseWorkspaceService):
             tool_approvals=preset.tool_approvals,
             mcp_integrations=preset.mcp_integrations,
             retries=preset.retries,
+            enable_thinking=preset.enable_thinking,
             enable_internet_access=preset.enable_internet_access,
         )
         self.session.add(version)
@@ -419,11 +422,7 @@ class AgentPresetService(BaseWorkspaceService):
         }
 
         # Get encryption key for decrypting custom credentials
-        encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
-        if not encryption_key:
-            raise TracecatValidationError(
-                "TRACECAT__DB_ENCRYPTION_KEY is not set, cannot resolve MCP integrations"
-            )
+        encryption_key = get_db_encryption_key()
 
         mcp_servers: list[MCPServerConfig] = []
 
@@ -968,6 +967,7 @@ class AgentPresetService(BaseWorkspaceService):
             "base_url",
             "output_type",
             "retries",
+            "enable_thinking",
             "enable_internet_access",
         ):
             old_value = getattr(base_version, field)
@@ -1037,8 +1037,7 @@ class AgentPresetService(BaseWorkspaceService):
         self, version: AgentPresetVersion
     ) -> AgentConfig:
         mcp_servers = await self._resolve_mcp_integrations(version.mcp_integrations)
-        # Only disable parallel tool calls if tools will be present
-        model_settings = {}
+        model_settings: dict[str, Any] = {}
         if version.actions or mcp_servers:
             model_settings["parallel_tool_calls"] = False
         return AgentConfig(
@@ -1053,6 +1052,7 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_servers=mcp_servers,
             retries=version.retries,
             model_settings=model_settings,
+            enable_thinking=version.enable_thinking,
             enable_internet_access=version.enable_internet_access,
         )
 
@@ -1088,6 +1088,7 @@ class AgentPresetService(BaseWorkspaceService):
             tool_approvals=preset.tool_approvals,
             mcp_integrations=preset.mcp_integrations,
             retries=preset.retries,
+            enable_thinking=preset.enable_thinking,
             enable_internet_access=preset.enable_internet_access,
         )
         self.session.add(version)
@@ -1110,4 +1111,5 @@ class AgentPresetService(BaseWorkspaceService):
         preset.tool_approvals = version.tool_approvals
         preset.mcp_integrations = version.mcp_integrations
         preset.retries = version.retries
+        preset.enable_thinking = version.enable_thinking
         preset.enable_internet_access = version.enable_internet_access

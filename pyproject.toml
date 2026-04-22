@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tracecat"
-description = "AI automation platform for enterprise."
+description = "The open source AI automation platform for security teams and agents."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "AGPL-3.0"
@@ -21,30 +21,33 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
+    "aioboto3==15.5.0",
     "aiocache==0.12.3",
-    "aiohttp==3.13.3",
+    "aiohttp==3.13.5",
     "alembic-postgresql-enum==1.7.0",
     "alembic==1.13.2",
     "async-lru==2.0.4",
     "asyncpg==0.29.0",
-    "authlib==1.6.7",
-    "claude-agent-sdk==0.1.18",
+    "authlib==1.6.11",
+    "cachetools==7.0.6",
+    "claude-agent-sdk==0.1.51",
     "cloudpickle==3.1.1",
     "cramjam==2.11.0",
     "croniter==6.0.0",
-    "cryptography==46.0.5",
+    "cryptography==46.0.7",
     "dateparser==1.2.2",
     "defusedxml==0.7.1",
     "email-validator==2.2.0",
     "fastapi-users[sqlalchemy,oauth]==15.0.2",
     "fastapi[standard]==0.120.3",
-    "fastmcp==3.0.0",
+    "fastmcp==3.2.0",
     "google-auth==2.48.0",
     "greenlet==3.0.3",
+    "griffe==2.0.2",
     "httpx==0.28.1",
     "jsonpath_ng==1.7.0",
     "lark==1.1.9",
-    "litellm[proxy]==1.81.13",
+    "litellm[proxy]==1.83.4",
     "loguru==0.7.3",
     "minio==7.2.18",
     "orjson==3.11.7",
@@ -67,8 +70,9 @@ dependencies = [
     "tomli==2.2.1",
     "tracecat-ee",
     "tracecat-registry",
-    "uv==0.9.15",
+    "uv==0.11.6",
     "uvicorn==0.35.0",
+    "uvloop==0.21.0",
 ]
 dynamic = ["version"]
 
@@ -87,33 +91,36 @@ tracecat-ee = { workspace = true }
 members = ["packages/*"]
 
 [tool.uv]
-# litellm[proxy] has overly restrictive dependency pins that conflict with other packages:
-# - uvicorn>=0.31.1,<0.32.0 conflicts with fastmcp which requires uvicorn>=0.35
-# - boto3==1.36.0 conflicts with tracecat-registry which requires boto3>=1.39.0
-# - python-multipart>=0.0.18,<0.0.19 conflicts with fastapi-users which requires 0.0.21
-# - rich==13.7.1 conflicts with fastmcp which requires rich>=13.9.4
-# - grpcio>=1.62.3,<1.68.0 conflicts with tracecat-registry which requires grpcio==1.75.1
-# - grpcio-tools pinned in tracecat-registry
+# Override dependency pins to resolve conflicts between packages:
 # - chardet 7.0 removed chardet.universaldetector, breaking polyfile 0.5.6
 override-dependencies = [
+    "pyasn1==0.6.3",
+    "requests==2.33.0",
     "uvicorn==0.35.0",
     "boto3==1.40.61",
-    "python-multipart==0.0.22",
+    "python-multipart==0.0.26",
     "rich==13.9.4",
     "grpcio==1.75.1",
     "grpcio-tools==1.75.1",
-    "pillow==12.1.1",
+    "pillow==12.2.0",
+    "mako==1.3.11",
+    "fastapi-sso==0.19.0",
     "PyJWT==2.12.1",
     "chardet<7",
     "fickling==0.1.10",
+    "anthropic==0.87.0",
+    "python-dotenv==1.1.1",
+    "orjson==3.11.7",
+    "fastapi==0.120.3",
+    "cryptography==46.0.7",
 ]
 
 [dependency-groups]
 admin = ["tracecat-admin"]
 lint = [
     "basedpyright==1.37.1",
-    "types-aioboto3[sts,s3]==15.5.0",
-    "types-boto3[sts,s3]==1.42.25",
+    "types-aioboto3[sts,s3,secretsmanager]==15.5.0",
+    "types-boto3[sts,s3,secretsmanager]==1.42.25",
 ]
 dev = [
     "pre-commit==4.1.0",
@@ -122,7 +129,7 @@ dev = [
     "pytest-mock==3.14.0",
     "pytest-repeat==0.9.3",
     "pytest-xdist==3.8.0",
-    "pytest==8.3.2",
+    "pytest==8.3.2",  # pytest 9 breaks registry tests via autouse async fixture handling; dismiss alert for now
     "python-dotenv==1.1.1",
     "respx==0.22.0",
     "ruff==0.15.0",
@@ -182,6 +189,7 @@ markers = [
     "disable_fixture: marks tests that disable fixtures",
     "integration: marks tests that perform live network calls and container operations",
     "llm: marks tests that perform LLM calls",
+    "live_secret: marks tests that require real environment-backed third-party secrets",
     "ollama: mark tests that require Ollama",
     "temporal: marks tests that require Temporal server",
     "regression: marks regression tests",

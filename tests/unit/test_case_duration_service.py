@@ -1,5 +1,7 @@
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -24,6 +26,28 @@ from tracecat.db.models import CaseDuration
 from tracecat.tags.schemas import TagCreate
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(autouse=True)
+def stub_case_duration_entitlements() -> Iterator[None]:
+    with (
+        patch.object(
+            CaseDurationDefinitionService,
+            "has_entitlement",
+            new=AsyncMock(return_value=True),
+        ),
+        patch.object(
+            CaseDurationService,
+            "has_entitlement",
+            new=AsyncMock(return_value=True),
+        ),
+        patch.object(
+            CasesService,
+            "has_entitlement",
+            new=AsyncMock(return_value=False),
+        ),
+    ):
+        yield
 
 
 def make_case_create(
@@ -191,6 +215,85 @@ async def test_duration_filters_support_multiple_values(
     updated_value = values[0]
     assert updated_value.end_event_id is not None
     assert updated_value.duration is not None
+
+
+@pytest.mark.anyio
+async def test_duration_filters_match_closed_under_status_changed(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Time to closed status",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                field_filters={"data.new": CaseStatus.CLOSED},
+            ),
+        )
+    )
+
+    case = await cases_service.create_case(make_case_create())
+
+    values = await duration_service.compute_duration(case)
+    assert len(values) == 1
+    assert values[0].end_event_id is None
+
+    case = await cases_service.update_case(case, CaseUpdate(status=CaseStatus.CLOSED))
+
+    values = await duration_service.compute_duration(case)
+    assert len(values) == 1
+    value = values[0]
+    assert value.end_event_id is not None
+    assert value.ended_at is not None
+    assert value.duration is not None
+
+
+@pytest.mark.anyio
+async def test_duration_filters_match_reopened_under_status_changed(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Time to resume work",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CLOSED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                field_filters={"data.new": CaseStatus.IN_PROGRESS},
+            ),
+        )
+    )
+
+    case = await cases_service.create_case(make_case_create())
+    case = await cases_service.update_case(case, CaseUpdate(status=CaseStatus.CLOSED))
+
+    values = await duration_service.compute_duration(case)
+    assert len(values) == 1
+    assert values[0].start_event_id is not None
+    assert values[0].end_event_id is None
+
+    case = await cases_service.update_case(
+        case,
+        CaseUpdate(status=CaseStatus.IN_PROGRESS),
+    )
+
+    values = await duration_service.compute_duration(case)
+    assert len(values) == 1
+    value = values[0]
+    assert value.start_event_id is not None
+    assert value.end_event_id is not None
+    assert value.duration is not None
 
 
 @pytest.mark.anyio
@@ -708,3 +811,88 @@ async def test_compute_durations_empty_cases_list(
     durations = await duration_service.compute_durations([])
 
     assert durations == {}
+
+
+# --- _resolve_field array traversal tests ---
+
+
+@pytest.mark.anyio
+async def test_resolve_field_traverses_array_of_dicts(
+    session: AsyncSession, svc_role
+) -> None:
+    """_resolve_field should collect values from each item in a list."""
+    from tracecat.db.models import CaseEvent
+
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    event = CaseEvent(
+        workspace_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        type=CaseEventType.FIELDS_CHANGED,
+        data={
+            "changes": [
+                {"field": "severity_score", "old": 3, "new": 8},
+                {"field": "team", "old": "alpha", "new": "beta"},
+            ]
+        },
+    )
+
+    result = duration_service._resolve_field(event, "data.changes.field")
+    assert result == ["severity_score", "team"]
+
+
+@pytest.mark.anyio
+async def test_resolve_field_array_returns_none_when_no_items_have_key(
+    session: AsyncSession, svc_role
+) -> None:
+    """_resolve_field should return None if no array items have the target key."""
+    from tracecat.db.models import CaseEvent
+
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    event = CaseEvent(
+        workspace_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        type=CaseEventType.FIELDS_CHANGED,
+        data={"changes": [{"other": "value"}, {"other": "value2"}]},
+    )
+
+    result = duration_service._resolve_field(event, "data.changes.field")
+    assert result is None
+
+
+@pytest.mark.anyio
+async def test_matches_filters_with_array_resolved_values(
+    session: AsyncSession, svc_role
+) -> None:
+    """_matches_filters should work when _resolve_field returns a list from array traversal."""
+    from tracecat.db.models import CaseEvent
+
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    event = CaseEvent(
+        workspace_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        type=CaseEventType.FIELDS_CHANGED,
+        data={
+            "changes": [
+                {"field": "severity_score", "old": 3, "new": 8},
+                {"field": "team", "old": "alpha", "new": "beta"},
+            ]
+        },
+    )
+
+    # Should match when filter value is in the resolved list
+    assert duration_service._matches_filters(
+        event, {"data.changes.field": ["severity_score"]}
+    )
+
+    # Should match when multiple filter values overlap
+    assert duration_service._matches_filters(
+        event, {"data.changes.field": ["severity_score", "unrelated"]}
+    )
+
+    # Should NOT match when filter value is not in the resolved list
+    assert not duration_service._matches_filters(
+        event, {"data.changes.field": ["nonexistent_field"]}
+    )

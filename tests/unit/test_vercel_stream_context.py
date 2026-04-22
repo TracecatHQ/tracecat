@@ -24,7 +24,11 @@ from tracecat.agent.adapter.vercel import (
     VercelStreamContext,
     format_sse,
 )
-from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.common.stream_types import (
+    StreamEventType,
+    ToolCallContent,
+    UnifiedStreamEvent,
+)
 
 
 async def collect_frames(
@@ -343,6 +347,42 @@ async def test_data_event_emitted_before_tool_parts():
     assert isinstance(frames[0], DataEventPayload)
     assert frames[0].type == "data-approval-request"
     assert isinstance(frames[1], ToolInputStartEventPayload)
+
+
+@pytest.mark.anyio
+async def test_approval_request_strips_proxy_metadata_from_streamed_args():
+    """Ensure approval request events do not expose Tracecat proxy metadata."""
+    ctx = VercelStreamContext(message_id="msg_test")
+
+    events = [
+        UnifiedStreamEvent(
+            type=StreamEventType.APPROVAL_REQUEST,
+            approval_items=[
+                ToolCallContent(
+                    id="call_approve",
+                    name="mcp__tracecat_registry__core__cases__create_case",
+                    input={
+                        "summary": "hello",
+                        "__tracecat": {"tool_call_id": "toolu_123"},
+                    },
+                )
+            ],
+        )
+    ]
+
+    frames = await collect_frames(ctx, events)
+
+    assert len(frames) == 1
+    assert isinstance(frames[0], DataEventPayload)
+    assert frames[0].type == "data-approval-request"
+    assert frames[0].data == [
+        {
+            "tool_call_id": "call_approve",
+            "tool_name": "mcp__tracecat_registry__core__cases__create_case",
+            "args": {"summary": "hello"},
+        }
+    ]
+    assert ctx.approval_input["call_approve"] == {"summary": "hello"}
 
 
 @pytest.mark.anyio

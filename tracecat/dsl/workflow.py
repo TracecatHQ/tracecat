@@ -934,7 +934,7 @@ class DSLWorkflow:
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
                     )
-                    session_id = workflow.uuid4()
+                    session_id = action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
@@ -947,6 +947,7 @@ class DSLWorkflow:
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
+                                enable_thinking=action_args.enable_thinking,
                                 base_url=action_args.base_url,
                                 actions=action_args.actions,
                                 tool_approvals=action_args.tool_approvals,
@@ -958,6 +959,7 @@ class DSLWorkflow:
                         title=self.dsl.title,
                         entity_type=AgentSessionEntity.WORKFLOW,
                         entity_id=self.run_context.wf_id,
+                        continue_existing_session=action_args.session_id is not None,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -1008,6 +1010,7 @@ class DSLWorkflow:
                                 output_type=action_args.output_type,
                                 model_settings=action_args.model_settings,
                                 retries=action_args.retries,
+                                enable_thinking=action_args.enable_thinking,
                                 base_url=action_args.base_url,
                                 # AI action has no tools
                                 actions=None,
@@ -1081,7 +1084,7 @@ class DSLWorkflow:
                     child_search_attributes = _build_agent_child_search_attributes(
                         wf_info, task.ref
                     )
-                    session_id = workflow.uuid4()
+                    session_id = preset_action_args.session_id or workflow.uuid4()
                     arg = AgentWorkflowArgs(
                         role=self.role,
                         agent_args=RunAgentArgs(
@@ -1099,6 +1102,8 @@ class DSLWorkflow:
                         entity_id=self.run_context.wf_id,
                         agent_preset_id=preset_ref.preset_id,
                         agent_preset_version_id=preset_ref.preset_version_id,
+                        continue_existing_session=preset_action_args.session_id
+                        is not None,
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -1714,6 +1719,11 @@ class DSLWorkflow:
             start_to_close_timeout=timedelta(
                 seconds=task.start_delay + task.retry_policy.timeout
             ),
+            heartbeat_timeout=timedelta(
+                seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT
+            )
+            if config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT > 0
+            else None,
             retry_policy=RetryPolicy(
                 maximum_attempts=task.retry_policy.max_attempts,
             ),

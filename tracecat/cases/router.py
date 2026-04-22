@@ -13,6 +13,7 @@ from starlette.status import (
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
     HTTP_409_CONFLICT,
+    HTTP_422_UNPROCESSABLE_ENTITY,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
@@ -101,6 +102,13 @@ def _raise_comment_http_error(
     raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
+def _raise_case_field_http_error(
+    exc: ValueError | TracecatValidationError,
+) -> NoReturn:
+    """Convert case-field validation failures into HTTP 400 responses."""
+    raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 def _parse_dropdown_filter(
     dropdown: list[str] | None,
 ) -> dict[str, list[str]] | None:
@@ -184,6 +192,10 @@ async def list_cases(
         None, description="Direction to sort (asc or desc)"
     ),
     include_rows: bool = Query(False, description="Include linked table rows"),
+    field_ids: list[str] | None = Query(
+        None, description="Include only the requested custom field IDs"
+    ),
+    include_durations: bool = Query(False, description="Include case duration values"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """List cases with default filtering and sorting options."""
     service = CasesService(session, role)
@@ -195,6 +207,7 @@ async def list_cases(
             reverse=reverse,
             order_by=order_by,
             sort=sort,
+            include_durations=include_durations,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list cases: {e}")
@@ -226,6 +239,32 @@ async def list_cases(
             raise HTTPException(
                 status_code=HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to hydrate linked rows",
+            ) from e
+    if field_ids:
+        try:
+            fields_service = CaseFieldsService(session, role)
+            fields_by_case = await fields_service.batch_get_fields(
+                case_ids=[item.id for item in cases.items],
+                field_ids=field_ids,
+            )
+            if cases.items:
+                cases.items = [
+                    item.model_copy(
+                        update={"field_values": fields_by_case.get(item.id)}
+                    )
+                    for item in cases.items
+                ]
+        except ValueError as e:
+            logger.warning(f"Invalid request for case field hydration: {e}")
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            ) from e
+        except Exception as e:
+            logger.error(f"Failed to hydrate case fields: {e}")
+            raise HTTPException(
+                status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to hydrate case fields",
             ) from e
     return cases
 
@@ -292,6 +331,10 @@ async def search_cases(
         None, description="Direction to sort (asc or desc)"
     ),
     include_rows: bool = Query(False, description="Include linked table rows"),
+    field_ids: list[str] | None = Query(
+        None, description="Include only the requested custom field IDs"
+    ),
+    include_durations: bool = Query(False, description="Include case duration values"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)
@@ -327,6 +370,7 @@ async def search_cases(
             updated_before=updated_before,
             order_by=order_by,
             sort=sort,
+            include_durations=include_durations,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for search cases: {e}")
@@ -358,6 +402,32 @@ async def search_cases(
             raise HTTPException(
                 status_code=HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to hydrate linked rows",
+            ) from e
+    if field_ids:
+        try:
+            fields_service = CaseFieldsService(session, role)
+            fields_by_case = await fields_service.batch_get_fields(
+                case_ids=[item.id for item in cases.items],
+                field_ids=field_ids,
+            )
+            if cases.items:
+                cases.items = [
+                    item.model_copy(
+                        update={"field_values": fields_by_case.get(item.id)}
+                    )
+                    for item in cases.items
+                ]
+        except ValueError as e:
+            logger.warning(f"Invalid request for case field hydration: {e}")
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            ) from e
+        except Exception as e:
+            logger.error(f"Failed to hydrate case fields: {e}")
+            raise HTTPException(
+                status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to hydrate case fields",
             ) from e
     return cases
 
@@ -468,13 +538,7 @@ async def get_case(
         f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
         final_fields.append(
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
         )
@@ -548,7 +612,7 @@ async def update_case(
 ) -> None:
     """Update a case."""
     service = CasesService(session, role)
-    case = await service.get_case(case_id)
+    case = await service.get_case(case_id, for_update=True)
     if case is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
@@ -556,17 +620,21 @@ async def update_case(
         )
     try:
         await service.update_case(case, params)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
     except DBAPIError as e:
-        while (cause := e.__cause__) is not None:
-            e = cause
+        logger.exception("Database error occurred during case operation")
         raise HTTPException(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Database operation failed",
         ) from e
 
 
@@ -756,6 +824,8 @@ async def create_field(
     service = CaseFieldsService(session, role)
     try:
         await service.create_field(params)
+    except (ValueError, TracecatValidationError) as exc:
+        _raise_case_field_http_error(exc)
     except ProgrammingError as e:
         # Drill down to the root cause
         while (cause := e.__cause__) is not None:
@@ -779,7 +849,19 @@ async def update_field(
 ) -> None:
     """Update a case field."""
     service = CaseFieldsService(session, role)
-    await service.update_field(field_id, params)
+    try:
+        await service.update_field(field_id, params)
+    except (ValueError, TracecatValidationError) as exc:
+        _raise_case_field_http_error(exc)
+    except ProgrammingError as err:
+        while (cause := err.__cause__) is not None:
+            err = cause
+        if isinstance(err, DuplicateColumnError):
+            raise HTTPException(
+                status_code=HTTP_409_CONFLICT,
+                detail=f"A field with the name '{params.name}' already exists",
+            ) from err
+        raise
 
 
 @case_fields_router.delete("/{field_id}", status_code=HTTP_204_NO_CONTENT)
@@ -792,7 +874,10 @@ async def delete_field(
 ) -> None:
     """Delete a case field."""
     service = CaseFieldsService(session, role)
-    await service.delete_field(field_id)
+    try:
+        await service.delete_field(field_id)
+    except (ValueError, TracecatValidationError) as exc:
+        _raise_case_field_http_error(exc)
 
 
 # Case Events

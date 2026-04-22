@@ -9,7 +9,6 @@ import { ApiError, type CaseFieldReadMinimal, casesUpdateField } from "@/client"
 import { SqlTypeDisplay } from "@/components/data-type/sql-type-display"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
-import { DateTimePicker } from "@/components/ui/date-time-picker"
 import {
   Dialog,
   DialogContent,
@@ -36,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { getCaseFieldTypeConfig } from "@/lib/data-type"
 import type { TracecatApiError } from "@/lib/errors"
 import { type SqlTypeCreatable, SqlTypeCreatableEnum } from "@/lib/tables"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -263,8 +263,18 @@ export function EditCustomFieldDialog({
             break
           }
           case "NUMERIC": {
+            const normalized =
+              typeof rawDefault === "string" ? rawDefault.trim() : rawDefault
+            if (typeof normalized === "string" && normalized.length === 0) {
+              form.setError("default", {
+                type: "manual",
+                message: "Default must be a number",
+              })
+              setIsSubmitting(false)
+              return
+            }
             const parsed =
-              typeof rawDefault === "number" ? rawDefault : Number(rawDefault)
+              typeof normalized === "number" ? normalized : Number(normalized)
             if (Number.isNaN(parsed)) {
               form.setError("default", {
                 type: "manual",
@@ -400,23 +410,39 @@ export function EditCustomFieldDialog({
             <FormField
               control={form.control}
               name="type"
-              render={({ field: fieldInput }) => (
-                <FormItem>
-                  <FormLabel>Data type</FormLabel>
-                  <FormControl>
-                    <div className="flex h-10 items-center rounded-md border border-input px-3 text-xs">
-                      <SqlTypeDisplay
-                        type={fieldInput.value}
-                        labelClassName="text-xs"
-                      />
-                    </div>
-                  </FormControl>
-                  <FormDescription>
-                    Data type is fixed after field creation.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
+              render={({ field: fieldInput }) => {
+                const typeConfig = getCaseFieldTypeConfig(
+                  fieldInput.value,
+                  field?.kind
+                )
+                const Icon = typeConfig?.icon
+                return (
+                  <FormItem>
+                    <FormLabel>Data type</FormLabel>
+                    <FormControl>
+                      <div className="flex h-10 items-center rounded-md border border-input px-3 text-xs">
+                        {field?.kind && Icon ? (
+                          <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                            <Icon className="size-4 shrink-0" />
+                            <span className="text-xs font-normal leading-none whitespace-nowrap">
+                              {typeConfig?.label}
+                            </span>
+                          </span>
+                        ) : (
+                          <SqlTypeDisplay
+                            type={fieldInput.value}
+                            labelClassName="text-xs"
+                          />
+                        )}
+                      </div>
+                    </FormControl>
+                    <FormDescription>
+                      Data type is fixed after field creation.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )
+              }}
             />
 
             {requiresOptions && (
@@ -540,8 +566,8 @@ function DefaultValueInput({
     case "INTEGER":
       return (
         <Input
-          type="number"
-          step={1}
+          type="text"
+          inputMode="numeric"
           value={field.value ?? ""}
           onChange={(event) => field.onChange(event.target.value)}
           placeholder="Enter an integer"
@@ -550,8 +576,8 @@ function DefaultValueInput({
     case "NUMERIC":
       return (
         <Input
-          type="number"
-          step="any"
+          type="text"
+          inputMode="decimal"
           value={field.value ?? ""}
           onChange={(event) => field.onChange(event.target.value)}
           placeholder="Enter a number"
@@ -566,25 +592,15 @@ function DefaultValueInput({
           placeholder="true, false, 1, or 0"
         />
       )
-    case "TIMESTAMPTZ": {
-      const stringValue =
-        typeof field.value === "string" && field.value.length > 0
-          ? field.value
-          : undefined
-      const parsedDate =
-        stringValue !== undefined ? new Date(stringValue) : null
-      const dateValue =
-        parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null
-
+    case "TIMESTAMPTZ":
       return (
-        <DateTimePicker
-          value={dateValue}
-          onChange={(next) => field.onChange(next ? next.toISOString() : "")}
-          onBlur={field.onBlur}
-          buttonProps={{ className: "w-full" }}
+        <Input
+          type="text"
+          value={field.value ?? ""}
+          onChange={(event) => field.onChange(event.target.value)}
+          placeholder="YYYY-MM-DDTHH:mm:ss.Z"
         />
       )
-    }
     case "SELECT":
       return (
         <Select

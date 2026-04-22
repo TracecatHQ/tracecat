@@ -18,7 +18,7 @@ definition:
       description: ID of the transition to perform.
     base_url:
       type: str | None
-      description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
+      description: Jira tenant URL (e.g. https://your-domain.atlassian.net).
       default: null
   steps:
     - ref: update_issue

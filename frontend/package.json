@@ -88,7 +88,7 @@
     "ag-grid-community": "^35.0.1",
     "ag-grid-react": "^35.0.1",
     "ai": "^5.0.59",
-    "axios": "1.13.5",
+    "axios": "1.15.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^0.2.1",
@@ -102,7 +102,7 @@
     "lucide-react": "^0.561.0",
     "motion": "^12.23.22",
     "nanoid": "^5.1.6",
-    "next": "15.5.10",
+    "next": "15.5.15",
     "next-runtime-env": "^3.3.0",
     "next-themes": "^0.2.1",
     "papaparse": "^5.5.3",
@@ -129,7 +129,7 @@
     "tokenlens": "^1.3.1",
     "use-stick-to-bottom": "^1.1.1",
     "uuid": "^10.0.0",
-    "yaml": "^2.8.1",
+    "yaml": "2.8.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -174,16 +174,33 @@
       }
     },
     "overrides": {
+      "brace-expansion@5.0.2": "5.0.5",
+      "handlebars@4.7.8": "4.7.9",
       "prismjs": "1.30.0",
       "glob": "13.0.6",
-      "mdast-util-to-hast": "13.2.1",
-      "lodash": "4.17.23",
-      "lodash-es": "4.17.23",
-      "tar": "7.5.11",
-      "markdown-it": "14.1.1",
+      "immutable": "5.1.5",
+      "lodash": "4.18.1",
+      "lodash-es": "4.18.1",
       "minimatch": "10.2.3",
-      "dompurify": "3.3.2",
-      "immutable": "5.1.5"
+      "dompurify": "3.4.0",
+      "markdown-it": "14.1.1",
+      "mdast-util-to-hast": "13.2.1",
+      "tar": "7.5.11",
+      "cosmiconfig>yaml": "1.10.3",
+      "@hey-api/openapi-ts>handlebars": "4.7.9",
+      "ts-jest>handlebars": "4.7.9",
+      "anymatch@3.1.3>picomatch": "2.3.2",
+      "readdirp>picomatch": "2.3.2",
+      "micromatch>picomatch": "2.3.2",
+      "jest-util@29.7.0>picomatch": "2.3.2",
+      "jest-util@30.2.0>picomatch": "4.0.4",
+      "minimatch>brace-expansion": "5.0.5",
+      "class-variance-authority": "0.7.1",
+      "clsx": "2.1.1",
+      "emblor>tailwind-merge": "3.5.0",
+      "streamdown>tailwind-merge": "3.3.1",
+      "defu": "6.1.5",
+      "follow-redirects": "1.16.0"
     }
   }
 }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 
 import pytest
 
@@ -26,8 +26,13 @@ type AsyncEndpoint = Callable[..., Awaitable[object]]
 
 
 async def _assert_endpoint_requires_scope(
-    endpoint: AsyncEndpoint, required_scope: str
+    endpoint: AsyncEndpoint, required_scopes: str | Sequence[str]
 ) -> None:
+    allowed_scopes = (
+        frozenset({required_scopes})
+        if isinstance(required_scopes, str)
+        else frozenset(required_scopes)
+    )
     no_scope_role = Role(
         type="user",
         service_id="tracecat-api",
@@ -43,7 +48,7 @@ async def _assert_endpoint_requires_scope(
     allowed_role = Role(
         type="user",
         service_id="tracecat-api",
-        scopes=frozenset({required_scope}),
+        scopes=allowed_scopes,
     )
     token = ctx_role.set(allowed_role)
     try:
@@ -145,17 +150,21 @@ async def test_organization_invitation_scope_guards(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("endpoint", "required_scope"),
+    ("endpoint", "required_scopes"),
     [
-        (workflow_store_router.publish_workflow, "workflow:update"),
-        (workflow_store_router.list_workflow_commits, "workflow:read"),
-        (workflow_store_router.pull_workflows, "workflow:update"),
+        (
+            workflow_store_router.publish_workflow,
+            ("workflow:update", "workflow:sync"),
+        ),
+        (workflow_store_router.list_workflow_commits, "workflow:sync"),
+        (workflow_store_router.list_workflow_branches, "workflow:sync"),
+        (workflow_store_router.pull_workflows, ("workflow:update", "workflow:sync")),
     ],
 )
 async def test_workflow_store_scope_guards(
-    endpoint: AsyncEndpoint, required_scope: str
+    endpoint: AsyncEndpoint, required_scopes: str | Sequence[str]
 ) -> None:
-    await _assert_endpoint_requires_scope(endpoint, required_scope)
+    await _assert_endpoint_requires_scope(endpoint, required_scopes)
 
 
 @pytest.mark.anyio

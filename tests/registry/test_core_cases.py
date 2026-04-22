@@ -184,6 +184,33 @@ class TestCoreCreate:
         )
         assert result == mock_case_dict
 
+    async def test_create_case_with_tags_create_if_missing(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """Test creating a case with tags and create_missing_tags."""
+        mock_cases_client.create_case_simple.return_value = mock_case_dict
+
+        result = await create_case(
+            summary="Test Case",
+            description="Test Description",
+            priority="medium",
+            severity="medium",
+            status="new",
+            tags=["new-tag"],
+            create_missing_tags=True,
+        )
+
+        mock_cases_client.create_case_simple.assert_called_once_with(
+            summary="Test Case",
+            description="Test Description",
+            priority="medium",
+            severity="medium",
+            status="new",
+            tags=["new-tag"],
+            create_missing_tags=True,
+        )
+        assert result == mock_case_dict
+
     async def test_create_case_with_payload(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
@@ -269,6 +296,27 @@ class TestCoreUpdate:
             severity="high",
             status="in_progress",
             fields={"field1": "new_value", "field3": "value3"},
+        )
+        assert result == updated_case
+
+    async def test_update_case_with_tags_create_if_missing(
+        self, mock_cases_client: AsyncMock, mock_case_dict
+    ):
+        """Test updating a case with tags and create_missing_tags."""
+        updated_case = {**mock_case_dict, "tags": [{"ref": "new-tag"}]}
+        mock_cases_client.update_case_simple.return_value = updated_case
+
+        case_id = mock_case_dict["id"]
+        result = await update_case(
+            case_id=case_id,
+            tags=["new-tag"],
+            create_missing_tags=True,
+        )
+
+        mock_cases_client.update_case_simple.assert_called_once_with(
+            case_id,
+            tags=["new-tag"],
+            create_missing_tags=True,
         )
         assert result == updated_case
 

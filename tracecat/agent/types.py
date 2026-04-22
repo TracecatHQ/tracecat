@@ -116,6 +116,7 @@ class AgentConfig:
     model_name: str
     model_provider: str
     base_url: str | None = None
+    passthrough: bool = False
     # Agent
     instructions: str | None = None
     output_type: str | dict[str, Any] | None = None
@@ -130,6 +131,7 @@ class AgentConfig:
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None
     # Sandbox
+    enable_thinking: bool = True
     enable_internet_access: bool = False
 
 

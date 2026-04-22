@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.api.common import get_default_organization_id
 from tracecat.auth.credentials import ORG_OVERRIDE_COOKIE
-from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import Organization
 from tracecat.identifiers import OrganizationID
 
@@ -51,7 +51,7 @@ async def resolve_auth_organization_id(
     support cookie fallback for platform admin workflows.
     """
     if session is None:
-        async with get_async_session_context_manager() as local_session:
+        async with get_async_session_bypass_rls_context_manager() as local_session:
             return await resolve_auth_organization_id(request, session=local_session)
 
     if not config.TRACECAT__EE_MULTI_TENANT:

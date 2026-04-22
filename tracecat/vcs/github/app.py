@@ -193,9 +193,7 @@ class GitHubAppService(BaseOrgService):
         """Classify the stored GitHub App secret without failing on corruption."""
         secrets_service = SecretsService(session=self.session, role=self.role)
         try:
-            secret = await secrets_service.get_org_secret_by_name(
-                "github-app-credentials"
-            )
+            secret = await secrets_service.get_github_app_org_secret()
         except TracecatNotFoundError:
             return GitHubAppSecretState.MISSING, None, None
 
@@ -485,6 +483,7 @@ class GitHubAppService(BaseOrgService):
         raise GitHubAppError("Failed to retrieve GitHub App credentials")
 
     @requires_entitlement(Entitlement.GIT_SYNC)
+    @require_scope("workflow:sync")
     async def get_github_client_for_repo(self, repo_url: GitUrl) -> Github:
         """Get authenticated PyGithub client for a specific repository.
 
@@ -497,7 +496,19 @@ class GitHubAppService(BaseOrgService):
         Raises:
             GitHubAppError: If authentication fails or app not installed
         """
-        credentials = await self.get_github_app_credentials()
+        secret_state, _secret, credentials = await self._get_github_app_secret_state()
+        match secret_state:
+            case GitHubAppSecretState.MISSING:
+                raise GitHubAppError(
+                    "Failed to retrieve GitHub App credentials: credentials not found"
+                )
+            case GitHubAppSecretState.CORRUPTED:
+                raise GitHubAppError(
+                    "Failed to retrieve GitHub App credentials: invalid credential data"
+                )
+
+        if credentials is None:
+            raise GitHubAppError("Failed to retrieve GitHub App credentials")
 
         # Normalize private key format to handle common formatting issues
         raw_private_key = credentials.private_key.get_secret_value()

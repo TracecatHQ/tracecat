@@ -5,12 +5,6 @@ variable "aws_region" {
   description = "AWS region (secrets and hosted zone must be in the same region)"
 }
 
-variable "aws_role_arn" {
-  type        = string
-  description = "The ARN of the AWS role to assume"
-  default     = null
-}
-
 ### Networking
 
 variable "is_internal" {
@@ -114,7 +108,7 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "1.0.0-beta.32"
+  default = "1.0.0-beta.42"
 }
 
 variable "temporal_server_image" {
@@ -286,6 +280,24 @@ variable "context_compression_threshold_kb" {
   default     = 16
 }
 
+variable "temporal_payload_encryption_enabled" {
+  type        = bool
+  description = "Enable application-layer encryption for Temporal payloads"
+  default     = false
+}
+
+variable "temporal_payload_encryption_cache_ttl_seconds" {
+  type        = number
+  description = "In-memory cache TTL in seconds for resolved Temporal encryption keys"
+  default     = 3600
+}
+
+variable "temporal_payload_encryption_cache_max_items" {
+  type        = number
+  description = "Maximum number of cached Temporal encryption keys"
+  default     = 128
+}
+
 ### Secret ARNs
 
 variable "tracecat_db_encryption_key_arn" {
@@ -301,6 +313,12 @@ variable "tracecat_service_key_arn" {
 variable "tracecat_signing_secret_arn" {
   type        = string
   description = "The ARN of the secret containing the Tracecat signing secret"
+}
+
+variable "temporal_payload_encryption_keyring_arn" {
+  type        = string
+  description = "The ARN of the secret containing the Temporal payload encryption keyring"
+  default     = null
 }
 
 variable "oauth_client_id_arn" {
@@ -341,8 +359,7 @@ variable "oidc_client_secret_arn" {
 
 variable "user_auth_secret_arn" {
   type        = string
-  description = "The ARN of the secret containing USER_AUTH_SECRET (optional)"
-  default     = null
+  description = "The ARN of the secret containing USER_AUTH_SECRET"
 }
 
 variable "saml_idp_metadata_url_arn" {
@@ -471,6 +488,28 @@ variable "worker_desired_count" {
   default     = 2
 }
 
+variable "agent_worker_cpu" {
+  type    = string
+  default = "2048"
+}
+
+variable "agent_worker_memory" {
+  type    = string
+  default = "4096"
+}
+
+variable "agent_worker_desired_count" {
+  type        = number
+  description = "Desired number of agent-worker instances to run"
+  default     = 2
+}
+
+variable "agent_queue" {
+  type        = string
+  description = "Task queue for agent-worker workflows"
+  default     = "shared-agent-queue"
+}
+
 variable "executor_cpu" {
   type    = string
   default = "4096"
@@ -511,7 +550,7 @@ variable "agent_executor_cpu" {
 
 variable "agent_executor_memory" {
   type    = string
-  default = "8192"
+  default = "16384"
 }
 
 variable "agent_executor_desired_count" {
@@ -520,10 +559,16 @@ variable "agent_executor_desired_count" {
   default     = 1
 }
 
-variable "agent_queue" {
+variable "agent_executor_queue" {
   type        = string
-  description = "Task queue for agent executor workers"
-  default     = "shared-agent-queue"
+  description = "Task queue for agent-executor workers"
+  default     = "shared-agent-executor-queue"
+}
+
+variable "agent_executor_max_concurrent_activities" {
+  type        = number
+  description = "Maximum concurrent activities per agent-executor task"
+  default     = 3
 }
 
 variable "agent_executor_worker_pool_size" {
@@ -536,6 +581,60 @@ variable "llm_proxy_read_timeout" {
   type        = string
   description = "LLM proxy read timeout in seconds (default: 300)"
   default     = "300"
+}
+
+variable "llm_gateway_credential_cache_ttl_seconds" {
+  type        = string
+  description = "TTL for process-local LLM gateway credential cache entries in seconds"
+  default     = "60"
+}
+
+variable "llm_gateway_healthcheck_interval_seconds" {
+  type        = string
+  description = "LLM gateway readiness check interval in seconds"
+  default     = "30"
+}
+
+variable "llm_gateway_healthcheck_timeout_seconds" {
+  type        = string
+  description = "LLM gateway readiness check timeout in seconds"
+  default     = "2"
+}
+
+variable "llm_gateway_healthcheck_connect_timeout_seconds" {
+  type        = string
+  description = "LLM gateway readiness connect timeout in seconds"
+  default     = null
+}
+
+variable "llm_gateway_healthcheck_read_timeout_seconds" {
+  type        = string
+  description = "LLM gateway readiness read timeout in seconds"
+  default     = null
+}
+
+variable "llm_gateway_healthcheck_write_timeout_seconds" {
+  type        = string
+  description = "LLM gateway readiness write timeout in seconds"
+  default     = null
+}
+
+variable "llm_gateway_healthcheck_pool_timeout_seconds" {
+  type        = string
+  description = "LLM gateway readiness pool timeout in seconds"
+  default     = null
+}
+
+variable "llm_gateway_healthcheck_failure_threshold" {
+  type        = string
+  description = "Consecutive LLM gateway readiness failures before failing the worker"
+  default     = "3"
+}
+
+variable "llm_gateway_status_log_interval_seconds" {
+  type        = string
+  description = "Interval between LLM gateway status heartbeat logs in seconds"
+  default     = "30"
 }
 
 variable "temporal_cpu" {
@@ -560,6 +659,12 @@ variable "temporal_db_tls_enable_host_verification" {
   default     = false
 }
 
+variable "temporal_db_force_ssl" {
+  type        = bool
+  description = "Whether to enforce SSL-only PostgreSQL connections for the Temporal RDS instance. Defaults to false for the bundled Fargate Temporal auto-setup deployment."
+  default     = false
+}
+
 variable "temporal_num_history_shards" {
   type        = string
   description = "Number of history shards for Temporal"
@@ -574,6 +679,88 @@ variable "caddy_cpu" {
 variable "caddy_memory" {
   type    = string
   default = "512"
+}
+
+### MCP Service
+
+variable "litellm_cpu" {
+  type    = string
+  default = "4096"
+}
+
+variable "litellm_memory" {
+  type    = string
+  default = "8192"
+}
+
+variable "litellm_desired_count" {
+  type        = number
+  description = "Desired number of LiteLLM service instances to run"
+  default     = 2
+}
+
+variable "litellm_num_workers" {
+  type        = string
+  description = "Number of uvicorn workers for the LiteLLM service"
+  default     = "8"
+}
+
+variable "enable_mcp" {
+  type        = bool
+  description = "Whether to enable the MCP server service in the deployment"
+  default     = false
+}
+
+variable "mcp_cpu" {
+  type    = string
+  default = "1024"
+}
+
+variable "mcp_memory" {
+  type    = string
+  default = "2048"
+}
+
+variable "mcp_desired_count" {
+  type        = number
+  description = "Desired number of MCP service instances to run"
+  default     = 1
+}
+
+variable "mcp_rate_limit_rps" {
+  type        = string
+  description = "Sustained requests per second per user for MCP rate limiting"
+  default     = "2.0"
+}
+
+variable "mcp_rate_limit_burst" {
+  type        = string
+  description = "Burst capacity for per-user MCP rate limiting"
+  default     = "10"
+}
+
+variable "mcp_tool_timeout_seconds" {
+  type        = string
+  description = "Maximum execution time in seconds for a single MCP tool call"
+  default     = "120"
+}
+
+variable "mcp_max_input_size_bytes" {
+  type        = string
+  description = "Maximum size in bytes for any single string argument to an MCP tool call"
+  default     = "524288"
+}
+
+variable "mcp_startup_max_attempts" {
+  type        = string
+  description = "Maximum MCP server startup attempts before failing"
+  default     = "3"
+}
+
+variable "mcp_startup_retry_delay_seconds" {
+  type        = string
+  description = "Seconds to wait between MCP startup retries"
+  default     = "2"
 }
 
 variable "tracecat_db_instance_class" {
@@ -686,5 +873,5 @@ variable "sentry_dsn" {
 variable "redis_node_type" {
   type        = string
   description = "ElastiCache Redis node type"
-  default     = "cache.t4g.micro"
+  default     = "cache.t4g.small"
 }

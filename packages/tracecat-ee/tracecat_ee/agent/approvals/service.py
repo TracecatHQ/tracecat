@@ -23,6 +23,7 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus, Workfl
 
 from tracecat.agent.aliases import build_agent_alias
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.agent.schemas import AgentOutput
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
@@ -719,10 +720,14 @@ class ApprovalManager:
                 approval_args: dict[str, Any] | None = None
                 if payload.args is not None:
                     if isinstance(payload.args, dict):
-                        approval_args = payload.args
+                        approval_args = strip_proxy_tool_metadata(payload.args)
                     elif isinstance(payload.args, str):
                         try:
-                            approval_args = json.loads(payload.args)
+                            loaded_args = json.loads(payload.args)
+                            if isinstance(loaded_args, dict):
+                                approval_args = strip_proxy_tool_metadata(loaded_args)
+                            else:
+                                approval_args = {"raw_args": payload.args}
                         except (json.JSONDecodeError, ValueError):
                             # Store as-is if not valid JSON
                             approval_args = {"raw_args": payload.args}

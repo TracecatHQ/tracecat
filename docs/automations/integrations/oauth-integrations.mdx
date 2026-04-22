@@ -1,0 +1,76 @@
+---
+title: "OAuth"
+description: "Connect OAuth providers and use managed OAuth tokens in expressions."
+---
+
+import RegistrySecretsAndOAuth from "/snippets/registry-secrets-and-oauth.mdx";
+
+## Overview
+
+Tracecat supports built-in OAuth integrations and custom OAuth providers. OAuth integrations expose tokens through secret expressions.
+
+![OAuth integrations](/img/integrations/oauth-integrations.png)
+
+## Grant types
+
+OAuth grant types:
+
+- Delegated access (`authorization_code`): Tracecat stores a user token after a user completes the OAuth login flow.
+- Client credentials (`client_credentials`): Tracecat stores a service token for server-to-server access.
+
+## Configure a provider
+
+Built-in OAuth integrations are listed on the Integrations page. For custom OAuth, use Add integration → OAuth provider (or Add custom OAuth provider under Custom OAuth).
+
+Most providers require these fields:
+
+- Client ID
+- Client secret
+- Authorization endpoint
+- Token endpoint
+- Scopes
+
+After you save a custom provider, connect it (complete the OAuth flow) when using delegated access so Tracecat can issue tokens.
+
+## Use OAuth tokens in expressions
+
+<RegistrySecretsAndOAuth />
+
+## OAuth and actions
+
+Registry actions reference OAuth integrations but do not create them. Configure a built-in or custom provider in Integrations first, then declare `RegistryOAuthSecret` (Python) or `type: oauth` (YAML) so the action requires that integration at runtime. Syntax and examples are in [Use OAuth tokens in expressions](#use-oauth-tokens-in-expressions) above.
+
+## OAuth and MCP
+
+Remote MCP integrations can use an existing OAuth integration. For custom remote MCP servers:
+
+1. Create a custom OAuth provider.
+2. Connect that provider.
+3. Create an MCP integration and attach the connected OAuth integration.
+
+## FAQ
+
+<AccordionGroup>
+  <Accordion title="Why is my custom OAuth provider_id prefixed with custom_?">
+    When you save a custom provider, Tracecat derives a provider ID from the display name or the ID you enter (slugified). If that value does not already start with `custom_`, the server prepends `custom_` so it does not collide with [built-in providers](https://github.com/TracecatHQ/tracecat/blob/main/tracecat/integrations/providers/__init__.py). If the ID is already taken, a numeric suffix is added.
+  </Accordion>
+
+  <Accordion title="Can my custom action create an OAuth integration?">
+    No. `RegistryOAuthSecret` and YAML `type: oauth` entries declare that the action *requires* an existing OAuth integration — they do not register one. Create the integration from [Configure a provider](#configure-a-provider) (or [contribute a built-in provider](#how-do-i-contribute-a-built-in-oauth-provider)). Once it exists, your action can reference its tokens via `${{ SECRETS.<provider_id>_oauth... }}`.
+  </Accordion>
+
+  <Accordion title="How do I contribute a built-in OAuth provider?">
+    Out-of-the-box providers are implemented in the Tracecat app and get stable IDs (for example `slack`, `google_drive`) without the UI `custom_` rule.
+
+    1. Subclass `AuthorizationCodeOAuthProvider` or `ClientCredentialsOAuthProvider` under [`tracecat/integrations/providers/`](https://github.com/TracecatHQ/tracecat/tree/main/tracecat/integrations/providers). See [`slack/oauth.py`](https://github.com/TracecatHQ/tracecat/blob/main/tracecat/integrations/providers/slack/oauth.py) for a full example.
+    2. Register the class in [`_PROVIDER_CLASSES`](https://github.com/TracecatHQ/tracecat/blob/main/tracecat/integrations/providers/__init__.py).
+    3. Keep the [registry package](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry) aligned: same `provider_id` and `grant_type` in `RegistryOAuthSecret` (Python) and `type: oauth` entries (YAML) so actions resolve the same integration as the UI.
+  </Accordion>
+</AccordionGroup>
+
+## Related pages
+
+- See [Prebuilt credentials](/automations/integrations/prebuilt-credentials) for static credentials such as API keys and bot tokens.
+- See [Secrets](/automations/core-concepts/secrets) for how secret expressions are resolved at runtime.
+- See [Python UDFs](/custom-actions/python-udf) and [YAML templates](/custom-actions/yaml-template) for custom registry actions.
+- See [MCP servers](/automations/integrations/mcp-integrations) for remote and `stdio` MCP setup.

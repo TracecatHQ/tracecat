@@ -119,39 +119,66 @@ if ! [[ $NEW_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?$ ]]; then
     exit 1
 fi
 
-# Bump chart version patch in Chart.yaml (e.g. 0.3.24 -> 0.3.25)
-CHART_FILE="deployments/helm/tracecat/Chart.yaml"
-if [ ! -f "$CHART_FILE" ]; then
-    echo "Error: Cannot find $CHART_FILE"
-    exit 1
-fi
-
-CHART_CURRENT_VERSION=$(grep -E '^version:[[:space:]]*' "$CHART_FILE" | head -1 | sed -E 's/^version:[[:space:]]*"?([^"]+)"?/\1/')
-if [[ $CHART_CURRENT_VERSION =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)([-+].*)?$ ]]; then
-    CHART_NEW_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
-else
-    echo "Error: Could not parse chart version from $CHART_FILE (found: $CHART_CURRENT_VERSION)"
-    exit 1
-fi
-
-# List of files to update (hardcoded)
+# List of files to update
 FILES=(
     "tracecat/__init__.py"
     "packages/tracecat-registry/tracecat_registry/__init__.py"
-    "docker-compose.yml"
-    "docker-compose.dev.yml"
-    "docker-compose.local.yml"
-    "deployments/helm/tracecat/Chart.yaml"
-    "deployments/eks/variables.tf"
-    "deployments/eks/modules/eks/variables.tf"
-    "deployments/fargate/variables.tf"
-    "deployments/fargate/modules/ecs/variables.tf"
-    "docs/self-hosting/deployment-options/docker-compose.mdx"
-    "docs/quickstart/install.mdx"
-    "docs/self-hosting/updating.mdx"
     "CONTRIBUTING.md"
     ".github/ISSUE_TEMPLATE/bug_report.md"
 )
+
+append_unique_file() {
+    local candidate=$1
+    local existing
+
+    for existing in "${FILES[@]}"; do
+        if [ "$existing" = "$candidate" ]; then
+            return
+        fi
+    done
+
+    FILES+=("$candidate")
+}
+
+append_matching_files() {
+    local file
+
+    while IFS= read -r file; do
+        [ -n "$file" ] || continue
+        append_unique_file "${file#./}"
+    done
+}
+
+# Capture Tracecat-specific version contexts, including files that only carry the
+# current version string rather than an image tag or raw GitHub URL.
+append_matching_files < <(
+    rg -l \
+        -g 'docker-compose*.yml' \
+        -g 'docs/**/*' \
+        -g 'deployments/**/*' \
+        '\$\{TRACECAT__IMAGE_TAG:-[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\}|variable "tracecat_image_tag"|raw\.githubusercontent\.com/TracecatHQ/tracecat/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?/|TF_VAR_tracecat_image_tag=[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?' \
+        .
+)
+
+append_matching_files < <(
+    rg -l --fixed-strings \
+        -g 'docker-compose*.yml' \
+        -g 'docs/**/*' \
+        -g 'deployments/**/*' \
+        "$CURRENT_VERSION" \
+        .
+)
+
+run_sed_in_place() {
+    local expression=$1
+    local file=$2
+
+    if [[ "$(uname)" == "Darwin" ]]; then
+        sed -i '' -E "$expression" "$file"
+    else
+        sed -i -E "$expression" "$file"
+    fi
+}
 
 # Function to update version in a file
 update_version() {
@@ -167,73 +194,18 @@ update_version() {
     local ESCAPED_CURRENT=$(echo "$CURRENT_VERSION" | sed 's/[.]/\\./g; s/-/\\-/g')
     local ESCAPED_NEW=$(echo "$NEW_VERSION" | sed 's/[&/]/\\&/g')
 
-    local basename=$(basename "$file")
-
-    # File-specific update strategies
-    if [[ "$basename" == "Chart.yaml" ]]; then
-        # Targeted: update both appVersion and chart version fields.
-        if [[ "$(uname)" == "Darwin" ]]; then
-            sed -i '' -E 's/^(version:[[:space:]]*).*/\1'"$CHART_NEW_VERSION"'/' "$file" && \
-            sed -i '' -E 's/^(appVersion:[[:space:]]*).*/\1"'"$NEW_VERSION"'"/' "$file" && \
-            echo "✓ Updated $file" || echo "✗ Failed to update $file"
-        else
-            sed -i -E 's/^(version:[[:space:]]*).*/\1'"$CHART_NEW_VERSION"'/' "$file" && \
-            sed -i -E 's/^(appVersion:[[:space:]]*).*/\1"'"$NEW_VERSION"'"/' "$file" && \
-            echo "✓ Updated $file" || echo "✗ Failed to update $file"
-        fi
-    elif [[ "$basename" == "variables.tf" ]]; then
-        # Targeted: update the tracecat_image_tag and tracecat_chart_version variable defaults
-        if [[ "$(uname)" == "Darwin" ]]; then
-            sed -i '' -E '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$file" && \
-            sed -i '' -E '/variable "tracecat_chart_version"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$CHART_NEW_VERSION"'"/' "$file" && \
-            echo "✓ Updated $file" || echo "✗ Failed to update $file"
-        else
-            sed -i -E '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$file" && \
-            sed -i -E '/variable "tracecat_chart_version"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$CHART_NEW_VERSION"'"/' "$file" && \
-            echo "✓ Updated $file" || echo "✗ Failed to update $file"
-        fi
-    elif [[ "$basename" == docker-compose*.yml ]]; then
-        # Targeted: update TRACECAT__IMAGE_TAG defaults even if stale in compose files.
-        if [[ "$(uname)" == "Darwin" ]]; then
-            sed -i '' -E 's/(\$\{TRACECAT__IMAGE_TAG:-)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?(\})/\1'"$NEW_VERSION"'\3/g' "$file" && \
-            sed -i '' -E "s/$ESCAPED_CURRENT/$ESCAPED_NEW/g" "$file" && \
-            sed -i '' -E "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\//\/blob\/$NEW_VERSION\//g" "$file" && \
-            sed -i '' -E "s/\`[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\`/\`$NEW_VERSION\`/g" "$file" && \
-            echo "✓ Updated $file" || echo "✗ Failed to update $file"
-        else
-            sed -i -E 's/(\$\{TRACECAT__IMAGE_TAG:-)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?(\})/\1'"$NEW_VERSION"'\3/g' "$file" && \
-            sed -i -E "s/$ESCAPED_CURRENT/$ESCAPED_NEW/g" "$file" && \
-            sed -i -E "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\//\/blob\/$NEW_VERSION\//g" "$file" && \
-            sed -i -E "s/\`[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\`/\`$NEW_VERSION\`/g" "$file" && \
-            echo "✓ Updated $file" || echo "✗ Failed to update $file"
-        fi
-    else
-        # Default: generic version string find-and-replace
-        if [[ "$(uname)" == "Darwin" ]]; then
-            # Update version numbers in various formats:
-            # - Regular version strings (including prerelease)
-            # - Git commit references in URLs (including prerelease)
-            # - Version references in code examples and text (including prerelease)
-            sed -i '' -E "s/$ESCAPED_CURRENT/$ESCAPED_NEW/g" "$file" && \
-            sed -i '' -E "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\//\/blob\/$NEW_VERSION\//g" "$file" && \
-            sed -i '' -E "s/\`[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\`/\`$NEW_VERSION\`/g" "$file" && \
-            echo "✓ Updated $file" || echo "✗ Failed to update $file"
-        else
-            # Update version numbers in various formats:
-            # - Regular version strings (including prerelease)
-            # - Git commit references in URLs (including prerelease)
-            # - Version references in code examples and text (including prerelease)
-            sed -i -E "s/$ESCAPED_CURRENT/$ESCAPED_NEW/g" "$file" && \
-            sed -i -E "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\//\/blob\/$NEW_VERSION\//g" "$file" && \
-            sed -i -E "s/\`[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\`/\`$NEW_VERSION\`/g" "$file" && \
-            echo "✓ Updated $file" || echo "✗ Failed to update $file"
-        fi
-    fi
+    run_sed_in_place "s/$ESCAPED_CURRENT/$ESCAPED_NEW/g" "$file" && \
+    run_sed_in_place "s/\/blob\/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\//\/blob\/$NEW_VERSION\//g" "$file" && \
+    run_sed_in_place "s/\`[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?\`/\`$NEW_VERSION\`/g" "$file" && \
+    run_sed_in_place 's/(\$\{TRACECAT__IMAGE_TAG:-)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?(\})/\1'"$NEW_VERSION"'\3/g' "$file" && \
+    run_sed_in_place '/variable "tracecat_image_tag"/,/\}/ s/(default[[:space:]]*=[[:space:]]*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$file" && \
+    run_sed_in_place 's#(raw\.githubusercontent\.com/TracecatHQ/tracecat/)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?/#\1'"$NEW_VERSION"'/#g' "$file" && \
+    run_sed_in_place 's/(TF_VAR_tracecat_image_tag=)[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z]+\.[0-9]+)?/\1'"$NEW_VERSION"'/g' "$file" && \
+    echo "✓ Updated $file" || echo "✗ Failed to update $file"
 }
 
 # Main execution
 echo "Updating version from $CURRENT_VERSION to $NEW_VERSION"
-echo "Bumping chart version from $CHART_CURRENT_VERSION to $CHART_NEW_VERSION"
 echo "The following files will be modified:"
 echo "----------------------------------------"
 for file in "${FILES[@]}"; do

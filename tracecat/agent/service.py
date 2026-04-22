@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import replace
 
+import orjson
+from azure.identity.aio import ClientSecretCredential
+from google.auth.transport.requests import Request as GoogleAuthRequest
+from google.oauth2 import service_account
 from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +40,82 @@ from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
 
 _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
+_VERTEX_BEARER_TOKEN_KEY = "VERTEX_AI_BEARER_TOKEN"
+_GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+_AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
+
+
+def _refresh_vertex_token(credentials_blob: str) -> str:
+    """Synchronous helper that refreshes a Vertex AI SA token.
+
+    Isolated so it can be called via ``asyncio.to_thread``.
+    """
+    creds = service_account.Credentials.from_service_account_info(
+        orjson.loads(credentials_blob),
+        scopes=[_GOOGLE_CLOUD_SCOPE],
+    )
+    creds.refresh(GoogleAuthRequest())
+    return creds.token
+
+
+async def _resolve_vertex_bearer_token(
+    credentials: dict[str, str],
+) -> dict[str, str]:
+    """Resolve the Vertex AI bearer token off-thread and inject it into the credentials dict.
+
+    The result is cached by the upstream ``aiocache`` TTL cache in
+    ``credentials.py``, so the blocking ``refresh()`` round-trip only
+    happens once per cache window (~60 s by default).
+    """
+    blob = credentials["GOOGLE_API_CREDENTIALS"]
+    token = await asyncio.to_thread(_refresh_vertex_token, blob)
+    augmented = credentials.copy()
+    augmented[_VERTEX_BEARER_TOKEN_KEY] = token
+    return augmented
+
+
+async def _resolve_azure_ad_token(
+    credentials: dict[str, str],
+) -> dict[str, str]:
+    """Resolve an Azure Entra bearer token from client credentials."""
+    tenant_id = credentials.get("AZURE_TENANT_ID")
+    client_id = credentials.get("AZURE_CLIENT_ID")
+    client_secret = credentials.get("AZURE_CLIENT_SECRET")
+    configured = {
+        "AZURE_TENANT_ID": tenant_id,
+        "AZURE_CLIENT_ID": client_id,
+        "AZURE_CLIENT_SECRET": client_secret,
+    }
+    present_keys = [key for key, value in configured.items() if value]
+    if not present_keys:
+        return credentials
+    if len(present_keys) != len(configured):
+        raise ValueError(
+            "Azure Entra client credentials require AZURE_TENANT_ID, "
+            "AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET."
+        )
+    assert tenant_id is not None
+    assert client_id is not None
+    assert client_secret is not None
+
+    credential = ClientSecretCredential(
+        tenant_id=tenant_id,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    try:
+        token = await credential.get_token(_AZURE_COGNITIVE_SCOPE)
+    except Exception as exc:
+        raise ValueError(
+            "Failed to acquire Azure Entra token from client credentials."
+        ) from exc
+    finally:
+        with contextlib.suppress(Exception):
+            await credential.close()
+
+    augmented = credentials.copy()
+    augmented["AZURE_AD_TOKEN"] = token.token
+    return augmented
 
 
 class AgentManagementService(BaseOrgService):
@@ -170,23 +252,29 @@ class AgentManagementService(BaseOrgService):
         except TracecatNotFoundError:
             return None
 
-    def _augment_runtime_provider_credentials(
+    async def _augment_runtime_provider_credentials(
         self, provider: str, credentials: dict[str, str]
     ) -> dict[str, str]:
         """Augment provider credentials with runtime-only values when required."""
-        if (
-            provider != "bedrock"
-            or "AWS_ROLE_ARN" not in credentials
-            or self.role.workspace_id is None
-            or _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY in credentials
-        ):
-            return credentials
-
-        runtime_credentials = credentials.copy()
-        runtime_credentials[_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY] = (
-            build_workspace_external_id(self.role.workspace_id)
-        )
-        return runtime_credentials
+        match provider:
+            case "bedrock" if (
+                "AWS_ROLE_ARN" in credentials
+                and self.role.workspace_id is not None
+                and _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY not in credentials
+            ):
+                runtime_credentials = credentials.copy()
+                runtime_credentials[_AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY] = (
+                    build_workspace_external_id(self.role.workspace_id)
+                )
+                return runtime_credentials
+            case "vertex_ai" if "GOOGLE_API_CREDENTIALS" in credentials:
+                return await _resolve_vertex_bearer_token(credentials)
+            case "azure_openai" | "azure_ai" if not credentials.get(
+                "AZURE_API_KEY"
+            ) and not credentials.get("AZURE_AD_TOKEN"):
+                return await _resolve_azure_ad_token(credentials)
+            case _:
+                return credentials
 
     async def get_runtime_provider_credentials(
         self, provider: str, *, use_workspace_credentials: bool = True
@@ -199,7 +287,35 @@ class AgentManagementService(BaseOrgService):
 
         if credentials is None:
             return None
-        return self._augment_runtime_provider_credentials(provider, credentials)
+        return await self._augment_runtime_provider_credentials(provider, credentials)
+
+    @staticmethod
+    def _resolve_custom_provider_config(
+        config: AgentConfig,
+        credentials: dict[str, str],
+    ) -> AgentConfig:
+        """Populate derived runtime settings for the custom model provider."""
+        if config.model_provider != "custom-model-provider":
+            return config
+        passthrough = credentials.get(
+            "CUSTOM_MODEL_PROVIDER_PASSTHROUGH", ""
+        ).lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        if not passthrough:
+            return replace(config, passthrough=False)
+        if not (base_url := credentials.get("CUSTOM_MODEL_PROVIDER_BASE_URL")):
+            raise TracecatNotFoundError(
+                "Custom model provider passthrough requires "
+                "CUSTOM_MODEL_PROVIDER_BASE_URL in provider credentials."
+            )
+        updates: dict[str, str | bool] = {"base_url": base_url, "passthrough": True}
+        if model_name := credentials.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"):
+            updates["model_name"] = model_name
+        return replace(config, **updates)
 
     @require_scope("agent:update")
     async def delete_provider_credentials(self, provider: str) -> None:
@@ -441,6 +557,11 @@ class AgentManagementService(BaseOrgService):
                 f"No credentials found for provider '{preset_config.model_provider}'. "
                 "Please configure credentials for this provider first."
             )
+
+        preset_config = self._resolve_custom_provider_config(
+            preset_config,
+            credentials,
+        )
 
         with self._credentials_sandbox(credentials):
             yield preset_config

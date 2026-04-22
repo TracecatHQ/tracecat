@@ -186,6 +186,23 @@ def test_thinking_block_delta_empty():
     assert unified.thinking == ""
 
 
+def test_signature_delta_is_non_text_noop():
+    """Test signature_delta is ignored as replay metadata."""
+    native = make_stream_event(
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "signature_delta", "signature": "sig-123"},
+        }
+    )
+    unified = ClaudeSDKAdapter().to_unified_event(native)
+
+    assert unified.type == StreamEventType.MESSAGE_START
+    assert unified.part_id == 0
+    assert unified.text is None
+    assert unified.thinking is None
+
+
 def test_thinking_block_stop():
     """Test thinking content_block_stop event conversion."""
     adapter = ClaudeSDKAdapter()

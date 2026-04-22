@@ -47,7 +47,7 @@ class RunAgentArgs(BaseModel):
     is_continuation: bool = False
     """If True, do not emit a new user message; continue prior run with deferred results."""
     use_workspace_credentials: bool = True
-    """Credential scope for LiteLLM gateway."""
+    """Credential scope for LLM gateway."""
 
     @model_validator(mode="after")
     def validate_config_or_preset(self) -> RunAgentArgs:
@@ -257,6 +257,7 @@ class AgentConfigSchema(BaseModel):
     model_settings: dict[str, Any] | None = None
     mcp_servers: list[MCPServerConfigSchema] | None = None
     retries: int = Field(default=20)
+    enable_thinking: bool = Field(default=True)
 
 
 class RankableItemSchema(TypedDict):

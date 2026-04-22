@@ -25,6 +25,7 @@ from tracecat_registry._internal.exceptions import SecretNotFoundError
 import tracecat.agent.adapter.vercel
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.preset.prompts import AgentPresetBuilderPrompt
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.schemas import RunAgentArgs
@@ -64,6 +65,7 @@ from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.entitlements import Entitlement, check_entitlement
+from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -92,11 +94,16 @@ class AgentSessionService(BaseWorkspaceService):
 
     service_name = "agent-session"
 
-    def _build_direct_agent_search_attributes(self) -> TypedSearchAttributes:
+    def _build_direct_agent_search_attributes(
+        self, session_id: uuid.UUID
+    ) -> TypedSearchAttributes:
         """Build Temporal search attributes for direct (non-child) agent runs."""
         pairs = [
             TriggerType.MANUAL.to_temporal_search_attr_pair(),
             ExecutionType.PUBLISHED.to_temporal_search_attr_pair(),
+            TemporalSearchAttr.CORRELATION_ID.create_pair(
+                build_agent_session_correlation_id(session_id)
+            ),
         ]
         if self.role.user_id is not None:
             pairs.append(
@@ -1028,7 +1035,9 @@ class AgentSessionService(BaseWorkspaceService):
                 task_queue=config.TRACECAT__AGENT_QUEUE,
                 execution_timeout=timedelta(hours=1),
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                search_attributes=self._build_direct_agent_search_attributes(),
+                search_attributes=self._build_direct_agent_search_attributes(
+                    session_id
+                ),
             )
 
         # Return ChatResponse with session_id for streaming
@@ -1369,6 +1378,7 @@ class AgentSessionService(BaseWorkspaceService):
                             model_name=preset_config.model_name,
                             model_provider=preset_config.model_provider,
                             actions=[],  # No tools for forked sessions
+                            enable_thinking=preset_config.enable_thinking,
                         )
                 else:
                     # No preset - use workspace model with fork context
@@ -1498,12 +1508,40 @@ class AgentSessionService(BaseWorkspaceService):
             if entry.kind == MessageKind.INTERNAL.value:
                 continue
 
+            # Handle compaction entries: these are badges showing when compaction happened
+            if entry.kind == MessageKind.COMPACTION.value:
+                kind = MessageKind.COMPACTION
+
+                # Filter by kinds if specified
+                if kinds and kind not in kinds:
+                    continue
+
+                # Compaction badge data: extract metadata from the system message
+                # The system compact_boundary message has compactMetadata at the top level
+                compaction_data: dict[str, Any] = {"phase": "completed"}
+
+                # Extract pre_tokens from compactMetadata if available
+                compact_metadata = content.get("compactMetadata")
+                if isinstance(compact_metadata, dict):
+                    pre_tokens = compact_metadata.get("preTokens")
+                    if isinstance(pre_tokens, int):
+                        compaction_data["pre_tokens"] = pre_tokens
+
+                messages.append(
+                    ChatMessage(
+                        id=str(entry.id),
+                        kind=kind,
+                        compaction=compaction_data,
+                    )
+                )
+                continue
+
             # Skip non-message entries (e.g., system metadata)
             msg_type = content.get("type")
             if msg_type not in ("user", "assistant"):
                 continue
 
-            # All AgentSessionHistory entries are CHAT_MESSAGE kind
+            # Standard chat messages
             kind = MessageKind.CHAT_MESSAGE
 
             # Filter by kinds if specified
@@ -1515,13 +1553,16 @@ class AgentSessionService(BaseWorkspaceService):
             if not inner_message:
                 inner_message = content
 
+            # Strip internal proxy metadata before returning persisted tool inputs.
+            sanitized_message = sanitize_message_tool_inputs(inner_message)
+
             # Deserialize the content using Claude SDK TypeAdapter
-            message = ClaudeSDKMessageTA.validate_python(inner_message)
+            message = ClaudeSDKMessageTA.validate_python(sanitized_message)
             messages.append(ChatMessage(id=str(entry.id), message=message))
 
             # For assistant messages, check for tool calls needing approval bubbles
             if msg_type == "assistant":
-                tool_uses = self._extract_tool_uses_from_message(inner_message)
+                tool_uses = self._extract_tool_uses_from_message(sanitized_message)
                 for tool_use in tool_uses:
                     tool_use_id = tool_use.get("id")
                     if tool_use_id and (

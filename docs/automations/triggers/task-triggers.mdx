@@ -1,0 +1,29 @@
+---
+title: "Task triggers"
+description: "Run workflows from case tasks."
+icon: "lock"
+---
+
+## Overview
+
+You can start a workflow from a case task. Set the workflow on the task, then start it from the task UI. If the workflow has an Input schema, the dialog asks for inputs. Otherwise, Tracecat shows generated case inputs.
+
+![Task trigger](/img/triggers/task-trigger.png)
+
+## Trigger payload
+
+Task trigger data is available under `${{ TRIGGER }}`.
+
+Fields:
+
+- `${{ TRIGGER.case_id }}`: case ID.
+- `${{ TRIGGER.task_id }}`: task ID.
+
+Example payload:
+
+```json
+{
+  "case_id": "case_01abc",
+  "task_id": "task_01abc"
+}
+```

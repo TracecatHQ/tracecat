@@ -25,6 +25,7 @@ from tracecat.cases.durations.schemas import (
     CaseDurationRead,
     CaseDurationUpdate,
 )
+from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import Case, CaseDuration, CaseEvent
 from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
 from tracecat.exceptions import (
@@ -610,7 +611,18 @@ class CaseDurationService(BaseWorkspaceService):
     ) -> tuple[CaseEvent, datetime] | None:
         candidates: list[tuple[CaseEvent, datetime]] = []
         for event in events:
-            if event.type != anchor.event_type:
+            # A transition to `closed` is emitted as `case_closed` (and reopening
+            # as `case_reopened`), so exact matching on `status_changed` would
+            # otherwise miss those transitions. Expand the match here so duration
+            # definitions filtered on `status_changed` still see close/reopen.
+            if anchor.event_type is CaseEventType.STATUS_CHANGED:
+                if event.type not in (
+                    CaseEventType.STATUS_CHANGED,
+                    CaseEventType.CASE_CLOSED,
+                    CaseEventType.CASE_REOPENED,
+                ):
+                    continue
+            elif event.type != anchor.event_type:
                 continue
             if not self._matches_filters(event, anchor.field_filters):
                 continue
@@ -666,7 +678,20 @@ class CaseDurationService(BaseWorkspaceService):
     def _resolve_field(self, event: CaseEvent, path: str) -> Any:
         value: Any = event
         for part in path.split("."):
-            if isinstance(value, dict):
+            if isinstance(value, list):
+                # Traverse into each list item and collect the resolved values
+                collected = []
+                for item in value:
+                    if isinstance(item, dict):
+                        resolved = item.get(part)
+                    else:
+                        resolved = getattr(item, part, None)
+                    if resolved is not None:
+                        collected.append(resolved)
+                if not collected:
+                    return None
+                value = collected
+            elif isinstance(value, dict):
                 value = value.get(part)
             else:
                 value = getattr(value, part, None)

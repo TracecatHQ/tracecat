@@ -1,15 +1,106 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useMemo } from "react"
 import { CasesLayout } from "@/components/cases/cases-layout"
+import { useCaseColumnVisibility } from "@/hooks/use-case-column-visibility"
 import { useCases } from "@/hooks/use-cases"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceMembers } from "@/hooks/use-workspace"
-import { useCaseDropdownDefinitions, useCaseTagCatalog } from "@/lib/hooks"
+import {
+  useCaseDropdownDefinitions,
+  useCaseDurationDefinitions,
+  useCaseFields,
+  useCaseTagCatalog,
+} from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function CasesPage() {
   const workspaceId = useWorkspaceId()
+  const { hasEntitlement, hasEntitlementData } = useEntitlements()
+  const caseAddonsEnabled = hasEntitlement("case_addons")
+
+  const { members } = useWorkspaceMembers(workspaceId)
+  const { caseTags } = useCaseTagCatalog(workspaceId)
+  const { dropdownDefinitions, dropdownDefinitionsIsFetching } =
+    useCaseDropdownDefinitions(workspaceId, caseAddonsEnabled)
+  const { caseFields, caseFieldsIsFetching } = useCaseFields(workspaceId)
+  const { caseDurationDefinitions, caseDurationDefinitionsIsFetching } =
+    useCaseDurationDefinitions(workspaceId, caseAddonsEnabled)
+
+  // Avoid pruning persisted selections until entitlement and field metadata
+  // have both resolved from the current fetch; stale cached definitions during
+  // a refetch could otherwise erase still-valid stored choices.
+  const knownColumnIds = useMemo<Set<string> | undefined>(() => {
+    if (!hasEntitlementData) {
+      return undefined
+    }
+    if (caseFields === undefined || caseFieldsIsFetching) {
+      return undefined
+    }
+    if (
+      caseAddonsEnabled &&
+      (dropdownDefinitions === undefined || dropdownDefinitionsIsFetching)
+    ) {
+      return undefined
+    }
+    if (
+      caseAddonsEnabled &&
+      (caseDurationDefinitions === undefined ||
+        caseDurationDefinitionsIsFetching)
+    ) {
+      return undefined
+    }
+
+    const ids = new Set<string>()
+    if (caseAddonsEnabled && dropdownDefinitions) {
+      for (const d of dropdownDefinitions) ids.add(`dropdown:${d.ref}`)
+    }
+    if (caseFields) {
+      for (const f of caseFields) {
+        if (!f.reserved) ids.add(`field:${f.id}`)
+      }
+    }
+    if (caseAddonsEnabled && caseDurationDefinitions) {
+      for (const d of caseDurationDefinitions) ids.add(`duration:${d.id}`)
+    }
+    return ids
+  }, [
+    hasEntitlementData,
+    dropdownDefinitions,
+    dropdownDefinitionsIsFetching,
+    caseFields,
+    caseFieldsIsFetching,
+    caseDurationDefinitions,
+    caseDurationDefinitionsIsFetching,
+    caseAddonsEnabled,
+  ])
+
+  const { visibleColumnIds, toggleColumn } = useCaseColumnVisibility(
+    workspaceId,
+    knownColumnIds
+  )
+
+  const selectedFieldIds = useMemo(() => {
+    const validFieldIds = new Set(
+      (caseFields ?? [])
+        .filter((field) => !field.reserved)
+        .map((field) => field.id)
+    )
+    return visibleColumnIds
+      .filter((columnId) => columnId.startsWith("field:"))
+      .map((columnId) => columnId.slice("field:".length))
+      .filter((fieldId) => validFieldIds.has(fieldId))
+  }, [caseFields, visibleColumnIds])
+
+  const includeDurations = useMemo(() => {
+    if (!caseAddonsEnabled || !caseDurationDefinitions) {
+      return false
+    }
+    const durationColumnIds = new Set(
+      caseDurationDefinitions.map((definition) => `duration:${definition.id}`)
+    )
+    return visibleColumnIds.some((columnId) => durationColumnIds.has(columnId))
+  }, [caseAddonsEnabled, caseDurationDefinitions, visibleColumnIds])
 
   const {
     cases,
@@ -45,16 +136,7 @@ export default function CasesPage() {
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useCases()
-
-  const { members } = useWorkspaceMembers(workspaceId)
-  const { caseTags } = useCaseTagCatalog(workspaceId)
-  const { hasEntitlement } = useEntitlements()
-  const caseAddonsEnabled = hasEntitlement("case_addons")
-  const { dropdownDefinitions } = useCaseDropdownDefinitions(
-    workspaceId,
-    caseAddonsEnabled
-  )
+  } = useCases({ fieldIds: selectedFieldIds, includeDurations })
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -92,6 +174,12 @@ export default function CasesPage() {
         dropdownDefinitions={
           caseAddonsEnabled ? dropdownDefinitions : undefined
         }
+        fieldDefinitions={caseFields}
+        durationDefinitions={
+          caseAddonsEnabled ? caseDurationDefinitions : undefined
+        }
+        visibleColumnIds={visibleColumnIds}
+        onToggleColumn={toggleColumn}
         onDropdownFilterChange={setDropdownFilter}
         onDropdownModeChange={setDropdownMode}
         onDropdownSortDirectionChange={setDropdownSortDirection}

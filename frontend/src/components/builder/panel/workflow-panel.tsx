@@ -382,7 +382,7 @@ function WorkflowSettingsPanel({
                       placeholder="Unique identifier for this workflow"
                       {...field}
                       value={field.value || ""}
-                      onChange={field.onChange}
+                      onChange={(e) => field.onChange(e.target.value || null)}
                     />
                   </FormControl>
                   <FormMessage />

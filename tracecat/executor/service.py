@@ -19,6 +19,7 @@ from tracecat.contexts import (
     ctx_interaction,
     ctx_logical_time,
     ctx_role,
+    ctx_run,
 )
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
@@ -50,6 +51,10 @@ from tracecat.executor.schemas import (
     ExecutorResultSuccess,
     ResolvedContext,
 )
+from tracecat.executor.secret_preprocessors import (
+    SecretEnvProjection,
+    project_secret_env,
+)
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
     collect_expressions,
@@ -59,7 +64,6 @@ from tracecat.expressions.eval import (
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.parse import traverse_leaves
 from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import TemplateActionDefinition
 from tracecat.registry.actions.service import RegistryActionsService
@@ -366,10 +370,8 @@ async def _run_single_template_step(
         result = await _run_template_steps(defn, nested_context)
     else:
         logger.trace("Running UDF async", action=action.name)
-        # Get secrets from context
-        secrets = context.get("SECRETS", {})
-        flat_secrets = secrets_manager.flatten_secrets(secrets)
-        with secrets_manager.env_sandbox(flat_secrets):
+        secret_projection = await _get_template_secret_projection(context)
+        with secrets_manager.env_sandbox(secret_projection.env):
             result = await _run_action_direct(action=action, args=args)
 
     return result
@@ -419,6 +421,7 @@ async def _prepare_step_context(
         run_id=parent_resolved.run_id,
         executor_token=executor_token,  # Mint new token for step
         logical_time=parent_resolved.logical_time,
+        secret_projection=parent_resolved.secret_projection,
     )
 
 
@@ -474,8 +477,7 @@ async def _execute_template_action(
     else:
         validated_input_args = dict(resolved_context.evaluated_args)
 
-    # Build template context for expression evaluation
-    # Secrets context uses the pre-resolved secrets from parent
+    # Build template context for expression evaluation.
     secrets_context = resolved_context.secrets
     env_context = input.exec_context.get("ENV", DSLEnvironment())
     vars_context = resolved_context.variables
@@ -613,6 +615,27 @@ class PreparedContext:
     mask_values: set[str] | None
 
 
+async def _get_template_secret_projection(
+    context: TemplateExecutionContext,
+) -> SecretEnvProjection:
+    secrets = context.get("SECRETS", {})
+    role = ctx_role.get()
+    run_context = ctx_run.get()
+    if role is None or run_context is None:
+        flat_secrets = secrets_manager.flatten_secrets(secrets)
+        mask_values = {
+            value
+            for value in flat_secrets.values()
+            if isinstance(value, str) and len(value) > 1
+        }
+        return SecretEnvProjection(env=flat_secrets, mask_values=mask_values)
+    return await project_secret_env(
+        secrets=secrets,
+        role=role,
+        run_context=run_context,
+    )
+
+
 async def prepare_resolved_context(
     input: RunActionInput,
     role: Role,
@@ -654,23 +677,7 @@ async def prepare_resolved_context(
         role=role,
     )
 
-    # Build mask values for secret masking
-    if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
-        logger.warning(
-            "Secrets masking is disabled. This is unsafe in production workflows."
-        )
-        mask_values = None
-    else:
-        mask_values = set()
-        for _, secret_value in traverse_leaves(secrets):
-            if secret_value is not None:
-                secret_str = str(secret_value)
-                if len(secret_str) > 1:
-                    mask_values.add(secret_str)
-                if isinstance(secret_value, str) and len(secret_value) > 1:
-                    mask_values.add(secret_value)
-
-    # Build execution context for SDK calls
+    # Build execution context for SDK calls (uses raw secrets for expression eval)
     context = input.exec_context.copy()
     context["SECRETS"] = secrets
     context["VARS"] = workspace_variables
@@ -708,6 +715,22 @@ async def prepare_resolved_context(
     if role.workspace_id is None:
         raise ValueError("workspace_id is required for action execution")
 
+    secret_projection = await project_secret_env(
+        secrets=secrets,
+        role=role,
+        run_context=input.run_context,
+    )
+
+    # Build root-level masks from the runtime projection so host-side credential
+    # rewriting is also redacted from final outputs.
+    if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
+        logger.warning(
+            "Secrets masking is disabled. This is unsafe in production workflows."
+        )
+        mask_values = None
+    else:
+        mask_values = set(secret_projection.mask_values)
+
     # Generate executor token for SDK authentication
     executor_token = mint_executor_token(
         workspace_id=role.workspace_id,
@@ -727,6 +750,7 @@ async def prepare_resolved_context(
         run_id=str(input.run_context.wf_run_id),
         executor_token=executor_token,
         logical_time=logical_time,
+        secret_projection=secret_projection,
     )
 
     return PreparedContext(resolved_context=resolved_context, mask_values=mask_values)

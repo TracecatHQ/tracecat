@@ -74,6 +74,7 @@ from tracecat.workflow.executions.common import (
     is_error_event,
     is_scheduled_event,
     is_start_event,
+    is_unreadable_temporal_payload,
 )
 from tracecat.workflow.executions.constants import (
     WF_COMPLETED_REF,
@@ -116,6 +117,7 @@ class WorkflowExecutionNotFoundError(ValueError):
 class WorkflowExecutionsPage:
     items: list[WorkflowExecution]
     next_cursor: str | None
+    prev_cursor: str | None
     has_more: bool
     has_previous: bool
 
@@ -299,10 +301,27 @@ class WorkflowExecutionsService:
         return hashlib.sha256(canonical).hexdigest()
 
     @staticmethod
-    def _encode_query_cursor(next_page_token: bytes, fingerprint: str) -> str:
+    def _encode_query_cursor(
+        page_token: bytes | None,
+        fingerprint: str,
+        *,
+        history: Sequence[bytes | None] | None = None,
+    ) -> str:
         payload = {
-            "token": base64.urlsafe_b64encode(next_page_token).decode("ascii"),
+            "token": (
+                base64.urlsafe_b64encode(page_token).decode("ascii")
+                if page_token is not None
+                else None
+            ),
             "fingerprint": fingerprint,
+            "history": [
+                (
+                    base64.urlsafe_b64encode(token).decode("ascii")
+                    if token is not None
+                    else None
+                )
+                for token in (history or [])
+            ],
         }
         encoded = base64.urlsafe_b64encode(
             orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
@@ -310,15 +329,33 @@ class WorkflowExecutionsService:
         return encoded.decode("ascii")
 
     @staticmethod
-    def _decode_query_cursor(cursor: str) -> tuple[bytes, str]:
+    def _decode_query_cursor(
+        cursor: str,
+    ) -> tuple[bytes | None, str, list[bytes | None]]:
         try:
             decoded = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
             data = json.loads(decoded)
             token_text = data["token"]
             fingerprint = data["fingerprint"]
-            if not isinstance(token_text, str) or not isinstance(fingerprint, str):
+            history_text = data.get("history", [])
+            if token_text is not None and not isinstance(token_text, str):
                 raise ValueError("Malformed workflow executions cursor")
-            return base64.urlsafe_b64decode(token_text.encode("ascii")), fingerprint
+            if not isinstance(fingerprint, str) or not isinstance(history_text, list):
+                raise ValueError("Malformed workflow executions cursor")
+            history: list[bytes | None] = []
+            for entry in history_text:
+                if entry is None:
+                    history.append(None)
+                elif isinstance(entry, str):
+                    history.append(base64.urlsafe_b64decode(entry.encode("ascii")))
+                else:
+                    raise ValueError("Malformed workflow executions cursor")
+            token = (
+                base64.urlsafe_b64decode(token_text.encode("ascii"))
+                if token_text is not None
+                else None
+            )
+            return token, fingerprint, history
         except Exception as e:
             raise ValueError("Invalid workflow executions cursor") from e
 
@@ -363,6 +400,7 @@ class WorkflowExecutionsService:
             WorkflowExecutionStatusFilterMode.INCLUDE
         ),
         execution_types: set[ExecutionType] | None = None,
+        exclude_workflow_types: set[str] | None = None,
         start_time_from: datetime.datetime | None = None,
         start_time_to: datetime.datetime | None = None,
         close_time_from: datetime.datetime | None = None,
@@ -378,6 +416,7 @@ class WorkflowExecutionsService:
             statuses=statuses,
             status_mode=status_mode.value,
             execution_types=execution_types,
+            exclude_workflow_types=exclude_workflow_types,
             start_time_from=start_time_from,
             start_time_to=start_time_to,
             close_time_from=close_time_from,
@@ -393,9 +432,9 @@ class WorkflowExecutionsService:
 
         fingerprint = self._build_query_fingerprint(query=query, relation=relation)
         next_page_token: bytes | None = None
-        has_previous = pagination.cursor is not None
+        history: list[bytes | None] = []
         if pagination.cursor is not None:
-            next_page_token, cursor_fingerprint = self._decode_query_cursor(
+            next_page_token, cursor_fingerprint, history = self._decode_query_cursor(
                 pagination.cursor
             )
             if cursor_fingerprint != fingerprint:
@@ -419,16 +458,26 @@ class WorkflowExecutionsService:
                 execution for execution in executions if execution.parent_id is not None
             ]
 
+        prev_cursor = None
         next_cursor = None
         if iterator.next_page_token:
             next_cursor = self._encode_query_cursor(
-                iterator.next_page_token, fingerprint
+                iterator.next_page_token,
+                fingerprint,
+                history=[*history, next_page_token],
+            )
+        if history:
+            prev_cursor = self._encode_query_cursor(
+                history[-1],
+                fingerprint,
+                history=history[:-1],
             )
         return WorkflowExecutionsPage(
             items=executions,
             next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
             has_more=next_cursor is not None,
-            has_previous=has_previous,
+            has_previous=prev_cursor is not None,
         )
 
     def _role_workspace_id(self) -> str | None:
@@ -502,6 +551,7 @@ class WorkflowExecutionsService:
         workflow_id: WorkflowID | None = None,
         trigger_types: set[TriggerType] | None = None,
         triggered_by_user_id: UserID | None = None,
+        exclude_workflow_types: set[str] | None = None,
         limit: int | None = None,
     ) -> list[WorkflowExecution]:
         """List all workflow executions."""
@@ -509,6 +559,7 @@ class WorkflowExecutionsService:
             workflow_id=workflow_id,
             trigger_types=trigger_types,
             triggered_by_user_id=triggered_by_user_id,
+            exclude_workflow_types=exclude_workflow_types,
             workspace_id=self.workspace_id,
         )
         return await self.query_executions(query=query, limit=limit)
@@ -568,7 +619,12 @@ class WorkflowExecutionsService:
             elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
                 attrs = event.workflow_execution_started_event_attributes
                 run_args_data = await extract_first(attrs.input)
-                dsl_run_args = DSLRunArgs(**run_args_data)
+                action_input = run_args_data
+                if not is_unreadable_temporal_payload(run_args_data):
+                    dsl_run_args = DSLRunArgs(**run_args_data)
+                    action_input = await _resolve_trigger_context(
+                        dsl_run_args.trigger_inputs
+                    )
                 event_time = event.event_time.ToDatetime(datetime.UTC)
                 id2event[event.event_id] = WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
@@ -579,13 +635,11 @@ class WorkflowExecutionsService:
                     status=WorkflowExecutionEventStatus.COMPLETED,
                     action_name=WF_TRIGGER_REF,
                     action_ref=WF_TRIGGER_REF,
-                    action_input=await _resolve_trigger_context(
-                        dsl_run_args.trigger_inputs
-                    ),
+                    action_input=action_input,
                 )
             # ── synthetic compact event for top-level workflow failure ──
             elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
-                failure = EventFailure.from_history_event(event)
+                failure = await EventFailure.from_history_event(event)
                 id2event[event.event_id] = WorkflowExecutionEventCompact(
                     source_event_id=event.event_id,
                     schedule_time=event.event_time.ToDatetime(datetime.UTC),
@@ -647,7 +701,7 @@ class WorkflowExecutionsService:
                         source.action_name, source.action_result
                     )
                 if is_error_event(event):
-                    source.action_error = EventFailure.from_history_event(event)
+                    source.action_error = await EventFailure.from_history_event(event)
 
         desc = await handle.describe()
         # Iterate over the pending activities and update the source event
@@ -878,6 +932,11 @@ class WorkflowExecutionsService:
                 case EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
                     group = await EventGroup.from_initiated_child_workflow(event)
                     event_group_names[event.event_id] = group
+                    role = (
+                        group.action_input.role
+                        if isinstance(group.action_input, DSLRunArgs)
+                        else None
+                    )
                     events.append(
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
@@ -885,7 +944,7 @@ class WorkflowExecutionsService:
                             event_type=WorkflowEventType.START_CHILD_WORKFLOW_EXECUTION_INITIATED,
                             event_group=group,
                             task_id=event.task_id,
-                            role=group.action_input.role,
+                            role=role,
                         )
                     )
                 case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED:
@@ -928,7 +987,7 @@ class WorkflowExecutionsService:
                             event_type=WorkflowEventType.CHILD_WORKFLOW_EXECUTION_FAILED,
                             event_group=group,
                             task_id=event.task_id,
-                            failure=EventFailure.from_history_event(event),
+                            failure=await EventFailure.from_history_event(event),
                         )
                     )
 
@@ -936,7 +995,11 @@ class WorkflowExecutionsService:
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
                     attrs = event.workflow_execution_started_event_attributes
                     run_args_data = await extract_first(attrs.input)
-                    dsl_run_args = DSLRunArgs(**run_args_data)
+                    dsl_run_args = (
+                        None
+                        if is_unreadable_temporal_payload(run_args_data)
+                        else DSLRunArgs(**run_args_data)
+                    )
                     # Empty strings coerce to None
                     parent_exec_id = attrs.parent_workflow_execution.workflow_id or None
                     events.append(
@@ -946,8 +1009,12 @@ class WorkflowExecutionsService:
                             event_type=WorkflowEventType.WORKFLOW_EXECUTION_STARTED,
                             parent_wf_exec_id=parent_exec_id,
                             task_id=event.task_id,
-                            role=dsl_run_args.role,
-                            workflow_timeout=dsl_run_args.runtime_config.timeout,
+                            role=dsl_run_args.role if dsl_run_args else None,
+                            workflow_timeout=(
+                                dsl_run_args.runtime_config.timeout
+                                if dsl_run_args
+                                else None
+                            ),
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
@@ -970,7 +1037,7 @@ class WorkflowExecutionsService:
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=WorkflowEventType.WORKFLOW_EXECUTION_FAILED,
                             task_id=event.task_id,
-                            failure=EventFailure.from_history_event(event),
+                            failure=await EventFailure.from_history_event(event),
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
@@ -1074,7 +1141,7 @@ class WorkflowExecutionsService:
                             event_type=WorkflowEventType.ACTIVITY_TASK_FAILED,
                             task_id=event.task_id,
                             event_group=group,
-                            failure=EventFailure.from_history_event(event),
+                            failure=await EventFailure.from_history_event(event),
                         )
                     )
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT:
@@ -1094,13 +1161,18 @@ class WorkflowExecutionsService:
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
                     attrs = event.workflow_execution_signaled_event_attributes
                     data = await extract_first(attrs.input)
+                    result = (
+                        data
+                        if is_unreadable_temporal_payload(data)
+                        else InteractionInput(**data)
+                    )
                     events.append(
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
                             event_time=event.event_time.ToDatetime(datetime.UTC),
                             event_type=WorkflowEventType.WORKFLOW_EXECUTION_SIGNALED,
                             task_id=event.task_id,
-                            result=InteractionInput(**data),
+                            result=result,
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
@@ -1154,7 +1226,7 @@ class WorkflowExecutionsService:
                                 event_type=WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_COMPLETED,
                                 event_group=group,
                                 task_id=event.task_id,
-                                failure=EventFailure.from_history_event(event),
+                                failure=await EventFailure.from_history_event(event),
                             )
                         )
                 case _:

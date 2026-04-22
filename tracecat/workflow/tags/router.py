@@ -37,7 +37,13 @@ async def add_tag(
 ) -> None:
     """Add a tag to a workflow."""
     service = WorkflowTagsService(session, role=role)
-    await service.add_workflow_tag(workflow_id, params.tag_id)
+    try:
+        await service.add_workflow_tag(workflow_id, params.tag_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow or tag not found",
+        ) from e
 
 
 @router.delete("/{workflow_id}/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)

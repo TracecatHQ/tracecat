@@ -2,7 +2,10 @@ import type { SecretDefinition, SecretType } from "@/client"
 import type { WorkspaceSecretListItem } from "@/lib/hooks"
 
 export type CredentialConnectionFilter = "all" | "connected" | "not_connected"
-export type CredentialSecretTypeFilter = "all" | SecretType
+
+/** Secret types available on the workspace credentials page. */
+export type WorkspaceSecretType = Exclude<SecretType, "github_app">
+export type CredentialSecretTypeFilter = "all" | WorkspaceSecretType
 
 export interface CredentialGroup {
   name: string
@@ -15,12 +18,24 @@ export interface CredentialGroup {
   isConnected: boolean
 }
 
+/** Labels for workspace-scoped secret types. */
+export const workspaceSecretTypeLabels: Record<WorkspaceSecretType, string> = {
+  custom: "Custom",
+  ssh_key: "SSH key",
+  mtls: "mTLS",
+  ca_cert: "CA certificate",
+}
+
+/**
+ * @deprecated Use workspaceSecretTypeLabels for workspace pages.
+ * Kept for any code that still references all SecretType values.
+ */
 export const credentialSecretTypeLabels: Record<SecretType, string> = {
   custom: "Custom",
-  "ssh-key": "SSH key",
+  ssh_key: "SSH key",
   mtls: "mTLS",
-  "ca-cert": "CA certificate",
-  "github-app": "GitHub app",
+  ca_cert: "CA certificate",
+  github_app: "GitHub app",
 }
 
 export function normalizeSecretEnvironment(
@@ -77,10 +92,13 @@ export function buildCredentialGroups(
         normalizeSecretEnvironment(b.environment)
       )
     )
+
+    // Use declared secret_type from the definition; fall back to stored types
+    const declaredType: SecretType = definition.secret_type ?? "custom"
     const secretTypes: SecretType[] =
       configuredSecrets.length > 0
         ? getSecretTypes(configuredSecrets)
-        : ["custom"]
+        : [declaredType]
 
     return {
       name: definition.name,
@@ -90,7 +108,10 @@ export function buildCredentialGroups(
         normalizeSecretEnvironment(secret.environment)
       ),
       secretTypes,
-      secretType: getManualSecretType(configuredSecrets),
+      secretType:
+        configuredSecrets.length > 0
+          ? getManualSecretType(configuredSecrets)
+          : declaredType,
       isPrebuilt: true,
       isConnected: configuredSecrets.length > 0,
     }

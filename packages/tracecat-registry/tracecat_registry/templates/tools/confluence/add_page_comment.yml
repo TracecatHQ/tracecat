@@ -52,5 +52,5 @@ definition:
         auth:
           username: ${{ SECRETS.confluence.CONFLUENCE_USERNAME }}
           password: ${{ SECRETS.confluence.CONFLUENCE_API_TOKEN }}
-        payload: ${{ steps.build_payload.result.data }}
+        payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.add_comment.result.data }}

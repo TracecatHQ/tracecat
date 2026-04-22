@@ -8,7 +8,7 @@ from temporalio.exceptions import ApplicationError
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Workflow, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import EntitlementRequired, TracecatException
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
@@ -122,7 +122,7 @@ async def get_workflow_definition_activity(
         if not defn:
             msg = f"Workflow definition not found for {input.workflow_id.short()}, version={input.version}"
             logger.error(msg)
-            raise TracecatException(msg)
+            raise ApplicationError(msg, non_retryable=True)
         dsl = DSLInput(**defn.content)
     # Convert from DB dict type to RegistryLock (JSONB deserializes to dict)
     registry_lock = (
@@ -143,6 +143,12 @@ async def resolve_registry_lock_activity(
     try:
         async with RegistryLockService.with_session(role=input.role) as service:
             lock = await service.resolve_lock_with_bindings(input.action_names)
+    except BuiltinRegistryHasNoSelectionError as e:
+        raise ApplicationError(
+            str(e),
+            e.detail,
+            type=e.__class__.__name__,
+        ) from e
     except EntitlementRequired as e:
         raise ApplicationError(
             str(e),

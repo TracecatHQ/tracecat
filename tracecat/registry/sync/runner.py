@@ -26,6 +26,8 @@ from uuid import UUID
 import aiofiles
 
 from tracecat import config
+from tracecat.auth.types import Role
+from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionCreate
 from tracecat.registry.sync.platform_service import PLATFORM_REGISTRY_TARBALL_NAMESPACE
@@ -39,6 +41,7 @@ from tracecat.registry.sync.tarball import (
     get_tarball_venv_s3_key,
     upload_tarball_venv,
 )
+from tracecat.secrets.service import SecretsService
 from tracecat.storage import blob
 
 if TYPE_CHECKING:
@@ -59,6 +62,36 @@ class PackageInstallError(RegistrySyncRunnerError):
 
 class ActionDiscoveryError(RegistrySyncRunnerError):
     """Raised when action discovery fails."""
+
+
+def _build_validation_failure_message(
+    validation_errors: dict[str, list[RegistryActionValidationErrorInfo]],
+) -> str:
+    total_errors = sum(len(errs) for errs in validation_errors.values())
+    action_name = next(iter(validation_errors), "<unknown>")
+    first_error = (
+        validation_errors[action_name][0] if validation_errors[action_name] else None
+    )
+
+    first_detail = ""
+    if first_error is not None and first_error.details:
+        first_detail = first_error.details[0]
+
+    suffix = f" First error in '{action_name}': {first_detail}" if first_detail else ""
+    return (
+        f"Registry sync validation failed: {total_errors} validation error(s).{suffix}"
+    )
+
+
+class RegistrySyncValidationError(RegistrySyncRunnerError):
+    """Raised when action discovery returns validation errors."""
+
+    def __init__(
+        self,
+        validation_errors: dict[str, list[RegistryActionValidationErrorInfo]],
+    ) -> None:
+        super().__init__(_build_validation_failure_message(validation_errors))
+        self.validation_errors = validation_errors
 
 
 class RegistrySyncRunner:
@@ -126,10 +159,11 @@ class RegistrySyncRunner:
                     raise RegistrySyncRunnerError(
                         "git_url is required for git origin type"
                     )
+                ssh_key = await self._fetch_registry_ssh_key(request.organization_id)
                 package_path, commit_sha = await self._clone_repository(
                     git_url=request.git_url,
                     commit_sha=request.commit_sha,
-                    ssh_key=request.ssh_key,
+                    ssh_key=ssh_key,
                     work_dir=work_dir,
                 )
             else:
@@ -162,6 +196,7 @@ class RegistrySyncRunner:
             actions, validation_errors = await self._discover_actions(
                 repository_id=request.repository_id,
                 origin=request.origin,
+                commit_sha=commit_sha,
                 validate=request.validate_actions,
                 git_repo_package_name=request.git_repo_package_name,
                 organization_id=request.organization_id,
@@ -172,6 +207,9 @@ class RegistrySyncRunner:
                 num_actions=len(actions),
                 num_validation_errors=len(validation_errors),
             )
+
+            if validation_errors:
+                raise RegistrySyncValidationError(validation_errors)
 
             # Phase 4: Upload tarball to S3
             tarball_uri = await self._upload_tarball(
@@ -206,6 +244,30 @@ class RegistrySyncRunner:
             return get_builtin_registry_source_path()
         except TarballBuildError as e:
             raise RegistrySyncRunnerError(str(e)) from e
+
+    async def _fetch_registry_ssh_key(self, organization_id: UUID | None) -> str:
+        """Fetch the org-scoped registry SSH key on the ExecutorWorker."""
+        if organization_id is None:
+            raise GitCloneError(
+                "Git repository sync requires organization_id to fetch the SSH key"
+            )
+
+        role = Role(
+            type="service",
+            service_id="tracecat-service",
+            organization_id=organization_id,
+            scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-service"],
+        )
+
+        async with SecretsService.with_session(role=role) as secrets_service:
+            try:
+                secret = await secrets_service.get_ssh_key(target="registry")
+            except Exception as exc:
+                raise GitCloneError(
+                    f"Failed to retrieve SSH key for git operations: {exc}. "
+                    "Ensure a 'github-ssh-key' secret exists in your organization."
+                ) from exc
+        return secret.get_secret_value()
 
     async def _clone_repository(
         self,
@@ -378,6 +440,7 @@ class RegistrySyncRunner:
         self,
         repository_id: UUID,
         origin: str,
+        commit_sha: str | None = None,
         validate: bool = False,
         git_repo_package_name: str | None = None,
         organization_id: UUID | None = None,
@@ -393,6 +456,7 @@ class RegistrySyncRunner:
         Args:
             repository_id: Database repository ID.
             origin: Repository origin (e.g., "tracecat_registry", "local", or git URL).
+            commit_sha: Optional commit SHA to load for remote repositories.
             validate: Whether to validate template actions.
             git_repo_package_name: Optional override for git repository package name.
 
@@ -407,6 +471,7 @@ class RegistrySyncRunner:
             result = await fetch_actions_from_subprocess(
                 origin=origin,
                 repository_id=repository_id,
+                commit_sha=commit_sha,
                 validate=validate,
                 git_repo_package_name=git_repo_package_name,
                 timeout=float(self.discover_timeout),

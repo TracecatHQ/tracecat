@@ -13,6 +13,7 @@ from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
+from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import (
     OrganizationMembership,
@@ -1146,20 +1147,21 @@ def redact_tool_call_args(
     arguments: Mapping[str, Any] | None,
 ) -> dict[str, object]:
     """Create a structural argument summary without persisting raw values."""
-    if not arguments:
+    sanitized_arguments = strip_proxy_tool_metadata(arguments)
+    if not sanitized_arguments:
         return {"arg_count": 0, "keys": [], "args": {}}
 
     truncated = False
     entries: list[tuple[str, Any]] = []
-    for key, value in arguments.items():
+    for key, value in sanitized_arguments.items():
         entries.append((str(key), value))
         if len(entries) >= WATCHTOWER_MAX_REDACTED_ITEMS:
-            truncated = len(arguments) > WATCHTOWER_MAX_REDACTED_ITEMS
+            truncated = len(sanitized_arguments) > WATCHTOWER_MAX_REDACTED_ITEMS
             break
 
     redacted: dict[str, object] = {key: _redact_value(value) for key, value in entries}
     return {
-        "arg_count": len(arguments),
+        "arg_count": len(sanitized_arguments),
         "keys": [key for key, _ in entries],
         "truncated": truncated,
         "args": redacted,

@@ -217,6 +217,7 @@ const agentPresetSchema = z
       .number({ invalid_type_error: "Retries must be a number" })
       .int()
       .min(0, "Retries must be 0 or more"),
+    enableThinking: z.boolean().default(true),
     enableInternetAccess: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
@@ -278,6 +279,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   mcpIntegrations: [],
   toolApprovals: [],
   retries: DEFAULT_RETRIES,
+  enableThinking: true,
   enableInternetAccess: false,
 }
 
@@ -686,16 +688,16 @@ function AgentPresetChatPane({
     }
 
     if (!providerReady) {
+      const activeProvider =
+        activeVersion?.model_provider ?? preset.model_provider ?? ""
       return (
         <div className="flex h-full flex-col items-center justify-center px-4">
           <div className="flex max-w-xs flex-col items-center gap-2 text-center text-xs text-muted-foreground">
             <AlertCircle className="size-5 text-amber-500" />
             <p className="text-pretty">
               This agent uses workspace credentials for{" "}
-              <span className="font-medium">
-                {activeVersion?.model_provider ?? preset.model_provider}
-              </span>
-              . Configure them on the{" "}
+              <span className="font-medium">{activeProvider}</span>. Configure
+              them on the{" "}
               <Link
                 href={`/workspaces/${workspaceId}/credentials`}
                 className="font-medium text-primary hover:underline"
@@ -894,6 +896,7 @@ function getAgentPresetErrorTab(
     errors.namespaces ||
     errors.mcpIntegrations ||
     errors.toolApprovals ||
+    errors.enableThinking ||
     errors.enableInternetAccess
   ) {
     return "configuration"
@@ -1004,7 +1007,7 @@ function AgentPresetForm({
         shouldDirty: false,
       })
     }
-  }, [form, modelOptions])
+  }, [form, modelOptions, providerValue])
 
   useEffect(() => {
     if (!channelsEnabled && activeTab === "channels") {
@@ -1488,6 +1491,7 @@ function AgentPresetConfigurationPanel({
   onRemoveToolApproval: (index: number) => void
 }) {
   const providerValue = form.watch("model_provider")
+  const thinkingEnabled = form.watch("enableThinking")
   const internetAccessEnabled = form.watch("enableInternetAccess")
   const modelOptions = modelOptionsByProvider[providerValue] ?? []
 
@@ -1570,7 +1574,7 @@ function AgentPresetConfigurationPanel({
               )}
             />
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
             <FormField
               control={form.control}
               name="base_url"
@@ -1606,23 +1610,55 @@ function AgentPresetConfigurationPanel({
               )}
             />
           </div>
-          <div className="flex items-center gap-2">
-            <Switch
-              id="enable-internet-access"
-              checked={internetAccessEnabled}
-              onCheckedChange={(checked) =>
-                form.setValue("enableInternetAccess", checked, {
-                  shouldDirty: true,
-                })
-              }
-              disabled={isSaving}
-            />
-            <label
-              htmlFor="enable-internet-access"
-              className="text-sm font-medium"
-            >
-              Enable internet access
-            </label>
+          <div className="overflow-hidden rounded-lg border">
+            <div className="flex items-start justify-between gap-4 px-4 py-3">
+              <div className="space-y-1">
+                <label
+                  htmlFor="enable-thinking"
+                  className="text-sm font-medium leading-none"
+                >
+                  Thinking
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Adds higher reasoning effort by default.
+                </p>
+              </div>
+              <Switch
+                id="enable-thinking"
+                checked={thinkingEnabled}
+                onCheckedChange={(checked) =>
+                  form.setValue("enableThinking", checked, {
+                    shouldDirty: true,
+                  })
+                }
+                disabled={isSaving}
+              />
+            </div>
+            <div className="border-t" />
+            <div className="flex items-start justify-between gap-4 px-4 py-3">
+              <div className="space-y-1">
+                <label
+                  htmlFor="enable-internet-access"
+                  className="text-sm font-medium leading-none"
+                >
+                  Internet access
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Allows the agent to reach the web from the sandbox when tools
+                  need it.
+                </p>
+              </div>
+              <Switch
+                id="enable-internet-access"
+                checked={internetAccessEnabled}
+                onCheckedChange={(checked) =>
+                  form.setValue("enableInternetAccess", checked, {
+                    shouldDirty: true,
+                  })
+                }
+                disabled={isSaving}
+              />
+            </div>
           </div>
         </section>
 
@@ -2207,6 +2243,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
       : [],
     mcpIntegrations: preset.mcp_integrations ?? [],
     retries: preset.retries ?? DEFAULT_RETRIES,
+    enableThinking: preset.enable_thinking ?? true,
     enableInternetAccess: preset.enable_internet_access ?? false,
   }
 }
@@ -2239,6 +2276,7 @@ function formValuesToPayload(values: AgentPresetFormValues): AgentPresetCreate {
       values.mcpIntegrations.length > 0 ? values.mcpIntegrations : null,
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
+    enable_thinking: values.enableThinking,
     enable_internet_access: values.enableInternetAccess,
   }
 }

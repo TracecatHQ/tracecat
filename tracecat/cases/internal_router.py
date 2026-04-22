@@ -52,6 +52,7 @@ from tracecat.cases.schemas import (
 )
 from tracecat.cases.service import (
     CaseCommentsService,
+    CaseFieldsService,
     CasesService,
     CaseTasksService,
 )
@@ -140,6 +141,10 @@ async def list_cases(
         None, description="Direction to sort (asc or desc)"
     ),
     include_rows: bool = Query(False, description="Include linked table rows"),
+    field_ids: list[str] | None = Query(
+        None, description="Include only the requested custom field IDs"
+    ),
+    include_durations: bool = Query(False, description="Include case duration values"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
@@ -150,6 +155,7 @@ async def list_cases(
             reverse=reverse,
             order_by=order_by,
             sort=sort,
+            include_durations=include_durations,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list cases: {e}")
@@ -175,6 +181,25 @@ async def list_cases(
             item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
             for item in cases.items
         ]
+    if field_ids:
+        try:
+            fields_service = CaseFieldsService(session, role)
+            fields_by_case = await fields_service.batch_get_fields(
+                case_ids=[item.id for item in cases.items],
+                field_ids=field_ids,
+            )
+            if cases.items:
+                cases.items = [
+                    item.model_copy(
+                        update={"field_values": fields_by_case.get(item.id)}
+                    )
+                    for item in cases.items
+                ]
+        except ValueError as e:
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail="Invalid request for case field hydration",
+            ) from e
     return cases
 
 
@@ -235,6 +260,10 @@ async def search_cases(
         None, description="Direction to sort (asc or desc)"
     ),
     include_rows: bool = Query(False, description="Include linked table rows"),
+    field_ids: list[str] | None = Query(
+        None, description="Include only the requested custom field IDs"
+    ),
+    include_durations: bool = Query(False, description="Include case duration values"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     service = CasesService(session, role)
 
@@ -285,6 +314,7 @@ async def search_cases(
             updated_before=updated_before,
             order_by=order_by,
             sort=sort,
+            include_durations=include_durations,
         )
         if include_rows and cases.items:
             rows_service = CaseTableRowsService(session, role)
@@ -296,6 +326,25 @@ async def search_cases(
                 item.model_copy(update={"rows": rows_by_case.get(item.id, [])})
                 for item in cases.items
             ]
+        if field_ids:
+            try:
+                fields_service = CaseFieldsService(session, role)
+                fields_by_case = await fields_service.batch_get_fields(
+                    case_ids=[item.id for item in cases.items],
+                    field_ids=field_ids,
+                )
+                if cases.items:
+                    cases.items = [
+                        item.model_copy(
+                            update={"field_values": fields_by_case.get(item.id)}
+                        )
+                        for item in cases.items
+                    ]
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=HTTP_400_BAD_REQUEST,
+                    detail="Invalid request for case field hydration",
+                ) from e
         return cases
 
     except ValueError as e:
@@ -338,13 +387,7 @@ async def get_case(
         f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
         final_fields.append(
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
         )
@@ -408,13 +451,7 @@ async def create_case(
         f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
         final_fields.append(
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
         )
@@ -457,7 +494,7 @@ async def update_case(
     include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CaseRead:
     service = CasesService(session, role)
-    case = await service.get_case(case_id)
+    case = await service.get_case(case_id, for_update=True)
     if case is None:
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
@@ -485,13 +522,7 @@ async def update_case(
         f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
         final_fields.append(
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
         )
@@ -831,13 +862,7 @@ async def get_case_metrics(
         fields = await cases_service.fields.get_fields(case) or {}
         field_reads = [
             CaseFieldRead(
-                id=f.id,
-                type=f.type,
-                description=f.description,
-                nullable=f.nullable,
-                default=f.default,
-                reserved=f.reserved,
-                options=f.options,
+                **f.model_dump(),
                 value=fields.get(f.id),
             )
             for f in field_templates
@@ -1135,12 +1160,14 @@ class CaseCreateWithTags(CaseCreate):
     """Extended case create request with tags support for UDFs."""
 
     tags: list[str] | None = None
+    create_missing_tags: bool = False
 
 
 class CaseUpdateWithTags(CaseUpdate):
     """Extended case update request with tags and append support for UDFs."""
 
     tags: list[str] | None = None
+    create_missing_tags: bool = False
     append_description: bool = False
 
 
@@ -1188,7 +1215,9 @@ async def create_case_simple(
         # Add tags if provided
         if params.tags:
             for tag in params.tags:
-                await service.tags.add_case_tag(case.id, tag)
+                await service.tags.add_case_tag(
+                    case.id, tag, create_if_missing=params.create_missing_tags
+                )
             await session.refresh(case)
 
     except NoResultFound as e:
@@ -1260,7 +1289,9 @@ async def update_case_simple(
             for existing_tag in existing_tags:
                 await service.tags.remove_case_tag(case.id, existing_tag.ref)
             for tag in params.tags:
-                await service.tags.add_case_tag(case.id, tag)
+                await service.tags.add_case_tag(
+                    case.id, tag, create_if_missing=params.create_missing_tags
+                )
             await session.refresh(updated_case)
 
     except NoResultFound as e:

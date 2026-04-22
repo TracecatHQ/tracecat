@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from tracecat_registry import ActionIsInterfaceError
-from tracecat_registry.core.agent import action, agent
+from tracecat_registry.core.agent import action, agent, bedrock_secret
 
 from tracecat.auth.types import Role
 
@@ -43,6 +43,7 @@ def _prompt_for_output_type(output_type: Any, base_prompt: str) -> str:
 
 
 @pytest.mark.anyio
+@pytest.mark.live_secret
 @requires_openai_mocks
 @pytest.mark.parametrize("output_type", PRIMITIVE_OUTPUT_TYPES)
 async def test_agent_primitives(output_type: Any, test_role: Role) -> None:
@@ -76,6 +77,7 @@ async def test_agent_primitives(output_type: Any, test_role: Role) -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.live_secret
 @requires_openai_mocks
 @pytest.mark.parametrize("output_type", JSON_SCHEMA_OUTPUT_TYPES)
 async def test_agent_json_schema(output_type: Any, test_role: Role) -> None:
@@ -146,3 +148,8 @@ async def test_action_json_schema(output_type: Any) -> None:
             output_type=output_type,
             max_requests=3,
         )
+
+
+def test_bedrock_secret_does_not_advertise_aws_profile() -> None:
+    assert bedrock_secret.optional_keys is not None
+    assert "AWS_PROFILE" not in bedrock_secret.optional_keys

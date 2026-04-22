@@ -453,6 +453,7 @@ import type {
   RbacUpdateUserAssignmentResponse,
   RegistryActionsGetRegistryActionData,
   RegistryActionsGetRegistryActionResponse,
+  RegistryActionsListRegistryActionsData,
   RegistryActionsListRegistryActionsResponse,
   RegistryRepositoriesCompareRegistryVersionsData,
   RegistryRepositoriesCompareRegistryVersionsResponse,
@@ -853,6 +854,7 @@ export const publicIncomingWebhookGet = (
  * @param data The data for the request.
  * @param data.secret
  * @param data.workflowId
+ * @param data.unwrap Return the workflow result directly as the response body, without the `{kind, value}` envelope. Requires the result to fit inline. If the result was externalized, returns 413 with the download envelope in `detail`.
  * @param data.contentType
  * @returns WaitResultOutput Successful Response
  * @throws ApiError
@@ -870,7 +872,11 @@ export const publicIncomingWebhookWait = (
     headers: {
       "content-type": data.contentType,
     },
+    query: {
+      unwrap: data.unwrap,
+    },
     errors: {
+      413: "Unwrapped workflow result exceeded inline response limits. Use `detail.download_url` to fetch the externalized result.",
       422: "Validation Error",
     },
   })
@@ -3167,7 +3173,7 @@ export const secretsCreateSecret = (
 
 /**
  * List Secret Definitions
- * List registry secret definitions.
+ * List aggregated secret definitions from the registry.
  * @param data The data for the request.
  * @param data.workspaceId
  * @returns SecretDefinition Successful Response
@@ -6752,16 +6758,25 @@ export const registryRepositoriesGetPreviousRegistryVersion = (
 /**
  * List Registry Actions
  * List all actions from registry index.
+ * @param data The data for the request.
+ * @param data.includeLocked Include actions locked by missing entitlements
  * @returns RegistryActionReadMinimal Successful Response
  * @throws ApiError
  */
-export const registryActionsListRegistryActions =
-  (): CancelablePromise<RegistryActionsListRegistryActionsResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/registry/actions",
-    })
-  }
+export const registryActionsListRegistryActions = (
+  data: RegistryActionsListRegistryActionsData = {}
+): CancelablePromise<RegistryActionsListRegistryActionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/registry/actions",
+    query: {
+      include_locked: data.includeLocked,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Get Registry Action
@@ -7618,6 +7633,8 @@ export const tablesImportCsv = (
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @param data.includeRows Include linked table rows
+ * @param data.fieldIds Include only the requested custom field IDs
+ * @param data.includeDurations Include case duration values
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -7634,6 +7651,8 @@ export const casesListCases = (
       order_by: data.orderBy,
       sort: data.sort,
       include_rows: data.includeRows,
+      field_ids: data.fieldIds,
+      include_durations: data.includeDurations,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -7691,6 +7710,8 @@ export const casesCreateCase = (
  * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @param data.includeRows Include linked table rows
+ * @param data.fieldIds Include only the requested custom field IDs
+ * @param data.includeDurations Include case duration values
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -7719,6 +7740,8 @@ export const casesSearchCases = (
       order_by: data.orderBy,
       sort: data.sort,
       include_rows: data.includeRows,
+      field_ids: data.fieldIds,
+      include_durations: data.includeDurations,
       workspace_id: data.workspaceId,
     },
     errors: {

@@ -34,6 +34,7 @@ from tracecat.api.common import (
     bootstrap_role,
     custom_generate_unique_id,
     generic_exception_handler,
+    http_exception_handler,
     tracecat_exception_handler,
 )
 from tracecat.auth.credentials import authenticated_user_only
@@ -46,6 +47,7 @@ from tracecat.auth.oidc import create_platform_oauth_client, oidc_auth_type_enab
 from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
 from tracecat.auth.schemas import UserCreate, UserRead, UserUpdate
+from tracecat.auth.secrets import get_user_auth_secret
 from tracecat.auth.types import Role
 from tracecat.auth.users import (
     FastAPIUsersException,
@@ -93,6 +95,9 @@ from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
 )
 from tracecat.db.rls import set_rls_context_from_role
+from tracecat.deduplicate.internal_router import (
+    router as internal_deduplicate_router,
+)
 from tracecat.editor.router import router as editor_router
 from tracecat.exceptions import EntitlementRequired, ScopeDeniedError, TracecatException
 from tracecat.feature_flags import FlagLike, is_feature_enabled
@@ -104,6 +109,7 @@ from tracecat.integrations.router import (
     providers_router,
 )
 from tracecat.logger import logger
+from tracecat.mcp.oidc import router as mcp_oidc_router
 from tracecat.middleware import (
     AuthorizationCacheMiddleware,
     RequestLoggingMiddleware,
@@ -156,6 +162,12 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # USER_AUTH_SECRET is required for all auth types — UserManager uses it
+    # for password reset and email verification token signing. Validated here
+    # (not in create_app) because the app module is imported at collection time
+    # by tests and OpenAPI generation, before secrets are available.
+    get_user_auth_secret()
+
     # Temporal
     # Run in background to avoid blocking startup
     asyncio.create_task(add_temporal_search_attributes())
@@ -387,7 +399,9 @@ def create_app(**kwargs) -> FastAPI:
         allow_origins = ["*"]
     app = FastAPI(
         title="Tracecat API",
-        description=("Tracecat is the open source automation platform for enterprise."),
+        description=(
+            "The open source AI automation platform for security teams and agents."
+        ),
         summary="Tracecat API",
         version="1",
         terms_of_service="https://docs.google.com/document/d/e/2PACX-1vQvDe3SoVAPoQc51MgfGCP71IqFYX_rMVEde8zC4qmBCec5f8PLKQRdxa6tsUABT8gWAR9J-EVs2CrQ/pub",
@@ -462,6 +476,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(integrations_router)
     app.include_router(providers_router)
     app.include_router(mcp_router)
+    app.include_router(mcp_oidc_router)
     app.include_router(feature_flags_router)
     app.include_router(vcs_router)
     # RBAC routers - user scopes + role listing + user role assignments are always included (OSS)
@@ -498,6 +513,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(internal_agent_preset_router)
     app.include_router(internal_case_attachments_router)
     app.include_router(internal_cases_router)
+    app.include_router(internal_deduplicate_router)
     app.include_router(internal_case_rows_router)
     app.include_router(internal_comments_router)
     app.include_router(internal_case_tags_router)
@@ -537,7 +553,7 @@ def create_app(**kwargs) -> FastAPI:
             fastapi_users.get_oauth_router(
                 oauth_client,
                 auth_backend,
-                config.USER_AUTH_SECRET,
+                get_user_auth_secret(),
                 # XXX(security): See https://fastapi-users.github.io/fastapi-users/13.0/configuration/oauth/#existing-account-association
                 associate_by_email=True,
                 is_verified_by_default=True,
@@ -572,6 +588,7 @@ def create_app(**kwargs) -> FastAPI:
     )
     app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)
     app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
+    app.add_exception_handler(HTTPException, http_exception_handler)
 
     # Middleware
     # Add authorization cache middleware first so it's available for all requests
@@ -659,7 +676,7 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
 
 
 @app.get("/health", tags=["public"])
-def check_health() -> HealthResponse:
+async def check_health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 

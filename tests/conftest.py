@@ -605,6 +605,86 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "implementation": create_case_impl,
             }
 
+            # core.cases.create_task (case add-on gated)
+            create_task_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.ee.tasks",
+                "name": "create_task",
+            }
+            manifest_actions["core.cases.create_task"] = {
+                "namespace": "core.cases",
+                "name": "create_task",
+                "action_type": "udf",
+                "description": "Create a case task",
+                "default_title": "Create task",
+                "display_group": "Cases",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": create_task_impl,
+                "options": {"required_entitlements": ["case_addons"]},
+            }
+
+            # core.cases.get_case_metrics (case add-on gated)
+            get_case_metrics_impl = {
+                "type": "udf",
+                "url": origin,
+                "module": "tracecat_registry.core.ee.durations",
+                "name": "get_case_metrics",
+            }
+            manifest_actions["core.cases.get_case_metrics"] = {
+                "namespace": "core.cases",
+                "name": "get_case_metrics",
+                "action_type": "udf",
+                "description": "Get case metrics",
+                "default_title": "Get case metrics",
+                "display_group": "Cases",
+                "interface": {"expects": {}, "returns": None},
+                "implementation": get_case_metrics_impl,
+                "options": {"required_entitlements": ["case_addons"]},
+            }
+
+            # ai.agent preset CRUD actions (agent add-on gated)
+            agent_preset_actions = {
+                "create_preset": {
+                    "description": "Create an agent preset",
+                    "default_title": "Create agent preset",
+                },
+                "get_preset": {
+                    "description": "Get an agent preset",
+                    "default_title": "Get agent preset",
+                },
+                "list_presets": {
+                    "description": "List agent presets",
+                    "default_title": "List agent presets",
+                },
+                "update_preset": {
+                    "description": "Update an agent preset",
+                    "default_title": "Update agent preset",
+                },
+                "delete_preset": {
+                    "description": "Delete an agent preset",
+                    "default_title": "Delete agent preset",
+                },
+            }
+            for action_name, metadata in agent_preset_actions.items():
+                preset_impl = {
+                    "type": "udf",
+                    "url": origin,
+                    "module": "tracecat_registry.core.presets",
+                    "name": action_name,
+                }
+                manifest_actions[f"ai.agent.{action_name}"] = {
+                    "namespace": "ai.agent",
+                    "name": action_name,
+                    "action_type": "udf",
+                    "description": metadata["description"],
+                    "default_title": metadata["default_title"],
+                    "display_group": "Agent Presets",
+                    "interface": {"expects": {}, "returns": None},
+                    "implementation": preset_impl,
+                    "options": {"required_entitlements": ["agent_addons"]},
+                }
+
             # core.table.lookup
             table_lookup_impl = {
                 "type": "udf",
@@ -776,13 +856,15 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     RegistryVersion.version == version,
                 )
             )
+            fake_tarball_uri = "s3://test/test.tar.gz"
+
             if rv is None:
                 rv = RegistryVersion(
                     organization_id=TEST_ORG_ID,
                     repository_id=repo.id,
                     version=version,
                     manifest=manifest,
-                    tarball_uri="s3://test/test.tar.gz",
+                    tarball_uri=fake_tarball_uri,
                 )
                 session.add(rv)
                 try:
@@ -802,7 +884,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     session.refresh(rv)
             else:
                 rv.manifest = manifest
-                rv.tarball_uri = "s3://test/test.tar.gz"
+                rv.tarball_uri = fake_tarball_uri
                 session.commit()
 
             # Set current_version_id on the repository for lock resolution
@@ -853,7 +935,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     repository_id=platform_repo.id,
                     version=version,
                     manifest=manifest,
-                    tarball_uri="s3://test/test.tar.gz",
+                    tarball_uri=fake_tarball_uri,
                 )
                 session.add(platform_rv)
                 try:
@@ -872,11 +954,31 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     session.refresh(platform_rv)
             else:
                 platform_rv.manifest = manifest
-                platform_rv.tarball_uri = "s3://test/test.tar.gz"
+                platform_rv.tarball_uri = fake_tarball_uri
                 session.commit()
 
-            platform_repo.current_version_id = platform_rv.id
-            session.commit()
+            # Do not replace an already-selected live platform registry version.
+            # Integration tests run against Docker services that sync a real
+            # builtin tarball; clobbering it with this fixture's fake tarball can
+            # make unrelated workflow executions try to download s3://test/test.tar.gz.
+            current_platform_version = (
+                session.scalar(
+                    select(PlatformRegistryVersion).where(
+                        PlatformRegistryVersion.id == platform_repo.current_version_id
+                    )
+                )
+                if platform_repo.current_version_id is not None
+                else None
+            )
+            if _should_select_fixture_platform_current(
+                sync_db_uri,
+                current_version=current_platform_version.version
+                if current_platform_version is not None
+                else None,
+                fixture_version=version,
+            ):
+                platform_repo.current_version_id = platform_rv.id
+                session.commit()
 
             # Create PlatformRegistryIndex entries for each action in the manifest
             # This is required for get_actions_from_index to work in agent tools
@@ -936,6 +1038,24 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
 
     yield
     # No cleanup needed - the database is dropped at the end of the session
+
+
+def _should_select_fixture_platform_current(
+    sync_db_uri: str,
+    *,
+    current_version: str | None,
+    fixture_version: str,
+) -> bool:
+    """Return whether the fixture platform version should be current.
+
+    The fake fixture tarball is safe as the selected version when no platform
+    current exists yet. The shared/default DB may also be used by live executor
+    services, so preserve any existing live current selection instead of
+    clobbering it with the fixture version.
+    """
+    if sync_db_uri == TEST_DB_CONFIG.test_url_sync:
+        return True
+    return current_version is None or current_version == fixture_version
 
 
 @pytest.fixture(scope="function")
@@ -1059,6 +1179,8 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
     monkeysession.setenv("TRACECAT__SERVICE_KEY", os.environ["TRACECAT__SERVICE_KEY"])
     monkeysession.setenv("TRACECAT__SIGNING_SECRET", "test-signing-secret")
+    monkeysession.setenv("USER_AUTH_SECRET", "test-user-auth-secret")
+    monkeysession.setattr(config, "USER_AUTH_SECRET", "test-user-auth-secret")
     monkeysession.setenv("TEMPORAL__CLUSTER_URL", f"http://{temporal_host}:7233")
     monkeysession.setenv("TEMPORAL__CLUSTER_NAMESPACE", "default")
     # Use worker-specific task queues for pytest-xdist isolation

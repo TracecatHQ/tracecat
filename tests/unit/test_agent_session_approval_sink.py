@@ -13,8 +13,9 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
+from tracecat.chat.enums import MessageKind
 from tracecat.chat.schemas import ApprovalDecision, BasicChatRequest, ContinueRunRequest
-from tracecat.db.models import AgentSession, Approval
+from tracecat.db.models import AgentSession, AgentSessionHistory, Approval
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -134,6 +135,49 @@ async def test_has_pending_approvals_reflects_status(
     await session.commit()
 
     assert await service.has_pending_approvals(external_agent_session.id) is False
+
+
+@pytest.mark.anyio
+async def test_list_messages_preserves_compaction_metadata(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    agent_session = AgentSession(
+        id=uuid.uuid4(),
+        title="Compaction chat",
+        workspace_id=svc_role.workspace_id,
+        entity_type=AgentSessionEntity.AGENT_PRESET.value,
+        entity_id=uuid.uuid4(),
+    )
+    session.add(agent_session)
+    await session.flush()
+
+    session.add(
+        AgentSessionHistory(
+            session_id=agent_session.id,
+            workspace_id=svc_role.workspace_id,
+            kind=MessageKind.COMPACTION.value,
+            content={
+                "type": "system",
+                "subtype": "compact_boundary",
+                "compactMetadata": {
+                    "preTokens": 128000,
+                    "trigger": "auto",
+                },
+            },
+        )
+    )
+    await session.commit()
+
+    service = AgentSessionService(session=session, role=svc_role)
+    messages = await service.list_messages(agent_session.id)
+
+    assert len(messages) == 1
+    assert messages[0].kind == MessageKind.COMPACTION
+    assert messages[0].compaction == {
+        "phase": "completed",
+        "pre_tokens": 128000,
+    }
 
 
 @pytest.mark.anyio

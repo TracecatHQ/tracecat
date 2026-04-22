@@ -58,6 +58,77 @@ async def test_case_trigger_consumer_matches_event_type(
     assert unmatched == []
 
 
+@pytest.mark.anyio
+async def test_case_trigger_consumer_matches_status_changed_aliases(
+    session: AsyncSession, svc_role
+):
+    status_workflow = Workflow(
+        title="Status Trigger Alias",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    closed_workflow = Workflow(
+        title="Closed Trigger Alias",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    reopened_workflow = Workflow(
+        title="Reopened Trigger Alias",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add_all([status_workflow, closed_workflow, reopened_workflow])
+    await session.flush()
+
+    status_trigger = CaseTrigger(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=status_workflow.id,
+        status="online",
+        event_types=["status_changed"],
+        tag_filters=[],
+    )
+    closed_trigger = CaseTrigger(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=closed_workflow.id,
+        status="online",
+        event_types=["case_closed"],
+        tag_filters=[],
+    )
+    reopened_trigger = CaseTrigger(
+        workspace_id=svc_role.workspace_id,
+        workflow_id=reopened_workflow.id,
+        status="online",
+        event_types=["case_reopened"],
+        tag_filters=[],
+    )
+    session.add_all([status_trigger, closed_trigger, reopened_trigger])
+    await session.commit()
+
+    closed_matches = await CaseTriggerConsumer(client=AsyncMock())._load_triggers(
+        session, svc_role.workspace_id, "case_closed"
+    )
+    assert {trigger.id for trigger in closed_matches} == {
+        status_trigger.id,
+        closed_trigger.id,
+    }
+
+    reopened_matches = await CaseTriggerConsumer(client=AsyncMock())._load_triggers(
+        session, svc_role.workspace_id, "case_reopened"
+    )
+    assert {trigger.id for trigger in reopened_matches} == {
+        status_trigger.id,
+        reopened_trigger.id,
+    }
+
+    status_matches = await CaseTriggerConsumer(client=AsyncMock())._load_triggers(
+        session, svc_role.workspace_id, "status_changed"
+    )
+    assert {trigger.id for trigger in status_matches} == {status_trigger.id}
+
+
 def _build_role(workspace_id: uuid.UUID) -> Role:
     return Role(
         type="service",
@@ -362,6 +433,48 @@ async def test_process_explicit_workflow_commits_before_setting_done_key():
     client.set.assert_awaited_once()
 
 
+def test_build_explicit_comment_payload_includes_reply_context() -> None:
+    consumer = CaseTriggerConsumer(client=AsyncMock())
+    case = cast(
+        Case,
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            tags=[],
+        ),
+    )
+    event = cast(
+        CaseEvent,
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            created_at=None,
+            type="comment_reply_created",
+            user_id=uuid.uuid4(),
+        ),
+    )
+    comment_id = uuid.uuid4()
+    parent_id = uuid.uuid4()
+
+    payload = consumer._build_explicit_comment_payload(
+        case=case,
+        event=event,
+        fields={
+            "comment": "Reply workflow",
+            "parent_id": str(parent_id),
+            "triggered_by_type": "user",
+        },
+        comment_id=comment_id,
+    )
+
+    assert payload["case_id"] == str(case.id)
+    assert payload["comment"] == "Reply workflow"
+    assert payload["comment_id"] == str(comment_id)
+    assert payload["parent_id"] == str(parent_id)
+    assert payload["thread_root_id"] == str(parent_id)
+    assert payload["is_reply"] is True
+    assert payload["text"] == "Reply workflow"
+
+
 @pytest.mark.anyio
 async def test_dispatch_selected_workflow_marks_comment_failed_on_start_error(
     session: AsyncSession,
@@ -574,6 +687,14 @@ async def test_dispatch_selected_workflow_treats_already_started_as_success(
 
     assert processed is True
     exec_service.create_workflow_execution_wait_for_start.assert_awaited_once()
+    payload = exec_service.create_workflow_execution_wait_for_start.await_args.kwargs[
+        "payload"
+    ]
+    assert payload["comment"] == "Replay this workflow"
+    assert payload["comment_id"] == str(comment.id)
+    assert payload["parent_id"] is None
+    assert payload["thread_root_id"] == str(comment.id)
+    assert payload["is_reply"] is False
 
     await session.refresh(comment)
     persisted = comment

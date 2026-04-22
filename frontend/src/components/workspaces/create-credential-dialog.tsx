@@ -224,7 +224,7 @@ const createSecretSchema = z
       .string()
       .nullable()
       .transform((val) => val || "default"), // "default" if null or empty
-    type: z.enum(["custom", "ssh-key", "mtls", "ca-cert"]).default("custom"),
+    type: z.enum(["custom", "ssh_key", "mtls", "ca_cert"]).default("custom"),
     keys: z
       .array(
         z.object({
@@ -268,7 +268,7 @@ const createSecretSchema = z
       })
     }
 
-    if (values.type === "ssh-key") {
+    if (values.type === "ssh_key") {
       validatePemField(
         values.private_key,
         ctx,
@@ -298,7 +298,7 @@ const createSecretSchema = z
       )
     }
 
-    if (values.type === "ca-cert") {
+    if (values.type === "ca_cert") {
       validatePemField(
         values.ca_certificate,
         ctx,
@@ -365,6 +365,19 @@ export function CreateCredentialDialog({
   React.useEffect(() => {
     if (!open) return
     if (selectedTool) {
+      // Use the declared secret_type from the template definition, narrowed
+      // to the form-supported subset (excludes github_app).
+      const declaredType = selectedTool.secret_type ?? "custom"
+      const formTypes = new Set<string>([
+        "custom",
+        "ssh_key",
+        "mtls",
+        "ca_cert",
+      ])
+      const effectiveType = (
+        formTypes.has(declaredType) ? declaredType : "custom"
+      ) as "custom" | "ssh_key" | "mtls" | "ca_cert"
+
       const initialKeys = [
         ...(selectedTool.keys || []).map((key) => ({
           key,
@@ -382,7 +395,7 @@ export function CreateCredentialDialog({
         name: selectedTool.name,
         description: "",
         environment: "default",
-        type: "custom",
+        type: effectiveType,
         keys: initialKeys.length > 0 ? initialKeys : [{ key: "", value: "" }],
         private_key: "",
         tls_certificate: "",
@@ -462,7 +475,7 @@ export function CreateCredentialDialog({
     let secretKeys: { key: string; value: string }[] = []
 
     switch (type) {
-      case "ssh-key":
+      case "ssh_key":
         secretKeys = [{ key: "PRIVATE_KEY", value: private_key || "" }]
         break
       case "mtls":
@@ -471,7 +484,7 @@ export function CreateCredentialDialog({
           { key: "TLS_PRIVATE_KEY", value: tls_private_key || "" },
         ]
         break
-      case "ca-cert":
+      case "ca_cert":
         secretKeys = [{ key: "CA_CERTIFICATE", value: ca_certificate || "" }]
         break
       default:
@@ -642,7 +655,7 @@ export function CreateCredentialDialog({
                               Key-value pair
                             </span>
                           </SelectItem>
-                          <SelectItem value="ssh-key">
+                          <SelectItem value="ssh_key">
                             <span className="flex items-center gap-2">
                               <FileKey2 className="size-4" />
                               SSH private key
@@ -654,7 +667,7 @@ export function CreateCredentialDialog({
                               mTLS certificate + key
                             </span>
                           </SelectItem>
-                          <SelectItem value="ca-cert">
+                          <SelectItem value="ca_cert">
                             <span className="flex items-center gap-2">
                               <ShieldCheck className="size-4" />
                               CA certificate
@@ -832,7 +845,7 @@ export function CreateCredentialDialog({
                   )}
                 />
               )}
-              {secretType === "ssh-key" && (
+              {secretType === "ssh_key" && (
                 <SshPrivateKeyField
                   control={control}
                   register={register}
@@ -853,7 +866,7 @@ export function CreateCredentialDialog({
                   )}
                 </>
               )}
-              {secretType === "ca-cert" &&
+              {secretType === "ca_cert" &&
                 renderTextareaField(
                   "ca_certificate",
                   "CA certificate",

@@ -13,6 +13,7 @@ import {
   getFilterFieldKey,
   normalizeFilterValues,
 } from "@/components/cases/case-duration-dialog"
+import { isCaseDropdownEventType } from "@/components/cases/case-duration-options"
 
 interface UpdateCaseDurationDialogProps {
   open: boolean
@@ -25,6 +26,36 @@ interface UpdateCaseDurationDialogProps {
   isUpdating?: boolean
 }
 
+function extractAnchorFormValues(
+  anchor: CaseDurationDefinitionRead["start_anchor"]
+): CaseDurationFormValues["start"] {
+  if (isCaseDropdownEventType(anchor.event_type)) {
+    const defId = anchor.field_filters?.["data.definition_id"]
+    const optionIds = normalizeFilterValues(
+      anchor.field_filters?.["data.new_option_id"]
+    )
+    return {
+      selection: anchor.selection ?? "first",
+      eventType: anchor.event_type,
+      filterValues: [],
+      dropdownDefinitionId: typeof defId === "string" ? defId : undefined,
+      dropdownOptionIds: optionIds,
+    }
+  }
+
+  const fieldKey = getFilterFieldKey(anchor.event_type)
+  const filterValues = normalizeFilterValues(
+    fieldKey ? anchor.field_filters?.[fieldKey] : undefined
+  )
+  return {
+    selection: anchor.selection ?? "first",
+    eventType: anchor.event_type,
+    filterValues,
+    dropdownDefinitionId: undefined,
+    dropdownOptionIds: [],
+  }
+}
+
 const getInitialValues = (
   duration: CaseDurationDefinitionRead | null
 ): CaseDurationFormValues | undefined => {
@@ -32,31 +63,11 @@ const getInitialValues = (
     return undefined
   }
 
-  const startFieldKey = getFilterFieldKey(duration.start_anchor.event_type)
-  const endFieldKey = getFilterFieldKey(duration.end_anchor.event_type)
-
-  const startFilters = normalizeFilterValues(
-    startFieldKey
-      ? duration.start_anchor.field_filters?.[startFieldKey]
-      : undefined
-  )
-  const endFilters = normalizeFilterValues(
-    endFieldKey ? duration.end_anchor.field_filters?.[endFieldKey] : undefined
-  )
-
   return {
     name: duration.name,
     description: duration.description ?? "",
-    start: {
-      selection: duration.start_anchor.selection ?? "first",
-      eventType: duration.start_anchor.event_type,
-      filterValues: startFilters,
-    },
-    end: {
-      selection: duration.end_anchor.selection ?? "first",
-      eventType: duration.end_anchor.event_type,
-      filterValues: endFilters,
-    },
+    start: extractAnchorFormValues(duration.start_anchor),
+    end: extractAnchorFormValues(duration.end_anchor),
   }
 }
 
@@ -80,11 +91,13 @@ export function UpdateCaseDurationDialog({
 
       const startFieldFilters = buildFieldFilters(
         values.start.eventType,
-        values.start.filterValues
+        values.start.filterValues,
+        values.start
       )
       const endFieldFilters = buildFieldFilters(
         values.end.eventType,
-        values.end.filterValues
+        values.end.filterValues,
+        values.end
       )
 
       const payload: CaseDurationDefinitionUpdate = {

@@ -4,6 +4,7 @@ import os
 import signal
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.worker import Worker
@@ -16,7 +17,6 @@ from tracecat import __version__ as APP_VERSION
 
 with workflow.unsafe.imports_passed_through():
     import sentry_sdk
-    from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
 
     from tracecat import config
     from tracecat.agent.preset.activities import (
@@ -146,7 +146,7 @@ async def main() -> None:
     )
 
     with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-        workflows: list[type] = [DSLWorkflow, DurableAgentWorkflow]
+        workflows: list[type] = [DSLWorkflow]
 
         async with Worker(
             client,
@@ -157,6 +157,7 @@ async def main() -> None:
             interceptors=interceptors,
             disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
             activity_executor=executor,
+            graceful_shutdown_timeout=timedelta(seconds=30),
         ):
             logger.info(
                 "Worker started, ctrl+c to exit",

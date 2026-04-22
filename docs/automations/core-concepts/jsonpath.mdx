@@ -1,0 +1,132 @@
+---
+title: "JSONPath"
+description: "Path access reference for Tracecat expressions."
+---
+
+## Overview
+
+JSONPath is used inside expression contexts such as `TRIGGER` and `ACTIONS.<ref>.result` to access nested fields and arrays.
+
+## Field access
+
+Use dot notation for nested fields.
+
+<CodeGroup>
+```yaml Expression
+theme: ${{ TRIGGER.data.settings.theme }}
+status: ${{ ACTIONS.fetch_alert.result.status }}
+```
+
+```json Result
+{
+  "theme": "dark",
+  "status": "open"
+}
+```
+</CodeGroup>
+
+Use quoted field names when the field contains special characters.
+
+<CodeGroup>
+```yaml Expression
+value: ${{ TRIGGER.data."alert.sample.data" }}
+dash_value: ${{ TRIGGER.data."field-with-dashes" }}
+```
+
+```json Result
+{
+  "value": "sample-1",
+  "dash_value": "ok"
+}
+```
+</CodeGroup>
+
+## Array access
+
+Use brackets to access array items.
+
+<CodeGroup>
+```yaml Expression
+first_item: ${{ TRIGGER.items[0] }}
+last_item: ${{ TRIGGER.items[-1] }}
+first_name: ${{ ACTIONS.lookup_users.result.users[0].name }}
+```
+
+```json Result
+{
+  "first_item": {"id": "a1"},
+  "last_item": {"id": "a3"},
+  "first_name": "Alice"
+}
+```
+</CodeGroup>
+
+## Wildcards
+
+Use `[*]` to select all items in an array.
+
+<CodeGroup>
+```yaml Expression
+ids: ${{ TRIGGER.items[*].id }}
+names: ${{ ACTIONS.lookup_users.result.users[*].name }}
+```
+
+```json Result
+{
+  "ids": ["a1", "a2", "a3"],
+  "names": ["Alice", "Bob", "Carol"]
+}
+```
+</CodeGroup>
+
+Wildcard expressions return a list.
+
+## Filters
+
+Use filters to select matching items.
+
+<CodeGroup>
+```yaml Expression
+active_users: ${{ ACTIONS.lookup_users.result.users[?(@.active == true)] }}
+high_scores: ${{ ACTIONS.lookup_users.result.users[?(@.score >= 90)] }}
+matching_alerts: ${{ TRIGGER.alerts[?(@.severity == "high")] }}
+```
+
+```json Result
+{
+  "active_users": [{"name": "Alice", "active": true}],
+  "high_scores": [{"name": "Alice", "score": 96}],
+  "matching_alerts": [{"id": "al-1", "severity": "high"}]
+}
+```
+</CodeGroup>
+
+Filter expressions return a list.
+
+## Missing fields
+
+Accessing a field that does not exist returns `None`. No error is raised.
+
+<CodeGroup>
+```yaml Expression
+value: ${{ ACTIONS.check_hash.result.id }}
+```
+
+```json Result (field does not exist)
+{
+  "value": null
+}
+```
+</CodeGroup>
+
+Guard against `None` with a null check before dereferencing deeper fields.
+
+```yaml
+run_if: ${{ ACTIONS.check_hash.result != None && ACTIONS.check_hash.result.id != None }}
+```
+
+## Related pages
+
+- See the [JSONPath cheatsheet](/cheatsheets/jsonpath) for detailed filter patterns, return behavior, and more examples.
+- See [Expressions](/automations/core-concepts/expressions) for expression syntax and contexts.
+- See [Functions](/automations/core-concepts/functions) for helper functions you can use alongside JSONPath access.

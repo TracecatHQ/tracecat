@@ -39,7 +39,7 @@ JAILED_CONTROL_SOCKET_PATH = Path("/var/run/tracecat/control.sock")
 """Path to the control socket inside the jail."""
 
 LLM_SOCKET_NAME = "llm.sock"
-"""Name of the LLM socket for proxied LiteLLM access."""
+"""Name of the LLM socket for proxied LLM gateway access."""
 
 JAILED_LLM_SOCKET_PATH = Path("/var/run/tracecat/llm.sock")
 """Path to the LLM socket inside the jail."""
@@ -60,3 +60,13 @@ TRACECAT__AGENT_LLM_SOCKET_PATH = Path(
     os.environ.get("TRACECAT__AGENT_LLM_SOCKET_PATH", str(JAILED_LLM_SOCKET_PATH))
 )
 """Path to the orchestrator LLM socket for the runtime bridge to connect to."""
+
+# === Managed LiteLLM defaults === #
+
+TRACECAT__LITELLM_PORT = int(os.environ.get("TRACECAT__LITELLM_PORT") or 4000)
+"""Bind port for the managed LiteLLM service."""
+
+TRACECAT__LITELLM_BASE_URL = os.environ.get(
+    "TRACECAT__LITELLM_BASE_URL", f"http://127.0.0.1:{TRACECAT__LITELLM_PORT}"
+)
+"""Internal base URL for the managed LiteLLM service."""

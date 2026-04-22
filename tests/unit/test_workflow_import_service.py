@@ -18,6 +18,7 @@ from tracecat.db.models import (
 from tracecat.dsl.common import DSLConfig, DSLEntrypoint, DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
+from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
 from tracecat.workflow.case_triggers.service import CaseTriggersService
@@ -365,6 +366,71 @@ class TestWorkflowImportService:
         definitions = result.scalars().all()
         assert len(definitions) == 2  # Original + updated
         assert definitions[0].version == 2  # Latest version
+
+    @pytest.mark.anyio
+    async def test_import_workflow_overwrite_refreshes_runtime_metadata(
+        self,
+        import_service: WorkflowImportService,
+        remote_workflow_definition: RemoteWorkflowDefinition,
+        session: AsyncSession,
+    ) -> None:
+        """Overwrite should refresh runtime-relevant draft workflow metadata."""
+        initial_dsl = remote_workflow_definition.definition.model_copy(deep=True)
+        initial_dsl.entrypoint = DSLEntrypoint(
+            ref="test_action",
+            expects={
+                "old_input": ExpectedField(type="str", description="Old input"),
+            },
+        )
+        initial_dsl.returns = "${{ ACTIONS.second_action.result }}"
+        initial_dsl.config = DSLConfig(environment="default", timeout=300)
+        initial_dsl.error_handler = "old_error_handler"
+
+        initial_remote = remote_workflow_definition.model_copy(deep=True)
+        initial_remote.definition = initial_dsl
+
+        first_result = await import_service.import_workflows_atomic(
+            remote_workflows=[initial_remote],
+            commit_sha="abc123",
+        )
+        assert first_result.success is True
+
+        updated_dsl = initial_dsl.model_copy(deep=True)
+        updated_dsl.entrypoint = DSLEntrypoint(
+            ref="second_action",
+            expects={
+                "new_input": ExpectedField(type="int", description="New input"),
+            },
+        )
+        updated_dsl.returns = {"wrapped": "${{ ACTIONS.second_action.result }}"}
+        updated_dsl.config = DSLConfig(environment="staging", timeout=900)
+        updated_dsl.error_handler = "new_error_handler"
+
+        updated_remote = remote_workflow_definition.model_copy(deep=True)
+        updated_remote.definition = updated_dsl
+
+        second_result = await import_service.import_workflows_atomic(
+            remote_workflows=[updated_remote],
+            commit_sha="def456",
+        )
+        assert second_result.success is True
+
+        wf_id = WorkflowUUID.new("wf_testworkflow001")
+        stmt = select(Workflow).where(Workflow.id == wf_id)
+        result = await session.execute(stmt)
+        workflow = result.scalars().first()
+        assert workflow is not None
+
+        assert workflow.expects == updated_dsl.entrypoint.model_dump().get("expects")
+        assert workflow.returns == updated_dsl.returns
+        assert workflow.config == updated_dsl.config.model_dump()
+        assert workflow.error_handler == "new_error_handler"
+
+        built_dsl = await import_service.wf_mgmt.build_dsl_from_workflow(workflow)
+        assert built_dsl.entrypoint.expects == updated_dsl.entrypoint.expects
+        assert built_dsl.returns == updated_dsl.returns
+        assert built_dsl.config == updated_dsl.config
+        assert built_dsl.error_handler == "new_error_handler"
 
     @pytest.mark.anyio
     async def test_import_workflow_overwrite_default_behavior(

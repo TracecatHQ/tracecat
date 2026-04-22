@@ -39,9 +39,9 @@ def test_main_minimal_suppresses_action_stdout_and_stderr(monkeypatch) -> None:
                     "module": "test_module",
                     "name": "noisy_action",
                 },
-                "secrets": {},
                 "evaluated_args": {},
-            }
+            },
+            "secret_env": {},
         }
     )
 
@@ -72,9 +72,9 @@ def test_main_minimal_returns_structured_error_for_action_exceptions(
                     "module": "test_module",
                     "name": "boom_action",
                 },
-                "secrets": {},
                 "evaluated_args": {},
-            }
+            },
+            "secret_env": {},
         }
     )
 
@@ -91,6 +91,181 @@ def test_capped_text_buffer_limits_memory_growth() -> None:
     assert written == 8
     assert buf.getvalue() == "abcde"
     assert buf.truncated is True
+
+
+def test_main_minimal_masks_secrets_in_suppressed_output(monkeypatch) -> None:
+    """Regression: secrets printed by actions must be masked in suppressed output notices."""
+    test_module: Any = types.ModuleType("test_module")
+
+    def leaky_action() -> dict[str, str]:
+        print(
+            "key=AKIAIOSFODNN7EXAMPLE token=IQoJb3JpZ2luX2VjEBAReallyLongSessionToken"
+        )
+        return {"ok": "yes"}
+
+    test_module.leaky_action = leaky_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    warnings_emitted: list[str] = []
+    monkeypatch.setattr(
+        minimal_runner.warnings,
+        "warn",
+        lambda msg, *a, **kw: warnings_emitted.append(msg),
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "leaky_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {
+                "AWS_ACCESS_KEY_ID": "AKIAIOSFODNN7EXAMPLE",
+                "AWS_SESSION_TOKEN": "IQoJb3JpZ2luX2VjEBAReallyLongSessionToken",
+            },
+        }
+    )
+
+    assert result == {"success": True, "result": {"ok": "yes"}}
+    assert len(warnings_emitted) == 1
+    assert "AKIAIOSFODNN7EXAMPLE" not in warnings_emitted[0]
+    assert "IQoJb3JpZ2luX2VjEBAReallyLongSessionToken" not in warnings_emitted[0]
+    assert "***" in warnings_emitted[0]
+
+
+def test_main_minimal_masks_non_string_secret_env_values(monkeypatch) -> None:
+    test_module: Any = types.ModuleType("test_module")
+
+    def leaky_action() -> dict[str, str]:
+        print("port=443 enabled=True")
+        return {"ok": "yes"}
+
+    test_module.leaky_action = leaky_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    warnings_emitted: list[str] = []
+    monkeypatch.setattr(
+        minimal_runner.warnings,
+        "warn",
+        lambda msg, *a, **kw: warnings_emitted.append(msg),
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "leaky_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {
+                "PORT": 443,
+                "ENABLED": True,
+            },
+        }
+    )
+
+    assert result == {"success": True, "result": {"ok": "yes"}}
+    assert len(warnings_emitted) == 1
+    assert "443" not in warnings_emitted[0]
+    assert "True" not in warnings_emitted[0]
+    assert warnings_emitted[0].count("***") == 2
+
+
+def test_main_minimal_stringifies_secret_env_for_registry_context(monkeypatch) -> None:
+    test_module: Any = types.ModuleType("test_module")
+
+    def secret_action() -> dict[str, str]:
+        from tracecat_registry._internal import secrets
+
+        return {
+            "port": secrets.get("PORT").strip(),
+            "enabled": secrets.get("ENABLED").strip(),
+        }
+
+    test_module.secret_action = secret_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "secret_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {
+                "PORT": 443,
+                "ENABLED": True,
+            },
+        }
+    )
+
+    assert result == {
+        "success": True,
+        "result": {"port": "443", "enabled": "True"},
+    }
+
+
+def test_main_minimal_errors_when_secret_value_stringify_fails(monkeypatch) -> None:
+    test_module: Any = types.ModuleType("test_module")
+
+    def quiet_action() -> dict[str, str]:
+        return {"ok": "yes"}
+
+    class BrokenSecret:
+        def __str__(self) -> str:
+            raise RuntimeError("broken __str__")
+
+    test_module.quiet_action = quiet_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "quiet_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {"BROKEN": BrokenSecret()},
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "TypeError"
+    assert "BROKEN" in result["error"]["message"]
+    assert "BrokenSecret" in result["error"]["message"]
 
 
 def test_main_minimal_still_succeeds_when_warnings_raise(monkeypatch) -> None:
@@ -123,9 +298,9 @@ def test_main_minimal_still_succeeds_when_warnings_raise(monkeypatch) -> None:
                     "module": "test_module",
                     "name": "noisy_action",
                 },
-                "secrets": {},
                 "evaluated_args": {},
-            }
+            },
+            "secret_env": {},
         }
     )
 

@@ -72,6 +72,14 @@ resource "aws_security_group" "caddy" {
     self        = true
   }
 
+  ingress {
+    description = "Allow Caddy to forward traffic to MCP service"
+    protocol    = "tcp"
+    from_port   = 8099
+    to_port     = 8099
+    self        = true
+  }
+
   egress {
     protocol    = "-1"
     from_port   = 0
@@ -109,6 +117,14 @@ resource "aws_security_group" "core" {
     description = "Allow internal traffic to the Temporal server on port 7233"
     from_port   = 7233
     to_port     = 7233
+    protocol    = "tcp"
+    self        = true
+  }
+
+  ingress {
+    description = "Allow internal traffic to the LiteLLM gateway on port 4000"
+    from_port   = 4000
+    to_port     = 4000
     protocol    = "tcp"
     self        = true
   }

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterator
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tracecat.auth.types import Role
+from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import Base
 from tracecat.db.tenant_rls import (
     ALL_TENANT_RLS_TABLES,
@@ -13,6 +17,7 @@ from tracecat.db.tenant_rls import (
     SPECIAL_WORKSPACE_POLICY_TABLES,
     WORKSPACE_POLICY_TABLES,
 )
+from tracecat.tables.service import TablesService
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -79,4 +84,28 @@ def test_tenant_rls_registry_contains_only_mapped_tables() -> None:
     assert not stale_registry_entries, (
         "Tenant RLS registry contains tables that are not mapped in SQLAlchemy: "
         f"{sorted(stale_registry_entries)}"
+    )
+
+
+def test_dynamic_workspace_rls_targets_workspace_scoped_schemas() -> None:
+    session = AsyncMock()
+    session.sync_session = MagicMock()
+    session.sync_session.info = {}
+    role = Role(
+        type="service",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=None,
+        service_id="tracecat-service",
+    )
+
+    tables_service = TablesService(session=session, role=role)
+    case_fields_service = CaseFieldsService(session=session, role=role)
+
+    assert tables_service._get_schema_name().startswith("tables_")
+    assert tables_service._full_table_name("alerts").startswith('"tables_')
+    assert case_fields_service.schema_name.startswith("custom_fields_")
+    assert (
+        case_fields_service._table_definition().schema
+        == case_fields_service.schema_name
     )

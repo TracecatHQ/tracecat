@@ -5,20 +5,27 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.db.models import Organization
+from tracecat.db.models import Organization, RegistryRepository
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
     RegistryActionOptions,
     RegistryActionUDFImpl,
 )
-from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.constants import (
+    DEFAULT_REGISTRY_ORIGIN,
+    REGISTRY_GIT_SSH_KEY_SECRET_NAME,
+)
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.sync.base_service import ArtifactsBuildResult
-from tracecat.registry.sync.service import RegistrySyncService
+from tracecat.registry.sync.runner import RegistrySyncValidationError
+from tracecat.registry.sync.service import RegistrySyncError, RegistrySyncService
 from tracecat.registry.versions.service import RegistryVersionsService
 
 
@@ -91,9 +98,15 @@ async def test_sync_creates_collision_version_for_manifest_changes(
     mocker.patch(
         "tracecat.registry.sync.base_service.fetch_actions_from_subprocess",
         side_effect=[
-            SimpleNamespace(actions=first_actions, commit_sha=None),
-            SimpleNamespace(actions=second_actions, commit_sha=None),
-            SimpleNamespace(actions=second_actions, commit_sha=None),
+            SimpleNamespace(
+                actions=first_actions, commit_sha=None, validation_errors={}
+            ),
+            SimpleNamespace(
+                actions=second_actions, commit_sha=None, validation_errors={}
+            ),
+            SimpleNamespace(
+                actions=second_actions, commit_sha=None, validation_errors={}
+            ),
         ],
     )
 
@@ -138,3 +151,153 @@ async def test_sync_creates_collision_version_for_manifest_changes(
     versions_service = RegistryVersionsService(session, role)
     versions = await versions_service.list_versions(repository_id=repo.id)
     assert len(versions) == 2
+
+
+@pytest.mark.anyio
+async def test_sync_via_temporal_matches_validation_application_error_before_cause_walk(
+    session: AsyncSession,
+    mock_org_id: uuid.UUID,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", True)
+
+    session.add(
+        Organization(
+            id=mock_org_id,
+            name="Sync Test Org",
+            slug=f"sync-test-{mock_org_id.hex[:8]}",
+            is_active=True,
+        )
+    )
+    await session.flush()
+
+    role = Role(
+        type="service",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-runner",
+    )
+
+    repos_service = RegistryReposService(session, role)
+    repo = await repos_service.create_repository(
+        RegistryRepositoryCreate(origin=DEFAULT_REGISTRY_ORIGIN)
+    )
+
+    validation_error = RegistrySyncValidationError(
+        {
+            "tracecat.examples.broken": [],
+        }
+    )
+    try:
+        raise ApplicationError(
+            str(validation_error),
+            non_retryable=True,
+            type="RegistrySyncValidationError",
+        ) from validation_error
+    except ApplicationError as app_error:
+        workflow_error = WorkflowFailureError(cause=app_error)
+
+    mock_client = mocker.Mock()
+    mock_client.execute_workflow = mocker.AsyncMock(side_effect=workflow_error)
+    mocker.patch(
+        "tracecat.dsl.client.get_temporal_client",
+        mocker.AsyncMock(return_value=mock_client),
+    )
+
+    sync_service = RegistrySyncService(session, role)
+
+    with pytest.raises(
+        RegistrySyncError,
+        match="RegistrySyncValidationError: Registry sync validation failed",
+    ) as exc_info:
+        await sync_service.sync_repository_v2(repo, commit=False)
+
+    assert "workflow failed" not in str(exc_info.value).lower()
+
+
+@pytest.mark.anyio
+async def test_sync_via_temporal_git_requires_registry_ssh_key_before_workflow(
+    mock_org_id: uuid.UUID,
+    mocker,
+) -> None:
+    role = Role(
+        type="service",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-runner",
+    )
+
+    session = mocker.Mock(spec=AsyncSession)
+    repo = RegistryRepository(
+        id=uuid.uuid4(),
+        origin="git+ssh://git@github.com/TracecatHQ/internal-registry.git",
+        organization_id=mock_org_id,
+        current_version_id=None,
+    )
+
+    mock_client = mocker.Mock()
+    mock_client.execute_workflow = mocker.AsyncMock()
+    get_temporal_client = mocker.patch(
+        "tracecat.dsl.client.get_temporal_client",
+        mocker.AsyncMock(return_value=mock_client),
+    )
+    get_org_secret_by_name = mocker.patch(
+        "tracecat.registry.sync.base_service.SecretsService.get_org_secret_by_name",
+        mocker.AsyncMock(side_effect=TracecatNotFoundError("missing")),
+    )
+    get_ssh_key = mocker.patch(
+        "tracecat.registry.sync.base_service.SecretsService.get_ssh_key",
+        mocker.AsyncMock(),
+    )
+
+    sync_service = RegistrySyncService(session, role)
+
+    with pytest.raises(RegistrySyncError, match=REGISTRY_GIT_SSH_KEY_SECRET_NAME):
+        await sync_service._sync_via_temporal_workflow(repo, commit=False)
+
+    get_org_secret_by_name.assert_awaited_once_with(REGISTRY_GIT_SSH_KEY_SECRET_NAME)
+    get_ssh_key.assert_not_awaited()
+    get_temporal_client.assert_not_awaited()
+    mock_client.execute_workflow.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_sync_via_temporal_git_preserves_unexpected_secret_check_error(
+    mock_org_id: uuid.UUID,
+    mocker,
+) -> None:
+    role = Role(
+        type="service",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-runner",
+    )
+
+    session = mocker.Mock(spec=AsyncSession)
+    repo = RegistryRepository(
+        id=uuid.uuid4(),
+        origin="git+ssh://git@github.com/TracecatHQ/internal-registry.git",
+        organization_id=mock_org_id,
+        current_version_id=None,
+    )
+
+    get_temporal_client = mocker.patch(
+        "tracecat.dsl.client.get_temporal_client",
+        mocker.AsyncMock(),
+    )
+    get_org_secret_by_name = mocker.patch(
+        "tracecat.registry.sync.base_service.SecretsService.get_org_secret_by_name",
+        mocker.AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    sync_service = RegistrySyncService(session, role)
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await sync_service._sync_via_temporal_workflow(repo, commit=False)
+
+    get_org_secret_by_name.assert_awaited_once_with(REGISTRY_GIT_SSH_KEY_SECRET_NAME)
+    get_temporal_client.assert_not_awaited()

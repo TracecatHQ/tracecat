@@ -1,4 +1,3 @@
-import os
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar
@@ -10,6 +9,7 @@ from authlib.oauth2.rfc7636 import create_s256_code_challenge
 from pydantic import BaseModel, SecretStr, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import OAuthIntegration
@@ -112,7 +112,7 @@ def encryption_key(monkeypatch: pytest.MonkeyPatch) -> str:
     from cryptography.fernet import Fernet
 
     key = Fernet.generate_key().decode()
-    monkeypatch.setenv("TRACECAT__DB_ENCRYPTION_KEY", key)
+    monkeypatch.setattr(config, "TRACECAT__DB_ENCRYPTION_KEY", key)
     return key
 
 
@@ -1001,7 +1001,7 @@ class TestIntegrationService:
 
         # Create service with first encryption key
         key1 = Fernet.generate_key().decode()
-        with patch.dict(os.environ, {"TRACECAT__DB_ENCRYPTION_KEY": key1}):
+        with patch.object(config, "TRACECAT__DB_ENCRYPTION_KEY", key1):
             service1 = IntegrationService(session=session, role=svc_role)
 
             # Store integration
@@ -1016,7 +1016,7 @@ class TestIntegrationService:
 
         # Create service with different encryption key
         key2 = Fernet.generate_key().decode()
-        with patch.dict(os.environ, {"TRACECAT__DB_ENCRYPTION_KEY": key2}):
+        with patch.object(config, "TRACECAT__DB_ENCRYPTION_KEY", key2):
             service2 = IntegrationService(session=session, role=svc_role)
 
             # Attempt to decrypt with wrong key should raise error

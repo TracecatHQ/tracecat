@@ -5,10 +5,9 @@ import {
   BotIcon,
   BoxIcon,
   ChevronDown,
-  InboxIcon,
   KeyRound,
   LayersIcon,
-  LayersPlus,
+  ListChecksIcon,
   ListVideoIcon,
   type LucideIcon,
   Plus,
@@ -23,7 +22,10 @@ import type * as React from "react"
 import { useEffect, useRef, useState } from "react"
 import type { AgentPresetReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
+import {
+  LockedFeatureChip,
+  LockedFeatureModal,
+} from "@/components/locked-feature-modal"
 import { AppMenu } from "@/components/sidebar/app-menu"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import { Button } from "@/components/ui/button"
@@ -70,9 +72,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const caseId = params?.caseId
   const casesListPath = `${basePath}/cases`
   const isCasesList = pathname === casesListPath
-  const { hasEntitlement } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
-  const [createCaseDialogOpen, setCreateCaseDialogOpen] = useState(false)
+  const isAgentsRoute = pathname?.startsWith(`${basePath}/agents`) ?? false
+  const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
+  const [agentsSectionOpen, setAgentsSectionOpen] = useState(isAgentsRoute)
 
   useEffect(() => {
     setSidebarOpenRef.current = setSidebarOpen
@@ -113,10 +115,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewMembers = useScopeCheck("workspace:member:read")
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewCases = useScopeCheck("case:read")
-  const canCreateCase = useScopeCheck("case:create")
-  const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
-    enabled: agentAddonsEnabled && canViewAgents === true,
+  const shouldLoadAgentsSection =
+    canViewAgents === true && (agentsSectionOpen || isAgentsRoute)
+  const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
+    enabled: shouldLoadAgentsSection,
   })
+  const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const { presets, presetsIsLoading } = useAgentPresets(workspaceId, {
+    enabled: shouldLoadAgentsSection && agentAddonsEnabled,
+  })
+
+  useEffect(() => {
+    if (isAgentsRoute) {
+      setAgentsSectionOpen(true)
+    }
+  }, [isAgentsRoute])
 
   const openNewAgentBuilder = () => {
     router.push(`${basePath}/agents/new`)
@@ -128,13 +141,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/workflows`,
       icon: WorkflowIcon,
       isActive: pathname?.startsWith(`${basePath}/workflows`),
-      visible: canViewWorkflows === true,
-    },
-    {
-      title: "Runs",
-      url: `${basePath}/runs`,
-      icon: ListVideoIcon,
-      isActive: pathname?.startsWith(`${basePath}/runs`),
       visible: canViewWorkflows === true,
     },
     {
@@ -181,45 +187,33 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     },
   ]
 
+  const navMonitor: NavItem[] = [
+    {
+      title: "Runs",
+      url: `${basePath}/runs`,
+      icon: ListVideoIcon,
+      isActive: pathname?.startsWith(`${basePath}/runs`),
+      visible: canViewWorkflows === true,
+    },
+    {
+      title: "Approvals",
+      url: `${basePath}/inbox`,
+      icon: ListChecksIcon,
+      isActive: pathname?.startsWith(`${basePath}/inbox`),
+      visible: canViewInbox === true,
+    },
+  ]
+
   return (
     <Sidebar collapsible="offcanvas" variant="inset" {...props}>
       <SidebarHeader>
         <SidebarHeaderContent workspaceId={workspaceId} />
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {canCreateCase === true && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    onClick={() => setCreateCaseDialogOpen(true)}
-                  >
-                    <LayersPlus />
-                    <span>Add case</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-              {canViewInbox === true && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname?.startsWith(`${basePath}/inbox`)}
-                  >
-                    <Link href={`${basePath}/inbox`}>
-                      <InboxIcon />
-                      <span>Inbox</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-            </SidebarMenu>
-            <CreateCaseDialog
-              open={createCaseDialogOpen}
-              onOpenChange={setCreateCaseDialogOpen}
-            />
-          </SidebarGroupContent>
-        </SidebarGroup>
+        <LockedFeatureModal
+          open={lockedFeatureDialogOpen}
+          onOpenChange={setLockedFeatureDialogOpen}
+        />
         {navWorkspace.some((item) => item.visible === true) && (
           <Collapsible defaultOpen className="group/collapsible">
             <SidebarGroup>
@@ -276,9 +270,43 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </SidebarGroup>
           </Collapsible>
         )}
-
-        {agentAddonsEnabled && canViewAgents === true && (
+        {navMonitor.some((item) => item.visible === true) && (
           <Collapsible defaultOpen className="group/collapsible">
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="w-full">
+                  Monitor
+                  <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {navMonitor
+                      .filter((item) => item.visible === true)
+                      .map((item) => (
+                        <SidebarMenuItem key={item.title}>
+                          <SidebarMenuButton asChild isActive={item.isActive}>
+                            <Link href={item.url!}>
+                              <item.icon />
+                              <span>{item.title}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        )}
+
+        {canViewAgents === true && (
+          <Collapsible
+            open={agentsSectionOpen}
+            onOpenChange={setAgentsSectionOpen}
+            className="group/collapsible"
+          >
             <SidebarGroup className="group/agents relative">
               <SidebarGroupLabel asChild>
                 <CollapsibleTrigger className="w-full">
@@ -286,44 +314,77 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <ChevronDown className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
                 </CollapsibleTrigger>
               </SidebarGroupLabel>
-              <SidebarGroupAction
-                aria-label="Create agent"
-                onClick={openNewAgentBuilder}
-                className={[
-                  "right-10 opacity-0 pointer-events-none transition-opacity",
-                  "group-hover/agents:opacity-100 group-hover/agents:pointer-events-auto",
-                  "group-focus-within/agents:opacity-100 group-focus-within/agents:pointer-events-auto",
-                ].join(" ")}
-              >
-                <Plus />
-              </SidebarGroupAction>
+              {agentAddonsEnabled ? (
+                <SidebarGroupAction
+                  aria-label="Create agent"
+                  onClick={openNewAgentBuilder}
+                  className={[
+                    "right-10 opacity-0 pointer-events-none transition-opacity",
+                    "group-hover/agents:opacity-100 group-hover/agents:pointer-events-auto",
+                    "group-focus-within/agents:opacity-100 group-focus-within/agents:pointer-events-auto",
+                  ].join(" ")}
+                >
+                  <Plus />
+                </SidebarGroupAction>
+              ) : null}
               <CollapsibleContent>
                 <SidebarGroupContent>
-                  {presetsIsLoading ? (
+                  {entitlementsIsLoading ? (
                     <div className="px-2 py-3 text-xs text-muted-foreground">
                       Loading agents…
                     </div>
-                  ) : presets && presets.length > 0 ? (
-                    <SidebarMenu>
-                      {presets.map((preset) => (
-                        <AgentPresetSidebarItem
-                          key={preset.id}
-                          preset={preset}
-                          isActive={
-                            pathname === `${basePath}/agents/${preset.id}`
-                          }
-                          href={`${basePath}/agents/${preset.id}`}
-                        />
-                      ))}
-                    </SidebarMenu>
+                  ) : agentAddonsEnabled ? (
+                    presetsIsLoading ? (
+                      <div className="px-2 py-3 text-xs text-muted-foreground">
+                        Loading agents…
+                      </div>
+                    ) : presets && presets.length > 0 ? (
+                      <SidebarMenu>
+                        {presets.map((preset) => (
+                          <AgentPresetSidebarItem
+                            key={preset.id}
+                            preset={preset}
+                            isActive={
+                              pathname === `${basePath}/agents/${preset.id}`
+                            }
+                            href={`${basePath}/agents/${preset.id}`}
+                          />
+                        ))}
+                      </SidebarMenu>
+                    ) : (
+                      <Button
+                        variant="link"
+                        className="h-auto px-2 py-1 text-xs"
+                        onClick={openNewAgentBuilder}
+                      >
+                        Create first agent
+                      </Button>
+                    )
                   ) : (
-                    <Button
-                      variant="link"
-                      className="h-auto px-2 py-1 text-xs"
-                      onClick={openNewAgentBuilder}
-                    >
-                      Create first agent
-                    </Button>
+                    <SidebarMenu>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton
+                          type="button"
+                          onClick={() => setLockedFeatureDialogOpen(true)}
+                          className="h-auto py-2 text-muted-foreground"
+                        >
+                          <LayersIcon />
+                          <span>Case Agent</span>
+                          <LockedFeatureChip className="ml-auto shrink-0" />
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton
+                          type="button"
+                          onClick={() => setLockedFeatureDialogOpen(true)}
+                          className="h-auto py-2 text-muted-foreground"
+                        >
+                          <Table2Icon />
+                          <span>Table Agent</span>
+                          <LockedFeatureChip className="ml-auto shrink-0" />
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    </SidebarMenu>
                   )}
                 </SidebarGroupContent>
               </CollapsibleContent>

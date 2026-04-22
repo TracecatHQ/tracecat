@@ -1,12 +1,15 @@
 import uuid  # noqa: I001
 import asyncio
+from collections.abc import Iterator
+from decimal import Decimal
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import selectinload as sa_selectinload
 
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -19,7 +22,12 @@ from tracecat.cases.dropdowns.service import (
     CaseDropdownDefinitionsService,
     CaseDropdownValuesService,
 )
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import (
+    CaseEventType,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
 from tracecat.cases.schemas import (
     CaseCreate,
     CaseFieldCreate,
@@ -35,6 +43,25 @@ from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.enums import SqlType
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.fixture(autouse=True)
+def stub_case_duration_sync() -> Iterator[None]:
+    with patch(
+        "tracecat.cases.service.CaseDurationService.sync_case_durations",
+        new=AsyncMock(return_value=None),
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def stub_case_addons_entitlement() -> Iterator[None]:
+    with patch.object(
+        CasesService,
+        "has_entitlement",
+        new=AsyncMock(return_value=True),
+    ):
+        yield
 
 
 @pytest.mark.anyio
@@ -646,6 +673,23 @@ class TestCasesService:
         assert retrieved_case.status == update_params.status
         assert retrieved_case.priority == update_params.priority
 
+    async def test_update_case_close_emits_case_closed_event(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        """Closing a case should persist a specialized close event."""
+        created_case = await cases_service.create_case(case_create_params)
+
+        await cases_service.update_case(
+            created_case,
+            CaseUpdate(status=CaseStatus.CLOSED),
+        )
+
+        events = await cases_service.events.list_events(created_case)
+        assert len(events) >= 2
+        assert events[0].type == CaseEventType.CASE_CLOSED
+        assert events[0].data["old"] == CaseStatus.NEW.value
+        assert events[0].data["new"] == CaseStatus.CLOSED.value
+
     async def test_update_case_with_assignee(
         self,
         cases_service: CasesService,
@@ -906,6 +950,9 @@ class TestCasesService:
         with (
             patch.object(cases_service.fields, "get_fields") as mock_get_fields,
             patch.object(
+                cases_service.fields, "normalize_field_values"
+            ) as mock_normalize_fields,
+            patch.object(
                 cases_service.fields, "upsert_field_values"
             ) as mock_upsert_fields,
         ):
@@ -913,6 +960,10 @@ class TestCasesService:
             mock_get_fields.return_value = {
                 "existing_field1": "original value",
                 "existing_field2": 456,
+            }
+            mock_normalize_fields.return_value = {
+                "existing_field1": "updated value",
+                "new_field": "new value",
             }
 
             # Update just the fields
@@ -925,12 +976,48 @@ class TestCasesService:
 
             # Verify get_fields was called
             mock_get_fields.assert_called_once_with(created_case)
+            mock_normalize_fields.assert_called_once_with(
+                {"existing_field1": "updated value", "new_field": "new value"}
+            )
 
             # Verify upsert_field_values was called with the fields (not merged)
             mock_upsert_fields.assert_called_once_with(
                 created_case,
                 {"existing_field1": "updated value", "new_field": "new value"},
             )
+
+    async def test_update_case_skips_no_op_field_event(
+        self, cases_service: CasesService, case_create_params: CaseCreate
+    ) -> None:
+        """No-op field updates should not emit empty field-change events."""
+        created_case = await cases_service.create_case(case_create_params)
+
+        with (
+            patch.object(
+                cases_service.fields,
+                "get_fields",
+                return_value={"numeric_field": Decimal("1.30")},
+            ) as mock_get_fields,
+            patch.object(
+                cases_service.fields,
+                "normalize_field_values",
+                return_value={"numeric_field": Decimal("1.30")},
+            ) as mock_normalize_fields,
+            patch.object(
+                cases_service.fields, "upsert_field_values"
+            ) as mock_upsert_fields,
+            patch.object(cases_service.events, "create_event") as mock_create_event,
+        ):
+            await cases_service.update_case(
+                created_case, CaseUpdate(fields={"numeric_field": "1.30"})
+            )
+
+            mock_get_fields.assert_called_once_with(created_case)
+            mock_normalize_fields.assert_called_once_with({"numeric_field": "1.30"})
+            mock_upsert_fields.assert_called_once_with(
+                created_case, {"numeric_field": Decimal("1.30")}
+            )
+            mock_create_event.assert_not_awaited()
 
     async def test_cascade_delete(
         self,
@@ -993,6 +1080,33 @@ class TestCasesService:
         )
 
         assert search_response.model_dump() == list_response.model_dump()
+
+    async def test_search_cases_gates_duration_selectinload(
+        self, cases_service: CasesService
+    ) -> None:
+        """Duration eager loading should be opt-in for cases list/search."""
+        params = CursorPaginationParams(limit=10, cursor=None, reverse=False)
+        loader_calls: list[str] = []
+
+        def tracked_selectinload(attr: Any):
+            if key := getattr(attr, "key", None):
+                loader_calls.append(key)
+            return sa_selectinload(attr)
+
+        with patch(
+            "tracecat.cases.service.selectinload", side_effect=tracked_selectinload
+        ):
+            await cases_service.search_cases(params=params)
+
+        assert "durations" not in loader_calls
+
+        loader_calls.clear()
+        with patch(
+            "tracecat.cases.service.selectinload", side_effect=tracked_selectinload
+        ):
+            await cases_service.search_cases(params=params, include_durations=True)
+
+        assert "durations" in loader_calls
 
     async def test_search_cases_tag_filter_uses_or_logic(
         self, cases_service: CasesService

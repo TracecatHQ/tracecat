@@ -62,11 +62,11 @@ const fixedSecretTypeKeyNames: Partial<
   Record<WorkspaceSecretListItem["type"], string[]>
 > = {
   mtls: ["TLS_CERTIFICATE", "TLS_PRIVATE_KEY"],
-  "ca-cert": ["CA_CERTIFICATE"],
+  ca_cert: ["CA_CERTIFICATE"],
 }
 
 function getEditableSecretKeys(secret: WorkspaceSecretListItem) {
-  if (secret.type === "ssh-key") {
+  if (secret.type === "ssh_key") {
     return []
   }
   if (secret.is_corrupted && secret.type === "custom") {
@@ -90,9 +90,9 @@ export function EditCredentialsDialog({
   const { updateSecretById } = useWorkspaceSecrets(workspaceId, {
     listEnabled: false,
   })
-  const isSshKey = selectedSecret?.type === "ssh-key"
+  const isSshKey = selectedSecret?.type === "ssh_key"
   const hasFixedKeys =
-    selectedSecret?.type === "mtls" || selectedSecret?.type === "ca-cert"
+    selectedSecret?.type === "mtls" || selectedSecret?.type === "ca_cert"
 
   const methods = useForm<SecretUpdate>({
     resolver: zodResolver(updateSecretSchema),

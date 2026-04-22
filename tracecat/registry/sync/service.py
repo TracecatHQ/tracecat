@@ -7,12 +7,12 @@ from typing import ClassVar, override
 
 from tracecat.auth.types import Role
 from tracecat.db.models import RegistryRepository, RegistryVersion
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import RegistryError, TracecatAuthorizationError
 from tracecat.registry.sync.base_service import BaseRegistrySyncService, BaseSyncResult
 from tracecat.registry.versions.service import RegistryVersionsService
 
 
-class RegistrySyncError(Exception):
+class RegistrySyncError(RegistryError):
     """Raised when registry sync fails."""
 
 

@@ -1,0 +1,28 @@
+---
+title: "Local development"
+description: "Hot reload custom actions in Tracecat."
+---
+
+You can test custom actions locally without syncing on every change.
+
+Local registry should only be used for development. Production deployments should use remote [custom registry](/custom-actions/custom-registry) sync.
+
+## Why local development
+
+- Faster feedback loop
+- No need to sync on every change
+- No need to republish a workflow to use the latest platform and custom actions
+
+## How to enable local development
+
+In your `.env` file, set the following environment variables:
+
+1. `TRACECAT__LOCAL_REPOSITORY_ENABLED` to `true`
+2. `TRACECAT__LOCAL_REPOSITORY_PATH` to the path of your local repository e.g. `~/repos/my-local-registry`
+3. `PYTHONPATH` to `/app/local_registry:`
+
+```bash
+TRACECAT__LOCAL_REPOSITORY_ENABLED=true
+TRACECAT__LOCAL_REPOSITORY_PATH=~/dev/org/internal-registry
+PYTHONPATH=/app/local_registry:
+```

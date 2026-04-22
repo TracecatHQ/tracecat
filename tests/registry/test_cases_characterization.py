@@ -320,6 +320,27 @@ class TestCreateCase:
         assert result["summary"] == "Case with Tags"
         assert "id" in result
 
+    async def test_create_case_with_tags_create_if_missing(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Create a case with tags using create_missing_tags to auto-create tags."""
+        tag_name = f"auto-create-tag-{uuid.uuid4().hex[:8]}"
+
+        result = await create_case(
+            summary="Case with Auto Tags",
+            description="Test case with auto-created tags.",
+            tags=[tag_name],
+            create_missing_tags=True,
+        )
+
+        assert result["summary"] == "Case with Auto Tags"
+        assert "id" in result
+
+        # Verify the tag was created and attached
+        full_case = await get_case(case_id=str(result["id"]))
+        tag_refs = [t["ref"] for t in full_case["tags"]]
+        assert tag_name in tag_refs
+
 
 # =============================================================================
 # get_case characterization tests
@@ -490,6 +511,30 @@ class TestUpdateCase:
         )
 
         assert "id" in result
+
+    async def test_update_case_tags_create_if_missing(
+        self, db, session: AsyncSession, cases_ctx: Role
+    ):
+        """Update case tags using create_missing_tags to auto-create tags."""
+        created = await create_case(
+            summary="Test Case for Auto Tags",
+            description="Test description",
+        )
+
+        tag_name = f"auto-update-tag-{uuid.uuid4().hex[:8]}"
+
+        result = await update_case(
+            case_id=str(created["id"]),
+            tags=[tag_name],
+            create_missing_tags=True,
+        )
+
+        assert "id" in result
+
+        # Verify the tag was created and attached
+        full_case = await get_case(case_id=str(result["id"]))
+        tag_refs = [t["ref"] for t in full_case["tags"]]
+        assert tag_name in tag_refs
 
 
 # =============================================================================

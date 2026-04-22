@@ -120,6 +120,14 @@ class WorkflowUpdate(BaseModel):
     alias: str | None = None
     error_handler: str | None = None
 
+    @field_validator("alias", "error_handler", mode="before")
+    @classmethod
+    def empty_string_to_none(cls, v: Any) -> Any:
+        """Coerce "" to None so clearing the field doesn't collide on unique constraints."""
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
+
 
 class WorkflowCreate(BaseModel):
     title: str | None = Field(

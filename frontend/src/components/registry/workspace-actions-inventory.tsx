@@ -24,6 +24,10 @@ import {
 } from "@/components/catalog/catalog-header"
 import { getIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import {
+  LockedFeatureChip,
+  LockedFeatureModal,
+} from "@/components/locked-feature-modal"
 import { AlertNotification } from "@/components/notifications"
 import { actionTypeToLabel } from "@/components/registry/icons"
 import {
@@ -63,7 +67,7 @@ import { toast } from "@/components/ui/use-toast"
 import { useAdminRegistryStatus } from "@/hooks/use-admin"
 import { useAuth } from "@/hooks/use-auth"
 import { useRegistryActions, useRegistryRepositories } from "@/lib/hooks"
-import { copyToClipboard } from "@/lib/utils"
+import { cn, copyToClipboard } from "@/lib/utils"
 
 type ActionTypeFilter = RegistryActionReadMinimal["type"] | "all"
 type ActionSortField = "name" | "action" | "namespace"
@@ -76,7 +80,6 @@ type TracecatVersionState =
   | { status: "error" }
 
 const PLATFORM_VERSION_FETCH_LIMIT = 200
-
 type RegistryActionGroup = {
   origin: string
   label: string
@@ -101,6 +104,10 @@ function buildSearchText(action: RegistryActionReadMinimal): string {
 
 function getActionDisplayName(action: RegistryActionReadMinimal): string {
   return action.default_title ?? action.name
+}
+
+function isLockedAction(action: RegistryActionReadMinimal): boolean {
+  return action.availability?.locked ?? false
 }
 
 function getActionSortValue(
@@ -245,7 +252,7 @@ export function WorkspaceActionsInventory() {
   const canAdministerOrg = useScopeCheck("org:update")
   const canReadPlatformRegistryMetadata = user?.isPlatformAdmin() ?? false
   const { registryActions, registryActionsIsLoading, registryActionsError } =
-    useRegistryActions()
+    useRegistryActions({ includeLocked: true })
   const { repos, reposIsLoading, reposError } = useRegistryRepositories()
   const { status: platformStatus, isLoading: platformStatusIsLoading } =
     useAdminRegistryStatus({ enabled: canReadPlatformRegistryMetadata })
@@ -255,6 +262,7 @@ export function WorkspaceActionsInventory() {
   const [originFilter, setOriginFilter] = useState("all")
   const [sortField, setSortField] = useState<ActionSortField>("action")
   const [sortDirection, setSortDirection] = useState<ActionSortDirection>("asc")
+  const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
   const [expandedOrigins, setExpandedOrigins] = useState<
     Record<string, boolean>
   >({})
@@ -561,6 +569,10 @@ export function WorkspaceActionsInventory() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <LockedFeatureModal
+        open={lockedFeatureDialogOpen}
+        onOpenChange={setLockedFeatureDialogOpen}
+      />
       <CatalogHeader
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -622,40 +634,66 @@ export function WorkspaceActionsInventory() {
                       {group.actions.map((action) => {
                         const typeLabel = actionTypeToLabel[action.type].label
                         const actionTitle = getActionDisplayName(action)
+                        const isLocked = isLockedAction(action)
 
-                        return (
-                          <Item
-                            key={action.id}
-                            variant="default"
-                            size="sm"
-                            className="w-full flex-nowrap rounded-none border-none px-3 py-1.5 text-left"
-                          >
-                            <ItemMedia className="translate-y-0 self-center">
+                        const badges = (
+                          <>
+                            <Badge
+                              variant="secondary"
+                              className="h-5 px-2 text-[10px] font-normal"
+                            >
+                              {typeLabel}
+                            </Badge>
+                            <Badge
+                              variant="secondary"
+                              className="h-5 px-2 text-[10px] font-normal"
+                            >
+                              {action.namespace}
+                            </Badge>
+                          </>
+                        )
+
+                        const rowContent = (
+                          <>
+                            <ItemMedia
+                              className={cn(
+                                "translate-y-0 self-center",
+                                isLocked && "opacity-70"
+                              )}
+                            >
                               {getIcon(action.action, {
-                                className: "size-6 rounded border",
+                                className: cn(
+                                  "size-6 rounded border",
+                                  isLocked && "opacity-70"
+                                ),
                               })}
                             </ItemMedia>
                             <ItemContent className="min-w-0 gap-0">
-                              <ItemTitle className="flex w-full min-w-0 items-center gap-2 text-xs">
+                              <ItemTitle
+                                className={cn(
+                                  "flex w-full min-w-0 items-center gap-2 text-xs",
+                                  isLocked && "text-muted-foreground"
+                                )}
+                              >
                                 <span className="truncate">{actionTitle}</span>
+                                {isLocked ? (
+                                  <button
+                                    type="button"
+                                    className="shrink-0 rounded-full border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    onClick={() =>
+                                      setLockedFeatureDialogOpen(true)
+                                    }
+                                  >
+                                    <LockedFeatureChip />
+                                  </button>
+                                ) : null}
                               </ItemTitle>
                               <ItemDescription className="truncate font-mono text-[11px]">
                                 {action.action}
                               </ItemDescription>
                             </ItemContent>
                             <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
-                              <Badge
-                                variant="secondary"
-                                className="h-5 px-2 text-[10px] font-normal"
-                              >
-                                {typeLabel}
-                              </Badge>
-                              <Badge
-                                variant="secondary"
-                                className="h-5 px-2 text-[10px] font-normal"
-                              >
-                                {action.namespace}
-                              </Badge>
+                              {badges}
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                   <Button
@@ -693,6 +731,30 @@ export function WorkspaceActionsInventory() {
                                 </DropdownMenuContent>
                               </DropdownMenu>
                             </ItemActions>
+                          </>
+                        )
+
+                        if (isLocked) {
+                          return (
+                            <Item
+                              key={action.id}
+                              variant="default"
+                              size="sm"
+                              className="w-full flex-nowrap rounded-none border-none px-3 py-1.5 text-left text-muted-foreground"
+                            >
+                              {rowContent}
+                            </Item>
+                          )
+                        }
+
+                        return (
+                          <Item
+                            key={action.id}
+                            variant="default"
+                            size="sm"
+                            className="w-full flex-nowrap rounded-none border-none px-3 py-1.5 text-left"
+                          >
+                            {rowContent}
                           </Item>
                         )
                       })}

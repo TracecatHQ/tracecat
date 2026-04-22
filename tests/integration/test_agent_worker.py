@@ -31,11 +31,10 @@ from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
 
 from tests.conftest import AGENT_TASK_QUEUE
+from tracecat import config
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
-    ExecuteApprovedToolsInput,
-    ExecuteApprovedToolsResult,
 )
 from tracecat.agent.schemas import RunAgentArgs
 from tracecat.agent.session.activities import (
@@ -112,26 +111,14 @@ def create_mock_run_agent_activity(
     return mock_run_agent_activity
 
 
-def create_mock_execute_approved_tools_activity() -> Callable[..., Any]:
-    """Create a mock execute_approved_tools_activity."""
-
-    @activity.defn(name="execute_approved_tools_activity")
-    async def mock_execute_approved_tools_activity(
-        input: ExecuteApprovedToolsInput,
-    ) -> ExecuteApprovedToolsResult:
-        return ExecuteApprovedToolsResult(results=[], success=True)
-
-    return mock_execute_approved_tools_activity
-
-
 def create_activities_with_mock_executor(
     response_callback: Callable[[AgentExecutorInput], AgentExecutorResult],
 ) -> list[Callable[..., Any]]:
     """Create a full activity list with mocked executor and session activities.
 
-    This mocks run_agent_activity, execute_approved_tools_activity, and session
-    activities to avoid database dependencies in tests. Other activities
-    (tool building, approvals) remain real.
+    This mocks run_agent_activity and session activities to avoid database
+    dependencies in tests. Other activities (tool building, approvals) remain
+    real.
     """
     agent_activities = AgentActivities()
 
@@ -145,9 +132,8 @@ def create_activities_with_mock_executor(
     activities.append(create_mock_create_session_activity())
     activities.append(create_mock_load_session_activity())
 
-    # Add mocked executor activities
+    # Add mocked runtime activity
     activities.append(create_mock_run_agent_activity(response_callback))
-    activities.append(create_mock_execute_approved_tools_activity())
 
     return activities
 
@@ -160,6 +146,7 @@ def create_activities_with_mock_executor(
 @pytest.fixture
 def agent_worker_factory(
     threadpool: Any,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[Callable[..., Worker], None, None]:
     """Factory to create workers configured for agent workflows."""
 
@@ -180,6 +167,9 @@ def agent_worker_factory(
                 *get_session_activities(),
                 *ApprovalManager.get_activities(),
             ]
+
+        monkeypatch.setattr(config, "TRACECAT__AGENT_EXECUTOR_QUEUE", task_queue)
+        monkeypatch.setattr(config, "TRACECAT__EXECUTOR_QUEUE", task_queue)
 
         return Worker(
             client=client,
@@ -224,13 +214,14 @@ class TestAgentWorkerLifecycle:
     async def test_session_activities_registered(self) -> None:
         """Verify session activities are available."""
         activities = get_session_activities()
-        assert len(activities) == 2
-
         activity_names = [
             getattr(a, "__temporal_activity_definition").name for a in activities
         ]
-        assert "create_session_activity" in activity_names
-        assert "load_session_activity" in activity_names
+        assert set(activity_names) == {
+            "create_session_activity",
+            "load_session_activity",
+            "reconcile_tool_results_activity",
+        }
 
 
 class TestAgentWorkerSingleTenant:

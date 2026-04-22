@@ -1,0 +1,96 @@
+### Network
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `PUBLIC_APP_PORT` | `80` | Port the reverse proxy listens on. |
+| `PUBLIC_APP_URL` | `http://localhost:${PUBLIC_APP_PORT}` | Public URL users visit to reach the Tracecat UI. |
+| `PUBLIC_API_URL` | `${PUBLIC_APP_URL}/api` | Public URL for the Tracecat API, used by the browser and for webhook callbacks. |
+| `INTERNAL_API_URL` | `http://api:8000` | Internal URL that other services use to reach the API container. |
+
+### Application
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT__APP_ENV` | `development` | One of `development`, `staging`, or `production`. Controls logging detail and debug behavior. |
+| `TRACECAT__API_URL` | `${INTERNAL_API_URL}` | API URL used by backend services. Normally matches `INTERNAL_API_URL`. |
+| `TRACECAT__API_ROOT_PATH` | `/api` | Path prefix the API registers behind the reverse proxy. |
+| `TRACECAT__PUBLIC_APP_URL` | `${PUBLIC_APP_URL}` | Public frontend URL used for links in emails and notifications. |
+| `TRACECAT__PUBLIC_API_URL` | `${PUBLIC_API_URL}` | Public API URL used for incoming webhooks. If you expose webhooks through a tunnel (e.g. ngrok), set this to the tunnel URL. |
+| `TRACECAT__ALLOW_ORIGINS` | `http://localhost:3000,${PUBLIC_APP_URL}` | Comma-separated list of allowed CORS origins. |
+
+### PostgreSQL
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT__POSTGRES_USER` | `postgres` | PostgreSQL username. |
+| `TRACECAT__POSTGRES_PASSWORD` | `postgres` | PostgreSQL password. Change this in production. |
+| `TRACECAT__DB_URI` | `postgresql+psycopg://${TRACECAT__POSTGRES_USER}:${TRACECAT__POSTGRES_PASSWORD}@postgres_db:5432/postgres` | Full database connection URI. Override this when using an external database. |
+| `TRACECAT__DB_SSLMODE` | `disable` | PostgreSQL SSL mode. Set to `require` or `verify-full` for remote databases. |
+
+### Authentication
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT__AUTH_SUPERADMIN_EMAIL` | | Email of the first user to promote to superadmin on initial startup. |
+| `TRACECAT__AUTH_TYPES` | `basic` | Comma-separated list of enabled auth methods: `basic`, `oidc`, `saml`. |
+| `TRACECAT__AUTH_ALLOWED_DOMAINS` | | Comma-separated email domains allowed to register (e.g. `example.com,example.org`). Leave blank to allow all. |
+| `TRACECAT__AUTH_MIN_PASSWORD_LENGTH` | `12` | Minimum password length for basic auth. |
+
+### OIDC / OAuth
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `OIDC_ISSUER` | | OIDC issuer URL (e.g. `https://accounts.google.com`). |
+| `OIDC_CLIENT_ID` | | OAuth client ID from your identity provider. |
+| `OIDC_CLIENT_SECRET` | | OAuth client secret from your identity provider. |
+| `OIDC_SCOPES` | `openid profile email` | Space-separated OAuth scopes to request. |
+
+### SAML
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `SAML_IDP_METADATA_URL` | | URL to your SAML IdP metadata XML. |
+| `SAML_ACCEPTED_TIME_DIFF` | `3` | Maximum clock skew in seconds accepted when validating SAML assertions. |
+
+### Temporal
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TEMPORAL__CLUSTER_URL` | `temporal:7233` | Temporal cluster gRPC endpoint. |
+| `TEMPORAL__CLUSTER_QUEUE` | `tracecat-task-queue` | Temporal task queue name. |
+| `TEMPORAL__CLUSTER_NAMESPACE` | `default` | Temporal namespace. |
+| `TEMPORAL__API_KEY` | | API key for Temporal Cloud. Leave empty for self-hosted Temporal. |
+
+### Executor
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT__EXECUTOR_BACKEND` | `direct` | Execution strategy for actions. `direct` runs a subprocess per action, `pool` uses warm nsjail workers (requires nsjail), `ephemeral` spawns a cold nsjail subprocess per action for full isolation, `auto` selects `pool` if nsjail is available and falls back to `direct`, `test` runs in-process for tests only. |
+| `TRACECAT__DISABLE_NSJAIL` | `true` | Disable nsjail sandboxing. Set to `false` only if nsjail is installed. |
+| `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Store large action results in blob storage instead of Temporal history. |
+| `TRACECAT__COLLECTION_MANIFESTS_ENABLED` | `true` | Store large collections as chunked manifests in blob storage. |
+| `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` | `128000` | Byte threshold above which payloads are externalized to blob storage. |
+| `TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS` | `30` | Retention period in days for workflow artifacts. Objects older than this are automatically deleted via S3 lifecycle rules. Set to `0` to disable. |
+
+### Blob storage
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW` | `tracecat-workflow` | S3 bucket for workflow artifacts. |
+| `TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS` | `tracecat-attachments` | S3 bucket for case attachments. |
+| `TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY` | `tracecat-registry` | S3 bucket for registry packages. |
+
+### MinIO
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `MINIO_ROOT_USER` | `minio` | MinIO root username. Only used with the bundled MinIO instance. |
+| `MINIO_ROOT_PASSWORD` | `password` | MinIO root password. Change this in production. |
+
+### Redis
+
+| Variable | Default | Description |
+| :------- | :------ | :---------- |
+| `REDIS_HOST` | `redis` | Redis hostname. |
+| `REDIS_PORT` | `6379` | Redis port. |
+| `REDIS_URL` | `redis://${REDIS_HOST}:${REDIS_PORT}` | Full Redis connection URL. Override this when using an external Redis instance. |

@@ -1,109 +1,265 @@
 ---
-title: JSONPath
-description: A cheatsheet for JSONPath syntax and filters.
+title: "JSONPath cheatsheet"
+description: "Quick reference for JSONPath syntax, filters, and access patterns."
 ---
 
-<Note>
-  JSONPath and dot notation should be used to:
-  - Get single values from a nested JSON object
-  - Get values from JSON arrays via indexing and slicing
-  - Filter lists of JSONs using simple conditions (e.g. `==`, `!=`, `>`, `>=`, `<`, `<=`)
+## Filter patterns
 
-  For advanced filtering, we recommend using the `core.transform.filter` action.
-</Note>
+Equality:
 
-<Info>
-  Tracecat's JSONPath implementation is based on [jsonpath-ng](https://github.com/h2non/jsonpath-ng?tab=readme-ov-file#jsonpath-syntax).
-</Info>
+<CodeGroup>
+```yaml Expression
+high_alerts: ${{ TRIGGER.alerts[?(@.severity == "high")] }}
+open_findings: ${{ ACTIONS.fetch_findings.result.items[?(@.status == "open")] }}
+```
 
-This cheatsheet covers the basics of JSONPath syntax and filters.
-
-## Basic Syntax
-
-<Note>
-  Replace `$` with `ACTIONS.<action_name>.result` or `TRIGGER` [expression contexts](/quickstart/expressions).
-</Note>
-
-For the following examples, we'll use the following JSON:
-
-```json
+```json Result
 {
-  "data": {
-    "users": [
-      { "id": 1, "name": "John", "age": 30, "active": true, "score": 85 },
-      { "id": 2, "name": "Jane", "age": 25, "active": true, "score": 92 },
-      { "id": 3, "name": "Bob", "age": 35, "active": false, "score": 78 },
-      { "id": 4, "name": "Alice", "age": 28, "active": true, "score": 95 }
-    ],
-    "settings": {
-      "theme": "dark",
-      "notifications": true
-    },
-    // Fields with special characters
-    "alert.sample.data": {
-      "id": 1,
-      "name": "John",
-      "age": 30,
-      "active": true,
-      "score": 85
-    },
-    "field-with-dashes": "value",
-    "$field": "value",
-    "field:with:colons": "value",
-    "field@symbol": "value",
-    "field with spaces": "value",
-    "field#hash": "value"
-  }
+  "high_alerts": [{"id": "al-1", "severity": "high"}],
+  "open_findings": [{"id": "f-1", "status": "open"}]
 }
 ```
+</CodeGroup>
 
-### Dot Notation
+Inequality:
 
-```php
-$.data.settings.theme  # Select the theme property
+<CodeGroup>
+```yaml Expression
+secondary_roles: ${{ ACTIONS.parse_event.result.included[?(@.attributes.incident_role.data.attributes.slug != "primary-role")] }}
 ```
 
-### Special Characters
+```json Result
+{
+  "secondary_roles": [
+    {
+      "attributes": {
+        "incident_role": {
+          "data": {
+            "attributes": {
+              "slug": "secondary-role"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
+```
+</CodeGroup>
 
-Fields containing special characters like dots, dashes, or starting with `$` can be accessed using quotes:
+Numeric comparison:
 
-```php
-$.data."alert.sample.data"  # Access field containing dots
-$.data."field-with-dashes"  # Access field containing dashes
-$.data."$field"  # Access field starting with $
-$.data."field:with:colons"  # Access field containing colons
-$.data."field@symbol"  # Access field containing @ symbol
-$.data."field with spaces"  # Access field containing spaces
-$.data."field#hash"  # Access field containing hash symbol
+<CodeGroup>
+```yaml Expression
+critical_scores: ${{ ACTIONS.lookup_users.result.users[?(@.score >= 90)] }}
+recent_events: ${{ TRIGGER.events[?(@.count > 10)] }}
 ```
 
-### Array Indexing
+```json Result
+{
+  "critical_scores": [{"name": "Alice", "score": 96}],
+  "recent_events": [{"id": "evt-1", "count": 14}]
+}
+```
+</CodeGroup>
 
-```php
-$.data.users[*]  # Select all users
-$.data.users[0]  # Select the first user
-$.data.users[-1]  # Select last user
-$.data.users[*].name  # Select all user names
-$.data.users[0].name  # Select the name of the first user
-$.data.users[?(@.id==1)]  # Select user with id=1
-$.data.users[*].roles[0]  # Select the first role of each user
-$.data.settings.*  # Select all properties of settings
+Truthy field check:
+
+<CodeGroup>
+```yaml Expression
+users_with_email: ${{ ACTIONS.lookup_users.result.users[?(@.email)] }}
+alerts_with_owner: ${{ TRIGGER.alerts[?(@.owner)] }}
 ```
 
-## Filters
+```json Result
+{
+  "users_with_email": [{"name": "Alice", "email": "alice@example.com"}],
+  "alerts_with_owner": [{"id": "al-1", "owner": "secops"}]
+}
+```
+</CodeGroup>
 
-### Basic Filters
-```php
-$.data.users[?(@.age > 30)]  # Users over 30
-$.data.users[?(@.active == true)]  # Active users
-$.data.users[?(@.name == "John")]  # User named John
-$.data.users[?(@.score >= 90)]  # Users with score 90 or higher
+String matching by exact value:
+
+<CodeGroup>
+```yaml Expression
+prod_hosts: ${{ ACTIONS.inventory.result.hosts[?(@.environment == "prod")] }}
+linux_hosts: ${{ ACTIONS.inventory.result.hosts[?(@.os == "linux")] }}
 ```
 
-### Comparison Operators
-```php
-$.data.users[?(@.age != 30)]  # Users not age 30
-$.data.users[?(@.score >= 85)]  # Users with score 85 or higher
-$.data.users[?(@.score < 80)]  # Users with score under 80
-$.data.users[?(@.active !== false)]  # Users that are not inactive
+```json Result
+{
+  "prod_hosts": [{"hostname": "api-1", "environment": "prod"}],
+  "linux_hosts": [{"hostname": "api-1", "os": "linux"}, {"hostname": "worker-1", "os": "linux"}]
+}
 ```
+</CodeGroup>
+
+Nested field checks:
+
+<CodeGroup>
+```yaml Expression
+owned_devices: ${{ TRIGGER.assets[?(@.owner.name == "SecOps")] }}
+resolved_cases: ${{ ACTIONS.search_cases.result.items[?(@.status.name == "resolved")] }}
+```
+
+```json Result
+{
+  "owned_devices": [{"id": "dev-1", "owner": {"name": "SecOps"}}],
+  "resolved_cases": [{"id": "case-2", "status": {"name": "resolved"}}]
+}
+```
+</CodeGroup>
+
+Filter and project a nested field:
+
+<CodeGroup>
+```yaml Expression
+role_slugs: ${{ ACTIONS.parse_event.result.included[?(@.attributes.incident_role.data.attributes.slug)].attributes.incident_role.data.attributes.slug }}
+```
+
+```json Result
+{
+  "role_slugs": ["primary-role", "secondary-role"]
+}
+```
+</CodeGroup>
+
+Filter and return one field from matching rows:
+
+<CodeGroup>
+```yaml Expression
+open_ids: ${{ ACTIONS.fetch_findings.result.items[?(@.status == "open")].id }}
+```
+
+```json Result
+{
+  "open_ids": ["f-1", "f-3"]
+}
+```
+</CodeGroup>
+
+## Return behavior
+
+- Single matches return a scalar.
+- Wildcards return a list.
+- Filters return a list.
+- Non-existent fields return `None` (no error is raised).
+
+Examples:
+
+<CodeGroup>
+```yaml Expression
+name: ${{ TRIGGER.user.name }}
+```
+
+```json Result
+{
+  "name": "Alice"
+}
+```
+</CodeGroup>
+
+<CodeGroup>
+```yaml Expression
+names: ${{ TRIGGER.users[*].name }}
+```
+
+```json Result
+{
+  "names": ["Alice", "Bob", "Carol"]
+}
+```
+</CodeGroup>
+
+## Examples
+
+Trigger data:
+
+<CodeGroup>
+```yaml Expression
+email: ${{ TRIGGER.user.email }}
+```
+
+```json Result
+{
+  "email": "alice@example.com"
+}
+```
+</CodeGroup>
+
+Action result:
+
+<CodeGroup>
+```yaml Expression
+ticket_id: ${{ ACTIONS.create_ticket.result.id }}
+```
+
+```json Result
+{
+  "ticket_id": "T-123"
+}
+```
+</CodeGroup>
+
+Array item:
+
+<CodeGroup>
+```yaml Expression
+first_tag: ${{ ACTIONS.lookup_tags.result.tags[0] }}
+```
+
+```json Result
+{
+  "first_tag": "malware"
+}
+```
+</CodeGroup>
+
+Wildcard:
+
+<CodeGroup>
+```yaml Expression
+tag_names: ${{ ACTIONS.lookup_tags.result.tags[*] }}
+```
+
+```json Result
+{
+  "tag_names": ["malware", "phishing", "credential-access"]
+}
+```
+</CodeGroup>
+
+Filter:
+
+<CodeGroup>
+```yaml Expression
+open_findings: ${{ ACTIONS.fetch_findings.result.items[?(@.status == "open")] }}
+```
+
+```json Result
+{
+  "open_findings": [{"id": "f-1", "status": "open"}, {"id": "f-3", "status": "open"}]
+}
+```
+</CodeGroup>
+
+Filter and project:
+
+<CodeGroup>
+```yaml Expression
+open_titles: ${{ ACTIONS.fetch_findings.result.items[?(@.status == "open")].title }}
+```
+
+```json Result
+{
+  "open_titles": ["Suspicious login", "Impossible travel"]
+}
+```
+</CodeGroup>
+
+## Related pages
+
+- See [JSONPath](/automations/core-concepts/jsonpath) for core concepts and syntax.
+- See [Expressions](/automations/core-concepts/expressions) for expression syntax and contexts.
+- See [Functions](/automations/core-concepts/functions) for helper functions you can use alongside JSONPath access.

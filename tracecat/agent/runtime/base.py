@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -15,7 +16,14 @@ class BaseRuntime(Protocol):
     by the sandbox entrypoint.
     """
 
-    def __init__(self, socket_writer: SocketStreamWriter) -> None:
+    def __init__(
+        self,
+        socket_writer: SocketStreamWriter,
+        *,
+        session_home_dir: Path | None = None,
+        cwd: Path | None = None,
+        cwd_setup_path: Path | None = None,
+    ) -> None:
         """Initialize the runtime with a socket writer.
 
         Args:

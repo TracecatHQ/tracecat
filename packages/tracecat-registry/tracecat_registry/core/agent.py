@@ -56,8 +56,8 @@ bedrock_secret = RegistrySecret(
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
         "AWS_REGION",
-        "AWS_PROFILE",
         "AWS_ROLE_ARN",
+        "AWS_ROLE_SESSION_NAME",
         "AWS_SESSION_TOKEN",
         "AWS_BEARER_TOKEN_BEDROCK",
         "AWS_MODEL_ID",
@@ -70,11 +70,11 @@ bedrock_secret = RegistrySecret(
 - name: `amazon_bedrock`
 - optional_keys:
     Authentication (one of):
+        - `AWS_ROLE_ARN`
         - `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`
         - `AWS_BEARER_TOKEN_BEDROCK`
-        - `AWS_PROFILE`
-        - `AWS_ROLE_ARN`
-        - `AWS_SESSION_TOKEN`
+    Optional role settings:
+        - `AWS_ROLE_SESSION_NAME`: Audit session name for AssumeRole requests.
     Model configuration (one of):
         - `AWS_INFERENCE_PROFILE_ID`: Required for newer models (Claude 4, etc.).
           Use system profile ID like 'us.anthropic.claude-sonnet-4-20250514-v1:0'
@@ -82,6 +82,9 @@ bedrock_secret = RegistrySecret(
         - `AWS_MODEL_ID`: Direct model ID for older models that support on-demand throughput.
     Region:
         - `AWS_REGION`: AWS region (e.g., us-east-1)
+
+Tracecat automatically injects the workspace-scoped external ID required for
+cross-account AssumeRole requests.
 """
 
 
@@ -126,6 +129,9 @@ azure_openai_secret = RegistrySecret(
         "AZURE_DEPLOYMENT_NAME",
         "AZURE_API_KEY",
         "AZURE_AD_TOKEN",
+        "AZURE_TENANT_ID",
+        "AZURE_CLIENT_ID",
+        "AZURE_CLIENT_SECRET",
     ],
     optional=True,
 )
@@ -136,8 +142,11 @@ azure_openai_secret = RegistrySecret(
     - `AZURE_API_BASE`: Azure OpenAI endpoint (e.g., https://<resource>.openai.azure.com).
     - `AZURE_API_VERSION`: Azure OpenAI API version.
     - `AZURE_DEPLOYMENT_NAME`: Azure OpenAI deployment name.
-    - `AZURE_API_KEY`: Azure OpenAI API key. Required if not using Entra token.
-    - `AZURE_AD_TOKEN`: Azure Entra (AD) token. Required if not using API key.
+    - `AZURE_API_KEY`: Azure OpenAI API key. Required if not using Entra authentication.
+    - `AZURE_AD_TOKEN`: Azure Entra (AD) token. Required if not using API key or client credentials.
+    - `AZURE_TENANT_ID`: Azure Entra tenant ID for client-credential auth.
+    - `AZURE_CLIENT_ID`: Azure Entra application client ID for client-credential auth.
+    - `AZURE_CLIENT_SECRET`: Azure Entra application client secret for client-credential auth.
 """
 
 azure_ai_secret = RegistrySecret(
@@ -145,6 +154,11 @@ azure_ai_secret = RegistrySecret(
     optional_keys=[
         "AZURE_API_BASE",
         "AZURE_API_KEY",
+        "AZURE_AD_TOKEN",
+        "AZURE_TENANT_ID",
+        "AZURE_CLIENT_ID",
+        "AZURE_CLIENT_SECRET",
+        "AZURE_API_VERSION",
         "AZURE_AI_MODEL_NAME",
     ],
     optional=True,
@@ -154,8 +168,25 @@ azure_ai_secret = RegistrySecret(
 - name: `azure_ai`
 - optional_keys:
     - `AZURE_API_BASE`: Azure AI endpoint (e.g., https://<resource>.services.ai.azure.com/anthropic).
-    - `AZURE_API_KEY`: Azure AI API key.
+    - `AZURE_API_KEY`: Azure AI API key. Required if not using Entra authentication.
+    - `AZURE_AD_TOKEN`: Azure Entra (AD) token. Required if not using API key or client credentials.
+    - `AZURE_TENANT_ID`: Azure Entra tenant ID for client-credential auth.
+    - `AZURE_CLIENT_ID`: Azure Entra application client ID for client-credential auth.
+    - `AZURE_CLIENT_SECRET`: Azure Entra application client secret for client-credential auth.
+    - `AZURE_API_VERSION`: Optional Azure AI API version appended as the api-version query parameter.
     - `AZURE_AI_MODEL_NAME`: Model name to use (e.g., claude-sonnet-4-5).
+"""
+
+litellm_secret = RegistrySecret(
+    name="litellm",
+    keys=["LITELLM_BASE_URL"],
+    optional=True,
+)
+"""LiteLLM credentials.
+
+- name: `litellm`
+- keys:
+    - `LITELLM_BASE_URL`: LiteLLM base URL.
 """
 
 PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
@@ -166,6 +197,7 @@ PYDANTIC_AI_REGISTRY_SECRETS: list[RegistrySecretType] = [
     custom_model_provider_secret,
     azure_openai_secret,
     azure_ai_secret,
+    litellm_secret,
 ]
 
 
@@ -199,6 +231,12 @@ async def agent(
             "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
         ),
     ] = None,
+    session_id: Annotated[
+        str | None,
+        Doc(
+            "Optional existing agent session ID to continue from. If provided, the session must already exist."
+        ),
+    ] = None,
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
@@ -207,6 +245,10 @@ async def agent(
     ] = 15,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
+    enable_thinking: Annotated[
+        bool,
+        Doc("Whether to enable high thinking for agent runs."),
+    ] = True,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
     # Paid feature
     tool_approvals: Annotated[
@@ -256,6 +298,12 @@ async def preset_agent(
         ),
         TextArea(),
     ] = None,
+    session_id: Annotated[
+        str | None,
+        Doc(
+            "Optional existing agent session ID to continue from. If provided, the session must already exist."
+        ),
+    ] = None,
     max_tool_calls: Annotated[
         int, Doc("Maximum number of tool calls for the agent.")
     ] = 15,
@@ -294,6 +342,10 @@ async def action(
     ] = None,
     max_requests: Annotated[int, Doc("Maximum number of requests for the agent.")] = 45,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
+    enable_thinking: Annotated[
+        bool,
+        Doc("Whether to enable high thinking for agent runs."),
+    ] = True,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> dict[str, Any]:
     """Call an LLM with a given prompt and model (no tools)."""

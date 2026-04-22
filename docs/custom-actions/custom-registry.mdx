@@ -1,0 +1,101 @@
+---
+title: "Custom registry"
+description: "Sync custom Python scripts into Tracecat."
+---
+
+You can build your own actions and use them in agents and workflows through Tracecat's custom registry feature.
+
+## Why use a custom registry
+
+- Version control your code separate from Tracecat
+- Reuse your custom actions in multiple agents and workflows
+- Easily update your custom actions across all agents and workflows
+
+## Permissions
+
+Custom registry is an organization-level feature and syncs across all workspaces.
+You must have the "Organization Admin" role to add and manage the custom registry.
+
+## Installation
+
+<Steps>
+  <Step title="Clone the custom registry starter kit">
+    Clone the [custom registry starter kit](https://github.com/TracecatHQ/custom-integrations-starter-kit) from GitHub.
+
+    <Frame>
+      ![Clone GitHub template](/img/custom-actions/clone-github-template.png)
+    </Frame>
+  </Step>
+  <Step title="Add registry to Tracecat">
+    Go to "/actions" page in the workspace -> "Add registry" button -> "Custom registry" in organization settings.
+
+    Configure the remote repository URL, package name, and allowed Git domains.
+    The package name is the name of the Python package (e.g. the parent folder named `custom_actions` in the starter kit) in the repo.
+
+    <Frame>
+      ![Custom registry settings](/img/custom-actions/custom-registry-settings.png)
+    </Frame>
+  </Step>
+  <Step title="Sync the registry">
+    Click "Sync from remote" button to sync the registry.
+
+    <Frame>
+      ![Sync from remote](/img/custom-actions/sync-from-remote.png)
+    </Frame>
+  </Step>
+</Steps>
+
+## Revert changes
+
+Syncing defaults to the latest commit in the remote repository.
+You can change the commit to sync to using the "Change commit" button.
+
+![Change commit](/img/custom-actions/change-commit.png)
+
+## How custom registry works
+
+When you sync a registry, Tracecat:
+
+- Pulls the latest code from the remote repository
+- Converts the package and its dependencies into a tarball using `uv`
+- Uploads the tarball to S3-compatible object storage
+- Tarballs are stored in the bucket specified in the `TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY` environment variable
+
+<Info>
+  Published workflows run actions synced at the time of publication.
+  When triggered, the Tracecat executor pulls the pinned version of the platform registry and custom registry tarballs from S3.
+
+  You must republish a workflow to use the latest platform and custom actions.
+  Even if there were no changes to the workflow itself.
+</Info>
+
+## FAQ
+
+<AccordionGroup>
+  <Accordion title="Does Tracecat support self-hosted Git repositories?">
+    Yes. Tracecat works with Gitlab and GitHub Enterprise.
+  </Accordion>
+
+  <Accordion title="Can I rename my custom Python package name?">
+    Yes. The package name from the starter kit is `custom_actions`.
+    To rename it, you'll need to rename the:
+
+    - `custom_actions` folder to `my_new_package_name`
+    - Project name in `pyproject.toml` to `my_new_package_name`
+
+    Note: Python package names must be snake_case.
+  </Accordion>
+
+  <Accordion title="Can I rename the git repo?">
+    Yes. You can rename the git repo. It does not need to have the same name as the Python package.
+  </Accordion>
+
+  <Accordion title="How can I add new Python dependencies?">
+    You must specify new dependencies in the `dependencies` section of the `pyproject.toml` file.
+  </Accordion>
+
+  <Accordion title="Can I test actions without syncing on every change?">
+    Yes. For local Docker deployments, you can hot reload custom actions into Tracecat with a local registry.
+    See [local development](/custom-actions/local-development) for more details.
+  </Accordion>
+</AccordionGroup>

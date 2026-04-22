@@ -1,15 +1,14 @@
 from collections.abc import Collection
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 
 import orjson
 import temporalio.api.common.v1
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
 from tracecat.dsl.action import DSLActivities
-from tracecat.dsl.compression import get_compression_payload_codec
 from tracecat.executor.activities import ExecutorActivities
 from tracecat.identifiers import UserID, WorkflowID, WorkspaceID
 from tracecat.logger import logger
@@ -19,6 +18,7 @@ from tracecat.storage.object import (
     InlineObject,
     StoredObject,
 )
+from tracecat.temporal.codec import TemporalPayloadCodecError, decode_payloads
 from tracecat.workflow.executions.enums import (
     ExecutionType,
     TemporalSearchAttr,
@@ -107,6 +107,21 @@ ACTION_ACTIVITIES = {
     DSLActivities.noop_loop_end_activity.__name__,
     DSLActivities.handle_scatter_input_activity.__name__,
 }
+
+
+class UnreadableTemporalPayload(BaseModel):
+    """Structured placeholder for Temporal payloads that cannot be decoded."""
+
+    error: Literal["unreadable_temporal_payload"] = "unreadable_temporal_payload"
+    error_type: str
+    encoding: str
+    payload_size_bytes: int
+
+
+def is_unreadable_temporal_payload(
+    value: Any,
+) -> TypeGuard[UnreadableTemporalPayload]:
+    return isinstance(value, UnreadableTemporalPayload)
 
 
 def is_scheduled_event(event: HistoryEvent) -> bool:
@@ -248,12 +263,28 @@ async def extract_payload(
     payload: temporalio.api.common.v1.Payloads, index: int = 0
 ) -> Any:
     """Extract the first payload from a workflow history event."""
-    # Always call the decoder. It will return the original payload if it's not compressed.
-    # This enables backwards compatibility of newer payloads with older clients.
-    codec = get_compression_payload_codec()
-    decompressed_payload = await codec.decode(payload.payloads)
-    payload_obj = decompressed_payload[index]
-    encoding = payload_obj.metadata.get("encoding", b"").decode()
+    payload_obj = payload.payloads[index]
+    try:
+        payload_obj = (await decode_payloads([payload_obj]))[0]
+    except TemporalPayloadCodecError as e:
+        encoding = payload_obj.metadata.get("encoding", b"").decode(
+            "utf-8", errors="replace"
+        )
+        logger.warning(
+            "Failed to decode Temporal payload; returning unreadable payload sentinel",
+            error=type(e).__name__,
+            encoding=encoding,
+            payload_size_bytes=len(payload_obj.data),
+        )
+        return UnreadableTemporalPayload(
+            error_type=type(e).__name__,
+            encoding=encoding,
+            payload_size_bytes=len(payload_obj.data),
+        )
+
+    encoding = payload_obj.metadata.get("encoding", b"").decode(
+        "utf-8", errors="replace"
+    )
     # Temporal's NullPayloadConverter encodes `None` as binary/null with no data.
     if encoding == "binary/null":
         logger.debug("Decoded binary/null payload; returning None")
@@ -296,6 +327,7 @@ def build_query(
     statuses: Collection[str] | None = None,
     status_mode: Literal["include", "exclude"] = "include",
     execution_types: Collection[ExecutionType] | None = None,
+    exclude_workflow_types: Collection[str] | None = None,
     start_time_from: datetime | None = None,
     start_time_to: datetime | None = None,
     close_time_from: datetime | None = None,
@@ -370,6 +402,16 @@ def build_query(
         execution_type_query = " OR ".join(execution_type_clauses)
         if execution_type_query:
             query.append(f"({execution_type_query})")
+
+    if exclude_workflow_types:
+        workflow_type_query = " AND ".join(
+            [
+                f"WorkflowType != '{workflow_type}'"
+                for workflow_type in sorted(exclude_workflow_types)
+            ]
+        )
+        if workflow_type_query:
+            query.append(f"({workflow_type_query})")
 
     if start_time_from is not None:
         query.append(f"StartTime >= '{_format_temporal_datetime(start_time_from)}'")

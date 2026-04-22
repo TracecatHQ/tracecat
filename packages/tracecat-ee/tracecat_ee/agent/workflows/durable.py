@@ -7,32 +7,42 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import TypedSearchAttributes
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     from pydantic_ai.messages import ToolCallPart
     from pydantic_ai.tools import ToolApproved, ToolDenied
 
+    from tracecat import config
     from tracecat.agent.common.stream_types import HarnessType
     from tracecat.agent.executor.activity import (
         AgentExecutorInput,
         ApprovedToolCall,
         DeniedToolCall,
-        ExecuteApprovedToolsInput,
-        execute_approved_tools_activity,
         run_agent_activity,
     )
+    from tracecat.agent.mcp.executor import (
+        AGENT_TOOL_PRIORITY,
+        build_run_input,
+        build_tracecat_mcp_role,
+    )
+    from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
+    from tracecat.agent.mcp.utils import normalize_mcp_tool_name
     from tracecat.agent.parsers import try_parse_json
     from tracecat.agent.preset.activities import (
         ResolveAgentPresetConfigActivityInput,
         resolve_agent_preset_config_activity,
+        resolve_custom_model_provider_config_activity,
     )
     from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage, ToolFilters
     from tracecat.agent.session.activities import (
         CreateSessionInput,
         LoadSessionInput,
+        PendingToolResult,
+        ReconcileToolResultsInput,
         create_session_activity,
         load_session_activity,
+        reconcile_tool_results_activity,
     )
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.tokens import (
@@ -43,11 +53,14 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.types import AgentConfig
     from tracecat.agent.workflow_config import agent_config_from_payload
     from tracecat.auth.types import Role
-    from tracecat.config import TRACECAT__AGENT_SANDBOX_TIMEOUT
     from tracecat.contexts import ctx_role
     from tracecat.dsl.common import RETRY_POLICIES
+    from tracecat.executor.activities import ExecutorActivities
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
+    from tracecat.workflow.executions.correlation import (
+        build_agent_session_correlation_id,
+    )
     from tracecat.workflow.executions.enums import (
         ExecutionType,
         TemporalSearchAttr,
@@ -60,6 +73,34 @@ with workflow.unsafe.imports_passed_through():
     from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalMap
     from tracecat_ee.agent.context import AgentContext
     from tracecat_ee.agent.types import AgentWorkflowID
+
+
+def _activity_error_message(error: ActivityError) -> str:
+    cause = error.cause
+    if cause is not None:
+        return str(cause)
+    return str(error)
+
+
+def _build_approved_tool_run_input(
+    *,
+    tool_call: ApprovedToolCall,
+    registry_lock: RegistryLock,
+    workflow_id: uuid.UUID,
+    run_id: uuid.UUID,
+    execution_id: uuid.UUID,
+    logical_time: datetime,
+):
+    action_name = normalize_mcp_tool_name(tool_call.tool_name)
+    return build_run_input(
+        action_name=action_name,
+        args=strip_proxy_tool_metadata(tool_call.args),
+        registry_lock=registry_lock,
+        workflow_id=workflow_id,
+        run_id=run_id,
+        execution_id=execution_id,
+        logical_time=logical_time,
+    )
 
 
 class AgentWorkflowArgs(BaseModel):
@@ -85,6 +126,10 @@ class AgentWorkflowArgs(BaseModel):
     harness_type: HarnessType | None = Field(
         default=None,
         description="Agent harness type. Reserved for future multi-harness support.",
+    )
+    continue_existing_session: bool = Field(
+        default=False,
+        description=("If true, session_id is caller-supplied and must already exist."),
     )
 
 
@@ -178,6 +223,12 @@ class DurableAgentWorkflow:
                     str(self.role.workspace_id)
                 )
             )
+        if search_attributes.get(TemporalSearchAttr.CORRELATION_ID.key) is None:
+            updates.append(
+                TemporalSearchAttr.CORRELATION_ID.key.value_set(
+                    build_agent_session_correlation_id(self.session_id)
+                )
+            )
 
         if updates:
             workflow.upsert_search_attributes(updates)
@@ -228,6 +279,28 @@ class DurableAgentWorkflow:
                     non_retryable=True,
                 )
             cfg = args.agent_args.config
+
+        if cfg.model_provider == "custom-model-provider":
+            result = await workflow.execute_activity(
+                resolve_custom_model_provider_config_activity,
+                args=(
+                    self.role,
+                    args.agent_args.use_workspace_credentials,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+            cfg.base_url = result.base_url
+            cfg.passthrough = result.passthrough
+            if result.model_name:
+                cfg.model_name = result.model_name
+            logger.info(
+                "Applied custom model provider runtime config",
+                passthrough=cfg.passthrough,
+                has_model_name_override=result.model_name is not None,
+                has_base_url=bool(cfg.base_url),
+                use_workspace_credentials=args.agent_args.use_workspace_credentials,
+            )
         return cfg
 
     @workflow.run
@@ -246,8 +319,8 @@ class DurableAgentWorkflow:
 
         cfg = await self._build_config(args)
 
-        # Run with NSJail harness (only supported harness currently)
-        return await self._run_with_nsjail(args, cfg)
+        # Run through the agent executor (only supported harness currently)
+        return await self._run_with_agent_executor(args, cfg)
 
     @workflow.update
     def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
@@ -283,20 +356,20 @@ class DurableAgentWorkflow:
                     + ", ".join(sorted(unexpected_metadata_ids))
                 )
 
-    async def _run_with_nsjail(
+    async def _run_with_agent_executor(
         self, args: AgentWorkflowArgs, cfg: AgentConfig
     ) -> AgentOutput:
-        """Run the agent using NSJail-sandboxed Claude SDK execution.
+        """Run the agent through the executor activity.
 
         This path:
         1. Resolves tool definitions from registry
         2. Loads session history from DB (for resume)
-        3. Mints JWT/LiteLLM tokens
-        4. Calls run_agent_executor_activity which spawns NSJail
+        3. Mints JWT/LLM gateway tokens
+        4. Calls run_agent_activity, which dispatches one runtime turn
         5. Persists session history after execution
         6. Handles approval requests
         """
-        logger.info("Running agent with NSJail harness", session_id=self.session_id)
+        logger.info("Running agent executor", session_id=self.session_id)
 
         # Persist the workflow-id UUID token used to start this execution so
         # approval continuation can target the exact live workflow later.
@@ -311,6 +384,7 @@ class DurableAgentWorkflow:
             CreateSessionInput(
                 role=self.role,
                 session_id=self.session_id,
+                require_existing=args.continue_existing_session,
                 title=args.title,
                 created_by=self.role.user_id,
                 entity_type=args.entity_type,
@@ -341,21 +415,26 @@ class DurableAgentWorkflow:
 
         # Resolve tool definitions and registry lock from registry
         # Also discovers user MCP tools if configured
-        build_result = await workflow.execute_activity_method(
-            AgentActivities.build_tool_definitions,
-            arg=BuildToolDefsArgs(
-                role=self.role,
-                tool_filters=ToolFilters(
-                    namespaces=cfg.namespaces,
-                    actions=cfg.actions,
+        try:
+            build_result = await workflow.execute_activity_method(
+                AgentActivities.build_tool_definitions,
+                arg=BuildToolDefsArgs(
+                    role=self.role,
+                    tool_filters=ToolFilters(
+                        namespaces=cfg.namespaces,
+                        actions=cfg.actions,
+                    ),
+                    tool_approvals=cfg.tool_approvals,
+                    mcp_servers=cfg.mcp_servers,
+                    internal_tool_context=internal_tool_context,
                 ),
-                tool_approvals=cfg.tool_approvals,
-                mcp_servers=cfg.mcp_servers,
-                internal_tool_context=internal_tool_context,
-            ),
-            start_to_close_timeout=timedelta(seconds=120),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
+                start_to_close_timeout=timedelta(seconds=120),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as e:
+            if isinstance(e.cause, ApplicationError):
+                raise e.cause from e
+            raise
         allowed_actions = build_result.tool_definitions
         self._registry_lock = build_result.registry_lock
         user_mcp_claims = build_result.user_mcp_claims
@@ -387,19 +466,22 @@ class DurableAgentWorkflow:
                 is_fork=is_fork,
             )
 
-        # Mint tokens for MCP server and LiteLLM gateway auth
+        # Mint tokens for MCP server and LLM gateway auth
         # These tokens are opaque to the jailed runtime - it cannot decode them
+        info = workflow.info()
         mcp_auth_token = mint_mcp_token(
             workspace_id=self.workspace_id,
             organization_id=self.organization_id,
             user_id=self.role.user_id,
             allowed_actions=list(allowed_actions.keys()),
             session_id=self.session_id,
+            parent_agent_workflow_id=info.workflow_id,
+            parent_agent_run_id=info.run_id,
             user_mcp_servers=user_mcp_claims,
             allowed_internal_tools=allowed_internal_tools,
             internal_tool_context=internal_tool_context,
         )
-        litellm_auth_token = mint_llm_token(
+        llm_gateway_auth_token = mint_llm_token(
             workspace_id=self.workspace_id,
             organization_id=self.organization_id,
             session_id=self.session_id,
@@ -418,24 +500,26 @@ class DurableAgentWorkflow:
             config=cfg,
             role=self.role,
             mcp_auth_token=mcp_auth_token,
-            litellm_auth_token=litellm_auth_token,
+            llm_gateway_auth_token=llm_gateway_auth_token,
             allowed_actions=allowed_actions,
             sdk_session_id=self._sdk_session_id,
             sdk_session_data=self._sdk_session_data,
             is_fork=is_fork,
+            use_workspace_credentials=args.agent_args.use_workspace_credentials,
         )
 
         info = workflow.info()
 
-        # Run the NSJail executor activity
+        # Run the executor activity
         while True:
-            logger.info("Executing NSJail agent", turn=self._turn)
+            logger.info("Executing agent turn", turn=self._turn)
 
             result = await workflow.execute_activity(
                 run_agent_activity,
                 executor_input,
+                task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
                 start_to_close_timeout=timedelta(
-                    seconds=TRACECAT__AGENT_SANDBOX_TIMEOUT
+                    seconds=config.TRACECAT__AGENT_SANDBOX_TIMEOUT
                 ),
                 heartbeat_timeout=timedelta(seconds=60),
                 retry_policy=RETRY_POLICIES["activity:fail_fast"],
@@ -473,27 +557,10 @@ class DurableAgentWorkflow:
 
                 tool_results = None
                 if approved_tools or denied_tools:
-                    if self._registry_lock is None:
-                        raise ApplicationError(
-                            "Registry lock not initialized",
-                            non_retryable=True,
-                        )
-                    tool_exec_result = await workflow.execute_activity(
-                        execute_approved_tools_activity,
-                        ExecuteApprovedToolsInput(
-                            session_id=self.session_id,
-                            workspace_id=self.workspace_id,
-                            role=self.role,
-                            approved_tools=approved_tools,
-                            denied_tools=denied_tools,
-                            allowed_actions=list(allowed_actions.keys()),
-                            registry_lock=self._registry_lock,
-                        ),
-                        start_to_close_timeout=timedelta(seconds=300),
-                        heartbeat_timeout=timedelta(seconds=60),
-                        retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    tool_results = await self._execute_and_reconcile_approved_tools(
+                        approved_tools=approved_tools,
+                        denied_tools=denied_tools,
                     )
-                    tool_results = tool_exec_result.results
                     logger.info(
                         "Tool execution completed",
                         result_count=len(tool_results),
@@ -523,11 +590,12 @@ class DurableAgentWorkflow:
                     config=cfg,
                     role=self.role,
                     mcp_auth_token=mcp_auth_token,
-                    litellm_auth_token=litellm_auth_token,
+                    llm_gateway_auth_token=llm_gateway_auth_token,
                     allowed_actions=allowed_actions,
                     sdk_session_id=self._sdk_session_id,
                     sdk_session_data=self._sdk_session_data,
                     is_approval_continuation=True,
+                    use_workspace_credentials=args.agent_args.use_workspace_credentials,
                 )
                 self._turn += 1
                 continue
@@ -619,3 +687,89 @@ class DurableAgentWorkflow:
         )
 
         return approved, denied
+
+    async def _execute_and_reconcile_approved_tools(
+        self,
+        *,
+        approved_tools: list[ApprovedToolCall],
+        denied_tools: list[DeniedToolCall],
+    ) -> list:
+        if self._registry_lock is None:
+            raise ApplicationError(
+                "Registry lock not initialized",
+                non_retryable=True,
+            )
+
+        logical_time = workflow.now()
+        service_role = build_tracecat_mcp_role(
+            workspace_id=self.role.workspace_id,
+            organization_id=self.role.organization_id,
+            user_id=self.role.user_id,
+        )
+        pending_results: list[PendingToolResult] = []
+        for tool_call in approved_tools:
+            try:
+                stored = await workflow.execute_activity(
+                    ExecutorActivities.execute_action_activity,
+                    args=[
+                        _build_approved_tool_run_input(
+                            tool_call=tool_call,
+                            registry_lock=self._registry_lock,
+                            workflow_id=workflow.uuid4(),
+                            run_id=workflow.uuid4(),
+                            execution_id=workflow.uuid4(),
+                            logical_time=logical_time,
+                        ),
+                        service_role,
+                    ],
+                    task_queue=config.TRACECAT__EXECUTOR_QUEUE,
+                    start_to_close_timeout=timedelta(
+                        seconds=int(config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT)
+                    ),
+                    heartbeat_timeout=timedelta(
+                        seconds=config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT
+                    )
+                    if config.TRACECAT__ACTIVITY_HEARTBEAT_TIMEOUT > 0
+                    else None,
+                    retry_policy=RETRY_POLICIES["activity:fail_fast"],
+                    priority=AGENT_TOOL_PRIORITY,
+                )
+                pending_results.append(
+                    PendingToolResult(
+                        tool_call_id=tool_call.tool_call_id,
+                        tool_name=tool_call.tool_name,
+                        stored_result=stored,
+                    )
+                )
+            except ActivityError as e:
+                pending_results.append(
+                    PendingToolResult(
+                        tool_call_id=tool_call.tool_call_id,
+                        tool_name=tool_call.tool_name,
+                        raw_result=f"Tool execution failed: {_activity_error_message(e)}",
+                        is_error=True,
+                    )
+                )
+
+        for denied_tool in denied_tools:
+            pending_results.append(
+                PendingToolResult(
+                    tool_call_id=denied_tool.tool_call_id,
+                    tool_name=denied_tool.tool_name,
+                    raw_result=f"Tool denied by user: {denied_tool.reason}",
+                    is_error=True,
+                )
+            )
+
+        reconcile = await workflow.execute_activity(
+            reconcile_tool_results_activity,
+            ReconcileToolResultsInput(
+                session_id=self.session_id,
+                workspace_id=self.workspace_id,
+                role=self.role,
+                pending_results=pending_results,
+            ),
+            start_to_close_timeout=timedelta(seconds=300),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
+        return reconcile.results

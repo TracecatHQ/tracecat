@@ -141,7 +141,6 @@ resource "aws_iam_policy" "secrets_access" {
           var.oauth_client_secret_arn,
           var.oidc_client_id_arn,
           var.oidc_client_secret_arn,
-          var.user_auth_secret_arn,
           var.saml_idp_metadata_url_arn,
           var.saml_ca_certs_arn,
           var.saml_metadata_cert_arn,
@@ -153,6 +152,43 @@ resource "aws_iam_policy" "secrets_access" {
   })
 
   depends_on = [aws_db_instance.core_database]
+}
+
+# API and MCP secrets — USER_AUTH_SECRET is needed by the API service
+# (password reset, email verification, OAuth state signing) and the MCP
+# service (internal OIDC client-secret derivation).  It must NOT be
+# accessible from worker or executor services to limit blast radius.
+resource "aws_iam_policy" "api_only_secrets_access" {
+  name        = "TracecatAPIOnlySecretsAccessPolicy"
+  description = "Policy for accessing API-only secrets (USER_AUTH_SECRET)"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.user_auth_secret_arn]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_policy" "temporal_payload_encryption_keyring_access" {
+  count       = var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
+  name        = "TracecatTemporalPayloadEncryptionKeyringAccessPolicy"
+  description = "Policy for accessing the Temporal payload encryption keyring"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.temporal_payload_encryption_keyring_arn]
+      }
+    ]
+  })
 }
 
 resource "aws_iam_policy" "ui_secrets_access" {
@@ -207,6 +243,11 @@ resource "aws_iam_role_policy_attachment" "api_execution_ecs_poll" {
 
 resource "aws_iam_role_policy_attachment" "api_execution_secrets" {
   policy_arn = aws_iam_policy.secrets_access.arn
+  role       = aws_iam_role.api_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "api_execution_api_only_secrets" {
+  policy_arn = aws_iam_policy.api_only_secrets_access.arn
   role       = aws_iam_role.api_execution.name
 }
 
@@ -266,6 +307,12 @@ resource "aws_iam_role_policy_attachment" "api_worker_task_redis" {
   role       = aws_iam_role.api_worker_task.name
 }
 
+resource "aws_iam_role_policy_attachment" "api_worker_task_temporal_payload_encryption_keyring" {
+  count      = var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.temporal_payload_encryption_keyring_access[0].arn
+  role       = aws_iam_role.api_worker_task.name
+}
+
 resource "aws_iam_role" "executor_task" {
   name               = "TracecatExecutorTaskRole"
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
@@ -320,6 +367,12 @@ resource "aws_iam_role_policy_attachment" "executor_task_s3" {
 
 resource "aws_iam_role_policy_attachment" "executor_task_redis" {
   policy_arn = aws_iam_policy.redis_iam_access.arn
+  role       = aws_iam_role.executor_task.name
+}
+
+resource "aws_iam_role_policy_attachment" "executor_task_temporal_payload_encryption_keyring" {
+  count      = var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.temporal_payload_encryption_keyring_access[0].arn
   role       = aws_iam_role.executor_task.name
 }
 
@@ -381,6 +434,142 @@ resource "aws_iam_role_policy" "temporal_task_db_access" {
         ]
         Resource = [
           "${aws_db_instance.temporal_database[0].arn}/postgres"
+        ]
+      }
+    ]
+  })
+}
+
+# MCP execution role
+resource "aws_iam_role" "mcp_execution" {
+  count              = var.enable_mcp ? 1 : 0
+  name               = "TracecatMCPExecutionRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "mcp_execution_ecs_poll" {
+  count      = var.enable_mcp ? 1 : 0
+  policy_arn = aws_iam_policy.ecs_poll.arn
+  role       = aws_iam_role.mcp_execution[0].name
+}
+
+resource "aws_iam_role_policy_attachment" "mcp_execution_secrets" {
+  count      = var.enable_mcp ? 1 : 0
+  policy_arn = aws_iam_policy.secrets_access.arn
+  role       = aws_iam_role.mcp_execution[0].name
+}
+
+resource "aws_iam_role_policy_attachment" "mcp_execution_api_only_secrets" {
+  count      = var.enable_mcp ? 1 : 0
+  policy_arn = aws_iam_policy.api_only_secrets_access.arn
+  role       = aws_iam_role.mcp_execution[0].name
+}
+
+resource "aws_iam_role_policy_attachment" "mcp_execution_cloudwatch_logs" {
+  count      = var.enable_mcp ? 1 : 0
+  policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.mcp_execution[0].name
+}
+
+# MCP task role
+resource "aws_iam_role" "mcp_task" {
+  count              = var.enable_mcp ? 1 : 0
+  name               = "TracecatMCPTaskRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy" "mcp_task_db_access" {
+  count = var.enable_mcp ? 1 : 0
+  name  = "TracecatMCPDBAccessPolicy"
+  role  = aws_iam_role.mcp_task[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "rds-db:connect",
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          "${aws_db_instance.core_database.arn}/postgres",
+          aws_db_instance.core_database.master_user_secret[0].secret_arn,
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "mcp_task_temporal_payload_encryption_keyring" {
+  count      = var.enable_mcp && var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.temporal_payload_encryption_keyring_access[0].arn
+  role       = aws_iam_role.mcp_task[0].name
+}
+
+# LiteLLM execution role
+resource "aws_iam_role" "litellm_execution" {
+  name               = "TracecatLitellmExecutionRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "litellm_execution_ecs_poll" {
+  policy_arn = aws_iam_policy.ecs_poll.arn
+  role       = aws_iam_role.litellm_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "litellm_execution_secrets" {
+  policy_arn = aws_iam_policy.secrets_access.arn
+  role       = aws_iam_role.litellm_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "litellm_execution_cloudwatch_logs" {
+  policy_arn = aws_iam_policy.cloudwatch_logs.arn
+  role       = aws_iam_role.litellm_execution.name
+}
+
+# LiteLLM task role
+resource "aws_iam_role" "litellm_task" {
+  name               = "TracecatLitellmTaskRole"
+  assume_role_policy = data.aws_iam_policy_document.assume_role.json
+}
+
+resource "aws_iam_role_policy" "litellm_task_db_access" {
+  name = "TracecatLitellmDBAccessPolicy"
+  role = aws_iam_role.litellm_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "rds-db:connect",
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          "${aws_db_instance.core_database.arn}/postgres",
+          aws_db_instance.core_database.master_user_secret[0].secret_arn,
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "litellm_task_assume_role" {
+  name = "TracecatLitellmAssumeRolePolicy"
+  role = aws_iam_role.litellm_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sts:AssumeRole"
+        ]
+        Resource = [
+          aws_iam_role.executor_task.arn
         ]
       }
     ]

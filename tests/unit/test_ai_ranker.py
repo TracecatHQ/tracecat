@@ -340,6 +340,7 @@ async def test_multi_pass_rank_filters_hallucinated_ids(
 
 
 @pytest.mark.anyio
+@pytest.mark.live_secret
 @requires_openai_mocks
 async def test_rank_items_live_openai() -> None:
     items: list[ranker.RankableItem] = [
@@ -362,6 +363,7 @@ async def test_rank_items_live_openai() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.live_secret
 @requires_openai_mocks
 async def test_rank_items_min_max_live_openai_singleton() -> None:
     items: list[ranker.RankableItem] = [

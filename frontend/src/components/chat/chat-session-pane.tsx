@@ -23,6 +23,7 @@ import { motion } from "motion/react"
 import {
   type ChangeEvent,
   type KeyboardEvent,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -121,11 +122,18 @@ type ToolMentionState = ToolMentionToken & {
   activeIndex: number
 }
 
+const TOOL_ICON_PROPS = { className: "size-5 p-[3px]" } as const
+
 type ToolSuggestion = {
   value: string
   label: string
   description?: string
   group?: string
+}
+
+type CompactionStatusData = {
+  phase?: "started" | "completed" | "failed"
+  pre_tokens?: number
 }
 
 function areToolListsEqual(left: string[], right: string[]): boolean {
@@ -310,7 +318,19 @@ export function ChatSessionPane({
         (lastPart.type === "reasoning" && lastPart.text.length > 0) ||
         (isToolUIPart(lastPart) && lastPart.state === "input-streaming")
 
-      if (lastPart.type === "data-approval-request") return false
+      if (lastPart.type === "data-approval-request") {
+        return false
+      }
+
+      if (lastPart.type === "data-compaction") {
+        const compaction =
+          "data" in lastPart &&
+          lastPart.data &&
+          typeof lastPart.data === "object"
+            ? (lastPart.data as CompactionStatusData)
+            : undefined
+        return compaction?.phase === "started"
+      }
 
       return !isStreamingVisual
     }
@@ -761,36 +781,29 @@ export function ChatSessionPane({
             {transformedMessages.map(({ id, role, parts }) => {
               // Track whether this message is the latest entry so we can keep its actions visible.
               const isLastMessage = id === messages[messages.length - 1].id
+              const sourceUrlParts = parts?.filter(
+                (part) => part.type === "source-url"
+              )
               return (
                 <div key={id} className="group relative">
                   {role === "assistant" &&
-                    parts &&
-                    parts.filter((part) => part.type === "source-url").length >
-                      0 && (
+                    sourceUrlParts &&
+                    sourceUrlParts.length > 0 && (
                       <Sources>
-                        <SourcesTrigger
-                          count={
-                            parts.filter((part) => part.type === "source-url")
-                              .length
-                          }
-                        />
-                        {parts
-                          .filter((part) => part.type === "source-url")
-                          .map((part, partIdx) => (
-                            <SourcesContent
-                              key={`${id}-${part.type}-${partIdx}`}
-                            >
-                              <Source
-                                href={"url" in part ? part.url : "#"}
-                                title={"url" in part ? part.url : "Source"}
-                              />
-                            </SourcesContent>
-                          ))}
+                        <SourcesTrigger count={sourceUrlParts.length} />
+                        {sourceUrlParts.map((part, partIdx) => (
+                          <SourcesContent key={`${id}-${part.type}-${partIdx}`}>
+                            <Source
+                              href={"url" in part ? part.url : "#"}
+                              title={"url" in part ? part.url : "Source"}
+                            />
+                          </SourcesContent>
+                        ))}
                       </Sources>
                     )}
 
                   {parts?.map((part, partIdx) => (
-                    <MessagePart
+                    <MemoizedMessagePart
                       key={`${id}-${part.type}-${partIdx}`}
                       part={part}
                       partIdx={partIdx}
@@ -1158,6 +1171,47 @@ export function MessagePart({
     )
   }
 
+  if (part.type === "data-compaction") {
+    const payload = (part as { data?: unknown }).data
+    const compaction =
+      payload && typeof payload === "object"
+        ? (payload as CompactionStatusData)
+        : {}
+    const phase = compaction.phase ?? "completed"
+    let label = "Conversation compacted."
+    if (phase === "started") {
+      label = "Compacting conversation..."
+    } else if (phase === "failed") {
+      label = "Compaction failed."
+    }
+    const tokenSummary =
+      typeof compaction.pre_tokens === "number"
+        ? `${compaction.pre_tokens.toLocaleString()} tokens`
+        : null
+
+    return (
+      <Message key={`${id}-${partIdx}`} from={role}>
+        <MessageContent variant="flat">
+          <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs text-muted-foreground">
+            {phase === "started" ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : phase === "failed" ? (
+              <XIcon className="size-3" />
+            ) : (
+              <CheckIcon className="size-3" />
+            )}
+            <span>{label}</span>
+            {tokenSummary ? (
+              <span className="text-[11px] text-muted-foreground/80">
+                {tokenSummary}
+              </span>
+            ) : null}
+          </div>
+        </MessageContent>
+      </Message>
+    )
+  }
+
   if (part.type === "text") {
     return (
       <Message key={`${id}-${partIdx}`} from={role}>
@@ -1208,9 +1262,7 @@ export function MessagePart({
           title={toolName}
           type={part.type}
           state={derivedState}
-          icon={getIcon(toolName, {
-            className: "size-5 p-[3px]",
-          })}
+          icon={getIcon(toolName, TOOL_ICON_PROPS)}
         />
         <ToolContent>
           <ToolInput input={part.input} />
@@ -1222,6 +1274,48 @@ export function MessagePart({
 
   return null
 }
+
+const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
+  if (
+    prev.partIdx !== next.partIdx ||
+    prev.id !== next.id ||
+    prev.role !== next.role ||
+    prev.status !== next.status ||
+    prev.isLastMessage !== next.isLastMessage ||
+    prev.onSubmitApprovals !== next.onSubmitApprovals
+  ) {
+    return false
+  }
+
+  const prevPart = prev.part
+  const nextPart = next.part
+
+  if (prevPart.type !== nextPart.type) {
+    return false
+  }
+
+  if (prevPart.type === "text" || prevPart.type === "reasoning") {
+    return prevPart.text === (nextPart as typeof prevPart).text
+  }
+
+  if (isToolUIPart(prevPart) && isToolUIPart(nextPart)) {
+    return (
+      prevPart.toolCallId === nextPart.toolCallId &&
+      prevPart.state === nextPart.state &&
+      prevPart.input === nextPart.input &&
+      prevPart.output === nextPart.output &&
+      ("errorText" in prevPart
+        ? (prevPart as { errorText?: string }).errorText
+        : undefined) ===
+        ("errorText" in nextPart
+          ? (nextPart as { errorText?: string }).errorText
+          : undefined)
+    )
+  }
+
+  return prevPart === nextPart
+})
+MemoizedMessagePart.displayName = "MessagePart"
 
 type DecisionState = {
   action: ApprovalDecision["action"] | undefined
@@ -1239,9 +1333,14 @@ function ApprovalRequestPart({
   const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
   const [submitting, setSubmitting] = useState(false)
 
+  const approvalsKey = useMemo(
+    () => approvals.map((a) => a.tool_call_id).join(":"),
+    [approvals]
+  )
+
   useEffect(() => {
     setDecisions({})
-  }, [approvals.map((a) => a.tool_call_id).join(":")])
+  }, [approvalsKey])
 
   const readyToSubmit =
     approvals.length > 0 &&
@@ -1341,9 +1440,7 @@ function ApprovalRequestPart({
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2.5">
-                    {getIcon(actionId, {
-                      className: "size-5 p-[3px]",
-                    })}
+                    {getIcon(actionId, TOOL_ICON_PROPS)}
                     <p className="font-medium text-sm">{actionId}</p>
                     {getStatusBadge("approval-requested")}
                   </div>

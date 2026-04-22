@@ -292,18 +292,20 @@ class WorkflowImportService(BaseWorkspaceService):
         self, existing_workflow: Workflow, remote_workflow: RemoteWorkflowDefinition
     ) -> None:
         """Update existing workflow with new definition and related entities."""
+        dsl = remote_workflow.definition
+
         # 1. Add new WorkflowDefinition (versioned)
         defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
         wf_id = WorkflowUUID.new(existing_workflow.id)
         defn = await defn_service.create_workflow_definition(
-            wf_id, remote_workflow.definition, alias=remote_workflow.alias, commit=False
+            wf_id, dsl, alias=remote_workflow.alias, commit=False
         )
 
         # 2. Update workflow metadata
         existing_workflow.version = defn.version
-        existing_workflow.title = remote_workflow.definition.title
-        existing_workflow.description = remote_workflow.definition.description
         existing_workflow.alias = remote_workflow.alias
+        for field, value in self.wf_mgmt._workflow_fields_from_dsl(dsl).items():
+            setattr(existing_workflow, field, value)
 
         # 3. Delete existing actions and recreate from DSL
         # (Actions are tightly coupled to the DSL definition)
@@ -313,7 +315,6 @@ class WorkflowImportService(BaseWorkspaceService):
             await self.session.flush()
 
         # 4. Recreate actions from DSL
-        dsl = remote_workflow.definition
         actions = await self.wf_mgmt.create_actions_from_dsl(dsl, existing_workflow.id)
         existing_workflow.actions = actions
 

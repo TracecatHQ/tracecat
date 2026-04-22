@@ -8,8 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat import config
 from tracecat.audit.logger import audit_log
+from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import BaseSecret, OrganizationSecret, Secret
@@ -45,10 +45,7 @@ class SecretsService(BaseOrgService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
-        encryption_key = config.TRACECAT__DB_ENCRYPTION_KEY
-        if not encryption_key:
-            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set")
-        self._encryption_key = encryption_key
+        self._encryption_key = get_db_encryption_key()
 
     def _require_workspace_id(self) -> WorkspaceID:
         """Get workspace_id, raising if role or workspace_id is None."""
@@ -254,7 +251,7 @@ class SecretsService(BaseOrgService):
                 " Please double check that the name was correctly input."
             ) from e
 
-    @require_scope("secret:update")
+    @require_scope("secret:create")
     @audit_log(resource_type="secret", action="create")
     async def create_secret(self, params: SecretCreate) -> None:
         """Create a workspace secret."""
@@ -277,7 +274,7 @@ class SecretsService(BaseOrgService):
         self.session.add(secret)
         await self.session.commit()
 
-    @require_scope("secret:create")
+    @require_scope("secret:update")
     @audit_log(resource_type="secret", action="update")
     async def update_secret(self, secret: Secret, params: SecretUpdate) -> None:
         """Update a workspace secret."""
@@ -337,8 +334,7 @@ class SecretsService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalar_one()
 
-    @require_scope("org:secret:read")
-    async def get_org_secret_by_name(
+    async def _get_org_secret_by_name(
         self,
         secret_name: str,
         environment: str | None = None,
@@ -363,6 +359,20 @@ class SecretsService(BaseOrgService):
                 f"Organization secret {secret_name!r} (env: {environment!r}) not found when searching by name."
                 " Please double check that the name was correctly input."
             ) from e
+
+    @require_scope("org:secret:read")
+    async def get_org_secret_by_name(
+        self,
+        secret_name: str,
+        environment: str | None = None,
+    ) -> OrganizationSecret:
+        """Retrieve an organization-wide secret by its name."""
+        return await self._get_org_secret_by_name(secret_name, environment)
+
+    @require_scope("workflow:sync")
+    async def get_github_app_org_secret(self) -> OrganizationSecret:
+        """Retrieve the GitHub App organization secret for workflow sync."""
+        return await self._get_org_secret_by_name("github-app-credentials")
 
     @require_scope("org:secret:create")
     @audit_log(resource_type="organization_secret", action="create")

@@ -475,6 +475,20 @@ type GraphOpParams = {
   operations: GraphOperation[]
 }
 
+const structuralGraphOperationTypes = new Set<GraphOperation["type"]>([
+  "add_node",
+  "update_node",
+  "delete_node",
+  "add_edge",
+  "delete_edge",
+])
+
+function shouldSyncGraphCache(operations: GraphOperation[]): boolean {
+  return operations.some((operation) =>
+    structuralGraphOperationTypes.has(operation.type)
+  )
+}
+
 /**
  * Hook to fetch graph data for a workflow.
  */
@@ -508,11 +522,12 @@ export function useGraphOperations(workspaceId: string, workflowId: string) {
           operations,
         },
       }),
-    onSuccess: (graph) => {
-      // Update the graph cache with the new version
-      queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
-      // Also invalidate workflow to pick up any action changes
-      queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+    onSuccess: (graph, variables) => {
+      if (shouldSyncGraphCache(variables.operations)) {
+        // Update the graph cache with the latest structural state.
+        queryClient.setQueryData(["graph", workspaceId, workflowId], graph)
+        queryClient.invalidateQueries({ queryKey: ["workflow", workflowId] })
+      }
     },
     onError: (error) => {
       console.error("Failed to apply graph operations:", error)
@@ -1339,7 +1354,7 @@ export function useWorkspaceSecrets(
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
-        type: ["custom", "ssh-key", "mtls", "ca-cert", "github-app"],
+        type: ["custom", "ssh_key", "mtls", "ca_cert"],
       }),
     enabled: !!workspaceId && listEnabled,
     staleTime: 5 * 60 * 1000,
@@ -1677,7 +1692,7 @@ export function useOrgSecrets() {
     queryKey: ["org-ssh-keys"],
     queryFn: async () =>
       await organizationSecretsListOrgSecrets({
-        type: ["ssh-key"],
+        type: ["ssh_key"],
       }),
   })
 
@@ -1687,7 +1702,7 @@ export function useOrgSecrets() {
       await organizationSecretsCreateOrgSecret({ requestBody: params }),
     onSuccess: (_, variables) => {
       switch (variables.type) {
-        case "ssh-key":
+        case "ssh_key":
           queryClient.invalidateQueries({ queryKey: ["org-ssh-keys"] })
           toast({
             title: "Created secret",
@@ -1719,7 +1734,7 @@ export function useOrgSecrets() {
       }),
     onSuccess: (_, variables) => {
       switch (variables.params.type) {
-        case "ssh-key":
+        case "ssh_key":
           queryClient.invalidateQueries({ queryKey: ["org-ssh-keys"] })
           toast({
             title: "Updated secret",
@@ -1742,7 +1757,7 @@ export function useOrgSecrets() {
       await organizationSecretsDeleteOrgSecretById({ secretId: secret.id }),
     onSuccess: (_, variables) => {
       switch (variables.type) {
-        case "ssh-key":
+        case "ssh_key":
           queryClient.invalidateQueries({ queryKey: ["org-ssh-keys"] })
           toast({
             title: "Deleted secret",
@@ -1817,15 +1832,28 @@ export function useUserManager() {
 
 /* Registry Actions */
 // For selector node
-export function useBuilderRegistryActions(versions?: string[]) {
+interface UseBuilderRegistryActionsOptions {
+  versions?: string[]
+  includeLocked?: boolean
+}
+
+export function useBuilderRegistryActions(
+  options?: UseBuilderRegistryActionsOptions
+) {
   const {
     data: registryActions,
     isLoading: registryActionsIsLoading,
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
-    queryKey: ["builder_registry_actions", versions],
+    queryKey: [
+      "builder_registry_actions",
+      options?.versions,
+      options?.includeLocked,
+    ],
     queryFn: async () => {
-      return await registryActionsListRegistryActions()
+      return await registryActionsListRegistryActions(
+        options?.includeLocked ? { includeLocked: true } : {}
+      )
     },
   })
 
@@ -1866,15 +1894,22 @@ export function useGetRegistryAction(actionName?: string) {
 }
 
 // For selector node
-export function useRegistryActions(versions?: string[]) {
+interface UseRegistryActionsOptions {
+  versions?: string[]
+  includeLocked?: boolean
+}
+
+export function useRegistryActions(options?: UseRegistryActionsOptions) {
   const {
     data: registryActions,
     isLoading: registryActionsIsLoading,
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
-    queryKey: ["registry_actions", versions],
+    queryKey: ["registry_actions", options?.versions, options?.includeLocked],
     queryFn: async () => {
-      return await registryActionsListRegistryActions()
+      return await registryActionsListRegistryActions({
+        includeLocked: options?.includeLocked,
+      })
     },
   })
 
@@ -3701,6 +3736,7 @@ export function useCaseDurationDefinitions(
   const {
     data: caseDurationDefinitions,
     isLoading: caseDurationDefinitionsIsLoading,
+    isFetching: caseDurationDefinitionsIsFetching,
     error: caseDurationDefinitionsError,
   } = useQuery<CaseDurationDefinitionRead[], Error>({
     queryKey: ["case-duration-definitions", workspaceId],
@@ -3711,23 +3747,27 @@ export function useCaseDurationDefinitions(
   return {
     caseDurationDefinitions,
     caseDurationDefinitionsIsLoading,
+    caseDurationDefinitionsIsFetching,
     caseDurationDefinitionsError,
   }
 }
 
-export function useCaseFields(workspaceId: string) {
+export function useCaseFields(workspaceId: string, enabled = true) {
   const {
     data: caseFields,
     isLoading: caseFieldsIsLoading,
+    isFetching: caseFieldsIsFetching,
     error: caseFieldsError,
   } = useQuery<CaseFieldReadMinimal[], TracecatApiError>({
     queryKey: ["case-fields", workspaceId],
     queryFn: async () => await casesListFields({ workspaceId }),
+    enabled: Boolean(workspaceId) && enabled,
   })
 
   return {
     caseFields,
     caseFieldsIsLoading,
+    caseFieldsIsFetching,
     caseFieldsError,
   }
 }
@@ -6382,6 +6422,14 @@ export function useRbacUserAssignments(options?: {
   const queryClient = useQueryClient()
   const enabled = options?.enabled ?? true
 
+  const invalidateAssignmentQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] }),
+      queryClient.invalidateQueries({ queryKey: ["user-scopes"] }),
+      queryClient.invalidateQueries({ queryKey: ["org-members"] }),
+    ])
+  }
+
   // List user assignments
   const {
     data: userAssignments,
@@ -6409,9 +6457,8 @@ export function useRbacUserAssignments(options?: {
   } = useMutation({
     mutationFn: async (params: UserRoleAssignmentCreate) =>
       await rbacCreateUserAssignment({ requestBody: params }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
-      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    onSuccess: async () => {
+      await invalidateAssignmentQueries()
       toast({
         title: "User assignment created",
         description: "Role assigned to user successfully.",
@@ -6469,9 +6516,8 @@ export function useRbacUserAssignments(options?: {
       ...params
     }: UserRoleAssignmentUpdate & { assignmentId: string }) =>
       await rbacUpdateUserAssignment({ assignmentId, requestBody: params }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
-      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    onSuccess: async () => {
+      await invalidateAssignmentQueries()
       toast({
         title: "User assignment updated",
         description: "User assignment updated successfully.",
@@ -6512,9 +6558,8 @@ export function useRbacUserAssignments(options?: {
   } = useMutation({
     mutationFn: async (assignmentId: string) =>
       await rbacDeleteUserAssignment({ assignmentId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rbac-user-assignments"] })
-      queryClient.invalidateQueries({ queryKey: ["user-scopes"] })
+    onSuccess: async () => {
+      await invalidateAssignmentQueries()
       toast({
         title: "User assignment deleted",
         description: "User assignment removed successfully.",
@@ -6572,6 +6617,7 @@ export function useCaseDropdownDefinitions(
   const {
     data: dropdownDefinitions,
     isLoading: dropdownDefinitionsIsLoading,
+    isFetching: dropdownDefinitionsIsFetching,
     error: dropdownDefinitionsError,
   } = useQuery<CaseDropdownDefinitionRead[], Error>({
     queryKey: ["case-dropdown-definitions", workspaceId],
@@ -6636,6 +6682,7 @@ export function useCaseDropdownDefinitions(
   return {
     dropdownDefinitions,
     dropdownDefinitionsIsLoading,
+    dropdownDefinitionsIsFetching,
     dropdownDefinitionsError,
     createDropdownDefinition,
     deleteDropdownDefinition,

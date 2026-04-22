@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -49,6 +48,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.auth.schemas import UserRole
+from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScopeSource
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
@@ -1115,15 +1115,9 @@ class Webhook(WorkspaceModel):
 
     @property
     def secret(self) -> str:
-        secret = (
-            os.environ.get("TRACECAT__SIGNING_SECRET")
-            or config.TRACECAT__SIGNING_SECRET
-        )
-        if not secret:
-            raise ValueError("TRACECAT__SIGNING_SECRET is not set")
         # Using legacy format to prevent webhook url changes
         id_part = f"wh-{self.id.hex}"
-        return hashlib.sha256(f"{id_part}{secret}".encode()).hexdigest()
+        return hashlib.sha256(f"{id_part}{get_signing_secret()}".encode()).hexdigest()
 
     @property
     def url(self) -> str:
@@ -1865,6 +1859,12 @@ class CaseDropdownDefinition(WorkspaceModel):
     )
     position: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False, doc="Display order among dropdowns"
+    )
+    required_on_closure: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        doc="Whether this dropdown must have a value when closing/resolving a case",
     )
 
     workspace: Mapped[Workspace] = relationship(
@@ -3175,6 +3175,13 @@ class AgentPreset(WorkspaceModel):
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
+    enable_thinking: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=text("true"),
+        nullable=False,
+        doc="Whether to enable high thinking for agent runs",
+    )
     enable_internet_access: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -3272,6 +3279,13 @@ class AgentPresetVersion(WorkspaceModel):
     )
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
+    )
+    enable_thinking: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default=text("true"),
+        nullable=False,
+        doc="Whether to enable high thinking for agent runs",
     )
     enable_internet_access: Mapped[bool] = mapped_column(
         Boolean,
@@ -3686,6 +3700,66 @@ class MCPIntegration(TimestampMixin, Base):
         "OAuthIntegration",
         uselist=False,
         lazy="selectin",
+    )
+
+
+class MCPRefreshToken(OrganizationModel):
+    """Refresh tokens issued by the internal MCP OIDC IdP."""
+
+    __tablename__ = "mcp_refresh_token"
+    __table_args__ = (
+        Index("ix_mcp_refresh_token_family_id", "family_id"),
+        Index("ix_mcp_refresh_token_expires_at", "expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique refresh token identifier",
+    )
+    token_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="SHA-256 hex digest of the opaque refresh token. Plaintext is never stored so a DB leak yields hashes only.",
+    )
+    family_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        nullable=False,
+        doc="Groups all tokens descended from one auth code exchange. Used for replay-detection revocation.",
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="User the refresh token was issued to",
+    )
+    client_id: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        doc="OAuth client_id the token was issued to",
+    )
+    encrypted_metadata: Mapped[bytes] = mapped_column(
+        LargeBinary,
+        nullable=False,
+        doc="Encrypted JSON blob with session context (email, scope, resource, is_platform_superuser). Encrypted via secrets.encryption.encrypt_bytes with TRACECAT__DB_ENCRYPTION_KEY.",
+    )
+    status: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        default="active",
+        index=True,
+        doc="State machine: 'active' -> 'used' (rotated normally) or 'revoked' (family revoked).",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        doc="Absolute expiry timestamp for this refresh token",
     )
 
 

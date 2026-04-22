@@ -5,13 +5,21 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from asyncpg import DuplicateColumnError
 from fastapi import status
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import ProgrammingError
 
 from tracecat.auth.types import Role
 from tracecat.cases import router as cases_router
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
-from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.enums import (
+    CaseEventType,
+    CaseFieldKind,
+    CasePriority,
+    CaseSeverity,
+    CaseStatus,
+)
 from tracecat.cases.schemas import (
     CaseCommentRead,
     CaseCommentThreadRead,
@@ -208,6 +216,47 @@ async def test_list_cases_with_filters(
 
 
 @pytest.mark.anyio
+async def test_list_cases_validates_field_ids_even_when_page_is_empty(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Invalid field hydration requests should not depend on the page containing rows."""
+    with (
+        patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseFieldsService") as MockFieldsService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.list_cases.return_value = CursorPaginatedResponse[CaseReadMinimal](
+            items=[],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        mock_fields_svc = AsyncMock()
+        mock_fields_svc.batch_get_fields.side_effect = ValueError(
+            "Field case_id is a reserved field"
+        )
+        MockService.return_value = mock_svc
+        MockFieldsService.return_value = mock_fields_svc
+
+        response = client.get(
+            "/cases",
+            params=[
+                ("workspace_id", str(test_admin_role.workspace_id)),
+                ("field_ids", "case_id"),
+            ],
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Field case_id is a reserved field"
+    mock_fields_svc.batch_get_fields.assert_awaited_once_with(
+        case_ids=[],
+        field_ids=["case_id"],
+    )
+
+
+@pytest.mark.anyio
 async def test_list_case_events_includes_comment_activity(
     client: TestClient,
     test_admin_role: Role,
@@ -282,6 +331,34 @@ async def test_create_case_success(
 
 
 @pytest.mark.anyio
+async def test_create_case_invalid_numeric_fields_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Invalid custom-field numeric input should be surfaced as a client error."""
+    with patch.object(cases_router, "CasesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_case.side_effect = ValueError("Invalid numeric value: 'abc'")
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/cases",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "summary": "Test Case Summary",
+                "description": "Test case description with details",
+                "priority": "medium",
+                "severity": "medium",
+                "status": "new",
+                "fields": {"score": "abc"},
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid numeric value: 'abc'"
+
+
+@pytest.mark.anyio
 async def test_create_case_with_dropdown_values(
     client: TestClient,
     test_admin_role: Role,
@@ -337,6 +414,236 @@ async def test_create_case_validation_error(
 
     # Should return validation error
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.anyio
+async def test_create_case_field_accepts_long_text_kind(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            "/case-fields",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "details", "type": "TEXT", "kind": "LONG_TEXT"},
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    mock_service.create_field.assert_awaited_once()
+    params = mock_service.create_field.await_args.args[0]
+    assert params.type == "TEXT"
+    assert params.kind is CaseFieldKind.LONG_TEXT
+
+
+@pytest.mark.anyio
+async def test_list_case_fields_preserves_reserved_uuid_type(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.list_fields.return_value = [
+            {
+                "name": "case_id",
+                "type": "UUID",
+                "nullable": False,
+                "default": None,
+                "comment": "Case UUID",
+            },
+            {
+                "name": "details",
+                "type": "TEXT",
+                "nullable": True,
+                "default": None,
+                "comment": "Case details",
+            },
+        ]
+        mock_service.get_field_schema.return_value = {
+            "details": {"type": "TEXT", "kind": "LONG_TEXT"}
+        }
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            "/case-fields",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data[0]["id"] == "case_id"
+    assert data[0]["type"] == "UUID"
+    assert data[0]["reserved"] is True
+    assert data[1]["id"] == "details"
+    assert data[1]["type"] == "TEXT"
+    assert data[1]["kind"] == "LONG_TEXT"
+
+
+@pytest.mark.anyio
+async def test_create_case_field_rejects_invalid_kind_pair(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        response = client.post(
+            "/case-fields",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "details", "type": "INTEGER", "kind": "LONG_TEXT"},
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_service_cls.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_update_case_field_invalid_identifier_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.update_field.side_effect = ValueError(
+            "Identifier must contain only letters, numbers, and underscores"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.patch(
+            "/case-fields/bad-field",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"default": "value"},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Identifier must" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_create_case_field_validation_error_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.create_field.side_effect = ValueError(
+            "Field __tc_workspace_id is reserved for internal use"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.post(
+            "/case-fields",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "__tc_workspace_id", "type": "TEXT"},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "reserved for internal use" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_update_case_field_rejects_kind_input(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        response = client.patch(
+            "/case-fields/details",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"kind": "URL"},
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_service_cls.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_delete_case_field_invalid_identifier_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.delete_field.side_effect = ValueError(
+            "Identifier must contain only letters, numbers, and underscores"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.delete(
+            "/case-fields/bad-field",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Identifier must" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_update_case_field_tracecat_validation_error_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.update_field.side_effect = TracecatValidationError(
+            "Field nickname is reserved"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.patch(
+            "/case-fields/bad-field",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"default": "value"},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Field nickname is reserved"
+
+
+@pytest.mark.anyio
+async def test_delete_case_field_tracecat_validation_error_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.delete_field.side_effect = TracecatValidationError(
+            "Field nickname is reserved"
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.delete(
+            "/case-fields/bad-field",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Field nickname is reserved"
+
+
+@pytest.mark.anyio
+async def test_update_case_field_duplicate_name_returns_409(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        duplicate_error = DuplicateColumnError("Column already exists")
+        programming_error = ProgrammingError("", {}, duplicate_error)
+        programming_error.__cause__ = duplicate_error
+        mock_service.update_field.side_effect = programming_error
+        mock_service_cls.return_value = mock_service
+
+        response = client.patch(
+            "/case-fields/existing_field",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"name": "duplicate_name"},
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()["detail"] == (
+        "A field with the name 'duplicate_name' already exists"
+    )
 
 
 @pytest.mark.anyio
@@ -441,6 +748,29 @@ async def test_update_case_success(
 
         # Verify service was called
         mock_svc.update_case.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_update_case_invalid_integer_fields_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Invalid custom-field integer input should be surfaced as a client error."""
+    with patch.object(cases_router, "CasesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_case.return_value = mock_case
+        mock_svc.update_case.side_effect = ValueError("Invalid integer value: '1.5'")
+        MockService.return_value = mock_svc
+
+        response = client.patch(
+            f"/cases/{mock_case.id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"fields": {"attempts": "1.5"}},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid integer value: '1.5'"
 
 
 @pytest.mark.anyio
@@ -713,6 +1043,109 @@ async def test_search_cases_success(
         assert len(data["items"]) == 1
         assert data["items"][0]["summary"] == "Test Case Summary"
         mock_svc.search_cases.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_search_cases_hydrates_requested_fields_and_durations(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Test GET /cases/search forwards duration flag and selected field IDs."""
+    with (
+        patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseFieldsService") as MockFieldsService,
+    ):
+        mock_svc = AsyncMock()
+        mock_fields_svc = AsyncMock()
+
+        mock_case_read = CaseReadMinimal(
+            id=mock_case.id,
+            created_at=mock_case.created_at,
+            updated_at=mock_case.updated_at,
+            short_id=mock_case.short_id,
+            summary=mock_case.summary,
+            status=mock_case.status,
+            priority=mock_case.priority,
+            severity=mock_case.severity,
+            assignee=None,
+            tags=[],
+            dropdown_values=[],
+            num_tasks_completed=0,
+            num_tasks_total=0,
+        )
+        mock_svc.search_cases.return_value = CursorPaginatedResponse(
+            items=[mock_case_read],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        mock_fields_svc.batch_get_fields.return_value = {
+            mock_case.id: {"priority_reason": "Customer impact"}
+        }
+        MockService.return_value = mock_svc
+        MockFieldsService.return_value = mock_fields_svc
+
+        response = client.get(
+            "/cases/search",
+            params=[
+                ("workspace_id", str(test_admin_role.workspace_id)),
+                ("field_ids", "priority_reason"),
+                ("include_durations", "true"),
+            ],
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["items"][0]["field_values"] == {
+            "priority_reason": "Customer impact"
+        }
+        assert mock_svc.search_cases.call_args.kwargs["include_durations"] is True
+        mock_fields_svc.batch_get_fields.assert_awaited_once_with(
+            case_ids=[mock_case.id],
+            field_ids=["priority_reason"],
+        )
+
+
+@pytest.mark.anyio
+async def test_search_cases_validates_field_ids_even_when_page_is_empty(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Search field validation should remain request-driven when no cases match."""
+    with (
+        patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseFieldsService") as MockFieldsService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.search_cases.return_value = CursorPaginatedResponse[CaseReadMinimal](
+            items=[],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        mock_fields_svc = AsyncMock()
+        mock_fields_svc.batch_get_fields.side_effect = ValueError(
+            "Field case_id is a reserved field"
+        )
+        MockService.return_value = mock_svc
+        MockFieldsService.return_value = mock_fields_svc
+
+        response = client.get(
+            "/cases/search",
+            params=[
+                ("workspace_id", str(test_admin_role.workspace_id)),
+                ("field_ids", "case_id"),
+            ],
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Field case_id is a reserved field"
+    mock_fields_svc.batch_get_fields.assert_awaited_once_with(
+        case_ids=[],
+        field_ids=["case_id"],
+    )
 
 
 @pytest.mark.anyio
