@@ -67,12 +67,21 @@ async def test_start_mcp_server_raises_when_socket_is_not_created(
 
 
 @pytest.mark.anyio
-async def test_start_configured_llm_proxy_is_noop(
+async def test_start_and_stop_claude_runtime_broker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    info = Mock()
-    monkeypatch.setattr(runtime_services.logger, "info", info)
+    fake_broker = Mock()
+    fake_broker.start = AsyncMock()
+    fake_broker.stop = AsyncMock()
+    monkeypatch.setattr(
+        "tracecat.agent.runtime.claude_code.broker.ClaudeRuntimeBroker",
+        Mock(return_value=fake_broker),
+    )
+    runtime_services._claude_runtime_broker = None
 
-    await runtime_services.start_configured_llm_proxy()
+    await runtime_services.start_claude_runtime_broker()
+    assert runtime_services.get_claude_runtime_broker() is fake_broker
+    fake_broker.start.assert_awaited_once()
 
-    info.assert_called_once()
+    await runtime_services.stop_claude_runtime_broker()
+    fake_broker.stop.assert_awaited_once()

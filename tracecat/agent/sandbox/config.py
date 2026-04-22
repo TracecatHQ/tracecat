@@ -10,11 +10,11 @@ Security model:
 - /proc read-only, PID namespace isolated (process only sees itself)
 - All tool execution via MCP socket to trusted server outside sandbox
 - Uses same base rootfs as action sandbox (Python 3.12)
-- Site-packages mounted read-only for Claude SDK deps and tracecat package
+- Site-packages or a minimal Claude SDK subtree mounted read-only
 
 Key design:
-- Runtime executed via `python -m tracecat.agent.sandbox.entrypoint`
-- Mount site-packages read-only for deps (includes tracecat package)
+- Runtime executes a standalone shim script from the per-job /work directory
+- Shim mode avoids Tracecat package mounts entirely
 - Control socket at /var/run/tracecat/control.sock
 - LLM socket at /var/run/tracecat/llm.sock (proxied to LLM gateway)
 """
@@ -32,7 +32,6 @@ from tracecat.agent.common.config import (
     JAILED_LLM_SOCKET_PATH,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
-    TRUSTED_MCP_SOCKET_PATH,
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 
@@ -121,6 +120,9 @@ class AgentSandboxConfig:
     env_vars: dict[str, str] = field(default_factory=dict)
 
 
+# In-jail path for the standalone Claude shim copied into the per-job workdir.
+JAILED_SHIM_ENTRYPOINT_PATH = "/work/shim_entrypoint.py"
+
 # Minimal base environment for sandboxed agent processes
 AGENT_SANDBOX_BASE_ENV = {
     "PATH": "/usr/local/bin:/usr/bin:/bin",
@@ -133,8 +135,8 @@ AGENT_SANDBOX_BASE_ENV = {
     "LC_ALL": "C.UTF-8",
     # Required for Python to find libpython3.12.so in nsjail sandbox
     "LD_LIBRARY_PATH": "/usr/local/lib:/usr/lib:/lib",
-    # PYTHONPATH: /app for tracecat package, /site-packages for dependencies
-    "PYTHONPATH": "/app:/site-packages",
+    # PYTHONPATH: /site-packages for the mounted Claude SDK package tree.
+    "PYTHONPATH": "/site-packages",
 }
 
 
@@ -219,9 +221,12 @@ def build_agent_nsjail_config(
     socket_dir: Path,
     config: AgentSandboxConfig,
     site_packages_dir: Path,
-    tracecat_pkg_dir: Path,
     llm_socket_path: Path | None,
     *,
+    mount_control_socket: bool = True,
+    control_socket_path: Path | None = None,
+    session_home_dir: Path | None = None,
+    session_project_dir: Path | None = None,
     enable_internet_access: bool = False,
 ) -> str:
     """Build nsjail protobuf config for agent runtime execution.
@@ -233,10 +238,14 @@ def build_agent_nsjail_config(
             (control.sock) created by the orchestrator.
         config: Agent sandbox configuration.
         site_packages_dir: Path to site-packages with Claude SDK deps.
-        tracecat_pkg_dir: Path to the tracecat package directory.
-            Only specific subdirectories are mounted for minimal cold start.
         llm_socket_path: Optional path to the LLM socket for proxied LLM gateway
             access.
+        mount_control_socket: Whether to mount the per-job control socket into the
+            jail. The current shim path does not require this.
+        control_socket_path: Optional explicit control socket path. When omitted
+            and mount_control_socket is True, defaults to socket_dir/control.sock.
+        session_home_dir: Optional host directory mounted as the jailed Claude home.
+        session_project_dir: Optional host directory mounted as the jailed project.
         enable_internet_access: If True, disables network isolation to allow
             direct internet access. Required for MCP stdio servers that need
             to call external APIs. Default is False (network isolated).
@@ -256,14 +265,26 @@ def build_agent_nsjail_config(
     _validate_path(job_dir, "job_dir")
     _validate_path(socket_dir, "socket_dir")
     _validate_path(site_packages_dir, "site_packages_dir")
-    _validate_path(tracecat_pkg_dir, "tracecat_pkg_dir")
     if llm_socket_path is not None:
         _validate_path(llm_socket_path, "llm_socket_path")
 
-    # Derive control socket path from socket_dir using well-known name
-    control_socket_path = socket_dir / CONTROL_SOCKET_NAME
-    _validate_path(control_socket_path, "control_socket_path")
-    # TRUSTED_MCP_SOCKET_PATH and JAILED_LLM_SOCKET_PATH are constants, no validation needed
+    # Derive control socket path from socket_dir using well-known name when enabled.
+    resolved_control_socket_path: Path | None
+    if mount_control_socket:
+        resolved_control_socket_path = control_socket_path or (
+            socket_dir / CONTROL_SOCKET_NAME
+        )
+    else:
+        resolved_control_socket_path = None
+    if resolved_control_socket_path is not None:
+        _validate_path(resolved_control_socket_path, "control_socket_path")
+    if session_home_dir is not None:
+        _validate_path(session_home_dir, "session_home_dir")
+    if session_project_dir is not None:
+        _validate_path(session_project_dir, "session_project_dir")
+    claude_sdk_package_dir = site_packages_dir / "claude_agent_sdk"
+    _validate_path(claude_sdk_package_dir, "claude_sdk_package_dir")
+    # JAILED_LLM_SOCKET_PATH is a constant, no validation needed.
 
     # Network behavior:
     # - internet enabled: share pod netns (no pasta) for host DNS/routing reliability
@@ -342,39 +363,28 @@ def build_agent_nsjail_config(
             "",
             "# Job directory - contains copied runtime code",
             f'mount {{ src: "{job_dir}" dst: "/work" is_bind: true rw: true }}',
-            "",
-            "# Site-packages - Claude SDK and other deps (read-only)",
-            f'mount {{ src: "{site_packages_dir}" dst: "/site-packages" is_bind: true rw: false }}',
-            "",
-            "# Tracecat package - minimal subdirectories for fast cold start",
-            "# Create directory structure first, then mount specific subdirs",
-            'mount { dst: "/app" fstype: "tmpfs" rw: false options: "size=1M" }',
-            "",
-            "# Parent package __init__.py files for Python import system",
-            f'mount {{ src: "{tracecat_pkg_dir}/__init__.py" dst: "/app/tracecat/__init__.py" is_bind: true rw: false }}',
-            f'mount {{ src: "{tracecat_pkg_dir}/agent/__init__.py" dst: "/app/tracecat/agent/__init__.py" is_bind: true rw: false }}',
-            "",
-            "# Mount only what the sandbox entrypoint needs:",
-            "# - logger: lightweight loguru wrapper",
-            "# - agent/common: lightweight types and protocol",
-            "# - agent/runtime: runtime implementations",
-            "# - agent/sandbox: entrypoint and llm_bridge",
-            "# - agent/mcp: proxy_server and utils",
-            f'mount {{ src: "{tracecat_pkg_dir}/logger" dst: "/app/tracecat/logger" is_bind: true rw: false }}',
-            f'mount {{ src: "{tracecat_pkg_dir}/agent/common" dst: "/app/tracecat/agent/common" is_bind: true rw: false }}',
-            f'mount {{ src: "{tracecat_pkg_dir}/agent/runtime" dst: "/app/tracecat/agent/runtime" is_bind: true rw: false }}',
-            f'mount {{ src: "{tracecat_pkg_dir}/agent/sandbox" dst: "/app/tracecat/agent/sandbox" is_bind: true rw: false }}',
-            f'mount {{ src: "{tracecat_pkg_dir}/agent/mcp" dst: "/app/tracecat/agent/mcp" is_bind: true rw: false }}',
-            "",
-            "# Trusted MCP socket (read-only, shared across jobs)",
-            f'mount {{ src: "{TRUSTED_MCP_SOCKET_PATH.parent}" dst: "/var/run/tracecat" is_bind: true rw: false }}',
-            "",
-            "# Per-job control socket",
-            f'mount {{ src: "{control_socket_path}" dst: "{JAILED_CONTROL_SOCKET_PATH}" is_bind: true rw: false }}',
-            "# Agent home directory with Claude SDK session storage",
-            'mount { dst: "/home/agent" fstype: "tmpfs" rw: true options: "size=128M" }',
         ]
     )
+
+    lines.extend(
+        [
+            "",
+            "# Standalone shim: mount only the Claude SDK package tree",
+            "# so the jailed Claude binary can execute without exposing the",
+            "# entire host site-packages directory.",
+            'mount { dst: "/site-packages" fstype: "tmpfs" rw: false options: "size=1M" }',
+            f'mount {{ src: "{claude_sdk_package_dir}" dst: "/site-packages/claude_agent_sdk" is_bind: true rw: false }}',
+        ]
+    )
+
+    if resolved_control_socket_path is not None:
+        lines.extend(
+            [
+                "",
+                "# Per-job control socket",
+                f'mount {{ src: "{resolved_control_socket_path}" dst: "{JAILED_CONTROL_SOCKET_PATH}" is_bind: true rw: false }}',
+            ]
+        )
 
     if llm_socket_path is not None:
         lines.extend(
@@ -382,6 +392,16 @@ def build_agent_nsjail_config(
                 "",
                 "# Per-job LLM socket (proxied to LLM gateway on host)",
                 f'mount {{ src: "{llm_socket_path}" dst: "{JAILED_LLM_SOCKET_PATH}" is_bind: true rw: false }}',
+            ]
+        )
+
+    if session_home_dir is not None and session_project_dir is not None:
+        lines.extend(
+            [
+                "",
+                "# Stable Claude session directories shared across jailed turns",
+                f'mount {{ src: "{session_home_dir}" dst: "/work/claude-home" is_bind: true rw: true }}',
+                f'mount {{ src: "{session_project_dir}" dst: "/work/claude-project" is_bind: true rw: true }}',
             ]
         )
 
@@ -399,14 +419,13 @@ def build_agent_nsjail_config(
         ]
     )
 
-    # Execution settings - run tracecat.agent.sandbox.entrypoint module
-    # The entrypoint connects to the control socket at the well-known jailed path
+    # Execution settings.
     lines.extend(
         [
             "",
-            "# Execution - agent runtime entrypoint module",
             'cwd: "/work"',
-            'exec_bin { path: "/usr/local/bin/python3" arg: "-m" arg: "tracecat.agent.sandbox.entrypoint" }',
+            "# Execution - standalone shim script",
+            f'exec_bin {{ path: "/usr/local/bin/python3" arg: "{JAILED_SHIM_ENTRYPOINT_PATH}" }}',
         ]
     )
 

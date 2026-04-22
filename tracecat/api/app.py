@@ -34,6 +34,7 @@ from tracecat.api.common import (
     bootstrap_role,
     custom_generate_unique_id,
     generic_exception_handler,
+    http_exception_handler,
     tracecat_exception_handler,
 )
 from tracecat.auth.credentials import authenticated_user_only
@@ -579,6 +580,7 @@ def create_app(**kwargs) -> FastAPI:
     )
     app.add_exception_handler(EntitlementRequired, entitlement_exception_handler)
     app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
+    app.add_exception_handler(HTTPException, http_exception_handler)
 
     # Middleware
     # Add authorization cache middleware first so it's available for all requests
@@ -666,7 +668,7 @@ async def info(session: AsyncDBSessionBypass) -> AppInfo:
 
 
 @app.get("/health", tags=["public"])
-def check_health() -> HealthResponse:
+async def check_health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 

@@ -43,6 +43,7 @@ class AgentPresetExecutionConfig(Schema):
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
     retries: int = Field(default=3, ge=0)
+    enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
 
 
@@ -59,6 +60,7 @@ class AgentPresetExecutionConfigWrite(Schema):
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
     retries: int = Field(default=3, ge=0)
+    enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
 
 
@@ -91,6 +93,7 @@ class AgentPresetUpdate(BaseModel):
     tool_approvals: dict[str, bool] | None = Field(default=None)
     mcp_integrations: list[str] | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
+    enable_thinking: bool | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
 
 
@@ -134,6 +137,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
             namespaces=self.namespaces,
             tool_approvals=self.tool_approvals,
             retries=self.retries,
+            enable_thinking=self.enable_thinking,
             enable_internet_access=self.enable_internet_access,
         )
 

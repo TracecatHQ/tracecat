@@ -319,8 +319,8 @@ class DurableAgentWorkflow:
 
         cfg = await self._build_config(args)
 
-        # Run with NSJail harness (only supported harness currently)
-        return await self._run_with_nsjail(args, cfg)
+        # Run through the agent executor (only supported harness currently)
+        return await self._run_with_agent_executor(args, cfg)
 
     @workflow.update
     def set_approvals(self, submission: WorkflowApprovalSubmission) -> None:
@@ -356,20 +356,20 @@ class DurableAgentWorkflow:
                     + ", ".join(sorted(unexpected_metadata_ids))
                 )
 
-    async def _run_with_nsjail(
+    async def _run_with_agent_executor(
         self, args: AgentWorkflowArgs, cfg: AgentConfig
     ) -> AgentOutput:
-        """Run the agent using NSJail-sandboxed Claude SDK execution.
+        """Run the agent through the executor activity.
 
         This path:
         1. Resolves tool definitions from registry
         2. Loads session history from DB (for resume)
         3. Mints JWT/LLM gateway tokens
-        4. Calls run_agent_executor_activity which spawns NSJail
+        4. Calls run_agent_activity, which dispatches one runtime turn
         5. Persists session history after execution
         6. Handles approval requests
         """
-        logger.info("Running agent with NSJail harness", session_id=self.session_id)
+        logger.info("Running agent executor", session_id=self.session_id)
 
         # Persist the workflow-id UUID token used to start this execution so
         # approval continuation can target the exact live workflow later.
@@ -415,21 +415,26 @@ class DurableAgentWorkflow:
 
         # Resolve tool definitions and registry lock from registry
         # Also discovers user MCP tools if configured
-        build_result = await workflow.execute_activity_method(
-            AgentActivities.build_tool_definitions,
-            arg=BuildToolDefsArgs(
-                role=self.role,
-                tool_filters=ToolFilters(
-                    namespaces=cfg.namespaces,
-                    actions=cfg.actions,
+        try:
+            build_result = await workflow.execute_activity_method(
+                AgentActivities.build_tool_definitions,
+                arg=BuildToolDefsArgs(
+                    role=self.role,
+                    tool_filters=ToolFilters(
+                        namespaces=cfg.namespaces,
+                        actions=cfg.actions,
+                    ),
+                    tool_approvals=cfg.tool_approvals,
+                    mcp_servers=cfg.mcp_servers,
+                    internal_tool_context=internal_tool_context,
                 ),
-                tool_approvals=cfg.tool_approvals,
-                mcp_servers=cfg.mcp_servers,
-                internal_tool_context=internal_tool_context,
-            ),
-            start_to_close_timeout=timedelta(seconds=120),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
+                start_to_close_timeout=timedelta(seconds=120),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as e:
+            if isinstance(e.cause, ApplicationError):
+                raise e.cause from e
+            raise
         allowed_actions = build_result.tool_definitions
         self._registry_lock = build_result.registry_lock
         user_mcp_claims = build_result.user_mcp_claims
@@ -505,9 +510,9 @@ class DurableAgentWorkflow:
 
         info = workflow.info()
 
-        # Run the NSJail executor activity
+        # Run the executor activity
         while True:
-            logger.info("Executing NSJail agent", turn=self._turn)
+            logger.info("Executing agent turn", turn=self._turn)
 
             result = await workflow.execute_activity(
                 run_agent_activity,

@@ -1254,6 +1254,11 @@ export const $AgentPresetCreate = {
       title: "Retries",
       default: 3,
     },
+    enable_thinking: {
+      type: "boolean",
+      title: "Enable Thinking",
+      default: true,
+    },
     enable_internet_access: {
       type: "boolean",
       title: "Enable Internet Access",
@@ -1403,6 +1408,11 @@ export const $AgentPresetRead = {
       minimum: 0,
       title: "Retries",
       default: 3,
+    },
+    enable_thinking: {
+      type: "boolean",
+      title: "Enable Thinking",
+      default: true,
     },
     enable_internet_access: {
       type: "boolean",
@@ -1712,6 +1722,17 @@ export const $AgentPresetUpdate = {
       ],
       title: "Retries",
     },
+    enable_thinking: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enable Thinking",
+    },
     enable_internet_access: {
       anyOf: [
         {
@@ -1921,6 +1942,11 @@ export const $AgentPresetVersionRead = {
       title: "Retries",
       default: 3,
     },
+    enable_thinking: {
+      type: "boolean",
+      title: "Enable Thinking",
+      default: true,
+    },
     enable_internet_access: {
       type: "boolean",
       title: "Enable Internet Access",
@@ -2077,6 +2103,11 @@ export const $AgentPresetVersionReadMinimal = {
       minimum: 0,
       title: "Retries",
       default: 3,
+    },
+    enable_thinking: {
+      type: "boolean",
+      title: "Enable Thinking",
+      default: true,
     },
     enable_internet_access: {
       type: "boolean",
@@ -9883,6 +9914,9 @@ export const $EventGroup_TypeVar_ = {
         },
         {
           $ref: "#/components/schemas/InteractionInput",
+        },
+        {
+          $ref: "#/components/schemas/UnreadableTemporalPayload",
         },
       ],
       title: "Action Input",
@@ -20767,6 +20801,34 @@ export const $UIMessage = {
 frontend and backend.`,
 } as const
 
+export const $UnreadableTemporalPayload = {
+  properties: {
+    error: {
+      type: "string",
+      const: "unreadable_temporal_payload",
+      title: "Error",
+      default: "unreadable_temporal_payload",
+    },
+    error_type: {
+      type: "string",
+      title: "Error Type",
+    },
+    encoding: {
+      type: "string",
+      title: "Encoding",
+    },
+    payload_size_bytes: {
+      type: "integer",
+      title: "Payload Size Bytes",
+    },
+  },
+  type: "object",
+  required: ["error_type", "encoding", "payload_size_bytes"],
+  title: "UnreadableTemporalPayload",
+  description:
+    "Structured placeholder for Temporal payloads that cannot be decoded.",
+} as const
+
 export const $UpdatedEventRead = {
   properties: {
     wf_exec_id: {
@@ -21881,6 +21943,17 @@ export const $WaitResultOutput = {
       $ref: "#/components/schemas/WebhookStoredObjectDownloadResponse",
     },
   ],
+} as const
+
+export const $WaitResultUnwrapOverflowResponse = {
+  properties: {
+    detail: {
+      $ref: "#/components/schemas/WebhookStoredObjectDownloadResponse",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "WaitResultUnwrapOverflowResponse",
 } as const
 
 export const $WaitStrategy = {

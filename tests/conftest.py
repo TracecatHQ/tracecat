@@ -856,13 +856,15 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     RegistryVersion.version == version,
                 )
             )
+            fake_tarball_uri = "s3://test/test.tar.gz"
+
             if rv is None:
                 rv = RegistryVersion(
                     organization_id=TEST_ORG_ID,
                     repository_id=repo.id,
                     version=version,
                     manifest=manifest,
-                    tarball_uri="s3://test/test.tar.gz",
+                    tarball_uri=fake_tarball_uri,
                 )
                 session.add(rv)
                 try:
@@ -882,7 +884,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     session.refresh(rv)
             else:
                 rv.manifest = manifest
-                rv.tarball_uri = "s3://test/test.tar.gz"
+                rv.tarball_uri = fake_tarball_uri
                 session.commit()
 
             # Set current_version_id on the repository for lock resolution
@@ -933,7 +935,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     repository_id=platform_repo.id,
                     version=version,
                     manifest=manifest,
-                    tarball_uri="s3://test/test.tar.gz",
+                    tarball_uri=fake_tarball_uri,
                 )
                 session.add(platform_rv)
                 try:
@@ -952,11 +954,31 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     session.refresh(platform_rv)
             else:
                 platform_rv.manifest = manifest
-                platform_rv.tarball_uri = "s3://test/test.tar.gz"
+                platform_rv.tarball_uri = fake_tarball_uri
                 session.commit()
 
-            platform_repo.current_version_id = platform_rv.id
-            session.commit()
+            # Do not replace an already-selected live platform registry version.
+            # Integration tests run against Docker services that sync a real
+            # builtin tarball; clobbering it with this fixture's fake tarball can
+            # make unrelated workflow executions try to download s3://test/test.tar.gz.
+            current_platform_version = (
+                session.scalar(
+                    select(PlatformRegistryVersion).where(
+                        PlatformRegistryVersion.id == platform_repo.current_version_id
+                    )
+                )
+                if platform_repo.current_version_id is not None
+                else None
+            )
+            if _should_select_fixture_platform_current(
+                sync_db_uri,
+                current_version=current_platform_version.version
+                if current_platform_version is not None
+                else None,
+                fixture_version=version,
+            ):
+                platform_repo.current_version_id = platform_rv.id
+                session.commit()
 
             # Create PlatformRegistryIndex entries for each action in the manifest
             # This is required for get_actions_from_index to work in agent tools
@@ -1016,6 +1038,24 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
 
     yield
     # No cleanup needed - the database is dropped at the end of the session
+
+
+def _should_select_fixture_platform_current(
+    sync_db_uri: str,
+    *,
+    current_version: str | None,
+    fixture_version: str,
+) -> bool:
+    """Return whether the fixture platform version should be current.
+
+    The fake fixture tarball is safe as the selected version when no platform
+    current exists yet. The shared/default DB may also be used by live executor
+    services, so preserve any existing live current selection instead of
+    clobbering it with the fixture version.
+    """
+    if sync_db_uri == TEST_DB_CONFIG.test_url_sync:
+        return True
+    return current_version is None or current_version == fixture_version
 
 
 @pytest.fixture(scope="function")

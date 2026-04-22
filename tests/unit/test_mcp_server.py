@@ -24,6 +24,7 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
 )
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.expressions.common import ExprType
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.tables.service import TablesService
@@ -783,6 +784,33 @@ async def test_create_workflow_rejects_oversized_inline_definition_yaml(monkeypa
 
 
 @pytest.mark.anyio
+async def test_create_workflow_surfaces_builtin_registry_sync_pending(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    class _WorkflowService:
+        async def create_workflow_from_external_definition(self, *_args, **_kwargs):
+            raise BuiltinRegistryHasNoSelectionError(
+                "Builtin registry sync is still in progress. Please retry shortly.",
+                detail={"origin": "tracecat_registry"},
+            )
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    with pytest.raises(ToolError, match="retry shortly"):
+        await _tool(mcp_server.create_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            title="Example",
+            definition_yaml="definition:\n  title: Example\n",
+        )
+
+
+@pytest.mark.anyio
 async def test_update_workflow_rejects_oversized_inline_definition_yaml(monkeypatch):
     async def _resolve(_workspace_id):
         return uuid.uuid4(), SimpleNamespace()
@@ -795,6 +823,67 @@ async def test_update_workflow_rejects_oversized_inline_definition_yaml(monkeypa
             workflow_id=str(uuid.uuid4()),
             definition_yaml="x" * (mcp_server._inline_workflow_yaml_max_bytes() + 1),
         )
+
+
+@pytest.mark.anyio
+async def test_publish_workflow_builtin_registry_not_ready_returns_validation_failure(
+    monkeypatch,
+):
+    workspace_id = uuid.uuid4()
+    workflow_id = uuid.uuid4()
+    role = SimpleNamespace()
+    workflow = SimpleNamespace(id=workflow_id, alias=None, registry_lock=None)
+    dsl = SimpleNamespace(actions=[SimpleNamespace(action="core.transform.reshape")])
+
+    class _WorkflowService:
+        def __init__(self):
+            self.session = object()
+
+        async def get_workflow(self, wf_id):
+            assert wf_id == mcp_server.WorkflowUUID.new(workflow_id)
+            return workflow
+
+        async def build_dsl_from_workflow(self, workflow_obj):
+            assert workflow_obj is workflow
+            return dsl
+
+    class _LockService:
+        def __init__(self, *_args):
+            pass
+
+        async def resolve_lock_with_bindings(self, _action_names):
+            raise BuiltinRegistryHasNoSelectionError(
+                "Builtin registry sync is still in progress. Please retry shortly.",
+                detail={"origin": "tracecat_registry"},
+            )
+
+    async def _resolve(_workspace_id):
+        return workspace_id, role
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+    monkeypatch.setattr(
+        mcp_server, "validate_dsl", lambda **_kwargs: asyncio.sleep(0, result=[])
+    )
+    monkeypatch.setattr(mcp_server, "RegistryLockService", _LockService)
+
+    result = await _tool(mcp_server.publish_workflow)(
+        workspace_id=str(workspace_id),
+        workflow_id=str(workflow_id),
+    )
+
+    payload = _payload(result)
+    assert payload["workflow_id"] == str(workflow_id)
+    assert payload["status"] == "failure"
+    assert payload["message"] == "1 validation error(s)"
+    error = payload["errors"][0]
+    assert error["type"] == "dsl"
+    assert "retry shortly" in error["message"]
+    assert error["details"][0]["type"] == "registry.builtin_sync_pending"
 
 
 @pytest.mark.anyio
@@ -2800,7 +2889,6 @@ async def test_update_case(monkeypatch):
         return uuid.uuid4(), SimpleNamespace()
 
     case_id = uuid.uuid4()
-    now = datetime.now(UTC)
     case = SimpleNamespace(id=case_id)
     captured: dict[str, Any] = {}
 
@@ -3673,9 +3761,6 @@ async def test_run_case_task(monkeypatch):
         "wf_exec_id": "exec-123",
         "message": "Workflow started",
     }
-
-    async def _create_exec(**kwargs):
-        return exec_response
 
     class _ExecService:
         async def create_workflow_execution_wait_for_start(self, **kwargs):
@@ -4987,6 +5072,7 @@ async def test_get_agent_preset_returns_full_configuration(
         tool_approvals={"tools.alpha": False},
         mcp_integrations=[str(uuid.uuid4())],
         retries=3,
+        enable_thinking=True,
         enable_internet_access=False,
         current_version_id=None,
         created_at=now,
@@ -5407,6 +5493,7 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
                 tool_approvals=params.tool_approvals,
                 mcp_integrations=params.mcp_integrations,
                 retries=params.retries,
+                enable_thinking=params.enable_thinking,
                 enable_internet_access=params.enable_internet_access,
                 current_version_id=None,
                 created_at=now,
@@ -5436,6 +5523,7 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
         tool_approvals={"tools.slack.post_message": False},
         mcp_integration_ids=[str(uuid.uuid4())],
         retries=5,
+        enable_thinking=False,
         enable_internet_access=True,
     )
 
@@ -5444,9 +5532,11 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
     assert params.model_name == "gpt-4o-mini"
     assert params.model_provider == "openai"
     assert params.mcp_integrations is not None
+    assert params.enable_thinking is False
     assert params.enable_internet_access is True
     assert payload["model_name"] == "gpt-4o-mini"
     assert payload["output_type"]["type"] == "object"
+    assert payload["enable_thinking"] is False
 
 
 @pytest.mark.anyio
@@ -5473,6 +5563,7 @@ async def test_update_agent_preset_updates_existing_preset(
         tool_approvals={"tools.alpha": False},
         mcp_integrations=[str(uuid.uuid4())],
         retries=3,
+        enable_thinking=True,
         enable_internet_access=False,
         current_version_id=None,
         created_at=now,
@@ -5498,6 +5589,7 @@ async def test_update_agent_preset_updates_existing_preset(
                 "actions": params.actions,
                 "mcp_integrations": params.mcp_integrations,
                 "retries": params.retries,
+                "enable_thinking": params.enable_thinking,
                 "enable_internet_access": params.enable_internet_access,
                 "updated_at": datetime.now(UTC),
             }
@@ -5518,6 +5610,7 @@ async def test_update_agent_preset_updates_existing_preset(
         actions=["tools.bravo"],
         mcp_integration_ids=[integration_id],
         retries=5,
+        enable_thinking=False,
         enable_internet_access=True,
     )
 
@@ -5527,11 +5620,13 @@ async def test_update_agent_preset_updates_existing_preset(
     assert params.actions == ["tools.bravo"]
     assert params.mcp_integrations == [integration_id]
     assert params.retries == 5
+    assert params.enable_thinking is False
     assert params.enable_internet_access is True
     assert payload["instructions"] == "Updated prompt"
     assert payload["actions"] == ["tools.bravo"]
     assert payload["mcp_integrations"] == [integration_id]
     assert payload["retries"] == 5
+    assert payload["enable_thinking"] is False
     assert payload["enable_internet_access"] is True
 
 
@@ -5558,6 +5653,7 @@ async def test_update_agent_preset_resolves_explicit_model(
         tool_approvals=None,
         mcp_integrations=None,
         retries=3,
+        enable_thinking=True,
         enable_internet_access=False,
         current_version_id=None,
         created_at=now,
@@ -5724,6 +5820,7 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
                 tool_approvals=params.tool_approvals,
                 mcp_integrations=params.mcp_integrations,
                 retries=params.retries,
+                enable_thinking=params.enable_thinking,
                 enable_internet_access=params.enable_internet_access,
                 current_version_id=None,
                 created_at=now,
@@ -5750,8 +5847,10 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
     payload = _payload(result)
     params = created["params"]
     assert params.retries == 3
+    assert params.enable_thinking is True
     assert params.enable_internet_access is False
     assert payload["retries"] == 3
+    assert payload["enable_thinking"] is True
     assert payload["enable_internet_access"] is False
 
 
@@ -5832,6 +5931,7 @@ async def test_create_agent_preset_allows_custom_model_provider(
                 tool_approvals=params.tool_approvals,
                 mcp_integrations=params.mcp_integrations,
                 retries=params.retries,
+                enable_thinking=params.enable_thinking,
                 enable_internet_access=params.enable_internet_access,
                 current_version_id=None,
                 created_at=now,

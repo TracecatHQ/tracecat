@@ -30,6 +30,7 @@ def test_agent_preset_create_trims_required_fields() -> None:
         tool_approvals=None,
         mcp_integrations=None,
         retries=3,
+        enable_thinking=True,
     )
 
     assert payload.name == "Triage preset"
@@ -92,6 +93,7 @@ def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> No
             "tool_approvals": None,
             "mcp_integrations": None,
             "retries": 3,
+            "enable_thinking": True,
             "enable_internet_access": False,
             "current_version_id": None,
             "created_at": "2026-03-09T00:00:00Z",
@@ -101,6 +103,7 @@ def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> No
 
     assert payload.model_name == "   "
     assert payload.model_provider == "   "
+    assert payload.enable_thinking is True
 
 
 def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields() -> (
@@ -122,6 +125,7 @@ def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields
             "tool_approvals": None,
             "mcp_integrations": None,
             "retries": 3,
+            "enable_thinking": True,
             "enable_internet_access": False,
             "created_at": "2026-03-09T00:00:00Z",
             "updated_at": "2026-03-09T00:00:00Z",
@@ -130,3 +134,4 @@ def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields
 
     assert payload.model_name == "   "
     assert payload.model_provider == "   "
+    assert payload.enable_thinking is True

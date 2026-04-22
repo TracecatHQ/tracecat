@@ -131,6 +131,7 @@ class AgentConfig:
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None
     # Sandbox
+    enable_thinking: bool = True
     enable_internet_access: bool = False
 
 

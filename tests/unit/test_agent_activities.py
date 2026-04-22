@@ -8,16 +8,23 @@ These tests cover:
 from __future__ import annotations
 
 import uuid
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from temporalio.exceptions import ApplicationError
+from tracecat_ee.agent import activities as agent_activities
+from tracecat_ee.agent.activities import AgentActivities, BuildToolDefsArgs
 
+from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.executor.activity import (
     AgentExecutorInput,
     AgentExecutorResult,
+    SandboxedAgentExecutor,
     run_agent_activity,
 )
+from tracecat.agent.schemas import ToolFilters
 from tracecat.agent.session.activities import (
     CreateSessionInput,
     CreateSessionResult,
@@ -28,9 +35,12 @@ from tracecat.agent.session.activities import (
     load_session_activity,
 )
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.tools import BuildToolsResult
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.registry.lock.service import RegistryLockService
 
 
 @pytest.fixture
@@ -83,6 +93,54 @@ class TestSessionActivities:
         assert "create_session_activity" in activity_names
         assert "load_session_activity" in activity_names
         assert "reconcile_tool_results_activity" in activity_names
+
+
+class TestBuildToolDefinitionsActivity:
+    @pytest.mark.anyio
+    async def test_maps_builtin_sync_pending_to_application_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        class _LockService:
+            async def resolve_lock_with_bindings(self, _actions: set[str]) -> None:
+                raise BuiltinRegistryHasNoSelectionError(
+                    "Builtin registry sync is still in progress. Please retry shortly.",
+                    detail={"origin": "tracecat_registry"},
+                )
+
+        class _AsyncContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _AsyncContext(),
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=[]),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        app_error = exc_info.value
+        assert app_error.type == "BuiltinRegistryHasNoSelectionError"
+        assert app_error.non_retryable is False
+        assert app_error.details[0] == {"origin": "tracecat_registry"}
 
 
 class TestCreateSessionActivity:
@@ -496,3 +554,39 @@ class TestRunAgentActivity:
 
             # Should send heartbeat at start and end
             assert mock_activity.heartbeat.call_count >= 2
+
+
+class TestSandboxedAgentExecutorHelpers:
+    """Tests for SandboxedAgentExecutor helper methods."""
+
+    @pytest.fixture
+    def executor_input(
+        self,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        mock_agent_config: AgentConfig,
+    ) -> AgentExecutorInput:
+        return AgentExecutorInput(
+            session_id=mock_session_id,
+            workspace_id=mock_role.workspace_id or uuid.uuid4(),
+            user_prompt="Investigate startup latency",
+            config=mock_agent_config,
+            role=mock_role,
+            mcp_auth_token="mock-mcp-token",
+            llm_gateway_auth_token="mock-llm-token",
+        )
+
+    def test_build_runtime_init_payload(
+        self,
+        executor_input: AgentExecutorInput,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
+
+        payload = executor._build_runtime_init_payload()
+
+        assert isinstance(payload, RuntimeInitPayload)
+        assert payload.session_id == executor_input.session_id
+        assert payload.user_prompt == executor_input.user_prompt
+        assert payload.mcp_auth_token == executor_input.mcp_auth_token
+        assert payload.llm_gateway_auth_token == executor_input.llm_gateway_auth_token
+        assert payload.config.model_name == executor_input.config.model_name

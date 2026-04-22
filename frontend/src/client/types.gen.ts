@@ -331,6 +331,7 @@ export type AgentPresetCreate = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_thinking?: boolean
   enable_internet_access?: boolean
   description?: string | null
   name: string
@@ -353,6 +354,7 @@ export type AgentPresetRead = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_thinking?: boolean
   enable_internet_access?: boolean
   id: string
   workspace_id: string
@@ -397,6 +399,7 @@ export type AgentPresetUpdate = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number | null
+  enable_thinking?: boolean | null
   enable_internet_access?: boolean | null
 }
 
@@ -433,6 +436,7 @@ export type AgentPresetVersionRead = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_thinking?: boolean
   enable_internet_access?: boolean
   id: string
   preset_id: string
@@ -458,6 +462,7 @@ export type AgentPresetVersionReadMinimal = {
   } | null
   mcp_integrations?: Array<string> | null
   retries?: number
+  enable_thinking?: boolean
   enable_internet_access?: boolean
   id: string
   preset_id: string
@@ -2960,6 +2965,7 @@ export type EventGroup_TypeVar_ = {
     | GetWorkflowDefinitionActivityInputs
     | InteractionResult
     | InteractionInput
+    | UnreadableTemporalPayload
   action_result?: unknown | null
   current_attempt?: number | null
   retry_policy?: ActionRetryPolicy
@@ -6483,6 +6489,16 @@ export type UIMessage = {
 export type role = "system" | "user" | "assistant"
 
 /**
+ * Structured placeholder for Temporal payloads that cannot be decoded.
+ */
+export type UnreadableTemporalPayload = {
+  error?: "unreadable_temporal_payload"
+  error_type: string
+  encoding: string
+  payload_size_bytes: number
+}
+
+/**
  * Event for when a case is updated.
  */
 export type UpdatedEventRead = {
@@ -6757,6 +6773,10 @@ export type VideoUrl = {
 export type WaitResultOutput =
   | WebhookStoredObjectInlineResponse
   | WebhookStoredObjectDownloadResponse
+
+export type WaitResultUnwrapOverflowResponse = {
+  detail: WebhookStoredObjectDownloadResponse
+}
 
 export type WaitStrategy = "wait" | "detach"
 
@@ -7983,6 +8003,10 @@ export type PublicIncomingWebhookGetResponse = unknown
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
   secret: string
+  /**
+   * Return the workflow result directly as the response body, without the `{kind, value}` envelope. Requires the result to fit inline. If the result was externalized, returns 413 with the download envelope in `detail`.
+   */
+  unwrap?: boolean
   workflowId: string
 }
 
@@ -10961,6 +10985,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WaitResultOutput
+        /**
+         * Unwrapped workflow result exceeded inline response limits. Use `detail.download_url` to fetch the externalized result.
+         */
+        413: WaitResultUnwrapOverflowResponse
         /**
          * Validation Error
          */

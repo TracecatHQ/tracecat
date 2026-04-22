@@ -10,7 +10,8 @@ from tracecat_registry.sdk.agents import AgentConfig as RegistryAgentConfig
 from tracecat.agent.types import AgentConfig as TracecatAgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.dsl._converter import PydanticORJSONPayloadConverter
-from tracecat.dsl.common import AgentActionMemo
+from tracecat.dsl.common import AgentActionMemo, ChildWorkflowMemo
+from tracecat.dsl.enums import WaitStrategy
 
 
 class _LeakyValue:
@@ -61,7 +62,8 @@ def test_from_payload_sanitizes_type_conversion_failures() -> None:
     assert "secret-token" not in message
 
 
-def test_agent_action_memo_logging_omits_raw_payload(
+@pytest.mark.anyio
+async def test_agent_action_memo_logging_omits_raw_payload(
     monkeypatch,
 ) -> None:
     """Memo parse warnings should not log the full protobuf payload."""
@@ -87,7 +89,7 @@ def test_agent_action_memo_logging_omits_raw_payload(
         }
     )
 
-    AgentActionMemo.from_temporal(memo)
+    await AgentActionMemo.from_temporal(memo)
 
     assert len(warnings) == 1
     warning = warnings[0]
@@ -96,6 +98,56 @@ def test_agent_action_memo_logging_omits_raw_payload(
     assert warning["encoding"] == "json/plain"
     assert warning["payload_size_bytes"] == len(b'{"token":"Bearer secret-token"}')
     assert "value" not in warning
+
+
+@pytest.mark.anyio
+async def test_child_workflow_memo_decode_failure_keeps_best_effort_defaults(
+    monkeypatch,
+) -> None:
+    """One unreadable child memo field should not fail the whole memo parse."""
+    warnings: list[dict[str, object]] = []
+
+    def capture_warning(message: str, **kwargs: object) -> None:
+        warnings.append({"message": message, **kwargs})
+
+    async def decode_one(payloads: list[Payload]) -> list[Payload]:
+        payload = payloads[0]
+        if payload.data == b"unreadable":
+            raise RuntimeError("decode failure")
+        return payloads
+
+    monkeypatch.setattr("tracecat.dsl.common.logger.warning", capture_warning)
+    monkeypatch.setattr("tracecat.dsl.common.decode_payloads", decode_one)
+
+    memo = temporalio.api.common.v1.Memo(
+        fields={
+            "action_ref": Payload(
+                metadata={"encoding": b"binary/tracecat-aes256gcm"},
+                data=b"unreadable",
+            ),
+            "loop_index": Payload(metadata={"encoding": b"json/plain"}, data=b"3"),
+            "wait_strategy": Payload(
+                metadata={"encoding": b"json/plain"},
+                data=b'"detach"',
+            ),
+            "stream_id": Payload(
+                metadata={"encoding": b"json/plain"},
+                data=b'"child-stream"',
+            ),
+        }
+    )
+
+    child_memo = await ChildWorkflowMemo.from_temporal(memo)
+
+    assert child_memo.action_ref == "Unknown Child Workflow"
+    assert child_memo.loop_index == 3
+    assert child_memo.wait_strategy == WaitStrategy.DETACH
+    assert child_memo.stream_id == "child-stream"
+    assert any(
+        warning["message"] == "Error decoding child workflow memo field"
+        and warning["key"] == "action_ref"
+        for warning in warnings
+    )
 
 
 def _build_tracecat_agent_config_payload() -> Payload:
@@ -118,6 +170,7 @@ def _build_tracecat_agent_config_payload() -> Payload:
             ],
             model_settings={"parallel_tool_calls": False},
             retries=3,
+            enable_thinking=False,
             enable_internet_access=True,
         )
     )
@@ -161,6 +214,7 @@ def test_converter_decodes_legacy_tracecat_agent_config_as_agent_config_payload(
     assert decoded.tool_approvals == {"tools.datadog.change_signal_state": True}
     assert decoded.model_settings == {"parallel_tool_calls": False}
     assert decoded.retries == 3
+    assert decoded.enable_thinking is False
     assert decoded.enable_internet_access is True
     assert decoded.mcp_servers is not None
     assert len(decoded.mcp_servers) == 1

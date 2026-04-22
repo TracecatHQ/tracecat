@@ -208,9 +208,11 @@ locals {
     }
   ] : []
 
-  tracecat_base_secrets = concat(
-    local.required_tracecat_base_secrets,
-    local.temporal_api_key_secret
+  tracecat_base_secrets = local.required_tracecat_base_secrets
+
+  tracecat_temporal_secrets = concat(
+    local.tracecat_base_secrets,
+    local.temporal_api_key_secret,
   )
 
   oauth_client_id_secret = var.oauth_client_id_arn != null ? [
@@ -289,7 +291,7 @@ locals {
   ] : []
 
   tracecat_api_secrets = concat(
-    local.tracecat_base_secrets,
+    local.tracecat_temporal_secrets,
     local.oauth_client_id_secret,
     local.oauth_client_secret_secret,
     local.oidc_client_id_secret,
@@ -319,12 +321,12 @@ locals {
     local.temporal_auth_client_secret_secret,
   )
 
-  executor_secrets = local.tracecat_base_secrets
+  executor_secrets = local.tracecat_temporal_secrets
 
   litellm_secrets = local.tracecat_base_secrets
 
   mcp_secrets = concat(
-    local.tracecat_base_secrets,
+    local.tracecat_temporal_secrets,
     local.user_auth_secret_secret,
   )
 }

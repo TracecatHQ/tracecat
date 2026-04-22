@@ -815,6 +815,7 @@ export const publicIncomingWebhookGet = (
  * @param data The data for the request.
  * @param data.secret
  * @param data.workflowId
+ * @param data.unwrap Return the workflow result directly as the response body, without the `{kind, value}` envelope. Requires the result to fit inline. If the result was externalized, returns 413 with the download envelope in `detail`.
  * @param data.contentType
  * @returns WaitResultOutput Successful Response
  * @throws ApiError
@@ -832,7 +833,11 @@ export const publicIncomingWebhookWait = (
     headers: {
       "content-type": data.contentType,
     },
+    query: {
+      unwrap: data.unwrap,
+    },
     errors: {
+      413: "Unwrapped workflow result exceeded inline response limits. Use `detail.download_url` to fetch the externalized result.",
       422: "Validation Error",
     },
   })

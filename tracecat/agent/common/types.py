@@ -123,6 +123,8 @@ class SandboxAgentConfig:
     """Expected output type for structured outputs (e.g., "int", "str", or a JSON schema dict)."""
 
     # Sandbox
+    enable_thinking: bool = True
+    """Whether to enable extended thinking for the Claude Code CLI."""
     enable_internet_access: bool = False
     """Whether to enable internet access tools (WebSearch, WebFetch)."""
 
@@ -138,6 +140,7 @@ class SandboxAgentConfig:
             tool_approvals=data.get("tool_approvals"),
             mcp_servers=data.get("mcp_servers"),
             output_type=data.get("output_type"),
+            enable_thinking=data.get("enable_thinking", True),
             enable_internet_access=data.get("enable_internet_access", False),
         )
 
@@ -159,6 +162,7 @@ class SandboxAgentConfig:
             tool_approvals=config.tool_approvals,
             mcp_servers=config.mcp_servers,
             output_type=config.output_type,
+            enable_thinking=getattr(config, "enable_thinking", True),
             enable_internet_access=getattr(config, "enable_internet_access", False),
         )
 
@@ -179,5 +183,6 @@ class SandboxAgentConfig:
             result["mcp_servers"] = self.mcp_servers
         if self.output_type is not None:
             result["output_type"] = self.output_type
+        result["enable_thinking"] = self.enable_thinking
         result["enable_internet_access"] = self.enable_internet_access
         return result

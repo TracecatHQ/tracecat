@@ -109,7 +109,11 @@ from tracecat.dsl.validation import (
     format_input_schema_validation_error,
     normalize_trigger_inputs,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.identifiers.workflow import (
     WorkflowUUID,
     exec_id_to_parts,
@@ -160,7 +164,11 @@ from tracecat.tables.service import TablesService
 from tracecat.tags.schemas import TagCreate, TagRead, TagUpdate
 from tracecat.tags.service import TagsService
 from tracecat.tiers.enums import Entitlement
-from tracecat.validation.schemas import ValidationDetail
+from tracecat.validation.schemas import (
+    ValidationDetail,
+    ValidationResult,
+    ValidationResultType,
+)
 from tracecat.validation.service import validate_dsl
 from tracecat.variables.service import VariablesService
 from tracecat.webhooks import service as webhook_service
@@ -1569,14 +1577,17 @@ async def _create_workflow_from_import_data(
     trigger_position, viewport, action_positions = _extract_layout_positions(
         layout_data
     )
-    async with WorkflowsManagementService.with_session(role=role) as svc:
-        return await svc.create_workflow_from_external_definition(
-            import_data,
-            use_workflow_id=use_workflow_id,
-            trigger_position=trigger_position,
-            viewport=viewport,
-            action_positions=action_positions,
-        )
+    try:
+        async with WorkflowsManagementService.with_session(role=role) as svc:
+            return await svc.create_workflow_from_external_definition(
+                import_data,
+                use_workflow_id=use_workflow_id,
+                trigger_position=trigger_position,
+                viewport=viewport,
+                action_positions=action_positions,
+            )
+    except BuiltinRegistryHasNoSelectionError as exc:
+        raise ToolError(str(exc)) from exc
 
 
 async def _apply_workflow_yaml_update(
@@ -4307,7 +4318,31 @@ async def publish_workflow(
             # Phase 1: Resolve registry lock
             lock_service = RegistryLockService(session, role)
             action_names = {action.action for action in dsl.actions}
-            registry_lock = await lock_service.resolve_lock_with_bindings(action_names)
+            try:
+                registry_lock = await lock_service.resolve_lock_with_bindings(
+                    action_names
+                )
+            except BuiltinRegistryHasNoSelectionError as e:
+                error = ValidationResult.new(
+                    type=ValidationResultType.DSL,
+                    status="error",
+                    msg=str(e),
+                    detail=[
+                        ValidationDetail(
+                            type="registry.builtin_sync_pending",
+                            msg=str(e),
+                            loc=("registry_lock",),
+                        )
+                    ],
+                )
+                return _json(
+                    {
+                        "workflow_id": workflow_id,
+                        "status": "failure",
+                        "message": "1 validation error(s)",
+                        "errors": [_validation_result_payload(error)],
+                    }
+                )
             workflow.registry_lock = registry_lock.model_dump()
 
             # Phase 2: Create workflow definition
@@ -7157,6 +7192,7 @@ async def create_agent_preset(
     tool_approvals: dict[str, bool] | None = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
+    enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
 ) -> str:
     """Create an agent preset in the selected workspace."""
@@ -7187,6 +7223,7 @@ async def create_agent_preset(
             "tool_approvals": tool_approvals,
             "mcp_integrations": mcp_integration_ids,
             "retries": retries,
+            "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
         }
         create_data.update(
@@ -7228,6 +7265,7 @@ async def update_agent_preset(
     tool_approvals: dict[str, bool] | None = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
+    enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
 ) -> str:
     """Update an existing agent preset in the selected workspace."""
@@ -7247,6 +7285,7 @@ async def update_agent_preset(
             "tool_approvals": tool_approvals,
             "mcp_integrations": mcp_integration_ids,
             "retries": retries,
+            "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
         }
         update_data.update(

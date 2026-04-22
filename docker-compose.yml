@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.39}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.42}
     container_name: api
     restart: unless-stopped
     networks:
@@ -69,6 +69,11 @@ services:
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
       TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
       TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+      TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED: ${TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED:-false}
+      TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING:-}
+      TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN:-}
+      TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS:-3600}
+      TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS:-128}
       # Blob Storage (MinIO/S3)
       TRACECAT__BLOB_STORAGE_ENDPOINT: http://minio:9000
       TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${TRACECAT__PUBLIC_APP_URL}/s3
@@ -102,7 +107,7 @@ services:
       start_period: 10s
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.39}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.42}
     restart: unless-stopped
     networks:
       - core
@@ -133,6 +138,14 @@ services:
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
       TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
       TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+      TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED: ${TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED:-false}
+      TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING:-}
+      TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN:-}
+      TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS:-3600}
+      TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS:-128}
+      # Local registry
+      TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
+      TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
       TRACECAT__EXECUTOR_CLIENT_TIMEOUT: ${TRACECAT__EXECUTOR_CLIENT_TIMEOUT:-300}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN:-}
@@ -157,7 +170,7 @@ services:
         condition: service_healthy
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.39}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.42}
     restart: unless-stopped
     networks:
       - core
@@ -206,6 +219,11 @@ services:
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
       TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+      TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED: ${TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED:-false}
+      TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING:-}
+      TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN:-}
+      TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS:-3600}
+      TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS:-128}
       # Executor worker configuration
       TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
       # Pool size auto-scales based on available CPUs if not set
@@ -235,7 +253,7 @@ services:
         condition: service_healthy
 
   agent-worker:
-      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.39}
+      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.42}
       restart: unless-stopped
       networks:
         - core
@@ -267,6 +285,11 @@ services:
         TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
         TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
         TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+        TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED: ${TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED:-false}
+        TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING:-}
+        TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN:-}
+        TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS:-3600}
+        TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS:-128}
         SENTRY_DSN: ${SENTRY_DSN:-}
         # Agent worker configuration
         TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
@@ -294,7 +317,7 @@ services:
           condition: service_healthy
 
   litellm:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.39}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.42}
     restart: unless-stopped
     networks:
       - core
@@ -321,7 +344,7 @@ services:
       start_period: 10s
 
   agent-executor:
-      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.39}
+      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.42}
       restart: unless-stopped
       networks:
         - core
@@ -373,6 +396,11 @@ services:
         TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
         TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
         TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+        TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED: ${TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED:-false}
+        TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING:-}
+        TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN:-}
+        TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS:-3600}
+        TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS:-128}
         # Agent worker configuration
         TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
         TRACECAT__AGENT_EXECUTOR_QUEUE: ${TRACECAT__AGENT_EXECUTOR_QUEUE:-shared-agent-executor-queue}
@@ -416,7 +444,7 @@ services:
           condition: service_healthy
 
   mcp:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.39}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.42}
     restart: on-failure:3
     networks:
       - core
@@ -445,6 +473,11 @@ services:
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
       TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
       TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
+      TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED: ${TEMPORAL__PAYLOAD_ENCRYPTION_ENABLED:-false}
+      TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING:-}
+      TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN: ${TEMPORAL__PAYLOAD_ENCRYPTION_KEYRING_ARN:-}
+      TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_TTL_SECONDS:-3600}
+      TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS:-128}
     command: ["python", "-m", "tracecat.mcp"]
     depends_on:
       api:
@@ -457,7 +490,7 @@ services:
         condition: service_healthy
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.0.0-beta.39}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.0.0-beta.42}
     container_name: ui
     restart: unless-stopped
     networks:
@@ -493,7 +526,7 @@ services:
       start_period: 5s
 
   migrations:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.39}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.42}
     container_name: migrations
     restart: "no"
     networks:

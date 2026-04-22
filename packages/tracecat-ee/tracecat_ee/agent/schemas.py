@@ -29,6 +29,7 @@ class AgentActionArgs(BaseModel):
         description="The maximum number of model requests to make per agent run",
     )
     retries: int = 3
+    enable_thinking: bool = True
     base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
     use_workspace_credentials: bool = Field(

@@ -98,6 +98,7 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
             else None
         ),
         retries=config.retries,
+        enable_thinking=config.enable_thinking,
         enable_internet_access=config.enable_internet_access,
     )
 
@@ -121,5 +122,6 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
             else None
         ),
         retries=payload.retries,
+        enable_thinking=payload.enable_thinking,
         enable_internet_access=payload.enable_internet_access,
     )

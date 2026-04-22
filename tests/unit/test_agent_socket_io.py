@@ -130,7 +130,9 @@ class TestRuntimeSocketCommunication:
                         AsyncMock(return_value={}),
                     ),
                 ):
-                    runtime = ClaudeAgentRuntime(socket_writer)
+                    runtime = ClaudeAgentRuntime(
+                        socket_writer, transport_factory=lambda _: MagicMock()
+                    )
                     payload = make_init_payload()
                     await runtime.run(payload)
 
@@ -227,7 +229,9 @@ class TestRuntimeSocketCommunication:
                         MagicMock,
                     ),
                 ):
-                    runtime = ClaudeAgentRuntime(socket_writer)
+                    runtime = ClaudeAgentRuntime(
+                        socket_writer, transport_factory=lambda _: MagicMock()
+                    )
                     payload = make_init_payload()
                     await runtime.run(payload)
 
@@ -300,7 +304,9 @@ class TestRuntimeSocketCommunication:
                     ),
                     pytest.raises(ValueError, match="SDK connection failed"),
                 ):
-                    runtime = ClaudeAgentRuntime(socket_writer)
+                    runtime = ClaudeAgentRuntime(
+                        socket_writer, transport_factory=lambda _: MagicMock()
+                    )
                     payload = make_init_payload()
                     await runtime.run(payload)
 

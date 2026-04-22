@@ -60,9 +60,9 @@ async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failu
     from tracecat.agent import executor_worker
 
     stop_mcp_server = AsyncMock()
-    stop_backend = AsyncMock()
+    stop_broker = AsyncMock()
 
-    monkeypatch.setattr(executor_worker, "start_configured_llm_proxy", AsyncMock())
+    monkeypatch.setattr(executor_worker, "start_claude_runtime_broker", AsyncMock())
     monkeypatch.setattr(executor_worker, "start_mcp_server", AsyncMock())
     monkeypatch.setattr(
         executor_worker,
@@ -70,25 +70,25 @@ async def test_agent_executor_worker_cleans_up_runtime_services_on_startup_failu
         AsyncMock(side_effect=RuntimeError("boom")),
     )
     monkeypatch.setattr(executor_worker, "stop_mcp_server", stop_mcp_server)
-    monkeypatch.setattr(executor_worker, "stop_configured_llm_proxy", stop_backend)
+    monkeypatch.setattr(executor_worker, "stop_claude_runtime_broker", stop_broker)
     executor_worker.interrupt_event.clear()
 
     with pytest.raises(RuntimeError, match="boom"):
         await executor_worker.main()
 
     stop_mcp_server.assert_awaited_once()
-    stop_backend.assert_awaited_once()
+    stop_broker.assert_awaited_once()
 
 
 @pytest.mark.anyio
-async def test_agent_executor_worker_runs_litellm_service_hooks_on_startup_failure(
+async def test_agent_executor_worker_runs_runtime_service_hooks_on_startup_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tracecat.agent import executor_worker
 
-    start_backend = AsyncMock()
-    stop_backend = AsyncMock()
-    monkeypatch.setattr(executor_worker, "start_configured_llm_proxy", start_backend)
+    start_broker = AsyncMock()
+    stop_broker = AsyncMock()
+    monkeypatch.setattr(executor_worker, "start_claude_runtime_broker", start_broker)
     monkeypatch.setattr(executor_worker, "start_mcp_server", AsyncMock())
     monkeypatch.setattr(
         executor_worker,
@@ -96,14 +96,14 @@ async def test_agent_executor_worker_runs_litellm_service_hooks_on_startup_failu
         AsyncMock(side_effect=RuntimeError("boom")),
     )
     monkeypatch.setattr(executor_worker, "stop_mcp_server", AsyncMock())
-    monkeypatch.setattr(executor_worker, "stop_configured_llm_proxy", stop_backend)
+    monkeypatch.setattr(executor_worker, "stop_claude_runtime_broker", stop_broker)
     executor_worker.interrupt_event.clear()
 
     with pytest.raises(RuntimeError, match="boom"):
         await executor_worker.main()
 
-    start_backend.assert_awaited_once()
-    stop_backend.assert_awaited_once()
+    start_broker.assert_awaited_once()
+    stop_broker.assert_awaited_once()
 
 
 @pytest.mark.anyio

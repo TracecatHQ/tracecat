@@ -654,7 +654,21 @@ class DSLScheduler:
             ctx_stream_id.reset(token)
 
     async def _schedule_task(self, task: Task) -> None:
-        """Schedule a task for execution."""
+        """Schedule a task for execution.
+
+        Notes:
+            We evaluate ``run_if`` before the reachability check when possible so a
+            branch-local guard can self-skip before a mixed visited/skipped parent
+            set is treated as unreachable.
+
+            This early evaluation must be defensive. A ``run_if`` expression can
+            reference context that is not populated yet, such as a skipped or
+            otherwise unavailable upstream result. In that case ``_task_should_skip``
+            raises ``ApplicationError``. We defer that error until after the
+            reachability check so we do not replace a genuine ``TaskUnreachable``
+            outcome with a premature expression failure for a task that was never
+            runnable.
+        """
         ref = task.ref
         stmt = self.tasks[ref]
         self.logger.debug("Scheduling task", task=task)
@@ -670,15 +684,24 @@ class DSLScheduler:
                 )
                 return await self._handle_skip_path(task, stmt)
 
-            # 2) Then we check if the task is reachable
+            # 2) Evaluate `run_if` early when possible so branch-local guards can
+            # self-skip before mixed visited/skipped parents are treated as unreachable.
+            run_if_error: ApplicationError | None = None
+            if stmt.run_if is not None:
+                try:
+                    if await self._task_should_skip(task, stmt):
+                        self.logger.debug("Task should self-skip", task=task)
+                        return await self._handle_skip_path(task, stmt)
+                except ApplicationError as e:
+                    run_if_error = e
+
+            # 3) Then we check if the task is reachable
             if not self._is_reachable(task, stmt):
                 self.logger.debug("Task cannot proceed, unreachable", task=task)
                 raise TaskUnreachable(f"Task {task} is unreachable")
 
-            # 3) Check if the task should self-skip based on its `run_if` condition
-            if await self._task_should_skip(task, stmt):
-                self.logger.debug("Task should self-skip", task=task)
-                return await self._handle_skip_path(task, stmt)
+            if run_if_error is not None:
+                raise run_if_error
 
             # 4) If we made it here, the task is reachable and not force-skipped.
 

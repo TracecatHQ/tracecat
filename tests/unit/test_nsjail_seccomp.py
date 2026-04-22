@@ -77,7 +77,6 @@ def test_agent_sandbox_config_includes_seccomp_policy(tmp_path: Path):
         socket_dir=tmp_path / "socket",
         config=AgentSandboxConfig(),
         site_packages_dir=tmp_path / "site-packages",
-        tracecat_pkg_dir=tmp_path / "tracecat",
         llm_socket_path=tmp_path / "llm.sock",
     )
 
