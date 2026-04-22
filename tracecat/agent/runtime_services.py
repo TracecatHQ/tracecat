@@ -5,10 +5,16 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from tracecat.logger import logger
 
 _mcp_server_task: asyncio.Task[None] | None = None
+
+if TYPE_CHECKING:
+    from tracecat.agent.runtime.claude_code.broker import ClaudeRuntimeBroker
+
+_claude_runtime_broker: ClaudeRuntimeBroker | None = None
 
 
 async def _wait_for_socket(
@@ -23,24 +29,6 @@ async def _wait_for_socket(
             return True
         await asyncio.sleep(interval)
     return False
-
-
-async def start_configured_llm_proxy() -> None:
-    """Start any worker-global LLM backend services required by the runtime.
-
-    LiteLLM runs as a separate shared service, so the agent executor has no
-    worker-global LLM startup work to do.
-    """
-    logger.info(
-        "LiteLLM is managed outside the agent executor; no worker-global startup required"
-    )
-
-
-async def stop_configured_llm_proxy() -> None:
-    """Stop any worker-global LLM backend services.
-
-    LiteLLM is managed outside the agent executor, so this is a no-op.
-    """
 
 
 async def start_mcp_server() -> None:
@@ -87,3 +75,36 @@ async def stop_mcp_server() -> None:
         except asyncio.CancelledError:
             pass
         _mcp_server_task = None
+
+
+async def start_claude_runtime_broker() -> None:
+    """Start the worker-global Claude runtime broker."""
+    global _claude_runtime_broker
+
+    from tracecat.agent.runtime.claude_code.broker import ClaudeRuntimeBroker
+
+    if _claude_runtime_broker is not None:
+        return
+    broker = ClaudeRuntimeBroker()
+    await broker.start()
+    _claude_runtime_broker = broker
+    logger.info("Claude runtime broker started")
+
+
+async def stop_claude_runtime_broker() -> None:
+    """Stop the worker-global Claude runtime broker."""
+    global _claude_runtime_broker
+
+    if _claude_runtime_broker is None:
+        return
+    broker = _claude_runtime_broker
+    _claude_runtime_broker = None
+    await broker.stop()
+    logger.info("Claude runtime broker stopped")
+
+
+def get_claude_runtime_broker() -> ClaudeRuntimeBroker:
+    """Return the initialized worker-global Claude runtime broker."""
+    if _claude_runtime_broker is None:
+        raise RuntimeError("Claude runtime broker is not started")
+    return _claude_runtime_broker

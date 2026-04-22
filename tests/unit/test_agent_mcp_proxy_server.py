@@ -172,7 +172,7 @@ async def test_registry_proxy_server_accepts_hook_injected_metadata_during_tool_
     monkeypatch.setattr(proxy_server, "_create_uds_transport", lambda _: object())
     monkeypatch.setattr(proxy_server, "Client", _FakeClient)
 
-    runtime = ClaudeAgentRuntime(MagicMock())
+    runtime = ClaudeAgentRuntime(MagicMock(), transport_factory=lambda _: MagicMock())
     runtime.registry_tools = {
         "core.http_request": MCPToolDefinition(
             name="core.http_request",

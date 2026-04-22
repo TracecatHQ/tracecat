@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import os
+import contextlib
+import shutil
 import tempfile
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from pydantic import AliasChoices, BaseModel, Field
@@ -20,15 +22,20 @@ from tracecat.agent.common.config import (
     TRACECAT__DISABLE_NSJAIL,
 )
 from tracecat.agent.common.exceptions import AgentSandboxExecutionError
+from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.common.types import MCPToolDefinition, SandboxAgentConfig
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
     LoopbackInput,
     LoopbackResult,
 )
+from tracecat.agent.runtime.claude_code.broker import (
+    ClaudeTurnRequest,
+    ConcurrentSessionTurnError,
+)
+from tracecat.agent.runtime_services import get_claude_runtime_broker
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
-from tracecat.agent.sandbox.nsjail import spawn_jailed_runtime
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -115,12 +122,12 @@ class ExecuteApprovedToolsResult(BaseModel):
 
 @dataclass
 class SandboxedAgentExecutor:
-    """Executes agent in NSJail sandbox.
+    """Executes an agent turn through the worker-global runtime broker.
 
     This executor:
     1. Creates a job directory with Unix sockets
-    2. Spawns the NSJail process
-    3. Uses LoopbackHandler to communicate with runtime
+    2. Starts the host-side LLM proxy
+    3. Dispatches the turn to the runtime broker
     4. Cleans up on completion
     """
 
@@ -132,17 +139,25 @@ class SandboxedAgentExecutor:
 
     # Internal state
     _job_dir: Path | None = field(default=None, init=False, repr=False)
-    _process: asyncio.subprocess.Process | None = field(
-        default=None, init=False, repr=False
-    )
-    _loopback_result: asyncio.Future[LoopbackResult] | None = field(
-        default=None, init=False, repr=False
-    )
     _llm_proxy: LLMSocketProxy | None = field(default=None, init=False, repr=False)
     _fatal_error: str | None = field(default=None, init=False, repr=False)
     _fatal_error_event: asyncio.Event = field(
         default_factory=asyncio.Event, init=False, repr=False
     )
+    _turn_started_at: float = field(
+        default_factory=perf_counter, init=False, repr=False
+    )
+
+    def _log_benchmark_phase(self, phase: str, **extra: object) -> None:
+        """Emit a temporary structured benchmark log for this turn."""
+        logger.info(
+            "Agent benchmark phase",
+            phase=phase,
+            elapsed_ms=round((perf_counter() - self._turn_started_at) * 1000, 2),
+            session_id=self.input.session_id,
+            sandbox_mode="direct" if TRACECAT__DISABLE_NSJAIL else "nsjail",
+            **extra,
+        )
 
     def _create_llm_socket_proxy(self, socket_path: Path) -> LLMSocketProxy:
         """Create the host-side LiteLLM transport proxy for this execution."""
@@ -176,306 +191,58 @@ class SandboxedAgentExecutor:
             model_provider=self.input.config.model_provider,
         )
 
+    def _build_runtime_init_payload(self) -> RuntimeInitPayload:
+        """Build the runtime init payload for this execution."""
+        return RuntimeInitPayload(
+            session_id=self.input.session_id,
+            mcp_auth_token=self.input.mcp_auth_token,
+            config=SandboxAgentConfig.from_agent_config(self.input.config),
+            user_prompt=self.input.user_prompt,
+            llm_gateway_auth_token=self.input.llm_gateway_auth_token,
+            allowed_actions=self.input.allowed_actions,
+            sdk_session_id=self.input.sdk_session_id,
+            sdk_session_data=self.input.sdk_session_data,
+            is_approval_continuation=self.input.is_approval_continuation,
+            is_fork=self.input.is_fork,
+        )
+
     async def run(self) -> AgentExecutorResult:
-        """Execute the agent in an NSJail sandbox.
+        """Execute the agent through the brokered runtime.
 
         Returns:
             AgentExecutorResult with success status and any session updates.
         """
         result = AgentExecutorResult(success=False)
+        self._log_benchmark_phase("activity_start")
 
         try:
             # Create job directory with sockets
             self._job_dir = await self._create_job_directory()
             socket_dir = self._job_dir / "sockets"
+            init_payload = self._build_runtime_init_payload()
+            self._log_benchmark_phase(
+                "job_dir_ready",
+                job_dir=str(self._job_dir),
+                socket_dir=str(socket_dir),
+            )
 
             # Create loopback handler
             loopback_input = LoopbackInput(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
-                user_prompt=self.input.user_prompt,
-                config=self.input.config,
-                mcp_auth_token=self.input.mcp_auth_token,
-                llm_gateway_auth_token=self.input.llm_gateway_auth_token,
-                socket_dir=socket_dir,
-                allowed_actions=self.input.allowed_actions,
-                sdk_session_id=self.input.sdk_session_id,
-                sdk_session_data=self.input.sdk_session_data,
-                is_approval_continuation=self.input.is_approval_continuation,
-                is_fork=self.input.is_fork,
             )
             handler = LoopbackHandler(input=loopback_input)
 
-            async def emit_stream_error(error_msg: str) -> None:
-                """Emit errors through the same sink abstraction as loopback."""
-                try:
-                    await handler.emit_terminal_error(error_msg)
-                except Exception:
-                    logger.warning(
-                        "Failed to emit terminal stream error",
-                        session_id=self.input.session_id,
-                    )
-
-            # Future to capture loopback result
-            self._loopback_result = asyncio.get_running_loop().create_future()
-
-            async def connection_callback(
-                reader: asyncio.StreamReader,
-                writer: asyncio.StreamWriter,
-            ) -> None:
-                """Callback for Unix socket server."""
-                logger.debug("Connection callback started")
-                try:
-                    loopback_result = await handler.handle_connection(reader, writer)
-                    logger.info(
-                        "Loopback handler completed",
-                        success=loopback_result.success,
-                        error=loopback_result.error,
-                        approval_requested=loopback_result.approval_requested,
-                    )
-                    if self._loopback_result and not self._loopback_result.done():
-                        self._loopback_result.set_result(loopback_result)
-                        logger.debug("Future result set")
-                    else:
-                        logger.warning(
-                            "Future already done or None",
-                            future_done=self._loopback_result.done()
-                            if self._loopback_result
-                            else None,
-                        )
-                except Exception as e:
-                    logger.exception("Connection callback error", error=str(e))
-                    if self._loopback_result and not self._loopback_result.done():
-                        self._loopback_result.set_exception(e)
-
-            # Start control socket server (hardcoded socket name)
-            control_socket_path = socket_dir / "control.sock"
-            logger.info(
-                "Starting control socket server",
-                socket_path=str(control_socket_path),
-            )
-
             llm_socket_path = socket_dir / LLM_SOCKET_NAME
-
             self._llm_proxy = self._create_llm_socket_proxy(llm_socket_path)
-            await self._llm_proxy.start()
-            logger.info(
-                "Started LLM socket proxy",
-                socket_path=str(llm_socket_path),
+
+            await self._run_with_broker(
+                result=result,
+                handler=handler,
+                init_payload=init_payload,
+                socket_dir=socket_dir,
+                llm_socket_path=llm_socket_path,
             )
-
-            # Set umask before socket creation to ensure 0o600 permissions from the start
-            old_umask = os.umask(0o177)
-            try:
-                server = await asyncio.start_unix_server(
-                    connection_callback,
-                    path=str(control_socket_path),
-                )
-            finally:
-                os.umask(old_umask)
-
-            async with server:
-                runtime_result = await spawn_jailed_runtime(
-                    socket_dir=socket_dir,
-                    llm_socket_path=llm_socket_path,
-                    enable_internet_access=self.input.config.enable_internet_access,
-                )
-                self._process = runtime_result.process
-                logger.info(
-                    "Agent runtime process spawned",
-                    pid=self._process.pid,
-                    session_id=self.input.session_id,
-                    mode="direct" if TRACECAT__DISABLE_NSJAIL else "nsjail",
-                )
-
-                # Wait for loopback to complete OR fatal error from LLM proxy OR process exit
-                # We poll with short timeout to allow heartbeats to Temporal
-                logger.debug("Waiting for loopback result or fatal error")
-                heartbeat_interval = 30  # seconds
-                elapsed = 0
-
-                # Create a task to wait for fatal error event
-                async def wait_fatal_error() -> str:
-                    await self._fatal_error_event.wait()
-                    return self._fatal_error or "Unknown LLM error"
-
-                fatal_error_task = asyncio.create_task(wait_fatal_error())
-
-                # Create a task to monitor process exit (to capture crash errors)
-                async def wait_process_exit() -> tuple[int, str]:
-                    """Wait for process to exit and capture stderr."""
-                    if self._process is None:
-                        return -1, "Process not started"
-                    _, stderr_bytes = await self._process.communicate()
-                    stderr = (
-                        stderr_bytes.decode("utf-8", errors="replace")
-                        if stderr_bytes
-                        else ""
-                    )
-                    return self._process.returncode or 0, stderr
-
-                process_exit_task = asyncio.create_task(wait_process_exit())
-
-                try:
-
-                    def _apply_loopback_result(loopback_result: LoopbackResult) -> None:
-                        """Copy loopback result fields into the activity result."""
-                        result.success = loopback_result.success
-                        result.error = loopback_result.error
-                        result.approval_requested = loopback_result.approval_requested
-                        result.approval_items = loopback_result.approval_items or None
-                        result.output = loopback_result.output
-                        result.result_usage = loopback_result.result_usage
-                        result.result_num_turns = loopback_result.result_num_turns
-
-                    while elapsed < self.timeout_seconds:
-                        # Wait for either loopback result, fatal error, or process exit
-                        done, _ = await asyncio.wait(
-                            [
-                                asyncio.ensure_future(
-                                    asyncio.shield(self._loopback_result)
-                                ),
-                                fatal_error_task,
-                                process_exit_task,
-                            ],
-                            timeout=heartbeat_interval,
-                            return_when=asyncio.FIRST_COMPLETED,
-                        )
-
-                        if not done:
-                            # Timeout - send heartbeat and continue waiting
-                            elapsed += heartbeat_interval
-                            activity.heartbeat(
-                                f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
-                            )
-                            logger.debug(
-                                "Heartbeat sent, continuing to wait",
-                                elapsed=elapsed,
-                                timeout=self.timeout_seconds,
-                            )
-                            continue
-
-                        # Check if fatal error task completed
-                        if fatal_error_task in done:
-                            # Fatal error from LLM proxy - fail immediately
-                            error_msg = fatal_error_task.result()
-                            logger.error(
-                                "Fatal LLM error detected, terminating agent",
-                                error=error_msg,
-                            )
-                            result.error = error_msg
-
-                            # Kill the process
-                            if self._process and self._process.returncode is None:
-                                self._process.kill()
-
-                            await emit_stream_error(error_msg)
-                            break
-
-                        # Check if process exited before loopback completion
-                        if (
-                            process_exit_task in done
-                            and not self._loopback_result.done()
-                        ):
-                            returncode, stderr = process_exit_task.result()
-                            if returncode == 0:
-                                # Graceful process exit can race with loopback future resolution.
-                                # Give loopback a short window to finish before treating as an error.
-                                logger.warning(
-                                    "Runtime exited before loopback future was ready; waiting briefly",
-                                    returncode=returncode,
-                                    session_id=self.input.session_id,
-                                )
-                                try:
-                                    loopback_result = await asyncio.wait_for(
-                                        asyncio.shield(self._loopback_result),
-                                        timeout=5.0,
-                                    )
-                                except TimeoutError:
-                                    error_msg = (
-                                        "Runtime exited cleanly but loopback result "
-                                        "was not received"
-                                    )
-                                    logger.error(
-                                        "Missing loopback result after clean runtime exit",
-                                        returncode=returncode,
-                                        session_id=self.input.session_id,
-                                    )
-                                    result.error = error_msg
-                                    await emit_stream_error(error_msg)
-                                    break
-
-                                logger.info(
-                                    "Loopback result received after clean runtime exit",
-                                    success=loopback_result.success,
-                                    error=loopback_result.error,
-                                )
-                                _apply_loopback_result(loopback_result)
-                                break
-
-                            # Non-zero exit code before loopback completion: treat as crash
-                            # Log stderr - show last 4000 chars which typically contain the actual error
-                            # (NSJail mount logs consume the beginning)
-                            if stderr:
-                                # Log the tail of stderr (where Python errors typically appear)
-                                stderr_tail = (
-                                    stderr[-4000:] if len(stderr) > 4000 else stderr
-                                )
-                                logger.error(
-                                    "Runtime process stderr (tail)",
-                                    stderr=stderr_tail,
-                                )
-                            error_msg = (
-                                f"Runtime process exited with code {returncode} "
-                                f"before connecting. stderr: {stderr[-1000:] if stderr else 'empty'}"
-                            )
-                            logger.error(
-                                "Runtime process crashed",
-                                returncode=returncode,
-                                stderr_tail=stderr[-500:] if stderr else None,
-                            )
-                            result.error = error_msg
-
-                            await emit_stream_error(error_msg)
-                            break
-
-                        # Loopback completed
-                        loopback_result = self._loopback_result.result()
-                        logger.info(
-                            "Loopback result received",
-                            success=loopback_result.success,
-                            error=loopback_result.error,
-                        )
-                        _apply_loopback_result(loopback_result)
-                        break
-                    else:
-                        # Exceeded total timeout
-                        logger.error("Agent execution timed out waiting for loopback")
-                        result.error = (
-                            f"Agent execution timed out after {self.timeout_seconds}s"
-                        )
-                        await emit_stream_error(result.error)
-
-                except asyncio.CancelledError:
-                    logger.error(
-                        "Loopback future was cancelled",
-                        future_done=self._loopback_result.done()
-                        if self._loopback_result
-                        else None,
-                        future_cancelled=self._loopback_result.cancelled()
-                        if self._loopback_result
-                        else None,
-                    )
-                    raise
-                finally:
-                    # Clean up tasks if still pending
-                    for task in [fatal_error_task, process_exit_task]:
-                        if not task.done():
-                            task.cancel()
-                            try:
-                                await task
-                            except asyncio.CancelledError:
-                                pass
 
         except AgentSandboxExecutionError as e:
             logger.error("Agent sandbox execution failed", error=str(e))
@@ -487,6 +254,112 @@ class SandboxedAgentExecutor:
             await self._cleanup()
 
         return result
+
+    @staticmethod
+    def _apply_loopback_result(
+        result: AgentExecutorResult, loopback_result: LoopbackResult
+    ) -> None:
+        """Copy loopback result fields into the activity result."""
+        result.success = loopback_result.success
+        result.error = loopback_result.error
+        result.approval_requested = loopback_result.approval_requested
+        result.approval_items = loopback_result.approval_items or None
+        result.output = loopback_result.output
+        result.result_usage = loopback_result.result_usage
+        result.result_num_turns = loopback_result.result_num_turns
+
+    async def _run_with_broker(
+        self,
+        *,
+        result: AgentExecutorResult,
+        handler: LoopbackHandler,
+        init_payload: RuntimeInitPayload,
+        socket_dir: Path,
+        llm_socket_path: Path,
+    ) -> None:
+        """Execute the Claude turn through the worker-global warm broker."""
+        if self._job_dir is None:
+            raise RuntimeError("Job directory must exist before broker execution")
+
+        broker = get_claude_runtime_broker()
+
+        if self._llm_proxy is None:
+            raise RuntimeError("LLM proxy must exist before broker startup")
+        await self._llm_proxy.start()
+        logger.info(
+            "Started LLM socket proxy",
+            socket_path=str(llm_socket_path),
+        )
+        self._log_benchmark_phase("broker_llm_proxy_ready")
+
+        request = ClaudeTurnRequest(
+            init_payload=init_payload,
+            job_dir=self._job_dir,
+            socket_dir=socket_dir,
+            llm_socket_path=llm_socket_path,
+            enable_internet_access=init_payload.config.enable_internet_access,
+        )
+        broker_task = asyncio.create_task(broker.run_turn(request, handler))
+        self._log_benchmark_phase("broker_turn_dispatched")
+
+        async def wait_fatal_error() -> str:
+            await self._fatal_error_event.wait()
+            return self._fatal_error or "Unknown LLM error"
+
+        fatal_error_task = asyncio.create_task(wait_fatal_error())
+        heartbeat_interval = 30
+        elapsed = 0
+
+        try:
+            while elapsed < self.timeout_seconds:
+                done, _ = await asyncio.wait(
+                    [broker_task, fatal_error_task],
+                    timeout=heartbeat_interval,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                if not done:
+                    elapsed += heartbeat_interval
+                    activity.heartbeat(
+                        f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
+                    )
+                    continue
+
+                if fatal_error_task in done:
+                    error_msg = fatal_error_task.result()
+                    result.error = error_msg
+                    await broker.cancel_turn(str(self.input.session_id))
+                    await handler.emit_terminal_error(error_msg)
+                    break
+
+                await broker_task
+                self._apply_loopback_result(result, handler.build_result())
+                self._log_benchmark_phase(
+                    "broker_activity_complete",
+                    success=result.success,
+                    approval_requested=result.approval_requested,
+                )
+                break
+            else:
+                result.error = (
+                    f"Agent execution timed out after {self.timeout_seconds}s"
+                )
+                await broker.cancel_turn(str(self.input.session_id))
+                await handler.emit_terminal_error(result.error)
+        except Exception as e:
+            result.error = str(e)
+            await handler.emit_terminal_error(result.error)
+            if not isinstance(e, ConcurrentSessionTurnError):
+                raise
+        except asyncio.CancelledError:
+            await broker.cancel_turn(str(self.input.session_id))
+            raise
+        finally:
+            for task in (fatal_error_task, broker_task):
+                if not task.done():
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
 
     async def _create_job_directory(self) -> Path:
         """Create a temporary job directory with socket subdirectory."""
@@ -510,16 +383,6 @@ class SandboxedAgentExecutor:
 
     async def _cleanup(self) -> None:
         """Clean up resources after execution."""
-        # Terminate process if still running
-        if self._process and self._process.returncode is None:
-            logger.warning("Terminating agent runtime process")
-            self._process.terminate()
-            try:
-                await asyncio.wait_for(self._process.wait(), timeout=5.0)
-            except TimeoutError:
-                self._process.kill()
-                await self._process.wait()
-
         # Stop LLM socket proxy
         if self._llm_proxy:
             try:
@@ -531,19 +394,7 @@ class SandboxedAgentExecutor:
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():
             try:
-                socket_dir = self._job_dir / "sockets"
-                if socket_dir.exists():
-                    for f in socket_dir.iterdir():
-                        # Remove files, symlinks, and sockets (is_socket() for Unix sockets)
-                        if f.is_symlink() or f.is_file() or f.is_socket():
-                            f.unlink()
-                    socket_dir.rmdir()
-
-                for f in self._job_dir.iterdir():
-                    if f.is_file() or f.is_socket():
-                        f.unlink()
-                self._job_dir.rmdir()
-
+                shutil.rmtree(self._job_dir)
                 logger.debug("Cleaned up job directory", job_dir=str(self._job_dir))
             except Exception as e:
                 logger.warning(
@@ -557,16 +408,15 @@ class SandboxedAgentExecutor:
 async def run_agent_activity(
     input: AgentExecutorInput,
 ) -> AgentExecutorResult:
-    """Temporal activity that runs the agent in a sandbox (or direct subprocess for testing).
+    """Temporal activity that runs one brokered agent turn.
 
     This activity:
     1. Creates a SandboxedAgentExecutor
-    2. Runs the agent (in nsjail sandbox or direct subprocess depending on config)
+    2. Dispatches the turn through the worker-global runtime broker
     3. Returns the result with session updates
 
-    When TRACECAT__DISABLE_NSJAIL=true, the agent is run as a direct subprocess
-    without nsjail isolation. This is useful for testing on platforms without
-    nsjail (macOS, Windows, CI environments).
+    The broker-owned transport decides whether the runtime shim runs with nsjail
+    or as a direct subprocess based on TRACECAT__DISABLE_NSJAIL.
 
     The activity is designed to be retryable - if it fails due to transient
     errors, Temporal will retry it. Session state is persisted on success
