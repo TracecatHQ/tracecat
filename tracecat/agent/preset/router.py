@@ -252,5 +252,11 @@ async def restore_agent_preset_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{version_id}' not found",
         )
-    restored = await service.restore_version(preset, version)
+    try:
+        restored = await service.restore_version(preset, version)
+    except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     return await service.build_preset_read(restored)
