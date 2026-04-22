@@ -418,7 +418,9 @@ class TestAgentPresetService:
             CursorPaginationParams(limit=10),
         )
         assert [version.version for version in versions.items] == [2, 1]
-        assert versions.items[0].enable_thinking is False
+        latest_version = await agent_preset_service.get_version(versions.items[0].id)
+        assert latest_version is not None
+        assert latest_version.enable_thinking is False
 
     async def test_create_preset_creates_initial_version(
         self,

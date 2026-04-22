@@ -4530,7 +4530,7 @@ async def test_create_agent_preset_allows_custom_model_provider(
         assert model_provider == "custom-model-provider"
         return "customer-alias", "custom-model-provider"
 
-    class _PresetService:
+    class _PresetService(_PresetReadBuilder):
         async def create_preset(self, params: Any) -> SimpleNamespace:
             created["params"] = params
             now = datetime.now(UTC)
