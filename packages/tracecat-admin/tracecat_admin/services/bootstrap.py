@@ -384,6 +384,7 @@ async def _ensure_role_assignment(
 ) -> None:
     statement = select(UserRoleAssignment).where(
         UserRoleAssignment.user_id == user_id,
+        UserRoleAssignment.organization_id == organization_id,
     )
     if workspace_id is None:
         statement = statement.where(UserRoleAssignment.workspace_id.is_(None))

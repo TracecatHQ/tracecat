@@ -5,11 +5,12 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import respx
 from httpx import Response
+from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_admin.cli import app
 from typer.testing import CliRunner
 
@@ -358,3 +359,37 @@ class TestCreateDevUser:
         assert {name for name in ALL_ENTITLEMENTS if not selected[name]} == set(
             ALL_ENTITLEMENTS
         ) - {"custom_registry", "case_addons"}
+
+    @pytest.mark.anyio
+    async def test_role_assignment_lookup_is_organization_scoped(self) -> None:
+        """Ensure role assignment upserts never match across organizations."""
+        from tracecat_admin.services.bootstrap import _ensure_role_assignment
+
+        class FakeResult:
+            def scalar_one_or_none(self) -> SimpleNamespace:
+                return SimpleNamespace()
+
+        class FakeSession:
+            statement: Any | None = None
+
+            async def execute(self, statement: Any) -> FakeResult:
+                self.statement = statement
+                return FakeResult()
+
+            def add(self, value: Any) -> None:
+                raise AssertionError("No insert expected")
+
+        session = FakeSession()
+
+        await _ensure_role_assignment(
+            session=cast(AsyncSession, session),
+            user_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            workspace_id=None,
+            role_id=uuid.uuid4(),
+        )
+
+        assert session.statement is not None
+        assert "user_role_assignment.organization_id =" in str(
+            session.statement.compile()
+        )
