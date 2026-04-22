@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import NoResultFound
 
 from tracecat import config
@@ -53,14 +53,18 @@ async def list_organizations(
     return list(await service.list_organizations())
 
 
-@router.post("", response_model=OrgRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=OrgRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_require_multi_tenant)],
+)
 async def create_organization(
     role: SuperuserRole,
     session: AsyncDBSessionBypass,
     params: OrgCreate,
 ) -> OrgRead:
     """Create a new organization."""
-    _require_multi_tenant()
     service = AdminOrgService(session, role)
     try:
         return await service.create_organization(params)
@@ -101,7 +105,11 @@ async def update_organization(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
-@router.delete("/{org_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{org_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(_require_multi_tenant)],
+)
 async def delete_organization(
     role: SuperuserRole,
     session: AsyncDBSessionBypass,
@@ -112,7 +120,6 @@ async def delete_organization(
     ),
 ) -> None:
     """Delete organization."""
-    _require_multi_tenant()
     service = AdminOrgService(session, role)
     try:
         await service.delete_organization(org_id, confirmation=confirm)
@@ -131,6 +138,7 @@ async def delete_organization(
     "/{org_id}/invitations",
     response_model=AdminOrgInvitationCreateResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_require_multi_tenant)],
 )
 async def create_organization_invitation(
     role: SuperuserRole,
@@ -139,7 +147,6 @@ async def create_organization_invitation(
     params: AdminOrgInvitationCreate,
 ) -> AdminOrgInvitationCreateResponse:
     """Create a platform-scoped invitation for an organization."""
-    _require_multi_tenant()
     service = AdminOrgService(session, role)
     try:
         return await service.create_organization_invitation(org_id, params)
@@ -152,7 +159,11 @@ async def create_organization_invitation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
-@router.get("/{org_id}/invitations", response_model=list[AdminOrgInvitationRead])
+@router.get(
+    "/{org_id}/invitations",
+    response_model=list[AdminOrgInvitationRead],
+    dependencies=[Depends(_require_multi_tenant)],
+)
 async def list_organization_invitations(
     role: SuperuserRole,
     session: AsyncDBSessionBypass,
@@ -160,7 +171,6 @@ async def list_organization_invitations(
     invitation_status: InvitationStatus | None = Query(None, alias="status"),
 ) -> list[AdminOrgInvitationRead]:
     """List platform-created invitations for an organization."""
-    _require_multi_tenant()
     service = AdminOrgService(session, role)
     try:
         return list(
@@ -176,6 +186,7 @@ async def list_organization_invitations(
 @router.get(
     "/{org_id}/invitations/{invitation_id}/token",
     response_model=AdminOrgInvitationTokenRead,
+    dependencies=[Depends(_require_multi_tenant)],
 )
 async def get_organization_invitation_token(
     role: SuperuserRole,
@@ -184,7 +195,6 @@ async def get_organization_invitation_token(
     invitation_id: uuid.UUID,
 ) -> AdminOrgInvitationTokenRead:
     """Get the raw token for a platform-created organization invitation."""
-    _require_multi_tenant()
     service = AdminOrgService(session, role)
     try:
         return await service.get_organization_invitation_token(org_id, invitation_id)
@@ -198,6 +208,7 @@ async def get_organization_invitation_token(
 @router.delete(
     "/{org_id}/invitations/{invitation_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(_require_multi_tenant)],
 )
 async def revoke_organization_invitation(
     role: SuperuserRole,
@@ -206,7 +217,6 @@ async def revoke_organization_invitation(
     invitation_id: uuid.UUID,
 ) -> None:
     """Revoke a pending platform-created organization invitation."""
-    _require_multi_tenant()
     service = AdminOrgService(session, role)
     try:
         await service.revoke_organization_invitation(org_id, invitation_id)

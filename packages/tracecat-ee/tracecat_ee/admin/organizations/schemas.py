@@ -44,8 +44,6 @@ class OrgRead(Schema):
     created_at: datetime
     updated_at: datetime | None = None
 
-    model_config = {"from_attributes": True}
-
 
 # Org Invitation Schemas
 
@@ -117,8 +115,6 @@ class OrgDomainRead(Schema):
     created_at: datetime
     updated_at: datetime
 
-    model_config = {"from_attributes": True}
-
 
 # Org Registry Schemas
 
@@ -132,8 +128,6 @@ class OrgRegistryRepositoryRead(Schema):
     commit_sha: str | None = None
     current_version_id: uuid.UUID | None = None
 
-    model_config = {"from_attributes": True}
-
 
 class OrgRegistryVersionRead(Schema):
     """Organization registry version response."""
@@ -144,8 +138,6 @@ class OrgRegistryVersionRead(Schema):
     commit_sha: str | None = None
     tarball_uri: str | None = None
     created_at: datetime
-
-    model_config = {"from_attributes": True}
 
 
 class OrgRegistrySyncRequest(Schema):
