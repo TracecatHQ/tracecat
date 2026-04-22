@@ -560,6 +560,9 @@ class LoopbackHandler:
             success=self._result.error is None,
         )
         await self._emit_failed_compaction_if_pending()
+        if self._result.error is not None:
+            await self._emit_stream_done()
+            return True
         if validation_error := self._validate_runtime_completion():
             await stream_sink.error(validation_error)
             await self._emit_stream_done()

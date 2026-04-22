@@ -358,3 +358,18 @@ async def test_process_runtime_events_fails_zero_work_completion() -> None:
     stream.error.assert_awaited_once_with(
         "Runtime completed without assistant output or model usage"
     )
+
+
+@pytest.mark.anyio
+async def test_send_done_preserves_existing_error_state() -> None:
+    handler = _make_handler()
+    stream = _FakeStream()
+    handler._stream_sink = stream
+    handler._result.error = "runtime failed"
+
+    await handler.send_done()
+
+    assert handler._result.success is False
+    assert handler._result.error == "runtime failed"
+    stream.error.assert_not_awaited()
+    stream.done.assert_awaited_once()
