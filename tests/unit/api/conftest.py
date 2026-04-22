@@ -27,7 +27,7 @@ from tracecat.authz.scopes import (
     ORG_ADMIN_SCOPES,
     SERVICE_PRINCIPAL_SCOPES,
 )
-from tracecat.cases.router import WorkspaceUser
+from tracecat.cases.router import WorkspaceActor
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session, get_async_session_bypass_rls
 from tracecat.db.models import Workspace
@@ -89,7 +89,7 @@ def client(request: FixtureRequest) -> Generator[TestClient, None, None]:
         WorkspaceActorRole,
         WorkspaceServiceAccountRole,
         ExecutorWorkspaceRole,
-        WorkspaceUser,
+        WorkspaceActor,
         SuperuserRole,
         AuthenticatedUserOnly,
         OrgActorRole,

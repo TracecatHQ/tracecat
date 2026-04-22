@@ -84,7 +84,6 @@ WorkspaceActor = Annotated[
         require_workspace="yes",
     ),
 ]
-WorkspaceUser = WorkspaceActor
 
 
 class ParsedCaseSearchFilters(TypedDict):
