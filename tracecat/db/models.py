@@ -465,6 +465,16 @@ class Workspace(OrganizationModel):
         back_populates="workspace",
         cascade="all, delete",
     )
+    agent_folders: Mapped[list[AgentFolder]] = relationship(
+        "AgentFolder",
+        back_populates="workspace",
+        cascade="all, delete",
+    )
+    agent_tags: Mapped[list[AgentTag]] = relationship(
+        "AgentTag",
+        back_populates="workspace",
+        cascade="all, delete",
+    )
     case_dropdown_definitions: Mapped[list[CaseDropdownDefinition]] = relationship(
         "CaseDropdownDefinition",
         back_populates="workspace",
@@ -2983,6 +2993,59 @@ class AgentChannelToken(WorkspaceModel):
     )
 
 
+class AgentFolder(WorkspaceModel):
+    """Folder for organizing agent presets.
+
+    Uses materialized path pattern for hierarchical structure.
+    Path format: "/parent/child/" where each segment is the folder name.
+    Root folders have path "/foldername/".
+    """
+
+    __tablename__ = "agent_folder"
+    __table_args__ = (
+        UniqueConstraint("path", "workspace_id", name="uq_agent_folder_path_workspace"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    path: Mapped[str] = mapped_column(
+        String,
+        index=True,
+        nullable=False,
+        doc="Full materialized path: /parent/child/",
+    )
+
+    workspace: Mapped[Workspace] = relationship(back_populates="agent_folders")
+    presets: Mapped[list[AgentPreset]] = relationship(
+        "AgentPreset",
+        back_populates="folder",
+    )
+
+
+class AgentTagLink(Base):
+    """Link table for agent presets and agent tags."""
+
+    __tablename__ = "agent_tag_link"
+    __table_args__ = (PrimaryKeyConstraint("tag_id", "preset_id"),)
+
+    tag_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_tag.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    preset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("agent_preset.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+
 class AgentPreset(WorkspaceModel):
     """Database model for storing reusable agent preset configurations."""
 
@@ -3077,8 +3140,19 @@ class AgentPreset(WorkspaceModel):
         nullable=False,
         doc="Whether to enable direct internet access in the agent sandbox",
     )
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_folder.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     workspace: Mapped[Workspace] = relationship(back_populates="agent_presets")
+    folder: Mapped[AgentFolder | None] = relationship(back_populates="presets")
+    tags: Mapped[list[AgentTag]] = relationship(
+        "AgentTag",
+        secondary=AgentTagLink.__table__,
+        back_populates="presets",
+    )
     versions: Mapped[list[AgentPresetVersion]] = relationship(
         "AgentPresetVersion",
         back_populates="preset",
@@ -3187,6 +3261,39 @@ class AgentPresetVersion(WorkspaceModel):
         "AgentPreset",
         back_populates="versions",
         foreign_keys=[preset_id],
+    )
+
+
+class AgentTag(WorkspaceModel):
+    """A tag for organizing and filtering agent presets."""
+
+    __tablename__ = "agent_tag"
+    __table_args__ = (
+        UniqueConstraint("name", "workspace_id", name="uq_agent_tag_name_workspace"),
+        UniqueConstraint("ref", "workspace_id", name="uq_agent_tag_ref_workspace"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    ref: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        index=True,
+        doc="Slug-like identifier derived from the name, used for API lookups alongside uuid.UUID",
+    )
+    color: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    workspace: Mapped[Workspace] = relationship(back_populates="agent_tags")
+    presets: Mapped[list[AgentPreset]] = relationship(
+        "AgentPreset",
+        secondary=AgentTagLink.__table__,
+        back_populates="tags",
     )
 
 

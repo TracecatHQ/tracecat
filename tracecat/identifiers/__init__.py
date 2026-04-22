@@ -78,6 +78,7 @@ SessionID = uuid.UUID
 WorkflowTagID = uuid.UUID
 TagID = WorkflowTagID
 CaseTagID = uuid.UUID
+AgentTagID = uuid.UUID
 TableID = uuid.UUID
 TableColumnID = uuid.UUID
 TableRowID = uuid.UUID
@@ -121,6 +122,7 @@ __all__ = [
     "TagID",
     "WorkflowTagID",
     "CaseTagID",
+    "AgentTagID",
     "SessionID",
     "VariableID",
     "InvitationID",
