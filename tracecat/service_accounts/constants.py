@@ -1,38 +1,60 @@
 from __future__ import annotations
 
 from tracecat.authz.enums import ScopeSource
-from tracecat.authz.scopes import ADMIN_SCOPES, ORG_OWNER_SCOPES
 
 API_KEY_HEADER_NAME = "x-tracecat-api-key"
 
-ORG_SERVICE_ACCOUNT_MANAGEMENT_SCOPES: frozenset[str] = frozenset(
+WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = frozenset(
     {
-        "org:service_account:read",
-        "org:service_account:create",
-        "org:service_account:update",
-        "org:service_account:disable",
+        "agent:read",
+        "case:read",
+        "case:create",
+        "case:update",
+        "case:delete",
+        "integration:read",
+        "integration:create",
+        "integration:update",
+        "integration:delete",
+        "schedule:read",
+        "schedule:create",
+        "schedule:update",
+        "schedule:delete",
+        "secret:read",
+        "secret:create",
+        "secret:update",
+        "secret:delete",
+        "tag:read",
+        "tag:create",
+        "tag:update",
+        "tag:delete",
+        "workflow:read",
+        "workflow:sync",
+        "workflow:create",
+        "workflow:update",
+        "workflow:delete",
+        "workflow:execute",
+        "workflow:terminate",
+        "workspace:read",
+        "workspace:update",
+        "workspace:delete",
+        "workspace:member:read",
+        "workspace:member:invite",
+        "workspace:member:remove",
     }
-)
-
-WORKSPACE_SERVICE_ACCOUNT_MANAGEMENT_SCOPES: frozenset[str] = frozenset(
-    {
-        "workspace:service_account:read",
-        "workspace:service_account:create",
-        "workspace:service_account:update",
-        "workspace:service_account:disable",
-    }
-)
-
-ALL_SERVICE_ACCOUNT_MANAGEMENT_SCOPES = (
-    ORG_SERVICE_ACCOUNT_MANAGEMENT_SCOPES | WORKSPACE_SERVICE_ACCOUNT_MANAGEMENT_SCOPES
-)
-
-WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = (
-    frozenset(ADMIN_SCOPES) - ALL_SERVICE_ACCOUNT_MANAGEMENT_SCOPES
 )
 
 ORG_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = (
-    frozenset(ORG_OWNER_SCOPES) - ALL_SERVICE_ACCOUNT_MANAGEMENT_SCOPES
+    WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES
+    | frozenset(
+        {
+            "org:read",
+            "org:secret:read",
+            "org:secret:create",
+            "org:secret:update",
+            "org:secret:delete",
+            "workspace:create",
+        }
+    )
 )
 
 
