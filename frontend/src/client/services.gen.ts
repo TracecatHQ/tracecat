@@ -365,6 +365,8 @@ import type {
   OrganizationGetInvitationByTokenResponse,
   OrganizationGetInvitationTokenData,
   OrganizationGetInvitationTokenResponse,
+  OrganizationGetOrgAgentUsageData,
+  OrganizationGetOrgAgentUsageResponse,
   OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationResponse,
   OrganizationListInvitationsData,
@@ -385,6 +387,8 @@ import type {
   OrganizationSecretsListOrgSecretsResponse,
   OrganizationSecretsUpdateOrgSecretByIdData,
   OrganizationSecretsUpdateOrgSecretByIdResponse,
+  OrganizationSetOrgAgentBudgetData,
+  OrganizationSetOrgAgentBudgetResponse,
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
   ProvidersCreateCustomProviderData,
@@ -4125,6 +4129,51 @@ export const organizationGetInvitationByToken = (
     path: {
       token: data.token,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Org Agent Usage
+ * Read the caller's organization agent spend for a UTC month.
+ * @param data The data for the request.
+ * @param data.month UTC month in YYYY-MM format. Defaults to the current UTC month.
+ * @returns OrgUsageSnapshot Successful Response
+ * @throws ApiError
+ */
+export const organizationGetOrgAgentUsage = (
+  data: OrganizationGetOrgAgentUsageData = {}
+): CancelablePromise<OrganizationGetOrgAgentUsageResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/agent-usage",
+    query: {
+      month: data.month,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Set Org Agent Budget
+ * Set or clear the caller's organization monthly agent budget.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns OrgUsageSnapshot Successful Response
+ * @throws ApiError
+ */
+export const organizationSetOrgAgentBudget = (
+  data: OrganizationSetOrgAgentBudgetData
+): CancelablePromise<OrganizationSetOrgAgentBudgetResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/organization/agent-usage/limit",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

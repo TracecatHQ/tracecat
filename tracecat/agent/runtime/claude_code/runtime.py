@@ -132,6 +132,55 @@ def get_litellm_route_model(
     return model_name
 
 
+_MODEL_USAGE_KEY_MAP: dict[str, str] = {
+    "inputTokens": "input_tokens",
+    "outputTokens": "output_tokens",
+    "cacheCreationInputTokens": "cache_creation_input_tokens",
+    "cacheReadInputTokens": "cache_read_input_tokens",
+}
+
+
+def _merge_usage(
+    usage: dict[str, Any] | None,
+    model_usage: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Merge the SDK ResultMessage's two usage projections into one dict.
+
+    Some LiteLLM-routed providers zero out ``usage`` and only populate
+    ``model_usage``; Anthropic-native populates both. This helper folds
+    ``model_usage`` (camelCase, per-model) into a single ``usage`` dict
+    (snake_case, summed across models) so downstream consumers always read
+    one shape. Adds a ``total_cost_usd`` field summed from ``costUSD``,
+    matching the SDK ResultMessage's outer attribute name.
+    """
+    merged: dict[str, Any] = dict(usage) if isinstance(usage, dict) else {}
+    if not isinstance(model_usage, dict) or not model_usage:
+        return merged or None
+
+    sums: dict[str, int] = dict.fromkeys(_MODEL_USAGE_KEY_MAP.values(), 0)
+    total_cost_usd_sum = 0.0
+    for entry in model_usage.values():
+        if not isinstance(entry, dict):
+            continue
+        for camel, snake in _MODEL_USAGE_KEY_MAP.items():
+            value = entry.get(camel)
+            if isinstance(value, int):
+                sums[snake] += value
+        cost = entry.get("costUSD")
+        if isinstance(cost, (int, float)):
+            total_cost_usd_sum += float(cost)
+
+    for snake, summed in sums.items():
+        # Only fill in zero/missing fields — preserve native values when set.
+        if not merged.get(snake):
+            merged[snake] = summed
+
+    if total_cost_usd_sum > 0:
+        merged["total_cost_usd"] = total_cost_usd_sum
+
+    return merged or None
+
+
 def _configure_claude_sdk_process_env() -> None:
     """Prime process-level SDK env before ClaudeSDKClient.connect().
 
@@ -952,12 +1001,15 @@ class ClaudeAgentRuntime:
                         elif isinstance(message, ResultMessage):
                             # Final result - emit any remaining lines
                             await self._emit_new_session_lines()
+                            merged_usage = _merge_usage(
+                                message.usage, message.model_usage
+                            )
                             await self._event_writer.send_log(
                                 "info",
                                 "Agent turn completed",
                                 num_turns=message.num_turns,
                                 duration_ms=message.duration_ms,
-                                usage=message.usage,
+                                usage=merged_usage,
                             )
                             log_benchmark_phase(
                                 "runtime_result_received",
@@ -970,7 +1022,7 @@ class ClaudeAgentRuntime:
                                 else message.result
                             )
                             await self._event_writer.send_result(
-                                usage=message.usage,
+                                usage=merged_usage,
                                 num_turns=message.num_turns,
                                 duration_ms=message.duration_ms,
                                 output=result_output,

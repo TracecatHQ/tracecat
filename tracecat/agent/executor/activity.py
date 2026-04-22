@@ -38,6 +38,12 @@ from tracecat.agent.runtime_services import get_claude_runtime_broker
 from tracecat.agent.sandbox.llm_proxy import LLM_SOCKET_NAME, LLMSocketProxy
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.types import AgentConfig
+from tracecat.agent.usage import (
+    BudgetExceededError,
+    cents_from_usage,
+    check_monthly_budget,
+    record_agent_cost,
+)
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 from tracecat.logger import logger
@@ -214,6 +220,7 @@ class SandboxedAgentExecutor:
         """
         result = AgentExecutorResult(success=False)
         self._log_benchmark_phase("activity_start")
+        org_id = self.input.role.organization_id
 
         try:
             # Create job directory with sockets
@@ -232,6 +239,31 @@ class SandboxedAgentExecutor:
                 workspace_id=self.input.workspace_id,
             )
             handler = LoopbackHandler(input=loopback_input)
+
+            # Pre-run monthly budget check. Happens after the handler is
+            # constructed so we can push a terminal error through the same
+            # Redis stream the UI is listening on — otherwise the UI would
+            # hang waiting for events that never arrive.
+            if org_id is not None:
+                try:
+                    await check_monthly_budget(org_id)
+                except BudgetExceededError as exc:
+                    logger.info(
+                        "Blocked agent run: monthly budget cap reached",
+                        org_id=str(org_id),
+                        used_cents=exc.used_cents,
+                        limit_cents=exc.limit_cents,
+                        session_id=self.input.session_id,
+                    )
+                    try:
+                        await handler.emit_terminal_error(str(exc))
+                    except Exception:
+                        logger.exception(
+                            "Failed to emit budget-exceeded stream error",
+                            session_id=self.input.session_id,
+                        )
+                    result.error = str(exc)
+                    return result
 
             llm_socket_path = socket_dir / LLM_SOCKET_NAME
             self._llm_proxy = self._create_llm_socket_proxy(llm_socket_path)
@@ -252,6 +284,19 @@ class SandboxedAgentExecutor:
             result.error = f"Unexpected error: {e}"
         finally:
             await self._cleanup()
+
+        # Record actual cost for this run (best-effort). The runtime folds
+        # the SDK's per-model costUSD into the merged ``usage`` dict; we
+        # just round to integer cents.
+        if org_id is not None and result.result_usage:
+            cost_cents = cents_from_usage(result.result_usage)
+            if cost_cents > 0:
+                await record_agent_cost(
+                    org_id=org_id,
+                    workspace_id=self.input.workspace_id,
+                    cost_cents=cost_cents,
+                    session_id=str(self.input.session_id),
+                )
 
         return result
 

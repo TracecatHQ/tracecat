@@ -139,7 +139,11 @@ class RuntimeEventEnvelope:
     sdk_session_id: str | None = None  # For type="session_update" or "session_line"
     sdk_session_data: str | None = None  # For type="session_update"
     error: str | None = None  # For type="error"
-    # For type="result" - final usage data from Claude SDK ResultMessage
+    # For type="result" - final usage data from Claude SDK ResultMessage.
+    # ``result_usage`` is the runtime-merged projection: it folds the SDK's
+    # per-model ``model_usage`` (camelCase, per-route) into the native
+    # ``usage`` (snake_case) so downstream reads one shape. Carries an extra
+    # ``cost_usd`` field summed from ``costUSD`` per model.
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
     result_duration_ms: int | None = None

@@ -41,6 +41,7 @@ from tracecat.agent.mcp.proxy_server import (
 from tracecat.agent.runtime.claude_code.runtime import (
     CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES,
     ClaudeAgentRuntime,
+    _merge_usage,
     get_litellm_route_model,
 )
 from tracecat.agent.types import AgentConfig
@@ -1201,3 +1202,94 @@ class TestClaudeAgentRuntimeInternalSessionLines:
         }
 
         assert runtime._is_internal_session_line(line_data) is True
+
+
+# -----------------------------------------------------------------------------
+# _merge_usage — folds SDK model_usage camelCase into usage snake_case
+# -----------------------------------------------------------------------------
+
+
+class TestMergeUsage:
+    def test_anthropic_native_preserves_usage_and_adds_cost(self) -> None:
+        """Native Anthropic populates both; merge only adds cost_usd."""
+        usage = {
+            "input_tokens": 10,
+            "output_tokens": 125,
+            "cache_creation_input_tokens": 9321,
+            "cache_read_input_tokens": 0,
+        }
+        model_usage = {
+            "anthropic/claude-haiku-4-5-20251001": {
+                "inputTokens": 10,
+                "outputTokens": 125,
+                "cacheCreationInputTokens": 9321,
+                "cacheReadInputTokens": 0,
+                "costUSD": 0.012286249999999999,
+            }
+        }
+        merged = _merge_usage(usage, model_usage)
+        assert merged is not None
+        assert merged["input_tokens"] == 10
+        assert merged["output_tokens"] == 125
+        assert merged["cache_creation_input_tokens"] == 9321
+        assert merged["total_cost_usd"] == pytest.approx(0.012286249999999999)
+
+    def test_litellm_route_fills_zeroed_usage_from_model_usage(self) -> None:
+        """The 'ant' route zeros usage; merge must rehydrate from model_usage."""
+        usage = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        }
+        model_usage = {
+            "ant": {
+                "inputTokens": 8968,
+                "outputTokens": 24,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0,
+                "costUSD": 0.027264,
+            }
+        }
+        merged = _merge_usage(usage, model_usage)
+        assert merged is not None
+        assert merged["input_tokens"] == 8968
+        assert merged["output_tokens"] == 24
+        assert merged["total_cost_usd"] == pytest.approx(0.027264)
+
+    def test_multi_model_sums_across_entries(self) -> None:
+        usage = {}
+        model_usage = {
+            "openai/gpt-5.2": {
+                "inputTokens": 100,
+                "outputTokens": 10,
+                "costUSD": 0.02,
+            },
+            "anthropic/claude-haiku": {
+                "inputTokens": 50,
+                "outputTokens": 5,
+                "costUSD": 0.05,
+            },
+        }
+        merged = _merge_usage(usage, model_usage)
+        assert merged is not None
+        assert merged["input_tokens"] == 150
+        assert merged["output_tokens"] == 15
+        assert merged["total_cost_usd"] == pytest.approx(0.07)
+
+    def test_no_model_usage_returns_usage_as_is(self) -> None:
+        usage = {"input_tokens": 3, "output_tokens": 1}
+        assert _merge_usage(usage, None) == usage
+
+    def test_both_missing_returns_none(self) -> None:
+        assert _merge_usage(None, None) is None
+        assert _merge_usage({}, {}) is None
+
+    def test_native_nonzero_not_overwritten_by_model_usage(self) -> None:
+        """Preserve SDK-native values when they disagree with model_usage."""
+        usage = {"input_tokens": 99}
+        model_usage = {"r": {"inputTokens": 500, "costUSD": 0.01}}
+        merged = _merge_usage(usage, model_usage)
+        assert merged is not None
+        assert merged["input_tokens"] == 99  # native wins
+        assert merged["total_cost_usd"] == pytest.approx(0.01)

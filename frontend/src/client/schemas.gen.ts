@@ -1198,6 +1198,28 @@ export const $AdminUserRead = {
   description: "Admin view of a user.",
 } as const
 
+export const $AgentBudgetUpdate = {
+  properties: {
+    monthly_budget_cents: {
+      anyOf: [
+        {
+          type: "integer",
+          minimum: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Monthly Budget Cents",
+      description:
+        "Monthly agent spend cap in US cents (1000 = $10.00). Pass null to remove the cap.",
+    },
+  },
+  type: "object",
+  title: "AgentBudgetUpdate",
+  description: "Set or clear an org's monthly agent budget (cents).",
+} as const
+
 export const $AgentChannelTokenCreate = {
   properties: {
     agent_preset_id: {
@@ -14247,6 +14269,41 @@ export const $OrgUpdate = {
   type: "object",
   title: "OrgUpdate",
   description: "Update organization request.",
+} as const
+
+export const $OrgUsageSnapshot = {
+  properties: {
+    month_utc: {
+      type: "string",
+      title: "Month Utc",
+    },
+    total_cents: {
+      type: "integer",
+      title: "Total Cents",
+    },
+    limit_cents: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Limit Cents",
+    },
+    by_workspace_cents: {
+      additionalProperties: {
+        type: "integer",
+      },
+      type: "object",
+      title: "By Workspace Cents",
+    },
+  },
+  type: "object",
+  required: ["month_utc", "total_cents", "limit_cents", "by_workspace_cents"],
+  title: "OrgUsageSnapshot",
+  description: "Point-in-time read of an org's monthly agent spend.",
 } as const
 
 export const $OrganizationSecretRead = {

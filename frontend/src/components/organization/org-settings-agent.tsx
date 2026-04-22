@@ -4,15 +4,22 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   BotIcon,
   CheckCircleIcon,
+  ChevronDownIcon,
   SettingsIcon,
   Trash2Icon,
 } from "lucide-react"
 import { useState } from "react"
-import { useForm, useFormContext } from "react-hook-form"
+import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { AgentCredentialsDialog } from "@/components/organization/org-agent-credentials-dialog"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +40,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -40,12 +48,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { toast } from "@/components/ui/use-toast"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   useAgentDefaultModel,
   useAgentModels,
   useDeleteProviderCredentials,
   useModelProvidersStatus,
+  useOrgAgentUsage,
   useProviderCredentialConfigs,
+  useWorkspaceManager,
 } from "@/lib/hooks"
 
 const agentFormSchema = z.object({
@@ -55,22 +67,52 @@ const agentFormSchema = z.object({
 type AgentFormValues = z.infer<typeof agentFormSchema>
 
 /**
- * Subcomponent that handles the default model selection field
- * Uses useFormContext to access the form and depends on models and defaultModel data
+ * Default-model form. A dropdown and a Save button — mirrors the shape of
+ * every other settings form on the site.
  */
-function DefaultModelSelector({ isUpdating }: { isUpdating: boolean }) {
-  const form = useFormContext<AgentFormValues>()
+function DefaultModelForm() {
   const { models, modelsLoading, modelsError } = useAgentModels()
+  const {
+    defaultModel,
+    defaultModelLoading,
+    defaultModelError,
+    updateDefaultModel,
+    isUpdating,
+  } = useAgentDefaultModel()
 
-  if (modelsLoading) {
+  const form = useForm<AgentFormValues>({
+    resolver: zodResolver(agentFormSchema),
+    values: { default_model: defaultModel || "" },
+  })
+
+  async function onSubmit(data: AgentFormValues) {
+    if (!data.default_model || data.default_model === defaultModel) return
+    try {
+      await updateDefaultModel(data.default_model)
+      toast({
+        title: "Default model updated",
+        description: `Agent operations will now use ${data.default_model}.`,
+      })
+    } catch (err) {
+      console.error("Failed to update default model", err)
+      toast({
+        title: "Failed to update default model",
+        description: "Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  if (modelsLoading || defaultModelLoading) {
     return <CenteredSpinner />
   }
 
-  if (modelsError) {
+  if (modelsError || defaultModelError) {
+    const err = modelsError || defaultModelError
     return (
       <AlertNotification
         level="error"
-        message={`Error loading models: ${modelsError instanceof Error ? modelsError.message : "Unknown error"}`}
+        message={`Error loading agent configuration: ${err instanceof Error ? err.message : "Unknown error"}`}
       />
     )
   }
@@ -85,46 +127,49 @@ function DefaultModelSelector({ isUpdating }: { isUpdating: boolean }) {
   }
 
   return (
-    <>
-      <FormField
-        control={form.control}
-        name="default_model"
-        render={({ field }) => (
-          <FormItem className="flex flex-col">
-            <FormLabel>Default AI model</FormLabel>
-            <FormControl>
-              <Select onValueChange={field.onChange} value={field.value}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(models).map(([modelName, model]) => (
-                    <SelectItem key={modelName} value={modelName}>
-                      <div className="flex items-center space-x-2">
-                        <BotIcon className="size-4" />
-                        <span>{model.name}</span>
-                        <span className="text-xs text-muted-foreground">
-                          ({model.provider})
-                        </span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FormControl>
-            <FormDescription>
-              Select the default AI model for agent operations in your
-              organization.
-            </FormDescription>
-            <FormMessage />
-          </FormItem>
-        )}
-      />
-
-      <Button type="submit" disabled={isUpdating}>
-        {isUpdating ? "Updating..." : "Update agent settings"}
-      </Button>
-    </>
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+        <FormField
+          control={form.control}
+          name="default_model"
+          render={({ field }) => (
+            <FormItem className="flex flex-col">
+              <FormLabel>Default AI model</FormLabel>
+              <div className="flex items-center gap-2">
+                <FormControl>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(models).map(([modelName, model]) => (
+                        <SelectItem key={modelName} value={modelName}>
+                          <div className="flex items-center space-x-2">
+                            <BotIcon className="size-4" />
+                            <span>{model.name}</span>
+                            <span className="text-xs text-muted-foreground">
+                              ({model.provider})
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormControl>
+                <Button type="submit" disabled={isUpdating}>
+                  {isUpdating ? "Saving..." : "Save"}
+                </Button>
+              </div>
+              <FormDescription>
+                Select the default AI model for agent operations in your
+                organization.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </form>
+    </Form>
   )
 }
 
@@ -287,57 +332,242 @@ function ProviderCredentialsSection() {
   )
 }
 
-/**
- * Main form component that coordinates the subcomponents and handles form submission
- */
-export function OrgSettingsAgentForm() {
-  const {
-    defaultModel,
-    defaultModelLoading,
-    defaultModelError,
-    updateDefaultModel,
-    isUpdating,
-  } = useAgentDefaultModel()
+const DOLLAR_FORMATTER = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+})
 
-  const form = useForm<AgentFormValues>({
-    resolver: zodResolver(agentFormSchema),
+/**
+ * Format a cent amount as a localized USD string ("1234" → "$12.34").
+ */
+function formatCents(cents: number | null | undefined): string {
+  if (cents == null || !Number.isFinite(cents)) return "$0.00"
+  return DOLLAR_FORMATTER.format(cents / 100)
+}
+
+const budgetFormSchema = z.object({
+  // Blank string clears the cap; otherwise must be a non-negative dollar
+  // value (up to 2 decimal places). The backend stores integer cents so we
+  // reject anything finer-grained than a cent.
+  monthly_budget_dollars: z
+    .string()
+    .trim()
+    .refine(
+      (value) => {
+        if (value === "") return true
+        const parsed = Number(value)
+        return Number.isFinite(parsed) && parsed > 0
+      },
+      {
+        message: "Enter a positive dollar amount, or leave blank to remove.",
+      }
+    ),
+})
+
+type BudgetFormValues = z.infer<typeof budgetFormSchema>
+
+/**
+ * Agent spend section: shows the current UTC-month total, an optional
+ * per-workspace breakdown, and a form to set or clear the monthly dollar
+ * budget cap.
+ */
+function AgentUsageSection() {
+  const { usage, usageLoading, usageError, updateUsageLimit, isUpdatingLimit } =
+    useOrgAgentUsage()
+  const { workspaces } = useWorkspaceManager()
+  const workspaceNameById = new Map(
+    (workspaces ?? []).map((ws) => [ws.id, ws.name])
+  )
+
+  const initialBudgetDollars =
+    usage?.limit_cents != null ? (usage.limit_cents / 100).toFixed(2) : ""
+
+  const form = useForm<BudgetFormValues>({
+    resolver: zodResolver(budgetFormSchema),
     values: {
-      default_model: defaultModel || "",
+      monthly_budget_dollars: initialBudgetDollars,
     },
   })
 
-  const onSubmit = async (data: AgentFormValues) => {
-    if (!data.default_model) return
-
+  async function onSubmit(data: BudgetFormValues) {
+    const raw = data.monthly_budget_dollars.trim()
+    const nextCents =
+      raw === "" ? null : Math.round(Number.parseFloat(raw) * 100)
     try {
-      await updateDefaultModel(data.default_model)
-    } catch (err) {
-      console.error("Failed to update default model:", err)
+      await updateUsageLimit({ monthly_budget_cents: nextCents })
+      toast({
+        title: nextCents === null ? "Budget cleared" : "Budget updated",
+        description:
+          nextCents === null
+            ? "Agent runs in this organization are now uncapped."
+            : `Monthly budget set to ${formatCents(nextCents)}.`,
+      })
+    } catch (error) {
+      console.error("Failed to update budget", error)
+      toast({
+        title: "Failed to update budget",
+        description: "Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
-  // Handle loading state for the initial form data
-  if (defaultModelLoading) {
+  if (usageLoading) {
     return <CenteredSpinner />
   }
 
-  // Handle error state for the initial form data
-  if (defaultModelError) {
+  if (usageError) {
     return (
       <AlertNotification
         level="error"
-        message={`Error loading agent configuration: ${defaultModelError instanceof Error ? defaultModelError.message : "Unknown error"}`}
+        message={`Error loading agent usage: ${usageError instanceof Error ? usageError.message : "Unknown error"}`}
       />
     )
   }
 
+  if (!usage) {
+    return (
+      <AlertNotification level="error" message="Failed to load agent usage" />
+    )
+  }
+
+  const totalCents = usage.total_cents ?? 0
+  const limitCents = usage.limit_cents ?? null
+  const byWorkspaceCents = usage.by_workspace_cents ?? {}
+
+  const percentUsed =
+    limitCents == null || limitCents === 0
+      ? null
+      : Math.min(100, Math.round((totalCents / limitCents) * 100))
+
+  const workspaceRows = Object.entries(byWorkspaceCents).sort(
+    ([, a], [, b]) => b - a
+  )
+
+  const spentLine =
+    limitCents == null
+      ? `Spent ${formatCents(totalCents)} this month`
+      : `Spent ${formatCents(totalCents)} of ${formatCents(limitCents)} this month${
+          percentUsed != null ? ` (${percentUsed}%)` : ""
+        }`
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+        <FormItem>
+          <FormLabel>Spend this month (UTC)</FormLabel>
+          <FormControl>
+            <Input value={spentLine} disabled />
+          </FormControl>
+          <FormDescription>
+            Dollar cost of agent runs in this organization. Counters reset at
+            the start of each UTC month.
+          </FormDescription>
+        </FormItem>
+
+        <FormField
+          control={form.control}
+          name="monthly_budget_dollars"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Monthly budget (USD)</FormLabel>
+              <div className="flex items-center gap-2">
+                <FormControl>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    inputMode="decimal"
+                    placeholder="Leave blank for unlimited"
+                    {...field}
+                  />
+                </FormControl>
+                <Button type="submit" disabled={isUpdatingLimit}>
+                  {isUpdatingLimit ? "Saving..." : "Save"}
+                </Button>
+              </div>
+              <FormDescription>
+                New agent runs are blocked once the organization's spend for the
+                current UTC month reaches this budget.
+              </FormDescription>
+              <FormMessage />
+
+              {workspaceRows.length > 0 ? (
+                <Accordion type="single" collapsible>
+                  <AccordionItem value="by-workspace" className="border-b-0">
+                    <AccordionTrigger
+                      className={
+                        "justify-start gap-2 py-2 text-sm text-muted-foreground " +
+                        "hover:no-underline [&>svg:last-child]:hidden " +
+                        "[&[data-state=open]_[data-chevron]]:rotate-180"
+                      }
+                    >
+                      <ChevronDownIcon
+                        data-chevron
+                        className="size-4 shrink-0 transition-transform duration-200"
+                      />
+                      <span>Spend by workspace</span>
+                    </AccordionTrigger>
+                    <AccordionContent className="pb-2 pt-2">
+                      <ul className="space-y-1 text-sm">
+                        {workspaceRows.map(([workspaceId, cents]) => {
+                          const name = workspaceNameById.get(workspaceId)
+                          const label =
+                            name ??
+                            (workspaceId === "unknown"
+                              ? "Unknown workspace"
+                              : "Deleted workspace")
+                          return (
+                            <li
+                              key={workspaceId}
+                              className="flex items-center justify-between text-muted-foreground"
+                            >
+                              <span>{label}</span>
+                              <span className="tabular-nums">
+                                {formatCents(cents)}
+                              </span>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              ) : null}
+            </FormItem>
+          )}
+        />
+      </form>
+    </Form>
+  )
+}
+
+/**
+ * Conditionally mounts the agent usage section only when the organization has
+ * the agent_addons entitlement. Keeps the section's queries from firing for
+ * orgs that don't have access.
+ */
+function AgentUsageGate() {
+  const { hasEntitlement, isLoading } = useEntitlements()
+  if (isLoading) return null
+  if (!hasEntitlement("agent_addons")) return null
+  return (
+    <>
+      <AgentUsageSection />
+      <div className="h-px w-full bg-border" />
+    </>
+  )
+}
+
+/**
+ * Main form component that coordinates the subcomponents.
+ */
+export function OrgSettingsAgentForm() {
   return (
     <div className="space-y-8">
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-          <DefaultModelSelector isUpdating={isUpdating} />
-        </form>
-      </Form>
+      <AgentUsageGate />
+
+      <DefaultModelForm />
 
       <ProviderCredentialsSection />
     </div>

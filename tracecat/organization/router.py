@@ -2,10 +2,18 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
+import orjson
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
+from tracecat.agent.usage import (
+    MONTHLY_BUDGET_CENTS_KEY,
+    OrgUsageSnapshot,
+    get_usage_snapshot,
+    invalidate_cap_cache,
+)
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep
 from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
@@ -17,6 +25,7 @@ from tracecat.db.models import (
     OrganizationDomain,
     OrganizationInvitation,
     OrganizationMembership,
+    OrganizationSetting,
     User,
     UserRoleAssignment,
 )
@@ -24,6 +33,7 @@ from tracecat.db.models import (
     Role as DBRole,
 )
 from tracecat.exceptions import (
+    EntitlementRequired,
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -43,6 +53,8 @@ from tracecat.organization.schemas import (
     OrgRead,
 )
 from tracecat.organization.service import OrgService, accept_invitation_for_user
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.schemas import EffectiveEntitlements
 from tracecat.tiers.service import TierService
 
@@ -716,3 +728,96 @@ async def get_invitation_by_token(
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+# Agent token usage endpoints (org-scoped; caller's own org via role context)
+
+
+class AgentBudgetUpdate(BaseModel):
+    """Set or clear an org's monthly agent budget (cents)."""
+
+    monthly_budget_cents: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Monthly agent spend cap in US cents (1000 = $10.00). "
+            "Pass null to remove the cap."
+        ),
+    )
+
+
+def _require_org_context(role: OrgUserRole) -> UUID:
+    if role.organization_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No organization context",
+        )
+    return role.organization_id
+
+
+async def _require_agent_addons_entitlement(
+    session: AsyncDBSession, org_id: UUID
+) -> None:
+    if not await is_org_entitled(session, org_id, Entitlement.AGENT_ADDONS):
+        raise EntitlementRequired(Entitlement.AGENT_ADDONS.value)
+
+
+@router.get("/agent-usage", response_model=OrgUsageSnapshot)
+@require_scope("org:settings:read")
+async def get_org_agent_usage(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    month: str | None = Query(
+        default=None,
+        description=("UTC month in YYYY-MM format. Defaults to the current UTC month."),
+        pattern=r"^\d{4}-\d{2}$",
+    ),
+) -> OrgUsageSnapshot:
+    """Read the caller's organization agent spend for a UTC month."""
+    org_id = _require_org_context(role)
+    await _require_agent_addons_entitlement(session, org_id)
+    return await get_usage_snapshot(org_id, month=month)
+
+
+@router.put("/agent-usage/limit", response_model=OrgUsageSnapshot)
+@require_scope("org:settings:update")
+async def set_org_agent_budget(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    params: AgentBudgetUpdate,
+) -> OrgUsageSnapshot:
+    """Set or clear the caller's organization monthly agent budget."""
+    org_id = _require_org_context(role)
+    await _require_agent_addons_entitlement(session, org_id)
+
+    stmt = select(OrganizationSetting).where(
+        OrganizationSetting.organization_id == org_id,
+        OrganizationSetting.key == MONTHLY_BUDGET_CENTS_KEY,
+    )
+    result = await session.execute(stmt)
+    setting = result.scalar_one_or_none()
+
+    if params.monthly_budget_cents is None:
+        if setting is not None:
+            await session.delete(setting)
+            await session.commit()
+    else:
+        encoded = orjson.dumps(params.monthly_budget_cents)
+        if setting is None:
+            setting = OrganizationSetting(
+                organization_id=org_id,
+                key=MONTHLY_BUDGET_CENTS_KEY,
+                value_type="json",
+                value=encoded,
+                is_encrypted=False,
+            )
+            session.add(setting)
+        else:
+            setting.value = encoded
+            setting.is_encrypted = False
+        await session.commit()
+
+    invalidate_cap_cache(org_id)
+    return await get_usage_snapshot(org_id)

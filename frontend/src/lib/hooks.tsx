@@ -12,6 +12,7 @@ import {
   type ActionRead,
   type ActionsDeleteActionData,
   type ActionUpdate,
+  type AgentBudgetUpdate,
   type AgentGetProviderCredentialConfigResponse,
   type AgentGetProvidersStatusResponse,
   type AgentGetWorkspaceProvidersStatusResponse,
@@ -152,9 +153,11 @@ import {
   type OrganizationUpdateOrgMemberData,
   type OrgInvitationCreate,
   type OrgMemberRead,
+  type OrgUsageSnapshot,
   organizationCreateInvitation,
   organizationDeleteOrgMember,
   organizationDeleteSession,
+  organizationGetOrgAgentUsage,
   organizationListOrgMembers,
   organizationListSessions,
   organizationRevokeInvitation,
@@ -162,6 +165,7 @@ import {
   organizationSecretsDeleteOrgSecretById,
   organizationSecretsListOrgSecrets,
   organizationSecretsUpdateOrgSecretById,
+  organizationSetOrgAgentBudget,
   organizationUpdateOrgMember,
   type ProviderCredentialConfig,
   type ProviderRead,
@@ -5184,6 +5188,47 @@ export function useAgentDefaultModel() {
     updateDefaultModel,
     isUpdating,
     updateError,
+  }
+}
+
+/**
+ * Read the caller's organization agent spend for a UTC month (defaults to
+ * current) and expose a mutation to set or clear the monthly budget cap.
+ *
+ * Values are in integer cents on the wire; the caller is responsible for
+ * display formatting (USD).
+ */
+export function useOrgAgentUsage(month?: string) {
+  const queryClient = useQueryClient()
+
+  const {
+    data: usage,
+    isLoading: usageLoading,
+    error: usageError,
+  } = useQuery<OrgUsageSnapshot>({
+    queryKey: ["org-agent-usage", month ?? "current"],
+    queryFn: async () => await organizationGetOrgAgentUsage({ month }),
+  })
+
+  const {
+    mutateAsync: updateUsageLimit,
+    isPending: isUpdatingLimit,
+    error: updateLimitError,
+  } = useMutation({
+    mutationFn: async (params: AgentBudgetUpdate) =>
+      await organizationSetOrgAgentBudget({ requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-agent-usage"] })
+    },
+  })
+
+  return {
+    usage,
+    usageLoading,
+    usageError,
+    updateUsageLimit,
+    isUpdatingLimit,
+    updateLimitError,
   }
 }
 

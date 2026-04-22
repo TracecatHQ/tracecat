@@ -312,6 +312,16 @@ export type AdminUserRead = {
 }
 
 /**
+ * Set or clear an org's monthly agent budget (cents).
+ */
+export type AgentBudgetUpdate = {
+  /**
+   * Monthly agent spend cap in US cents (1000 = $10.00). Pass null to remove the cap.
+   */
+  monthly_budget_cents?: number | null
+}
+
+/**
  * Request schema for creating an external channel token.
  */
 export type AgentChannelTokenCreate = {
@@ -4415,6 +4425,18 @@ export type OrgUpdate = {
   name?: string | null
   slug?: string | null
   is_active?: boolean | null
+}
+
+/**
+ * Point-in-time read of an org's monthly agent spend.
+ */
+export type OrgUsageSnapshot = {
+  month_utc: string
+  total_cents: number
+  limit_cents: number | null
+  by_workspace_cents: {
+    [key: string]: number
+  }
 }
 
 /**
@@ -9165,6 +9187,21 @@ export type OrganizationGetInvitationByTokenData = {
 
 export type OrganizationGetInvitationByTokenResponse = OrgInvitationReadMinimal
 
+export type OrganizationGetOrgAgentUsageData = {
+  /**
+   * UTC month in YYYY-MM format. Defaults to the current UTC month.
+   */
+  month?: string | null
+}
+
+export type OrganizationGetOrgAgentUsageResponse = OrgUsageSnapshot
+
+export type OrganizationSetOrgAgentBudgetData = {
+  requestBody: AgentBudgetUpdate
+}
+
+export type OrganizationSetOrgAgentBudgetResponse = OrgUsageSnapshot
+
 export type ServiceAccountsListOrganizationServiceAccountsData = {
   cursor?: string | null
   limit?: number
@@ -13091,6 +13128,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: OrgInvitationReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-usage": {
+    get: {
+      req: OrganizationGetOrgAgentUsageData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgUsageSnapshot
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/agent-usage/limit": {
+    put: {
+      req: OrganizationSetOrgAgentBudgetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgUsageSnapshot
         /**
          * Validation Error
          */
