@@ -1,0 +1,75 @@
+frontend/src/client/schemas.gen.ts
+  531b2e84170000e6 855-1087
+frontend/src/app/admin/layout.tsx
+  531b2e84170000e6 15-22,25-28
+frontend/src/components/admin/admin-organizations-table.tsx
+  531b2e84170000e6 7,42,232,234,237,239,327-333
+frontend/src/components/auth/sign-up.tsx
+  531b2e84170000e6 91
+tests/unit/test_mcp_auth.py
+  531b2e84170000e6 1004,1034,1044-1066,1182-1204
+tracecat/mcp/auth.py
+  531b2e84170000e6 1147-1154,1162,1165-1166,1198-1200,1203
+tests/unit/test_organization_service.py
+  531b2e84170000e6 31,1167,1169-1175,1177-1219
+frontend/src/components/sidebar/admin-sidebar.tsx
+  531b2e84170000e6 86,88
+tests/unit/test_auth_middleware.py
+  531b2e84170000e6 15,156-270,727
+tracecat/mcp/oidc/session.py
+  531b2e84170000e6 18,80-81,92-94
+tests/unit/test_admin_org_invitations_service.py
+  531b2e84170000e6 1-285
+tracecat/auth/org_context.py
+  531b2e84170000e6 32-33
+tracecat/organization/service.py
+  531b2e84170000e6 94-96,496,614-616
+frontend/src/components/error.tsx
+  531b2e84170000e6 10,186,188-189
+frontend/src/client/types.gen.ts
+  531b2e84170000e6 229-287,9319-9349,13329-13374
+frontend/src/components/auth/auth-guard.tsx
+  531b2e84170000e6 7-8,27-29,31-33,35-36
+packages/tracecat-ee/tracecat_ee/admin/organizations/schemas.py
+  531b2e84170000e6 7,9,12-19,50-86
+packages/tracecat-ee/tracecat_ee/admin/organizations/service.py
+  531b2e84170000e6 5,8,10-11,22-23,26,28-30,39-42,53-63,144-334
+tests/unit/api/test_api_admin_organizations.py
+  531b2e84170000e6 12-14,22,56-81,224-370
+alembic/versions/b8f7a2c4d9e1_add_platform_admin_org_invitations.py
+  531b2e84170000e6 1-44
+frontend/src/components/admin/admin-org-invitations-dialog.tsx
+  531b2e84170000e6 1-112,115-117,120-378
+frontend/src/hooks/use-admin.ts
+  531b2e84170000e6 7,12,16,23,31,36,50,231-285
+tracecat/db/models.py
+  531b2e84170000e6 3843-3849
+frontend/src/lib/auth.ts
+  531b2e84170000e6 30-31,34,94-95
+frontend/src/client/services.gen.ts
+  531b2e84170000e6 22-23,38-39,50-51,78-79,5081-5176
+packages/tracecat-ee/tracecat_ee/admin/organizations/router.py
+  531b2e84170000e6 8,14,16-19,127-221
+tracecat/auth/credentials.py
+  531b2e84170000e6 425,427-429,432,443-444,511-513,544
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "457d1402d15d098ed5614148b0e7ba9cc2f1cad4",
+  "prompts": {
+    "531b2e84170000e6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db077-4d20-7b63-afa1-c972142ca06d",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 2393,
+      "total_deletions": 333,
+      "accepted_lines": 2091,
+      "overriden_lines": 0
+    }
+  }
+}

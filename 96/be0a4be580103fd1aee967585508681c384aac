@@ -1,0 +1,29 @@
+frontend/src/app/sign-in/[[...sign-in]]/page.tsx
+  bda8442756a6389e 8,10,14,21-22,24-34
+frontend/src/app/page.tsx
+  bda8442756a6389e 14-15,20,24-25,27-36
+frontend/src/lib/auth-redirect.test.ts
+  bda8442756a6389e 1-32
+frontend/src/lib/auth-redirect.ts
+  bda8442756a6389e 1-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "96be0a4be580103fd1aee967585508681c384aac",
+  "prompts": {
+    "bda8442756a6389e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db133-d236-7602-a3fb-b00f0c2eccc4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 93,
+      "total_deletions": 18,
+      "accepted_lines": 82,
+      "overriden_lines": 0
+    }
+  }
+}
