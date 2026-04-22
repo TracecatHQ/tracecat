@@ -599,6 +599,24 @@ import type {
   SettingsUpdateGitSettingsResponse,
   SettingsUpdateSamlSettingsData,
   SettingsUpdateSamlSettingsResponse,
+  SpmCreateSpmEndpointData,
+  SpmCreateSpmEndpointResponse,
+  SpmCreateSpmFindingDecisionData,
+  SpmCreateSpmFindingDecisionResponse,
+  SpmGetSpmAssetData,
+  SpmGetSpmAssetResponse,
+  SpmGetSpmEndpointData,
+  SpmGetSpmEndpointResponse,
+  SpmGetSpmFindingData,
+  SpmGetSpmFindingResponse,
+  SpmListSpmAssetsData,
+  SpmListSpmAssetsResponse,
+  SpmListSpmEndpointsData,
+  SpmListSpmEndpointsResponse,
+  SpmListSpmFindingsData,
+  SpmListSpmFindingsResponse,
+  SpmSyncSpmEndpointData,
+  SpmSyncSpmEndpointResponse,
   TablesBatchDeleteRowsData,
   TablesBatchDeleteRowsResponse,
   TablesBatchInsertRowsData,
@@ -5793,6 +5811,219 @@ export const approvalsSubmitApprovals = (
     },
     query: {
       workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Spm Endpoints
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_SpmEndpointRead_ Successful Response
+ * @throws ApiError
+ */
+export const spmListSpmEndpoints = (
+  data: SpmListSpmEndpointsData = {}
+): CancelablePromise<SpmListSpmEndpointsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/spm/endpoints",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Spm Endpoint
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns SpmEndpointCreateResponse Successful Response
+ * @throws ApiError
+ */
+export const spmCreateSpmEndpoint = (
+  data: SpmCreateSpmEndpointData
+): CancelablePromise<SpmCreateSpmEndpointResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/spm/endpoints",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Spm Endpoint
+ * @param data The data for the request.
+ * @param data.endpointId
+ * @returns SpmEndpointRead Successful Response
+ * @throws ApiError
+ */
+export const spmGetSpmEndpoint = (
+  data: SpmGetSpmEndpointData
+): CancelablePromise<SpmGetSpmEndpointResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/spm/endpoints/{endpoint_id}",
+    path: {
+      endpoint_id: data.endpointId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Spm Assets
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_SpmAssetRead_ Successful Response
+ * @throws ApiError
+ */
+export const spmListSpmAssets = (
+  data: SpmListSpmAssetsData = {}
+): CancelablePromise<SpmListSpmAssetsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/spm/assets",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Spm Asset
+ * @param data The data for the request.
+ * @param data.assetId
+ * @returns SpmAssetRead Successful Response
+ * @throws ApiError
+ */
+export const spmGetSpmAsset = (
+  data: SpmGetSpmAssetData
+): CancelablePromise<SpmGetSpmAssetResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/spm/assets/{asset_id}",
+    path: {
+      asset_id: data.assetId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Spm Findings
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_SpmFindingRead_ Successful Response
+ * @throws ApiError
+ */
+export const spmListSpmFindings = (
+  data: SpmListSpmFindingsData = {}
+): CancelablePromise<SpmListSpmFindingsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/spm/findings",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Spm Finding
+ * @param data The data for the request.
+ * @param data.findingId
+ * @returns SpmFindingRead Successful Response
+ * @throws ApiError
+ */
+export const spmGetSpmFinding = (
+  data: SpmGetSpmFindingData
+): CancelablePromise<SpmGetSpmFindingResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/spm/findings/{finding_id}",
+    path: {
+      finding_id: data.findingId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Spm Finding Decision
+ * @param data The data for the request.
+ * @param data.findingId
+ * @param data.requestBody
+ * @returns SpmFindingDecisionRead Successful Response
+ * @throws ApiError
+ */
+export const spmCreateSpmFindingDecision = (
+  data: SpmCreateSpmFindingDecisionData
+): CancelablePromise<SpmCreateSpmFindingDecisionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/spm/findings/{finding_id}/decisions",
+    path: {
+      finding_id: data.findingId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Sync Spm Endpoint
+ * @param data The data for the request.
+ * @param data.endpointId
+ * @param data.requestBody
+ * @param data.authorization
+ * @returns SpmEndpointSyncResponse Successful Response
+ * @throws ApiError
+ */
+export const spmSyncSpmEndpoint = (
+  data: SpmSyncSpmEndpointData
+): CancelablePromise<SpmSyncSpmEndpointResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/spm/endpoints/{endpoint_id}/sync",
+    path: {
+      endpoint_id: data.endpointId,
+    },
+    headers: {
+      authorization: data.authorization,
     },
     body: data.requestBody,
     mediaType: "application/json",

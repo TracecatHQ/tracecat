@@ -3201,6 +3201,534 @@ class WatchtowerAgentToolCall(OrganizationModel):
     session: Mapped[WatchtowerAgentSession] = relationship("WatchtowerAgentSession")
 
 
+class SpmEndpoint(OrganizationModel):
+    """Organization-scoped AI SPM endpoint enrollment and sync state."""
+
+    __tablename__ = "spm_endpoint"
+    __table_args__ = (
+        Index("ix_spm_endpoint_org_updated", "organization_id", "updated_at"),
+        Index("ix_spm_endpoint_org_last_seen", "organization_id", "last_seen_at"),
+        Index("ix_spm_endpoint_org_status", "organization_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique SPM endpoint identifier",
+    )
+    name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Operator-visible endpoint name",
+    )
+    harness: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="claude_code",
+        doc="Normalized harness identifier",
+    )
+    platform: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="macos",
+        doc="Endpoint platform identifier",
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="pending",
+        doc="Endpoint lifecycle status",
+    )
+    hostname: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Hostname observed from the endpoint",
+    )
+    os_user: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Local OS user reported by the endpoint",
+    )
+    home_path: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        doc="Home directory used by the endpoint",
+    )
+    endpoint_version: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="Tracecat Endpoint version",
+    )
+    client_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Latest opaque client metadata payload from the endpoint",
+    )
+    enrollment_token_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="SHA-256 hash of the one-time enrollment token",
+    )
+    endpoint_secret_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="SHA-256 hash of the long-lived endpoint sync secret",
+    )
+    enrolled_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When the endpoint redeemed its enrollment token",
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="Last successful endpoint sync timestamp",
+    )
+    last_sync_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="Last attempted endpoint sync timestamp",
+    )
+    last_sync_error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Most recent sync error text if the endpoint reported a failure",
+    )
+
+
+class SpmAsset(OrganizationModel):
+    """Deduplicated AI SPM asset catalog row."""
+
+    __tablename__ = "spm_asset"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "harness",
+            "asset_class",
+            "asset_type",
+            "identity_key",
+            name="uq_spm_asset_org_identity",
+        ),
+        Index("ix_spm_asset_org_updated", "organization_id", "updated_at"),
+        Index("ix_spm_asset_org_last_seen", "organization_id", "last_seen_at"),
+        Index(
+            "ix_spm_asset_org_harness_class_type",
+            "organization_id",
+            "harness",
+            "asset_class",
+            "asset_type",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique SPM asset identifier",
+    )
+    harness: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        doc="Normalized harness identifier",
+    )
+    asset_class: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Harness-agnostic SPM asset class",
+    )
+    asset_type: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Harness-native asset type",
+    )
+    identity_key: Mapped[str] = mapped_column(
+        String(500),
+        nullable=False,
+        doc="Stable deduplication key for the asset within an organization",
+    )
+    display_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Operator-visible asset name",
+    )
+    content_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="Optional content hash of the current asset materialization",
+    )
+    asset_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        name="metadata",
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Latest normalized metadata for the asset",
+    )
+    first_seen_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        doc="When the asset was first seen in this organization",
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        doc="When the asset was most recently observed",
+    )
+
+
+class SpmAssetSighting(OrganizationModel):
+    """Endpoint-scoped asset observation row."""
+
+    __tablename__ = "spm_asset_sighting"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "endpoint_id",
+            "asset_id",
+            name="uq_spm_asset_sighting_endpoint_asset",
+        ),
+        Index("ix_spm_asset_sighting_org_seen", "organization_id", "last_seen_at"),
+        Index(
+            "ix_spm_asset_sighting_org_workspace_seen",
+            "organization_id",
+            "workspace_id",
+            "last_seen_at",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique SPM asset sighting identifier",
+    )
+    endpoint_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("spm_endpoint.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Endpoint that reported this asset observation",
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("spm_asset.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Deduplicated asset referenced by this observation",
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Optional workspace associated with the observation",
+    )
+    evidence: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Observation evidence for analyzers and operator views",
+    )
+    observed_state: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Endpoint-reported effective state for this asset",
+    )
+    content_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="Optional content hash observed at this endpoint",
+    )
+    first_seen_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        doc="When this endpoint first reported the asset",
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        doc="Most recent time this endpoint reported the asset",
+    )
+
+
+class SpmFinding(OrganizationModel):
+    """Current-state SPM finding tied to an endpoint asset."""
+
+    __tablename__ = "spm_finding"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "endpoint_id",
+            "asset_id",
+            "control_id",
+            name="uq_spm_finding_endpoint_asset_control",
+        ),
+        Index("ix_spm_finding_org_updated", "organization_id", "updated_at"),
+        Index("ix_spm_finding_org_status", "organization_id", "status"),
+        Index("ix_spm_finding_org_endpoint", "organization_id", "endpoint_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique SPM finding identifier",
+    )
+    endpoint_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("spm_endpoint.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Endpoint where the finding is currently open",
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("spm_asset.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Asset referenced by the finding",
+    )
+    asset_sighting_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("spm_asset_sighting.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Specific endpoint observation that triggered the finding",
+    )
+    control_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        doc="Control identifier that generated the finding",
+    )
+    control_revision: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="Control revision snapshot used during evaluation",
+    )
+    harness: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        doc="Harness snapshot for the finding",
+    )
+    asset_class: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Asset class snapshot for the finding",
+    )
+    asset_type: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Asset type snapshot for the finding",
+    )
+    severity: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        doc="Severity snapshot for the finding",
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="open",
+        doc="Current finding lifecycle status",
+    )
+    summary: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        doc="Human-readable summary of the finding",
+    )
+    evidence: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Evidence snapshot that supports the finding",
+    )
+    enrichment: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Analyzer enrichment attached to the finding",
+    )
+    recommended_action: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="Recommended enforcement action if the operator chooses enforce",
+    )
+    recommended_payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Recommended enforcement payload snapshot",
+    )
+    opened_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        doc="When the finding first opened",
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When the finding was resolved or dismissed",
+    )
+    last_decision_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="Most recent operator decision timestamp",
+    )
+
+
+class SpmFindingDecision(OrganizationModel):
+    """Recorded operator decision for an SPM finding."""
+
+    __tablename__ = "spm_finding_decision"
+    __table_args__ = (
+        Index("ix_spm_finding_decision_org_created", "organization_id", "created_at"),
+        Index("ix_spm_finding_decision_org_finding", "organization_id", "finding_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique SPM finding decision identifier",
+    )
+    finding_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("spm_finding.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Finding targeted by the decision",
+    )
+    endpoint_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("spm_endpoint.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Endpoint snapshot associated with the decision",
+    )
+    decision: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        doc="Operator decision type",
+    )
+    reason: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Optional operator-provided reason",
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Optional decision payload for auditability",
+    )
+    decided_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="User who recorded the decision",
+    )
+
+
+class SpmEnforcementTask(OrganizationModel):
+    """Queued endpoint enforcement task derived from a finding decision."""
+
+    __tablename__ = "spm_enforcement_task"
+    __table_args__ = (
+        Index("ix_spm_task_org_created", "organization_id", "created_at"),
+        Index("ix_spm_task_org_status", "organization_id", "status"),
+        Index("ix_spm_task_org_endpoint", "organization_id", "endpoint_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+        doc="Unique SPM enforcement task identifier",
+    )
+    endpoint_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("spm_endpoint.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Endpoint expected to reconcile this task",
+    )
+    finding_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("spm_finding.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Finding that created this task",
+    )
+    action: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Reconciliation action to perform locally",
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Action payload consumed by the endpoint reconciler",
+    )
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="pending",
+        doc="Task execution status",
+    )
+    requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="User who requested the task",
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+        doc="When the endpoint finished attempting the task",
+    )
+    result: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+        doc="Endpoint-reported reconciliation result",
+    )
+    error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Last task error reported by the endpoint",
+    )
+
+
 class AgentChannelToken(WorkspaceModel):
     """Token-backed external channel configuration for an agent preset."""
 

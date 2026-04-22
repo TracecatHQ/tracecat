@@ -46,3 +46,10 @@ class EntitlementsDict(TypedDict, total=False):
             " (agent sessions, tool-call telemetry, and controls)"
         ),
     ]
+    spm: Annotated[
+        bool,
+        Field(
+            description="Whether AI security posture management is enabled"
+            " (endpoint inventory, findings, and local enforcement tasks)"
+        ),
+    ]

@@ -2587,6 +2587,30 @@ export type CursorPaginatedResponse_InboxItemRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_SpmAssetRead_ = {
+  items: Array<SpmAssetRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
   items: Array<ServiceAccountApiKeyRead>
   /**
@@ -2613,6 +2637,32 @@ export type CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
 
 export type CursorPaginatedResponse_ServiceAccountRead_ = {
   items: Array<ServiceAccountRead>
+export type CursorPaginatedResponse_SpmEndpointRead_ = {
+  items: Array<SpmEndpointRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_SpmFindingRead_ = {
+  items: Array<SpmFindingRead>
   /**
    * Cursor for next page
    */
@@ -3127,6 +3177,10 @@ export type EffectiveEntitlements = {
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
+  /**
+   * Whether AI security posture management is enabled (endpoint inventory, findings, and local enforcement tasks)
+   */
+  spm?: boolean
 }
 
 /**
@@ -3159,6 +3213,10 @@ export type EntitlementsDict = {
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
+  /**
+   * Whether AI security posture management is enabled (endpoint inventory, findings, and local enforcement tasks)
+   */
+  spm?: boolean
 }
 
 export type ErrorDetails = {
@@ -6113,6 +6171,313 @@ export type SourceUrlUIPart = {
  * A sentinel user ID that represents the current user.
  */
 export type SpecialUserID = "current"
+
+/**
+ * Harness-agnostic asset taxonomy.
+ */
+export type SpmAssetClass =
+  | "workspace_access"
+  | "permissions"
+  | "sandbox"
+  | "mcp_server"
+  | "skill"
+  | "extension"
+  | "instruction_file"
+  | "agent"
+
+/**
+ * Deduplicated SPM asset row.
+ */
+export type SpmAssetRead = {
+  id: string
+  organization_id: string
+  harness: SpmHarness
+  asset_class: SpmAssetClass
+  asset_type: SpmAssetType
+  identity_key: string
+  display_name: string
+  content_hash?: string | null
+  metadata?: {
+    [key: string]: unknown
+  }
+  first_seen_at: string
+  last_seen_at: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Harness-native governed surfaces.
+ */
+export type SpmAssetType =
+  | "trusted_directory"
+  | "additional_directory"
+  | "permission_config"
+  | "sandbox_config"
+  | "mcp_server"
+  | "skill"
+  | "hook"
+  | "claude_md"
+  | "agents_md"
+  | "subagent"
+
+/**
+ * Operator request to create an endpoint enrollment.
+ */
+export type SpmEndpointCreate = {
+  name: string
+  harness?: SpmHarness
+  platform?: SpmEndpointPlatform
+  hostname?: string | null
+  os_user?: string | null
+  home_path?: string | null
+  endpoint_version?: string | null
+  client_metadata?: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Endpoint create response with one-time enrollment token.
+ */
+export type SpmEndpointCreateResponse = {
+  endpoint: SpmEndpointRead
+  enrollment_token: string
+}
+
+/**
+ * Supported endpoint platforms.
+ */
+export type SpmEndpointPlatform = "macos"
+
+/**
+ * SPM endpoint row.
+ */
+export type SpmEndpointRead = {
+  id: string
+  organization_id: string
+  name: string
+  harness: SpmHarness
+  platform: SpmEndpointPlatform
+  status: SpmEndpointStatus
+  hostname?: string | null
+  os_user?: string | null
+  home_path?: string | null
+  endpoint_version?: string | null
+  client_metadata?: {
+    [key: string]: unknown
+  }
+  enrolled_at?: string | null
+  last_seen_at?: string | null
+  last_sync_at?: string | null
+  last_sync_error?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Endpoint lifecycle status.
+ */
+export type SpmEndpointStatus = "pending" | "active" | "error" | "disabled"
+
+/**
+ * Private endpoint sync payload.
+ */
+export type SpmEndpointSyncRequest = {
+  name?: string | null
+  endpoint_version?: string | null
+  hostname?: string | null
+  os_user?: string | null
+  home_path?: string | null
+  status?: SpmEndpointStatus
+  client_metadata?: {
+    [key: string]: unknown
+  }
+  assets?: Array<SpmSyncAssetUpsert>
+  task_results?: Array<SpmSyncTaskResult>
+}
+
+/**
+ * Private endpoint sync response.
+ */
+export type SpmEndpointSyncResponse = {
+  endpoint: SpmEndpointRead
+  endpoint_secret?: string | null
+  tasks?: Array<SpmEnforcementTaskRead>
+}
+
+/**
+ * Supported enforcement actions.
+ */
+export type SpmEnforcementAction =
+  | "disable_mcp_server"
+  | "exclude_instruction_file"
+  | "revoke_trusted_directory"
+  | "revoke_additional_directory"
+  | "reconcile_permission_config"
+  | "reconcile_sandbox_config"
+  | "disable_hook"
+  | "disable_skill"
+
+/**
+ * Task queued for local endpoint reconciliation.
+ */
+export type SpmEnforcementTaskRead = {
+  id: string
+  organization_id: string
+  endpoint_id: string
+  finding_id?: string | null
+  action: SpmEnforcementAction
+  payload?: {
+    [key: string]: unknown
+  }
+  status: SpmEnforcementTaskStatus
+  requested_by_user_id?: string | null
+  completed_at?: string | null
+  result?: {
+    [key: string]: unknown
+  }
+  error?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Execution state for endpoint enforcement tasks.
+ */
+export type SpmEnforcementTaskStatus =
+  | "pending"
+  | "applied"
+  | "failed"
+  | "skipped"
+
+/**
+ * Operator decision request.
+ */
+export type SpmFindingDecisionCreate = {
+  decision: SpmFindingDecisionType
+  reason?: string | null
+  payload?: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Recorded decision row.
+ */
+export type SpmFindingDecisionRead = {
+  id: string
+  organization_id: string
+  finding_id: string
+  endpoint_id?: string | null
+  decision: SpmFindingDecisionType
+  reason?: string | null
+  payload?: {
+    [key: string]: unknown
+  }
+  decided_by_user_id?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Operator decisions recorded against findings.
+ */
+export type SpmFindingDecisionType = "dismiss" | "enforce" | "reopen"
+
+/**
+ * Current-state finding row.
+ */
+export type SpmFindingRead = {
+  id: string
+  organization_id: string
+  endpoint_id: string
+  asset_id: string
+  asset_sighting_id?: string | null
+  control_id: string
+  control_revision?: string | null
+  harness: SpmHarness
+  asset_class: SpmAssetClass
+  asset_type: SpmAssetType
+  severity: SpmSeverity
+  status: SpmFindingStatus
+  summary: string
+  evidence?: {
+    [key: string]: unknown
+  }
+  enrichment?: {
+    [key: string]: unknown
+  }
+  recommended_action?: SpmEnforcementAction | null
+  recommended_payload?: {
+    [key: string]: unknown
+  }
+  opened_at: string
+  closed_at?: string | null
+  last_decision_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Current lifecycle state of a finding.
+ */
+export type SpmFindingStatus =
+  | "open"
+  | "dismissed"
+  | "enforcement_pending"
+  | "enforced"
+  | "resolved"
+
+/**
+ * Normalized harness IDs supported by the SPM model.
+ */
+export type SpmHarness = "claude_code"
+
+/**
+ * Normalized SPM severity levels.
+ */
+export type SpmSeverity = "low" | "medium" | "high" | "critical"
+
+/**
+ * Asset observation submitted by an endpoint.
+ */
+export type SpmSyncAssetUpsert = {
+  harness: SpmHarness
+  asset_class: SpmAssetClass
+  asset_type: SpmAssetType
+  identity_key: string
+  display_name: string
+  content_hash?: string | null
+  workspace_id?: string | null
+  metadata?: {
+    [key: string]: unknown
+  }
+  evidence?: {
+    [key: string]: unknown
+  }
+  observed_state?: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Task execution result reported during sync.
+ */
+export type SpmSyncTaskResult = {
+  task_id: string
+  status: SpmSyncTaskResultStatus
+  result?: {
+    [key: string]: unknown
+  }
+  error?: string | null
+  completed_at?: string
+}
+
+/**
+ * Status reported by an endpoint during sync.
+ */
+export type SpmSyncTaskResultStatus = "applied" | "failed" | "skipped"
 
 /**
  * Supported SQL types.
@@ -9965,6 +10330,67 @@ export type ApprovalsSubmitApprovalsData = {
 }
 
 export type ApprovalsSubmitApprovalsResponse = void
+
+export type SpmListSpmEndpointsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type SpmListSpmEndpointsResponse =
+  CursorPaginatedResponse_SpmEndpointRead_
+
+export type SpmCreateSpmEndpointData = {
+  requestBody: SpmEndpointCreate
+}
+
+export type SpmCreateSpmEndpointResponse = SpmEndpointCreateResponse
+
+export type SpmGetSpmEndpointData = {
+  endpointId: string
+}
+
+export type SpmGetSpmEndpointResponse = SpmEndpointRead
+
+export type SpmListSpmAssetsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type SpmListSpmAssetsResponse = CursorPaginatedResponse_SpmAssetRead_
+
+export type SpmGetSpmAssetData = {
+  assetId: string
+}
+
+export type SpmGetSpmAssetResponse = SpmAssetRead
+
+export type SpmListSpmFindingsData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type SpmListSpmFindingsResponse = CursorPaginatedResponse_SpmFindingRead_
+
+export type SpmGetSpmFindingData = {
+  findingId: string
+}
+
+export type SpmGetSpmFindingResponse = SpmFindingRead
+
+export type SpmCreateSpmFindingDecisionData = {
+  findingId: string
+  requestBody: SpmFindingDecisionCreate
+}
+
+export type SpmCreateSpmFindingDecisionResponse = SpmFindingDecisionRead
+
+export type SpmSyncSpmEndpointData = {
+  authorization?: string | null
+  endpointId: string
+  requestBody: SpmEndpointSyncRequest
+}
+
+export type SpmSyncSpmEndpointResponse = SpmEndpointSyncResponse
 
 export type WatchtowerListWatchtowerAgentsData = {
   agentType?: WatchtowerAgentType | null
@@ -14413,6 +14839,139 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/spm/endpoints": {
+    get: {
+      req: SpmListSpmEndpointsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SpmEndpointRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: SpmCreateSpmEndpointData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SpmEndpointCreateResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/spm/endpoints/{endpoint_id}": {
+    get: {
+      req: SpmGetSpmEndpointData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SpmEndpointRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/spm/assets": {
+    get: {
+      req: SpmListSpmAssetsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SpmAssetRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/spm/assets/{asset_id}": {
+    get: {
+      req: SpmGetSpmAssetData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SpmAssetRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/spm/findings": {
+    get: {
+      req: SpmListSpmFindingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SpmFindingRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/spm/findings/{finding_id}": {
+    get: {
+      req: SpmGetSpmFindingData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SpmFindingRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/spm/findings/{finding_id}/decisions": {
+    post: {
+      req: SpmCreateSpmFindingDecisionData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SpmFindingDecisionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/spm/endpoints/{endpoint_id}/sync": {
+    post: {
+      req: SpmSyncSpmEndpointData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SpmEndpointSyncResponse
         /**
          * Validation Error
          */

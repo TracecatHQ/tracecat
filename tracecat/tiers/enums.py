@@ -12,3 +12,4 @@ class Entitlement(StrEnum):
     CASE_ADDONS = "case_addons"
     RBAC_ADDONS = "rbac_addons"
     WATCHTOWER = "watchtower"
+    SPM = "spm"

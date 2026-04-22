@@ -8888,6 +8888,195 @@ export const $CursorPaginatedResponse_InboxItemRead_ = {
   title: "CursorPaginatedResponse[InboxItemRead]",
 } as const
 
+export const $CursorPaginatedResponse_SpmAssetRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SpmAssetRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SpmAssetRead]",
+} as const
+
+export const $CursorPaginatedResponse_SpmEndpointRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SpmEndpointRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SpmEndpointRead]",
+} as const
+
+export const $CursorPaginatedResponse_SpmFindingRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SpmFindingRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SpmFindingRead]",
+} as const
+
 export const $CursorPaginatedResponse_ServiceAccountApiKeyRead_ = {
   properties: {
     items: {
@@ -10376,6 +10565,13 @@ export const $EffectiveEntitlements = {
         "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
       default: false,
     },
+    spm: {
+      type: "boolean",
+      title: "Spm",
+      description:
+        "Whether AI security posture management is enabled (endpoint inventory, findings, and local enforcement tasks)",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -10419,6 +10615,12 @@ export const $EntitlementsDict = {
       title: "Watchtower",
       description:
         "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
+    },
+    spm: {
+      type: "boolean",
+      title: "Spm",
+      description:
+        "Whether AI security posture management is enabled (endpoint inventory, findings, and local enforcement tasks)",
     },
   },
   type: "object",
@@ -19964,6 +20166,1043 @@ export const $SpecialUserID = {
   enum: ["current"],
   title: "SpecialUserID",
   description: "A sentinel user ID that represents the current user.",
+} as const
+
+export const $SpmAssetClass = {
+  type: "string",
+  enum: [
+    "workspace_access",
+    "permissions",
+    "sandbox",
+    "mcp_server",
+    "skill",
+    "extension",
+    "instruction_file",
+    "agent",
+  ],
+  title: "SpmAssetClass",
+  description: "Harness-agnostic asset taxonomy.",
+} as const
+
+export const $SpmAssetRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    harness: {
+      $ref: "#/components/schemas/SpmHarness",
+    },
+    asset_class: {
+      $ref: "#/components/schemas/SpmAssetClass",
+    },
+    asset_type: {
+      $ref: "#/components/schemas/SpmAssetType",
+    },
+    identity_key: {
+      type: "string",
+      title: "Identity Key",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    content_hash: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content Hash",
+    },
+    metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Metadata",
+    },
+    first_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "First Seen At",
+    },
+    last_seen_at: {
+      type: "string",
+      format: "date-time",
+      title: "Last Seen At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "harness",
+    "asset_class",
+    "asset_type",
+    "identity_key",
+    "display_name",
+    "first_seen_at",
+    "last_seen_at",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SpmAssetRead",
+  description: "Deduplicated SPM asset row.",
+} as const
+
+export const $SpmAssetType = {
+  type: "string",
+  enum: [
+    "trusted_directory",
+    "additional_directory",
+    "permission_config",
+    "sandbox_config",
+    "mcp_server",
+    "skill",
+    "hook",
+    "claude_md",
+    "agents_md",
+    "subagent",
+  ],
+  title: "SpmAssetType",
+  description: "Harness-native governed surfaces.",
+} as const
+
+export const $SpmEndpointCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Name",
+    },
+    harness: {
+      $ref: "#/components/schemas/SpmHarness",
+      default: "claude_code",
+    },
+    platform: {
+      $ref: "#/components/schemas/SpmEndpointPlatform",
+      default: "macos",
+    },
+    hostname: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Hostname",
+    },
+    os_user: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Os User",
+    },
+    home_path: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Home Path",
+    },
+    endpoint_version: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 64,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint Version",
+    },
+    client_metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Client Metadata",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "SpmEndpointCreate",
+  description: "Operator request to create an endpoint enrollment.",
+} as const
+
+export const $SpmEndpointCreateResponse = {
+  properties: {
+    endpoint: {
+      $ref: "#/components/schemas/SpmEndpointRead",
+    },
+    enrollment_token: {
+      type: "string",
+      title: "Enrollment Token",
+    },
+  },
+  type: "object",
+  required: ["endpoint", "enrollment_token"],
+  title: "SpmEndpointCreateResponse",
+  description: "Endpoint create response with one-time enrollment token.",
+} as const
+
+export const $SpmEndpointPlatform = {
+  type: "string",
+  enum: ["macos"],
+  title: "SpmEndpointPlatform",
+  description: "Supported endpoint platforms.",
+} as const
+
+export const $SpmEndpointRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    harness: {
+      $ref: "#/components/schemas/SpmHarness",
+    },
+    platform: {
+      $ref: "#/components/schemas/SpmEndpointPlatform",
+    },
+    status: {
+      $ref: "#/components/schemas/SpmEndpointStatus",
+    },
+    hostname: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Hostname",
+    },
+    os_user: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Os User",
+    },
+    home_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Home Path",
+    },
+    endpoint_version: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint Version",
+    },
+    client_metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Client Metadata",
+    },
+    enrolled_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enrolled At",
+    },
+    last_seen_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Seen At",
+    },
+    last_sync_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Sync At",
+    },
+    last_sync_error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Sync Error",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "name",
+    "harness",
+    "platform",
+    "status",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SpmEndpointRead",
+  description: "SPM endpoint row.",
+} as const
+
+export const $SpmEndpointStatus = {
+  type: "string",
+  enum: ["pending", "active", "error", "disabled"],
+  title: "SpmEndpointStatus",
+  description: "Endpoint lifecycle status.",
+} as const
+
+export const $SpmEndpointSyncRequest = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    endpoint_version: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 64,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint Version",
+    },
+    hostname: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Hostname",
+    },
+    os_user: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Os User",
+    },
+    home_path: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Home Path",
+    },
+    status: {
+      $ref: "#/components/schemas/SpmEndpointStatus",
+      default: "active",
+    },
+    client_metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Client Metadata",
+    },
+    assets: {
+      items: {
+        $ref: "#/components/schemas/SpmSyncAssetUpsert",
+      },
+      type: "array",
+      title: "Assets",
+    },
+    task_results: {
+      items: {
+        $ref: "#/components/schemas/SpmSyncTaskResult",
+      },
+      type: "array",
+      title: "Task Results",
+    },
+  },
+  type: "object",
+  title: "SpmEndpointSyncRequest",
+  description: "Private endpoint sync payload.",
+} as const
+
+export const $SpmEndpointSyncResponse = {
+  properties: {
+    endpoint: {
+      $ref: "#/components/schemas/SpmEndpointRead",
+    },
+    endpoint_secret: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint Secret",
+    },
+    tasks: {
+      items: {
+        $ref: "#/components/schemas/SpmEnforcementTaskRead",
+      },
+      type: "array",
+      title: "Tasks",
+    },
+  },
+  type: "object",
+  required: ["endpoint"],
+  title: "SpmEndpointSyncResponse",
+  description: "Private endpoint sync response.",
+} as const
+
+export const $SpmEnforcementAction = {
+  type: "string",
+  enum: [
+    "disable_mcp_server",
+    "exclude_instruction_file",
+    "revoke_trusted_directory",
+    "revoke_additional_directory",
+    "reconcile_permission_config",
+    "reconcile_sandbox_config",
+    "disable_hook",
+    "disable_skill",
+  ],
+  title: "SpmEnforcementAction",
+  description: "Supported enforcement actions.",
+} as const
+
+export const $SpmEnforcementTaskRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    endpoint_id: {
+      type: "string",
+      format: "uuid",
+      title: "Endpoint Id",
+    },
+    finding_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Finding Id",
+    },
+    action: {
+      $ref: "#/components/schemas/SpmEnforcementAction",
+    },
+    payload: {
+      additionalProperties: true,
+      type: "object",
+      title: "Payload",
+    },
+    status: {
+      $ref: "#/components/schemas/SpmEnforcementTaskStatus",
+    },
+    requested_by_user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Requested By User Id",
+    },
+    completed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Completed At",
+    },
+    result: {
+      additionalProperties: true,
+      type: "object",
+      title: "Result",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "endpoint_id",
+    "action",
+    "status",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SpmEnforcementTaskRead",
+  description: "Task queued for local endpoint reconciliation.",
+} as const
+
+export const $SpmEnforcementTaskStatus = {
+  type: "string",
+  enum: ["pending", "applied", "failed", "skipped"],
+  title: "SpmEnforcementTaskStatus",
+  description: "Execution state for endpoint enforcement tasks.",
+} as const
+
+export const $SpmFindingDecisionCreate = {
+  properties: {
+    decision: {
+      $ref: "#/components/schemas/SpmFindingDecisionType",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+    payload: {
+      additionalProperties: true,
+      type: "object",
+      title: "Payload",
+    },
+  },
+  type: "object",
+  required: ["decision"],
+  title: "SpmFindingDecisionCreate",
+  description: "Operator decision request.",
+} as const
+
+export const $SpmFindingDecisionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    finding_id: {
+      type: "string",
+      format: "uuid",
+      title: "Finding Id",
+    },
+    endpoint_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Endpoint Id",
+    },
+    decision: {
+      $ref: "#/components/schemas/SpmFindingDecisionType",
+    },
+    reason: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Reason",
+    },
+    payload: {
+      additionalProperties: true,
+      type: "object",
+      title: "Payload",
+    },
+    decided_by_user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Decided By User Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "finding_id",
+    "decision",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SpmFindingDecisionRead",
+  description: "Recorded decision row.",
+} as const
+
+export const $SpmFindingDecisionType = {
+  type: "string",
+  enum: ["dismiss", "enforce", "reopen"],
+  title: "SpmFindingDecisionType",
+  description: "Operator decisions recorded against findings.",
+} as const
+
+export const $SpmFindingRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    endpoint_id: {
+      type: "string",
+      format: "uuid",
+      title: "Endpoint Id",
+    },
+    asset_id: {
+      type: "string",
+      format: "uuid",
+      title: "Asset Id",
+    },
+    asset_sighting_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Asset Sighting Id",
+    },
+    control_id: {
+      type: "string",
+      title: "Control Id",
+    },
+    control_revision: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Control Revision",
+    },
+    harness: {
+      $ref: "#/components/schemas/SpmHarness",
+    },
+    asset_class: {
+      $ref: "#/components/schemas/SpmAssetClass",
+    },
+    asset_type: {
+      $ref: "#/components/schemas/SpmAssetType",
+    },
+    severity: {
+      $ref: "#/components/schemas/SpmSeverity",
+    },
+    status: {
+      $ref: "#/components/schemas/SpmFindingStatus",
+    },
+    summary: {
+      type: "string",
+      title: "Summary",
+    },
+    evidence: {
+      additionalProperties: true,
+      type: "object",
+      title: "Evidence",
+    },
+    enrichment: {
+      additionalProperties: true,
+      type: "object",
+      title: "Enrichment",
+    },
+    recommended_action: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SpmEnforcementAction",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    recommended_payload: {
+      additionalProperties: true,
+      type: "object",
+      title: "Recommended Payload",
+    },
+    opened_at: {
+      type: "string",
+      format: "date-time",
+      title: "Opened At",
+    },
+    closed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Closed At",
+    },
+    last_decision_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Decision At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "endpoint_id",
+    "asset_id",
+    "control_id",
+    "harness",
+    "asset_class",
+    "asset_type",
+    "severity",
+    "status",
+    "summary",
+    "opened_at",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SpmFindingRead",
+  description: "Current-state finding row.",
+} as const
+
+export const $SpmFindingStatus = {
+  type: "string",
+  enum: ["open", "dismissed", "enforcement_pending", "enforced", "resolved"],
+  title: "SpmFindingStatus",
+  description: "Current lifecycle state of a finding.",
+} as const
+
+export const $SpmHarness = {
+  type: "string",
+  enum: ["claude_code"],
+  title: "SpmHarness",
+  description: "Normalized harness IDs supported by the SPM model.",
+} as const
+
+export const $SpmSeverity = {
+  type: "string",
+  enum: ["low", "medium", "high", "critical"],
+  title: "SpmSeverity",
+  description: "Normalized SPM severity levels.",
+} as const
+
+export const $SpmSyncAssetUpsert = {
+  properties: {
+    harness: {
+      $ref: "#/components/schemas/SpmHarness",
+    },
+    asset_class: {
+      $ref: "#/components/schemas/SpmAssetClass",
+    },
+    asset_type: {
+      $ref: "#/components/schemas/SpmAssetType",
+    },
+    identity_key: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Identity Key",
+    },
+    display_name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Display Name",
+    },
+    content_hash: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 64,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content Hash",
+    },
+    workspace_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workspace Id",
+    },
+    metadata: {
+      additionalProperties: true,
+      type: "object",
+      title: "Metadata",
+    },
+    evidence: {
+      additionalProperties: true,
+      type: "object",
+      title: "Evidence",
+    },
+    observed_state: {
+      additionalProperties: true,
+      type: "object",
+      title: "Observed State",
+    },
+  },
+  type: "object",
+  required: [
+    "harness",
+    "asset_class",
+    "asset_type",
+    "identity_key",
+    "display_name",
+  ],
+  title: "SpmSyncAssetUpsert",
+  description: "Asset observation submitted by an endpoint.",
+} as const
+
+export const $SpmSyncTaskResult = {
+  properties: {
+    task_id: {
+      type: "string",
+      format: "uuid",
+      title: "Task Id",
+    },
+    status: {
+      $ref: "#/components/schemas/SpmSyncTaskResultStatus",
+    },
+    result: {
+      additionalProperties: true,
+      type: "object",
+      title: "Result",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 4000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+    completed_at: {
+      type: "string",
+      format: "date-time",
+      title: "Completed At",
+    },
+  },
+  type: "object",
+  required: ["task_id", "status"],
+  title: "SpmSyncTaskResult",
+  description: "Task execution result reported during sync.",
+} as const
+
+export const $SpmSyncTaskResultStatus = {
+  type: "string",
+  enum: ["applied", "failed", "skipped"],
+  title: "SpmSyncTaskResultStatus",
+  description: "Status reported by an endpoint during sync.",
 } as const
 
 export const $SqlType = {

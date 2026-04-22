@@ -55,6 +55,7 @@ def resolve_oss_default_entitlements(
             case_addons=False,
             rbac_addons=False,
             watchtower=False,
+            spm=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -86,6 +87,7 @@ def resolve_oss_default_entitlements(
         case_addons=case_addons_enabled,
         rbac_addons=rbac_enabled,
         watchtower=False,
+        spm=False,
     )
 
 

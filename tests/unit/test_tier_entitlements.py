@@ -106,6 +106,22 @@ async def test_specific_tier_entitlements_drive_effective_values(
 
 
 @pytest.mark.anyio
+async def test_spm_entitlement_is_resolved_from_tier(
+    session: AsyncSession, test_org: Organization
+) -> None:
+    """SPM should behave like the other tier-backed entitlements."""
+    await _create_org_tier(
+        session,
+        test_org.id,
+        entitlements={"spm": True},
+    )
+
+    effective = await TierService(session).get_effective_entitlements(test_org.id)
+
+    assert effective.spm is True
+
+
+@pytest.mark.anyio
 async def test_org_entitlement_overrides_take_precedence_over_tier(
     session: AsyncSession, test_org: Organization
 ) -> None:

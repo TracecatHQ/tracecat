@@ -67,6 +67,11 @@ class EffectiveEntitlements(Schema):
         description="Whether Watchtower agent monitoring is enabled"
         " (agent sessions, tool-call telemetry, and controls)",
     )
+    spm: bool = Field(
+        default=False,
+        description="Whether AI security posture management is enabled"
+        " (endpoint inventory, findings, and local enforcement tasks)",
+    )
 
 
 class TierRead(Schema):
