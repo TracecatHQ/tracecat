@@ -654,7 +654,6 @@ export function useSkillsStudio(params: {
     }
     try {
       await restoreSkillVersion({ skillId: selectedSkillId, versionId })
-      updateDraftChanges({})
     } catch {
       // The mutation hook already reports restore failures to the user.
     }
