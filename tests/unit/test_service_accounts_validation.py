@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import select
 
-from tracecat.db.models import ServiceAccount
+from tracecat.db.models import ServiceAccount, ServiceAccountApiKey
 from tracecat.exceptions import TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.service_accounts.service import (
@@ -27,6 +27,6 @@ def test_apply_api_key_created_cursor_rejects_invalid_cursor() -> None:
         TracecatValidationError, match="Invalid cursor for service account API keys"
     ):
         _apply_api_key_created_cursor(
-            select(ServiceAccount),
+            select(ServiceAccountApiKey),
             params=CursorPaginationParams(limit=20, cursor="bad-cursor"),
         )
