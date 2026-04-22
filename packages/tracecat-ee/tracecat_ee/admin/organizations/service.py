@@ -284,6 +284,7 @@ class AdminOrgService(BasePlatformService):
         invitations = result.scalars().all()
         has_more = len(invitations) > pagination.limit
         items = invitations[: pagination.limit]
+        has_previous = pagination.cursor is not None
 
         next_cursor = None
         if has_more and items:
@@ -303,12 +304,17 @@ class AdminOrgService(BasePlatformService):
                 sort_value=first_invitation.created_at,
             )
 
+        if pagination.reverse:
+            items = list(reversed(items))
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+            has_more, has_previous = has_previous, has_more
+
         return CursorPaginatedResponse(
             items=[self._serialize_invitation(invitation) for invitation in items],
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
-            has_previous=pagination.cursor is not None,
+            has_previous=has_previous,
         )
 
     async def get_organization_invitation_token(

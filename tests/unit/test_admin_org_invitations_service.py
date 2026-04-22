@@ -252,6 +252,65 @@ async def test_list_organization_invitations_paginates(
 
 
 @pytest.mark.anyio
+async def test_list_organization_invitations_reverse_paginates_in_canonical_order(
+    session: AsyncSession,
+    org: Organization,
+    org_roles: dict[str, DBRole],
+    platform_role: PlatformRole,
+) -> None:
+    base_time = datetime(2026, 1, 1, tzinfo=UTC)
+    invitations = [
+        OrganizationInvitation(
+            id=uuid.uuid4(),
+            organization_id=org.id,
+            email=f"reverse-page-{idx}@example.com",
+            role_id=org_roles["organization-member"].id,
+            token=secrets.token_urlsafe(32),
+            expires_at=base_time + timedelta(days=7),
+            status=InvitationStatus.PENDING,
+            created_by_platform_admin=True,
+            created_at=base_time + timedelta(minutes=idx),
+        )
+        for idx in range(5)
+    ]
+    session.add_all(invitations)
+    await session.commit()
+    newest_first_ids = [inv.id for inv in reversed(invitations)]
+
+    first_page = await AdminOrgService(
+        session, platform_role
+    ).list_organization_invitations(
+        org.id,
+        pagination=CursorPaginationParams(limit=2),
+    )
+    second_page = await AdminOrgService(
+        session, platform_role
+    ).list_organization_invitations(
+        org.id,
+        pagination=CursorPaginationParams(limit=2, cursor=first_page.next_cursor),
+    )
+
+    previous_page = await AdminOrgService(
+        session, platform_role
+    ).list_organization_invitations(
+        org.id,
+        pagination=CursorPaginationParams(
+            limit=2,
+            cursor=second_page.prev_cursor,
+            reverse=True,
+        ),
+    )
+
+    assert [item.id for item in first_page.items] == newest_first_ids[:2]
+    assert [item.id for item in second_page.items] == newest_first_ids[2:4]
+    assert [item.id for item in previous_page.items] == newest_first_ids[:2]
+    assert previous_page.next_cursor == first_page.next_cursor
+    assert previous_page.prev_cursor is None
+    assert previous_page.has_more is True
+    assert previous_page.has_previous is False
+
+
+@pytest.mark.anyio
 async def test_list_organization_invitations_rejects_invalid_cursor(
     session: AsyncSession,
     org: Organization,
