@@ -63,7 +63,7 @@ async def test_list_workspaces_user_success(
     test_workspace: Workspace,
 ) -> None:
     """Test GET /workspaces returns user's workspaces."""
-    # Give the non-admin role org:read so it can list workspaces
+    # Give the non-admin role workspace:read so it can list its workspaces.
     user_role = test_role.model_copy(
         update={"scopes": WORKSPACE_OPERATIONAL_SCOPES | ORG_MEMBER_SCOPES}
     )

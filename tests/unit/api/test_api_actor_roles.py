@@ -222,7 +222,7 @@ async def test_org_service_account_can_list_org_workspaces(
         service_id="tracecat-api",
         organization_id=organization_id,
         service_account_id=uuid.uuid4(),
-        scopes=frozenset({"org:read"}),
+        scopes=frozenset({"org:workspace:read"}),
     )
     workspaces = [
         SimpleNamespace(id=uuid.uuid4(), name="Alpha"),
