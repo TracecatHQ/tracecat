@@ -50,6 +50,10 @@ class IssuedServiceAccountApiKeyResult(NamedTuple):
     raw_key: str
 
     @property
+    def service_account_id(self) -> uuid.UUID:
+        return self.service_account.id
+
+    @property
     def api_key_id(self) -> uuid.UUID:
         return self.api_key.id
 
@@ -433,7 +437,7 @@ class BaseServiceAccountService:
         description: str | None,
         scope_ids: list[uuid.UUID],
         initial_key_name: str,
-    ) -> tuple[ServiceAccount, ServiceAccountApiKey, str]:
+    ) -> IssuedServiceAccountApiKeyResult:
         scopes = await self._resolve_scopes(scope_ids)
         await _ensure_role_can_assign_scopes(self.role, scopes)
         service_account = ServiceAccount(
@@ -457,7 +461,11 @@ class BaseServiceAccountService:
             for key in refreshed_service_account.api_keys
             if key.id == created_api_key.id
         )
-        return refreshed_service_account, issued_api_key, raw_key
+        return IssuedServiceAccountApiKeyResult(
+            service_account=refreshed_service_account,
+            api_key=issued_api_key,
+            raw_key=raw_key,
+        )
 
     async def _update_service_account(
         self,
@@ -590,7 +598,11 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         return await self._list_service_account_api_keys(service_account_id, params)
 
     @require_scope("org:service_account:create")
-    @audit_log(resource_type="service_account", action="create")
+    @audit_log(
+        resource_type="service_account",
+        action="create",
+        resource_id_attr="service_account_id",
+    )
     async def create_service_account(
         self,
         *,
@@ -598,7 +610,7 @@ class OrganizationServiceAccountService(BaseOrgService, BaseServiceAccountServic
         description: str | None,
         scope_ids: list[uuid.UUID],
         initial_key_name: str,
-    ) -> tuple[ServiceAccount, ServiceAccountApiKey, str]:
+    ) -> IssuedServiceAccountApiKeyResult:
         return await self._create_service_account(
             name=name,
             description=description,
@@ -698,7 +710,11 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         return await self._list_service_account_api_keys(service_account_id, params)
 
     @require_scope("workspace:service_account:create")
-    @audit_log(resource_type="service_account", action="create")
+    @audit_log(
+        resource_type="service_account",
+        action="create",
+        resource_id_attr="service_account_id",
+    )
     async def create_service_account(
         self,
         *,
@@ -706,7 +722,7 @@ class WorkspaceServiceAccountService(BaseWorkspaceService, BaseServiceAccountSer
         description: str | None,
         scope_ids: list[uuid.UUID],
         initial_key_name: str,
-    ) -> tuple[ServiceAccount, ServiceAccountApiKey, str]:
+    ) -> IssuedServiceAccountApiKeyResult:
         return await self._create_service_account(
             name=name,
             description=description,
