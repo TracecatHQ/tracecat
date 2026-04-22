@@ -1,0 +1,24 @@
+alembic/versions/0c6bb8f8e1d1_add_workspace_skills.py
+  e78dd32d3b4abd56 98-99,222,285
+  afa7c9e73fe4b7c6 30,63,112,594
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "9dea99b67236fda3e59c2b4adf99172ad0e63c35",
+  "prompts": {
+    "afa7c9e73fe4b7c6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d83e3-2844-7482-ab3c-3078314fc2c1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  }
+}

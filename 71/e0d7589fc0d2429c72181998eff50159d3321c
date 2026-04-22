@@ -1,0 +1,26 @@
+tests/unit/test_agent_internal_tools.py
+  f7c6d73df48c6648 11,43-48,264-265,282
+tests/unit/test_mcp_server.py
+  afa7c9e73fe4b7c6 4539
+  f7c6d73df48c6648 4619-4620,4628,4631,4652,4659,4671,4679-4680
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "71e0d7589fc0d2429c72181998eff50159d3321c",
+  "prompts": {
+    "f7c6d73df48c6648": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d73f4-f530-7a32-8209-65d854061eba",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 28,
+      "total_deletions": 5,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    }
+  }
+}
