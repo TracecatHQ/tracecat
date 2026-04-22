@@ -781,7 +781,7 @@ async def create_webhook(
 )
 @require_scope("workflow:read")
 async def get_webhook(
-    role: WorkspaceActorRole,
+    role: WorkspaceUserRole,
     session: AsyncDBSession,
     workflow_id: AnyWorkflowIDPath,
 ) -> WebhookRead:
