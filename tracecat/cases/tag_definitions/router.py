@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.dependencies import WorkspaceActorRole
-from tracecat.authz.controls import require_scope
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
@@ -13,7 +12,6 @@ router = APIRouter(prefix="/case-tags", tags=["case-tags"])
 
 
 @router.get("", response_model=list[CaseTagRead])
-@require_scope("case:read")
 async def list_case_tags(
     *,
     role: WorkspaceActorRole,
@@ -26,7 +24,6 @@ async def list_case_tags(
 
 
 @router.get("/{tag_id}", response_model=CaseTagRead)
-@require_scope("case:read")
 async def get_case_tag(
     *,
     role: WorkspaceActorRole,
@@ -46,7 +43,6 @@ async def get_case_tag(
 
 
 @router.post("", response_model=CaseTagRead, status_code=status.HTTP_201_CREATED)
-@require_scope("case:create")
 async def create_case_tag(
     *,
     role: WorkspaceActorRole,
@@ -71,7 +67,6 @@ async def create_case_tag(
 
 
 @router.patch("/{tag_id}", response_model=CaseTagRead)
-@require_scope("case:update")
 async def update_case_tag(
     *,
     role: WorkspaceActorRole,
@@ -104,7 +99,6 @@ async def update_case_tag(
 
 
 @router.delete("/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
-@require_scope("case:delete")
 async def delete_case_tag(
     *,
     role: WorkspaceActorRole,

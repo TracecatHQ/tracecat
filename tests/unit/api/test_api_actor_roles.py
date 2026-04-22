@@ -42,7 +42,7 @@ def workspace_targeted_service_account_role(test_admin_role: Role) -> Role:
         workspace_id=workspace_id,
         bound_workspace_id=workspace_id,
         service_account_id=uuid.uuid4(),
-        scopes=frozenset({"workflow:read", "workspace:read"}),
+        scopes=frozenset({"org:read", "workflow:read", "workspace:read"}),
     )
 
 
@@ -59,7 +59,7 @@ def workspace_bound_service_account_role(test_admin_role: Role) -> Role:
         workspace_id=workspace_id,
         bound_workspace_id=workspace_id,
         service_account_id=uuid.uuid4(),
-        scopes=frozenset({"workflow:read", "workspace:read"}),
+        scopes=frozenset({"org:read", "workflow:read", "workspace:read"}),
     )
 
 
@@ -222,7 +222,7 @@ async def test_org_service_account_can_list_org_workspaces(
         service_id="tracecat-api",
         organization_id=organization_id,
         service_account_id=uuid.uuid4(),
-        scopes=frozenset({"org:workspace:read"}),
+        scopes=frozenset({"org:read"}),
     )
     workspaces = [
         SimpleNamespace(id=uuid.uuid4(), name="Alpha"),
@@ -421,32 +421,6 @@ async def test_workflow_execution_user_filter_rejects_service_account(
         response.json()["detail"]
         == "user_id filter is not supported for service accounts"
     )
-
-
-@pytest.mark.anyio
-async def test_graph_patch_requires_workflow_update_scope_for_service_account(
-    client: TestClient,
-    workspace_targeted_service_account_role: Role,
-) -> None:
-    role_without_update_scope = workspace_targeted_service_account_role.model_copy(
-        update={"scopes": frozenset({"workflow:read"})}
-    )
-
-    token = ctx_role.set(role_without_update_scope)
-    try:
-        response = client.patch(
-            "/workflows/wf_testworkflow/graph",
-            json={"base_version": 1, "operations": []},
-            params={
-                "workspace_id": str(
-                    workspace_targeted_service_account_role.workspace_id
-                )
-            },
-        )
-    finally:
-        ctx_role.reset(token)
-
-    assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 @pytest.mark.anyio

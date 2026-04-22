@@ -175,7 +175,6 @@ async def delete_organization(
 
 
 @router.get("/entitlements", response_model=EffectiveEntitlements)
-@require_scope("org:read")
 async def get_organization_entitlements(
     *,
     role: OrgActorRole,
