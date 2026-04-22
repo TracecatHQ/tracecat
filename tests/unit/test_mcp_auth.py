@@ -1001,7 +1001,7 @@ async def test_list_workspaces_for_request_reads_email_from_upstream_claims(
 
 
 @pytest.mark.anyio
-async def test_resolve_role_allows_superuser_without_org_membership(
+async def test_resolve_role_allows_single_tenant_superuser_without_org_membership(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     user_id = uuid.uuid4()
@@ -1031,6 +1031,7 @@ async def test_resolve_role_allows_superuser_without_org_membership(
         "resolve_workspace_membership",
         _resolve_workspace_membership,
     )
+    monkeypatch.setattr(mcp_auth.config, "TRACECAT__EE_MULTI_TENANT", False)
 
     role = await mcp_auth.resolve_role("user@example.com", workspace_id)
 
@@ -1038,6 +1039,29 @@ async def test_resolve_role_allows_superuser_without_org_membership(
     assert role.workspace_id == workspace_id
     assert role.organization_id == organization_id
     assert role.scopes == frozenset({"*"})
+
+
+@pytest.mark.anyio
+async def test_resolve_role_rejects_multi_tenant_superuser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+
+    async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
+        return SimpleNamespace(id=uuid.uuid4(), is_superuser=True)
+
+    async def _resolve_workspace_org(_workspace_id: uuid.UUID) -> uuid.UUID:
+        raise AssertionError("superusers should be blocked before workspace lookup")
+
+    monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
+    monkeypatch.setattr(mcp_auth, "resolve_workspace_org", _resolve_workspace_org)
+    monkeypatch.setattr(mcp_auth.config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    with pytest.raises(
+        ValueError,
+        match="Platform superusers cannot access tenant MCP context",
+    ):
+        await mcp_auth.resolve_role("admin@example.com", workspace_id)
 
 
 @pytest.mark.anyio
@@ -1153,6 +1177,31 @@ async def test_list_user_workspaces_includes_direct_memberships_without_org_memb
     workspaces = await mcp_auth.list_user_workspaces("user@example.com")
 
     assert workspaces == [{"id": str(workspace_id), "name": "Workspace A"}]
+
+
+@pytest.mark.anyio
+async def test_list_user_workspaces_rejects_multi_tenant_superuser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _resolve_user_by_email(_email: str) -> SimpleNamespace:
+        return SimpleNamespace(id=uuid.uuid4(), is_superuser=True)
+
+    def _bypass_session_manager():
+        raise AssertionError("superusers should be blocked before workspace listing")
+
+    monkeypatch.setattr(mcp_auth, "resolve_user_by_email", _resolve_user_by_email)
+    monkeypatch.setattr(
+        mcp_auth,
+        "get_async_session_bypass_rls_context_manager",
+        _bypass_session_manager,
+    )
+    monkeypatch.setattr(mcp_auth.config, "TRACECAT__EE_MULTI_TENANT", True)
+
+    with pytest.raises(
+        ValueError,
+        match="Platform superusers cannot access tenant MCP context",
+    ):
+        await mcp_auth.list_user_workspaces("admin@example.com")
 
 
 @pytest.mark.anyio

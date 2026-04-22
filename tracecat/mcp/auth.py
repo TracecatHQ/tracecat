@@ -1144,6 +1144,14 @@ async def resolve_workspace_membership(
         return WorkspaceRole.EDITOR
 
 
+def _raise_if_multi_tenant_superuser(user: User) -> None:
+    """Block platform superusers from tenant MCP context in multi-tenant mode."""
+    if config.TRACECAT__EE_MULTI_TENANT and user.is_superuser:
+        raise ValueError(
+            "Platform superusers cannot access tenant MCP context in multi-tenant mode"
+        )
+
+
 async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
     """Resolve a user's Role for a given workspace from their OAuth email.
 
@@ -1151,9 +1159,11 @@ async def resolve_role(email: str, workspace_id: WorkspaceID) -> Role:
 
     Org admins/owners (users with ``org:workspace:read`` scope) bypass the
     workspace-level membership check, matching the behaviour of the main API.
-    Platform superusers also bypass direct membership checks.
+    Single-tenant platform superusers also bypass direct membership checks.
     """
     user = await resolve_user_by_email(email)
+    _raise_if_multi_tenant_superuser(user)
+
     org_id = await resolve_workspace_org(workspace_id)
 
     # Compute scopes early so we can check for org-level workspace access
@@ -1185,10 +1195,12 @@ async def list_user_workspaces(
     """List workspaces accessible to the user.
 
     Users with ``org:workspace:read`` scope (org admins/owners) or platform
-    superusers see every workspace in their organization(s).  Other users see
-    only workspaces where they have an explicit Membership row.
+    superusers in single-tenant mode see every workspace in their
+    organization(s). Other users see only workspaces where they have an explicit
+    Membership row.
     """
     user = await resolve_user_by_email(email)
+    _raise_if_multi_tenant_superuser(user)
 
     async with get_async_session_bypass_rls_context_manager() as session:
 
