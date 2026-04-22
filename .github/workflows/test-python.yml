@@ -12,6 +12,7 @@ on:
       - pyproject.toml
       - uv.lock
       - Dockerfile
+      - .github/docker-compose.python-tests.yml
       - docker-compose.yml
       - docker-compose.dev.yml
       - docker-compose.local.yml
@@ -27,6 +28,7 @@ on:
       - pyproject.toml
       - uv.lock
       - Dockerfile
+      - .github/docker-compose.python-tests.yml
       - docker-compose.yml
       - docker-compose.dev.yml
       - docker-compose.local.yml
@@ -49,6 +51,10 @@ jobs:
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
         with:
           version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
       - name: Set up Python 3.12
         uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
@@ -66,6 +72,8 @@ jobs:
   test-all:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     timeout-minutes: 60
+    env:
+      TRACECAT__CI_IMAGE_TAG: python-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.test_group }}
     strategy:
       matrix:
         test_group:
@@ -81,7 +89,9 @@ jobs:
         with:
           version: "0.9.7"
           enable-cache: true
-          cache-dependency-glob: "pyproject.toml"
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
       - name: Set up Python 3.12
         uses: useblacksmith/setup-python@943b05a7c4ca70c2360391137527a37bee33fb1d # v6
@@ -103,14 +113,39 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
-      - name: Start core Docker services
-        env:
-          COMPOSE_BAKE: "true"
-          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-        run: docker compose -f docker-compose.dev.yml up -d temporal api postgres_db caddy minio
+      - name: Build cached Tracecat image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          target: development
+          tags: tracecat-dev-ci:${{ env.TRACECAT__CI_IMAGE_TAG }}
+          load: true
+          push: false
+          cache-from: type=gha,scope=tracecat-python-development
+          cache-to: type=gha,scope=tracecat-python-development,mode=max
 
-      - name: Install dependencies
-        run: uv sync --frozen
+      - name: Start core Docker services and install dependencies
+        env:
+          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
+        run: |
+          set -euo pipefail
+
+          compose_files=(-f docker-compose.dev.yml -f .github/docker-compose.python-tests.yml)
+
+          uv sync --frozen &
+          uv_sync_pid=$!
+          cleanup_uv_sync() {
+            if kill -0 "$uv_sync_pid" 2>/dev/null; then
+              kill "$uv_sync_pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup_uv_sync EXIT
+
+          docker compose "${compose_files[@]}" up --no-build -d temporal api postgres_db caddy minio
+
+          echo "Waiting for Python environment sync..."
+          wait "$uv_sync_pid"
+          trap - EXIT
 
       - name: Run tests
         env:
@@ -120,28 +155,28 @@ jobs:
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
         run: |
           if [ "${{ matrix.test_group }}" = "ee" ]; then
-            uv run pytest packages/tracecat-ee/tests/ -m "not live_secret" -ra
+            uv run --no-sync pytest packages/tracecat-ee/tests/ -m "not live_secret" -ra
           elif [ "${{ matrix.test_group }}" = "temporal" ]; then
             # Temporal tests run with compression enabled and parallelization
             # Worker-specific task queues in conftest.py enable safe parallel execution
             TRACECAT__CONTEXT_COMPRESSION_ENABLED=true \
             TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB=0 \
-            uv run pytest tests/temporal -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
+            uv run --no-sync pytest tests/temporal -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
           else
-            uv run pytest tests/${{ matrix.test_group }} -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
+            uv run --no-sync pytest tests/${{ matrix.test_group }} -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
           fi
 
       - name: Show Docker logs on failure
         if: failure()
         run: |
           echo "=== Docker Service Status ==="
-          docker compose -f docker-compose.dev.yml ps
+          docker compose -f docker-compose.dev.yml -f .github/docker-compose.python-tests.yml ps
 
           echo "=== Temporal Logs ==="
-          docker compose -f docker-compose.dev.yml logs temporal --tail=200
+          docker compose -f docker-compose.dev.yml -f .github/docker-compose.python-tests.yml logs temporal --tail=200
 
           echo "=== API Logs ==="
-          docker compose -f docker-compose.dev.yml logs api --tail=200
+          docker compose -f docker-compose.dev.yml -f .github/docker-compose.python-tests.yml logs api --tail=200
 
           echo "=== Postgres Logs ==="
-          docker compose -f docker-compose.dev.yml logs postgres_db --tail=200
+          docker compose -f docker-compose.dev.yml -f .github/docker-compose.python-tests.yml logs postgres_db --tail=200
