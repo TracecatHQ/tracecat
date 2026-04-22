@@ -89,6 +89,7 @@ tracecat-ee = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]
+exclude = ["packages/tracecat-endpoint"]
 
 [tool.uv]
 # Override dependency pins to resolve conflicts between packages:

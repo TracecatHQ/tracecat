@@ -38,6 +38,18 @@ repos:
       - id: uv-lock
   - repo: local
     hooks:
+      - id: gofmt-endpoint
+        name: go format endpoint
+        entry: gofmt -w
+        language: system
+        files: ^packages/tracecat-endpoint/.*\.go$
+      - id: go-vet-endpoint
+        name: go vet endpoint
+        entry: bash -c "cd packages/tracecat-endpoint && go vet ./..."
+        language: system
+        files: ^packages/tracecat-endpoint/
+        pass_filenames: false
+        require_serial: true
       - id: gen-client
         name: update frontend client
         entry: bash -c "pnpm -C frontend generate-client-ci && pnpm -C frontend check"
