@@ -6,11 +6,12 @@ import secrets
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import sqlalchemy as sa
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import Mapped, selectinload
 
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.service import AuditService
@@ -157,6 +158,17 @@ class AdminOrgService(BasePlatformService):
         """Create a platform-scoped invitation for an organization."""
         await self._require_organization(org_id)
         role_obj = await self._get_org_invitation_role(org_id, params.role_slug)
+
+        existing_superuser = await self.session.scalar(
+            select(User).where(
+                func.lower(User.email) == params.email.lower(),
+                cast(Mapped[bool], User.is_superuser) == True,  # noqa: E712
+            )
+        )
+        if existing_superuser is not None:
+            raise TracecatValidationError(
+                f"{params.email} belongs to a platform superuser account and cannot be invited to an organization"
+            )
 
         existing_member_stmt = (
             select(OrganizationMembership)

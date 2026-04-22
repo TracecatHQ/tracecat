@@ -183,6 +183,47 @@ async def test_create_organization_invitation_rejects_existing_member(
 
 
 @pytest.mark.anyio
+async def test_create_organization_invitation_rejects_existing_superuser(
+    session: AsyncSession,
+    org: Organization,
+    org_roles: dict[str, DBRole],
+    platform_role: PlatformRole,
+) -> None:
+    superuser = User(
+        id=uuid.uuid4(),
+        email="superuser@example.com",
+        hashed_password="hashed",
+        role=UserRole.ADMIN,
+        is_active=True,
+        is_superuser=True,
+        is_verified=True,
+    )
+    session.add(superuser)
+    await session.commit()
+
+    service = AdminOrgService(session, platform_role)
+    with pytest.raises(
+        TracecatValidationError,
+        match="superuser@example.com belongs to a platform superuser account",
+    ):
+        await service.create_organization_invitation(
+            org.id,
+            AdminOrgInvitationCreate(
+                email=superuser.email,
+                role_slug="organization-member",
+            ),
+        )
+
+    invitation_id = await session.scalar(
+        select(OrganizationInvitation.id).where(
+            OrganizationInvitation.email == superuser.email
+        )
+    )
+    assert invitation_id is None
+    assert org_roles["organization-member"].organization_id == org.id
+
+
+@pytest.mark.anyio
 async def test_list_organization_invitations_only_returns_platform_created(
     session: AsyncSession,
     org: Organization,
