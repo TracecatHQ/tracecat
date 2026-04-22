@@ -1,0 +1,38 @@
+frontend/src/components/admin/admin-organizations-table.tsx
+  b009de0eedd5b625 298,305,312,319,326
+frontend/src/components/admin/admin-org-invitations-dialog.tsx
+  b009de0eedd5b625 112,128,242-247,256-261,363
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.2",
+  "base_commit_sha": "86d85000074a07ba84044bdda930da5ff5b49145",
+  "prompts": {
+    "b009de0eedd5b625": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "88a8bdeb-9168-4530-abc5-0b70251e4d7e",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 12,
+      "total_deletions": 20,
+      "accepted_lines": 259,
+      "overriden_lines": 0
+    },
+    "b63d127006b45fb0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019db2b4-d82c-7c23-80e6-a8bad90c76d4",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Daryl Lim",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}
