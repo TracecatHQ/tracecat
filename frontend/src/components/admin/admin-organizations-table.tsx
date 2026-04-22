@@ -295,55 +295,35 @@ export function AdminOrganizationsTable() {
         <AdminOrganizationEditDialog
           orgId={editOrgId}
           open
-          onOpenChange={(isOpen) => {
-            if (!isOpen) {
-              setEditOrgId(null)
-            }
-          }}
+          onOpenChange={() => setEditOrgId(null)}
         />
       )}
       {tierOrgId && (
         <AdminOrgTierDialog
           orgId={tierOrgId}
           open
-          onOpenChange={(isOpen) => {
-            if (!isOpen) {
-              setTierOrgId(null)
-            }
-          }}
+          onOpenChange={() => setTierOrgId(null)}
         />
       )}
       {domainsOrgId && (
         <AdminOrgDomainsDialog
           orgId={domainsOrgId}
           open
-          onOpenChange={(isOpen) => {
-            if (!isOpen) {
-              setDomainsOrgId(null)
-            }
-          }}
+          onOpenChange={() => setDomainsOrgId(null)}
         />
       )}
       {invitationsOrgId && (
         <AdminOrgInvitationsDialog
           orgId={invitationsOrgId}
           open
-          onOpenChange={(isOpen) => {
-            if (!isOpen) {
-              setInvitationsOrgId(null)
-            }
-          }}
+          onOpenChange={() => setInvitationsOrgId(null)}
         />
       )}
       {registryOrgId && (
         <AdminOrgRegistryDialog
           orgId={registryOrgId}
           open
-          onOpenChange={(isOpen) => {
-            if (!isOpen) {
-              setRegistryOrgId(null)
-            }
-          }}
+          onOpenChange={() => setRegistryOrgId(null)}
         />
       )}
     </>

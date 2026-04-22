@@ -109,7 +109,7 @@ export function AdminOrgInvitationsDialog({
     [createdToken]
   )
 
-  async function copyTextToClipboard(text: string, description: string) {
+  async function copyToClipboard(text: string, description: string) {
     try {
       await navigator.clipboard.writeText(text)
       toast({ title: "Copied", description })
@@ -122,18 +122,10 @@ export function AdminOrgInvitationsDialog({
     }
   }
 
-  async function copyToken(token: string) {
-    await copyTextToClipboard(token, "Invitation token copied.")
-  }
-
-  async function copyLink(token: string) {
-    await copyTextToClipboard(invitationUrl(token), "Invitation link copied.")
-  }
-
   async function copyInvitationLink(invitationId: string) {
     try {
       const { token } = await getInvitationToken(invitationId)
-      await copyLink(token)
+      await copyToClipboard(invitationUrl(token), "Invitation link copied.")
     } catch {
       toast({
         title: "Failed to copy invitation link",
@@ -247,7 +239,12 @@ export function AdminOrgInvitationsDialog({
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => copyLink(createdToken)}
+                      onClick={() =>
+                        copyToClipboard(
+                          invitationUrl(createdToken),
+                          "Invitation link copied."
+                        )
+                      }
                     >
                       <CopyIcon data-icon="inline-start" />
                       Copy link
@@ -256,7 +253,12 @@ export function AdminOrgInvitationsDialog({
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => copyToken(createdToken)}
+                      onClick={() =>
+                        copyToClipboard(
+                          createdToken,
+                          "Invitation token copied."
+                        )
+                      }
                     >
                       <CopyIcon data-icon="inline-start" />
                       Copy token
@@ -358,11 +360,7 @@ export function AdminOrgInvitationsDialog({
 
       <AlertDialog
         open={!!revokeTarget}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) {
-            setRevokeTarget(null)
-          }
-        }}
+        onOpenChange={() => setRevokeTarget(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
