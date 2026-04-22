@@ -1,6 +1,8 @@
 "use client"
 
 import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
   CopyIcon,
   PlusIcon,
   ReloadIcon,
@@ -102,7 +104,13 @@ export function AdminOrgInvitationsDialog({
     getInvitationToken,
     revokeInvitation,
     revokePending,
+    goToNextPage,
+    goToPreviousPage,
+    hasNextPage,
+    hasPreviousPage,
+    currentPage,
   } = useAdminOrgInvitations(orgId)
+  const showPagination = hasPreviousPage || hasNextPage || currentPage > 0
 
   const createdLink = useMemo(
     () => (createdToken ? invitationUrl(createdToken) : null),
@@ -343,6 +351,35 @@ export function AdminOrgInvitationsDialog({
                   )}
                 </TableBody>
               </Table>
+              {showPagination && (
+                <div className="flex items-center justify-between border-t px-3 py-2">
+                  <span className="text-sm text-muted-foreground">
+                    Page {currentPage + 1}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!hasPreviousPage || isLoading}
+                      onClick={goToPreviousPage}
+                    >
+                      <ChevronLeftIcon className="size-4" />
+                      Previous
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!hasNextPage || isLoading}
+                      onClick={goToNextPage}
+                    >
+                      Next
+                      <ChevronRightIcon className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
