@@ -110,6 +110,8 @@ class WorkspaceService(BaseOrgService):
                 bound_workspace_id := self.role.bound_workspace_id
                 or self.role.workspace_id
             ) is None:
+                if self.role.scopes and has_scope(self.role.scopes, "org:read"):
+                    return []
                 raise TracecatAuthorizationError(
                     "Service account does not have access to list workspaces"
                 )
@@ -264,6 +266,8 @@ class WorkspaceService(BaseOrgService):
                     bound_workspace_id := self.role.bound_workspace_id
                     or self.role.workspace_id
                 ) is None:
+                    if self.role.scopes and has_scope(self.role.scopes, "org:read"):
+                        return []
                     raise TracecatAuthorizationError(
                         "Service account does not have access to search workspaces"
                     )

@@ -181,8 +181,8 @@ async def test_table_update_row_requires_table_update_scope() -> None:
 async def test_workspace_collection_scope_guards(endpoint: AsyncEndpoint) -> None:
     await _assert_endpoint_requires_any_scope(
         endpoint,
-        allowed_scopes=("org:workspace:read", "workspace:read"),
-        denied_scopes=("org:read",),
+        allowed_scopes=("org:read", "org:workspace:read", "workspace:read"),
+        denied_scopes=("workflow:read",),
     )
 
 

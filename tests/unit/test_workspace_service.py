@@ -249,6 +249,33 @@ class TestWorkspaceService:
         with pytest.raises(TracecatAuthorizationError):
             await service.list_accessible_workspaces()
 
+    async def test_list_accessible_workspaces_returns_empty_for_org_read_service_account(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        workspace = Workspace(
+            name="org-workspace",
+            organization_id=svc_organization.id,
+        )
+        session.add(workspace)
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"org:read"}),
+            ),
+        )
+
+        workspaces = await service.list_accessible_workspaces()
+
+        assert workspaces == []
+
     async def test_search_workspaces_returns_bound_workspace_for_service_account(
         self,
         session: AsyncSession,
@@ -314,6 +341,33 @@ class TestWorkspaceService:
         results = await service.search_workspaces(WorkspaceSearch(name="alpha"))
 
         assert [item.id for item in results] == [alpha.id]
+
+    async def test_search_workspaces_returns_empty_for_org_read_service_account(
+        self,
+        session: AsyncSession,
+        svc_organization: Organization,
+    ) -> None:
+        workspace = Workspace(
+            name="alpha",
+            organization_id=svc_organization.id,
+        )
+        session.add(workspace)
+        await session.commit()
+
+        service = WorkspaceService(
+            session=session,
+            role=Role(
+                type="service_account",
+                organization_id=svc_organization.id,
+                service_account_id=uuid.uuid4(),
+                service_id="tracecat-api",
+                scopes=frozenset({"org:read"}),
+            ),
+        )
+
+        results = await service.search_workspaces(WorkspaceSearch(name="alpha"))
+
+        assert results == []
 
     async def test_update_workspace_merges_partial_settings(
         self,

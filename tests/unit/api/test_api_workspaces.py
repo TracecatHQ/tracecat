@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
-from tracecat.authz.scopes import ORG_MEMBER_SCOPES, WORKSPACE_OPERATIONAL_SCOPES
+from tracecat.authz.scopes import ORG_MEMBER_SCOPES
 from tracecat.authz.service import MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Workspace
@@ -63,10 +63,7 @@ async def test_list_workspaces_user_success(
     test_workspace: Workspace,
 ) -> None:
     """Test GET /workspaces returns user's workspaces."""
-    # Give the non-admin role workspace:read so it can list its workspaces.
-    user_role = test_role.model_copy(
-        update={"scopes": WORKSPACE_OPERATIONAL_SCOPES | ORG_MEMBER_SCOPES}
-    )
+    user_role = test_role.model_copy(update={"scopes": ORG_MEMBER_SCOPES})
     token = ctx_role.set(user_role)
     try:
         with patch.object(workspaces_router, "WorkspaceService") as MockService:

@@ -1024,7 +1024,8 @@ export const publicHandleSlackOauthCallback = (
  * Access
  * ------
  * - Org owners/admins (have `org:workspace:read` scope): See all workspaces in the org.
- * - Other users: See only workspaces where they are a member.
+ * - Org members (have `org:read` scope): See only workspaces where they are a member.
+ * - Workspace-bound service accounts: See only their bound workspace.
  *
  * Membership limits workspace-scoped access to the actor's workspaces.
  * @returns WorkspaceReadMinimal Successful Response
