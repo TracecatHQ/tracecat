@@ -151,6 +151,38 @@ async def test_create_workspace_success(
 
 
 @pytest.mark.anyio
+async def test_create_workspace_rejects_workspace_service_account(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    workspace_id = test_admin_role.workspace_id
+    assert workspace_id is not None
+    role = test_admin_role.model_copy(
+        update={
+            "type": "service_account",
+            "user_id": None,
+            "workspace_id": workspace_id,
+            "bound_workspace_id": workspace_id,
+            "service_account_id": uuid.uuid4(),
+            "scopes": frozenset({"workspace:create"}),
+        }
+    )
+
+    token = ctx_role.set(role)
+    try:
+        with patch.object(workspaces_router, "WorkspaceService") as MockService:
+            response = client.post(
+                "/workspaces",
+                json={"name": "New Workspace"},
+            )
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    MockService.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_create_workspace_conflict(
     client: TestClient,
     test_admin_role: Role,

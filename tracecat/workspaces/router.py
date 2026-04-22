@@ -94,6 +94,8 @@ async def create_workspace(
     -------------
     - Admin: Can create a workspace for any user.
     """
+    if role.type == "service_account" and role.bound_workspace_id is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     service = WorkspaceService(session, role=role)
     try:
         workspace = await service.create_workspace(params.name)
