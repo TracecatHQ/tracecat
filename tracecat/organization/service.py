@@ -5,11 +5,12 @@ import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import cast as type_cast
 
 from sqlalchemy import and_, cast, func, select, update
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager, selectinload
+from sqlalchemy.orm import Mapped, contains_eager, selectinload
 
 from tracecat import config
 from tracecat.audit.enums import AuditEventStatus
@@ -448,6 +449,18 @@ class OrgService(BaseOrgService):
             ):
                 raise TracecatAuthorizationError(
                     "Only organization owners can create owner invitations"
+                )
+
+        if config.TRACECAT__EE_MULTI_TENANT:
+            existing_superuser = await self.session.scalar(
+                select(User).where(
+                    func.lower(User.email) == email.lower(),
+                    type_cast(Mapped[bool], User.is_superuser) == True,  # noqa: E712
+                )
+            )
+            if existing_superuser is not None:
+                raise TracecatValidationError(
+                    f"{email} belongs to a platform superuser account and cannot be invited to an organization"
                 )
 
         # Check if user with this email is already a member (case-insensitive)

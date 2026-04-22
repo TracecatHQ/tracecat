@@ -881,6 +881,48 @@ class TestOrganizationServiceInvitations:
             )
 
     @pytest.mark.anyio
+    async def test_create_invitation_rejects_existing_superuser_account_in_multi_tenant(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+        org1_member_role: DBRole,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Test create_invitation rejects platform superuser targets in multi-tenant mode."""
+        monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+        superuser = User(
+            id=uuid.uuid4(),
+            email=f"superuser-{uuid.uuid4().hex[:8]}@example.com",
+            hashed_password="hashed",
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=True,
+            is_verified=True,
+        )
+        session.add(superuser)
+        await session.commit()
+
+        role = create_admin_role(org1.id, admin_in_org1.id)
+        service = OrgService(session, role=role)
+
+        with pytest.raises(
+            TracecatValidationError,
+            match="belongs to a platform superuser account",
+        ):
+            await service.create_invitation(
+                email=superuser.email,
+                role_id=org1_member_role.id,
+            )
+
+        invitation_id = await session.scalar(
+            select(OrganizationInvitation.id).where(
+                OrganizationInvitation.email == superuser.email
+            )
+        )
+        assert invitation_id is None
+
+    @pytest.mark.anyio
     async def test_list_invitations_returns_org_invitations(
         self,
         session: AsyncSession,
@@ -1189,12 +1231,17 @@ class TestOrganizationServiceInvitations:
         session.add(superuser)
         await session.commit()
 
-        admin_role = create_admin_role(org1.id, admin_in_org1.id)
-        admin_service = OrgService(session, role=admin_role)
-        invitation = await admin_service.create_invitation(
+        invitation = OrganizationInvitation(
+            organization_id=org1.id,
             email=superuser.email,
             role_id=org1_member_role.id,
+            invited_by=admin_in_org1.id,
+            token=secrets.token_urlsafe(32),
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+            status=InvitationStatus.PENDING,
         )
+        session.add(invitation)
+        await session.commit()
 
         with pytest.raises(
             TracecatAuthorizationError,
