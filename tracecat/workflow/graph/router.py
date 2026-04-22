@@ -24,6 +24,7 @@ router = APIRouter(
 
 
 @router.get("")
+@require_scope("workflow:read")
 async def get_graph(
     role: WorkspaceActorRole,
     workflow_id: AnyWorkflowIDPath,

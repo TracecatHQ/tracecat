@@ -90,6 +90,29 @@ async def test_get_graph_not_found(
 
 
 @pytest.mark.anyio
+async def test_get_graph_requires_read_scope(
+    client: TestClient, test_admin_role: Role, mock_workflow: Workflow
+) -> None:
+    """GET /workflows/{id}/graph requires workflow:read."""
+
+    role = test_admin_role.model_copy(update={"scopes": frozenset({"case:read"})})
+    token = ctx_role.set(role)
+    try:
+        with patch.object(
+            WorkflowGraphService, "get_graph", new_callable=AsyncMock
+        ) as mock_get:
+            response = client.get(
+                f"/workflows/{mock_workflow.id}/graph",
+                params={"workspace_id": str(test_admin_role.workspace_id)},
+            )
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    mock_get.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_apply_operations_success(
     client: TestClient, test_admin_role: Role, mock_workflow: Workflow
 ) -> None:
