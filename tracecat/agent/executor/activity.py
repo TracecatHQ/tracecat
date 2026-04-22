@@ -400,7 +400,9 @@ class SandboxedAgentExecutor:
         """Return the per-run staged skills directory."""
         if self._job_dir is None:
             return None
-        return self._job_dir / "home" / ".claude" / "skills"
+        skills_dir = self._job_dir / "home" / ".claude" / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        return skills_dir
 
     async def _stage_resolved_skills(self, skills_dir: Path) -> None:
         """Stage resolved published skills into the per-run home directory."""

@@ -236,6 +236,7 @@ async def _sync_direct_skills_dir(
     if skills_dir is None or session_home_dir is None:
         return
 
+    skills_dir.mkdir(parents=True, exist_ok=True)
     target = session_home_dir / ".claude" / "skills"
     if target.exists():
         await asyncio.to_thread(shutil.rmtree, target)
@@ -377,11 +378,13 @@ async def _spawn_nsjail_runtime(
     jailed_init_payload_path = job_dir / "init.json"
 
     try:
-        if skills_dir is not None and session_home_dir is not None:
-            (session_home_dir / ".claude" / "skills").mkdir(
-                parents=True,
-                exist_ok=True,
-            )
+        if skills_dir is not None:
+            skills_dir.mkdir(parents=True, exist_ok=True)
+            if session_home_dir is not None:
+                (session_home_dir / ".claude" / "skills").mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
         # Build nsjail config (socket paths are derived from socket_dir internally)
         await asyncio.to_thread(
             shutil.copy2, init_payload_path, jailed_init_payload_path
