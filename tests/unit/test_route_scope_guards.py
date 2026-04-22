@@ -8,6 +8,7 @@ from tracecat.agent.preset import router as agent_preset_router
 from tracecat.auth.types import Role
 from tracecat.cases.dropdowns import router as case_dropdowns_router
 from tracecat.cases.durations import router as case_durations_router
+from tracecat.cases.tag_definitions import router as case_tag_definitions_router
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.inbox import router as inbox_router
@@ -153,6 +154,23 @@ async def test_table_update_row_requires_table_update_scope() -> None:
     ],
 )
 async def test_case_duration_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (case_tag_definitions_router.list_case_tags, "case:read"),
+        (case_tag_definitions_router.get_case_tag, "case:read"),
+        (case_tag_definitions_router.create_case_tag, "case:create"),
+        (case_tag_definitions_router.update_case_tag, "case:update"),
+        (case_tag_definitions_router.delete_case_tag, "case:delete"),
+    ],
+)
+async def test_case_tag_definition_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
