@@ -196,6 +196,44 @@ class TestSkillService:
         assert draft.name == "yaml-skill"
         assert draft.description == "Line one\nLine two"
 
+    async def test_skill_md_frontmatter_accepts_crlf_delimiters(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """CRLF frontmatter delimiters should validate like LF delimiters."""
+
+        created = await skill_service.create_skill(SkillCreate(name="crlf-skill"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\r\n"
+                            "name: crlf-skill\r\n"
+                            "description: Created on Windows\r\n"
+                            "---\r\n"
+                            "# CRLF skill\r\n"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+
+        updated_draft = await skill_service.get_draft(created.id)
+
+        assert updated_draft is not None
+        assert updated_draft.is_publishable is True
+        assert updated_draft.validation_errors == []
+        assert updated_draft.name == "crlf-skill"
+        assert updated_draft.description == "Created on Windows"
+
     def test_create_skill_rejects_non_spec_name(self) -> None:
         """Skill names must already satisfy the spec format."""
 
