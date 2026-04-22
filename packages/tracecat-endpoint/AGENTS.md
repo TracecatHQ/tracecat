@@ -19,7 +19,7 @@ Use this file for work in `packages/tracecat-endpoint/`.
 
 ## Layout
 
-- `cmd/tracecat-endpoint/`: CLI entrypoint only.
+- `cmd/tracecatd/`: CLI entrypoint only.
 - `internal/`: implementation packages.
 - `testdata/`: fixture payloads and sample inputs for tests.
 - `dist/`: local build output only; do not check it in.
@@ -30,7 +30,7 @@ Run commands from `packages/tracecat-endpoint/` unless noted otherwise.
 
 ```bash
 go vet ./...
-go build -o dist/tracecat-endpoint ./cmd/tracecat-endpoint
+go build -o dist/tracecatd ./cmd/tracecatd
 ```
 
 Format Go code with:
@@ -71,5 +71,14 @@ gofmt -w .
 - Treat this component as Tracecat Endpoint in both code and docs.
 - The intended v1 control model is outbound HTTPS plus periodic desired-state
   reconciliation.
-- Enforcement may be added later, but do not implement daemonization, polling,
-  or local settings mutation in the initial hello-world scaffold.
+- `tracecatd` is the daemon binary and `~/.tracecatd` is the default local
+  state directory.
+- Keep the Go package boundaries stable:
+  - `internal/inventory` for local Claude inventory collection
+  - `internal/tasks` for local Claude reconciliation
+  - `internal/runner` for sync orchestration only
+- Preserve the current v1 product constraints:
+  - Claude Code only
+  - user-space support only
+  - no MDM or managed-scope writes
+  - live device or container QA remains deferred outside this module work

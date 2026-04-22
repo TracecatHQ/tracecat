@@ -30,6 +30,7 @@ from tracecat.pagination import (
 from tracecat.service import BaseOrgService
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
+from tracecat_ee.spm.analyzer import SpmInventoryAnalyzer
 from tracecat_ee.spm.controls import get_control, get_control_catalog
 from tracecat_ee.spm.schemas import (
     SpmAssetRead,
@@ -321,8 +322,14 @@ class SpmService(BaseOrgService):
 class SpmSyncService:
     """Endpoint-authenticated SPM sync service."""
 
-    def __init__(self, session: AsyncSession):
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        analyzer: SpmInventoryAnalyzer | None = None,
+    ):
         self.session = session
+        self.analyzer = analyzer or SpmInventoryAnalyzer(session)
 
     async def sync_endpoint(
         self,
@@ -363,6 +370,8 @@ class SpmSyncService:
         for task_result in params.task_results:
             await self._apply_task_result(endpoint=endpoint, task_result=task_result)
 
+        await self.session.flush()
+        await self.analyzer.analyze_endpoint(endpoint)
         await self.session.commit()
         await self.session.refresh(endpoint)
         tasks = await self._pending_tasks(endpoint.id, endpoint.organization_id)

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": ["Read", "Write"]
+  },
+  "sandbox": {
+    "mode": "workspace-write"
+  },
+  "mcpServers": {
+    "github-http": {
+      "url": "HTTPS://api.github.com/mcp/"
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "trustedDirectories": ["__HOME__/workspace-alpha"],
+  "additionalDirectories": ["__HOME__/workspace-beta"],
+  "projects": {
+    "__HOME__/workspace-alpha": {
+      "trustLevel": "trusted"
+    }
+  },
+  "mcpServers": {
+    "local-stdio": {
+      "command": "npx",
+      "args": ["@tracecat/mcp", "--stdio"]
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "command": "echo audit"
+      }
+    ]
+  },
+  "skills": [
+    "registry-review"
+  ],
+  "subagents": [
+    {
+      "name": "investigator",
+      "path": "agents/investigator.md"
+    }
+  ]
+}
