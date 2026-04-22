@@ -50,6 +50,7 @@ import {
   isMarkdownPath,
   uploadFileToSession,
   type VisibleFileEntry,
+  validateSkillDraftPath,
 } from "@/lib/skills-studio"
 import { slugify } from "@/lib/utils"
 
@@ -497,6 +498,15 @@ export function useSkillsStudio(params: {
   const handleCreateNewFile = () => {
     const path = newFilePath.trim()
     if (!path) {
+      return
+    }
+    const pathError = validateSkillDraftPath(path)
+    if (pathError) {
+      toast({
+        title: "Invalid file path",
+        description: pathError,
+        variant: "destructive",
+      })
       return
     }
     if (visibleFiles.some((file) => file.path === path)) {

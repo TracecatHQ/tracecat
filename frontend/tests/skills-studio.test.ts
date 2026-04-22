@@ -6,7 +6,11 @@ import {
   composeMarkdownFrontmatter,
   splitMarkdownFrontmatter,
 } from "@/lib/markdown-frontmatter"
-import { getLanguageForPath, uploadFileToSession } from "@/lib/skills-studio"
+import {
+  getLanguageForPath,
+  uploadFileToSession,
+  validateSkillDraftPath,
+} from "@/lib/skills-studio"
 
 const mockRouterPush = jest.fn()
 const mockCreateSkill = jest.fn()
@@ -234,6 +238,23 @@ Updated body`)
   it("keeps language selection for non-markdown code files", () => {
     expect(getLanguageForPath("script.py")).toBe("python")
   })
+
+  it("validates draft file paths against backend normalization rules", () => {
+    expect(validateSkillDraftPath("docs/readme.md")).toBeNull()
+    expect(validateSkillDraftPath("")).toBe("File path is required.")
+    expect(validateSkillDraftPath("../notes.md")).toBe(
+      "File path cannot escape the skill root."
+    )
+    expect(validateSkillDraftPath("foo//bar.md")).toBe(
+      "Use a normalized path without duplicate, leading, or trailing separators."
+    )
+    expect(validateSkillDraftPath("./SKILL.md")).toBe(
+      "Use a normalized path without duplicate, leading, or trailing separators."
+    )
+    expect(validateSkillDraftPath("docs\\notes.md")).toBe(
+      "Use forward slashes instead of backslashes."
+    )
+  })
 })
 
 describe("useSkillsStudio", () => {
@@ -365,6 +386,32 @@ describe("useSkillsStudio", () => {
       "SKILL.md",
     ])
     expect(result.current.hasUnsavedChanges).toBe(true)
+  })
+
+  it("rejects invalid new file paths before staging draft changes", async () => {
+    const { result } = renderHook(() =>
+      useSkillsStudio({
+        workspaceId: "workspace-1",
+        initialSkillId: "skill-1",
+      })
+    )
+
+    await waitFor(() => {
+      expect(result.current.selectedPath).toBe("SKILL.md")
+    })
+
+    act(() => {
+      result.current.onNewFilePathChange("../notes.md")
+    })
+
+    act(() => {
+      result.current.onCreateNewFile()
+    })
+
+    expect(result.current.visibleFiles.map((file) => file.path)).toEqual([
+      "SKILL.md",
+    ])
+    expect(result.current.hasUnsavedChanges).toBe(false)
   })
 
   it("keeps the full save lifecycle locked while uploads are in flight", async () => {

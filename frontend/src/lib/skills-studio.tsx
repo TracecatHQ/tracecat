@@ -62,6 +62,37 @@ export function isMarkdownPath(path: string): boolean {
   return path.endsWith(".md")
 }
 
+/**
+ * Validates a draft file path against the backend skill path rules.
+ *
+ * Returns a human-readable error message, or null when the path is valid.
+ */
+export function validateSkillDraftPath(path: string): string | null {
+  if (path.includes("\\")) {
+    return "Use forward slashes instead of backslashes."
+  }
+
+  const normalized = normalizePosixPath(path)
+  if (normalized === ".") {
+    return "File path is required."
+  }
+  if (path.startsWith("/")) {
+    return "Use a relative path inside the skill."
+  }
+  if (path.split("/").includes("..")) {
+    return "File path cannot escape the skill root."
+  }
+  if (normalized !== path) {
+    return "Use a normalized path without duplicate, leading, or trailing separators."
+  }
+  return null
+}
+
+function normalizePosixPath(path: string): string {
+  const parts = path.split("/").filter((part) => part !== "" && part !== ".")
+  return parts.length > 0 ? parts.join("/") : "."
+}
+
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const SKILL_NAME_MAX_LENGTH = 64
 
