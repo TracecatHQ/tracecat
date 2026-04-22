@@ -94,6 +94,8 @@ jobs:
     environment: internal-registry-ci
     runs-on: blacksmith-8vcpu-ubuntu-2204
     timeout-minutes: 30
+    env:
+      TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -126,9 +128,19 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
-      - name: Build image and start core Docker services
+      - name: Build cached Tracecat image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          target: production
+          tags: tracecat-ci:${{ env.TRACECAT__CI_IMAGE_TAG }}
+          load: true
+          push: false
+          cache-from: type=gha,scope=tracecat-integration-production
+          cache-to: type=gha,scope=tracecat-integration-production,mode=max
+
+      - name: Start core Docker services
         env:
-          TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
           TRACECAT__EXECUTOR_BACKEND: "direct"
           TRACECAT__FEATURE_FLAGS: ""
@@ -138,9 +150,8 @@ jobs:
           set -euo pipefail
 
           compose_files=(-f docker-compose.local.yml -f .github/docker-compose.integration.yml)
-          image="tracecat-ci:${TRACECAT__CI_IMAGE_TAG}"
 
-          # Overlap host dependency setup with the Docker image build and service startup.
+          # Overlap host dependency setup with Docker service startup.
           uv sync --locked --group dev &
           uv_sync_pid=$!
           cleanup_uv_sync() {
@@ -150,7 +161,6 @@ jobs:
           }
           trap cleanup_uv_sync EXIT
 
-          docker buildx build --load --target production -t "$image" .
           docker compose "${compose_files[@]}" up --no-build -d temporal api worker executor postgres_db caddy minio redis
 
           # Wait for services with health checks to become healthy
@@ -209,8 +219,6 @@ jobs:
 
       - name: Show Docker logs on failure
         if: failure()
-        env:
-          TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           echo "=== Docker Service Status ==="
           docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml ps
@@ -238,7 +246,5 @@ jobs:
 
       - name: Clean up
         if: always()
-        env:
-          TRACECAT__CI_IMAGE_TAG: integration-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           docker compose -f docker-compose.local.yml -f .github/docker-compose.integration.yml down -v
