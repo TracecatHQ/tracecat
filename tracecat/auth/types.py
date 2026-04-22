@@ -83,9 +83,8 @@ class Role(BaseModel):
     @property
     def actor_id(self) -> UserID | None:
         """Return the auditable actor identifier for this role, if present."""
-        if self.type == "service_account":
-            if self.service_account_id is not None:
-                return self.service_account_id
+        if self.type == "service_account" and self.service_account_id is not None:
+            return self.service_account_id
         return self.user_id
 
     def to_headers(self) -> dict[str, str]:
