@@ -2,7 +2,7 @@ name: Lint python
 
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
     paths:
       - tracecat/**
       - packages/**
@@ -11,7 +11,7 @@ on:
       - pyproject.toml
       - .github/workflows/lint-python.yml
   pull_request:
-    branches: ["main", "staging"]
+    branches: [ "main", "staging" ]
     paths:
       - tracecat/**
       - packages/**
@@ -49,7 +49,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install uv
-        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           enable-cache: true
 
