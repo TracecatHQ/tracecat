@@ -273,10 +273,11 @@ async def test_inbox_scope_guards(endpoint: AsyncEndpoint, required_scope: str) 
 @pytest.mark.parametrize(
     ("endpoint", "required_scope"),
     [
+        (organization_router.get_organization_entitlements, "org:read"),
         (organization_router.revoke_invitation, "org:member:invite"),
     ],
 )
-async def test_organization_invitation_scope_guards(
+async def test_organization_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
