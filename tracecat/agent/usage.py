@@ -9,14 +9,10 @@ Two ``OrganizationSetting`` keys, JSON-encoded:
 - ``agents.usage.{YYYY-MM}`` — one row per UTC calendar month, shaped as
   ``{"total_cents": int, "by_workspace_cents": {workspace_id: cents}}``.
 
-Redis mirrors the month row for the hot path (cap check on every run):
-
-- ``usage:cost_cents:org:{org_id}:{YYYY-MM}`` — scalar INT
-- ``usage:cost_cents:org:{org_id}:{YYYY-MM}:by_ws`` — HASH of ws_id → cents
-
-Both Redis keys expire after 90 days. Postgres is the durable source of
-truth; Redis can be evicted / lost and we rebuild from the settings row on
-the next read.
+Postgres is the single source of truth for both the cap (read on every agent
+launch) and the monthly counter (read for the admin usage-snapshot endpoint).
+Agent launches are not high-QPS, so a small indexed SELECT per launch is fine
+and lets us avoid the correctness hazards of a best-effort mirror cache.
 
 Source of cost
 --------------
@@ -28,30 +24,32 @@ on the way in so no floats hit storage.
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, NamedTuple
 
 import orjson
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 
-from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import OrganizationSetting
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
-from tracecat.redis.client import get_redis_client
 from tracecat.settings.service import SettingsService
 
 MONTHLY_BUDGET_CENTS_KEY = "agents.monthly_budget_cents"
 """OrganizationSetting key storing the per-org monthly budget in cents."""
 
-_USAGE_KEY_TTL_SECONDS = 90 * 24 * 60 * 60
-"""Keep roughly the last three UTC months of Redis counters hot."""
+
+class UsageRow(NamedTuple):
+    """Decoded ``agents.usage.{YYYY-MM}`` row."""
+
+    total_cents: int
+    by_workspace_cents: dict[str, int]
 
 
 def _usage_setting_key(month: str) -> str:
@@ -98,23 +96,9 @@ def _current_month_utc() -> str:
     return datetime.now(UTC).strftime("%Y-%m")
 
 
-def _total_key(org_id: OrganizationID, month: str) -> str:
-    return f"usage:cost_cents:org:{org_id}:{month}"
-
-
-def _by_ws_key(org_id: OrganizationID, month: str) -> str:
-    return f"usage:cost_cents:org:{org_id}:{month}:by_ws"
-
-
 # -----------------------------------------------------------------------------
-# Cap lookup (in-process TTL cache to avoid a DB hit on every run)
+# Cap lookup
 # -----------------------------------------------------------------------------
-
-_cap_cache: dict[OrganizationID, tuple[float, int | None]] = {}
-
-
-def _cap_cache_ttl() -> int:
-    return max(0, config.TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS)
 
 
 async def _load_monthly_budget_cents(org_id: OrganizationID) -> int | None:
@@ -157,44 +141,19 @@ async def _load_monthly_budget_cents(org_id: OrganizationID) -> int | None:
     return limit if limit > 0 else None
 
 
-async def get_monthly_budget_cents(org_id: OrganizationID) -> int | None:
-    """Return the effective monthly budget (cents) for the org, cached in-process.
-
-    Cache TTL reuses ``TRACECAT__TIER_LIMITS_CACHE_TTL_SECONDS``.
-    """
-    ttl = _cap_cache_ttl()
-    now = time.monotonic()
-    cached = _cap_cache.get(org_id)
-    if cached is not None and ttl > 0 and cached[0] > now:
-        return cached[1]
-
-    limit = await _load_monthly_budget_cents(org_id)
-    if ttl > 0:
-        _cap_cache[org_id] = (now + ttl, limit)
-    return limit
-
-
-def invalidate_cap_cache(org_id: OrganizationID | None = None) -> None:
-    """Drop cached budget(s). Called after a budget PUT."""
-    if org_id is None:
-        _cap_cache.clear()
-    else:
-        _cap_cache.pop(org_id, None)
-
-
 # -----------------------------------------------------------------------------
-# Postgres persistence (durable counter; survives Redis eviction/restarts)
+# Postgres persistence (durable counter)
 # -----------------------------------------------------------------------------
 
 
-def _decode_usage_row(raw: bytes | None) -> tuple[int, dict[str, int]]:
-    """Decode the ``agents.usage.{YYYY-MM}`` blob into (total, by_ws)."""
+def _decode_usage_row(raw: bytes | None) -> UsageRow:
+    """Decode the stored JSON blob into a ``UsageRow``."""
     if raw is None:
-        return 0, {}
+        return UsageRow(total_cents=0, by_workspace_cents={})
     try:
         data = orjson.loads(raw)
     except Exception:
-        return 0, {}
+        return UsageRow(total_cents=0, by_workspace_cents={})
     total = data.get("total_cents") if isinstance(data, dict) else None
     by_ws_raw = data.get("by_workspace_cents") if isinstance(data, dict) else None
     total_int = int(total) if isinstance(total, (int, float)) else 0
@@ -205,12 +164,15 @@ def _decode_usage_row(raw: bytes | None) -> tuple[int, dict[str, int]]:
                 by_ws[str(k)] = int(v)
             except (TypeError, ValueError):
                 continue
-    return total_int, by_ws
+    return UsageRow(total_cents=total_int, by_workspace_cents=by_ws)
 
 
-def _encode_usage_row(total: int, by_ws: dict[str, int]) -> bytes:
+def _encode_usage_row(row: UsageRow) -> bytes:
     return orjson.dumps(
-        {"total_cents": total, "by_workspace_cents": by_ws},
+        {
+            "total_cents": row.total_cents,
+            "by_workspace_cents": row.by_workspace_cents,
+        },
         option=orjson.OPT_SORT_KEYS,
     )
 
@@ -224,16 +186,38 @@ async def _increment_usage_in_db(
 ) -> None:
     """Increment the durable ``agents.usage.{month}`` counter for this org.
 
-    Uses ``SELECT ... FOR UPDATE`` to serialize concurrent writers on the
-    same org+month row. Creates the row on first write of the month.
+    First write of the month is an atomic ``INSERT ... ON CONFLICT DO NOTHING``
+    so two racing first-writers don't both try to INSERT and lose one to a
+    unique-constraint violation. Subsequent writes lock the existing row with
+    ``SELECT ... FOR UPDATE`` and apply the JSON-in-Python merge.
     """
     if cost_cents <= 0:
         return
     ws_field = str(workspace_id)
     key = _usage_setting_key(month)
+    initial = UsageRow(
+        total_cents=cost_cents, by_workspace_cents={ws_field: cost_cents}
+    )
 
     async with get_async_session_bypass_rls_context_manager() as session:
-        stmt = (
+        insert_stmt = (
+            pg_insert(OrganizationSetting)
+            .values(
+                organization_id=org_id,
+                key=key,
+                value_type="json",
+                value=_encode_usage_row(initial),
+                is_encrypted=False,
+            )
+            .on_conflict_do_nothing(index_elements=["organization_id", "key"])
+            .returning(OrganizationSetting.id)
+        )
+        inserted = (await session.execute(insert_stmt)).scalar_one_or_none()
+        if inserted is not None:
+            await session.commit()
+            return
+
+        sel = (
             select(OrganizationSetting)
             .where(
                 OrganizationSetting.organization_id == org_id,
@@ -241,31 +225,20 @@ async def _increment_usage_in_db(
             )
             .with_for_update()
         )
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-
-        if row is None:
-            row = OrganizationSetting(
-                organization_id=org_id,
-                key=key,
-                value_type="json",
-                value=_encode_usage_row(cost_cents, {ws_field: cost_cents}),
-                is_encrypted=False,
-            )
-            session.add(row)
-        else:
-            total, by_ws = _decode_usage_row(row.value)
-            total += cost_cents
-            by_ws[ws_field] = by_ws.get(ws_field, 0) + cost_cents
-            row.value = _encode_usage_row(total, by_ws)
-            row.is_encrypted = False
-
+        db_row = (await session.execute(sel)).scalar_one()
+        current = _decode_usage_row(db_row.value)
+        merged_by_ws = dict(current.by_workspace_cents)
+        merged_by_ws[ws_field] = merged_by_ws.get(ws_field, 0) + cost_cents
+        updated = UsageRow(
+            total_cents=current.total_cents + cost_cents,
+            by_workspace_cents=merged_by_ws,
+        )
+        db_row.value = _encode_usage_row(updated)
+        db_row.is_encrypted = False
         await session.commit()
 
 
-async def _read_usage_from_db(
-    org_id: OrganizationID, month: str
-) -> tuple[int, dict[str, int]] | None:
+async def _read_usage_from_db(org_id: OrganizationID, month: str) -> UsageRow | None:
     """Read the durable counter. Returns ``None`` if the row doesn't exist."""
     key = _usage_setting_key(month)
     async with get_async_session_bypass_rls_context_manager() as session:
@@ -286,44 +259,22 @@ async def _read_usage_from_db(
 
 
 async def check_monthly_budget(org_id: OrganizationID) -> None:
-    """Raise ``BudgetExceededError`` if the current month's spend is at cap.
-
-    Reads Redis first (fast path); falls back to the durable Postgres row if
-    Redis is empty or unreachable. No headroom math — we block *new* runs
-    once the counter reaches the limit.
-    """
-    limit = await get_monthly_budget_cents(org_id)
+    """Raise ``BudgetExceededError`` if the current month's spend is at cap."""
+    limit = await _load_monthly_budget_cents(org_id)
     if limit is None:
         return
 
     month = _current_month_utc()
-    used: int | None = None
     try:
-        redis = await get_redis_client()
-        client = await redis._get_client()
-        raw = await client.get(_total_key(org_id, month))
-        if raw is not None:
-            try:
-                used = int(raw)
-            except (TypeError, ValueError):
-                used = None
+        durable = await _read_usage_from_db(org_id, month)
     except Exception:
         logger.warning(
-            "Redis budget check failed; falling back to Postgres",
+            "Budget check DB read failed; allowing run",
             org_id=str(org_id),
         )
+        return
 
-    if used is None:
-        try:
-            durable = await _read_usage_from_db(org_id, month)
-            used = durable[0] if durable is not None else 0
-        except Exception:
-            logger.warning(
-                "Postgres budget fallback failed; allowing run",
-                org_id=str(org_id),
-            )
-            return
-
+    used = durable.total_cents if durable is not None else 0
     if used >= limit:
         raise BudgetExceededError(org_id=org_id, used_cents=used, limit_cents=limit)
 
@@ -350,11 +301,11 @@ async def record_agent_cost(
     cost_cents: int,
     session_id: str | None = None,
 ) -> None:
-    """Persist this run's cost to Postgres (durable) and Redis (hot path).
+    """Persist this run's cost to the durable Postgres counter.
 
-    Postgres is the source of truth; Redis is mirrored for the cap-check
-    fast path. Failures on either side are logged and swallowed — a
-    metering blip must never fail a live agent run.
+    Failures are logged and swallowed — a metering blip must never fail a
+    live agent run. The next successful write will include this run's cost
+    only if the DB write itself succeeded here; a failed DB write is lost.
     """
     if cost_cents <= 0:
         return
@@ -388,26 +339,6 @@ async def record_agent_cost(
             session_id=session_id,
         )
 
-    total_key = _total_key(org_id, month)
-    by_ws_key = _by_ws_key(org_id, month)
-    try:
-        redis = await get_redis_client()
-        client = await redis._get_client()
-        pipe = client.pipeline(transaction=False)
-        pipe.incrby(total_key, cost_cents)
-        pipe.hincrby(by_ws_key, ws_field, cost_cents)
-        pipe.expire(total_key, _USAGE_KEY_TTL_SECONDS)
-        pipe.expire(by_ws_key, _USAGE_KEY_TTL_SECONDS)
-        await pipe.execute()
-    except Exception:
-        logger.warning(
-            "Failed to mirror agent cost to Redis",
-            org_id=str(org_id),
-            workspace_id=ws_field,
-            cost_cents=cost_cents,
-            session_id=session_id,
-        )
-
     logger.info(
         "Recorded agent cost",
         org_id=str(org_id),
@@ -423,56 +354,23 @@ async def get_usage_snapshot(
     *,
     month: str | None = None,
 ) -> OrgUsageSnapshot:
-    """Read total + per-workspace breakdown for a UTC month.
-
-    Postgres is the source of truth. Redis is used only to avoid a DB read
-    on the happy path — if Redis is empty or has a lower total than the
-    durable row (e.g. was evicted), we trust Postgres.
-    """
+    """Read total + per-workspace breakdown for a UTC month from Postgres."""
     target_month = month or _current_month_utc()
-    total = 0
-    by_workspace: dict[str, int] = {}
 
+    row: UsageRow | None = None
     try:
-        redis = await get_redis_client()
-        client = await redis._get_client()
-        raw_total = await client.get(_total_key(org_id, target_month))
-        if raw_total is not None:
-            try:
-                total = int(raw_total)
-            except (TypeError, ValueError):
-                total = 0
-        raw_hash_any = cast(Any, client.hgetall(_by_ws_key(org_id, target_month)))
-        raw_hash = await raw_hash_any
-        if isinstance(raw_hash, dict):
-            for field, value in raw_hash.items():
-                try:
-                    by_workspace[str(field)] = int(value)
-                except (TypeError, ValueError):
-                    continue
+        row = await _read_usage_from_db(org_id, target_month)
     except Exception:
         logger.warning(
-            "Failed to read Redis usage snapshot; falling back to Postgres",
+            "Failed to read Postgres usage snapshot",
             org_id=str(org_id),
             month=target_month,
         )
 
-    if total == 0 and not by_workspace:
-        try:
-            durable = await _read_usage_from_db(org_id, target_month)
-            if durable is not None:
-                total, by_workspace = durable
-        except Exception:
-            logger.warning(
-                "Failed to read Postgres usage snapshot",
-                org_id=str(org_id),
-                month=target_month,
-            )
-
-    limit = await get_monthly_budget_cents(org_id)
+    limit = await _load_monthly_budget_cents(org_id)
     return OrgUsageSnapshot(
         month_utc=target_month,
-        total_cents=total,
+        total_cents=row.total_cents if row is not None else 0,
         limit_cents=limit,
-        by_workspace_cents=by_workspace,
+        by_workspace_cents=row.by_workspace_cents if row is not None else {},
     )

@@ -5,14 +5,14 @@ from uuid import UUID
 import orjson
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.agent.usage import (
     MONTHLY_BUDGET_CENTS_KEY,
     OrgUsageSnapshot,
     get_usage_snapshot,
-    invalidate_cap_cache,
 )
 from tracecat.auth.credentials import AuthenticatedUserOnly, OptionalUserDep
 from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
@@ -792,32 +792,33 @@ async def set_org_agent_budget(
     org_id = _require_org_context(role)
     await _require_agent_addons_entitlement(session, org_id)
 
-    stmt = select(OrganizationSetting).where(
-        OrganizationSetting.organization_id == org_id,
-        OrganizationSetting.key == MONTHLY_BUDGET_CENTS_KEY,
-    )
-    result = await session.execute(stmt)
-    setting = result.scalar_one_or_none()
-
     if params.monthly_budget_cents is None:
-        if setting is not None:
-            await session.delete(setting)
-            await session.commit()
+        # DELETE is idempotent; no pre-SELECT, no race.
+        await session.execute(
+            delete(OrganizationSetting).where(
+                OrganizationSetting.organization_id == org_id,
+                OrganizationSetting.key == MONTHLY_BUDGET_CENTS_KEY,
+            )
+        )
     else:
         encoded = orjson.dumps(params.monthly_budget_cents)
-        if setting is None:
-            setting = OrganizationSetting(
-                organization_id=org_id,
-                key=MONTHLY_BUDGET_CENTS_KEY,
-                value_type="json",
-                value=encoded,
-                is_encrypted=False,
-            )
-            session.add(setting)
-        else:
-            setting.value = encoded
-            setting.is_encrypted = False
-        await session.commit()
+        # Atomic set-or-replace; avoids IntegrityError on concurrent first PUTs.
+        upsert = pg_insert(OrganizationSetting).values(
+            organization_id=org_id,
+            key=MONTHLY_BUDGET_CENTS_KEY,
+            value_type="json",
+            value=encoded,
+            is_encrypted=False,
+        )
+        upsert = upsert.on_conflict_do_update(
+            index_elements=["organization_id", "key"],
+            set_={
+                "value": upsert.excluded.value,
+                "value_type": upsert.excluded.value_type,
+                "is_encrypted": upsert.excluded.is_encrypted,
+            },
+        )
+        await session.execute(upsert)
+    await session.commit()
 
-    invalidate_cap_cache(org_id)
     return await get_usage_snapshot(org_id)
