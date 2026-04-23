@@ -241,6 +241,43 @@ class TestSkillService:
         assert updated_draft.name == "crlf-skill"
         assert updated_draft.description == "Created on Windows"
 
+    async def test_skill_md_frontmatter_accepts_closing_delimiter_at_eof(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """EOF closing frontmatter delimiters should validate like newline delimiters."""
+
+        created = await skill_service.create_skill(SkillCreate(name="eof-skill"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\n"
+                            "name: eof-skill\n"
+                            "description: No trailing newline\n"
+                            "---"
+                        ),
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+
+        updated_draft = await skill_service.get_draft(created.id)
+
+        assert updated_draft is not None
+        assert updated_draft.is_publishable is True
+        assert updated_draft.validation_errors == []
+        assert updated_draft.name == "eof-skill"
+        assert updated_draft.description == "No trailing newline"
+
     def test_create_skill_rejects_non_spec_name(self) -> None:
         """Skill names must already satisfy the spec format."""
 

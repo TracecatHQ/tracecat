@@ -212,6 +212,23 @@ class SkillService(BaseWorkspaceService):
         return skill_markdown.replace("\r\n", "\n").replace("\r", "\n")
 
     @staticmethod
+    def _split_skill_markdown_frontmatter(
+        skill_markdown: str,
+    ) -> tuple[str, str] | None:
+        """Split normalized root SKILL.md frontmatter from its body."""
+
+        if not skill_markdown.startswith("---\n"):
+            return None
+        _, _, remainder = skill_markdown.partition("---\n")
+        frontmatter, separator, body = remainder.partition("\n---\n")
+        if separator:
+            return frontmatter, body
+        closing_delimiter = "\n---"
+        if remainder.endswith(closing_delimiter):
+            return remainder[: -len(closing_delimiter)], ""
+        return None
+
+    @staticmethod
     def _build_default_skill_markdown(*, name: str, description: str | None) -> str:
         """Create the seeded root SKILL.md for a new skill."""
 
@@ -247,17 +264,16 @@ class SkillService(BaseWorkspaceService):
         metadata: dict[str, object] = {}
         body = skill_markdown
 
-        if skill_markdown.startswith("---\n"):
-            _, _, remainder = skill_markdown.partition("---\n")
-            frontmatter, separator, body_part = remainder.partition("\n---\n")
-            if separator:
-                body = body_part
-                try:
-                    loaded = yaml.safe_load(frontmatter) or {}
-                except yaml.YAMLError:
-                    loaded = {}
-                if isinstance(loaded, dict):
-                    metadata = dict(loaded)
+        if frontmatter_parts := SkillService._split_skill_markdown_frontmatter(
+            skill_markdown
+        ):
+            frontmatter, body = frontmatter_parts
+            try:
+                loaded = yaml.safe_load(frontmatter) or {}
+            except yaml.YAMLError:
+                loaded = {}
+            if isinstance(loaded, dict):
+                metadata = dict(loaded)
 
         if name is not None:
             metadata["name"] = name
@@ -304,12 +320,12 @@ class SkillService(BaseWorkspaceService):
         """
 
         skill_markdown = SkillService._normalize_skill_markdown_newlines(skill_markdown)
-        if not skill_markdown.startswith("---\n"):
+        frontmatter_parts = SkillService._split_skill_markdown_frontmatter(
+            skill_markdown
+        )
+        if frontmatter_parts is None:
             return None, None
-        _, _, remainder = skill_markdown.partition("---\n")
-        frontmatter, separator, _ = remainder.partition("\n---\n")
-        if not separator:
-            return None, None
+        frontmatter, _ = frontmatter_parts
         try:
             loaded = yaml.safe_load(frontmatter) or {}
         except yaml.YAMLError as exc:
