@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import statistics
 import time
@@ -98,7 +99,7 @@ def _percentile(values: list[float], percentile: float) -> float | None:
     if not values:
         return None
     ordered = sorted(values)
-    index = max(0, min(len(ordered) - 1, int(len(ordered) * percentile) - 1))
+    index = max(0, min(len(ordered) - 1, math.ceil(len(ordered) * percentile) - 1))
     return ordered[index]
 
 
@@ -116,6 +117,14 @@ def _latency_stats(values: list[float]) -> dict[str, float | int | None]:
         "p95_ms": round((_percentile(values, 0.95) or 0) * 1000, 1),
         "max_ms": round(max(values) * 1000, 1),
     }
+
+
+def test_percentile_uses_ceil_rank_for_tail_latency() -> None:
+    assert _percentile([1.0, 2.0, 3.0, 4.0, 5.0], 0.95) == 5.0
+
+
+def test_latency_stats_reports_small_sample_p95_tail() -> None:
+    assert _latency_stats([0.001, 0.002, 0.003, 0.004, 0.005])["p95_ms"] == 5.0
 
 
 def _write_summary_to_file(summary: dict[str, object]) -> None:
