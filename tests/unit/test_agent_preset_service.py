@@ -421,6 +421,10 @@ class TestAgentPresetService:
         latest_version = await agent_preset_service.get_version(versions.items[0].id)
         assert latest_version is not None
         assert latest_version.enable_thinking is False
+        preset_read = await agent_preset_service.build_preset_read(updated_preset)
+        version_read = await agent_preset_service.build_version_read(latest_version)
+        assert preset_read.enable_thinking is False
+        assert version_read.enable_thinking is False
 
     async def test_create_preset_creates_initial_version(
         self,
