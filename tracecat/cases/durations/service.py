@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
@@ -337,7 +338,9 @@ class CaseDurationService(BaseWorkspaceService):
             return []
 
         events = await self._list_case_events(case_obj)
-        return self._compute_durations_from_events(events, definitions)
+        return await asyncio.to_thread(
+            self._compute_durations_from_events, events, definitions
+        )
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def compute_durations(
@@ -381,11 +384,11 @@ class CaseDurationService(BaseWorkspaceService):
         for event in all_events:
             events_by_case[event.case_id].append(event)
 
-        # Compute durations for each case
-        return {
-            case_id: self._compute_durations_from_events(events, definitions)
-            for case_id, events in events_by_case.items()
-        }
+        return await asyncio.to_thread(
+            self._compute_durations_by_case,
+            events_by_case,
+            definitions,
+        )
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def compute_time_series(
@@ -463,13 +466,30 @@ class CaseDurationService(BaseWorkspaceService):
     ) -> list[CaseDurationComputation]:
         """Pure computation of durations from events and definitions."""
         results: list[CaseDurationComputation] = []
+        start_match_cache: dict[tuple[Any, ...], tuple[CaseEvent, datetime] | None] = {}
+        end_match_cache: dict[
+            tuple[tuple[Any, ...], datetime | None], tuple[CaseEvent, datetime] | None
+        ] = {}
         for definition in definitions:
-            start_match = self._find_matching_event(events, definition.start_anchor)
-            end_match = self._find_matching_event(
-                events,
-                definition.end_anchor,
-                earliest_after=start_match[1] if start_match else None,
+            start_anchor_key = self._anchor_cache_key(definition.start_anchor)
+            if start_anchor_key not in start_match_cache:
+                start_match_cache[start_anchor_key] = self._find_matching_event(
+                    events, definition.start_anchor
+                )
+            start_match = start_match_cache[start_anchor_key]
+
+            earliest_after = start_match[1] if start_match else None
+            end_anchor_key = (
+                self._anchor_cache_key(definition.end_anchor),
+                earliest_after,
             )
+            if end_anchor_key not in end_match_cache:
+                end_match_cache[end_anchor_key] = self._find_matching_event(
+                    events,
+                    definition.end_anchor,
+                    earliest_after=earliest_after,
+                )
+            end_match = end_match_cache[end_anchor_key]
 
             started_at = start_match[1] if start_match else None
             ended_at = end_match[1] if end_match else None
@@ -492,6 +512,16 @@ class CaseDurationService(BaseWorkspaceService):
             )
 
         return results
+
+    def _compute_durations_by_case(
+        self,
+        events_by_case: dict[uuid.UUID, list[CaseEvent]],
+        definitions: Sequence[CaseDurationDefinitionRead],
+    ) -> dict[uuid.UUID, list[CaseDurationComputation]]:
+        return {
+            case_id: self._compute_durations_from_events(events, definitions)
+            for case_id, events in events_by_case.items()
+        }
 
     async def sync_case_durations(
         self, case: Case | uuid.UUID
@@ -609,7 +639,7 @@ class CaseDurationService(BaseWorkspaceService):
         *,
         earliest_after: datetime | None = None,
     ) -> tuple[CaseEvent, datetime] | None:
-        candidates: list[tuple[CaseEvent, datetime]] = []
+        best_match: tuple[CaseEvent, datetime] | None = None
         for event in events:
             # A transition to `closed` is emitted as `case_closed` (and reopening
             # as `case_reopened`), so exact matching on `status_changed` would
@@ -631,14 +661,46 @@ class CaseDurationService(BaseWorkspaceService):
                 continue
             if earliest_after and timestamp < earliest_after:
                 continue
-            candidates.append((event, timestamp))
+            if best_match is None:
+                best_match = (event, timestamp)
+                continue
+            if anchor.selection is CaseDurationAnchorSelection.LAST:
+                if timestamp >= best_match[1]:
+                    best_match = (event, timestamp)
+            elif timestamp < best_match[1]:
+                best_match = (event, timestamp)
 
-        if not candidates:
-            return None
-        candidates.sort(key=lambda item: item[1])
-        if anchor.selection is CaseDurationAnchorSelection.LAST:
-            return candidates[-1]
-        return candidates[0]
+        return best_match
+
+    def _anchor_cache_key(self, anchor: CaseDurationEventAnchor) -> tuple[Any, ...]:
+        filter_items = tuple(
+            sorted(
+                (
+                    path,
+                    self._freeze_filter_value(expected),
+                )
+                for path, expected in anchor.field_filters.items()
+            )
+        )
+        return (
+            anchor.event_type,
+            anchor.timestamp_path,
+            anchor.selection,
+            filter_items,
+        )
+
+    def _freeze_filter_value(self, value: Any) -> Any:
+        normalized = self._normalize_filter_value(value)
+        if isinstance(normalized, list):
+            return tuple(self._freeze_filter_value(item) for item in normalized)
+        if isinstance(normalized, dict):
+            return tuple(
+                sorted(
+                    (key, self._freeze_filter_value(item))
+                    for key, item in normalized.items()
+                )
+            )
+        return normalized
 
     def _matches_filters(self, event: CaseEvent, filters: dict[str, Any]) -> bool:
         for path, expected in filters.items():
