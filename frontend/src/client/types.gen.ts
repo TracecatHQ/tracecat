@@ -10560,6 +10560,16 @@ export type WatchtowerListWatchtowerSessionToolCallsData = {
 export type WatchtowerListWatchtowerSessionToolCallsResponse =
   WatchtowerAgentToolCallListResponse
 
+export type WatchtowerListWatchtowerAgentToolCallsData = {
+  agentId: string
+  cursor?: string | null
+  limit?: number
+  status?: WatchtowerToolCallStatus | null
+}
+
+export type WatchtowerListWatchtowerAgentToolCallsResponse =
+  WatchtowerAgentToolCallListResponse
+
 export type WatchtowerRevokeWatchtowerSessionData = {
   requestBody: WatchtowerRevokeAgentSessionRequest
   sessionId: string
@@ -15203,6 +15213,21 @@ export type $OpenApiTs = {
   "/watchtower/monitor/sessions/{session_id}/tool-calls": {
     get: {
       req: WatchtowerListWatchtowerSessionToolCallsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WatchtowerAgentToolCallListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/watchtower/monitor/agents/{agent_id}/tool-calls": {
+    get: {
+      req: WatchtowerListWatchtowerAgentToolCallsData
       res: {
         /**
          * Successful Response

@@ -6,14 +6,15 @@ import {
   type WatchtowerAgentToolCallRead,
   watchtowerDisableWatchtowerAgent,
   watchtowerEnableWatchtowerAgent,
-  watchtowerListWatchtowerAgentSessions,
   watchtowerListWatchtowerAgents,
-  watchtowerListWatchtowerSessionToolCalls,
-  watchtowerRevokeWatchtowerSession,
+  watchtowerListWatchtowerAgentToolCalls,
 } from "@/client"
 
 const WATCHTOWER_REFRESH_MS = 5000
 
+/**
+ * Fetch the deduplicated agent list (one row per email + harness).
+ */
 export function useWatchtowerAgents(params?: {
   status?: WatchtowerAgentRead["status"]
   agentType?: WatchtowerAgentRead["agent_type"]
@@ -36,44 +37,12 @@ export function useWatchtowerAgents(params?: {
   })
 }
 
-export function useWatchtowerAgentSessions(
+/**
+ * Fetch tool calls for a logical agent (the canonical id from the agent list);
+ * the backend fans out across duplicate fingerprints in the same group.
+ */
+export function useWatchtowerAgentToolCalls(
   agentId: string | null,
-  params?: {
-    workspaceId?: string
-    state?: string
-    limit?: number
-  }
-) {
-  const workspaceId = params?.workspaceId
-  const state = params?.state
-  const limit = params?.limit ?? 100
-
-  return useQuery({
-    queryKey: [
-      "watchtower",
-      "sessions",
-      agentId,
-      { workspaceId, state, limit },
-    ],
-    queryFn: () => {
-      if (!agentId) {
-        throw new Error("Missing agent ID")
-      }
-      return watchtowerListWatchtowerAgentSessions({
-        agentId,
-        workspaceId,
-        state,
-        limit,
-      })
-    },
-    enabled: Boolean(agentId),
-    refetchInterval: WATCHTOWER_REFRESH_MS,
-    staleTime: 2000,
-  })
-}
-
-export function useWatchtowerSessionToolCalls(
-  sessionId: string | null,
   params?: {
     status?: WatchtowerAgentToolCallRead["call_status"]
     limit?: number
@@ -83,18 +52,18 @@ export function useWatchtowerSessionToolCalls(
   const limit = params?.limit ?? 100
 
   return useQuery({
-    queryKey: ["watchtower", "tool-calls", sessionId, { status, limit }],
+    queryKey: ["watchtower", "agent-tool-calls", agentId, { status, limit }],
     queryFn: () => {
-      if (!sessionId) {
-        throw new Error("Missing session ID")
+      if (!agentId) {
+        throw new Error("Missing agent ID")
       }
-      return watchtowerListWatchtowerSessionToolCalls({
-        sessionId,
+      return watchtowerListWatchtowerAgentToolCalls({
+        agentId,
         status,
         limit,
       })
     },
-    enabled: Boolean(sessionId),
+    enabled: Boolean(agentId),
     refetchInterval: WATCHTOWER_REFRESH_MS,
     staleTime: 2000,
   })
@@ -106,17 +75,6 @@ export function useWatchtowerActions() {
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ["watchtower"] })
   }
-
-  const revokeSession = useMutation({
-    mutationFn: (params: { sessionId: string; reason?: string }) =>
-      watchtowerRevokeWatchtowerSession({
-        sessionId: params.sessionId,
-        requestBody: {
-          reason: params.reason,
-        },
-      }),
-    onSuccess: invalidate,
-  })
 
   const disableAgent = useMutation({
     mutationFn: (params: { agentId: string; reason?: string }) =>
@@ -138,7 +96,6 @@ export function useWatchtowerActions() {
   })
 
   return {
-    revokeSession,
     disableAgent,
     enableAgent,
   }

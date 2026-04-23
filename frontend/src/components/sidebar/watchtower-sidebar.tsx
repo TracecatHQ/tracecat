@@ -1,19 +1,16 @@
 "use client"
 
-import { ChevronLeftIcon, RadarIcon, SearchIcon } from "lucide-react"
+import { ChevronLeftIcon, RadarIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
-import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
@@ -61,24 +58,10 @@ export function WatchtowerSidebar({
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
-
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  disabled
-                  className="text-muted-foreground hover:bg-transparent"
-                >
-                  <SearchIcon />
-                  <span>Detect</span>
-                </SidebarMenuButton>
-                <SidebarMenuBadge>Soon</SidebarMenuBadge>
-              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
-        <SidebarUserNav />
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   )

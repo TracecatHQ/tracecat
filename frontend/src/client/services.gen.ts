@@ -730,6 +730,8 @@ import type {
   WatchtowerListWatchtowerAgentSessionsResponse,
   WatchtowerListWatchtowerAgentsData,
   WatchtowerListWatchtowerAgentsResponse,
+  WatchtowerListWatchtowerAgentToolCallsData,
+  WatchtowerListWatchtowerAgentToolCallsResponse,
   WatchtowerListWatchtowerSessionToolCallsData,
   WatchtowerListWatchtowerSessionToolCallsResponse,
   WatchtowerRevokeWatchtowerSessionData,
@@ -6215,6 +6217,36 @@ export const watchtowerListWatchtowerSessionToolCalls = (
     url: "/watchtower/monitor/sessions/{session_id}/tool-calls",
     path: {
       session_id: data.sessionId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      status: data.status,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Watchtower Agent Tool Calls
+ * @param data The data for the request.
+ * @param data.agentId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.status
+ * @returns WatchtowerAgentToolCallListResponse Successful Response
+ * @throws ApiError
+ */
+export const watchtowerListWatchtowerAgentToolCalls = (
+  data: WatchtowerListWatchtowerAgentToolCallsData
+): CancelablePromise<WatchtowerListWatchtowerAgentToolCallsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/watchtower/monitor/agents/{agent_id}/tool-calls",
+    path: {
+      agent_id: data.agentId,
     },
     query: {
       limit: data.limit,

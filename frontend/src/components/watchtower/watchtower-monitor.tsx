@@ -11,7 +11,6 @@ import {
   CircleIcon,
   Clock3Icon,
   type LucideIcon,
-  PowerIcon,
   RadarIcon,
   ShieldOffIcon,
   SlidersHorizontalIcon,
@@ -61,9 +60,8 @@ import { useToast } from "@/components/ui/use-toast"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   useWatchtowerActions,
-  useWatchtowerAgentSessions,
   useWatchtowerAgents,
-  useWatchtowerSessionToolCalls,
+  useWatchtowerAgentToolCalls,
 } from "@/hooks/use-watchtower"
 import { getRelativeTime } from "@/lib/event-history"
 import { useWorkspaceManager } from "@/lib/hooks"
@@ -168,32 +166,6 @@ const AGENT_STATUS_FILTER_OPTIONS: FilterSelectOption[] = [
   },
 ]
 
-const SESSION_STATE_FILTER_OPTIONS: FilterSelectOption[] = [
-  {
-    value: "all",
-    label: "All session states",
-    icon: SlidersHorizontalIcon,
-  },
-  {
-    value: "awaiting_initialize",
-    label: "Awaiting initialize",
-    icon: Clock3Icon,
-    iconClassName: "text-amber-600",
-  },
-  {
-    value: "connected",
-    label: "Connected",
-    icon: CircleCheckIcon,
-    iconClassName: "text-emerald-600",
-  },
-  {
-    value: "revoked",
-    label: "Revoked",
-    icon: ShieldOffIcon,
-    iconClassName: "text-destructive",
-  },
-]
-
 const TOOL_STATUS_FILTER_OPTIONS: FilterSelectOption[] = [
   {
     value: "all",
@@ -239,7 +211,6 @@ export function WatchtowerMonitor() {
   const { workspaces } = useWorkspaceManager()
 
   const [agentStatusFilter, setAgentStatusFilter] = useState("all")
-  const [sessionStateFilter, setSessionStateFilter] = useState("all")
   const [toolStatusFilter, setToolStatusFilter] = useState("all")
   const [workspaceFilter, setWorkspaceFilter] = useState("all")
 
@@ -256,48 +227,20 @@ export function WatchtowerMonitor() {
   })
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
-    null
-  )
   const [expandedGroups, setExpandedGroups] = useState<string[]>([])
   const [disableDialogAgent, setDisableDialogAgent] =
     useState<WatchtowerAgentRead | null>(null)
   const [disableReason, setDisableReason] = useState("")
-  const [revokeDialogSessionId, setRevokeDialogSessionId] = useState<
-    string | null
-  >(null)
-  const [revokeReason, setRevokeReason] = useState("")
   const didAutoExpandGroupsRef = useRef(false)
 
   const agents = agentsResponse?.items ?? []
   const selectedAgent =
     agents.find((agent) => agent.id === selectedAgentId) ?? null
 
-  // Sessions for the selected agent (shown in panel)
-  const { data: sessionsResponse, isLoading: sessionsLoading } =
-    useWatchtowerAgentSessions(selectedAgentId, {
-      limit: 200,
-      state: sessionStateFilter === "all" ? undefined : sessionStateFilter,
-      workspaceId: workspaceFilter === "all" ? undefined : workspaceFilter,
-    })
-  const sessions = sessionsResponse?.items ?? []
-
-  useEffect(() => {
-    if (
-      selectedSessionId &&
-      sessions.some((session) => session.id === selectedSessionId)
-    ) {
-      return
-    }
-    setSelectedSessionId(sessions[0]?.id ?? null)
-  }, [sessions, selectedSessionId])
-
-  const selectedSession =
-    sessions.find((session) => session.id === selectedSessionId) ?? null
-
-  // Tool calls for the selected session (shown in panel)
+  // Tool calls for the selected agent (fanned out across all duplicate
+  // fingerprints in the same email + harness group on the backend).
   const { data: toolCallsResponse, isLoading: toolCallsLoading } =
-    useWatchtowerSessionToolCalls(selectedSessionId, {
+    useWatchtowerAgentToolCalls(selectedAgentId, {
       limit: 200,
       status:
         toolStatusFilter === "all"
@@ -306,15 +249,11 @@ export function WatchtowerMonitor() {
     })
   const toolCalls = toolCallsResponse?.items ?? []
 
-  const { disableAgent, enableAgent, revokeSession } = useWatchtowerActions()
+  const { disableAgent, enableAgent } = useWatchtowerActions()
 
   const selectedAgentStatusFilter = findFilterSelectOption(
     AGENT_STATUS_FILTER_OPTIONS,
     agentStatusFilter
-  )
-  const selectedSessionStateFilter = findFilterSelectOption(
-    SESSION_STATE_FILTER_OPTIONS,
-    sessionStateFilter
   )
   const selectedToolStatusFilter = findFilterSelectOption(
     TOOL_STATUS_FILTER_OPTIONS,
@@ -358,12 +297,10 @@ export function WatchtowerMonitor() {
 
   const handleSelectAgent = (agentId: string) => {
     setSelectedAgentId(agentId)
-    setSelectedSessionId(null)
   }
 
   const handlePanelClose = () => {
     setSelectedAgentId(null)
-    setSelectedSessionId(null)
   }
 
   const handleDisableAgent = async () => {
@@ -393,25 +330,6 @@ export function WatchtowerMonitor() {
       toast({
         variant: "destructive",
         title: "Failed to enable agent",
-        description: String(error),
-      })
-    }
-  }
-
-  const handleRevokeSession = async () => {
-    if (!revokeDialogSessionId || revokeSession.isPending) return
-    try {
-      await revokeSession.mutateAsync({
-        sessionId: revokeDialogSessionId,
-        reason: normalizeReason(revokeReason),
-      })
-      toast({ title: "Session revoked" })
-      setRevokeDialogSessionId(null)
-      setRevokeReason("")
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Failed to revoke session",
         description: String(error),
       })
     }
@@ -483,27 +401,6 @@ export function WatchtowerMonitor() {
               </SelectTrigger>
               <SelectContent>
                 {AGENT_STATUS_FILTER_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    <FilterSelectOptionContent option={option} />
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={sessionStateFilter}
-              onValueChange={setSessionStateFilter}
-            >
-              <SelectTrigger className="h-6 w-[190px] text-xs">
-                <SelectValue>
-                  <FilterSelectValueContent
-                    option={selectedSessionStateFilter}
-                    triggerIcon={Clock3Icon}
-                  />
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {SESSION_STATE_FILTER_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     <FilterSelectOptionContent option={option} />
                   </SelectItem>
@@ -679,28 +576,26 @@ export function WatchtowerMonitor() {
                           reason={selectedAgent.blocked_reason}
                         />
                         {selectedAgent.status === "blocked" ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
+                          <button
+                            type="button"
                             disabled={enableAgent.isPending}
                             onClick={() => handleEnableAgent(selectedAgent)}
+                            className="inline-flex h-5 items-center rounded-md border bg-background px-1.5 text-[10px] font-medium uppercase text-foreground transition-colors hover:bg-muted disabled:opacity-50"
                           >
-                            <PowerIcon className="mr-1.5 size-3.5" />
                             Enable
-                          </Button>
+                          </button>
                         ) : (
-                          <Button
-                            size="sm"
-                            variant="destructive"
+                          <button
+                            type="button"
                             disabled={disableAgent.isPending}
                             onClick={() => {
                               setDisableDialogAgent(selectedAgent)
                               setDisableReason("")
                             }}
+                            className="inline-flex h-5 items-center rounded-md border border-transparent bg-destructive px-1.5 text-[10px] font-medium uppercase text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50"
                           >
-                            <ShieldOffIcon className="mr-1.5 size-3.5" />
                             Disable
-                          </Button>
+                          </button>
                         )}
                         <Button
                           size="icon"
@@ -715,102 +610,28 @@ export function WatchtowerMonitor() {
                     </div>
                   </div>
 
-                  {/* Sessions & Tool calls - split layout inside details panel */}
-                  <div className="min-h-0 flex-1 overflow-hidden lg:grid lg:grid-cols-[340px_minmax(0,1fr)]">
-                    {/* Sessions list */}
-                    <div className="min-h-0 border-b lg:border-b-0 lg:border-r">
-                      <div className="flex h-8 items-center border-b px-3">
-                        <span className="text-xs font-medium text-muted-foreground">
-                          Sessions
-                        </span>
-                        {selectedSession && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="ml-auto h-6 px-2 text-xs"
-                            disabled={revokeSession.isPending}
-                            onClick={() => {
-                              setRevokeDialogSessionId(selectedSession.id)
-                              setRevokeReason("")
-                            }}
-                          >
-                            Revoke
-                          </Button>
-                        )}
-                      </div>
-
-                      <div className="h-[calc(100%-2rem)] min-h-0 overflow-auto">
-                        {sessionsLoading ? (
-                          <div className="flex h-full items-center justify-center">
-                            <CenteredSpinner />
-                          </div>
-                        ) : sessions.length === 0 ? (
-                          <div className="px-3 py-6 text-sm text-muted-foreground">
-                            No sessions for this agent.
-                          </div>
-                        ) : (
-                          sessions.map((session) => (
-                            <button
-                              key={session.id}
-                              type="button"
-                              onClick={() => setSelectedSessionId(session.id)}
-                              className={cn(
-                                "w-full border-l-2 border-l-transparent border-b border-border/50 px-3 py-2 text-left transition-colors hover:bg-muted/50",
-                                selectedSessionId === session.id &&
-                                  "border-l-foreground/40 bg-muted/40"
-                              )}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className="min-w-0 flex-1 truncate text-xs font-medium">
-                                  {session.user_email || "No email"}
-                                </div>
-                                <StatusBadge status={session.status} />
-                              </div>
-                              <div className="mt-1 text-[11px] text-muted-foreground">
-                                {shortId(session.id)} ·{" "}
-                                {formatRelative(session.last_seen_at)}
-                              </div>
-                            </button>
-                          ))
-                        )}
-                      </div>
+                  {/* Tool calls take the full panel below the agent header. */}
+                  <div className="min-h-0 flex flex-1 flex-col">
+                    <div className="flex h-8 shrink-0 items-center border-b px-3">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Tool calls
+                      </span>
                     </div>
 
-                    {/* Tool calls */}
-                    <div className="min-h-0 flex flex-col">
-                      <div className="flex h-8 items-center border-b px-3">
-                        <span className="text-xs font-medium text-muted-foreground">
-                          Tool calls
-                        </span>
-                        {selectedSession && (
-                          <span className="ml-auto text-[11px] text-muted-foreground">
-                            Session {shortId(selectedSession.id)}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="min-h-0 flex-1 overflow-auto">
-                        {toolCallsLoading ? (
-                          <div className="flex h-full items-center justify-center">
-                            <CenteredSpinner />
-                          </div>
-                        ) : selectedSession == null ? (
-                          <div className="px-3 py-6 text-sm text-muted-foreground">
-                            Select a session to view tool calls.
-                          </div>
-                        ) : toolCalls.length === 0 ? (
-                          <div className="px-3 py-6 text-sm text-muted-foreground">
-                            No tool calls captured for this session.
-                          </div>
-                        ) : (
-                          toolCalls.map((toolCall) => (
-                            <ToolCallRow
-                              key={toolCall.id}
-                              toolCall={toolCall}
-                            />
-                          ))
-                        )}
-                      </div>
+                    <div className="min-h-0 flex-1 overflow-auto">
+                      {toolCallsLoading ? (
+                        <div className="flex h-full items-center justify-center">
+                          <CenteredSpinner />
+                        </div>
+                      ) : toolCalls.length === 0 ? (
+                        <div className="px-3 py-6 text-sm text-muted-foreground">
+                          No tool calls captured for this agent.
+                        </div>
+                      ) : (
+                        toolCalls.map((toolCall) => (
+                          <ToolCallRow key={toolCall.id} toolCall={toolCall} />
+                        ))
+                      )}
                     </div>
                   </div>
                 </div>
@@ -863,51 +684,6 @@ export function WatchtowerMonitor() {
               }}
             >
               Disable
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={revokeDialogSessionId !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setRevokeDialogSessionId(null)
-            setRevokeReason("")
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Revoke agent session</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will immediately revoke the selected local agent session.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-2">
-            <label
-              htmlFor="watchtower-revoke-reason"
-              className="text-sm text-muted-foreground"
-            >
-              Optional reason
-            </label>
-            <Input
-              id="watchtower-revoke-reason"
-              placeholder="Reason shown in audit logs"
-              value={revokeReason}
-              onChange={(event) => setRevokeReason(event.target.value)}
-            />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={revokeSession.isPending}
-              onClick={(event) => {
-                event.preventDefault()
-                void handleRevokeSession()
-              }}
-            >
-              Revoke
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1015,7 +791,7 @@ function AgentRow({
           reason={agent.status === "blocked" ? agent.blocked_reason : undefined}
         />
         <span className="text-[11px] text-muted-foreground">
-          {formatRelative(agent.last_seen_at)}
+          {capitalizeFirst(formatRelative(agent.last_seen_at))}
         </span>
       </div>
     </button>
@@ -1075,11 +851,13 @@ function ToolCallRow({ toolCall }: { toolCall: WatchtowerAgentToolCallRead }) {
           className="px-3 py-2"
         />
         <div className="flex flex-wrap items-center gap-2 px-3 pb-2 text-[11px] text-muted-foreground">
-          <span>{formatRelative(toolCall.called_at)}</span>
+          <span>{capitalizeFirst(formatRelative(toolCall.called_at))}</span>
+          {toolCall.agent_session_id ? (
+            <span>· session {shortId(toolCall.agent_session_id)}</span>
+          ) : null}
           {typeof toolCall.latency_ms === "number" ? (
             <span>· {toolCall.latency_ms}ms</span>
           ) : null}
-          <StatusBadge status={toolCall.call_status} />
         </div>
         <ToolContent>
           <div className="space-y-3 px-3 pb-3">
@@ -1272,6 +1050,13 @@ function shortId(value: string) {
 
 function formatRelative(value: string) {
   return getRelativeTime(new Date(value))
+}
+
+function capitalizeFirst(value: string): string {
+  if (value.length === 0) {
+    return value
+  }
+  return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
 function normalizeReason(value: string | undefined): string | undefined {

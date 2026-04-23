@@ -156,6 +156,47 @@ async def list_watchtower_session_tool_calls(
         ) from exc
 
 
+@router.get(
+    "/agents/{agent_id}/tool-calls",
+    response_model=WatchtowerAgentToolCallListResponse,
+    dependencies=[Depends(_require_watchtower_entitlement)],
+)
+@require_scope("org:update")
+async def list_watchtower_agent_tool_calls(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    agent_id: uuid.UUID,
+    limit: int = Query(
+        default=config.TRACECAT__LIMIT_DEFAULT,
+        ge=config.TRACECAT__LIMIT_MIN,
+        le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    ),
+    cursor: str | None = Query(default=None),
+    status_filter: WatchtowerToolCallStatus | None = Query(
+        default=None, alias="status"
+    ),
+) -> WatchtowerAgentToolCallListResponse:
+    service = WatchtowerService(session, role=role)
+    try:
+        return await service.list_agent_tool_calls(
+            agent_id=agent_id,
+            limit=limit,
+            cursor=cursor,
+            status=status_filter,
+        )
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
 @router.post(
     "/sessions/{session_id}/revoke",
     status_code=status.HTTP_204_NO_CONTENT,

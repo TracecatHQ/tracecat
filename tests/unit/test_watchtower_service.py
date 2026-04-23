@@ -60,6 +60,18 @@ class _FakeSession:
             raise AssertionError("unexpected execute call")
         return self._results.pop(0)
 
+    async def scalar(self, statement: Any) -> Any:
+        self.statements.append(statement)
+        if not self._results:
+            raise AssertionError("unexpected scalar call")
+        return self._results.pop(0)._scalar_value
+
+    async def scalars(self, statement: Any) -> _RowsResult:
+        self.statements.append(statement)
+        if not self._results:
+            raise AssertionError("unexpected scalars call")
+        return _RowsResult(self._results.pop(0)._scalars_rows)
+
     def add(self, instance: Any) -> None:
         self.added.append(instance)
 
@@ -245,9 +257,9 @@ async def test_list_agents_active_session_count_uses_stale_cutoff() -> None:
 
 
 @pytest.mark.anyio
-async def test_list_agents_session_counts_scoped_to_page() -> None:
-    """Regression: session count aggregation must only scan agents in the
-    current page, not the entire organization."""
+async def test_list_agents_dedupes_by_email_and_type() -> None:
+    """Regression: list_agents must collapse duplicate fingerprints emitted
+    by the MCP OAuth flow into one row per (last_user_email, agent_type)."""
     org_id = uuid.uuid4()
     fake_session = _FakeSession([_ExecuteResult(tuples_rows=[])])
     service = _build_service(fake_session, org_id)
@@ -259,17 +271,155 @@ async def test_list_agents_session_counts_scoped_to_page() -> None:
         status=None,
     )
 
-    stmt_text = str(fake_session.statements[0])
-    # The counts subquery must scope session aggregation to the paginated
-    # agent IDs via an IN clause referencing the page subquery.
-    assert "agent_id IN (SELECT page.id" in stmt_text, (
-        "session counts must be scoped to the page subquery via IN"
+    from sqlalchemy.dialects import postgresql
+
+    stmt_text = str(fake_session.statements[0].compile(dialect=postgresql.dialect()))
+    # Postgres DISTINCT ON over (group_key, agent_type) collapses duplicates.
+    assert "DISTINCT ON" in stmt_text, "list_agents must dedup with DISTINCT ON"
+    assert "coalesce(watchtower_agent.last_user_email" in stmt_text.lower(), (
+        "dedup key must fall back to agent id for NULL emails"
     )
-    # The page subquery must be LIMIT-bounded so only a fixed number of
-    # agent IDs are considered.
-    assert "LIMIT" in stmt_text, (
-        "page subquery must contain a LIMIT to bound the agent set"
+    # Counts must aggregate at the group level so duplicate fingerprints
+    # contribute to the canonical row's session counts.
+    assert "GROUP BY" in stmt_text
+    # The page subquery must be LIMIT-bounded.
+    assert "LIMIT" in stmt_text
+
+
+@pytest.mark.anyio
+async def test_disable_agent_does_not_touch_last_seen_at() -> None:
+    """Regression: disabling must not bump last_seen_at; otherwise re-enabling
+    an idle agent flips it to ACTIVE within the 30-minute stale window."""
+    org_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+    canonical = SimpleNamespace(
+        id=agent_id,
+        last_user_email="user@example.com",
+        agent_type="claude_code",
     )
+    fake_session = _FakeSession(
+        [
+            _ExecuteResult(scalar_value=canonical),  # _load_agent_for_group
+            _ExecuteResult(),  # update statement
+        ]
+    )
+    service = _build_service(fake_session, org_id)
+
+    await service.disable_agent(agent_id, reason="testing")
+
+    update_stmt_text = str(fake_session.statements[1])
+    assert "blocked_at" in update_stmt_text
+    assert "last_seen_at" not in update_stmt_text, (
+        "disable_agent must preserve last_seen_at so enable returns to IDLE"
+    )
+
+
+@pytest.mark.anyio
+async def test_disable_agent_fans_out_to_siblings() -> None:
+    """Disable must apply to every duplicate fingerprint sharing
+    (last_user_email, agent_type) so the user-visible state is consistent."""
+    org_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+    canonical = SimpleNamespace(
+        id=agent_id,
+        last_user_email="user@example.com",
+        agent_type="claude_code",
+    )
+    fake_session = _FakeSession(
+        [
+            _ExecuteResult(scalar_value=canonical),
+            _ExecuteResult(),
+        ]
+    )
+    service = _build_service(fake_session, org_id)
+
+    await service.disable_agent(agent_id, reason=None)
+
+    update_stmt_text = str(fake_session.statements[1])
+    # Group fan-out matches by email rather than the canonical id.
+    assert "watchtower_agent.last_user_email" in update_stmt_text.lower()
+
+
+@pytest.mark.anyio
+async def test_enable_agent_fans_out_to_siblings() -> None:
+    org_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+    canonical = SimpleNamespace(
+        id=agent_id,
+        last_user_email="user@example.com",
+        agent_type="claude_code",
+    )
+    fake_session = _FakeSession(
+        [
+            _ExecuteResult(scalar_value=canonical),
+            _ExecuteResult(),
+        ]
+    )
+    service = _build_service(fake_session, org_id)
+
+    await service.enable_agent(agent_id)
+
+    update_stmt_text = str(fake_session.statements[1])
+    assert "watchtower_agent.last_user_email" in update_stmt_text.lower()
+    assert "blocked_at" in update_stmt_text
+
+
+@pytest.mark.anyio
+async def test_disable_agent_with_null_email_only_affects_canonical() -> None:
+    """NULL emails cannot be uniquely grouped, so disable acts on the single
+    canonical row only — never a sibling."""
+    org_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+    canonical = SimpleNamespace(
+        id=agent_id,
+        last_user_email=None,
+        agent_type="unknown",
+    )
+    fake_session = _FakeSession(
+        [
+            _ExecuteResult(scalar_value=canonical),
+            _ExecuteResult(),
+        ]
+    )
+    service = _build_service(fake_session, org_id)
+
+    await service.disable_agent(agent_id, reason=None)
+
+    update_stmt_text = str(fake_session.statements[1])
+    assert "watchtower_agent.id" in update_stmt_text.lower()
+
+
+@pytest.mark.anyio
+async def test_list_agent_tool_calls_fans_out_to_sibling_agents() -> None:
+    """Tool calls in the side panel must span every duplicate fingerprint of
+    the same (email, harness) pair so the unified history is complete."""
+    org_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+    canonical = SimpleNamespace(
+        id=agent_id,
+        last_user_email="user@example.com",
+        agent_type="claude_code",
+    )
+    fake_session = _FakeSession(
+        [
+            _ExecuteResult(scalar_value=canonical),  # _load_agent_for_group
+            _ExecuteResult(scalars_rows=[]),  # tool calls scan
+        ]
+    )
+    service = _build_service(fake_session, org_id)
+
+    response = await service.list_agent_tool_calls(
+        agent_id=agent_id,
+        limit=50,
+        cursor=None,
+        status=None,
+    )
+
+    assert response.items == []
+    tool_calls_stmt_text = str(fake_session.statements[1])
+    # Member resolution joins via last_user_email instead of pinning to
+    # canonical's id, so duplicate fingerprints contribute their tool calls.
+    assert "last_user_email" in tool_calls_stmt_text.lower()
 
 
 @pytest.mark.anyio

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import and_, case, delete, func, or_, select, update
+from sqlalchemy import String, and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -83,43 +83,83 @@ class WatchtowerService(BaseOrgService):
         retention_cutoff = _retention_cutoff()
         stale_cutoff = _session_stale_cutoff()
 
-        # 1. Select paginated agent IDs with all filters applied first,
-        #    so the counts aggregation is scoped to only the page.
-        page_stmt = select(WatchtowerAgent.id).where(
-            WatchtowerAgent.organization_id == self.organization_id,
-            WatchtowerAgent.last_seen_at >= retention_cutoff,
+        # The MCP OAuth flow re-issues a new auth_client_id per Dynamic Client
+        # Registration, producing a fresh WatchtowerAgent fingerprint for the
+        # same user+harness on every reconnect. Collapse those duplicates to
+        # one row per (last_user_email, agent_type); NULL emails fall back to
+        # the agent id so they remain singletons.
+        group_key_expr = func.coalesce(
+            WatchtowerAgent.last_user_email,
+            WatchtowerAgent.id.cast(String),
+        )
+
+        # 1. Pick the canonical (most-recent) fingerprint per group, applying
+        #    per-fingerprint filters first so the canonical respects the
+        #    requested status/type.
+        canonical_stmt = (
+            select(WatchtowerAgent.id, WatchtowerAgent.last_seen_at)
+            .where(
+                WatchtowerAgent.organization_id == self.organization_id,
+                WatchtowerAgent.last_seen_at >= retention_cutoff,
+            )
+            .distinct(group_key_expr, WatchtowerAgent.agent_type)
+            .order_by(
+                group_key_expr,
+                WatchtowerAgent.agent_type,
+                WatchtowerAgent.last_seen_at.desc(),
+                WatchtowerAgent.id.desc(),
+            )
         )
         if agent_type:
-            page_stmt = page_stmt.where(WatchtowerAgent.agent_type == agent_type)
+            canonical_stmt = canonical_stmt.where(
+                WatchtowerAgent.agent_type == agent_type
+            )
         if status == WatchtowerAgentStatus.BLOCKED:
-            page_stmt = page_stmt.where(WatchtowerAgent.blocked_at.is_not(None))
+            canonical_stmt = canonical_stmt.where(
+                WatchtowerAgent.blocked_at.is_not(None)
+            )
         elif status == WatchtowerAgentStatus.ACTIVE:
-            page_stmt = page_stmt.where(
+            canonical_stmt = canonical_stmt.where(
                 WatchtowerAgent.blocked_at.is_(None),
                 WatchtowerAgent.last_seen_at >= stale_cutoff,
             )
         elif status == WatchtowerAgentStatus.IDLE:
-            page_stmt = page_stmt.where(
+            canonical_stmt = canonical_stmt.where(
                 WatchtowerAgent.blocked_at.is_(None),
                 WatchtowerAgent.last_seen_at < stale_cutoff,
             )
+        canonical_subq = canonical_stmt.subquery("canonical")
 
-        page_stmt = _apply_desc_cursor_filter(
-            page_stmt,
-            model=WatchtowerAgent,
-            cursor=cursor,
-            sort_attr="last_seen_at",
+        # 2. Apply cursor pagination on canonical rows by re-sorting on
+        #    last_seen_at DESC.
+        page_stmt = select(canonical_subq.c.id).order_by(
+            canonical_subq.c.last_seen_at.desc(),
+            canonical_subq.c.id.desc(),
         )
-        page_stmt = page_stmt.order_by(
-            WatchtowerAgent.last_seen_at.desc(), WatchtowerAgent.id.desc()
-        )
+        if cursor:
+            cursor_data = BaseCursorPaginator.decode_cursor(cursor)
+            sort_value = cursor_data.sort_value
+            if not isinstance(sort_value, datetime):
+                raise ValueError("Invalid cursor sort value")
+            cursor_id = uuid.UUID(cursor_data.id)
+            page_stmt = page_stmt.where(
+                or_(
+                    canonical_subq.c.last_seen_at < sort_value,
+                    and_(
+                        canonical_subq.c.last_seen_at == sort_value,
+                        canonical_subq.c.id < cursor_id,
+                    ),
+                )
+            )
         page_stmt = page_stmt.limit(limit + 1)
         page_subq = page_stmt.subquery("page")
 
-        # 2. Aggregate session counts only for agents in the page.
+        # 3. Aggregate session counts at the (group_key, agent_type) level so
+        #    duplicate fingerprints contribute to the same canonical row.
         counts_subq = (
             select(
-                WatchtowerAgentSession.agent_id,
+                group_key_expr.label("group_key"),
+                WatchtowerAgent.agent_type.label("agent_type"),
                 func.count().label("total"),
                 func.count(
                     case(
@@ -134,16 +174,21 @@ class WatchtowerService(BaseOrgService):
                     )
                 ).label("active"),
             )
+            .join(
+                WatchtowerAgentSession,
+                WatchtowerAgentSession.agent_id == WatchtowerAgent.id,
+            )
             .where(
+                WatchtowerAgent.organization_id == self.organization_id,
                 WatchtowerAgentSession.organization_id == self.organization_id,
                 WatchtowerAgentSession.last_seen_at >= retention_cutoff,
-                WatchtowerAgentSession.agent_id.in_(select(page_subq.c.id)),
             )
-            .group_by(WatchtowerAgentSession.agent_id)
+            .group_by(group_key_expr, WatchtowerAgent.agent_type)
             .subquery("counts")
         )
 
-        # 3. Join full agent objects with counts for the page.
+        # 4. Final select: canonical rows in the page, joined to per-group
+        #    counts on (group_key, agent_type).
         stmt = (
             select(
                 WatchtowerAgent,
@@ -151,7 +196,13 @@ class WatchtowerService(BaseOrgService):
                 func.coalesce(counts_subq.c.active, 0).label("active_sessions"),
             )
             .join(page_subq, WatchtowerAgent.id == page_subq.c.id)
-            .outerjoin(counts_subq, WatchtowerAgent.id == counts_subq.c.agent_id)
+            .outerjoin(
+                counts_subq,
+                and_(
+                    counts_subq.c.group_key == group_key_expr,
+                    counts_subq.c.agent_type == WatchtowerAgent.agent_type,
+                ),
+            )
             .order_by(WatchtowerAgent.last_seen_at.desc(), WatchtowerAgent.id.desc())
         )
 
@@ -356,6 +407,94 @@ class WatchtowerService(BaseOrgService):
             has_more=has_more,
         )
 
+    async def list_agent_tool_calls(
+        self,
+        *,
+        agent_id: uuid.UUID,
+        limit: int,
+        cursor: str | None,
+        status: WatchtowerToolCallStatus | None,
+    ) -> WatchtowerAgentToolCallListResponse:
+        await maybe_prune_watchtower_retention(
+            self.session,
+            organization_id=self.organization_id,
+        )
+        canonical = await self._load_agent_for_group(agent_id)
+        retention_cutoff = _retention_cutoff()
+
+        # Fan out across duplicate fingerprints in the same (email, harness)
+        # group so the panel shows a unified history.
+        member_ids_subq = (
+            select(WatchtowerAgent.id)
+            .where(
+                _agent_group_where_clause(
+                    organization_id=self.organization_id,
+                    last_user_email=canonical.last_user_email,
+                    agent_type=canonical.agent_type,
+                    canonical_id=canonical.id,
+                )
+            )
+            .subquery("member_ids")
+        )
+
+        stmt = select(WatchtowerAgentToolCall).where(
+            WatchtowerAgentToolCall.organization_id == self.organization_id,
+            WatchtowerAgentToolCall.agent_id.in_(select(member_ids_subq.c.id)),
+            WatchtowerAgentToolCall.called_at >= retention_cutoff,
+        )
+        if status is not None:
+            stmt = stmt.where(WatchtowerAgentToolCall.call_status == status)
+
+        stmt = _apply_desc_cursor_filter(
+            stmt,
+            model=WatchtowerAgentToolCall,
+            cursor=cursor,
+            sort_attr="called_at",
+        )
+        stmt = stmt.order_by(
+            WatchtowerAgentToolCall.called_at.desc(),
+            WatchtowerAgentToolCall.id.desc(),
+        )
+        stmt = stmt.limit(limit + 1)
+
+        call_rows = await self.session.scalars(stmt)
+        calls: list[WatchtowerAgentToolCall] = list(call_rows.all())
+        has_more = len(calls) > limit
+        if has_more:
+            calls = calls[:limit]
+
+        items = [
+            WatchtowerAgentToolCallRead(
+                id=call.id,
+                organization_id=call.organization_id,
+                agent_id=call.agent_id,
+                agent_session_id=call.agent_session_id,
+                workspace_id=call.workspace_id,
+                tool_name=call.tool_name,
+                call_status=_coerce_tool_call_status(call.call_status),
+                latency_ms=call.latency_ms,
+                args_redacted=cast(dict[str, object], call.args_redacted),
+                error_redacted=call.error_redacted,
+                called_at=call.called_at,
+            )
+            for call in calls
+        ]
+
+        next_cursor = None
+        if has_more and calls:
+            last = calls[-1]
+            next_cursor = BaseCursorPaginator.encode_cursor(
+                id=last.id,
+                sort_column="called_at",
+                sort_value=last.called_at,
+            )
+
+        return WatchtowerAgentToolCallListResponse(
+            items=items,
+            next_cursor=next_cursor,
+            has_more=has_more,
+        )
+
     async def revoke_session(self, session_id: uuid.UUID, reason: str | None) -> None:
         now = datetime.now(UTC)
         stmt = (
@@ -379,44 +518,59 @@ class WatchtowerService(BaseOrgService):
         await self.session.commit()
 
     async def disable_agent(self, agent_id: uuid.UUID, reason: str | None) -> None:
+        # Resolve the (email, agent_type) group so we disable every duplicate
+        # fingerprint the MCP OAuth flow may have produced for this user+harness.
+        canonical = await self._load_agent_for_group(agent_id)
         now = datetime.now(UTC)
+        where_clause = _agent_group_where_clause(
+            organization_id=self.organization_id,
+            last_user_email=canonical.last_user_email,
+            agent_type=canonical.agent_type,
+            canonical_id=canonical.id,
+        )
+        # Preserve last_seen_at so re-enabling an idle agent does not flip it
+        # to ACTIVE within the 30-minute stale window.
         stmt = (
             update(WatchtowerAgent)
-            .where(
-                WatchtowerAgent.organization_id == self.organization_id,
-                WatchtowerAgent.id == agent_id,
-            )
+            .where(where_clause)
             .values(
                 blocked_at=now,
                 blocked_reason=reason,
                 blocked_by_user_id=self.role.user_id,
-                last_seen_at=now,
             )
-            .returning(WatchtowerAgent.id)
         )
-        updated_id = await self.session.scalar(stmt)
-        if updated_id is None:
-            raise TracecatNotFoundError("Watchtower agent not found")
+        await self.session.execute(stmt)
         await self.session.commit()
 
     async def enable_agent(self, agent_id: uuid.UUID) -> None:
+        canonical = await self._load_agent_for_group(agent_id)
+        where_clause = _agent_group_where_clause(
+            organization_id=self.organization_id,
+            last_user_email=canonical.last_user_email,
+            agent_type=canonical.agent_type,
+            canonical_id=canonical.id,
+        )
         stmt = (
             update(WatchtowerAgent)
-            .where(
-                WatchtowerAgent.organization_id == self.organization_id,
-                WatchtowerAgent.id == agent_id,
-            )
+            .where(where_clause)
             .values(
                 blocked_at=None,
                 blocked_reason=None,
                 blocked_by_user_id=None,
             )
-            .returning(WatchtowerAgent.id)
         )
-        updated_id = await self.session.scalar(stmt)
-        if updated_id is None:
-            raise TracecatNotFoundError("Watchtower agent not found")
+        await self.session.execute(stmt)
         await self.session.commit()
+
+    async def _load_agent_for_group(self, agent_id: uuid.UUID) -> WatchtowerAgent:
+        stmt = select(WatchtowerAgent).where(
+            WatchtowerAgent.organization_id == self.organization_id,
+            WatchtowerAgent.id == agent_id,
+        )
+        agent = await self.session.scalar(stmt)
+        if agent is None:
+            raise TracecatNotFoundError("Watchtower agent not found")
+        return agent
 
     async def _assert_agent_exists(self, agent_id: uuid.UUID) -> None:
         stmt = select(
@@ -476,6 +630,27 @@ def _derive_agent_status(agent: WatchtowerAgent) -> WatchtowerAgentStatus:
     if agent.last_seen_at >= _session_stale_cutoff():
         return WatchtowerAgentStatus.ACTIVE
     return WatchtowerAgentStatus.IDLE
+
+
+def _agent_group_where_clause(
+    *,
+    organization_id: uuid.UUID,
+    last_user_email: str | None,
+    agent_type: str,
+    canonical_id: uuid.UUID,
+) -> Any:
+    """Match all duplicate WatchtowerAgent rows for the same (email, harness).
+
+    NULL emails are treated as singletons because they cannot be uniquely
+    grouped with other rows.
+    """
+    base = and_(
+        WatchtowerAgent.organization_id == organization_id,
+        WatchtowerAgent.agent_type == agent_type,
+    )
+    if last_user_email is None:
+        return and_(base, WatchtowerAgent.id == canonical_id)
+    return and_(base, WatchtowerAgent.last_user_email == last_user_email)
 
 
 def _derive_session_status(
