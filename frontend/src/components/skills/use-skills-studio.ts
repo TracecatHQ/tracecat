@@ -184,6 +184,8 @@ export function useSkillsStudio(params: {
   const [saveWorkingCopyPending, setSaveWorkingCopyPending] = useState(false)
   const saveWorkingCopyPendingRef = useRef(false)
   const [showUploadConfirmDialog, setShowUploadConfirmDialog] = useState(false)
+  const [uploadConfirmPending, setUploadConfirmPending] = useState(false)
+  const uploadConfirmPendingRef = useRef(false)
   const [pendingUploadFiles, setPendingUploadFiles] = useState<
     Array<{ file: File; path: string }>
   >([])
@@ -271,6 +273,7 @@ export function useSkillsStudio(params: {
   const { restoreSkillVersion, restoreSkillVersionPending } =
     useRestoreSkillVersion(workspaceId)
   const { deleteSkill, deleteSkillPending } = useDeleteSkill(workspaceId)
+  const uploadPending = uploadSkillPending || uploadConfirmPending
 
   // Delete skill dialog state
   const [showDeleteSkillDialog, setShowDeleteSkillDialog] = useState(false)
@@ -452,9 +455,15 @@ export function useSkillsStudio(params: {
   }
 
   const handleConfirmUpload = async () => {
-    if (pendingUploadFiles.length === 0) {
+    if (
+      pendingUploadFiles.length === 0 ||
+      uploadSkillPending ||
+      uploadConfirmPendingRef.current
+    ) {
       return
     }
+    uploadConfirmPendingRef.current = true
+    setUploadConfirmPending(true)
     try {
       await handleUploadFiles(pendingUploadFiles)
       setShowUploadConfirmDialog(false)
@@ -465,6 +474,9 @@ export function useSkillsStudio(params: {
         description: getApiErrorDetail(error) ?? "Failed to upload skill.",
         variant: "destructive",
       })
+    } finally {
+      uploadConfirmPendingRef.current = false
+      setUploadConfirmPending(false)
     }
   }
 
@@ -754,7 +766,7 @@ export function useSkillsStudio(params: {
     onDragLeave: handleDragLeave,
     onDrop: handleDrop,
     onDirectoryInput: handleDirectoryInput,
-    uploadSkillPending,
+    uploadSkillPending: uploadPending,
 
     showUploadConfirmDialog,
     pendingUploadFiles,

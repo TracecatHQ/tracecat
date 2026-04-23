@@ -7,6 +7,7 @@ import {
   splitMarkdownFrontmatter,
 } from "@/lib/markdown-frontmatter"
 import {
+  fileToUploadEntry,
   getLanguageForPath,
   uploadFileToSession,
   validateSkillDraftPath,
@@ -26,6 +27,7 @@ jest.mock("@/lib/skills-studio", () => {
   return {
     ...actual,
     computeFileSha256: jest.fn(async () => "sha-upload"),
+    fileToUploadEntry: jest.fn(),
     uploadFileToSession: jest.fn(),
   }
 })
@@ -210,6 +212,9 @@ jest.mock("@/hooks/use-skills", () => ({
 const mockUploadFileToSession = uploadFileToSession as jest.MockedFunction<
   typeof uploadFileToSession
 >
+const mockFileToUploadEntry = fileToUploadEntry as jest.MockedFunction<
+  typeof fileToUploadEntry
+>
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -266,6 +271,11 @@ Updated body`)
 describe("useSkillsStudio", () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFileToUploadEntry.mockImplementation(async (file, relativePath) => ({
+      path: relativePath,
+      content_base64: "encoded-upload",
+      content_type: file.type || undefined,
+    }))
   })
 
   it("clears staged changes when deleting a new unsaved file", async () => {
@@ -495,6 +505,74 @@ describe("useSkillsStudio", () => {
     expect(result.current.saveWorkingCopyPending).toBe(false)
     expect(mockCreateSkillDraftUpload).not.toHaveBeenCalled()
     expect(mockPatchSkillDraft).not.toHaveBeenCalled()
+  })
+
+  it("guards upload confirmation against double submits", async () => {
+    const entryDeferred = createDeferred<{
+      path: string
+      content_base64: string
+      content_type: string | undefined
+    }>()
+    const uploadDeferred = createDeferred<{ id: string }>()
+    mockFileToUploadEntry.mockImplementation(() => entryDeferred.promise)
+    mockUploadSkill.mockImplementation(() => uploadDeferred.promise)
+
+    const { result } = renderHook(() =>
+      useSkillsStudio({
+        workspaceId: "workspace-1",
+        initialSkillId: "skill-1",
+      })
+    )
+
+    await waitFor(() => {
+      expect(result.current.selectedPath).toBe("SKILL.md")
+    })
+
+    const file = new File(["# Uploaded"], "SKILL.md", {
+      type: "text/markdown; charset=utf-8",
+    })
+
+    act(() => {
+      result.current.onDirectoryInput({
+        target: { files: [file], value: "" },
+      } as unknown as ChangeEvent<HTMLInputElement>)
+    })
+
+    expect(result.current.showUploadConfirmDialog).toBe(true)
+
+    let firstConfirm: Promise<void> | undefined
+    let secondConfirm: Promise<void> | undefined
+    act(() => {
+      firstConfirm = result.current.onConfirmUpload()
+      secondConfirm = result.current.onConfirmUpload()
+    })
+
+    await waitFor(() => {
+      expect(result.current.uploadSkillPending).toBe(true)
+    })
+    await waitFor(() => {
+      expect(mockFileToUploadEntry).toHaveBeenCalledTimes(1)
+    })
+
+    entryDeferred.resolve({
+      path: "SKILL.md",
+      content_base64: "encoded-upload",
+      content_type: "text/markdown; charset=utf-8",
+    })
+
+    await waitFor(() => {
+      expect(mockUploadSkill).toHaveBeenCalledTimes(1)
+    })
+
+    uploadDeferred.resolve({ id: "uploaded-skill" })
+
+    await act(async () => {
+      await Promise.all([firstConfirm, secondConfirm])
+    })
+
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      "/workspaces/workspace-1/skills/uploaded-skill"
+    )
   })
 
   it("preserves edits made while a save is in flight", async () => {
