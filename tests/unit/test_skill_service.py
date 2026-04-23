@@ -45,7 +45,7 @@ from tracecat.db.models import (
 from tracecat.db.models import (
     SkillUpload as SkillUploadModel,
 )
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.storage.blob import ensure_bucket_exists
 
@@ -1573,6 +1573,59 @@ class TestSkillService:
             "SKILL.md",
             "references/guide.md",
         ]
+
+    async def test_archived_skill_hides_published_version_reads(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Archived skills should not expose published version contents."""
+
+        created = await skill_service.create_skill(SkillCreate(name="archived-version"))
+        draft = await skill_service.get_draft(created.id)
+        assert draft is not None
+
+        await skill_service.patch_draft(
+            skill_id=created.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="references/guide.md",
+                        content="Version one",
+                    )
+                ],
+            ),
+        )
+        published = await skill_service.publish_skill(created.id)
+
+        version_file = await skill_service.get_version_file(
+            skill_id=created.id,
+            version_id=published.id,
+            path="references/guide.md",
+        )
+        assert version_file is not None
+
+        detailed_version = await skill_service.get_version_read(
+            skill_id=created.id,
+            version_id=published.id,
+        )
+        assert detailed_version.id == published.id
+
+        await skill_service.archive_skill(created.id)
+
+        assert (
+            await skill_service.get_version_file(
+                skill_id=created.id,
+                version_id=published.id,
+                path="references/guide.md",
+            )
+            is None
+        )
+        with pytest.raises(TracecatNotFoundError, match="Skill version"):
+            await skill_service.get_version_read(
+                skill_id=created.id,
+                version_id=published.id,
+            )
 
     async def test_restore_version_locks_skill_row(
         self,

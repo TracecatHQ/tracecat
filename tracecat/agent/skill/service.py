@@ -990,6 +990,29 @@ class SkillService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def _get_active_version(
+        self, *, skill_id: uuid.UUID, version_id: uuid.UUID
+    ) -> SkillVersion | None:
+        """Return a published version only when its parent skill is active."""
+
+        stmt = (
+            select(SkillVersion)
+            .join(
+                Skill,
+                sa.and_(
+                    Skill.id == SkillVersion.skill_id,
+                    Skill.workspace_id == SkillVersion.workspace_id,
+                ),
+            )
+            .where(
+                SkillVersion.workspace_id == self.workspace_id,
+                SkillVersion.id == version_id,
+                SkillVersion.skill_id == skill_id,
+                Skill.archived_at.is_(None),
+            )
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def _get_skill_for_update(self, skill_id: uuid.UUID) -> Skill | None:
         """Return and lock a skill row for mutation."""
 
@@ -1316,8 +1339,10 @@ class SkillService(BaseWorkspaceService):
             return None
         version_file, blob_row = row
 
-        version = await self.get_version(version_id)
-        if version is None or version.skill_id != skill_id:
+        version = await self._get_active_version(
+            skill_id=skill_id, version_id=version_id
+        )
+        if version is None:
             return None
 
         if self._is_inline_text(
@@ -1754,8 +1779,10 @@ class SkillService(BaseWorkspaceService):
     ) -> SkillVersionRead:
         """Return a fully rendered published skill version."""
 
-        version = await self.get_version(version_id)
-        if version is None or version.skill_id != skill_id:
+        version = await self._get_active_version(
+            skill_id=skill_id, version_id=version_id
+        )
+        if version is None:
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
         rows = await self._list_version_rows(version.id)
         return SkillVersionRead(
