@@ -6106,9 +6106,9 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
                 id=uuid.uuid4(),
                 workspace_id=workspace_id,
                 name=params.name,
-                description="Existing description",
+                description="Updated description",
                 current_version_id=None,
-                draft_revision=2,
+                draft_revision=1,
                 created_at=now,
                 updated_at=now,
                 archived_at=None,
@@ -6118,32 +6118,6 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
                 draft_file_count=len(params.files),
             )
 
-        async def get_draft(self, _skill_id):
-            return SimpleNamespace(draft_revision=2)
-
-        async def patch_draft(self, *, skill_id, params):
-            captured["patch_skill_id"] = skill_id
-            captured["patch_params"] = params
-
-        async def get_skill_read(self, skill_id):
-            captured["get_skill_read"] = skill_id
-            now = datetime.now(UTC)
-            return SkillRead(
-                id=skill_id,
-                workspace_id=workspace_id,
-                name="triage-skill",
-                description="Updated description",
-                current_version_id=None,
-                draft_revision=3,
-                created_at=now,
-                updated_at=now,
-                archived_at=None,
-                current_version=None,
-                is_draft_publishable=True,
-                draft_validation_errors=[],
-                draft_file_count=1,
-            )
-
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
     monkeypatch.setattr(
         mcp_server.SkillService,
@@ -6151,7 +6125,7 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
         lambda role: _AsyncContext(_SkillService()),
     )
 
-    await _tool(mcp_server.upload_skill)(
+    result = await _tool(mcp_server.upload_skill)(
         workspace_id=str(workspace_id),
         name="triage-skill",
         description="Updated description",
@@ -6166,12 +6140,15 @@ async def test_upload_skill_preserves_uploaded_skill_markdown_body(
         ],
     )
 
-    patched_content = captured["patch_params"].operations[0].content
+    payload = _payload(result)
+    upload_file = captured["upload_params"].files[0]
+    uploaded_content = base64.b64decode(upload_file.content_base64).decode("utf-8")
 
-    assert "name: triage-skill" in patched_content
-    assert "description: Updated description" in patched_content
-    assert "tags:" in patched_content
-    assert "# Real instructions" in patched_content
+    assert payload["description"] == "Updated description"
+    assert "name: triage-skill" in uploaded_content
+    assert "description: Updated description" in uploaded_content
+    assert "tags:" in uploaded_content
+    assert "# Real instructions" in uploaded_content
 
 
 @pytest.mark.anyio
@@ -6190,14 +6167,23 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
 
     class _SkillService:
         async def upload_skill(self, params):
+            captured["upload_params"] = params
+            uploaded_content = base64.b64decode(params.files[0].content_base64).decode(
+                "utf-8"
+            )
+            name, description = mcp_server.SkillService._extract_frontmatter(
+                uploaded_content
+            )
+            assert name == "triage-skill"
+            assert description == "Recovered description"
             now = datetime.now(UTC)
             return SkillRead(
                 id=uuid.uuid4(),
                 workspace_id=workspace_id,
                 name=params.name,
-                description=None,
+                description="Recovered description",
                 current_version_id=None,
-                draft_revision=2,
+                draft_revision=1,
                 created_at=now,
                 updated_at=now,
                 archived_at=None,
@@ -6205,31 +6191,6 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
                 is_draft_publishable=True,
                 draft_validation_errors=[],
                 draft_file_count=len(params.files),
-            )
-
-        async def get_draft(self, _skill_id):
-            return SimpleNamespace(draft_revision=2)
-
-        async def patch_draft(self, *, skill_id, params):
-            captured["patch_skill_id"] = skill_id
-            captured["patch_params"] = params
-
-        async def get_skill_read(self, skill_id):
-            now = datetime.now(UTC)
-            return SkillRead(
-                id=skill_id,
-                workspace_id=workspace_id,
-                name="triage-skill",
-                description="Recovered description",
-                current_version_id=None,
-                draft_revision=3,
-                created_at=now,
-                updated_at=now,
-                archived_at=None,
-                current_version=None,
-                is_draft_publishable=True,
-                draft_validation_errors=[],
-                draft_file_count=1,
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -6255,8 +6216,9 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
     )
 
     payload = _payload(result)
-    patched_content = captured["patch_params"].operations[0].content
-    _, _, remainder = patched_content.partition("---\n")
+    upload_file = captured["upload_params"].files[0]
+    uploaded_content = base64.b64decode(upload_file.content_base64).decode("utf-8")
+    _, _, remainder = uploaded_content.partition("---\n")
     frontmatter, separator, body = remainder.partition("\n---\n")
 
     assert payload["name"] == "triage-skill"
@@ -6268,7 +6230,7 @@ async def test_upload_skill_tolerates_malformed_uploaded_frontmatter(
     }
     assert "# Real instructions" in body
     assert "Keep this body." in body
-    assert "Describe when this skill should be used" not in patched_content
+    assert "Describe when this skill should be used" not in uploaded_content
 
 
 @pytest.mark.anyio
@@ -6287,14 +6249,15 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
 
     class _SkillService:
         async def upload_skill(self, params):
+            captured["upload_params"] = params
             now = datetime.now(UTC)
             return SkillRead(
                 id=uuid.uuid4(),
                 workspace_id=workspace_id,
                 name=params.name,
-                description=None,
+                description="Updated description",
                 current_version_id=None,
-                draft_revision=2,
+                draft_revision=1,
                 created_at=now,
                 updated_at=now,
                 archived_at=None,
@@ -6302,31 +6265,6 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
                 is_draft_publishable=True,
                 draft_validation_errors=[],
                 draft_file_count=len(params.files),
-            )
-
-        async def get_draft(self, _skill_id):
-            return SimpleNamespace(draft_revision=2)
-
-        async def patch_draft(self, *, skill_id, params):
-            captured["patch_skill_id"] = skill_id
-            captured["patch_params"] = params
-
-        async def get_skill_read(self, skill_id):
-            now = datetime.now(UTC)
-            return SkillRead(
-                id=skill_id,
-                workspace_id=workspace_id,
-                name="triage-skill",
-                description="Updated description",
-                current_version_id=None,
-                draft_revision=3,
-                created_at=now,
-                updated_at=now,
-                archived_at=None,
-                current_version=None,
-                is_draft_publishable=True,
-                draft_validation_errors=[],
-                draft_file_count=1,
             )
 
     monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
@@ -6352,13 +6290,14 @@ async def test_upload_skill_merges_metadata_for_large_skill_markdown(
     )
 
     payload = _payload(result)
-    patched_content = captured["patch_params"].operations[0].content
+    upload_file = captured["upload_params"].files[0]
+    uploaded_content = base64.b64decode(upload_file.content_base64).decode("utf-8")
 
     assert payload["name"] == "triage-skill"
     assert payload["description"] == "Updated description"
-    assert "# Real instructions" in patched_content
-    assert "Updated description" in patched_content
-    assert len(patched_content) > 300_000
+    assert "# Real instructions" in uploaded_content
+    assert "Updated description" in uploaded_content
+    assert len(uploaded_content) > 300_000
 
 
 @pytest.mark.anyio
@@ -6388,7 +6327,7 @@ async def test_upload_skill_rejects_missing_root_skill_markdown_before_upload(
 
     with pytest.raises(
         ToolError,
-        match="Uploaded skill must include a root SKILL.md when description is provided",
+        match="Uploaded skill must include a root SKILL.md",
     ):
         await _tool(mcp_server.upload_skill)(
             workspace_id=str(workspace_id),

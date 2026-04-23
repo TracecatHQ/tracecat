@@ -57,7 +57,6 @@ from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.skill.schemas import (
-    SkillDraftPatch,
     SkillRead,
     SkillUpload,
     SkillUploadFile,
@@ -814,9 +813,7 @@ def _read_uploaded_skill_markdown_for_metadata_merge(
 
     skill_md_file = next((file for file in files if file.path == "SKILL.md"), None)
     if skill_md_file is None:
-        raise ToolError(
-            "Uploaded skill must include a root SKILL.md when description is provided"
-        )
+        raise ToolError("Uploaded skill must include a root SKILL.md")
 
     try:
         content = base64.b64decode(skill_md_file.content_base64, validate=True)
@@ -828,6 +825,31 @@ def _read_uploaded_skill_markdown_for_metadata_merge(
         return content.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ToolError("Uploaded skill SKILL.md must be UTF-8 text") from exc
+
+
+def _merge_uploaded_skill_markdown_metadata(
+    files: Sequence[SkillUploadFile],
+    *,
+    name: str,
+    description: str | None,
+) -> list[SkillUploadFile]:
+    """Return upload files with root SKILL.md metadata merged before validation."""
+
+    skill_md = _read_uploaded_skill_markdown_for_metadata_merge(files)
+    merged_skill_md = SkillService._merge_skill_markdown_metadata(
+        skill_md,
+        name=name,
+        description=description,
+    )
+    merged_content_base64 = base64.b64encode(merged_skill_md.encode("utf-8")).decode(
+        "ascii"
+    )
+    return [
+        file.model_copy(update={"content_base64": merged_content_base64})
+        if file.path == "SKILL.md"
+        else file
+        for file in files
+    ]
 
 
 def _infer_folder_path_from_relative_path(relative_path: str) -> str | None:
@@ -7374,42 +7396,21 @@ async def upload_skill(
 
     try:
         _, role = await _resolve_workspace_role(workspace_id)
-        skill_md_for_merge = None
-        if description is not None:
-            skill_md_for_merge = _read_uploaded_skill_markdown_for_metadata_merge(files)
+        files_for_upload = _merge_uploaded_skill_markdown_metadata(
+            files,
+            name=name,
+            description=description,
+        )
         params = SkillUpload.model_validate(
             {
                 "name": name,
-                "files": SkillUploadFile.list_adapter().dump_python(files, mode="json"),
+                "files": SkillUploadFile.list_adapter().dump_python(
+                    files_for_upload, mode="json"
+                ),
             }
         )
         async with SkillService.with_session(role=role) as svc:
             created = await svc.upload_skill(params)
-            if skill_md_for_merge is not None:
-                skill_md = SkillService._merge_skill_markdown_metadata(
-                    skill_md_for_merge,
-                    name=name,
-                    description=description,
-                )
-                await svc.patch_draft(
-                    skill_id=created.id,
-                    params=SkillDraftPatch.model_validate(
-                        {
-                            "base_revision": created.draft_revision,
-                            "operations": [
-                                {
-                                    "op": "upsert_text_file",
-                                    "path": "SKILL.md",
-                                    "content": skill_md,
-                                    "content_type": "text/markdown; charset=utf-8",
-                                }
-                            ],
-                        }
-                    ),
-                )
-                created = await svc.get_skill_read(created.id)
-                if created is None:
-                    raise ToolError("Uploaded skill was not found")
         return _json(SkillRead.model_validate(created).model_dump(mode="json"))
     except ToolError:
         raise
