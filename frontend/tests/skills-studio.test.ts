@@ -19,6 +19,7 @@ const mockPatchSkillDraft = jest.fn()
 const mockCreateSkillDraftUpload = jest.fn()
 const mockPublishSkill = jest.fn()
 const mockRestoreSkillVersion = jest.fn()
+const mockDeleteSkill = jest.fn()
 
 jest.mock("@/lib/skills-studio", () => {
   const actual = jest.requireActual("@/lib/skills-studio")
@@ -198,6 +199,11 @@ jest.mock("@/hooks/use-skills", () => ({
     restoreSkillVersion: mockRestoreSkillVersion,
     restoreSkillVersionPending: false,
     restoreSkillVersionError: null,
+  }),
+  useDeleteSkill: () => ({
+    deleteSkill: mockDeleteSkill,
+    deleteSkillPending: false,
+    deleteSkillError: null,
   }),
 }))
 

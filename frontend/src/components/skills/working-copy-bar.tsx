@@ -1,6 +1,6 @@
 "use client"
 
-import { History, Loader2, Save, Send } from "lucide-react"
+import { History, Loader2, Save, Send, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import type { SkillDraftRead, SkillRead, SkillVersionRead } from "@/client"
@@ -52,9 +52,11 @@ type WorkingCopyBarProps = {
   patchSkillDraftPending: boolean
   createSkillDraftUploadPending: boolean
   publishSkillPending: boolean
+  deleteSkillPending: boolean
   onRestore: (versionId: string) => Promise<void>
   onSaveWorkingCopy: () => Promise<void>
   onPublish: () => Promise<void>
+  onDelete: () => void
 }
 
 /**
@@ -90,9 +92,11 @@ export function WorkingCopyBar({
   patchSkillDraftPending,
   createSkillDraftUploadPending,
   publishSkillPending,
+  deleteSkillPending,
   onRestore,
   onSaveWorkingCopy,
   onPublish,
+  onDelete,
 }: WorkingCopyBarProps) {
   const [versionToRestore, setVersionToRestore] =
     useState<SkillVersionRead | null>(null)
@@ -269,6 +273,20 @@ export function WorkingCopyBar({
               <Send className="mr-2 size-4" />
             )}
             Publish version
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onDelete}
+            disabled={deleteSkillPending}
+            className="text-muted-foreground hover:text-destructive"
+          >
+            {deleteSkillPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Trash2 className="size-4" />
+            )}
+            <span className="sr-only">Delete skill</span>
           </Button>
         </div>
       </div>

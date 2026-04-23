@@ -972,16 +972,21 @@ class SkillService(BaseWorkspaceService):
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_skill(self, skill_id: uuid.UUID) -> Skill | None:
+    async def get_skill(
+        self, skill_id: uuid.UUID, *, include_archived: bool = False
+    ) -> Skill | None:
         """Return a skill by ID."""
 
+        predicates = [
+            Skill.workspace_id == self.workspace_id,
+            Skill.id == skill_id,
+        ]
+        if not include_archived:
+            predicates.append(Skill.archived_at.is_(None))
         stmt = (
             select(Skill)
             .options(selectinload(Skill.current_version))
-            .where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id == skill_id,
-            )
+            .where(*predicates)
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
@@ -1161,7 +1166,10 @@ class SkillService(BaseWorkspaceService):
         """List workspace skills with cursor pagination."""
 
         paginator = BaseCursorPaginator(self.session)
-        stmt = select(Skill).where(Skill.workspace_id == self.workspace_id)
+        stmt = select(Skill).where(
+            Skill.workspace_id == self.workspace_id,
+            Skill.archived_at.is_(None),
+        )
         if params.cursor:
             try:
                 cursor_data = paginator.decode_cursor(params.cursor)
@@ -1800,12 +1808,12 @@ class SkillService(BaseWorkspaceService):
     @require_scope("agent:delete")
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def archive_skill(self, skill_id: uuid.UUID) -> None:
-        """Archive a skill unless it is still bound on a preset head."""
+        """Archive a skill unless any preset still references it."""
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
-        binding_stmt = (
+        head_binding_stmt = (
             select(func.count())
             .select_from(AgentPresetSkill)
             .where(
@@ -1813,9 +1821,23 @@ class SkillService(BaseWorkspaceService):
                 AgentPresetSkill.skill_id == skill.id,
             )
         )
-        if int((await self.session.execute(binding_stmt)).scalar_one() or 0) > 0:
+        history_binding_stmt = (
+            select(func.count())
+            .select_from(AgentPresetVersionSkill)
+            .where(
+                AgentPresetVersionSkill.workspace_id == self.workspace_id,
+                AgentPresetVersionSkill.skill_id == skill.id,
+            )
+        )
+        head_binding_count = int(
+            (await self.session.execute(head_binding_stmt)).scalar_one() or 0
+        )
+        history_binding_count = int(
+            (await self.session.execute(history_binding_stmt)).scalar_one() or 0
+        )
+        if head_binding_count > 0 or history_binding_count > 0:
             raise TracecatValidationError(
-                "Cannot archive a skill that is still attached to a preset",
+                "Cannot delete a skill that is still referenced by a preset",
                 detail={"code": "skill_in_use"},
             )
         skill.archived_at = datetime.now(UTC)

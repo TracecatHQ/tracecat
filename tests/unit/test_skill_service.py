@@ -19,6 +19,7 @@ from tracecat import config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetSkillBindingBase,
+    AgentPresetUpdate,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.skill.schemas import (
@@ -500,6 +501,28 @@ class TestSkillService:
         assert isinstance(listing.items[0], SkillReadMinimal)
         assert listing.items[0].id == created.id
         assert listing.items[0].name == created.name
+
+    async def test_list_skills_excludes_archived_skills(
+        self,
+        skill_service: SkillService,
+    ) -> None:
+        """Archived skills are hidden from the normal skills list."""
+
+        archived = await skill_service.create_skill(SkillCreate(name="archived-skill"))
+        active = await skill_service.create_skill(SkillCreate(name="active-skill"))
+
+        await skill_service.archive_skill(archived.id)
+        listing = await skill_service.list_skills(CursorPaginationParams(limit=10))
+
+        assert [skill.id for skill in listing.items] == [active.id]
+        assert await skill_service.get_skill(archived.id) is None
+        assert (
+            await skill_service.get_skill(archived.id, include_archived=True)
+            is not None
+        )
+        assert isinstance(listing.items[0], SkillReadMinimal)
+        assert listing.items[0].id == active.id
+        assert listing.items[0].name == active.name
 
     async def test_patch_draft_enforces_revision(
         self,
@@ -1610,7 +1633,43 @@ class TestSkillService:
         )
 
         assert preset.current_version_id is not None
-        with pytest.raises(TracecatValidationError, match="still attached to a preset"):
+        with pytest.raises(
+            TracecatValidationError, match="still referenced by a preset"
+        ):
+            await skill_service.archive_skill(created.id)
+
+    async def test_archive_blocks_when_preset_history_references_skill(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        skill_service: SkillService,
+    ) -> None:
+        """Archiving is blocked while preset history still references the skill."""
+
+        created = await skill_service.create_skill(SkillCreate(name="history-skill"))
+        skill_version = await skill_service.publish_skill(created.id)
+
+        preset_service = AgentPresetService(session=session, role=svc_role)
+        preset = await preset_service.create_preset(
+            AgentPresetCreate(
+                name="Historical preset",
+                description="Preset with historical skill use",
+                instructions="Use the skill",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[
+                    AgentPresetSkillBindingBase(
+                        skill_id=created.id,
+                        skill_version_id=skill_version.id,
+                    )
+                ],
+            )
+        )
+        await preset_service.update_preset(preset, AgentPresetUpdate(skills=None))
+
+        with pytest.raises(
+            TracecatValidationError, match="still referenced by a preset"
+        ):
             await skill_service.archive_skill(created.id)
 
     async def test_archive_skill_locks_skill_row(
@@ -1639,7 +1698,7 @@ class TestSkillService:
         )
 
         await skill_service.archive_skill(created.id)
-        archived = await skill_service.get_skill(created.id)
+        archived = await skill_service.get_skill(created.id, include_archived=True)
 
         assert lock_calls == 1
         assert archived is not None

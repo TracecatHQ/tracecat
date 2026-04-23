@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  agentSkillsArchiveSkill,
   agentSkillsCreateSkill,
   agentSkillsCreateSkillDraftUpload,
   agentSkillsGetSkill,
@@ -532,5 +533,56 @@ export function useRestoreSkillVersion(workspaceId: string) {
     restoreSkillVersion: mutation.mutateAsync,
     restoreSkillVersionPending: mutation.isPending,
     restoreSkillVersionError: mutation.error,
+  }
+}
+
+/**
+ * Delete a skill from Skills Studio.
+ *
+ * @param workspaceId Workspace identifier.
+ * @returns Delete mutation state.
+ */
+export function useDeleteSkill(workspaceId: string) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation<void, TracecatApiError, { skillId: string }>({
+    mutationFn: async ({ skillId }) =>
+      await agentSkillsArchiveSkill({ workspaceId, skillId }),
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["skills", workspaceId] })
+      queryClient.removeQueries({
+        queryKey: ["skill", workspaceId, variables.skillId],
+      })
+      queryClient.removeQueries({
+        queryKey: ["skill-draft", workspaceId, variables.skillId],
+      })
+      queryClient.removeQueries({
+        queryKey: ["skill-versions", workspaceId, variables.skillId],
+      })
+      toast({
+        title: "Skill deleted",
+        description: "The skill has been deleted.",
+      })
+    },
+    onError: (error) => {
+      const detail = getApiErrorDetail(error)
+      const isInUse =
+        typeof error.body === "object" &&
+        error.body !== null &&
+        "code" in error.body &&
+        error.body.code === "skill_in_use"
+      toast({
+        title: isInUse ? "Skill in use" : "Delete failed",
+        description: isInUse
+          ? "This skill is referenced by an agent and cannot be deleted."
+          : (detail ?? "Failed to delete skill."),
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    deleteSkill: mutation.mutateAsync,
+    deleteSkillPending: mutation.isPending,
+    deleteSkillError: mutation.error,
   }
 }

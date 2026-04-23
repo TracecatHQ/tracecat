@@ -25,6 +25,7 @@ import { toast } from "@/components/ui/use-toast"
 import {
   useCreateSkill,
   useCreateSkillDraftUpload,
+  useDeleteSkill,
   usePatchSkillDraft,
   usePublishSkill,
   useRestoreSkillVersion,
@@ -71,6 +72,14 @@ type UseSkillsStudioReturn = {
   onOpenNewSkillDialog: () => void
   onOpenUploadSkillDialog: () => void
 
+  // Delete skill
+  showDeleteSkillDialog: boolean
+  deleteSkillTarget: SkillReadMinimal | null
+  deleteSkillPending: boolean
+  onOpenDeleteSkillDialog: (skill: SkillReadMinimal) => void
+  onDeleteSkillDialogChange: (open: boolean) => void
+  onConfirmDeleteSkill: () => Promise<void>
+
   // Upload skill dialog
   showUploadSkillDialog: boolean
   onUploadSkillDialogChange: (open: boolean) => void
@@ -80,6 +89,12 @@ type UseSkillsStudioReturn = {
   onDrop: (event: DragEvent<HTMLDivElement>) => void
   onDirectoryInput: (event: ChangeEvent<HTMLInputElement>) => void
   uploadSkillPending: boolean
+
+  // Upload confirmation dialog
+  showUploadConfirmDialog: boolean
+  pendingUploadFiles: Array<{ file: File; path: string }>
+  onConfirmUpload: () => Promise<void>
+  onCancelUpload: () => void
 
   // Editor panel
   skill?: SkillRead
@@ -168,6 +183,10 @@ export function useSkillsStudio(params: {
   const [isDragOver, setIsDragOver] = useState(false)
   const [saveWorkingCopyPending, setSaveWorkingCopyPending] = useState(false)
   const saveWorkingCopyPendingRef = useRef(false)
+  const [showUploadConfirmDialog, setShowUploadConfirmDialog] = useState(false)
+  const [pendingUploadFiles, setPendingUploadFiles] = useState<
+    Array<{ file: File; path: string }>
+  >([])
 
   const draftChanges = useMemo(() => {
     if (!selectedSkillId) {
@@ -251,6 +270,12 @@ export function useSkillsStudio(params: {
   const { publishSkill, publishSkillPending } = usePublishSkill(workspaceId)
   const { restoreSkillVersion, restoreSkillVersionPending } =
     useRestoreSkillVersion(workspaceId)
+  const { deleteSkill, deleteSkillPending } = useDeleteSkill(workspaceId)
+
+  // Delete skill dialog state
+  const [showDeleteSkillDialog, setShowDeleteSkillDialog] = useState(false)
+  const [deleteSkillTarget, setDeleteSkillTarget] =
+    useState<SkillReadMinimal | null>(null)
 
   // ── Derived ────────────────────────────────────────────────────────
   const visibleSkills = useMemo(() => {
@@ -337,6 +362,10 @@ export function useSkillsStudio(params: {
     () => setShowNewFileDialog(true),
     []
   )
+  const handleOpenDeleteSkillDialog = useCallback((skill: SkillReadMinimal) => {
+    setDeleteSkillTarget(skill)
+    setShowDeleteSkillDialog(true)
+  }, [])
 
   // ── Handlers ───────────────────────────────────────────────────────
   const handleSelectSkill = (skillId: string) => {
@@ -389,28 +418,19 @@ export function useSkillsStudio(params: {
     })
   }
 
-  const handleDirectoryInput = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleDirectoryInput = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
     if (files.length === 0) {
       return
     }
-    try {
-      await handleUploadFiles(
-        files.map((file) => ({
-          file,
-          path: file.webkitRelativePath || file.name,
-        }))
-      )
-      setShowUploadSkillDialog(false)
-    } catch (error) {
-      toast({
-        title: "Upload failed",
-        description: getApiErrorDetail(error) ?? "Failed to upload skill.",
-        variant: "destructive",
-      })
-    } finally {
-      event.target.value = ""
-    }
+    const mapped = files.map((file) => ({
+      file,
+      path: file.webkitRelativePath || file.name,
+    }))
+    setPendingUploadFiles(mapped)
+    setShowUploadSkillDialog(false)
+    setShowUploadConfirmDialog(true)
+    event.target.value = ""
   }
 
   const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
@@ -418,16 +438,39 @@ export function useSkillsStudio(params: {
     setIsDragOver(false)
     try {
       const droppedFiles = await extractDroppedFiles(event)
-      await handleUploadFiles(droppedFiles)
+      setPendingUploadFiles(droppedFiles)
       setShowUploadSkillDialog(false)
+      setShowUploadConfirmDialog(true)
     } catch (error) {
       toast({
         title: "Drop upload failed",
         description:
-          getApiErrorDetail(error) ?? "Failed to upload dropped directory.",
+          getApiErrorDetail(error) ?? "Failed to read dropped files.",
         variant: "destructive",
       })
     }
+  }
+
+  const handleConfirmUpload = async () => {
+    if (pendingUploadFiles.length === 0) {
+      return
+    }
+    try {
+      await handleUploadFiles(pendingUploadFiles)
+      setShowUploadConfirmDialog(false)
+      setPendingUploadFiles([])
+    } catch (error) {
+      toast({
+        title: "Upload failed",
+        description: getApiErrorDetail(error) ?? "Failed to upload skill.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleCancelUpload = () => {
+    setShowUploadConfirmDialog(false)
+    setPendingUploadFiles([])
   }
 
   const handleEditorChange = (nextValue: string) => {
@@ -665,6 +708,23 @@ export function useSkillsStudio(params: {
     await restoreSkillVersion({ skillId: selectedSkillId, versionId })
   }
 
+  const handleConfirmDeleteSkill = async () => {
+    if (!deleteSkillTarget) {
+      return
+    }
+    try {
+      await deleteSkill({ skillId: deleteSkillTarget.id })
+      setShowDeleteSkillDialog(false)
+      setDeleteSkillTarget(null)
+      if (selectedSkillId === deleteSkillTarget.id) {
+        setSelectedSkillId(null)
+        router.push(`/workspaces/${workspaceId}/skills`)
+      }
+    } catch {
+      // The mutation hook already reports delete failures to the user.
+    }
+  }
+
   // ── Return ─────────────────────────────────────────────────────────
   return {
     workspaceId,
@@ -680,6 +740,13 @@ export function useSkillsStudio(params: {
     onOpenNewSkillDialog: handleOpenNewSkillDialog,
     onOpenUploadSkillDialog: handleOpenUploadSkillDialog,
 
+    showDeleteSkillDialog,
+    deleteSkillTarget,
+    deleteSkillPending,
+    onOpenDeleteSkillDialog: handleOpenDeleteSkillDialog,
+    onDeleteSkillDialogChange: setShowDeleteSkillDialog,
+    onConfirmDeleteSkill: handleConfirmDeleteSkill,
+
     showUploadSkillDialog,
     onUploadSkillDialogChange: setShowUploadSkillDialog,
     isDragOver,
@@ -688,6 +755,11 @@ export function useSkillsStudio(params: {
     onDrop: handleDrop,
     onDirectoryInput: handleDirectoryInput,
     uploadSkillPending,
+
+    showUploadConfirmDialog,
+    pendingUploadFiles,
+    onConfirmUpload: handleConfirmUpload,
+    onCancelUpload: handleCancelUpload,
 
     skill,
     skillLoading,

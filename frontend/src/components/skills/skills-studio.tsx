@@ -4,8 +4,10 @@ import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 import { AddFileDialog } from "@/components/skills/add-file-dialog"
 import { CreateSkillDialog } from "@/components/skills/create-skill-dialog"
+import { DeleteSkillDialog } from "@/components/skills/delete-skill-dialog"
 import { EditorPanel } from "@/components/skills/editor-panel"
 import { SkillListPanel } from "@/components/skills/skill-list-panel"
+import { UploadSkillConfirmDialog } from "@/components/skills/upload-skill-confirm-dialog"
 import { UploadSkillDialog } from "@/components/skills/upload-skill-dialog"
 import { useSkillsStudio } from "@/components/skills/use-skills-studio"
 import { WorkingCopyBar } from "@/components/skills/working-copy-bar"
@@ -63,9 +65,11 @@ function SkillsStudioContent({
                     studio.createSkillDraftUploadPending
                   }
                   publishSkillPending={studio.publishSkillPending}
+                  deleteSkillPending={studio.deleteSkillPending}
                   onRestore={studio.onRestore}
                   onSaveWorkingCopy={studio.onSaveWorkingCopy}
                   onPublish={studio.onPublish}
+                  onDelete={() => studio.onOpenDeleteSkillDialog(studio.skill!)}
                 />
               ) : null}
               <div className="min-h-0 flex-1">
@@ -120,12 +124,28 @@ function SkillsStudioContent({
         uploadSkillPending={studio.uploadSkillPending}
       />
 
+      <UploadSkillConfirmDialog
+        open={studio.showUploadConfirmDialog}
+        files={studio.pendingUploadFiles}
+        pending={studio.uploadSkillPending}
+        onConfirm={studio.onConfirmUpload}
+        onCancel={studio.onCancelUpload}
+      />
+
       <AddFileDialog
         open={studio.showNewFileDialog}
         onOpenChange={studio.onNewFileDialogChange}
         filePath={studio.newFilePath}
         onFilePathChange={studio.onNewFilePathChange}
         onCreateFile={studio.onCreateNewFile}
+      />
+
+      <DeleteSkillDialog
+        open={studio.showDeleteSkillDialog}
+        onOpenChange={studio.onDeleteSkillDialogChange}
+        skill={studio.deleteSkillTarget}
+        pending={studio.deleteSkillPending}
+        onConfirm={studio.onConfirmDeleteSkill}
       />
     </>
   )
