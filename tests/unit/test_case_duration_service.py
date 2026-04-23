@@ -345,6 +345,46 @@ async def test_duration_filters_preserve_json_value_types(
 
 
 @pytest.mark.anyio
+async def test_duration_filters_preserve_python_bool_number_overlap(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Time to truthy flag update",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.FIELDS_CHANGED,
+                field_filters={"data.flag": 1},
+            ),
+        )
+    )
+
+    case = await cases_service.create_case(make_case_create())
+    event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.FIELDS_CHANGED,
+        data={"flag": True},
+        created_at=datetime.now(UTC) + timedelta(seconds=1),
+    )
+    session.add(event)
+    await session.flush()
+
+    assert not duration_service._filters_are_sql_compatible({"data.flag": 1})
+
+    values = await duration_service.compute_duration(case)
+    assert len(values) == 1
+    assert values[0].end_event_id == event.id
+    assert values[0].duration is not None
+
+
+@pytest.mark.anyio
 async def test_duration_filters_match_closed_under_status_changed(
     session: AsyncSession, svc_role
 ) -> None:

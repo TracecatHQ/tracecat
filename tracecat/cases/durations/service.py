@@ -806,9 +806,16 @@ class CaseDurationService(BaseWorkspaceService):
                     isinstance(item, list | tuple | set | dict) for item in normalized
                 ):
                     return False
+                if any(self._has_bool_number_overlap(item) for item in normalized):
+                    return False
             elif isinstance(normalized, dict):
                 return False
+            elif self._has_bool_number_overlap(normalized):
+                return False
         return True
+
+    def _has_bool_number_overlap(self, value: Any) -> bool:
+        return isinstance(value, bool | int | float)
 
     def _build_sql_filter_conditions(
         self, filters: dict[str, Any]
