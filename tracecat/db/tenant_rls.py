@@ -85,6 +85,7 @@ POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
     "watchtower_agent_session",
     "watchtower_agent_tool_call",
     "service_account",
+    "agent_run_cost",
 )
 
 SPECIAL_TENANT_POLICY_TABLES = frozenset(

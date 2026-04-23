@@ -46,6 +46,12 @@ class RuntimeInitPayload:
     is_approval_continuation: bool = False  # True when resuming after approval decision
     is_fork: bool = False
 
+    # Per-run dollar cap, forwarded to the SDK as ``max_budget_usd``. Derived
+    # from the org's remaining monthly budget at the moment the run starts;
+    # ``None`` means the org is uncapped and the SDK should run without a
+    # ceiling.
+    max_budget_usd: float | None = None
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RuntimeInitPayload:
         """Construct from dict (orjson parsed)."""
@@ -77,6 +83,7 @@ class RuntimeInitPayload:
             sdk_session_data=data.get("sdk_session_data"),
             is_approval_continuation=data.get("is_approval_continuation", False),
             is_fork=data.get("is_fork", False),
+            max_budget_usd=data.get("max_budget_usd"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -99,6 +106,8 @@ class RuntimeInitPayload:
             result["sdk_session_id"] = self.sdk_session_id
         if self.sdk_session_data is not None:
             result["sdk_session_data"] = self.sdk_session_data
+        if self.max_budget_usd is not None:
+            result["max_budget_usd"] = self.max_budget_usd
         return result
 
 

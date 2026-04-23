@@ -771,7 +771,7 @@ async def get_org_agent_usage(
     month: str | None = Query(
         default=None,
         description=("UTC month in YYYY-MM format. Defaults to the current UTC month."),
-        pattern=r"^\d{4}-\d{2}$",
+        pattern=r"^\d{4}-(0[1-9]|1[0-2])$",
     ),
 ) -> OrgUsageSnapshot:
     """Read the caller's organization agent spend for a UTC month."""

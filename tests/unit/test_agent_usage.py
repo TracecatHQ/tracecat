@@ -1,64 +1,79 @@
-"""Tests for tracecat/agent/usage.py (monthly budget cap + cost counters)."""
+"""Tests for tracecat/agent/usage.py (monthly budget cap + per-run cost ledger)."""
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent import usage as usage_module
-from tracecat.agent.usage import UsageRow
-
-FakeDb = dict[tuple[str, str], UsageRow]
-
-
-@pytest.fixture
-def fake_db(
-    monkeypatch: pytest.MonkeyPatch,
-) -> FakeDb:
-    """In-memory stand-in for the durable Postgres usage row.
-
-    Mirrors ``agents.usage.{YYYY-MM}`` keyed by (org_id, month).
-    """
-    storage: FakeDb = {}
-
-    async def _increment(
-        *,
-        org_id: uuid.UUID,
-        workspace_id: uuid.UUID,
-        cost_cents: int,
-        month: str,
-    ) -> None:
-        key = (str(org_id), month)
-        current = storage.get(key, UsageRow(total_cents=0, by_workspace_cents={}))
-        ws_field = str(workspace_id)
-        merged_by_ws = {
-            **current.by_workspace_cents,
-            ws_field: current.by_workspace_cents.get(ws_field, 0) + cost_cents,
-        }
-        storage[key] = UsageRow(
-            total_cents=current.total_cents + cost_cents,
-            by_workspace_cents=merged_by_ws,
-        )
-
-    async def _read(org_id: uuid.UUID, month: str) -> UsageRow | None:
-        return storage.get((str(org_id), month))
-
-    monkeypatch.setattr(usage_module, "_increment_usage_in_db", _increment)
-    monkeypatch.setattr(usage_module, "_read_usage_from_db", _read)
-    return storage
+from tracecat.db.models import Organization, Workspace
 
 
 @pytest.fixture
 def fixed_month(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Freeze ``_current_month_utc`` for deterministic month_utc values."""
     month = "2026-04"
-
-    def _current_month_utc() -> str:
-        return month
-
-    monkeypatch.setattr(usage_module, "_current_month_utc", _current_month_utc)
+    monkeypatch.setattr(usage_module, "_current_month_utc", lambda: month)
     return month
+
+
+@pytest.fixture
+async def session_ctx(
+    monkeypatch: pytest.MonkeyPatch, session: AsyncSession
+) -> AsyncSession:
+    """Route ``usage``'s DB accesses through the test's savepoint-scoped session.
+
+    The module opens its own sessions via ``get_async_session_bypass_rls_context_manager``;
+    we replace that with a context manager that yields the test session so all
+    reads and writes land in the same transactional scope (rolled back on teardown).
+    """
+
+    @asynccontextmanager
+    async def _fake_session_manager() -> AsyncIterator[AsyncSession]:
+        yield session
+
+    monkeypatch.setattr(
+        usage_module,
+        "get_async_session_bypass_rls_context_manager",
+        _fake_session_manager,
+    )
+    return session
+
+
+@pytest.fixture
+async def org_and_workspace(
+    session_ctx: AsyncSession,
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Create an ``Organization`` + ``Workspace`` visible to the test transaction.
+
+    Both are required for the ``agent_run_cost`` FK constraints; flushing (not
+    committing) makes them visible within the test's SAVEPOINT and they roll
+    back at teardown with everything else.
+    """
+    org = Organization(
+        id=uuid.uuid4(),
+        name="usage test org",
+        slug=f"usage-test-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    session_ctx.add(org)
+    await session_ctx.flush()
+
+    ws = Workspace(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        name="usage test ws",
+        settings={},
+    )
+    session_ctx.add(ws)
+    await session_ctx.flush()
+
+    return org.id, ws.id
 
 
 def _patch_budget(monkeypatch: pytest.MonkeyPatch, cents: int | None) -> None:
@@ -104,95 +119,99 @@ def test_cents_from_usage_rejects_negative() -> None:
 
 
 # -----------------------------------------------------------------------------
-# record_agent_cost
+# record_agent_cost + ledger queries
 # -----------------------------------------------------------------------------
 
 
 @pytest.mark.anyio
-async def test_record_agent_cost_increments_total_and_workspace_hash(
-    fake_db: FakeDb,
+async def test_record_agent_cost_appends_and_aggregates(
+    org_and_workspace: tuple[uuid.UUID, uuid.UUID],
     fixed_month: str,
 ) -> None:
-    org_id = uuid.uuid4()
-    ws_a = uuid.uuid4()
-    ws_b = uuid.uuid4()
+    """Three runs → three rows; SUM aggregates totals and GROUP BY splits by ws."""
+    org_id, ws_a = org_and_workspace
 
     await usage_module.record_agent_cost(
         org_id=org_id, workspace_id=ws_a, cost_cents=50
     )
     await usage_module.record_agent_cost(
-        org_id=org_id, workspace_id=ws_b, cost_cents=125
+        org_id=org_id, workspace_id=ws_a, cost_cents=125
     )
     await usage_module.record_agent_cost(
         org_id=org_id, workspace_id=ws_a, cost_cents=25
     )
 
-    durable = fake_db[(str(org_id), fixed_month)]
-    assert durable.total_cents == 200
-    assert durable.by_workspace_cents[str(ws_a)] == 75
-    assert durable.by_workspace_cents[str(ws_b)] == 125
+    total = await usage_module._sum_month_cents(org_id, fixed_month)
+    assert total == 200
+
+    snapshot_total, by_ws = await usage_module._workspace_totals(org_id, fixed_month)
+    assert snapshot_total == 200
+    assert by_ws == {str(ws_a): 200}
 
 
 @pytest.mark.anyio
-async def test_record_agent_cost_zero_noops(
-    fake_db: FakeDb,
+async def test_record_agent_cost_zero_is_noop(
+    org_and_workspace: tuple[uuid.UUID, uuid.UUID],
     fixed_month: str,
+) -> None:
+    org_id, ws_a = org_and_workspace
+    await usage_module.record_agent_cost(org_id=org_id, workspace_id=ws_a, cost_cents=0)
+    assert await usage_module._sum_month_cents(org_id, fixed_month) == 0
+
+
+# -----------------------------------------------------------------------------
+# resolve_run_budget
+# -----------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_resolve_run_budget_returns_remaining_dollars(
+    org_and_workspace: tuple[uuid.UUID, uuid.UUID],
+    fixed_month: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     del fixed_month
+    org_id, ws_a = org_and_workspace
+    _patch_budget(monkeypatch, 1000)  # $10.00 cap
     await usage_module.record_agent_cost(
-        org_id=uuid.uuid4(), workspace_id=uuid.uuid4(), cost_cents=0
+        org_id=org_id, workspace_id=ws_a, cost_cents=900
     )
-    assert fake_db == {}
-
-
-# -----------------------------------------------------------------------------
-# check_monthly_budget
-# -----------------------------------------------------------------------------
+    # $10 cap, $9 spent → $1 headroom for this run.
+    assert await usage_module.resolve_run_budget(org_id) == pytest.approx(1.0)
 
 
 @pytest.mark.anyio
-async def test_check_monthly_budget_allows_below_limit(
-    fake_db: FakeDb,
+async def test_resolve_run_budget_raises_at_limit(
+    org_and_workspace: tuple[uuid.UUID, uuid.UUID],
     fixed_month: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    org_id = uuid.uuid4()
-    _patch_budget(monkeypatch, 1000)  # $10.00
-    fake_db[(str(org_id), fixed_month)] = UsageRow(
-        total_cents=900, by_workspace_cents={str(uuid.uuid4()): 900}
-    )
-    await usage_module.check_monthly_budget(org_id)
-
-
-@pytest.mark.anyio
-async def test_check_monthly_budget_raises_at_limit(
-    fake_db: FakeDb,
-    fixed_month: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    org_id = uuid.uuid4()
+    del fixed_month
+    org_id, ws_a = org_and_workspace
     _patch_budget(monkeypatch, 1000)
-    fake_db[(str(org_id), fixed_month)] = UsageRow(
-        total_cents=1000, by_workspace_cents={str(uuid.uuid4()): 1000}
+    await usage_module.record_agent_cost(
+        org_id=org_id, workspace_id=ws_a, cost_cents=1000
     )
     with pytest.raises(usage_module.BudgetExceededError) as excinfo:
-        await usage_module.check_monthly_budget(org_id)
+        await usage_module.resolve_run_budget(org_id)
     assert excinfo.value.limit_cents == 1000
     assert excinfo.value.used_cents == 1000
 
 
 @pytest.mark.anyio
-async def test_check_monthly_budget_no_limit_is_unlimited(
-    fake_db: FakeDb,
+async def test_resolve_run_budget_no_cap_returns_none(
+    org_and_workspace: tuple[uuid.UUID, uuid.UUID],
     fixed_month: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    org_id = uuid.uuid4()
+    del fixed_month
+    org_id, ws_a = org_and_workspace
     _patch_budget(monkeypatch, None)
-    fake_db[(str(org_id), fixed_month)] = UsageRow(
-        total_cents=10**9, by_workspace_cents={str(uuid.uuid4()): 10**9}
+    # Any amount of spend — uncapped org always gets None.
+    await usage_module.record_agent_cost(
+        org_id=org_id, workspace_id=ws_a, cost_cents=10_000
     )
-    await usage_module.check_monthly_budget(org_id)
+    assert await usage_module.resolve_run_budget(org_id) is None
 
 
 # -----------------------------------------------------------------------------
@@ -202,63 +221,76 @@ async def test_check_monthly_budget_no_limit_is_unlimited(
 
 @pytest.mark.anyio
 async def test_get_usage_snapshot_returns_total_and_breakdown(
-    fake_db: FakeDb,
+    org_and_workspace: tuple[uuid.UUID, uuid.UUID],
+    session_ctx: AsyncSession,
     fixed_month: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    org_id = uuid.uuid4()
-    ws_a = uuid.uuid4()
+    org_id, ws_a = org_and_workspace
+
+    # Second workspace under the same org to prove the GROUP BY splits correctly.
+    ws_b = uuid.uuid4()
+    session_ctx.add(
+        Workspace(id=ws_b, organization_id=org_id, name="ws-b", settings={})
+    )
+    await session_ctx.flush()
+
     _patch_budget(monkeypatch, 500)
-    fake_db[(str(org_id), fixed_month)] = UsageRow(
-        total_cents=250, by_workspace_cents={str(ws_a): 250}
+    await usage_module.record_agent_cost(
+        org_id=org_id, workspace_id=ws_a, cost_cents=100
+    )
+    await usage_module.record_agent_cost(
+        org_id=org_id, workspace_id=ws_b, cost_cents=150
     )
 
     snapshot = await usage_module.get_usage_snapshot(org_id)
     assert snapshot.month_utc == fixed_month
     assert snapshot.total_cents == 250
     assert snapshot.limit_cents == 500
-    assert snapshot.by_workspace_cents == {str(ws_a): 250}
+    assert snapshot.by_workspace_cents == {str(ws_a): 100, str(ws_b): 150}
 
 
 @pytest.mark.anyio
 async def test_get_usage_snapshot_empty_is_zero(
-    fake_db: FakeDb,
+    org_and_workspace: tuple[uuid.UUID, uuid.UUID],
     fixed_month: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    del fake_db
+    org_id, _ = org_and_workspace
     _patch_budget(monkeypatch, None)
-    snapshot = await usage_module.get_usage_snapshot(uuid.uuid4())
+    snapshot = await usage_module.get_usage_snapshot(org_id)
     assert snapshot.month_utc == fixed_month
     assert snapshot.total_cents == 0
     assert snapshot.by_workspace_cents == {}
 
 
 # -----------------------------------------------------------------------------
-# UTC month rollover
+# UTC month rollover — nothing to "reset", the filter just changes
 # -----------------------------------------------------------------------------
 
 
 @pytest.mark.anyio
-async def test_current_month_rolls_over_at_utc_boundary(
-    fake_db: FakeDb,
+async def test_month_filter_rolls_over_at_utc_boundary(
+    org_and_workspace: tuple[uuid.UUID, uuid.UUID],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    org_id = uuid.uuid4()
-    ws = uuid.uuid4()
+    org_id, ws_a = org_and_workspace
 
     monkeypatch.setattr(usage_module, "_current_month_utc", lambda: "2026-03")
-    await usage_module.record_agent_cost(org_id=org_id, workspace_id=ws, cost_cents=10)
+    await usage_module.record_agent_cost(
+        org_id=org_id, workspace_id=ws_a, cost_cents=10
+    )
 
     monkeypatch.setattr(usage_module, "_current_month_utc", lambda: "2026-04")
-    await usage_module.record_agent_cost(org_id=org_id, workspace_id=ws, cost_cents=20)
+    await usage_module.record_agent_cost(
+        org_id=org_id, workspace_id=ws_a, cost_cents=20
+    )
 
-    assert fake_db[(str(org_id), "2026-03")].total_cents == 10
-    assert fake_db[(str(org_id), "2026-04")].total_cents == 20
+    assert await usage_module._sum_month_cents(org_id, "2026-03") == 10
+    assert await usage_module._sum_month_cents(org_id, "2026-04") == 20
 
 
-@pytest.mark.anyio
-async def test_current_month_utc_uses_utc_not_local() -> None:
+def test_current_month_utc_uses_utc_not_local() -> None:
     value = usage_module._current_month_utc()
     now = datetime.now(UTC)
     assert value == now.strftime("%Y-%m")

@@ -435,10 +435,13 @@ function AgentUsageSection() {
   const limitCents = usage.limit_cents ?? null
   const byWorkspaceCents = usage.by_workspace_cents ?? {}
 
+  // Intentionally uncapped: an org can record spend past its cap between the
+  // last check and the SDK terminating a run, and we want that visible (e.g.
+  // "$0.09 of $0.06 (150%)") rather than flattened to 100%.
   const percentUsed =
     limitCents == null || limitCents === 0
       ? null
-      : Math.min(100, Math.round((totalCents / limitCents) * 100))
+      : Math.round((totalCents / limitCents) * 100)
 
   const workspaceRows = Object.entries(byWorkspaceCents).sort(
     ([, a], [, b]) => b - a

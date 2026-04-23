@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Literal
 
 from fastapi_users.db import (
@@ -29,6 +30,7 @@ from sqlalchemy import (
     Interval,
     LargeBinary,
     MetaData,
+    Numeric,
     PrimaryKeyConstraint,
     String,
     Text,
@@ -1685,6 +1687,60 @@ class OrganizationSetting(OrganizationModel):
         default=False,
         server_default=text("false"),
         doc="Whether the setting is encrypted",
+    )
+
+
+class AgentRunCost(OrganizationModel):
+    """Per-run agent cost ledger.
+
+    One row per completed agent run. Enforcement aggregates via SUM over
+    (organization_id, created_at) range scans; admin attribution groups by
+    workspace_id. Monthly "reset" is just the date filter rolling over — no
+    stored state becomes stale.
+    """
+
+    __tablename__ = "agent_run_cost"
+    __table_args__ = (
+        Index(
+            "ix_agent_run_cost_org_created_at",
+            "organization_id",
+            "created_at",
+        ),
+        Index(
+            "ix_agent_run_cost_org_ws_created_at",
+            "organization_id",
+            "workspace_id",
+            "created_at",
+        ),
+    )
+
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
+    cost_usd: Mapped[Decimal] = mapped_column(
+        Numeric(14, 5),
+        nullable=False,
+        doc=(
+            "Run cost in USD with millicent precision (5 decimals). Storing "
+            "exact amounts avoids losing sub-cent spend to per-run rounding; "
+            "cents are derived at the API boundary by aggregating then "
+            "rounding once. Non-negative."
+        ),
     )
 
 

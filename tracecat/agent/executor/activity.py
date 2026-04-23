@@ -40,9 +40,9 @@ from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.usage import (
     BudgetExceededError,
-    cents_from_usage,
-    check_monthly_budget,
     record_agent_cost,
+    resolve_run_budget,
+    usd_from_usage,
 )
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
@@ -197,8 +197,15 @@ class SandboxedAgentExecutor:
             model_provider=self.input.config.model_provider,
         )
 
-    def _build_runtime_init_payload(self) -> RuntimeInitPayload:
-        """Build the runtime init payload for this execution."""
+    def _build_runtime_init_payload(
+        self, *, max_budget_usd: float | None = None
+    ) -> RuntimeInitPayload:
+        """Build the runtime init payload for this execution.
+
+        Pure assembly — no I/O. ``max_budget_usd`` is resolved by the caller
+        (see ``run``) so this helper stays trivially testable and callers
+        control when the budget DB read happens.
+        """
         return RuntimeInitPayload(
             session_id=self.input.session_id,
             mcp_auth_token=self.input.mcp_auth_token,
@@ -210,6 +217,7 @@ class SandboxedAgentExecutor:
             sdk_session_data=self.input.sdk_session_data,
             is_approval_continuation=self.input.is_approval_continuation,
             is_fork=self.input.is_fork,
+            max_budget_usd=max_budget_usd,
         )
 
     async def run(self) -> AgentExecutorResult:
@@ -222,48 +230,36 @@ class SandboxedAgentExecutor:
         self._log_benchmark_phase("activity_start")
         org_id = self.input.role.organization_id
 
+        handler: LoopbackHandler | None = None
         try:
             # Create job directory with sockets
             self._job_dir = await self._create_job_directory()
             socket_dir = self._job_dir / "sockets"
-            init_payload = self._build_runtime_init_payload()
-            self._log_benchmark_phase(
-                "job_dir_ready",
-                job_dir=str(self._job_dir),
-                socket_dir=str(socket_dir),
-            )
 
-            # Create loopback handler
+            # Build the loopback handler first so budget-exceeded errors raised
+            # by ``resolve_run_budget`` can reach the UI stream.
             loopback_input = LoopbackInput(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
             )
             handler = LoopbackHandler(input=loopback_input)
 
-            # Pre-run monthly budget check. Happens after the handler is
-            # constructed so we can push a terminal error through the same
-            # Redis stream the UI is listening on — otherwise the UI would
-            # hang waiting for events that never arrive.
-            if org_id is not None:
-                try:
-                    await check_monthly_budget(org_id)
-                except BudgetExceededError as exc:
-                    logger.info(
-                        "Blocked agent run: monthly budget cap reached",
-                        org_id=str(org_id),
-                        used_cents=exc.used_cents,
-                        limit_cents=exc.limit_cents,
-                        session_id=self.input.session_id,
-                    )
-                    try:
-                        await handler.emit_terminal_error(str(exc))
-                    except Exception:
-                        logger.exception(
-                            "Failed to emit budget-exceeded stream error",
-                            session_id=self.input.session_id,
-                        )
-                    result.error = str(exc)
-                    return result
+            # Resolve the org's remaining monthly headroom and forward it as
+            # ``max_budget_usd`` for the SDK/CLI to enforce per-run. Resolving
+            # here (rather than inside ``_build_runtime_init_payload``) keeps
+            # the payload builder pure and the DB read on the activity's
+            # own async path where ``BudgetExceededError`` is caught below.
+            max_budget_usd = (
+                await resolve_run_budget(org_id) if org_id is not None else None
+            )
+            init_payload = self._build_runtime_init_payload(
+                max_budget_usd=max_budget_usd
+            )
+            self._log_benchmark_phase(
+                "job_dir_ready",
+                job_dir=str(self._job_dir),
+                socket_dir=str(socket_dir),
+            )
 
             llm_socket_path = socket_dir / LLM_SOCKET_NAME
             self._llm_proxy = self._create_llm_socket_proxy(llm_socket_path)
@@ -276,6 +272,23 @@ class SandboxedAgentExecutor:
                 llm_socket_path=llm_socket_path,
             )
 
+        except BudgetExceededError as exc:
+            logger.info(
+                "Blocked agent run: monthly budget cap reached",
+                org_id=str(org_id),
+                used_cents=exc.used_cents,
+                limit_cents=exc.limit_cents,
+                session_id=self.input.session_id,
+            )
+            if handler is not None:
+                try:
+                    await handler.emit_terminal_error(str(exc))
+                except Exception:
+                    logger.exception(
+                        "Failed to emit budget-exceeded stream error",
+                        session_id=self.input.session_id,
+                    )
+            result.error = str(exc)
         except AgentSandboxExecutionError as e:
             logger.error("Agent sandbox execution failed", error=str(e))
             result.error = str(e)
@@ -287,15 +300,15 @@ class SandboxedAgentExecutor:
 
         # Record actual cost for this run (best-effort). The runtime folds
         # the SDK's per-model costUSD into the merged ``usage`` dict; we
-        # just round to integer cents.
+        # persist it exactly (Decimal) so sub-cent spend survives aggregation.
         if org_id is not None and result.result_usage:
-            cost_cents = cents_from_usage(result.result_usage)
-            if cost_cents > 0:
+            cost_usd = usd_from_usage(result.result_usage)
+            if cost_usd is not None:
                 await record_agent_cost(
                     org_id=org_id,
                     workspace_id=self.input.workspace_id,
-                    cost_cents=cost_cents,
-                    session_id=str(self.input.session_id),
+                    cost_usd=cost_usd,
+                    session_id=self.input.session_id,
                 )
 
         return result

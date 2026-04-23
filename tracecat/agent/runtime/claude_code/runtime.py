@@ -866,6 +866,7 @@ class ClaudeAgentRuntime:
                 include_partial_messages=True,
                 resume=resume_session_id,
                 fork_session=fork_session,  # If True, creates new session from parent's history
+                max_budget_usd=payload.max_budget_usd,
                 thinking=(
                     {"type": "enabled", "budget_tokens": 1024}
                     if payload.config.enable_thinking
