@@ -1854,10 +1854,12 @@ For readability, references below use unprefixed tool names (e.g. \
 like `workflows_create_workflow`.
 
 ## Action namespaces
-- `core.*` — built-in platform actions (core.http_request, core.transform.reshape, \
-core.script.run_python, core.table.*, core.open_case, core.send_email, etc.)
+- `core.*` — built-in platform actions (core.http_request, core.script.run_python, \
+core.transform.*, core.table.*, etc.)
 - `core.transform.*` — data transforms (reshape, scatter, gather, filter, map)
-- `tools.*` — third-party integrations (tools.slack.post_message, etc.)
+- `tools.*` — third-party integrations
+  - Third-party action name syntax: `tools.<integration_slug>.<action_name>`
+  - Third-party namespace examples: `tools.<integration_slug>.*`
 - `ai.*` — AI/LLM actions:
   - `ai.action` — simple LLM call (no tools), supports `output_type` for structured output
   - `ai.agent` — full AI agent with tool calling via `actions` list
@@ -1870,6 +1872,17 @@ to get parameter schemas for any action \
 Use `agents_get_agent_preset_authoring_context` before creating agent presets \
 to inspect \
 available models, integration options, and output_type configuration.
+
+## Tool selection policy (strict)
+- Only include third-party `tools.*` actions when the user explicitly asks for \
+that specific integration/tool by name.
+- If the user asks for a generic capability (for example, "threat enrichment"), \
+you may discover and present candidate tools, but do NOT add any third-party \
+tool to workflow YAML until the user explicitly confirms the exact integration \
+they want.
+- Prefer tool-agnostic workflow scaffolding with `core.http_request` and \
+`core.script.run_python` unless the user requests a specific third-party \
+integration.
 
 ## Expression syntax (used in action `args:` values)
 - `${{ TRIGGER.<field> }}` — workflow trigger input
@@ -1962,7 +1975,7 @@ execution ID to get a detailed event timeline showing each action's status, timi
 inputs, results, and errors. This is essential for diagnosing failed runs.
 
 ## Important: workflow actions vs MCP tools
-Action names like `core.open_case` are for use *inside* workflow YAML definitions \
+Action names like `core.http_request` are for use *inside* workflow YAML definitions \
 (in the `action:` field of a workflow action step). They are NOT MCP tool names. \
 To manage cases directly, use the MCP tools `create_case`, `list_cases`, `get_case`, \
 `update_case`, and `delete_case`. Similarly, use `create_workflow` (not \
@@ -2072,13 +2085,16 @@ definition:
       args:
         url: "https://api.example.com/alerts/${{ TRIGGER.alert_id }}"
         method: GET
-    - ref: notify
-      action: tools.slack.post_message
+    - ref: post_alert
+      action: core.http_request
       depends_on:
         - first_action
       args:
-        channel: "#alerts"
-        text: "Alert ${{ TRIGGER.alert_id }}: ${{ ACTIONS.first_action.result }}"
+        url: "https://api.example.com/alerts"
+        method: POST
+        payload:
+          alert_id: "${{ TRIGGER.alert_id }}"
+          result: "${{ ACTIONS.first_action.result }}"
 
 layout:                # Optional UI positioning
   trigger:
@@ -2088,7 +2104,7 @@ layout:                # Optional UI positioning
     - ref: first_action
       x: 0
       y: 150
-    - ref: notify
+    - ref: post_alert
       x: 0
       y: 300
 
@@ -2202,8 +2218,6 @@ extract_ipv4, extract_ipv6, extract_mac, extract_urls, normalize_email
 | `core.transform.filter` | Filter a collection using a Python lambda |
 | `core.transform.map` | Map over items |
 | `core.script.run_python` | Run inline Python script in a sandbox |
-| `core.open_case` | Open a new case |
-| `core.send_email` | Send an email via SMTP |
 | `core.table.insert_row` | Insert a row into a table |
 | `core.table.lookup` | Lookup a value in a table |
 | `core.workflow.execute` | Execute a child workflow |
@@ -2211,9 +2225,31 @@ extract_ipv4, extract_ipv6, extract_mac, extract_urls, normalize_email
 | `ai.agent` | AI agent with tool calling (can invoke Tracecat actions) |
 | `ai.preset_agent` | Run a saved agent preset by slug |
 
+## Third-Party Integration Action Syntax
+
+Use this structure for integration actions in workflow YAML:
+
+```yaml
+action: tools.<integration_slug>.<action_name>
+```
+
+Examples of valid shapes (syntax only):
+
+```yaml
+action: tools.<integration_slug>.lookup
+action: tools.<integration_slug>.create_record
+action: tools.<integration_slug>.search
+```
+
+### Tool Selection Rules for `tools.*`
+- Add `tools.<integration_slug>.*` actions only when the user explicitly asks for that integration.
+- For generic requests (for example, "enrich this threat"), present available integration options first.
+- Do not include a third-party integration action in the workflow until the user confirms the specific integration.
+- When no integration is explicitly requested, prefer `core.http_request` and `core.script.run_python`.
+
 ## Common Workflow Patterns
 
-### HTTP Request → Notify
+### HTTP Request → HTTP Request
 ```yaml
 actions:
   - ref: fetch_data
@@ -2223,12 +2259,14 @@ actions:
       method: GET
       headers:
         Authorization: "Bearer ${{ SECRETS.api_creds.API_TOKEN }}"
-  - ref: notify_slack
-    action: tools.slack.post_message
+  - ref: forward_data
+    action: core.http_request
     depends_on: [fetch_data]
     args:
-      channel: "#alerts"
-      text: "Got data: ${{ ACTIONS.fetch_data.result }}"
+      url: "https://api.example.com/ingest"
+      method: POST
+      payload:
+        data: "${{ ACTIONS.fetch_data.result }}"
 ```
 
 ### Scatter/Gather (Parallel Fan-out/Fan-in)
@@ -2277,12 +2315,12 @@ actions:
   - ref: investigate
     action: ai.agent
     args:
-      user_prompt: "Investigate this alert and create a case if needed."
+      user_prompt: "Investigate this alert and recommend case next-steps."
       model_name: claude-sonnet-4-20250514
       model_provider: anthropic
       actions:
-        - core.open_case
-        - tools.slack.post_message
+        - core.http_request
+        - core.script.run_python
       instructions: "You are a SOC analyst. Be thorough."
       max_tool_calls: 10
 ```
@@ -2302,11 +2340,14 @@ actions:
 ```yaml
 actions:
   - ref: escalate
-    action: tools.slack.post_message
+    action: core.http_request
     run_if: "${{ TRIGGER.severity == 'critical' }}"
     args:
-      channel: "#critical-alerts"
-      text: "CRITICAL: ${{ TRIGGER.alert_title }}"
+      url: "https://api.example.com/escalations"
+      method: POST
+      payload:
+        severity: "${{ TRIGGER.severity }}"
+        title: "${{ TRIGGER.alert_title }}"
 ```
 
 ### Python Script for Complex Logic
@@ -2337,6 +2378,73 @@ actions:
       payload:
         title: "${{ TRIGGER.title }}"
         priority: "${{ TRIGGER.severity }}"
+```
+
+### Case-Triggered Workflow (Event Ingestion)
+```yaml
+case_trigger:
+  status: online
+  event_types: ["case_created", "case_updated"]
+  tag_filters: ["high-priority", "triage"]
+
+actions:
+  - ref: enrich_case
+    action: core.http_request
+    args:
+      url: "https://api.example.com/enrich"
+      method: POST
+      payload:
+        case_id: "${{ TRIGGER.payload.id }}"
+        summary: "${{ TRIGGER.payload.summary }}"
+        tags: "${{ TRIGGER.payload.tags }}"
+  - ref: summarize_enrichment
+    action: core.script.run_python
+    depends_on: [enrich_case]
+    args:
+      inputs:
+        enrichment: "${{ ACTIONS.enrich_case.result }}"
+      script: |
+        def main(enrichment):
+            score = enrichment.get("risk_score", 0)
+            return {
+                "risk_score": score,
+                "recommendation": "escalate" if score >= 80 else "monitor",
+            }
+```
+
+### Case Update Pipeline (Read → Analyze → Patch)
+```yaml
+actions:
+  - ref: get_case_context
+    action: core.http_request
+    args:
+      url: "https://api.example.com/cases/${{ TRIGGER.case_id }}"
+      method: GET
+      headers:
+        Authorization: "Bearer ${{ SECRETS.case_api.TOKEN }}"
+  - ref: compute_priority
+    action: core.script.run_python
+    depends_on: [get_case_context]
+    args:
+      inputs:
+        case_data: "${{ ACTIONS.get_case_context.result }}"
+      script: |
+        def main(case_data):
+            indicators = case_data.get("indicators", [])
+            severity = case_data.get("severity", "unknown")
+            if severity in {"critical", "high"} or len(indicators) >= 5:
+                return {"priority": "high"}
+            return {"priority": "medium"}
+  - ref: patch_case
+    action: core.http_request
+    depends_on: [compute_priority]
+    args:
+      url: "https://api.example.com/cases/${{ TRIGGER.case_id }}"
+      method: PATCH
+      headers:
+        Authorization: "Bearer ${{ SECRETS.case_api.TOKEN }}"
+      payload:
+        priority: "${{ ACTIONS.compute_priority.result.priority }}"
 ```
 """
 
@@ -2426,11 +2534,11 @@ async def _build_action_catalog(workspace_id: str) -> str:
     async with RegistryActionsService.with_session(role=role) as svc:
         entries = await svc.list_actions_from_index()
 
-        # Group by top-level namespace (e.g. "core", "tools.slack", "ai")
+        # Group by top-level namespace (e.g. "core", "tools", "ai")
         namespaces: dict[str, dict[str, Any]] = {}
         for entry, _ in entries:
             action_name = f"{entry.namespace}.{entry.name}"
-            # Use second-level namespace for tools.* (e.g. "tools.slack"),
+            # Use second-level namespace for tools.* (e.g. "tools.github"),
             # first-level for everything else (e.g. "core")
             parts = entry.namespace.split(".")
             if parts[0] == "tools" and len(parts) >= 2:
@@ -3854,19 +3962,19 @@ async def list_actions(
     - **Search**: provide `query` to search by name/description across all namespaces.
       Example: list_actions(workspace_id, query="send message")
     - **Browse namespace**: provide `namespace` without `query` to list all actions
-      in a namespace. Example: list_actions(workspace_id, namespace="tools.slack")
+      in a namespace. Example: list_actions(workspace_id, namespace="core")
     - **Browse all**: omit both to list all available actions.
 
-    Common namespaces: `core`, `tools.slack`, `tools.crowdstrike`, `tools.okta`, `ai`.
+    Common namespaces: `core`, `tools`, `ai`.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).
         query: Optional search string to match against action names and descriptions.
-        namespace: Optional namespace prefix filter (e.g. "tools.slack").
+        namespace: Optional namespace prefix filter (e.g. "core").
         limit: Maximum number of results (1-200, default 50).
 
     Returns JSON array of objects with fields:
-    - action_name: Fully qualified name (e.g. "tools.slack.post_message")
+    - action_name: Fully qualified name (e.g. "core.http_request")
     - description: One-line description of the action
     - configured: Whether required secrets are present in the workspace
     - missing_requirements: List of missing secret names/keys (if any)
@@ -3926,12 +4034,12 @@ async def get_action_context(workspace_id: str, action_name: str) -> str:
     Use this after discovering an action via `list_actions` to get the complete
     parameter schema needed to write the `args:` block in a workflow definition.
 
-    Example action names: "core.http_request", "tools.slack.post_message",
-    "core.script.run_python", "core.transform.reshape".
+    Example action names: "core.http_request", "core.script.run_python",
+    "core.transform.reshape".
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).
-        action_name: Fully qualified action name (e.g. "tools.slack.post_message").
+        action_name: Fully qualified action name (e.g. "core.http_request").
 
     Returns JSON with fields:
     - action_name: The action name
@@ -3992,7 +4100,7 @@ async def get_workflow_authoring_context(
 
     Two input modes (provide one or neither):
     - **By name**: pass `action_names_json` as a JSON array of action names,
-      e.g. '["core.http_request", "tools.slack.post_message"]'
+      e.g. '["core.http_request", "core.script.run_python"]'
     - **By search**: pass `query` to search for actions by name/description
 
     Args:

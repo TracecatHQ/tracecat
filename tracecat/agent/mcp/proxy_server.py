@@ -4,8 +4,8 @@ Creates a per-job MCP server that exposes only configured tools and
 forwards execution requests to the trusted MCP server via Unix socket.
 
 Handles two types of tools:
-1. Registry actions (e.g., core.cases.list_cases) -> execute_action_tool
-2. User MCP tools (e.g., mcp__my-server__my_tool) -> execute_user_mcp_tool
+1. Registry actions (for example core.http_request or core.script.run_python) -> execute_action_tool
+2. User MCP tools (for example mcp__my-server__my_tool) -> execute_user_mcp_tool
 """
 
 from __future__ import annotations
@@ -197,9 +197,9 @@ async def create_proxy_mcp_server(
     execution requests to the trusted MCP server via Unix socket.
 
     Handles three types of tools:
-    - Registry actions (e.g., core.cases.list_cases) -> execute_action_tool
-    - User MCP tools (e.g., mcp__my-server__my_tool) -> execute_user_mcp_tool
-    - Internal tools (e.g., internal.builder.get_preset_summary) -> execute_internal_tool
+    - Registry actions (for example core.http_request or core.script.run_python) -> execute_action_tool
+    - User MCP tools (for example mcp__my-server__my_tool) -> execute_user_mcp_tool
+    - Internal tools -> execute_internal_tool
 
     Args:
         allowed_actions: Dict mapping action names to their definitions.
