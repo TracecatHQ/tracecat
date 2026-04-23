@@ -22,7 +22,7 @@ from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, Case
 from tracecat.cases.schemas import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import CaseDuration
+from tracecat.db.models import CaseDuration, CaseEvent
 from tracecat.tags.schemas import TagCreate
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -215,6 +215,91 @@ async def test_duration_filters_support_multiple_values(
     updated_value = values[0]
     assert updated_value.end_event_id is not None
     assert updated_value.duration is not None
+
+
+@pytest.mark.anyio
+async def test_duration_filters_match_json_array_payload_overlap(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Time to urgent update",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.FIELDS_CHANGED,
+                field_filters={"data.tags": ["urgent"]},
+            ),
+        )
+    )
+
+    case = await cases_service.create_case(make_case_create())
+    event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.FIELDS_CHANGED,
+        data={"tags": ["urgent", "vip"]},
+        created_at=datetime.now(UTC) + timedelta(seconds=1),
+    )
+    session.add(event)
+    await session.flush()
+
+    values = await duration_service.compute_duration(case)
+    assert len(values) == 1
+    assert values[0].end_event_id == event.id
+    assert values[0].duration is not None
+
+
+@pytest.mark.anyio
+async def test_duration_filters_preserve_json_value_types(
+    session: AsyncSession, svc_role
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    duration_service = CaseDurationService(session=session, role=svc_role)
+
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Time to counted update",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.FIELDS_CHANGED,
+                field_filters={"data.count": 1},
+            ),
+        )
+    )
+
+    case = await cases_service.create_case(make_case_create())
+    first_event_time = datetime.now(UTC) + timedelta(seconds=1)
+    string_count_event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.FIELDS_CHANGED,
+        data={"count": "1"},
+        created_at=first_event_time,
+    )
+    numeric_count_event = CaseEvent(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        type=CaseEventType.FIELDS_CHANGED,
+        data={"count": 1},
+        created_at=first_event_time + timedelta(seconds=1),
+    )
+    session.add_all([string_count_event, numeric_count_event])
+    await session.flush()
+
+    values = await duration_service.compute_duration(case)
+    assert len(values) == 1
+    assert values[0].end_event_id == numeric_count_event.id
+    assert values[0].end_event_id != string_count_event.id
+    assert values[0].duration is not None
 
 
 @pytest.mark.anyio

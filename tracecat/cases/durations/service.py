@@ -10,7 +10,9 @@ from enum import Enum
 from typing import Any, Literal
 
 from slugify import slugify
-from sqlalchemy import select
+from sqlalchemy import bindparam, column, false, func, literal, or_, select
+from sqlalchemy import case as sql_case
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -817,20 +819,52 @@ class CaseDurationService(BaseWorkspaceService):
             if not parts or parts[0] != "data" or len(parts) < 2:
                 return None
 
-            value_expr = CaseEvent.data
+            value_expr: Any = CaseEvent.data
             for part in parts[1:]:
                 value_expr = value_expr[part]
 
             normalized = self._normalize_filter_value(expected)
             if isinstance(normalized, list):
-                conditions.append(
-                    value_expr.astext.in_([str(item) for item in normalized])
-                )
+                conditions.append(self._build_jsonb_list_filter(value_expr, normalized))
             elif normalized is None:
-                conditions.append(value_expr.is_(None))
+                conditions.append(
+                    or_(value_expr.is_(None), value_expr == self._jsonb_bindparam(None))
+                )
             else:
-                conditions.append(value_expr.astext == str(normalized))
+                conditions.append(value_expr == self._jsonb_bindparam(normalized))
         return conditions
+
+    def _build_jsonb_list_filter(
+        self, value_expr: ColumnElement[Any], expected: list[Any]
+    ) -> ColumnElement[bool]:
+        if not expected:
+            return false()
+
+        scalar_expected = [
+            self._jsonb_bindparam(item) for item in expected if item is not None
+        ]
+        scalar_matches = value_expr.in_(scalar_expected) if scalar_expected else false()
+
+        array_value = sql_case(
+            (func.jsonb_typeof(value_expr) == "array", value_expr),
+            else_=literal([], type_=JSONB),
+        )
+        elem = (
+            func.jsonb_array_elements(array_value)
+            .table_valued(column("value", JSONB))
+            .alias("filter_elem")
+        )
+        array_matches = (
+            select(literal(True))
+            .select_from(elem)
+            .where(elem.c.value.in_([self._jsonb_bindparam(item) for item in expected]))
+            .correlate(CaseEvent)
+            .exists()
+        )
+        return or_(scalar_matches, array_matches)
+
+    def _jsonb_bindparam(self, value: Any) -> ColumnElement[Any]:
+        return bindparam(None, value, type_=JSONB)
 
     def _anchor_cache_key(self, anchor: CaseDurationEventAnchor) -> tuple[Any, ...]:
         filter_items = tuple(
