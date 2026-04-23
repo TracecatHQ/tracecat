@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 import uuid
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from functools import partial
 from typing import Annotated, Any, Literal
 
@@ -21,8 +22,15 @@ from fastapi import (
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from tracecat import config
+from tracecat.auth.api_keys import (
+    ORG_API_KEY_PREFIX,
+    WORKSPACE_API_KEY_PREFIX,
+    parse_managed_api_key,
+    verify_api_key,
+)
 from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.secrets import get_service_key
 from tracecat.auth.types import PlatformRole, Role
@@ -43,6 +51,8 @@ from tracecat.db.models import (
     OrganizationMembership,
     RoleScope,
     Scope,
+    ServiceAccount,
+    ServiceAccountApiKey,
     User,
     UserRoleAssignment,
     Workspace,
@@ -54,9 +64,16 @@ from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.identifiers import InternalServiceID
 from tracecat.logger import logger
 from tracecat.organization.management import get_default_organization_id
+from tracecat.service_accounts.constants import API_KEY_HEADER_NAME
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
-api_key_header_scheme = APIKeyHeader(name="x-tracecat-service-key", auto_error=False)
+internal_service_key_header_scheme = APIKeyHeader(
+    name="x-tracecat-service-key", auto_error=False
+)
+tracecat_api_key_header_scheme = APIKeyHeader(
+    name=API_KEY_HEADER_NAME,
+    auto_error=False,
+)
 
 # Maximum number of memberships to cache per user to prevent memory exhaustion
 MAX_CACHED_MEMBERSHIPS = 1000
@@ -75,16 +92,16 @@ async def _get_workspace_org_id(workspace_id: uuid.UUID) -> uuid.UUID | None:
         return result.scalar_one_or_none()
 
 
-CREDENTIALS_EXCEPTION = HTTPException(
+UNAUTHORIZED_EXCEPTION = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Could not validate credentials",
+    detail="Unauthorized",
     headers={"WWW-Authenticate": "Cookie"},
 )
 
 HTTP_EXC = partial(
     lambda msg: HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail=msg or "Could not validate credentials",
+        detail=msg or "Unauthorized",
         headers={"WWW-Authenticate": "Cookie"},
     )
 )
@@ -108,6 +125,9 @@ async def compute_effective_scopes(role: Role) -> frozenset[str]:
     """
     if role.is_platform_superuser:
         return frozenset({"*"})
+
+    if role.type == "service_account":
+        return role.scopes or frozenset()
 
     if role.type == "service":
         service_scopes = SERVICE_PRINCIPAL_SCOPES.get(role.service_id)
@@ -243,7 +263,7 @@ async def _authenticate_service(
         raise HTTP_EXC(msg)
     if not secrets.compare_digest(api_key, get_service_key()):
         logger.error("Could not validate service key")
-        raise CREDENTIALS_EXCEPTION
+        raise UNAUTHORIZED_EXCEPTION
     user_id = (
         uuid.UUID(uid)
         if (uid := request.headers.get("x-tracecat-role-user-id")) is not None
@@ -254,6 +274,12 @@ async def _authenticate_service(
         if (ws_id := request.headers.get("x-tracecat-role-workspace-id")) is not None
         else None
     )
+    bound_workspace_id = (
+        uuid.UUID(bound_ws_id)
+        if (bound_ws_id := request.headers.get("x-tracecat-role-bound-workspace-id"))
+        is not None
+        else None
+    )
     organization_id = (
         uuid.UUID(org_id)
         if (org_id := request.headers.get("x-tracecat-role-organization-id"))
@@ -262,28 +288,131 @@ async def _authenticate_service(
     )
     # Backward compatibility: derive org from workspace when older callers
     # don't propagate x-tracecat-role-organization-id yet.
-    if organization_id is None and workspace_id is not None:
-        organization_id = await _get_workspace_org_id(workspace_id)
+    if (
+        organization_id is None
+        and (context_workspace_id := workspace_id or bound_workspace_id) is not None
+    ):
+        organization_id = await _get_workspace_org_id(context_workspace_id)
     # Parse scopes from header if present (for inter-service calls)
     scopes: frozenset[str] = frozenset()
     if scopes_header := request.headers.get("x-tracecat-role-scopes"):
         scopes = frozenset(
             stripped for s in scopes_header.split(",") if (stripped := s.strip())
         )
+    service_account_id = (
+        uuid.UUID(raw_service_account_id)
+        if (
+            raw_service_account_id := request.headers.get(
+                "x-tracecat-role-service-account-id"
+            )
+        )
+        is not None
+        else None
+    )
+    role_type: Literal["service", "service_account"] = "service"
+    if request.headers.get("x-tracecat-role-type") == "service_account":
+        if service_account_id is None:
+            raise HTTP_EXC("Missing x-tracecat-role-service-account-id header")
+        if organization_id is None:
+            raise HTTP_EXC("Missing x-tracecat-role-organization-id header")
+        if user_id is not None:
+            raise HTTP_EXC("Service account role must not include user_id")
+        role_type = "service_account"
     service_id: InternalServiceID = service_role_id  # type: ignore[assignment]
     return Role(
-        type="service",
+        type=role_type,
         service_id=service_id,
         user_id=user_id,
         workspace_id=workspace_id,
+        bound_workspace_id=bound_workspace_id,
         organization_id=organization_id,
+        service_account_id=service_account_id,
         scopes=scopes,
     )
 
 
+async def _authenticate_api_key(
+    *,
+    api_key: str,
+    workspace_id: uuid.UUID | None,
+) -> Role | None:
+    parsed = parse_managed_api_key(api_key)
+    if parsed is None:
+        return None
+
+    async with get_async_session_bypass_rls_context_manager() as session:
+        stmt = (
+            select(ServiceAccountApiKey)
+            .where(ServiceAccountApiKey.key_id == parsed.key_id)
+            .options(
+                selectinload(ServiceAccountApiKey.service_account).selectinload(
+                    ServiceAccount.scopes
+                )
+            )
+        )
+        result = await session.execute(stmt)
+        record = result.scalar_one_or_none()
+        if record is None or record.revoked_at is not None:
+            raise UNAUTHORIZED_EXCEPTION
+        if not verify_api_key(api_key, record.salt, record.hashed):
+            raise UNAUTHORIZED_EXCEPTION
+        service_account = record.service_account
+        if service_account.disabled_at is not None:
+            raise UNAUTHORIZED_EXCEPTION
+
+        # `workspace_id` is the effective request context. `bound_workspace_id`
+        # preserves the actor's intrinsic workspace binding for the few places
+        # that need to distinguish actor scope from resolved request scope.
+        bound_workspace_id = service_account.workspace_id
+        resolved_workspace_id: uuid.UUID | None
+        if bound_workspace_id is None:
+            if parsed.prefix != ORG_API_KEY_PREFIX:
+                raise UNAUTHORIZED_EXCEPTION
+            if workspace_id is not None:
+                workspace_org_id = await _get_workspace_org_id(workspace_id)
+                if workspace_org_id is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Workspace not found",
+                    )
+                if workspace_org_id != service_account.organization_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                    )
+            resolved_workspace_id = workspace_id
+        else:
+            if parsed.prefix != WORKSPACE_API_KEY_PREFIX:
+                raise UNAUTHORIZED_EXCEPTION
+            workspace_org_id = await _get_workspace_org_id(bound_workspace_id)
+            if workspace_org_id is None:
+                raise UNAUTHORIZED_EXCEPTION
+            if workspace_org_id != service_account.organization_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                )
+            if workspace_id is not None and bound_workspace_id != workspace_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
+                )
+            resolved_workspace_id = workspace_id or bound_workspace_id
+
+        record.last_used_at = datetime.now(UTC)
+        session.add(record)
+        await session.commit()
+        return Role(
+            type="service_account",
+            service_id="tracecat-api",
+            organization_id=service_account.organization_id,
+            workspace_id=resolved_workspace_id,
+            bound_workspace_id=bound_workspace_id,
+            service_account_id=service_account.id,
+            scopes=frozenset(scope.name for scope in service_account.scopes),
+        )
+
+
 @contextmanager
 def TemporaryRole(
-    type: Literal["user", "service"] = "service",
+    type: Literal["user", "service", "service_account"] = "service",
     user_id: uuid.UUID | None = None,
     service_id: InternalServiceID = "tracecat-service",
 ):
@@ -307,7 +436,12 @@ def TemporaryRole(
 
 
 OptionalUserDep = Annotated[User | None, Depends(optional_current_active_user)]
-OptionalApiKeyDep = Annotated[str | None, Security(api_key_header_scheme)]
+OptionalInternalServiceKeyDep = Annotated[
+    str | None, Security(internal_service_key_header_scheme)
+]
+OptionalTracecatApiKeyDep = Annotated[
+    str | None, Security(tracecat_api_key_header_scheme)
+]
 
 
 # --- Helper Functions for Auth ---
@@ -645,8 +779,11 @@ async def _role_dependency(
     workspace_id: uuid.UUID | None = None,
     user: User | None = None,
     api_key: str | None = None,
+    internal_service_key: str | None = None,
+    tracecat_api_key: str | None = None,
     allow_user: bool,
     allow_service: bool,
+    allow_api_key: bool = False,
     allow_executor: bool = False,
     require_workspace: Literal["yes", "no", "optional"],
 ) -> Role:
@@ -657,6 +794,7 @@ async def _role_dependency(
     """
     # Dispatch to appropriate auth handler
     role: Role | None = None
+    service_key = internal_service_key or api_key
 
     if user and allow_user:
         # Membership and org resolution happen before we know the final role.
@@ -683,8 +821,13 @@ async def _role_dependency(
             except Exception:
                 logger.warning("Failed to clear RLS context after auth failure")
             raise
-    elif api_key and allow_service:
-        role = await _authenticate_service(request, api_key)
+    elif tracecat_api_key and allow_api_key:
+        role = await _authenticate_api_key(
+            api_key=tracecat_api_key,
+            workspace_id=workspace_id,
+        )
+    elif service_key and allow_service:
+        role = await _authenticate_service(request, service_key)
     elif allow_executor:
         role = await _authenticate_executor(
             request=request,
@@ -725,6 +868,7 @@ def RoleACL(
     *,
     allow_user: bool = True,
     allow_service: bool = False,
+    allow_api_key: bool = False,
     allow_executor: bool = False,
     require_workspace: Literal["yes", "no", "optional"] = "yes",
     workspace_id_in_path: bool = False,
@@ -739,7 +883,9 @@ def RoleACL(
 
     Args:
         allow_user (bool, optional): Allow authentication via user session/JWT. Defaults to True.
-        allow_service (bool, optional): Allow authentication via service API key. Defaults to False.
+        allow_service (bool, optional): Allow internal service-key authentication. Defaults to False.
+        allow_api_key (bool, optional): Allow managed service-account API-key authentication.
+            Defaults to False.
         require_workspace (Literal["yes", "no", "optional"], optional): Specifies if a workspace ID is required.
             - "yes": Workspace ID is required.
             - "no": Workspace ID is not required.
@@ -748,7 +894,10 @@ def RoleACL(
         workspace_id_in_path (bool, optional): Whether to extract `workspace_id` from the path rather than the query string.
             Defaults to False.
     Returns:
-        Any: A FastAPI dependency that yields a `Role` instance upon successful authentication and authorization.
+        Any: A FastAPI dependency that yields a `Role` instance upon successful
+        authentication and authorization. `Role.workspace_id` is the effective
+        workspace context for the request, while `bound_workspace_id` preserves
+        the actor's intrinsic workspace binding when that distinction matters.
         If validation fails, raises an HTTPException (401 or 403).
 
     Raises:
@@ -757,9 +906,9 @@ def RoleACL(
         HTTPException: If authentication fails or the caller lacks required permissions.
 
     """
-    if not any((allow_user, allow_service, require_workspace, allow_executor)):
+    if not any((allow_user, allow_service, allow_api_key, allow_executor)):
         raise ValueError(
-            "Must allow either user, service, executor, or require workspace"
+            "Must allow either user, service, API key, or executor authentication"
         )
 
     # Executor-only auth: workspace_id comes from JWT, not query param
@@ -775,9 +924,11 @@ def RoleACL(
                 session=session,
                 workspace_id=None,  # Comes from JWT
                 user=None,
-                api_key=None,
+                internal_service_key=None,
+                tracecat_api_key=None,
                 allow_user=False,
                 allow_service=False,
+                allow_api_key=False,
                 allow_executor=True,
                 require_workspace=require_workspace,
             )
@@ -787,27 +938,103 @@ def RoleACL(
     if require_workspace == "yes":
         GetWsDep = Path if workspace_id_in_path else Query
 
-        # Required workspace ID
-        async def role_dependency_req_ws(
+        if allow_service and allow_api_key:
+
+            async def role_dependency_req_ws(
+                request: Request,
+                session: AsyncDBSession,
+                workspace_id: uuid.UUID = GetWsDep(...),
+                user: OptionalUserDep = None,
+                internal_service_key: OptionalInternalServiceKeyDep = None,
+                tracecat_api_key: OptionalTracecatApiKeyDep = None,
+            ) -> Role:
+                return await _role_dependency(
+                    request=request,
+                    session=session,
+                    workspace_id=workspace_id,
+                    user=user,
+                    internal_service_key=internal_service_key,
+                    tracecat_api_key=tracecat_api_key,
+                    allow_user=allow_user,
+                    allow_service=allow_service,
+                    allow_api_key=allow_api_key,
+                    allow_executor=allow_executor,
+                    require_workspace=require_workspace,
+                )
+
+            return Depends(role_dependency_req_ws)
+
+        if allow_service:
+
+            async def role_dependency_req_ws_service(
+                request: Request,
+                session: AsyncDBSession,
+                workspace_id: uuid.UUID = GetWsDep(...),
+                user: OptionalUserDep = None,
+                internal_service_key: OptionalInternalServiceKeyDep = None,
+            ) -> Role:
+                return await _role_dependency(
+                    request=request,
+                    session=session,
+                    workspace_id=workspace_id,
+                    user=user,
+                    internal_service_key=internal_service_key,
+                    tracecat_api_key=None,
+                    allow_user=allow_user,
+                    allow_service=allow_service,
+                    allow_api_key=allow_api_key,
+                    allow_executor=allow_executor,
+                    require_workspace=require_workspace,
+                )
+
+            return Depends(role_dependency_req_ws_service)
+
+        if allow_api_key:
+
+            async def role_dependency_req_ws_api_key(
+                request: Request,
+                session: AsyncDBSession,
+                workspace_id: uuid.UUID = GetWsDep(...),
+                user: OptionalUserDep = None,
+                tracecat_api_key: OptionalTracecatApiKeyDep = None,
+            ) -> Role:
+                return await _role_dependency(
+                    request=request,
+                    session=session,
+                    workspace_id=workspace_id,
+                    user=user,
+                    internal_service_key=None,
+                    tracecat_api_key=tracecat_api_key,
+                    allow_user=allow_user,
+                    allow_service=allow_service,
+                    allow_api_key=allow_api_key,
+                    allow_executor=allow_executor,
+                    require_workspace=require_workspace,
+                )
+
+            return Depends(role_dependency_req_ws_api_key)
+
+        async def role_dependency_req_ws_user(
             request: Request,
             session: AsyncDBSession,
             workspace_id: uuid.UUID = GetWsDep(...),
             user: OptionalUserDep = None,
-            api_key: OptionalApiKeyDep = None,
         ) -> Role:
             return await _role_dependency(
                 request=request,
                 session=session,
                 workspace_id=workspace_id,
                 user=user,
-                api_key=api_key,
+                internal_service_key=None,
+                tracecat_api_key=None,
                 allow_user=allow_user,
                 allow_service=allow_service,
+                allow_api_key=allow_api_key,
                 allow_executor=allow_executor,
                 require_workspace=require_workspace,
             )
 
-        return Depends(role_dependency_req_ws)
+        return Depends(role_dependency_req_ws_user)
 
     elif require_workspace == "optional":
         if workspace_id_in_path:
@@ -815,48 +1042,196 @@ def RoleACL(
                 "workspace_id_in_path is not allowed with optional workspace"
             )
 
-        async def role_dependency_opt_ws(
+        if allow_service and allow_api_key:
+
+            async def role_dependency_opt_ws(
+                request: Request,
+                session: AsyncDBSession,
+                workspace_id: uuid.UUID | None = Query(None),
+                user: OptionalUserDep = None,
+                internal_service_key: OptionalInternalServiceKeyDep = None,
+                tracecat_api_key: OptionalTracecatApiKeyDep = None,
+            ) -> Role:
+                return await _role_dependency(
+                    request=request,
+                    session=session,
+                    workspace_id=workspace_id,
+                    user=user,
+                    internal_service_key=internal_service_key,
+                    tracecat_api_key=tracecat_api_key,
+                    allow_user=allow_user,
+                    allow_service=allow_service,
+                    allow_api_key=allow_api_key,
+                    allow_executor=allow_executor,
+                    require_workspace=require_workspace,
+                )
+
+            return Depends(role_dependency_opt_ws)
+
+        if allow_service:
+
+            async def role_dependency_opt_ws_service(
+                request: Request,
+                session: AsyncDBSession,
+                workspace_id: uuid.UUID | None = Query(None),
+                user: OptionalUserDep = None,
+                internal_service_key: OptionalInternalServiceKeyDep = None,
+            ) -> Role:
+                return await _role_dependency(
+                    request=request,
+                    session=session,
+                    workspace_id=workspace_id,
+                    user=user,
+                    internal_service_key=internal_service_key,
+                    tracecat_api_key=None,
+                    allow_user=allow_user,
+                    allow_service=allow_service,
+                    allow_api_key=allow_api_key,
+                    allow_executor=allow_executor,
+                    require_workspace=require_workspace,
+                )
+
+            return Depends(role_dependency_opt_ws_service)
+
+        if allow_api_key:
+
+            async def role_dependency_opt_ws_api_key(
+                request: Request,
+                session: AsyncDBSession,
+                workspace_id: uuid.UUID | None = Query(None),
+                user: OptionalUserDep = None,
+                tracecat_api_key: OptionalTracecatApiKeyDep = None,
+            ) -> Role:
+                return await _role_dependency(
+                    request=request,
+                    session=session,
+                    workspace_id=workspace_id,
+                    user=user,
+                    internal_service_key=None,
+                    tracecat_api_key=tracecat_api_key,
+                    allow_user=allow_user,
+                    allow_service=allow_service,
+                    allow_api_key=allow_api_key,
+                    allow_executor=allow_executor,
+                    require_workspace=require_workspace,
+                )
+
+            return Depends(role_dependency_opt_ws_api_key)
+
+        async def role_dependency_opt_ws_user(
             request: Request,
             session: AsyncDBSession,
             workspace_id: uuid.UUID | None = Query(None),
             user: OptionalUserDep = None,
-            api_key: OptionalApiKeyDep = None,
         ) -> Role:
             return await _role_dependency(
                 request=request,
                 session=session,
                 workspace_id=workspace_id,
                 user=user,
-                api_key=api_key,
+                internal_service_key=None,
+                tracecat_api_key=None,
                 allow_user=allow_user,
                 allow_service=allow_service,
+                allow_api_key=allow_api_key,
                 allow_executor=allow_executor,
                 require_workspace=require_workspace,
             )
 
-        return Depends(role_dependency_opt_ws)
+        return Depends(role_dependency_opt_ws_user)
     elif require_workspace == "no":
         if workspace_id_in_path:
             raise ValueError("workspace_id_in_path is not allowed with no workspace")
 
-        async def role_dependency_not_req_ws(
+        if allow_service and allow_api_key:
+
+            async def role_dependency_not_req_ws(
+                request: Request,
+                session: AsyncDBSession,
+                user: OptionalUserDep = None,
+                internal_service_key: OptionalInternalServiceKeyDep = None,
+                tracecat_api_key: OptionalTracecatApiKeyDep = None,
+            ) -> Role:
+                return await _role_dependency(
+                    request=request,
+                    session=session,
+                    user=user,
+                    internal_service_key=internal_service_key,
+                    tracecat_api_key=tracecat_api_key,
+                    allow_user=allow_user,
+                    allow_service=allow_service,
+                    allow_api_key=allow_api_key,
+                    allow_executor=allow_executor,
+                    require_workspace=require_workspace,
+                )
+
+            return Depends(role_dependency_not_req_ws)
+
+        if allow_service:
+
+            async def role_dependency_not_req_ws_service(
+                request: Request,
+                session: AsyncDBSession,
+                user: OptionalUserDep = None,
+                internal_service_key: OptionalInternalServiceKeyDep = None,
+            ) -> Role:
+                return await _role_dependency(
+                    request=request,
+                    session=session,
+                    user=user,
+                    internal_service_key=internal_service_key,
+                    tracecat_api_key=None,
+                    allow_user=allow_user,
+                    allow_service=allow_service,
+                    allow_api_key=allow_api_key,
+                    allow_executor=allow_executor,
+                    require_workspace=require_workspace,
+                )
+
+            return Depends(role_dependency_not_req_ws_service)
+
+        if allow_api_key:
+
+            async def role_dependency_not_req_ws_api_key(
+                request: Request,
+                session: AsyncDBSession,
+                user: OptionalUserDep = None,
+                tracecat_api_key: OptionalTracecatApiKeyDep = None,
+            ) -> Role:
+                return await _role_dependency(
+                    request=request,
+                    session=session,
+                    user=user,
+                    internal_service_key=None,
+                    tracecat_api_key=tracecat_api_key,
+                    allow_user=allow_user,
+                    allow_service=allow_service,
+                    allow_api_key=allow_api_key,
+                    allow_executor=allow_executor,
+                    require_workspace=require_workspace,
+                )
+
+            return Depends(role_dependency_not_req_ws_api_key)
+
+        async def role_dependency_not_req_ws_user(
             request: Request,
             session: AsyncDBSession,
             user: OptionalUserDep = None,
-            api_key: OptionalApiKeyDep = None,
         ) -> Role:
             return await _role_dependency(
                 request=request,
                 session=session,
                 user=user,
-                api_key=api_key,
+                internal_service_key=None,
+                tracecat_api_key=None,
                 allow_user=allow_user,
                 allow_service=allow_service,
+                allow_api_key=allow_api_key,
                 allow_executor=allow_executor,
                 require_workspace=require_workspace,
             )
 
-        return Depends(role_dependency_not_req_ws)
+        return Depends(role_dependency_not_req_ws_user)
     else:
         raise ValueError(f"Invalid require_workspace value: {require_workspace}")
 

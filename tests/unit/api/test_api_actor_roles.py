@@ -1,0 +1,541 @@
+"""HTTP-level tests for actor-aware user and service-account routes."""
+
+import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from typing import get_type_hints
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from fastapi import status
+from fastapi.testclient import TestClient
+
+from tracecat.agent import router as agent_router
+from tracecat.auth.dependencies import WorkspaceActorRole, WorkspaceUserRole
+from tracecat.auth.types import Role
+from tracecat.cases import router as cases_router
+from tracecat.contexts import ctx_role
+from tracecat.db.models import Workflow, Workspace
+from tracecat.integrations import router as integrations_router
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.organization import router as organization_router
+from tracecat.pagination import CursorPaginatedResponse
+from tracecat.settings import router as settings_router
+from tracecat.vcs import router as vcs_router
+from tracecat.workflow.executions import router as workflow_executions_router
+from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.management import router as workflow_management_router
+from tracecat.workflow.management.types import WorkflowDefinitionMinimal
+from tracecat.workspaces import router as workspaces_router
+
+
+@pytest.fixture
+def workspace_targeted_service_account_role(test_admin_role: Role) -> Role:
+    workspace_id = test_admin_role.workspace_id
+    organization_id = test_admin_role.organization_id
+    assert workspace_id is not None
+    assert organization_id is not None
+    return Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        bound_workspace_id=workspace_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:read", "workflow:read", "workspace:read"}),
+    )
+
+
+@pytest.fixture
+def workspace_bound_service_account_role(test_admin_role: Role) -> Role:
+    workspace_id = test_admin_role.workspace_id
+    organization_id = test_admin_role.organization_id
+    assert workspace_id is not None
+    assert organization_id is not None
+    return Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        bound_workspace_id=workspace_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:read", "workflow:read", "workspace:read"}),
+    )
+
+
+@pytest.fixture
+def mock_workflow(test_workspace: Workspace) -> Workflow:
+    return Workflow(
+        id=uuid.UUID("aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"),
+        title="Test Workflow",
+        description="Test workflow description",
+        status="online",
+        version=1,
+        workspace_id=test_workspace.id,
+        entrypoint="action-1",
+        expects={"input": {"type": "string"}},
+        returns=None,
+        config={},
+        alias="test-workflow",
+        error_handler=None,
+        icon_url="https://example.com/icon.png",
+        trigger_position_x=0.0,
+        trigger_position_y=0.0,
+        graph_version=1,
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2024, 1, 1, tzinfo=UTC),
+        tags=[],
+    )
+
+
+@pytest.mark.anyio
+async def test_service_account_can_list_workflows(
+    client: TestClient,
+    workspace_targeted_service_account_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    mock_definition = WorkflowDefinitionMinimal(
+        id=str(uuid.uuid4()),
+        version=1,
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+    mock_response = CursorPaginatedResponse(
+        items=[(mock_workflow, mock_definition)],
+        next_cursor=None,
+        prev_cursor=None,
+        has_more=False,
+        has_previous=False,
+    )
+
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
+    ) as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_workflows.return_value = mock_response
+        mock_service_cls.return_value = mock_svc
+
+        token = ctx_role.set(workspace_targeted_service_account_role)
+        try:
+            response = client.get(
+                "/workflows",
+                params={
+                    "workspace_id": str(
+                        workspace_targeted_service_account_role.workspace_id
+                    )
+                },
+            )
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["items"][0]["title"] == "Test Workflow"
+
+
+@pytest.mark.anyio
+async def test_workspace_service_account_can_list_its_workspace(
+    client: TestClient,
+    workspace_bound_service_account_role: Role,
+) -> None:
+    workspace = SimpleNamespace(
+        id=workspace_bound_service_account_role.workspace_id,
+        name="Bound workspace",
+    )
+
+    with patch.object(workspaces_router, "WorkspaceService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_accessible_workspaces.return_value = [workspace]
+        mock_service_cls.return_value = mock_svc
+
+        token = ctx_role.set(workspace_bound_service_account_role)
+        try:
+            response = client.get("/workspaces")
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == [
+        {
+            "id": str(workspace_bound_service_account_role.workspace_id),
+            "name": "Bound workspace",
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_org_service_account_can_list_org_workspaces(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    organization_id = test_admin_role.organization_id
+    assert organization_id is not None
+    role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"org:workspace:read"}),
+    )
+    workspaces = [
+        SimpleNamespace(id=uuid.uuid4(), name="Alpha"),
+        SimpleNamespace(id=uuid.uuid4(), name="Beta"),
+    ]
+
+    with patch.object(workspaces_router, "WorkspaceService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_accessible_workspaces.return_value = workspaces
+        mock_service_cls.return_value = mock_svc
+
+        token = ctx_role.set(role)
+        try:
+            response = client.get("/workspaces")
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert [item["name"] for item in response.json()] == ["Alpha", "Beta"]
+
+
+@pytest.mark.anyio
+async def test_org_service_account_can_list_workflows_for_target_workspace(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    organization_id = test_admin_role.organization_id
+    workspace_id = test_admin_role.workspace_id
+    assert organization_id is not None
+    assert workspace_id is not None
+
+    role = Role(
+        type="service_account",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        service_account_id=uuid.uuid4(),
+        scopes=frozenset({"workflow:read"}),
+    )
+    mock_definition = WorkflowDefinitionMinimal(
+        id=str(uuid.uuid4()),
+        version=1,
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+    mock_response = CursorPaginatedResponse(
+        items=[(mock_workflow, mock_definition)],
+        next_cursor=None,
+        prev_cursor=None,
+        has_more=False,
+        has_previous=False,
+    )
+
+    with patch.object(
+        workflow_management_router, "WorkflowsManagementService"
+    ) as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.list_workflows.return_value = mock_response
+        mock_service_cls.return_value = mock_svc
+
+        token = ctx_role.set(role)
+        try:
+            response = client.get(
+                "/workflows",
+                params={"workspace_id": str(workspace_id)},
+            )
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["items"][0]["title"] == "Test Workflow"
+
+
+@pytest.mark.anyio
+async def test_workspace_list_rejects_service_account_without_required_scope(
+    client: TestClient,
+    workspace_bound_service_account_role: Role,
+) -> None:
+    role_without_workspace_access = workspace_bound_service_account_role.model_copy(
+        update={"scopes": frozenset({"workflow:read"})}
+    )
+
+    token = ctx_role.set(role_without_workspace_access)
+    try:
+        response = client.get("/workspaces")
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+async def test_service_account_can_list_workflow_executions_without_user_filter(
+    client: TestClient,
+    workspace_targeted_service_account_role: Role,
+) -> None:
+    mock_service = AsyncMock()
+    mock_service.list_executions.return_value = []
+
+    with (
+        patch.object(
+            WorkflowExecutionsService, "connect", new_callable=AsyncMock
+        ) as mock_connect,
+        patch.object(
+            workflow_executions_router,
+            "get_setting",
+            new_callable=AsyncMock,
+        ) as mock_get_setting,
+    ):
+        mock_connect.return_value = mock_service
+        mock_get_setting.return_value = None
+
+        token = ctx_role.set(workspace_targeted_service_account_role)
+        try:
+            response = client.get(
+                "/workflow-executions",
+                params={
+                    "workspace_id": str(
+                        workspace_targeted_service_account_role.workspace_id
+                    )
+                },
+            )
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == []
+
+
+@pytest.mark.anyio
+async def test_service_account_can_search_workflow_executions_without_user_filter(
+    client: TestClient,
+    workspace_targeted_service_account_role: Role,
+) -> None:
+    mock_service = AsyncMock()
+    mock_service.list_executions_paginated.return_value = CursorPaginatedResponse(
+        items=[],
+        next_cursor=None,
+        prev_cursor=None,
+        has_more=False,
+        has_previous=False,
+    )
+
+    with patch.object(
+        WorkflowExecutionsService, "connect", new_callable=AsyncMock
+    ) as mock_connect:
+        mock_connect.return_value = mock_service
+
+        token = ctx_role.set(workspace_targeted_service_account_role)
+        try:
+            response = client.get(
+                "/workflow-executions/search",
+                params={
+                    "workspace_id": str(
+                        workspace_targeted_service_account_role.workspace_id
+                    )
+                },
+            )
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["items"] == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "path", ["/workflow-executions", "/workflow-executions/search"]
+)
+async def test_workflow_execution_user_filter_rejects_service_account(
+    client: TestClient,
+    workspace_targeted_service_account_role: Role,
+    path: str,
+) -> None:
+    with patch.object(
+        WorkflowExecutionsService, "connect", new_callable=AsyncMock
+    ) as mock_connect:
+        mock_connect.return_value = AsyncMock()
+
+        token = ctx_role.set(workspace_targeted_service_account_role)
+        try:
+            response = client.get(
+                path,
+                params={
+                    "workspace_id": str(
+                        workspace_targeted_service_account_role.workspace_id
+                    ),
+                    "user_id": str(uuid.uuid4()),
+                },
+            )
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert (
+        response.json()["detail"]
+        == "user_id filter is not supported for service accounts"
+    )
+
+
+@pytest.mark.anyio
+async def test_service_account_can_list_providers(
+    client: TestClient,
+    workspace_targeted_service_account_role: Role,
+) -> None:
+    role = workspace_targeted_service_account_role.model_copy(
+        update={"scopes": frozenset({"integration:read"})}
+    )
+    provider = SimpleNamespace(
+        id="slack",
+        grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        metadata=SimpleNamespace(
+            name="Slack",
+            description="Slack provider",
+            requires_config=True,
+            enabled=True,
+        ),
+    )
+
+    with (
+        patch.object(integrations_router, "IntegrationService") as mock_service_cls,
+        patch.object(integrations_router, "all_providers", return_value=[provider]),
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.list_integrations.return_value = []
+        mock_svc.list_custom_providers.return_value = []
+        mock_service_cls.return_value = mock_svc
+
+        token = ctx_role.set(role)
+        try:
+            response = client.get(
+                "/providers",
+                params={"workspace_id": str(role.workspace_id)},
+            )
+        finally:
+            ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()[0]["id"] == "slack"
+
+
+def test_integration_route_role_boundaries_are_explicit() -> None:
+    list_integrations_role = get_type_hints(
+        integrations_router.list_integrations, include_extras=True
+    )["role"]
+    list_providers_role = get_type_hints(
+        integrations_router.list_providers, include_extras=True
+    )["role"]
+    test_connection_role = get_type_hints(
+        integrations_router.test_connection, include_extras=True
+    )["role"]
+
+    assert list_integrations_role == WorkspaceUserRole
+    assert list_providers_role == WorkspaceActorRole
+    assert test_connection_role == WorkspaceActorRole
+
+
+def test_cases_route_role_boundary_accepts_workspace_actors() -> None:
+    list_cases_role = get_type_hints(cases_router.list_cases, include_extras=True)[
+        "role"
+    ]
+
+    assert list_cases_role == cases_router.WorkspaceActor
+
+
+def test_delete_organization_route_remains_user_only() -> None:
+    delete_organization_role = get_type_hints(
+        organization_router.delete_organization, include_extras=True
+    )["role"]
+
+    assert delete_organization_role == organization_router.OrgUserRole
+
+
+def test_org_settings_routes_remain_user_only() -> None:
+    endpoints = [
+        settings_router.get_git_settings,
+        settings_router.update_git_settings,
+        settings_router.get_saml_settings,
+        settings_router.update_saml_settings,
+        settings_router.get_app_settings,
+        settings_router.update_app_settings,
+        settings_router.get_audit_settings,
+        settings_router.update_audit_settings,
+        settings_router.get_agent_settings,
+        settings_router.update_agent_settings,
+    ]
+
+    for endpoint in endpoints:
+        role = get_type_hints(endpoint, include_extras=True)["role"]
+        assert role == settings_router.OrgUserRole
+
+
+def test_org_agent_routes_remain_user_only() -> None:
+    org_endpoints = [
+        agent_router.list_models,
+        agent_router.list_providers,
+        agent_router.get_providers_status,
+        agent_router.list_provider_credential_configs,
+        agent_router.get_provider_credential_config,
+        agent_router.create_provider_credentials,
+        agent_router.update_provider_credentials,
+        agent_router.delete_provider_credentials,
+        agent_router.get_default_model,
+        agent_router.set_default_model,
+    ]
+
+    for endpoint in org_endpoints:
+        role = get_type_hints(endpoint, include_extras=True)["role"]
+        assert role == agent_router.OrgUserRole
+
+    workspace_status_role = get_type_hints(
+        agent_router.get_workspace_providers_status, include_extras=True
+    )["role"]
+    assert workspace_status_role == WorkspaceActorRole
+
+
+def test_github_manifest_flow_routes_remain_user_only() -> None:
+    endpoints = [
+        (vcs_router.get_github_app_manifest, "_role"),
+        (vcs_router.github_app_install_callback, "role"),
+        (vcs_router.save_github_app_credentials, "role"),
+        (vcs_router.delete_github_app_credentials, "role"),
+        (vcs_router.get_github_app_credentials_status, "role"),
+    ]
+
+    for endpoint, role_param in endpoints:
+        role = get_type_hints(endpoint, include_extras=True)[role_param]
+        assert role == vcs_router.OrgUserRole
+
+
+def test_draft_workflow_execution_route_remains_user_only() -> None:
+    draft_role = get_type_hints(
+        workflow_management_router.create_workflow, include_extras=True
+    )["role"]
+    draft_execution_role = get_type_hints(
+        workflow_executions_router.create_draft_workflow_execution,
+        include_extras=True,
+    )["role"]
+
+    assert draft_role == WorkspaceActorRole
+    assert draft_execution_role == WorkspaceUserRole
+
+
+def test_workflow_detail_route_remains_user_only() -> None:
+    workflow_detail_role = get_type_hints(
+        workflow_management_router.get_workflow, include_extras=True
+    )["role"]
+
+    assert workflow_detail_role == WorkspaceUserRole
+
+
+def test_webhook_api_key_revocation_route_remains_user_only() -> None:
+    get_webhook_role = get_type_hints(
+        workflow_management_router.get_webhook, include_extras=True
+    )["role"]
+    revoke_role = get_type_hints(
+        workflow_management_router.revoke_webhook_api_key, include_extras=True
+    )["role"]
+    delete_role = get_type_hints(
+        workflow_management_router.delete_webhook_api_key, include_extras=True
+    )["role"]
+
+    assert get_webhook_role == WorkspaceUserRole
+    assert revoke_role == WorkspaceUserRole
+    assert delete_role == WorkspaceUserRole

@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel
 
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.dependencies import WorkspaceActorRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.providers.base import (
@@ -21,7 +21,7 @@ async def _resolve_provider_info(
     *,
     provider_id: str,
     grant_type: OAuthGrantType,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
 ) -> ProviderInfo[type[BaseOAuthProvider]]:
     key = ProviderKey(id=provider_id, grant_type=grant_type)
@@ -36,7 +36,7 @@ async def _resolve_provider_info(
 
 
 async def get_provider_impl(
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
     provider_id: str = Path(...),
     grant_type: OAuthGrantType = Query(default=OAuthGrantType.AUTHORIZATION_CODE),
@@ -65,7 +65,7 @@ async def get_provider_impl(
 
 async def get_ac_provider_impl(
     provider_id: str,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
 ) -> ProviderInfo[type[AuthorizationCodeOAuthProvider]]:
     """
@@ -98,7 +98,7 @@ async def get_ac_provider_impl(
 
 async def get_cc_provider_impl(
     provider_id: str,
-    role: WorkspaceUserRole,
+    role: WorkspaceActorRole,
     session: AsyncDBSession,
 ) -> ProviderInfo[type[ClientCredentialsOAuthProvider]]:
     """

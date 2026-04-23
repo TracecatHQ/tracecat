@@ -942,6 +942,42 @@ class TestCaseCommentsService:
             AuditEventStatus.FAILURE.value,
         ]
 
+    async def test_update_comment_rejects_null_user_for_service_account(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        test_case: Case,
+    ) -> None:
+        comment = CaseComment(
+            id=uuid.uuid4(),
+            workspace_id=svc_role.workspace_id,
+            case_id=test_case.id,
+            content="System comment",
+            user_id=None,
+        )
+        session.add(comment)
+        await session.commit()
+        await session.refresh(comment)
+
+        service_account_role = svc_role.model_copy(
+            update={
+                "type": "service_account",
+                "user_id": None,
+                "service_account_id": uuid.uuid4(),
+                "bound_workspace_id": svc_role.workspace_id,
+                "scopes": ADMIN_SCOPES,
+            }
+        )
+        service = CaseCommentsService(session=session, role=service_account_role)
+
+        with pytest.raises(
+            TracecatAuthorizationError, match="You cannot update this comment"
+        ):
+            await service.update_comment(
+                comment,
+                CaseCommentUpdate(content="Updated by service account"),
+            )
+
     async def test_delete_comment(
         self,
         case_comments_service: CaseCommentsService,
@@ -1146,3 +1182,36 @@ class TestCaseCommentsService:
         # Verify the comment wasn't deleted
         retrieved_comment = await service1.get_comment(created_comment.id)
         assert retrieved_comment is not None
+
+    async def test_delete_comment_rejects_null_user_for_service_account(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        test_case: Case,
+    ) -> None:
+        comment = CaseComment(
+            id=uuid.uuid4(),
+            workspace_id=svc_role.workspace_id,
+            case_id=test_case.id,
+            content="System comment",
+            user_id=None,
+        )
+        session.add(comment)
+        await session.commit()
+        await session.refresh(comment)
+
+        service_account_role = svc_role.model_copy(
+            update={
+                "type": "service_account",
+                "user_id": None,
+                "service_account_id": uuid.uuid4(),
+                "bound_workspace_id": svc_role.workspace_id,
+                "scopes": ADMIN_SCOPES,
+            }
+        )
+        service = CaseCommentsService(session=session, role=service_account_role)
+
+        with pytest.raises(
+            TracecatAuthorizationError, match="You can only delete your own comments"
+        ):
+            await service.delete_comment(comment)
