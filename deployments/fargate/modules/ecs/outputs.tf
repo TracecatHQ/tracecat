@@ -97,6 +97,16 @@ output "s3_registry_bucket_arn" {
   description = "The ARN of the S3 bucket used for registry storage"
 }
 
+output "s3_skills_bucket_name" {
+  value       = aws_s3_bucket.skills.bucket
+  description = "The name of the S3 bucket used for skills storage"
+}
+
+output "s3_skills_bucket_arn" {
+  value       = aws_s3_bucket.skills.arn
+  description = "The ARN of the S3 bucket used for skills storage"
+}
+
 output "s3_workflow_bucket_name" {
   value       = aws_s3_bucket.workflow.bucket
   description = "The name of the S3 bucket used for workflow artifact storage"
